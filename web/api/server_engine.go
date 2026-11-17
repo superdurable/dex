@@ -31,14 +31,17 @@ const runHistoryForkProtocolVersion = 6
 // ServerEngineResolver reports the engine behind the FlowService and caches the first definitive answer.
 // It also reports the server's current protocol version, which it refreshes in the background after serverProtocolCacheTTL.
 type ServerEngineResolver struct {
-	client             dexpb.FlowServiceClient
-	now                func() time.Time
-	mutex              sync.Mutex
-	engine             dexpb.ServerEngine
-	isResolved         bool
-	protocolVersion    uint32
-	protocolReadAt     time.Time
-	isProtocolResolved bool
+	client          dexpb.FlowServiceClient
+	now             func() time.Time
+	mutex           sync.Mutex
+	engine          dexpb.ServerEngine
+	isResolved      bool
+	protocolVersion uint32
+	// minimumProtocolVersion and serverVersion refresh with protocolVersion; zero or empty when the server reports none.
+	minimumProtocolVersion uint32
+	serverVersion          string
+	protocolReadAt         time.Time
+	isProtocolResolved     bool
 	// inFlightRefresh closes when the one running GetServerInfo lookup ends; nil when none runs. Lookups never overlap.
 	inFlightRefresh chan struct{}
 }
@@ -75,9 +78,25 @@ func (r *ServerEngineResolver) ResolveCurrentProtocolVersion(ctx context.Context
 	return protocolVersion, isProtocolResolved
 }
 
+// cachedServerInfo is what the display cache holds from one GetServerInfo answer.
+type cachedServerInfo struct {
+	engine dexpb.ServerEngine
+	// serverVersion is empty when the server does not report one.
+	serverVersion          string
+	minimumProtocolVersion uint32
+	currentProtocolVersion uint32
+}
+
 // resolveServerInfo returns the engine, the protocol version, and whether the protocol version is known.
 // A cached version returns at once, even when stale. Only the first lookup makes callers wait.
 func (r *ServerEngineResolver) resolveServerInfo(ctx context.Context) (dexpb.ServerEngine, uint32, bool) {
+	serverInfo, isKnown := r.resolveCachedServerInfo(ctx)
+	return serverInfo.engine, serverInfo.currentProtocolVersion, isKnown
+}
+
+// resolveCachedServerInfo returns the display cache and whether the server answered; it refreshes like resolveServerInfo.
+// While the server has not answered, it returns the cached engine and zero for every other field.
+func (r *ServerEngineResolver) resolveCachedServerInfo(ctx context.Context) (cachedServerInfo, bool) {
 	r.mutex.Lock()
 	isStale := !r.isProtocolResolved || r.now().Sub(r.protocolReadAt) >= serverProtocolCacheTTL
 	if isStale && r.inFlightRefresh == nil {
@@ -87,7 +106,7 @@ func (r *ServerEngineResolver) resolveServerInfo(ctx context.Context) (dexpb.Ser
 	}
 	if r.isProtocolResolved {
 		defer r.mutex.Unlock()
-		return r.engine, r.protocolVersion, true
+		return r.cachedServerInfoLocked(), true
 	}
 	refreshDone := r.inFlightRefresh
 	r.mutex.Unlock()
@@ -99,9 +118,19 @@ func (r *ServerEngineResolver) resolveServerInfo(ctx context.Context) (dexpb.Ser
 	defer r.mutex.Unlock()
 	// select picks at random when both are ready, so a canceled caller always reads as unknown.
 	if ctx.Err() != nil || !r.isProtocolResolved {
-		return r.engine, 0, false
+		return cachedServerInfo{engine: r.engine}, false
 	}
-	return r.engine, r.protocolVersion, true
+	return r.cachedServerInfoLocked(), true
+}
+
+// cachedServerInfoLocked copies the cached answer; the caller holds the mutex.
+func (r *ServerEngineResolver) cachedServerInfoLocked() cachedServerInfo {
+	return cachedServerInfo{
+		engine:                 r.engine,
+		serverVersion:          r.serverVersion,
+		minimumProtocolVersion: r.minimumProtocolVersion,
+		currentProtocolVersion: r.protocolVersion,
+	}
 }
 
 // ReadCurrentProtocolVersion reads the protocol version from the server now, bypassing the cache, and caches the answer.
@@ -147,11 +176,14 @@ func (r *ServerEngineResolver) cachedServerEngine() (dexpb.ServerEngine, bool) {
 }
 
 // cacheServerInfo keeps the first cached engine and stores the newest protocol version; the caller holds the mutex.
+// The server version and minimum protocol follow the protocol version, so an upgrade shows after one refresh.
 func (r *ServerEngineResolver) cacheServerInfo(serverInfo *dexpb.ServerInfo) {
 	if !r.isResolved {
 		r.engine, r.isResolved = serverInfo.GetServerEngine(), true
 	}
 	r.protocolVersion = serverInfo.GetCurrentProtocolVersion()
+	r.minimumProtocolVersion = serverInfo.GetMinimumSupportedProtocolVersion()
+	r.serverVersion = serverInfo.GetServerVersion()
 	r.protocolReadAt = r.now()
 	r.isProtocolResolved = true
 }

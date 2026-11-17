@@ -56,6 +56,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strings"
 
@@ -175,11 +176,39 @@ func NewDexWebHandler(cfg *Config) (http.Handler, error) {
 	site, err := web.NewEmbeddedSite(&web.EmbeddedSiteConfig{
 		FrameAncestors: slices.Clone(cfg.FrameAncestors),
 		AllowedHosts:   slices.Clone(cfg.AllowedHosts),
+		WebVersion:     dexWebModuleVersion(),
 	}, assets.Files)
 	if err != nil {
 		return nil, err
 	}
 	return &dexWebHandler{resolveTarget: cfg.ResolveTarget, hostResolveErrorWriter: cfg.WriteResolveError, site: site}, nil
+}
+
+// dexWebModuleVersion returns "dex-web <version>" from the host binary's module list, or "" for a local build.
+// Hosts import the published github.com/superdurable/dex/web/embedded module; a source build imports the web module.
+func dexWebModuleVersion() string {
+	buildInfo, isAvailable := debug.ReadBuildInfo()
+	if !isAvailable {
+		return ""
+	}
+	return dexWebModuleVersionOf(buildInfo.Deps)
+}
+
+// dexWebModuleVersionOf returns "dex-web <version>" for the Dex Web module in modules, or "" when it has no release version.
+func dexWebModuleVersionOf(modules []*debug.Module) string {
+	for _, module := range modules {
+		if module.Path != "github.com/superdurable/dex/web/embedded" && module.Path != "github.com/superdurable/dex/web" {
+			continue
+		}
+		if module.Replace != nil {
+			module = module.Replace
+		}
+		if module.Version == "" || module.Version == "(devel)" {
+			return ""
+		}
+		return "dex-web " + strings.TrimPrefix(module.Version, "v")
+	}
+	return ""
 }
 
 func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {

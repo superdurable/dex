@@ -53,6 +53,7 @@ func (a *App) executeVersion(ctx context.Context, args []string, options options
 		return writeOutput(a.stdout, options.output, map[string]any{
 			"clientVersion": a.artifactVersion,
 			"serverVersion": serverInfo.GetServerVersion(),
+			"serverEngine":  serverEngineName(serverInfo.GetServerEngine()),
 			"clientProtocol": map[string]uint32{
 				"minimum": minimumSupportedServerProtocolVersion,
 				"maximum": maximumSupportedServerProtocolVersion,
@@ -87,6 +88,20 @@ func negotiateServerProtocol(serverInfo *dexpb.ServerInfo) (uint32, error) {
 		return 0, fmt.Errorf("protocol intervals do not overlap")
 	}
 	return negotiatedProtocol, nil
+}
+
+// serverEngineName returns the engine name that Dex Web's GET /api/server-info also reports.
+func serverEngineName(engine dexpb.ServerEngine) string {
+	switch engine {
+	case dexpb.ServerEngine_SERVER_ENGINE_ZD:
+		return "zd"
+	case dexpb.ServerEngine_SERVER_ENGINE_TEMPORAL:
+		return "temporal"
+	case dexpb.ServerEngine_SERVER_ENGINE_CADENCE:
+		return "cadence"
+	default:
+		return "unspecified"
+	}
 }
 
 func newCompatibilityError(

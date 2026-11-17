@@ -106,6 +106,7 @@ func (a *App) serveWeb(ctx context.Context, options options, webOptions webOptio
 			FlowRenderingDirectory: webOptions.flowRenderingDirectory,
 			ConnectorSetupEnabled:  false,
 			AllowedHosts:           dexweb.SplitAllowedHosts(webOptions.allowedHosts),
+			WebVersion:             "dexcli " + a.artifactVersion,
 		},
 		client,
 		assets.Files,

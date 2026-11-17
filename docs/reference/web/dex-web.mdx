@@ -258,7 +258,7 @@ Changed in 1.45.4: every page has one bar in place of the header and the page br
 - The bar starts with the name of the page you are on. On a run page it is **Flows**, and it returns to your last Flows search.
 - A page adds what it is, its views, and its actions to the bar.
 - The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
-- The settings button holds **Theme**, **Timezone**, and **Docs**.
+- The settings button holds **Theme**, **Timezone**, and **Docs**. Changed in 1.45.11: it also shows the Dex Server that Dex Web is connected to. One line names the engine, the server version, and the current protocol, such as **server-zd 0.1.34 · protocol 7**. Below it are the engine, the version, the supported protocol range, and the build that serves Dex Web, such as **dex-web 1.45.11** or **dexcli 1.47.10**. Dex Web reads them from **GET /api/server-info** each time the menu opens. A field the server does not report is left out, and the line reads **unknown** when the server does not answer.
 
 The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the [query syntax](/reference/server/search#query-syntax) of SearchFlows. The result list is paged, and you can save queries and choose columns. Changed in 1.45.4: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type**, on by default, groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
 
@@ -757,6 +757,9 @@ version, both are hidden and the request carries no **subFlowResetPolicy**, so
 the server applies its own default. Each page load reads the version from
 **GET /api/server-info**, which returns **serverEngine** and
 **currentProtocolVersion**; 0 means the server reports none or cannot answer.
+Changed in 1.45.11: it also returns **minimumSupportedProtocolVersion** (0 when
+unknown), **serverVersion**, and **webVersion**, the build that serves Dex Web
+(both empty when unknown). The server fields share the protocol's cache.
 Dex Web reads the version from the server again after 60 seconds, so a page
 loaded a minute after a server upgrade or rollback follows the new version.
 Behind a load balancer that mixes server versions during a rollout, the version
