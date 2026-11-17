@@ -127,6 +127,20 @@ export function tidyStripHeight(labels: readonly string[], slotWidth: number): n
   return lines * labelLineHeight + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
 }
 
+/**
+ * Returns the Tidy slot width that keeps the page's longest word on one line, without a soft hyphen.
+ * Words with wide characters wrap anywhere, so they never widen the slot.
+ */
+export function tidyWordSlotWidth(labels: readonly string[]): number {
+  let longestUnits = 0;
+  for (const label of labels) {
+    for (const word of label.split(/\s+/)) {
+      if (word && !hasWideCharacter(word)) longestUnits = Math.max(longestUnits, labelWidthUnits(word));
+    }
+  }
+  return Math.ceil(longestUnits * labelCharacterWidth) + labelColumnGap;
+}
+
 /** True when the word holds an East Asian wide character, which wraps between any two characters. */
 function hasWideCharacter(word: string): boolean {
   return labelWidthUnits(word) !== [...word].length;
@@ -632,7 +646,13 @@ export function HorizontalTimeline({
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
-  const slotWidth = timelineSlotWidth(laneEvents.length, stripWidth - labelRunWidth, labelMode);
+  const pageSubjects = useMemo(() => pageEvents.map(eventSubject), [pageEvents]);
+  const pageLabels = useMemo(() => (isTidy ? pageSubjects.map(timelineLabelText) : pageSubjects), [isTidy, pageSubjects]);
+  const labels = useMemo(() => laneToPage.map((pageIndex) => pageLabels[pageIndex]), [laneToPage, pageLabels]);
+  // The whole page sets it, so scrolling never changes the slot width.
+  // Hidden events count too, so filtering never changes it either.
+  const pageMinimumSlotWidth = useMemo(() => (isTidy ? tidyWordSlotWidth(pageLabels) : 0), [isTidy, pageLabels]);
+  const slotWidth = timelineSlotWidth(laneEvents.length, stripWidth - labelRunWidth, labelMode, pageMinimumSlotWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
   const maxStart = Math.max(0, laneEvents.length - visibleCount);
   // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
@@ -664,8 +684,6 @@ export function HorizontalTimeline({
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => pageEvents.map(hasRetriedFailure), [pageEvents]);
-  const subjects = useMemo(() => laneEvents.map(eventSubject), [laneEvents]);
-  const labels = useMemo(() => (isTidy ? subjects.map(timelineLabelText) : subjects), [isTidy, subjects]);
   const stripHeight = useMemo(
     () => (isTidy ? tidyStripHeight(labels, slotWidth) : denseStripHeight(labels)),
     [isTidy, labels, slotWidth],

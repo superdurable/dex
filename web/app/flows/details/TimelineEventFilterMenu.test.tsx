@@ -13,7 +13,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { HorizontalTimeline } from './HorizontalTimeline';
-import { timelineLabelModeIntroStorageKey } from './timelineLabelModeStorage';
+import { timelineLabelModeIntroStorageKey, timelineLabelModeStorageKey } from './timelineLabelModeStorage';
 import { timelineEventFilterStorageKey } from './timelineEventFilter';
 
 function memoryStorage(entries: Record<string, string> = {}): Storage {
@@ -278,6 +278,24 @@ describe('Timeline event filter on a long page', () => {
     rerender(<Harness events={nextPage} initialEventId={1000} />);
     expect(option(900)?.getAttribute('aria-selected')).toBe('true');
     expect(option(1040)).toBeNull();
+  });
+
+  it('keeps the Tidy slot width from the whole page when the filter hides its longest word', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineLabelModeStorageKey]: 'tidy',
+    }));
+    const page = realisticPage(200, () => false).map((event) => (
+      event.eventId === 150 ? { ...rpc(150, 'reconcileEverythingNow'), eventTime: event.eventTime } : event
+    ));
+    render(<Harness events={page} />);
+    const slotWidth = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }).style.getPropertyValue('--htl-slot-width');
+    const unfilteredWidth = slotWidth();
+    expect(Number.parseFloat(unfilteredWidth)).toBeGreaterThan(64);
+
+    fireEvent.click(openFilter().getByRole('checkbox', { name: /^RPC/ }));
+    expect(laneEventIds()).not.toContain(150);
+    expect(slotWidth()).toBe(unfilteredWidth);
   });
 
   it('moves the selection with J, K, and the arrow keys past hidden events', () => {

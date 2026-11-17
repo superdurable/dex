@@ -297,9 +297,18 @@ export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: numbe
   tidy: { min: 64, max: 160 },
 };
 
-/** Returns the lane's width per event in a label mode: the whole page when it fits, between the mode's min and max. */
-export function timelineSlotWidth(eventCount: number, availableWidth: number, labelMode: TimelineLabelMode): number {
-  const { min, max } = laneSlotWidths[labelMode];
+/**
+ * Returns the lane's width per event in a label mode: the whole page when it fits, between the mode's
+ * min and max. pageMinimumWidth raises the min, up to the max, such as to fit the page's longest word.
+ */
+export function timelineSlotWidth(
+  eventCount: number,
+  availableWidth: number,
+  labelMode: TimelineLabelMode,
+  pageMinimumWidth = 0,
+): number {
+  const { min: modeMinimum, max } = laneSlotWidths[labelMode];
+  const min = Math.min(max, Math.max(modeMinimum, pageMinimumWidth));
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
   return Math.max(min, Math.min(max, fitWidth));
 }
