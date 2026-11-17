@@ -195,11 +195,19 @@ export function overviewBucketSelectionIndex(
   bucket: OverviewBucket,
   statuses: readonly EventStatus[],
   retried: readonly boolean[],
+  /** Each event's filter visibility; a bar with shown events picks only among them. */
+  shownFlags?: readonly boolean[],
 ): number {
   if (bucket.count === 0) return -1;
-  let bestIndex = bucket.firstEventIndex;
-  let bestRank = selectionStatusRanks.normal;
+  let hasShownEvent = !shownFlags;
+  for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex && !hasShownEvent; index += 1) {
+    hasShownEvent = shownFlags?.[index] ?? true;
+  }
+  const isCandidate = (index: number) => !shownFlags || !hasShownEvent || shownFlags[index];
+  let bestIndex = -1;
+  let bestRank = selectionStatusRanks.normal + 1;
   for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex && bestRank > 0; index += 1) {
+    if (!isCandidate(index)) continue;
     const status = statuses[index] ?? 'normal';
     const rank = status !== 'failed' && retried[index] ? selectionStatusRanks.retried : selectionStatusRanks[status];
     if (rank < bestRank) {
@@ -208,6 +216,30 @@ export function overviewBucketSelectionIndex(
     }
   }
   return bestIndex;
+}
+
+/**
+ * Maps a fractional lane index to a fractional page index. laneToPage holds each lane event's page
+ * index in order; a slot past the lane's end maps to pageCount.
+ */
+export function laneIndexToPageIndex(laneToPage: readonly number[], pageCount: number, laneIndex: number): number {
+  const whole = Math.floor(Math.max(0, laneIndex));
+  if (whole >= laneToPage.length) return pageCount;
+  return laneToPage[whole] + (Math.max(0, laneIndex) - whole);
+}
+
+/** Maps a fractional page index to a fractional lane index; hidden events collapse onto the next lane slot. */
+export function pageIndexToLaneIndex(laneToPage: readonly number[], pageIndex: number): number {
+  const whole = Math.floor(Math.max(0, pageIndex));
+  let low = 0;
+  let high = laneToPage.length;
+  // The count of lane events before page event `whole`.
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (laneToPage[middle] < whole) low = middle + 1;
+    else high = middle;
+  }
+  return laneToPage[low] === whole ? low + (Math.max(0, pageIndex) - whole) : low;
 }
 
 /** Maps a fractional event index, such as the view's first slot, to its x ratio in [0, 1]. */
