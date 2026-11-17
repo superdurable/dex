@@ -172,6 +172,8 @@ unmapped:
   - skills/dex-app-builder/references/product-discovery.md
   - skills/dex-app-builder/references/workflow-import.md
   - skills/dex-app-builder/references/n8n-semantics.md
+  # Managed Dex App repository rules; its docs guide is not on main yet.
+  - skills/dex-app-builder/references/managed-dex-app.md
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
