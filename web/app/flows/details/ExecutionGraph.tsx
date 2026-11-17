@@ -603,35 +603,41 @@ function viewportShowingBox(
 }
 
 /** The box of the latest Round and the node just before it, or null when nothing is folded. */
-function newestFoldedBox(
-  nodes: Array<Node<StepNodeData>>,
-  folded: FoldedStepGraph,
-): { x: number; width: number } | null {
+export interface NewestFoldedPart {
+  /** The latest Round's frame with the node just before it. */
+  x: number;
+  width: number;
+  /** Left and right edges of each top-level node and outer frame, in graph units. */
+  units: Array<{ left: number; right: number }>;
+}
+
+function newestFoldedBox(nodes: Array<Node<StepNodeData>>, folded: FoldedStepGraph): NewestFoldedPart | null {
   const latest = folded.rounds.find((round) => round.isLatest);
   const frame = latest && nodes.find((node) => node.id === roundFrameNodeID(latest.key));
   if (!frame) return null;
   const widthOf = (node: Node<StepNodeData>) => Number(node.width ?? 0);
-  const previous = nodes
-    .filter((node) => node.data.display !== 'frame' && node.position.x + widthOf(node) <= frame.position.x)
-    .reduce<Node<StepNodeData> | undefined>((nearest, node) => (
-      !nearest || node.position.x > nearest.position.x ? node : nearest
-    ), undefined);
-  const left = previous ? previous.position.x : frame.position.x;
-  return { x: left, width: frame.position.x + widthOf(frame) - left };
+  const units = nodes
+    .filter((node) => (node.data.display === 'frame' ? !node.data.round?.parentKey : !node.data.frameKeys?.length))
+    .map((node) => ({ left: node.position.x, right: node.position.x + widthOf(node) }));
+  const previous = units
+    .filter((unit) => unit.right <= frame.position.x)
+    .reduce<{ left: number } | undefined>((nearest, unit) => (!nearest || unit.left > nearest.left ? unit : nearest), undefined);
+  const left = previous ? previous.left : frame.position.x;
+  return { x: left, width: frame.position.x + widthOf(frame) - left, units };
 }
 
-/** Centers the newest box, or right-aligns it when it is wider than the canvas, never past the graph's ends. */
-function newestFoldedViewportX(
-  newest: { x: number; width: number },
-  zoom: number,
-  canvasWidth: number,
-  graphWidth: number,
-): number {
-  const isWiderThanCanvas = newest.width * zoom > canvasWidth - revealMargin * 2;
-  const x = isWiderThanCanvas
-    ? canvasWidth - revealMargin - (newest.x + newest.width) * zoom
-    : (canvasWidth - newest.width * zoom) / 2 - newest.x * zoom;
-  return Math.min(0, Math.max(canvasWidth - graphWidth * zoom, x));
+/** Keeps the newest part's right edge in view, then as many whole earlier nodes as fit. */
+export function newestFoldedViewportX(newest: NewestFoldedPart, zoom: number, canvasWidth: number): number {
+  const right = newest.x + newest.width;
+  const availableWidth = (canvasWidth - revealMargin * 2) / zoom;
+  if (newest.width > availableWidth) return canvasWidth - revealMargin - right * zoom;
+  const candidates = newest.units.map((unit) => unit.left).filter((left) => left <= newest.x).sort((a, b) => a - b);
+  for (const candidate of candidates) {
+    // A node that crosses the candidate edge would be cut, so the edge moves to its left.
+    const left = Math.min(candidate, ...newest.units.filter((unit) => unit.right > candidate && unit.left < right).map((unit) => unit.left));
+    if (right - left <= availableWidth) return revealMargin - left * zoom;
+  }
+  return revealMargin - newest.x * zoom;
 }
 
 /** Adds a frame behind each opened Round and moves the graph so every frame heading fits. */
@@ -904,19 +910,22 @@ export function ExecutionGraph({
   // The first viewport is set once; later events, layouts and resizes keep a reader's zoom and pan.
   const hasAppliedInitialViewport = useRef(false);
   const isViewportTransitionWanted = useRef(false);
+  const newestFramedViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
   useEffect(() => {
     if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
     hasAppliedInitialViewport.current = true;
     // A folded graph too wide to fit opens on its newest part instead of its left edge.
     const newest = isFolded && isLeftToRight && !isWholeGraphShown ? newestFoldedBox(nodes, folded) : null;
     const x = newest
-      ? newestFoldedViewportX(newest, initialZoom, shownCanvasWidth, bounds.width)
+      ? newestFoldedViewportX(newest, initialZoom, shownCanvasWidth)
       : Math.max(0, (shownCanvasWidth - bounds.width * initialZoom) / 2);
-    void flowInstance.setViewport({
+    const viewport = {
       x,
       y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
-    }, isViewportTransitionWanted.current ? { duration: viewportTransitionDuration() } : undefined);
+    };
+    newestFramedViewport.current = newest ? viewport : null;
+    void flowInstance.setViewport(viewport, isViewportTransitionWanted.current ? { duration: viewportTransitionDuration() } : undefined);
   }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, folded, initialZoom, isFolded, isLeftToRight, isWholeGraphShown, nodes, shownCanvasWidth]);
 
   const dismissFoldedIntro = () => {
@@ -951,9 +960,11 @@ export function ExecutionGraph({
     framedEventId.current = selectedEvent.eventId;
     const width = node.measured?.width ?? node.width ?? 0;
     const height = node.measured?.height ?? node.height ?? 0;
-    const shouldCenter = isFirstFrame
+    // The newest-part framing already shows the latest Steps, so it moves only for a Step out of view.
+    const shouldCenter = isFirstFrame && !newestFramedViewport.current
       ? !isWholeGraphShown
-      : !isNodeInView(flowInstance.getViewport(), canvasSize, node.position, { width, height });
+      : !isNodeInView(newestFramedViewport.current ?? flowInstance.getViewport(), canvasSize, node.position, { width, height });
+    newestFramedViewport.current = null;
     if (!shouldCenter) return undefined;
     // Pan the graph, not the page, so the bar and the run line stay in view.
     // A frame later, so the initial viewport above has been set first.

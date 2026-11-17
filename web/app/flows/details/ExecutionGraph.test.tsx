@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StepGraphNode } from '@/lib/types';
 import { MemoryRouter } from 'react-router-dom';
 import { PreferencesProvider } from '@/app/providers';
-import { StepNodeLabel, graphNodeDimensions } from './ExecutionGraph';
+import { StepNodeLabel, graphNodeDimensions, newestFoldedViewportX } from './ExecutionGraph';
 import { FlowStatePanel } from './FlowStatePanel';
 
 afterEach(() => {
@@ -113,6 +113,40 @@ describe('Execution graph WaitFor Channel lines', () => {
 
   it('adds one Channel line per visible name up to two', () => {
     expect(twoChannelHeight - graphNodeDimensions(waitingOnChannels(['A'])).height).toBe(channelLineHeight);
+  });
+});
+
+describe('Folded Graph newest-part framing', () => {
+  const canvasWidth = 1091;
+  const zoom = 0.8;
+  // Flow start and Earlier events share a column; then StartAgentSession, RunModel, Round 1, and the Round 2 frame.
+  const units = [
+    { left: 32, right: 252 },
+    { left: 32, right: 200 },
+    { left: 316, right: 616 },
+    { left: 680, right: 980 },
+    { left: 1044, right: 1324 },
+    { left: 1374, right: 1700 },
+  ];
+  const newest = { x: 1044, width: 656, units };
+
+  it('starts at a node boundary, so no node is cut at the left edge', () => {
+    const x = newestFoldedViewportX(newest, zoom, canvasWidth);
+    for (const unit of units) {
+      const left = unit.left * zoom + x;
+      const right = unit.right * zoom + x;
+      const isWhollyShown = left >= 0 && right <= canvasWidth;
+      const isWhollyHidden = right <= 0;
+      expect(isWhollyShown || isWhollyHidden).toBe(true);
+    }
+    // The newest part's right edge stays in view, and RunModel, which fits, is shown whole.
+    expect(1700 * zoom + x).toBeLessThanOrEqual(canvasWidth);
+    expect(680 * zoom + x).toBe(24);
+  });
+
+  it('aligns right when the newest part alone is wider than the canvas', () => {
+    const wide = { x: 100, width: 2000, units: [{ left: 100, right: 2100 }] };
+    expect(newestFoldedViewportX(wide, zoom, canvasWidth)).toBe(canvasWidth - 24 - 2100 * zoom);
   });
 });
 

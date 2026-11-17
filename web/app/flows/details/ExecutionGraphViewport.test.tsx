@@ -212,6 +212,14 @@ describe('Folded Graph initial view', () => {
     expect(previousGroup.position.x * viewport.zoom + viewport.x).toBeGreaterThanOrEqual(0);
   });
 
+  it('keeps the newest-part framing when the selected Step is already in view', async () => {
+    const events = growingRoundsHistory(12);
+    render(renderGraph(events, events.at(-1)!));
+    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(flow.state.setCenterCalls).toHaveLength(0);
+  });
+
   it('fits the whole folded graph when it fits at a readable zoom', async () => {
     const events = sequentialStepHistory(81);
     render(renderGraph(events, events[0]));
