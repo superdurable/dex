@@ -37,7 +37,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function step(eventId: number, type: string, stepType: string): FlowHistoryEvent {
+function step(eventId: number, type: FlowHistoryEvent['type'], stepType: string): FlowHistoryEvent {
   return {
     eventId,
     eventTime: `2026-11-17T10:00:0${eventId}Z`,
@@ -47,7 +47,7 @@ function step(eventId: number, type: string, stepType: string): FlowHistoryEvent
 }
 
 function rpc(eventId: number, rpcName: string): FlowHistoryEvent {
-  return { eventId, eventTime: `2026-11-17T10:00:0${eventId}Z`, type: 'RpcCompleted', payload: { rpcName } };
+  return { eventId, eventTime: `2026-11-17T10:00:0${eventId}Z`, type: 'RpcExecutionCompleted', payload: { rpcName } };
 }
 
 const pageEvents: FlowHistoryEvent[] = [
@@ -102,7 +102,8 @@ describe('Timeline event filter', () => {
 
     expect(laneEventIds()).toEqual([1, 2, 3, 5, 8]);
     expect(filterButton().className).toContain('is-active');
-    expect(filterButton().textContent).toContain('1 event type filtered');
+    expect(filterButton().getAttribute('aria-label')).toBe('Filter, 1 event type filtered');
+    expect(filterButton().textContent).toBe('Filter1');
     expect(screen.getByText('3 of 8 events hidden on this page')).toBeTruthy();
     expect(document.querySelectorAll('.htl-bar.has-hidden').length).toBe(3);
     expect(window.localStorage.getItem(timelineEventFilterStorageKey('OrderFlow'))).not.toBeNull();
@@ -132,7 +133,7 @@ describe('Timeline event filter', () => {
     const dialog = openFilter();
     fireEvent.click(dialog.getByRole('button', { name: 'Clear all' }));
     expect(laneEventIds()).toEqual([]);
-    expect(filterButton().textContent).toContain('9 event types filtered');
+    expect(filterButton().getAttribute('aria-label')).toBe('Filter, 9 event types filtered');
     expect(screen.getByText('No events on this page match the filter.')).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Show all' })[0]);

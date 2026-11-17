@@ -27,12 +27,12 @@ import {
 } from './timelineEventFilter';
 import { laneIndexToPageIndex, pageIndexToLaneIndex } from './timelineOverview';
 
-function step(eventId: number, type: string, stepType: string): FlowHistoryEvent {
+function step(eventId: number, type: FlowHistoryEvent['type'], stepType: string): FlowHistoryEvent {
   return { eventId, eventTime: '', type, payload: { context: { stepType, stepExecutionId: `${stepType}-${eventId}` } } };
 }
 
 function rpc(eventId: number, rpcName: string): FlowHistoryEvent {
-  return { eventId, eventTime: '', type: 'RpcCompleted', payload: { rpcName } };
+  return { eventId, eventTime: '', type: 'RpcExecutionCompleted', payload: { rpcName } };
 }
 
 const pageEvents: FlowHistoryEvent[] = [

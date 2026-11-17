@@ -83,6 +83,7 @@ export function TimelineEventFilterMenu({
       <button
         aria-controls={popoverId}
         aria-expanded={isOpen}
+        aria-label={isActive ? `Filter, ${activeText}` : undefined}
         className={`htl-filter-button${isActive ? ' is-active' : ''}`}
         onClick={() => setIsOpen((open) => !open)}
         ref={buttonRef}
@@ -91,12 +92,7 @@ export function TimelineEventFilterMenu({
       >
         <ListFilter aria-hidden="true" size={13} strokeWidth={2.25} />
         Filter
-        {isActive && (
-          <span className="htl-filter-badge">
-            <span aria-hidden="true">{filteredKindCount}</span>
-            <span className="sr-only">, {activeText}</span>
-          </span>
-        )}
+        {isActive && <span aria-hidden="true" className="htl-filter-badge">{filteredKindCount}</span>}
       </button>
       <div
         aria-hidden={!isOpen}

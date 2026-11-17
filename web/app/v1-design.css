@@ -3408,8 +3408,9 @@ html:has(.v1-page .stream-scroll--entries) {
 
 .htl-filter-badge {
   display: inline-grid;
-  min-width: 16px;
-  height: 16px;
+  min-width: 14px;
+  height: 14px;
+  margin-right: -4px;
   padding: 0 4px;
   place-items: center;
   border-radius: 999px;
@@ -3417,7 +3418,7 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-accent);
   font-family: var(--ui-font-mono);
   font-size: 10px;
-  line-height: 16px;
+  line-height: 14px;
   animation: htl-filter-pop-in 180ms cubic-bezier(0.2, 0, 0, 1.4);
 }
 
@@ -3433,8 +3434,8 @@ html:has(.v1-page .stream-scroll--entries) {
   padding: 10px 6px;
   border-radius: var(--ui-radius-item);
   color: var(--ui-ink-2);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-section-shadow), 0 8px 24px color-mix(in srgb, var(--ui-ink) 14%, transparent);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 16%), 0 0 0 1px color-mix(in srgb, var(--ui-ink) 6%, transparent);
   font-family: var(--ui-font-sans);
   font-size: var(--ui-text-xs);
   font-variant-numeric: tabular-nums;
@@ -3522,7 +3523,7 @@ html:has(.v1-page .stream-scroll--entries) {
 }
 
 .v1-page .htl-filter-row:hover {
-  background: var(--ui-chip);
+  background: color-mix(in srgb, var(--ui-ink) 6%, transparent);
 }
 
 .v1-page .htl-filter-row[aria-checked='false'] {
