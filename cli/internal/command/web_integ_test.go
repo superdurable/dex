@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 func TestWebServesDexWebAgainstExistingServer(t *testing.T) {
@@ -43,6 +45,21 @@ func TestWebServesDexWebAgainstExistingServer(t *testing.T) {
 	require.Contains(t, webCommand.stdout.String(), "Dex Web:       "+webCommand.webURL)
 	require.Contains(t, webCommand.stdout.String(), "Dex Server:    "+serverAddress)
 	require.NotContains(t, webCommand.stderr.String(), "warning:")
+}
+
+func TestWebWarnsWhenServerProtocolIsTooOld(t *testing.T) {
+	service, serverAddress := startTestFlowService(t)
+	clientMinimum, _ := dex.SupportedServerProtocolVersionRange()
+	service.serverInfo = &dexpb.ServerInfo{
+		ServerVersion:                   "old-server",
+		MinimumSupportedProtocolVersion: 1,
+		CurrentProtocolVersion:          clientMinimum - 1,
+	}
+	webCommand := startTestWebCommand(t, "--server", serverAddress, "web", "--web-port", "0")
+
+	require.NoError(t, webCommand.stop())
+	require.Contains(t, webCommand.stderr.String(), "warning: dexcli dev may be incompatible with Server old-server")
+	require.Contains(t, webCommand.stderr.String(), "upgrade the Server or use an older dexcli")
 }
 
 func TestWebRequestTimeoutDoesNotBoundRunningDexWeb(t *testing.T) {

@@ -15,11 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
@@ -68,10 +70,11 @@ func (s *testFlowService) GetServerInfo(
 	if s.serverInfo != nil {
 		return s.serverInfo, nil
 	}
+	_, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test-server",
 		MinimumSupportedProtocolVersion: 1,
-		CurrentProtocolVersion:          7,
+		CurrentProtocolVersion:          clientMaximum,
 		ServerEngine:                    dexpb.ServerEngine_SERVER_ENGINE_ZD,
 	}, nil
 }
@@ -866,15 +869,16 @@ func TestAPIDescriptorIncludesEveryFlowServiceMethod(t *testing.T) {
 func TestVersionCheckReportsNegotiatedProtocol(t *testing.T) {
 	_, address := startTestFlowService(t)
 	result := executeTestCommand(t, nil, "version", "check", "--server", address)
-	if result["compatible"] != true || result["negotiatedProtocol"] != float64(7) {
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
+	if result["compatible"] != true || result["negotiatedProtocol"] != float64(clientMaximum) {
 		t.Fatalf("unexpected version check result: %#v", result)
 	}
 	clientProtocol := result["clientProtocol"].(map[string]any)
-	if clientProtocol["minimum"] != float64(4) || clientProtocol["maximum"] != float64(7) {
+	if clientProtocol["minimum"] != float64(clientMinimum) || clientProtocol["maximum"] != float64(clientMaximum) {
 		t.Fatalf("clientProtocol must equal the Go SDK range: %#v", clientProtocol)
 	}
 	serverProtocol := result["serverProtocol"].(map[string]any)
-	if serverProtocol["minimum"] != float64(1) || serverProtocol["maximum"] != float64(7) {
+	if serverProtocol["minimum"] != float64(1) || serverProtocol["maximum"] != float64(clientMaximum) {
 		t.Fatalf("unexpected serverProtocol: %#v", serverProtocol)
 	}
 	if result["clientVersion"] != "dev" || result["serverVersion"] != "test-server" || result["serverEngine"] != "zd" {
@@ -897,6 +901,7 @@ func TestVersionCheckTablePrintsTheServerVersion(t *testing.T) {
 }
 
 func TestVersionCheckRejectsNonoverlappingProtocols(t *testing.T) {
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	testCases := []struct {
 		name          string
 		serverMinimum uint32
@@ -906,16 +911,25 @@ func TestVersionCheckRejectsNonoverlappingProtocols(t *testing.T) {
 		{
 			name:          "Server too old",
 			serverMinimum: 1,
-			serverCurrent: 3,
-			reason: "protocol intervals do not overlap: this dexcli requires Server protocol version 4 or later, " +
-				"but the Server supports 1-3; upgrade the Server or use an older dexcli",
+			serverCurrent: clientMinimum - 1,
+			reason: fmt.Sprintf(
+				"protocol intervals do not overlap: this dexcli requires Server protocol version %d or later, "+
+					"but the Server supports 1-%d; upgrade the Server or use an older dexcli",
+				clientMinimum,
+				clientMinimum-1,
+			),
 		},
 		{
 			name:          "dexcli too old",
-			serverMinimum: 8,
-			serverCurrent: 9,
-			reason: "protocol intervals do not overlap: the Server requires protocol version 8 or later, " +
-				"but this dexcli supports 4-7; upgrade dexcli",
+			serverMinimum: clientMaximum + 1,
+			serverCurrent: clientMaximum + 2,
+			reason: fmt.Sprintf(
+				"protocol intervals do not overlap: the Server requires protocol version %d or later, "+
+					"but this dexcli supports %d-%d; upgrade dexcli",
+				clientMaximum+1,
+				clientMinimum,
+				clientMaximum,
+			),
 		},
 	}
 	for _, testCase := range testCases {
@@ -949,7 +963,7 @@ func TestVersionCheckRejectsNonoverlappingProtocols(t *testing.T) {
 				t.Fatalf("unexpected reason: %#v", errorPayload["reason"])
 			}
 			clientProtocol := errorPayload["clientProtocol"].(map[string]any)
-			if clientProtocol["minimum"] != float64(4) || clientProtocol["maximum"] != float64(7) {
+			if clientProtocol["minimum"] != float64(clientMinimum) || clientProtocol["maximum"] != float64(clientMaximum) {
 				t.Fatalf("clientProtocol must equal the Go SDK range: %#v", clientProtocol)
 			}
 		})

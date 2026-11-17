@@ -74,6 +74,9 @@ func negotiateServerProtocol(serverInfo *dexpb.ServerInfo) (uint32, error) {
 	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	serverMinimum := serverInfo.GetMinimumSupportedProtocolVersion()
 	serverCurrent := serverInfo.GetCurrentProtocolVersion()
+	if clientMinimum == 0 || clientMaximum == 0 || clientMinimum > clientMaximum {
+		return 0, fmt.Errorf("dexcli protocol interval is invalid")
+	}
 	if serverMinimum == 0 || serverCurrent == 0 || serverMinimum > serverCurrent {
 		return 0, fmt.Errorf("Server protocol interval is invalid")
 	}
