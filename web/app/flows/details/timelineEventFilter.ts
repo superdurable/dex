@@ -43,26 +43,49 @@ export interface TimelineEventFilterKindOption {
   names: TimelineEventFilterNameOption[];
 }
 
-export function isTimelineNameShown(selection: TimelineNameSelection | undefined, name: string): boolean {
-  if (!selection || selection.mode === 'all') return true;
-  return selection.mode === 'except' ? !selection.names.includes(name) : selection.names.includes(name);
+/** The filter with its name lists as sets, built once per filter change and reused for every event. */
+export interface CompiledTimelineEventFilter {
+  hiddenKinds: ReadonlySet<EventKind>;
+  nameSelections: ReadonlyMap<EventKind, { isExcept: boolean; names: ReadonlySet<string> }>;
+}
+
+export function compileTimelineEventFilter(filter: TimelineEventFilter): CompiledTimelineEventFilter {
+  const nameSelections = new Map<EventKind, { isExcept: boolean; names: ReadonlySet<string> }>();
+  for (const [kind, selection] of Object.entries(filter.nameSelections) as [EventKind, TimelineNameSelection][]) {
+    if (selection.mode !== 'all') nameSelections.set(kind, { isExcept: selection.mode === 'except', names: new Set(selection.names) });
+  }
+  return { hiddenKinds: new Set(filter.hiddenKinds), nameSelections };
+}
+
+function isCompiledNameShown(compiled: CompiledTimelineEventFilter, kind: EventKind, name: string): boolean {
+  const selection = compiled.nameSelections.get(kind);
+  if (!selection) return true;
+  return selection.names.has(name) !== selection.isExcept;
 }
 
 /** Reports whether the filter shows an event: its kind is shown, and so is one of its names when it has any. */
-export function isTimelineEventShown(filter: TimelineEventFilter, event: FlowHistoryEvent): boolean {
+export function isCompiledTimelineEventShown(compiled: CompiledTimelineEventFilter, event: FlowHistoryEvent): boolean {
   const kind = eventKindOf(event);
-  if (filter.hiddenKinds.includes(kind)) return false;
-  const selection = filter.nameSelections[kind];
-  if (!selection || selection.mode === 'all') return true;
+  if (compiled.hiddenKinds.has(kind)) return false;
+  if (!compiled.nameSelections.has(kind)) return true;
   const names = eventKindNames(event);
-  return names.length === 0 || names.some((name) => isTimelineNameShown(selection, name));
+  return names.length === 0 || names.some((name) => isCompiledNameShown(compiled, kind, name));
 }
 
-/** Returns every kind in Legend order with its page counts, names, and selection; absent names are left out. */
-export function timelineEventFilterOptions(
-  filter: TimelineEventFilter,
-  events: readonly FlowHistoryEvent[],
-): TimelineEventFilterKindOption[] {
+/** Reports whether the filter shows one event; compile the filter once instead when checking a page. */
+export function isTimelineEventShown(filter: TimelineEventFilter, event: FlowHistoryEvent): boolean {
+  return isCompiledTimelineEventShown(compileTimelineEventFilter(filter), event);
+}
+
+/** One kind's event count on a page and its names with their counts, sorted by name. */
+export interface TimelinePageKindCount {
+  kind: EventKind;
+  count: number;
+  names: { name: string; count: number }[];
+}
+
+/** Counts a page's events per kind and per name, in Legend order; recompute only when the page changes. */
+export function timelinePageKindCounts(events: readonly FlowHistoryEvent[]): TimelinePageKindCount[] {
   const kindCounts = new Map<EventKind, number>();
   const nameCounts = new Map<EventKind, Map<string, number>>();
   for (const event of events) {
@@ -72,18 +95,33 @@ export function timelineEventFilterOptions(
     for (const name of eventKindNames(event)) counts.set(name, (counts.get(name) ?? 0) + 1);
     nameCounts.set(kind, counts);
   }
-  return timelineEventKindOrder.map((kind) => {
-    const isKindHidden = filter.hiddenKinds.includes(kind);
-    const selection = filter.nameSelections[kind];
-    const names = [...(nameCounts.get(kind) ?? new Map<string, number>())]
+  return timelineEventKindOrder.map((kind) => ({
+    kind,
+    count: kindCounts.get(kind) ?? 0,
+    names: [...(nameCounts.get(kind) ?? new Map<string, number>())]
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, count]) => ({ name, count, isShown: !isKindHidden && isTimelineNameShown(selection, name) }));
+      .map(([name, count]) => ({ name, count })),
+  }));
+}
+
+/** Returns every kind in Legend order with its page counts, names, and selection; absent names are left out. */
+export function timelineEventFilterOptions(
+  compiled: CompiledTimelineEventFilter,
+  pageKindCounts: readonly TimelinePageKindCount[],
+): TimelineEventFilterKindOption[] {
+  return pageKindCounts.map(({ kind, count, names: pageNames }) => {
+    const isKindHidden = compiled.hiddenKinds.has(kind);
+    const names = pageNames.map(({ name, count: nameCount }) => ({
+      name,
+      count: nameCount,
+      isShown: !isKindHidden && isCompiledNameShown(compiled, kind, name),
+    }));
     const shownNameCount = names.filter((name) => name.isShown).length;
     let kindSelection: TimelineKindSelection = 'all';
     if (isKindHidden) kindSelection = 'none';
     else if (names.length > 0 && shownNameCount === 0) kindSelection = 'none';
     else if (shownNameCount < names.length) kindSelection = 'some';
-    return { kind, count: kindCounts.get(kind) ?? 0, selection: kindSelection, names };
+    return { kind, count, selection: kindSelection, names };
   });
 }
 

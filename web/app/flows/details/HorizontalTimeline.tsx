@@ -56,11 +56,13 @@ import { TimelineLabelModeIntro, TimelineLabelModeTabs, useTimelineLabelModeIntr
 import { eventKindOf, eventKinds, namesIn, timelineEventKindOrder } from './timelineEventKinds';
 import {
   allTimelineEventsFilter,
+  compileTimelineEventFilter,
   filteredKindCount,
-  isTimelineEventShown,
+  isCompiledTimelineEventShown,
   persistTimelineEventFilter,
   storedTimelineEventFilter,
   timelineEventFilterOptions,
+  timelinePageKindCounts,
   type TimelineEventFilter,
 } from './timelineEventFilter';
 import { TimelineEventFilterMenu } from './TimelineEventFilterMenu';
@@ -589,11 +591,16 @@ export function HorizontalTimeline({
     : horizontalTimelineLayout.labelRunWidth[labelMode];
   const pageEvents = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
   const states = useMemo(() => eventStates(pageEvents, paging?.hasNewer ?? false), [pageEvents, paging?.hasNewer]);
+  const compiledEventFilter = useMemo(() => compileTimelineEventFilter(eventFilter), [eventFilter]);
   const pageShownFlags = useMemo(
-    () => pageEvents.map((event) => isTimelineEventShown(eventFilter, event)),
-    [eventFilter, pageEvents],
+    () => pageEvents.map((event) => isCompiledTimelineEventShown(compiledEventFilter, event)),
+    [compiledEventFilter, pageEvents],
   );
-  const filterOptions = useMemo(() => timelineEventFilterOptions(eventFilter, pageEvents), [eventFilter, pageEvents]);
+  const pageKindCounts = useMemo(() => timelinePageKindCounts(pageEvents), [pageEvents]);
+  const filterOptions = useMemo(
+    () => timelineEventFilterOptions(compiledEventFilter, pageKindCounts),
+    [compiledEventFilter, pageKindCounts],
+  );
   const selectedEventId = selectedEvent?.eventId ?? null;
   /** The lane: events the filter shows, plus the selected and the jumped-to event, which always show. */
   const { laneEvents, laneToPage } = useMemo(() => {
@@ -606,7 +613,7 @@ export function HorizontalTimeline({
     });
     return { laneEvents: lane, laneToPage: pageIndexes };
   }, [highlightedEventId, pageEvents, pageShownFlags, selectedEventId]);
-  /** The lane's event IDs at the last commit, so a filter change can fade in only the events it adds. */
+  /** Lane event IDs at the last commit, so a filter change fades in only added events. */
   const previousLaneEventIds = useRef<ReadonlySet<number>>(new Set());
   useEffect(() => {
     previousLaneEventIds.current = new Set(laneEvents.map((event) => event.eventId));
@@ -751,9 +758,10 @@ export function HorizontalTimeline({
   const [revealRequest, setRevealRequest] = useState(0);
   useEffect(() => {
     if (selectedIndex < 0 || isFollowingLatest) return;
-    // Selecting an older event stops Live from sliding the view toward newer events.
-    isAtNewestEnd.current = selectedIndex === laneEvents.length - 1;
     if (selectedIndex < windowStart || selectedIndex >= windowStart + visibleCount) centerOn(selectedIndex);
+    // Selecting an older event stops Live from sliding the view toward newer events.
+    // The page's newest event decides, since the lane's last event may be followed by hidden ones.
+    isAtNewestEnd.current = selectedPageIndex === pageEvents.length - 1;
     // Only a selection change recenters, so dragging the overview never snaps back.
   }, [selectedIndex, revealRequest]);
 

@@ -14,6 +14,7 @@ import {
   allTimelineEventsFilter,
   clearAllTimelineEventKinds,
   clearAllTimelineEventNames,
+  compileTimelineEventFilter,
   filteredKindCount,
   isTimelineEventShown,
   parseTimelineEventFilter,
@@ -22,6 +23,7 @@ import {
   storedTimelineEventFilter,
   timelineEventFilterOptions,
   timelineEventFilterStorageKey,
+  timelinePageKindCounts,
   toggleTimelineEventName,
   type TimelineEventFilter,
 } from './timelineEventFilter';
@@ -45,6 +47,10 @@ const pageEvents: FlowHistoryEvent[] = [
   rpc(7, 'getStatus'),
   { eventId: 8, eventTime: '', type: 'ChannelExternalPublish', payload: { messages: [{ channelName: 'orders' }, { channelName: 'audit' }] } },
 ];
+
+function optionsFor(filter: TimelineEventFilter, events: readonly FlowHistoryEvent[]) {
+  return timelineEventFilterOptions(compileTimelineEventFilter(filter), timelinePageKindCounts(events));
+}
 
 function shownIds(filter: TimelineEventFilter): number[] {
   return pageEvents.filter((event) => isTimelineEventShown(filter, event)).map((event) => event.eventId);
@@ -70,11 +76,11 @@ afterEach(() => {
 describe('Timeline event filter model', () => {
   it('shows every event by default', () => {
     expect(shownIds(allTimelineEventsFilter)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(filteredKindCount(timelineEventFilterOptions(allTimelineEventsFilter, pageEvents))).toBe(0);
+    expect(filteredKindCount(optionsFor(allTimelineEventsFilter, pageEvents))).toBe(0);
   });
 
   it('lists every kind in Legend order with page counts and sorted names', () => {
-    const options = timelineEventFilterOptions(allTimelineEventsFilter, pageEvents);
+    const options = optionsFor(allTimelineEventsFilter, pageEvents);
     expect(options.map((option) => option.kind)).toEqual([
       'waitfor', 'execute', 'channel-publish', 'channel-delete', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork',
     ]);
@@ -90,7 +96,7 @@ describe('Timeline event filter model', () => {
   it('hides and shows a whole type', () => {
     const withoutRpc = setTimelineEventKindShown(allTimelineEventsFilter, 'rpc', false);
     expect(shownIds(withoutRpc)).toEqual([1, 2, 3, 4, 8]);
-    const options = timelineEventFilterOptions(withoutRpc, pageEvents);
+    const options = optionsFor(withoutRpc, pageEvents);
     expect(options.find((option) => option.kind === 'rpc')?.selection).toBe('none');
     expect(filteredKindCount(options)).toBe(1);
     expect(shownIds(setTimelineEventKindShown(withoutRpc, 'rpc', true))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
@@ -99,7 +105,7 @@ describe('Timeline event filter model', () => {
   it('hides one name inside a type and marks the type partly selected', () => {
     const filter = toggleTimelineEventName(allTimelineEventsFilter, 'execute', 'Refund');
     expect(shownIds(filter)).toEqual([1, 2, 3, 5, 6, 7, 8]);
-    expect(timelineEventFilterOptions(filter, pageEvents).find((option) => option.kind === 'execute')?.selection).toBe('some');
+    expect(optionsFor(filter, pageEvents).find((option) => option.kind === 'execute')?.selection).toBe('some');
     // WaitFor keeps its own Step type selection.
     expect(isTimelineEventShown(filter, step(9, 'StepWaitForCompleted', 'Refund'))).toBe(true);
     expect(toggleTimelineEventName(filter, 'execute', 'Refund')).toEqual(allTimelineEventsFilter);
@@ -129,13 +135,13 @@ describe('Timeline event filter model', () => {
   it('clears all types, then shows a type when one of its names is picked', () => {
     const cleared = clearAllTimelineEventKinds();
     expect(shownIds(cleared)).toEqual([]);
-    expect(filteredKindCount(timelineEventFilterOptions(cleared, pageEvents))).toBe(9);
+    expect(filteredKindCount(optionsFor(cleared, pageEvents))).toBe(9);
     expect(shownIds(toggleTimelineEventName(cleared, 'rpc', 'getStatus'))).toEqual([5, 7]);
   });
 
   it('ignores saved names that the page does not have', () => {
     const filter: TimelineEventFilter = { hiddenKinds: [], nameSelections: { rpc: { mode: 'except', names: ['retired'] } } };
-    const options = timelineEventFilterOptions(filter, pageEvents);
+    const options = optionsFor(filter, pageEvents);
     expect(options.find((option) => option.kind === 'rpc')?.selection).toBe('all');
     expect(options.find((option) => option.kind === 'rpc')?.names.map((name) => name.name)).toEqual(['cancelOrder', 'getStatus']);
     expect(filteredKindCount(options)).toBe(0);

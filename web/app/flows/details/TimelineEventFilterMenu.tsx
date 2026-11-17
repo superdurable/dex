@@ -160,24 +160,22 @@ export function TimelineEventFilterMenu({
                   <div className="htl-filter-names-inner">
                     <div className="htl-filter-section-head">
                       <span className="htl-filter-noun">{nameNoun}</span>
-                      {option.names.length > 1 && (
-                        <span className="htl-filter-actions">
-                          <button
-                            aria-label={`Select all ${nameListLabel(kindName, nameNoun)}`}
-                            onClick={() => onChangeFilter(setTimelineEventKindShown(filter, option.kind, true))}
-                            type="button"
-                          >
-                            Select all
-                          </button>
-                          <button
-                            aria-label={`Clear all ${nameListLabel(kindName, nameNoun)}`}
-                            onClick={() => onChangeFilter(clearAllTimelineEventNames(filter, option.kind))}
-                            type="button"
-                          >
-                            Clear all
-                          </button>
-                        </span>
-                      )}
+                      <span className="htl-filter-actions">
+                        <button
+                          aria-label={`Select all ${nameListLabel(kindName, nameNoun)}`}
+                          onClick={() => onChangeFilter(setTimelineEventKindShown(filter, option.kind, true))}
+                          type="button"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          aria-label={`Clear all ${nameListLabel(kindName, nameNoun)}`}
+                          onClick={() => onChangeFilter(clearAllTimelineEventNames(filter, option.kind))}
+                          type="button"
+                        >
+                          Clear all
+                        </button>
+                      </span>
                     </div>
                     <ul aria-label={nameListLabel(kindName, nameNoun)}>
                       {option.names.map((name) => (

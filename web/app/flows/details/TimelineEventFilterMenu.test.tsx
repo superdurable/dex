@@ -61,11 +61,39 @@ const pageEvents: FlowHistoryEvent[] = [
   step(8, 'StepExecuteCompleted', 'Charge'),
 ];
 
-function Harness({ flowType = 'OrderFlow', initialEventId }: { flowType?: string; initialEventId?: number }) {
+function Harness({
+  flowType = 'OrderFlow',
+  initialEventId,
+  events = pageEvents,
+}: {
+  flowType?: string;
+  initialEventId?: number;
+  events?: FlowHistoryEvent[];
+}) {
   const [selected, setSelected] = useState<FlowHistoryEvent | null>(
-    pageEvents.find((event) => event.eventId === initialEventId) ?? null,
+    events.find((event) => event.eventId === initialEventId) ?? null,
   );
-  return <HorizontalTimeline events={pageEvents} flowType={flowType} onSelectEvent={setSelected} selectedEvent={selected} />;
+  return <HorizontalTimeline events={events} flowType={flowType} onSelectEvent={setSelected} selectedEvent={selected} />;
+}
+
+/** A realistic page: event IDs from 1 to count, RPC where isRpc says so and Execute otherwise. */
+function realisticPage(count: number, isRpc: (eventId: number) => boolean): FlowHistoryEvent[] {
+  return Array.from({ length: count }, (_, index) => {
+    const eventId = index + 1;
+    const event = isRpc(eventId) ? rpc(eventId, 'getStatus') : step(eventId, 'StepExecuteCompleted', 'Charge');
+    return { ...event, eventTime: '2026-11-17T10:00:00Z' };
+  });
+}
+
+function storeFilterHidingRpc() {
+  vi.stubGlobal('localStorage', memoryStorage({
+    [timelineLabelModeIntroStorageKey]: 'true',
+    [timelineEventFilterStorageKey('OrderFlow')]: JSON.stringify({ hiddenKinds: ['rpc'], nameSelections: {} }),
+  }));
+}
+
+function option(eventId: number): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[role="option"][data-event-id="${eventId}"]`);
 }
 
 function laneEventIds(): number[] {
@@ -207,11 +235,84 @@ describe('Timeline event filter', () => {
     expect(filterButton().className).not.toContain('is-active');
   });
 
+  it('offers Select all and Clear all for a type with a single name', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('button', { name: 'Show WaitFor Step types' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Clear all WaitFor Step types' }));
+    expect(laneEventIds()).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    fireEvent.click(dialog.getByRole('button', { name: 'Select all WaitFor Step types' }));
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('closes the popover on a press outside it', () => {
+    render(<Harness />);
+    openFilter();
+    expect(filterButton().getAttribute('aria-expanded')).toBe('true');
+    fireEvent.pointerDown(document.body);
+    expect(filterButton().getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('closes the popover with Escape', () => {
     render(<Harness />);
     openFilter();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(filterButton().getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('.htl-filter-popover')?.getAttribute('data-open')).toBe('false');
+  });
+});
+
+describe('Timeline event filter on a long page', () => {
+  it('keeps an older selection in view when Live adds events after hidden newest ones', () => {
+    storeFilterHidingRpc();
+    const firstPage = realisticPage(1000, (eventId) => eventId > 900);
+    const { rerender } = render(<Harness events={firstPage} initialEventId={1000} />);
+    expect(option(1000)?.className).toContain('is-filtered-out');
+
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(900)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(1000)).toBeNull();
+
+    // Live adds 40 Execute events after the hidden RPCs.
+    const nextPage = realisticPage(1040, (eventId) => eventId > 900 && eventId <= 1000);
+    rerender(<Harness events={nextPage} initialEventId={1000} />);
+    expect(option(900)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(1040)).toBeNull();
+  });
+
+  it('moves the selection with J, K, and the arrow keys past hidden events', () => {
+    storeFilterHidingRpc();
+    render(<Harness events={realisticPage(120, (eventId) => eventId % 2 === 0)} initialEventId={101} />);
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(option(103)?.getAttribute('aria-selected')).toBe('true');
+
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    fireEvent.keyDown(strip, { key: 'ArrowLeft' });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(99)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    expect(laneEventIds().every((eventId) => eventId % 2 === 1)).toBe(true);
+  });
+
+  it('selects a hidden event from an overview bar whose events are all hidden, and keeps it faded in the lane', () => {
+    storeFilterHidingRpc();
+    render(<Harness events={realisticPage(120, (eventId) => eventId > 60)} />);
+    // jsdom has no PointerEvent, so give pointer events the mouse event fields they carry.
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    expect(document.querySelectorAll('.htl-bar.has-hidden').length).toBe(60);
+
+    // Each of the 120 events has its own bar; this one is event #101, an RPC the filter hides.
+    const clientX = 10 + (100.5 / 120) * 1180;
+    fireEvent.pointerDown(overview, { button: 0, clientX, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX, pointerId: 1 });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(101)?.className).toContain('is-filtered-out');
+    expect(screen.getByText('59 of 120 events hidden on this page')).toBeTruthy();
   });
 });
