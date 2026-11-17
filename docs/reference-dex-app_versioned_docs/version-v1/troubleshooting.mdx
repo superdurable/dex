@@ -1,0 +1,155 @@
+---
+title: Dex app troubleshooting and FAQ
+sidebar_label: Troubleshooting and FAQ
+description: "Common problems when you import, build, test, and publish a Managed Dex App, with the cause and the fix of each."
+toc_max_heading_level: 2
+---
+
+# Dex app troubleshooting and FAQ {#dex-app-troubleshooting-and-faq}
+
+This page lists common problems of a [Managed Dex App](/components/managed-dex-app), with the cause and the fix of each. For a finding of the import check, start with its section in [Read an import report](/reference/dex-app/v1/manifest#import-report).
+
+## Import refused with `template_manifest_missing` and `app_manifest_invalid` on an older repository {#old-manifest-location}
+
+**Cause.** The repository uses the earlier manifest location and schema. It keeps the template manifest at `.superverse/template.json`, and `dex-app.yaml` has `schemaVersion: superverse.dev/dex-app/v1`. Dex Cloud reads `.dex/template.json` ([S1](/reference/dex-app/v1/manifest#s1)) and accepts only `schemaVersion: dex.superdurable.io/dex-app/v1` ([S2](/reference/dex-app/v1/manifest#top-level-fields)).
+
+**Fix.** Move the template manifest and set the new schema version:
+
+~~~bash
+mkdir -p .dex && git mv .superverse/template.json .dex/template.json
+~~~
+
+~~~yaml
+# dex-app.yaml
+schemaVersion: dex.superdurable.io/dex-app/v1
+~~~
+
+Push to `main` and check again. In an existing project, the agent's commits fail until the rename lands, and the running workspace installs dependencies only after `make bootstrap` or when it is recreated.
+
+## The Live build fails to install a connector package {#connector-package-not-published}
+
+**Cause.** The connector package is a local tarball in the repository, such as one under `.local-packages/`, or its name is wrong. The dependency stage of the Live build runs `npm ci` with only `package.json` and `package-lock.json`, so a tarball from the repository is missing there. Preview may still run. Dex Cloud uses only `@superdurable/connector-*` packages that the connector library has released, at the exact version that `dex-app.yaml` and `package-lock.json` pin. **Setup** resolves them from the connector library's catalog.
+
+**Fix.** Use a released package and pin that release in `package.json`, `package-lock.json`, and the [`connectors`](/reference/dex-app/v1/manifest#connectors) entry. A quick check of the name and version is npm. For example, the Hacker News connector is `@superdurable/connector-hackernews`:
+
+~~~bash
+npm view @superdurable/connector-hackernews versions
+~~~
+
+## Two copies of `@superdurable/dex` or `@superdurable/connectors-sdk` after adding a connector {#duplicate-sdk-packages}
+
+**Cause.** The connector needs a newer `@superdurable/dex` or `@superdurable/connectors-sdk` than the application pins. npm then installs a second copy for the connector.
+
+**Fix.** Raise the application's pins to the versions the connector needs, run `npm install`, and check that each package appears in one version:
+
+~~~bash
+npm ls @superdurable/dex @superdurable/connectors-sdk
+~~~
+
+## `dex-app.yaml` is refused for a YAML value {#strict-yaml}
+
+**Cause.** `dex-app.yaml` is strict YAML. The decoder refuses plain values that YAML libraries read differently, such as a version `0.6.0`, `yes` and `no`, and a number with a leading zero. It also refuses anchors, aliases, tags, and a repeated key.
+
+**Fix.** Quote each value that must be a string, such as `version: "0.6.0"`, and write each key once. The [YAML rules](/reference/dex-app/v1/manifest#yaml-rules) list every refused form.
+
+## An environment variable is refused as reserved {#reserved-environment-variable}
+
+The import or commit check reports `app_manifest_invalid` with a message such as:
+
+~~~text
+application.environment "GOOGLE_API_KEY": the name is reserved or does not match ^[A-Z][A-Z0-9_]{0,127}$
+~~~
+
+**Cause.** Dex Cloud reserves names that start with `SUPERVERSE_`, `DEX_`, `AWS_`, `LD_`, `GIT_`, or `GO`, and a list of exact names. The `GO` prefix also covers names such as `GOOGLE_API_KEY`.
+
+**Fix.** Rename the variable in [`application.environment`](/reference/dex-app/v1/manifest#application-environment) and in the code that reads it, such as `MAPS_API_KEY` instead of `GOOGLE_API_KEY`.
+
+## The import says the repository cannot be read {#repository-cannot-be-read}
+
+The import shows:
+
+~~~text
+<owner/name> was not found, or the GitHub App cannot read it through this connection. Check the name and the repositories the app may access.
+~~~
+
+**Cause.** The repository name is wrong, the SuperDurable Dex Cloud GitHub App lacks access to the repository, or the GitHub organization is not connected to the Teamspace.
+
+**Fix.**
+
+- Check that `owner/name` matches the repository on GitHub.
+- When the app is installed with **Only select repositories**, add the repository to that list in the app's settings on GitHub.
+- When the organization is missing under **Import from**, a Teamspace admin connects it in the Teamspace's **Connections**. See [Connect GitHub is refused](#connect-github-refused).
+
+## **Connect GitHub** is refused {#connect-github-refused}
+
+Dex Cloud refuses it with one of these errors:
+
+~~~text
+only a TeamSpace admin connects GitHub
+only an owner of <account> connects it
+~~~
+
+A Teamspace member who is not an admin sees "Ask a Teamspace admin to connect GitHub." instead of the button.
+
+**Cause.** Only a Teamspace admin connects GitHub. For an organization, that admin's GitHub account must be an owner of the organization. A plain member of the organization is refused. For a personal account, only that account itself connects it.
+
+**Fix.** Ask a Teamspace admin who owns the GitHub organization, or who signs in as the personal account, to choose **Connect GitHub** in **Connections**.
+
+## A Gmail connection cannot be selected {#auth-method-not-selectable}
+
+**Cause.** Dex Cloud lists only connections whose authentication method equals `authMethodId` in `dex-app.yaml`. With `authMethodId: ""`, a connector with several methods, such as Gmail, shows none of its connections.
+
+**Fix.** Set `authMethodId` to the method of the connection, such as `google-oauth` for Gmail. Keep `""` only for a connector release with one authentication method. See [`connectors`](/reference/dex-app/v1/manifest#connectors).
+
+## `make test-app` fails with "the test engine is not configured" {#test-engine-not-configured}
+
+The tests fail with:
+
+~~~text
+the test engine is not configured: run the tests with make test-app
+~~~
+
+**Cause.** The application tests start a Dex Server for the run ([S5](/reference/dex-app/v1/manifest#s5)). On your machine, they find its binary through the environment variable `DEX_SERVER_ZD_BINARY`, and it is unset.
+
+**Fix.** Set `DEX_SERVER_ZD_BINARY` to the path of a `dex-server-zd` binary, then run the tests again:
+
+~~~bash
+DEX_SERVER_ZD_BINARY=/path/to/dex-server-zd make test-app
+~~~
+
+## Publish is blocked {#publish-blocked}
+
+Dex Cloud shows one of these messages instead of publishing.
+
+**Set up what Live needs first.**
+
+- **Cause.** Live's **Setup** has a gap: a required connection or value has none. Other items follow Preview. Secrets and the connections of endpoint-bound connectors never follow Preview, so Live needs its own.
+- **Fix.** Set each gap in Live's **Setup**, secrets included. Then publish again.
+
+**Choose a Ready Dex Server for Live.**
+
+- **Cause.** Live has no Dex Server in the Ready state.
+- **Fix.** Pick a Ready Dex Server for Live. Then publish again.
+
+## A Dex Agents session ends as Canceled instead of Completed {#agent-session-canceled}
+
+**Cause.** The application cancels the session to end it. A cancel ends the session as **CANCELED**.
+
+**Fix.** End the session with a graceful complete:
+
+~~~typescript
+await client.stopFlow(sessionId, {type: StopType.GRACEFUL_COMPLETE});
+~~~
+
+Graceful complete needs Dex Agents 0.6.14 or later, `@superdurable/dex` 1.45.6 or later, and server-zd 0.1.34 or later. A session that was idle before the upgrade completes this way after its next turn. See [End a session](/reference/agents/session-limits#end-a-session).
+
+## A connector write has an unknown outcome {#connector-write-outcome-unknown}
+
+**Cause.** The provider may or may not have applied the write, such as after a timeout. An operation that declares bounded resends reads back first where it can and resends within its limit. Any other operation is sent once, or retried only by the Step's retry policy.
+
+**Fix.** Connect the Mutation's uncertainty branch to a Step that reads the provider's state back or reconciles it. Leave resending out of application code. See [Connectors: effect classes](/concepts/connector#effect-classes) and, for Dex Agents tools, [Bounded resends](/reference/agents/connector-tools#bounded-resends).
+
+## Next {#next}
+
+- [Dex app manifest and repository layout](/reference/dex-app/v1/manifest): every manifest field, rule, limit, and finding.
+- [Managed Dex App](/components/managed-dex-app): import a repository and publish it to Live, with an optional Preview.

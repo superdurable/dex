@@ -5,6 +5,7 @@ const sidebars: SidebarsConfig = {
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
     'manifest',
+    'troubleshooting',
   ],
 };
 
