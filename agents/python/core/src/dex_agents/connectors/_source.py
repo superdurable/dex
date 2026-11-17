@@ -178,7 +178,9 @@ def classify_connector_branch(
         required_branches: The operation's branches that are not optional.
         agent_branches: The manifest's ``agent.branches``: branch ID to
             ``"rejected"`` or ``"unknown"``.
-        may_have_dispatched: Ignored.
+        may_have_dispatched: Deprecated in 0.6.15: ignored. The
+            single-dispatch fence is internal to the connector, which reports
+            a possible send through ``uncertain`` or a Retry. Omit it.
 
     Returns:
         The outcome to record.
@@ -194,12 +196,8 @@ def classify_connector_branch(
         A Mutation's ``defect`` and its optional branches that
         ``agent.branches`` does not list are ``FAILED`` instead of
         ``OUTCOME_UNKNOWN``. A Mutation's ``defect`` follows
-        ``agent.branches``, as a Query's does.
-
-    .. deprecated:: 0.6.15
-        ``may_have_dispatched`` is ignored. The single-dispatch fence is
-        internal to the connector, which reports a possible send through
-        ``uncertain`` or a Retry. Omit the argument.
+        ``agent.branches``, as a Query's does. ``may_have_dispatched`` is
+        ignored.
     """
     if branch == _UNCERTAIN_BRANCH:
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
