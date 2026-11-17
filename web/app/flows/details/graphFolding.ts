@@ -16,11 +16,9 @@ const shownLastExecutions = 2;
 /** A folded Round lists at most this many Step sequence entries before an ellipsis. */
 const maximumSequenceEntries = 4;
 
-/**
- * One or more Rounds shown as one unit: a Round, or consecutive single-Step Rounds of one Step type.
- * Its key is the first Round's starting Step execution ID, so it stays stable while events arrive.
- */
+/** A Round, or consecutive single-Step Rounds of one Step type, shown as one unit. */
 export interface StepRoundGroup {
+  /** The first Round's starting Step execution ID; it stays stable while events arrive. */
   key: string;
   firstRoundNumber: number;
   lastRoundNumber: number;
@@ -71,10 +69,7 @@ interface RoundDraft {
   steps: StepGraphNode[];
 }
 
-/**
- * Folds repeated Rounds of a Step graph. A Round starts each time the run returns to the
- * earliest Step type that runs again; without such a type nothing folds.
- */
+/** Folds repeated Rounds; each starts when the run returns to the earliest repeated Step type. */
 export function foldStepGraph(
   nodes: StepGraphNode[],
   edges: StepGraphEdge[],

@@ -48,7 +48,7 @@ import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
 import {
   foldStepGraph,
   roundFrameBoxes,
-  unfoldedStepGraph as unfoldedGraph,
+  unfoldedStepGraph,
   type FoldedGraphItem,
   type FoldedStepGraph,
   type StepRoundGroup,
@@ -136,6 +136,8 @@ const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
 const waitingEdgeColor = 'var(--tone-wait)';
 const introLeaveMilliseconds = 220;
+/** The mini map panel's width plus its margin from the canvas edge. */
+const miniMapReservedWidth = 200;
 
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -653,7 +655,7 @@ export function ExecutionGraph({
   const folded = useMemo<FoldedStepGraph>(
     () => (isFolded
       ? foldStepGraph(graph.nodes, graph.edges, { openRounds, selectedStepExecutionID })
-      : unfoldedGraph(graph.nodes, graph.edges)),
+      : unfoldedStepGraph(graph.nodes, graph.edges)),
     [graph.edges, graph.nodes, isFolded, openRounds, selectedStepExecutionID],
   );
   const shownStepNodes = useMemo(
@@ -793,7 +795,11 @@ export function ExecutionGraph({
   }, [direction, edges, folded, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   // Left to right fits the whole graph while readable; otherwise it fits the height and frames the selection.
-  const fitZoom = fittingGraphZoom(bounds, canvasSize);
+  // The whole graph ends left of the mini map, so it never covers the latest Step.
+  const shownCanvasWidth = isLeftToRight && !isMiniMapHidden
+    ? Math.max(canvasWidth / 2, canvasWidth - miniMapReservedWidth)
+    : canvasWidth;
+  const fitZoom = fittingGraphZoom(bounds, { width: shownCanvasWidth, height: canvasSize.height });
   const isWholeGraphShown = isLeftToRight && fitZoom >= readableFitZoom;
   const heightFitZoom = fittingGraphZoom({ width: 1, height: bounds.height }, { width: 1, height: canvasSize.height });
   const initialZoom = !isLeftToRight
@@ -814,18 +820,17 @@ export function ExecutionGraph({
   }, []);
 
   // The first viewport is set once; later events, layouts and resizes keep a reader's zoom and pan.
-  // Turning Folded on or off lays the graph out anew, so it sets the viewport again.
   const hasAppliedInitialViewport = useRef(false);
   const isViewportTransitionWanted = useRef(false);
   useEffect(() => {
     if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
     hasAppliedInitialViewport.current = true;
     void flowInstance.setViewport({
-      x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
+      x: Math.max(0, (shownCanvasWidth - bounds.width * initialZoom) / 2),
       y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
     }, isViewportTransitionWanted.current ? { duration: viewportTransitionDuration() } : undefined);
-  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isFolded, isLeftToRight]);
+  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isFolded, isLeftToRight, shownCanvasWidth]);
 
   const dismissFoldedIntro = () => {
     if (isFoldedIntroDismissed) return;
@@ -837,6 +842,7 @@ export function ExecutionGraph({
     const timer = window.setTimeout(() => setIsFoldedIntroLeaving(false), introLeaveMilliseconds);
     return () => window.clearTimeout(timer);
   }, [isFoldedIntroLeaving]);
+  // Folding lays the graph out anew, so the viewport is set again.
   const toggleFolded = () => {
     hasAppliedInitialViewport.current = false;
     framedEventId.current = null;

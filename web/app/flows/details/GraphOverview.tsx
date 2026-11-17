@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useStore, useViewport, type Node } from '@xyflow/react';
 import type { StepGraphNode } from '@/lib/types';
 import type { StepRoundGroup } from './graphFolding';
@@ -39,10 +39,7 @@ export function overviewNodeColor(data: GraphOverviewNodeData): string {
   }
 }
 
-/**
- * A small overview of the whole graph. Width and height scale separately, so a long
- * left-to-right graph still fills the box. Clicking or dragging moves the view there.
- */
+/** A whole-graph overview; width and height scale separately, so long graphs still fill it. */
 export function GraphOverview({
   nodes,
   bounds,
@@ -59,6 +56,21 @@ export function GraphOverview({
   const isDragging = useRef(false);
   const width = Math.max(1, bounds.width);
   const height = Math.max(1, bounds.height);
+  // Panning only moves the window, so the node shapes redraw only with the graph.
+  const nodeShapes = useMemo(() => (
+    <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+      {nodes.map((node) => (node.data.display === 'frame' ? null : (
+        <rect
+          height={typeof node.style?.height === 'number' ? node.style.height : node.height ?? 0}
+          key={node.id}
+          style={{ fill: overviewNodeColor(node.data) }}
+          width={typeof node.style?.width === 'number' ? node.style.width : node.width ?? 0}
+          x={node.position.x}
+          y={node.position.y}
+        />
+      )))}
+    </svg>
+  ), [height, nodes, width]);
   const shownLeft = -viewport.x / viewport.zoom;
   const shownTop = -viewport.y / viewport.zoom;
   const shownWidth = canvasWidth / viewport.zoom;
@@ -97,18 +109,7 @@ export function GraphOverview({
       ref={track}
       role="img"
     >
-      <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
-        {nodes.map((node) => (node.data.display === 'frame' ? null : (
-          <rect
-            height={typeof node.style?.height === 'number' ? node.style.height : node.height ?? 0}
-            key={node.id}
-            style={{ fill: overviewNodeColor(node.data) }}
-            width={typeof node.style?.width === 'number' ? node.style.width : node.width ?? 0}
-            x={node.position.x}
-            y={node.position.y}
-          />
-        )))}
-      </svg>
+      {nodeShapes}
       <span
         className="graph-overview-window"
         style={{
