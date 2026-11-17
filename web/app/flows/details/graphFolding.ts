@@ -43,6 +43,8 @@ export interface StepRoundGroup {
   isOpen: boolean;
   /** The latest Round and live Rounds cannot be hidden. */
   canHide: boolean;
+  /** The opened range this Round shows inside; empty for a top-level group. */
+  parentKey: string;
 }
 
 /** A node the folded graph draws: an original node, a folded group, or a gap of an opened range. */
@@ -58,12 +60,46 @@ export interface FoldedStepGraph {
   rounds: StepRoundGroup[];
   /** The group keys that hold each Step execution, outermost first. */
   groupKeysByStepExecutionID: Map<string, string[]>;
+  /** The Step type that starts each Round; empty when nothing repeats. */
+  anchorStepType: string;
+}
+
+/** Open (true) or hide (false) choices per Step execution ID, so they survive regrouping. */
+export interface GroupOpenIntents {
+  /** Choices that open or hide Rounds. */
+  rounds: ReadonlyMap<string, boolean>;
+  /** Choices that open or hide ranges of Rounds. */
+  ranges: ReadonlyMap<string, boolean>;
+}
+
+export const noGroupOpenIntents: GroupOpenIntents = { rounds: new Map(), ranges: new Map() };
+
+/** Records Show or Hide on a group for each of its Step executions. */
+export function withGroupOpenChoice(intents: GroupOpenIntents, group: StepRoundGroup, isOpen: boolean): GroupOpenIntents {
+  const rounds = new Map(intents.rounds);
+  const ranges = new Map(intents.ranges);
+  for (const id of group.stepExecutionIDs) {
+    // Opening a range leaves its Rounds folded; hiding it folds them too.
+    if (group.kind === 'round' || !isOpen) rounds.set(id, isOpen);
+    // A Round inside an opened range leaves the range as it is.
+    if (!group.parentKey) ranges.set(id, isOpen);
+  }
+  return { rounds, ranges };
+}
+
+/** Opens every group that holds the selected Step execution. */
+export function withStepExecutionOpened(intents: GroupOpenIntents, stepExecutionID: string): GroupOpenIntents {
+  return {
+    rounds: new Map(intents.rounds).set(stepExecutionID, true),
+    ranges: new Map(intents.ranges).set(stepExecutionID, true),
+  };
 }
 
 export interface StepGraphFoldingOptions {
-  /** Groups a reader opened (true) or hid (false); others use the default open state. */
-  openRounds: ReadonlyMap<string, boolean>;
+  openIntents: GroupOpenIntents;
   selectedStepExecutionID: string;
+  /** The Step type that anchored Rounds before; kept while it still repeats, so groups stay stable. */
+  preferredAnchorStepType?: string;
 }
 
 interface RoundDraft {
@@ -91,7 +127,8 @@ export function foldStepGraph(
   options: StepGraphFoldingOptions,
 ): FoldedStepGraph {
   const steps = stepsInExecutionOrder(nodes);
-  const drafts = roundDrafts(steps);
+  const anchorStepType = roundAnchorStepType(steps, options.preferredAnchorStepType ?? '');
+  const drafts = roundDrafts(steps, anchorStepType);
   if (drafts.length === 0) return unfoldedStepGraph(nodes, edges);
   const context: FoldingContext = {
     options,
@@ -131,6 +168,7 @@ export function foldStepGraph(
     edges: foldedEdges(edges, displayIDByNodeID),
     rounds: context.rounds,
     groupKeysByStepExecutionID: context.groupKeysByStepExecutionID,
+    anchorStepType,
   };
 }
 
@@ -141,6 +179,7 @@ export function unfoldedStepGraph(nodes: StepGraphNode[], edges: StepGraphEdge[]
     edges,
     rounds: [],
     groupKeysByStepExecutionID: new Map(),
+    anchorStepType: '',
   };
 }
 
@@ -171,19 +210,27 @@ export function isLiveStep(node: StepGraphNode): boolean {
     || node.status === 'Active' || node.status === 'Waiting' || node.status === 'Pending';
 }
 
-/** Anchors Rounds on the repeated Step type with the fewest executions, ties to the earliest. */
-function roundDrafts(steps: StepGraphNode[]): RoundDraft[] {
+/** The least-repeated executed Step type, ties to the earliest; a still-repeating preferred type wins. */
+function roundAnchorStepType(steps: StepGraphNode[], preferredStepType: string): string {
   const counts = new Map<string, number>();
-  for (const step of steps) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
+  for (const step of steps) {
+    if (!step.isPlanned) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
+  }
+  if ((counts.get(preferredStepType) ?? 0) > 1) return preferredStepType;
   let anchorType = '';
   for (const step of steps) {
-    const count = counts.get(stepTypeOf(step)) ?? 0;
+    const count = step.isPlanned ? 0 : counts.get(stepTypeOf(step)) ?? 0;
     if (count > 1 && (!anchorType || count < (counts.get(anchorType) ?? 0))) anchorType = stepTypeOf(step);
   }
+  return anchorType;
+}
+
+/** Splits Steps into Rounds at each executed anchor Step; earlier Steps stay outside every Round. */
+function roundDrafts(steps: StepGraphNode[], anchorType: string): RoundDraft[] {
   if (!anchorType) return [];
   const groups: StepGraphNode[][] = [];
   for (const step of steps) {
-    if (stepTypeOf(step) === anchorType) groups.push([step]);
+    if (stepTypeOf(step) === anchorType && !step.isPlanned) groups.push([step]);
     else groups.at(-1)?.push(step);
   }
   return groups.map((roundSteps, index) => ({
@@ -215,7 +262,7 @@ function mergeIdenticalRounds(drafts: RoundDraft[]): RoundDraft[][] {
 }
 
 function addRound(context: FoldingContext, draft: RoundDraft, outerKeys: string[]): void {
-  const group = roundGroup(draft, context.options.openRounds);
+  const group = roundGroup(draft, context.options.openIntents, outerKeys.at(-1) ?? '');
   context.rounds.push(group);
   const groupKeys = [...outerKeys, group.key];
   for (const step of draft.steps) context.groupKeysByStepExecutionID.set(step.id, groupKeys);
@@ -240,7 +287,7 @@ function addStepRuns(context: FoldingContext, steps: StepGraphNode[], frameKeys:
 
 /** A range of Rounds; opened, it shows its first, selected and last Rounds, each folded. */
 function addRange(context: FoldingContext, drafts: RoundDraft[]): void {
-  const group = rangeGroup(drafts, context.options.openRounds);
+  const group = rangeGroup(drafts, context.options.openIntents);
   context.rounds.push(group);
   const steps = drafts.flatMap((draft) => draft.steps);
   for (const draft of drafts) {
@@ -256,7 +303,7 @@ function addRange(context: FoldingContext, drafts: RoundDraft[]): void {
   const isElided = drafts.length > maximumUnelidedRangeSize;
   const isShown = (draft: RoundDraft, index: number) => !isElided
     || index < shownFirstRounds || index >= drafts.length - shownLastRounds
-    || draft.steps.some((step) => step.id === selectedID);
+    || draft.steps.some((step) => step.id === selectedID || context.options.openIntents.rounds.get(step.id) === true);
   let gap: RoundDraft[] = [];
   const closeGap = () => {
     if (gap.length === 0) return;
@@ -294,9 +341,24 @@ function addGroupNode(context: FoldingContext, group: StepRoundGroup, steps: Ste
   context.itemByID.set(id, { display: 'group', id, round: group, frameKeys });
 }
 
-function roundGroup(draft: RoundDraft, openRounds: ReadonlyMap<string, boolean>): StepRoundGroup {
-  const isOpen = draft.isLive || draft.isLatest || (openRounds.get(draft.key) ?? draft.hasFailed);
+/** True when any Step execution was opened, false when some were hidden and none opened. */
+function chosenOpenState(choices: ReadonlyMap<string, boolean>, steps: StepGraphNode[]): boolean | undefined {
+  let state: boolean | undefined;
+  for (const step of steps) {
+    const choice = choices.get(step.id);
+    if (choice === true) return true;
+    if (choice === false) state = false;
+  }
+  return state;
+}
+
+function roundGroup(draft: RoundDraft, intents: GroupOpenIntents, parentKey: string): StepRoundGroup {
+  const roundChoice = chosenOpenState(intents.rounds, draft.steps);
+  // Inside an opened range a Round opens only by choice; on its own a range choice also counts.
+  const choice = parentKey ? roundChoice : roundChoice ?? chosenOpenState(intents.ranges, draft.steps);
+  const isOpen = draft.isLive || draft.isLatest || (choice ?? (!parentKey && draft.hasFailed));
   return {
+    parentKey,
     ...stepTotals(draft.steps),
     key: draft.key,
     kind: 'round',
@@ -314,11 +376,13 @@ function roundGroup(draft: RoundDraft, openRounds: ReadonlyMap<string, boolean>)
   };
 }
 
-function rangeGroup(drafts: RoundDraft[], openRounds: ReadonlyMap<string, boolean>): StepRoundGroup {
+function rangeGroup(drafts: RoundDraft[], intents: GroupOpenIntents): StepRoundGroup {
   const first = drafts[0];
   const last = drafts.at(-1) ?? first;
   const steps = drafts.flatMap((draft) => draft.steps);
   const key = `rounds:${first.steps[0].id}`;
+  // An opened Round inside keeps its range open, so what the reader opened stays in view.
+  const isOpen = chosenOpenState(intents.ranges, steps) === true || chosenOpenState(intents.rounds, steps) === true;
   const isOneStepType = new Set(first.steps.map(stepTypeOf)).size === 1;
   const rangeLabel = `Rounds ${first.number}–${last.number}`;
   return {
@@ -334,8 +398,9 @@ function rangeGroup(drafts: RoundDraft[], openRounds: ReadonlyMap<string, boolea
     sequence: isOneStepType ? [] : truncatedSequence(stepSequence(first.steps)),
     isLatest: false,
     isLive: false,
-    isOpen: openRounds.get(key) ?? false,
+    isOpen,
     canHide: true,
+    parentKey: '',
   };
 }
 

@@ -92,10 +92,24 @@ export function GraphOverview({
     });
   };
 
+  const keyboardSteps: Record<string, { x: number; y: number }> = {
+    ArrowLeft: { x: -shownWidth / 2, y: 0 },
+    ArrowRight: { x: shownWidth / 2, y: 0 },
+    ArrowUp: { x: 0, y: -shownHeight / 2 },
+    ArrowDown: { x: 0, y: shownHeight / 2 },
+  };
+
   return (
     <div
-      aria-label="Execution graph mini map; click to move the view"
+      aria-label="Execution graph mini map. Click, drag, or use the arrow keys to move the view."
+      aria-roledescription="mini map"
       className="graph-overview"
+      onKeyDown={(keyEvent) => {
+        const step = keyboardSteps[keyEvent.key];
+        if (!step) return;
+        keyEvent.preventDefault();
+        onCenter({ x: shownLeft + shownWidth / 2 + step.x, y: shownTop + shownHeight / 2 + step.y });
+      }}
       onPointerDown={(pointerEvent) => {
         isDragging.current = true;
         pointerEvent.currentTarget.setPointerCapture?.(pointerEvent.pointerId);
@@ -107,7 +121,8 @@ export function GraphOverview({
       onPointerUp={() => { isDragging.current = false; }}
       onPointerCancel={() => { isDragging.current = false; }}
       ref={track}
-      role="img"
+      role="group"
+      tabIndex={0}
     >
       {nodeShapes}
       <span

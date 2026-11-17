@@ -18,6 +18,9 @@ import { graphViewStorageKeys } from './graphViewPreferences';
 
 interface FakeNode {
   id: string;
+  position: { x: number; y: number };
+  width?: number;
+  height?: number;
   data: { label: ReactNode };
 }
 
@@ -25,16 +28,21 @@ const flow = vi.hoisted(() => {
   const state = {
     nodes: [] as FakeNode[],
     setViewportCalls: [] as Array<{ viewport: { x: number; y: number; zoom: number }; options?: { duration?: number } }>,
+    setCenterCalls: [] as Array<{ x: number; y: number }>,
+    viewport: { x: 0, y: 7, zoom: 0.8 },
   };
   const instance = {
     getNode: () => undefined,
-    getViewport: () => ({ x: 0, y: 7, zoom: 0.8 }),
+    getViewport: () => state.viewport,
     getZoom: () => 0.8,
     setViewport: (viewport: { x: number; y: number; zoom: number }, options?: { duration?: number }) => {
       state.setViewportCalls.push({ viewport, options });
       return Promise.resolve(true);
     },
-    setCenter: () => Promise.resolve(true),
+    setCenter: (x: number, y: number) => {
+      state.setCenterCalls.push({ x, y });
+      return Promise.resolve(true);
+    },
   };
   return { state, instance };
 });
@@ -89,6 +97,8 @@ function stubStorage({ isBlocked = false } = {}) {
 beforeEach(() => {
   flow.state.nodes = [];
   flow.state.setViewportCalls = [];
+  flow.state.setCenterCalls = [];
+  flow.state.viewport = { x: 0, y: 7, zoom: 0.8 };
   stubStorage();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -164,15 +174,43 @@ describe('Folded Graph', () => {
     expect(shownNodeIDs()).toContain(foldedRangeID);
   });
 
-  it('pans to the first node of an opened group without changing the zoom', async () => {
+  it('pans an opened group into view in both directions without changing the zoom', async () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const canvas = { width: 1200, height: 320 };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function width(this: HTMLElement) {
+      return this.classList.contains('graph-canvas') ? canvas.width : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function height(this: HTMLElement) {
+      return this.classList.contains('graph-canvas') ? canvas.height : 0;
+    });
     render(graph(loopEvents));
+    // The reader dragged the graph far up and left.
+    flow.state.viewport = { x: 5000, y: -10000, zoom: 0.8 };
+    const callsBefore = flow.state.setViewportCalls.length;
     fireEvent.click(screen.getByRole('button', { name: /Show Steps/ }));
-    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
-    const [{ viewport, options }] = flow.state.setViewportCalls;
+    await waitFor(() => expect(flow.state.setViewportCalls.length).toBeGreaterThan(callsBefore));
+    const { viewport, options } = flow.state.setViewportCalls.at(-1)!;
     expect(viewport.zoom).toBe(0.8);
-    expect(viewport.y).toBe(7);
     expect(options?.duration).toBeGreaterThan(0);
+    const frame = flow.state.nodes.find((node) => node.id === '__frame:rounds:Step-1')!;
+    const frameTop = frame.position.y * viewport.zoom + viewport.y;
+    const frameLeft = frame.position.x * viewport.zoom + viewport.x;
+    expect(frameTop).toBeGreaterThanOrEqual(0);
+    expect(frameTop).toBeLessThan(canvas.height);
+    expect(frameLeft).toBeGreaterThanOrEqual(0);
+    expect(frameLeft).toBeLessThan(canvas.width);
+  });
+
+  it('reopens a hidden group when another event of the same Step is selected', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const waitFor10 = loopEvents.find((event) => event.eventId === 20)!;
+    const execute10 = loopEvents.find((event) => event.eventId === 21)!;
+    const { rerender } = render(graph(loopEvents, waitFor10));
+    await waitFor(() => expect(shownNodeIDs()).toContain('Step-10'));
+    fireEvent.click(screen.getByRole('button', { name: /Hide Steps/ }));
+    expect(shownNodeIDs()).toContain(foldedRangeID);
+    rerender(graph(loopEvents, execute10));
+    await waitFor(() => expect(shownNodeIDs()).toContain('Step-10'));
   });
 
   it('opens the folded group that holds the selected Step', async () => {
@@ -207,20 +245,32 @@ describe('Folded intro card', () => {
   });
 });
 
+describe('Graph mini map keyboard', () => {
+  it('is a focusable control whose arrow keys move the view', () => {
+    render(graph(loopEvents));
+    const miniMap = screen.getByRole('group', { name: /mini map/ });
+    expect(miniMap.getAttribute('tabindex')).toBe('0');
+    miniMap.focus();
+    fireEvent.keyDown(miniMap, { key: 'ArrowRight' });
+    // The view is 1200 wide at zoom 1, so ArrowRight moves its center half a view right.
+    expect(flow.state.setCenterCalls.at(-1)).toEqual({ x: 1200, y: 160 });
+  });
+});
+
 describe('Graph mini map', () => {
   it('is shown by default, hides to a map button, and remembers the choice', () => {
     const { unmount } = render(graph(loopEvents));
-    expect(screen.getByRole('img', { name: /mini map/ })).toBeTruthy();
+    expect(screen.getByRole('group', { name: /mini map/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Mini Map/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Hide mini map' }));
-    expect(screen.queryByRole('img', { name: /mini map/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: /mini map/ })).toBeNull();
     expect(storedValues.get(graphViewStorageKeys.isMiniMapHidden)).toBe('true');
     unmount();
 
     render(graph(loopEvents));
-    expect(screen.queryByRole('img', { name: /mini map/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: /mini map/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show mini map' }));
-    expect(screen.getByRole('img', { name: /mini map/ })).toBeTruthy();
+    expect(screen.getByRole('group', { name: /mini map/ })).toBeTruthy();
     expect(storedValues.get(graphViewStorageKeys.isMiniMapHidden)).toBe('false');
   });
 });

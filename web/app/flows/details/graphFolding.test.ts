@@ -10,14 +10,37 @@ import { describe, expect, it } from 'vitest';
 import type { StepGraphEdge, StepGraphNode } from '@/lib/types';
 import {
   foldStepGraph,
+  noGroupOpenIntents,
   roundFrameBoxes,
   roundGroupNodeID,
   stepsInExecutionOrder,
+  withGroupOpenChoice,
+  withStepExecutionOpened,
   type FoldedGraphItem,
+  type GroupOpenIntents,
   type StepGraphFoldingOptions,
 } from './graphFolding';
 
-const defaultOptions: StepGraphFoldingOptions = { openRounds: new Map(), selectedStepExecutionID: '' };
+const defaultOptions: StepGraphFoldingOptions = { openIntents: noGroupOpenIntents, selectedStepExecutionID: '' };
+
+type Graph = { nodes: StepGraphNode[]; edges: StepGraphEdge[] };
+
+/** Applies Show (true) or Hide (false) on groups by key, in order, as a reader would. */
+function chooseGroups(graph: Graph, choices: Array<[string, boolean]>, selectedStepExecutionID = ''): GroupOpenIntents {
+  let openIntents = noGroupOpenIntents;
+  for (const [key, isOpen] of choices) {
+    const { rounds } = foldStepGraph(graph.nodes, graph.edges, { openIntents, selectedStepExecutionID });
+    const group = rounds.find((round) => round.key === key);
+    if (!group) throw new Error(`no group ${key}`);
+    openIntents = withGroupOpenChoice(openIntents, group, isOpen);
+  }
+  return openIntents;
+}
+
+function foldWithChoices(graph: Graph, choices: Array<[string, boolean]>, selectedStepExecutionID = '') {
+  const openIntents = chooseGroups(graph, choices, selectedStepExecutionID);
+  return foldStepGraph(graph.nodes, graph.edges, { openIntents, selectedStepExecutionID });
+}
 
 function stepNode(
   id: string,
@@ -173,10 +196,7 @@ describe('Round ranges', () => {
       ['Poll'], ['Check', 'Failed'],
       ['Poll'], ['Check'],
     ]);
-    const folded = foldStepGraph(graph.nodes, graph.edges, {
-      openRounds: new Map([['round:Poll-3', false], ['round:Poll-4', false]]),
-      selectedStepExecutionID: '',
-    });
+    const folded = foldWithChoices(graph, [['round:Poll-3', false], ['round:Poll-4', false]]);
     expect(folded.rounds.map((round) => [round.title, round.isLive, round.isOpen])).toEqual([
       ['Rounds 1–2', false, false],
       ['Round 3', true, true],
@@ -187,10 +207,7 @@ describe('Round ranges', () => {
 
   it('shows the Rounds of an opened range folded, with the first, selected and last ones', () => {
     const graph = chain(repeat(13, [['Poll'], ['Check']]));
-    const folded = foldStepGraph(graph.nodes, graph.edges, {
-      openRounds: new Map([['rounds:Poll-1', true]]),
-      selectedStepExecutionID: 'Check-7',
-    });
+    const folded = foldWithChoices(graph, [['rounds:Poll-1', true]], 'Check-7');
     expect(shown(folded.items)).toEqual([
       '__start__',
       '[Round 1]', '[Round 2]', '[Round 3]',
@@ -205,10 +222,7 @@ describe('Round ranges', () => {
 
   it('shows the Steps of an opened one-Step-type range with "… N more" between them', () => {
     const graph = chain([...repeat(20, [['SyncBatch']]), ['SyncBatch', 'Waiting']]);
-    const folded = foldStepGraph(graph.nodes, graph.edges, {
-      openRounds: new Map([['rounds:SyncBatch-1', true]]),
-      selectedStepExecutionID: '',
-    });
+    const folded = foldWithChoices(graph, [['rounds:SyncBatch-1', true]]);
     expect(shown(folded.items)).toEqual([
       '__start__', 'SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3', '… 15 more Steps', 'SyncBatch-19', 'SyncBatch-20', 'SyncBatch-21',
     ]);
@@ -219,10 +233,7 @@ describe('Round ranges', () => {
       ['Plan'], ['CallTool'], ['CallTool'], ['Reply'],
       ['Plan'], ['Reply'],
     ]);
-    const folded = foldStepGraph(graph.nodes, graph.edges, {
-      openRounds: new Map([['round:Plan-1', true]]),
-      selectedStepExecutionID: 'CallTool-1',
-    });
+    const folded = foldWithChoices(graph, [['round:Plan-1', true]], 'CallTool-1');
     expect(shown(folded.items)).toEqual(['__start__', 'Plan-1', 'CallTool-1 ×2', 'Reply-1', 'Plan-2', 'Reply-2']);
     expect(folded.rounds[0].sequence).toEqual(['Plan', 'CallTool ×2', 'Reply']);
   });
@@ -251,6 +262,48 @@ describe('Round ranges', () => {
     );
     expect(folded.items.some((item) => item.id === subFlow.id)).toBe(false);
     expect(folded.edges.some((edge) => edge.target === subFlow.id)).toBe(false);
+  });
+});
+
+describe('Folding as events arrive', () => {
+  it('keeps an opened Round and the selected Step in view when the Round joins a range', () => {
+    const before = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['B']]);
+    const openIntents = withStepExecutionOpened(chooseGroups(before, [['round:A-1', true]]), 'B-1');
+    const after = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['B'], ['A']]);
+    const folded = foldStepGraph(after.nodes, after.edges, { openIntents, selectedStepExecutionID: 'B-1' });
+    expect(folded.rounds.map((round) => [round.key, round.isOpen])).toEqual([
+      ['rounds:A-1', true],
+      ['round:A-1', true],
+      ['round:A-2', false],
+      ['round:A-3', true],
+    ]);
+    expect(shown(folded.items)).toEqual(['__start__', 'A-1', 'B-1 ×2', '[Round 2]', 'A-3']);
+  });
+
+  it('keeps the Round anchor while it still repeats', () => {
+    const before = chain([['A'], ['B'], ['A'], ['B'], ['A']]);
+    expect(foldStepGraph(before.nodes, before.edges, defaultOptions).anchorStepType).toBe('B');
+    const after = chain([['A'], ['B'], ['A'], ['B'], ['A'], ['B']]);
+    expect(foldStepGraph(after.nodes, after.edges, defaultOptions).anchorStepType).toBe('A');
+    const kept = foldStepGraph(after.nodes, after.edges, { ...defaultOptions, preferredAnchorStepType: 'B' });
+    expect(kept.anchorStepType).toBe('B');
+    expect(kept.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3']);
+  });
+
+  it('never anchors Rounds on planned Steps and still shows them', () => {
+    const graph = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['A'], ['B']]);
+    const planned = [0, 1].map((index): StepGraphNode => ({
+      id: `__planned:99:${index}`, label: 'C', kind: 'step', status: 'Pending', stepType: 'C', isPlanned: true, fromStepExecutionId: 'B-4',
+    }));
+    const folded = foldStepGraph([...graph.nodes, ...planned], graph.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('A');
+    expect(folded.items.map((item) => item.id)).toEqual(expect.arrayContaining(['__planned:99:0', '__planned:99:1']));
+  });
+
+  it('folds a range and its Rounds again with Hide', () => {
+    const graph = chain([...repeat(4, [['Poll'], ['Check']])]);
+    const folded = foldWithChoices(graph, [['rounds:Poll-1', true], ['round:Poll-2', true], ['rounds:Poll-1', false], ['rounds:Poll-1', true]]);
+    expect(folded.rounds.filter((round) => round.parentKey).map((round) => round.isOpen)).toEqual([false, false, false]);
   });
 });
 

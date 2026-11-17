@@ -1898,6 +1898,11 @@ body:has(.v1-page) {
   touch-action: none;
 }
 
+.v1-page .graph-overview:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
 .v1-page .graph-overview svg {
   position: absolute;
   inset: 0;

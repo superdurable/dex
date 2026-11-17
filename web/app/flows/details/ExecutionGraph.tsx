@@ -47,9 +47,12 @@ import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
 import {
   foldStepGraph,
+  noGroupOpenIntents,
+  withGroupOpenChoice,
+  withStepExecutionOpened,
+  type GroupOpenIntents,
   roundFrameBoxes,
   roundFrameNodeID,
-  roundFramePadding,
   unfoldedStepGraph,
   type FoldedGraphItem,
   type FoldedStepGraph,
@@ -66,7 +69,7 @@ import {
 import { GraphOverview } from './GraphOverview';
 import { graphViewStorageKeys, useStoredGraphFlag } from './graphViewPreferences';
 
-/** What a graph node draws: a Step execution or source, a folded Round, an elision gap, or a Round frame. */
+/** What a node draws: a Step execution or source, a folded group, an elision gap, or a frame. */
 type GraphNodeDisplay = 'node' | 'group' | 'more' | 'frame';
 
 interface StepNodeData extends Record<string, unknown> {
@@ -579,6 +582,26 @@ function nodeHandles(
   return handles;
 }
 
+/** The same-zoom viewport that brings a box into view, top left first; null when already shown. */
+function viewportShowingBox(
+  viewport: { x: number; y: number; zoom: number },
+  canvas: { width: number; height: number },
+  box: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; zoom: number } | null {
+  const axisOffset = (offset: number, start: number, length: number, canvasLength: number) => {
+    const shownStart = start * viewport.zoom + offset;
+    const shownEnd = shownStart + length * viewport.zoom;
+    if (length * viewport.zoom > canvasLength - revealMargin * 2 || shownStart < revealMargin) {
+      return revealMargin - start * viewport.zoom;
+    }
+    if (shownEnd > canvasLength - revealMargin) return canvasLength - revealMargin - (start + length) * viewport.zoom;
+    return offset;
+  };
+  const x = axisOffset(viewport.x, box.x, box.width, canvas.width);
+  const y = axisOffset(viewport.y, box.y, box.height, canvas.height);
+  return x === viewport.x && y === viewport.y ? null : { x, y, zoom: viewport.zoom };
+}
+
 /** The box of the latest Round and the node just before it, or null when nothing is folded. */
 function newestFoldedBox(
   nodes: Array<Node<StepNodeData>>,
@@ -687,7 +710,10 @@ export function ExecutionGraph({
     false,
   );
   const [isFoldedIntroLeaving, setIsFoldedIntroLeaving] = useState(false);
-  const [openRounds, setOpenRounds] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [openIntents, setOpenIntents] = useState<GroupOpenIntents>(noGroupOpenIntents);
+  // The Round anchor stays while it still repeats, so new events never regroup the whole run.
+  const preferredAnchorStepType = useRef({ flowId, stepType: '' });
+  if (preferredAnchorStepType.current.flowId !== flowId) preferredAnchorStepType.current = { flowId, stepType: '' };
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId, { hasEarlierEvents }),
@@ -699,10 +725,17 @@ export function ExecutionGraph({
   );
   const folded = useMemo<FoldedStepGraph>(
     () => (isFolded
-      ? foldStepGraph(graph.nodes, graph.edges, { openRounds, selectedStepExecutionID })
+      ? foldStepGraph(graph.nodes, graph.edges, {
+        openIntents,
+        selectedStepExecutionID,
+        preferredAnchorStepType: preferredAnchorStepType.current.stepType,
+      })
       : unfoldedStepGraph(graph.nodes, graph.edges)),
-    [graph.edges, graph.nodes, isFolded, openRounds, selectedStepExecutionID],
+    [graph.edges, graph.nodes, isFolded, openIntents, selectedStepExecutionID],
   );
+  useEffect(() => {
+    if (folded.anchorStepType) preferredAnchorStepType.current = { flowId, stepType: folded.anchorStepType };
+  }, [flowId, folded.anchorStepType]);
   const shownStepNodes = useMemo(
     () => folded.items.flatMap((item) => (item.display === 'node' ? [item.node] : [])),
     [folded.items],
@@ -724,26 +757,19 @@ export function ExecutionGraph({
     [shownStepNodes],
   );
 
-  // Selecting a Step inside folded groups opens them once; Hide can fold them again.
-  const roundOpenedForStepID = useRef('');
+  // Each newly selected event opens the groups that hold its Step; Hide can fold them again.
+  const selectedEventId = selectedEvent?.eventId ?? null;
   useEffect(() => {
-    if (!isFolded || !selectedStepExecutionID || roundOpenedForStepID.current === selectedStepExecutionID) return;
-    const groupKeys = folded.groupKeysByStepExecutionID.get(selectedStepExecutionID);
-    if (!groupKeys) return;
-    roundOpenedForStepID.current = selectedStepExecutionID;
-    const closedKeys = groupKeys.filter((key) => !folded.rounds.some((round) => round.key === key && round.isOpen));
-    if (closedKeys.length === 0) return;
-    setOpenRounds((current) => {
-      const next = new Map(current);
-      for (const key of closedKeys) next.set(key, true);
-      return next;
-    });
-  }, [folded, isFolded, selectedStepExecutionID]);
+    if (!isFolded || selectedEventId === null || !selectedStepExecutionID) return;
+    setOpenIntents((current) => withStepExecutionOpened(current, selectedStepExecutionID));
+  }, [isFolded, selectedEventId, selectedStepExecutionID]);
 
   const revealedRoundKey = useRef('');
   const setRoundOpen = (key: string, isOpen: boolean) => {
+    const group = folded.rounds.find((round) => round.key === key);
+    if (!group) return;
     if (isOpen) revealedRoundKey.current = key;
-    setOpenRounds((current) => new Map(current).set(key, isOpen));
+    setOpenIntents((current) => withGroupOpenChoice(current, group, isOpen));
   };
 
   const edges = useMemo<Edge[]>(() => folded.edges.map((edge) => {
@@ -940,25 +966,17 @@ export function ExecutionGraph({
     return () => window.cancelAnimationFrame(frame);
   }, [canvasSize, flowInstance, isWholeGraphShown, nodes, selectedEvent]);
 
-  // After Show Steps or Show Rounds, pans so the opened group's first node is in view; zoom stays.
+  // After Show Steps or Show Rounds, pans so the opened group's frame is in view; zoom stays.
   useEffect(() => {
     const key = revealedRoundKey.current;
     if (!key || !flowInstance) return;
     revealedRoundKey.current = '';
-    const members = nodes.filter((node) => node.data.frameKeys?.includes(key));
-    const first = members.reduce<Node<StepNodeData> | undefined>(
-      (leftmost, node) => (!leftmost || node.position.x < leftmost.position.x ? node : leftmost),
-      undefined,
-    );
-    if (!first) return;
+    const frame = nodes.find((node) => node.id === roundFrameNodeID(key));
+    if (!frame) return;
     const viewport = flowInstance.getViewport();
-    const size = { width: Number(first.width ?? 0), height: Number(first.height ?? 0) };
-    if (isNodeInView(viewport, canvasSize, first.position, size)) return;
-    void flowInstance.setViewport({
-      x: revealMargin - (first.position.x - roundFramePadding.side) * viewport.zoom,
-      y: viewport.y,
-      zoom: viewport.zoom,
-    }, { duration: viewportTransitionDuration() });
+    const box = { ...frame.position, width: Number(frame.width ?? 0), height: Number(frame.height ?? 0) };
+    const shown = viewportShowingBox(viewport, canvasSize, box);
+    if (shown) void flowInstance.setViewport(shown, { duration: viewportTransitionDuration() });
   }, [canvasSize, flowInstance, nodes]);
 
   const wholeGraphZoom = fittingGraphZoom(bounds, { width: canvasWidth * fitPadding, height: canvasSize.height * fitPadding });
