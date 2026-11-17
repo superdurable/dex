@@ -29,6 +29,7 @@ const referenceSearchContexts = [
   {path: 'reference/cli', label: {en: 'CLI', 'zh-Hans': 'CLI'}},
   {path: 'reference/web', label: {en: 'Dex Web', 'zh-Hans': 'Dex Web'}},
   {path: 'reference/agents', label: {en: 'Agents packages', 'zh-Hans': 'Agents 包'}},
+  {path: 'reference/dex-app', label: {en: 'Dex app', 'zh-Hans': 'Dex app'}},
 ];
 
 // src/theme/Navbar/Content renders the header itself; only the locale switch comes from themeConfig.
@@ -47,7 +48,7 @@ const companyHeaderNavigation = {
       items: [
         {label: 'Dex Docs', to: '/'},
         {label: 'Quick start', to: '/quick-start'},
-        {label: 'App structure', href: 'https://superdurable.io/dex-app-structure/', target: '_self'},
+        {label: 'App structure', to: '/reference/dex-app/manifest'},
         {label: 'GitHub', href: 'https://github.com/superdurable/dex', target: '_self'},
         {label: 'Compare engines', href: 'https://superdurable.io/#compare', target: '_self'},
       ],
@@ -184,7 +185,7 @@ const config: Config = {
         indexPages: false,
         docsRouteBasePath: '/',
         // Older reference snapshots are excluded; the latest reference and every guide are indexed.
-        ignoreFiles: [/^reference\/[^/]+\/\d+\.\d+\.\d+\//],
+        ignoreFiles: [/^reference\/[^/]+\/(?:\d+\.\d+\.\d+|v\d+)\//],
         searchBarShortcutHint: true,
         searchBarPosition: 'left',
         highlightSearchTermsOnTargetPage: false,

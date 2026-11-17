@@ -21,6 +21,7 @@ import {
   type HistoryTestServer,
 } from '@/lib/historyTestServer';
 import type { FlowHistoryEvent, FlowState, FlowSummary, HistoryPage } from '@/lib/types';
+import { sessionTaskQueue } from '../agents/sessionFork';
 import { RunDetailsPage } from './RunDetailsPage';
 
 // React Flow needs layout APIs that jsdom lacks, so the graph reports the events it receives.
@@ -394,6 +395,8 @@ describe('clone fork on the run page', () => {
     options: {
       closed?: boolean;
       taskQueue?: string | null;
+      /** False serves no Flow definition for the Flow type. */
+      hasDefinition?: boolean;
       serverProtocolVersion?: number;
       /** A protocol a test changes after the page loads; it overrides serverProtocolVersion. */
       serverProtocol?: { version: number };
@@ -420,6 +423,9 @@ describe('clone fork on the run page', () => {
           });
         }
         return json({ serverEngine: 'zd', currentProtocolVersion: options.serverProtocol?.version ?? options.serverProtocolVersion ?? 6 });
+      }
+      if (url.pathname === '/api/flow-definitions/by-type' && options.hasDefinition === false) {
+        return new Response(JSON.stringify({ code: 'FLOW_DEFINITION_NOT_FOUND', error: 'not found' }), { status: 404 });
       }
       if (url.pathname === '/api/flow-definitions/by-type') return json({ flowType: 'OrderFlow', definitions: [], v2: { flowType: 'OrderFlow', definition: { actions: [], display: { fields: [] } } } });
       if (url.pathname === '/api/flows/time-travel') {
@@ -508,17 +514,58 @@ describe('clone fork on the run page', () => {
     expect(link.getAttribute('href')).toBe('/v1/flows/order-0/run-0?runAttempt=2&event=9007199254740993');
   });
 
-  it('offers Clone fork in the selected event panel for a confirmed non-session', async () => {
+  it.each([true, false])('offers Clone fork in the selected event panel when a definition exists: %s', async (hasDefinition) => {
     vi.stubGlobal('ResizeObserver', class {
       observe() {}
       disconnect() {}
     });
-    cloneForkDex();
+    cloneForkDex({}, { hasDefinition });
     renderCloneForkRun();
     fireEvent.click(await screen.findByRole('tab', { name: 'Events' }));
     await waitFor(() => expect(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')).not.toBeNull());
     fireEvent.click(document.querySelector<HTMLElement>('.timeline-row[data-event-id="2"]')!);
     expect(await screen.findByRole('button', { name: 'Clone fork from here…' })).toBeTruthy();
+  });
+
+  it('clone forks a Flow without a definition with no session rules', async () => {
+    const cloneForkRequests = cloneForkDex({}, { hasDefinition: false });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
+    await waitFor(() => expect((within(dialog).getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe('orders'));
+    expect(within(dialog).queryByTestId('clone-fork-session-note')).toBeNull();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'try a fix' } });
+    const submit = within(dialog).getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+    await waitFor(() => expect(cloneForkRequests).toHaveLength(1));
+    expect(cloneForkRequests[0]).toMatchObject({ sourceFlowId: 'order-1', flowId: 'order-1-copy' });
+    expect(cloneForkRequests[0]).not.toHaveProperty('taskQueue');
+    expect(cloneForkRequests[0]).not.toHaveProperty('deleteAttributeKeys');
+  });
+
+  it('moves a session on its own task queue to the new session\'s task queue', async () => {
+    const cloneForkRequests = cloneForkDex({}, { hasDefinition: false, taskQueue: await sessionTaskQueue('order-1') });
+    renderCloneForkRun();
+    fireEvent.click(await screen.findByRole('button', { name: 'More run actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Clone fork/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Clone fork to a new Flow' });
+    await within(dialog).findByTestId('clone-fork-session-note');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    const derivedTaskQueue = await sessionTaskQueue('order-1-copy');
+    await waitFor(() => expect((within(dialog).getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe(derivedTaskQueue));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Reason' }), { target: { value: 'try a fix' } });
+    const submit = within(dialog).getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+    await waitFor(() => expect(cloneForkRequests).toHaveLength(1));
+    expect(cloneForkRequests[0]).toMatchObject({
+      flowId: 'order-1-copy',
+      taskQueue: derivedTaskQueue,
+      deleteAttributeKeys: ['SessionTerminalLease', 'SessionLastTerminalEnvironment'],
+    });
   });
 
   it('hides Clone fork and sends no SubFlow reset policy before server protocol 6', async () => {

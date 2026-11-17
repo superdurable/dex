@@ -41,6 +41,14 @@ const serverProtocolUnsupportedCode = "SERVER_PROTOCOL_UNSUPPORTED"
 type handler struct {
 	client       dexpb.FlowServiceClient
 	serverEngine *ServerEngineResolver
+	webVersion   string
+}
+
+// HandlerConfig holds the optional settings of RegisterHandlersWithConfig.
+type HandlerConfig struct {
+	// WebVersion defaults empty and names the build that serves Dex Web, such as "dex-web 1.45.11".
+	// GET /api/server-info reports it as webVersion; empty means unknown.
+	WebVersion string
 }
 
 // serverInfoResponse is what GET /api/server-info returns.
@@ -48,16 +56,28 @@ type serverInfoResponse struct {
 	ServerEngine string `json:"serverEngine"`
 	// CurrentProtocolVersion is 0 when the server does not report one or cannot answer.
 	CurrentProtocolVersion uint32 `json:"currentProtocolVersion"`
+	// MinimumSupportedProtocolVersion is 0 when the server does not report one or cannot answer.
+	MinimumSupportedProtocolVersion uint32 `json:"minimumSupportedProtocolVersion"`
+	// ServerVersion is empty when the server does not report one or cannot answer.
+	ServerVersion string `json:"serverVersion"`
+	// WebVersion is empty when the Dex Web build is unknown.
+	WebVersion string `json:"webVersion"`
 }
 
+// RegisterHandlers registers the Dex Web API routes for client with the default HandlerConfig.
 func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
+	RegisterHandlersWithConfig(mux, client, HandlerConfig{})
+}
+
+// RegisterHandlersWithConfig registers the Dex Web API routes for client.
+func RegisterHandlersWithConfig(mux *http.ServeMux, client dexpb.FlowServiceClient, config HandlerConfig) {
 	if mux == nil {
 		panic("HTTP mux must not be nil")
 	}
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	handler := &handler{client: client, serverEngine: NewServerEngineResolver(client)}
+	handler := &handler{client: client, serverEngine: NewServerEngineResolver(client), webVersion: config.WebVersion}
 	mux.HandleFunc("GET /api/server-info", handler.getServerInfo)
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
@@ -576,10 +596,13 @@ func (h *handler) requireRunHistoryForkProtocol(response http.ResponseWriter, re
 
 func (h *handler) getServerInfo(response http.ResponseWriter, request *http.Request) {
 	// An unanswered lookup reports the unspecified engine and protocol 0, so the browser hides newer options.
-	serverEngine, currentProtocolVersion, _ := h.serverEngine.resolveServerInfo(request.Context())
+	serverInfo, _ := h.serverEngine.resolveCachedServerInfo(request.Context())
 	writeJSON(response, http.StatusOK, serverInfoResponse{
-		ServerEngine:           serverEngineName(serverEngine),
-		CurrentProtocolVersion: currentProtocolVersion,
+		ServerEngine:                    serverEngineName(serverInfo.engine),
+		CurrentProtocolVersion:          serverInfo.currentProtocolVersion,
+		MinimumSupportedProtocolVersion: serverInfo.minimumProtocolVersion,
+		ServerVersion:                   serverInfo.serverVersion,
+		WebVersion:                      h.webVersion,
 	})
 }
 

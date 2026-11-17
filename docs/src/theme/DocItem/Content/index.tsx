@@ -26,6 +26,7 @@ const referenceComponentLabels: Record<string, string> = {
   typescript: 'TypeScript SDK reference',
   rust: 'Rust SDK reference',
   agents: 'Agents reference',
+  'dex-app': 'Dex app reference',
 };
 
 /**

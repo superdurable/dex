@@ -26,6 +26,8 @@ type EmbeddedSiteConfig struct {
 	// an entry, /api requests must name a loopback name, an IP address, or one of these hosts; an entry may carry
 	// a port, which is ignored. Other Hosts get HTTP 403.
 	AllowedHosts []string
+	// WebVersion defaults empty and has the same meaning as Config.WebVersion for every target.
+	WebVersion string
 }
 
 // EmbeddedSiteTarget is the Dex Server that one request reaches. Dex Web keeps no part of it after the request.
@@ -50,6 +52,7 @@ type EmbeddedSiteTarget struct {
 type EmbeddedSite struct {
 	pages      *sitePages
 	protection apiRequestProtection
+	webVersion string
 }
 
 // NewEmbeddedSite builds the shared pages from assets, whose "dist" directory holds the built SPA.
@@ -62,7 +65,11 @@ func NewEmbeddedSite(cfg *EmbeddedSiteConfig, assets fs.FS) (*EmbeddedSite, erro
 	if err != nil {
 		return nil, err
 	}
-	return &EmbeddedSite{pages: pages, protection: newAPIRequestProtection(newAllowedHostsPolicy(cfg.AllowedHosts))}, nil
+	return &EmbeddedSite{
+		pages:      pages,
+		protection: newAPIRequestProtection(newAllowedHostsPolicy(cfg.AllowedHosts)),
+		webVersion: cfg.WebVersion,
+	}, nil
 }
 
 // SetFramingHeaders sets the Content-Security-Policy frame-ancestors and X-Frame-Options headers that
@@ -97,6 +104,7 @@ func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *htt
 	}
 	routes := site.pages.newTargetRouteMux(targetRoutes{
 		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath, hasHostNavigation: target.HasHostNavigation,
+		webVersion: site.webVersion,
 	})
 	serveUnderBasePath(response, request, basePath, site.protection.wrap(refuseWorkerHealthProbes(routes)))
 }

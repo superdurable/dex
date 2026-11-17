@@ -207,7 +207,7 @@ assert.match(footer, />Company</);
 assert.match(footer, />Legal</);
 assert.match(footer, /href="https:\/\/superdurable\.io\/dex-cloud\/"[^>]*>Dex Cloud</);
 assert.match(footer, /href="https:\/\/github\.com\/superdurable\/dex"[^>]*>GitHub</);
-assert.match(footer, /href="https:\/\/superdurable\.io\/dex-app-structure\/"[^>]*>App structure</);
+assert.match(footer, /href="\/reference\/dex-app\/manifest\/?"[^>]*>App structure</);
 assert.doesNotMatch(footer, /Dex Engine|Sign up/);
 assert.match(footer, /href="\/quick-start\/"/);
 assert.match(footer, /href="https:\/\/superdurable\.io\/about\/#contact"/);
@@ -472,7 +472,7 @@ for (const filePath of htmlIndexFiles) {
     expectedAlternateLanguageLinks(route),
     `${route} has incorrect alternate-language URLs`,
   );
-  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust|agents)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
+  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust|agents|dex-app)\/(?:(\d+\.\d+\.(?:x|\d+)|v\d+)\/)?/);
   const isArchivedReference = Boolean(referenceMatch?.[2]);
   const selectorMarkers = html.match(/data-reference-version-selector=/g) ?? [];
   assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);

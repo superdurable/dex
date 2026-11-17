@@ -258,7 +258,7 @@ Changed in 1.45.4: every page has one bar in place of the header and the page br
 - The bar starts with the name of the page you are on. On a run page it is **Flows**, and it returns to your last Flows search.
 - A page adds what it is, its views, and its actions to the bar.
 - The search button, or ⌘K and Ctrl+K, lists Flows whose ID starts with what you type, opens a pasted run link, and shows this browser's recent runs and the pages. Arrow keys and Enter choose a match.
-- The settings button holds **Theme**, **Timezone**, and **Docs**.
+- The settings button holds **Theme**, **Timezone**, and **Docs**. Changed in 1.45.11: it also shows the Dex Server that Dex Web is connected to. One line names the engine, the server version, and the current protocol, such as **server-zd 0.1.34 · protocol 7**. Below it are the engine, the version, the supported protocol range, and the build that serves Dex Web, such as **dex-web 1.45.11** or **dexcli 1.47.10**. Dex Web reads them from **GET /api/server-info** each time the menu opens. A field the server does not report is left out, and the line reads **unknown** when the server does not answer.
 
 The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query** when there is one. **Query** takes a hand-written **Search query**. Both use the [query syntax](/reference/server/search#query-syntax) of SearchFlows. The result list is paged, and you can save queries and choose columns. Changed in 1.45.4: clicking anywhere on a row opens its run, and the **Run ID** column is hidden by default; turn it on in **Columns**. **All**, **Running**, **Failed**, and **Completed** beside the tabs search by that status in one click, a SubFlow's row reads as **↳** and its name, shortened in the middle, and the search stays one row until you add a filter. **Group by type**, on by default, groups the page's runs by Flow type, each under its name and its counts by status on that page, with **Design ›** to the type's design on **Designs** when one is loaded. The browser remembers the choice.
 
@@ -757,6 +757,9 @@ version, both are hidden and the request carries no **subFlowResetPolicy**, so
 the server applies its own default. Each page load reads the version from
 **GET /api/server-info**, which returns **serverEngine** and
 **currentProtocolVersion**; 0 means the server reports none or cannot answer.
+Changed in 1.45.11: it also returns **minimumSupportedProtocolVersion** (0 when
+unknown), **serverVersion**, and **webVersion**, the build that serves Dex Web
+(both empty when unknown). The server fields share the protocol's cache.
 Dex Web reads the version from the server again after 60 seconds, so a page
 loaded a minute after a server upgrade or rollback follows the new version.
 Behind a load balancer that mixes server versions during a rollout, the version
@@ -804,12 +807,18 @@ A run that a clone fork created shows **Clone forked from FLOW_ID at event #N**
 in the line under the bar. The link opens the source run at the copied run
 attempt, with event N selected. N is the last source event the copy includes.
 
-A run that Dex Web identifies as an agent session through its loaded Flow Definition
-Graph offers no **Clone fork**. Dex Web also hides the action until it loads a
-definition that identifies the Flow as another type. A session's clone fork needs
-its own task queue and session state, which a generic clone fork does not set.
-Since 1.45.8, the **Conversation** tab forks a session with both; see
-[Fork a session](#agent-session-fork).
+Changed in 1.45.11: every run offers **Clone fork**, including a Flow whose type
+has no Flow definition. When Dex Web identifies the run as an agent session, the
+dialog says so and applies the session rules of [Fork a session](#agent-session-fork).
+Dex Web identifies a session in two ways: its Flow Definition Graph is a session
+graph, or the run's task queue is the session's own task queue, derived from its
+Flow ID. A session clone fork sends **deleteAttributeKeys** with
+**SessionTerminalLease** and **SessionLastTerminalEnvironment**. A session on its
+own task queue moves to the task queue derived from the new Flow ID. The dialog
+shows that task queue in place of the **Task queue** field and updates it as you
+edit the ID. Every other run's clone fork works as described above. Before
+1.45.11, Dex Web hid **Clone fork** until a loaded definition showed the Flow was
+not an agent session.
 
 **POST /api/flows/clone-fork** takes **sourceFlowId**, **sourceRunId**,
 **flowId**, **reason**, an optional **requestId**, and the point fields

@@ -1,0 +1,75 @@
+---
+title: Managed Dex App
+sidebar_label: Managed Dex App
+slug: /components/managed-dex-app
+description: A Managed Dex App is a Dex application that Dex Cloud builds, previews, and runs in Live from your GitHub repository.
+---
+
+# Managed Dex App {#managed-dex-app}
+
+A **Managed Dex App** is a Dex application that Dex Cloud builds and runs from your GitHub repository. Super Durable runs the application and its Workers in Live, and in an optional Preview. You maintain the code.
+
+## When to use it {#when-to-use}
+
+Dex Cloud offers two products:
+
+| | Managed Dex Server | Managed Dex App |
+| --- | --- | --- |
+| Super Durable runs | Dex Server | Dex Server, your Workers, and your web server |
+| You run | Your Workers, wherever you deploy them | Nothing. You push code to GitHub. |
+| You provide | Worker code and its deployment | A GitHub repository in the Dex app structure |
+| Start here | [Run on Dex Cloud](/components/dex-cloud) | This page |
+
+Choose a Managed Dex App when you want Dex Cloud to run your application and Workers. Check the [supported stacks](/reference/dex-app/manifest#template-manifest) before importing. Choose a managed Dex Server when you deploy your own Workers.
+
+## Start from the example {#example}
+
+The minimal example is [`superdurable-apps/cloud-dex-app-example`](https://github.com/superdurable-apps/cloud-dex-app-example). It is a small TypeScript process that meets every repository rule. Copy it, or compare your repository with it file by file.
+
+## Follow the repository rules {#repository-rules}
+
+Prepare your repository using the [repository layout and import rules](/reference/dex-app/manifest#repository-layout).
+
+## Import a repository {#import}
+
+Import is in early access and is being turned on for Dex Cloud gradually. Where it is not on yet, the Import view says "GitHub connections are not available here."
+
+Dex Cloud reads your repository through the **SuperDurable Dex Cloud** GitHub App. The app asks for these permissions:
+
+- **Contents**: read and write. When you ask the coding agent for a change, it pushes to `main`.
+- **Metadata**: read.
+- **Members**: read.
+
+To import a repository:
+
+1. A Teamspace admin who owns the GitHub organization (or the personal account) opens **Connections**, chooses **Install the GitHub App**, installs the [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App with access to the repository, then chooses **Connect GitHub**.
+2. Any member of the Teamspace chooses **Import project** on the start page.
+3. Under **Import from**, choose the GitHub account. Pick the repository from the list, or type it as `owner/name` and choose **Check repository**.
+4. Review the check. Dex Cloud reads `main` and shows `kind`, `stack`, and every rule the repository breaks.
+5. When it passes, choose **Create project**.
+
+Importing leaves your repository unchanged. Deleting the project removes its Preview, Live and data, and leaves the repository untouched.
+
+## Build, Preview, and Live {#build-preview-live}
+
+Dex Cloud builds the application from the build profile. Your repository needs no Dockerfile.
+
+- **Live** runs a version you publish: choose **Publish**, pick a version (a commit of `main`) and choose **Publish to Live**; Dex Cloud builds an image and deploys it.
+- **Preview** is optional: it runs a version quickly, without an image build, on data separate from Live, so you can try a change before your users see it. It runs on its own Dex Server. When new commits reach `main`, Preview offers to follow them. When you do not need that, publish straight to Live.
+
+Both run your web server and your Worker as two modes of one build. Dex Cloud publishes your Flow definitions from the Flow sources that `dex-app.yaml` declares. The **Runs** tab opens Dex Web on the current Live deployment, and on the Preview while one runs.
+
+You and your team keep pushing to `main` as before. When you ask the coding agent for a change, it commits to `main`, and Dex Cloud checks those commits against the same rules.
+
+## Fix a refused import {#fix-refused-import}
+
+The import check lists each problem as a finding. Each finding names where it is, what is wrong and how to fix it, with a link to its rule.
+
+Each finding code has its own section on [the reference page](/reference/dex-app/manifest#import-report), such as [`flow_source_missing`](/reference/dex-app/manifest#flow_source_missing). Fix the repository, push to `main`, and check again.
+
+If the check says the repository cannot be read, give the SuperDurable Dex Cloud GitHub App access to it on GitHub.
+
+## Next {#next}
+
+- [Run Dex in Production](/components/production): the checklist items for your Flow code and code changes apply to a Managed Dex App too.
+- [Dex app manifest and repository layout](/reference/dex-app/manifest): every manifest field, rule, limit, and finding.

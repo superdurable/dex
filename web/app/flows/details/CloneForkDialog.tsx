@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { TimezonePreference } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import {
@@ -19,6 +19,7 @@ import {
 import { SUB_FLOW_RESET_POLICY } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
+import { SESSION_FORK_DELETED_ATTRIBUTES, SESSION_TASK_QUEUE_PREFIX, sessionTaskQueue } from '../../agents/sessionFork';
 import { useModalFocus } from '../../components/useModalFocus';
 import { startTaskQueueError } from '../../start/StartFlowDialog';
 import {
@@ -45,6 +46,18 @@ const cloneForkPoints: { kind: HistoryPointKind; value: number; label: string }[
   { kind: 'event-id', value: CLONE_FORK_POINT_TYPE.EVENT_ID, label: 'Event ID' },
 ];
 
+/** Whether the source run's task queue is read yet; 'failed' when its configuration could not be read. */
+export type SourceTaskQueueStatus = 'loading' | 'loaded' | 'failed';
+
+/** Whether the source runs on its own session task queue; 'unavailable' when Web Crypto cannot tell. */
+type SessionQueueCheck = 'pending' | 'own' | 'other' | 'unavailable';
+
+/** A derived session task queue, kept with the Flow ID it was derived from. */
+interface DerivedSessionTaskQueue {
+  flowId: string;
+  taskQueue: string;
+}
+
 function initialPointKind(initialEvent: FlowHistoryEvent | null, isSourceRunning: boolean): HistoryPointKind {
   if (initialEvent) return 'event-id';
   return isSourceRunning ? 'current' : 'beginning';
@@ -57,6 +70,8 @@ export function CloneForkDialog({
   initialEvent,
   runAttempt,
   sourceTaskQueue,
+  sourceTaskQueueStatus,
+  isAgentSessionDefinition,
   isSourceRunning,
   timezone,
   onClose,
@@ -71,6 +86,10 @@ export function CloneForkDialog({
   runAttempt: number;
   /** The source run's task queue, or null when its configuration is unavailable. */
   sourceTaskQueue: string | null;
+  /** Whether sourceTaskQueue is read; a null queue means the default task queue only once loaded. */
+  sourceTaskQueueStatus: SourceTaskQueueStatus;
+  /** Whether the source's Flow definition is an agent session; null while the definition loads. */
+  isAgentSessionDefinition: boolean | null;
   /** The current state can be copied only while the source run is running. */
   isSourceRunning: boolean;
   timezone: TimezonePreference;
@@ -88,8 +107,49 @@ export function CloneForkDialog({
   const [requestId, setRequestId] = useState(newCloneForkRequestId);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [hashedSessionQueueCheck, setHashedSessionQueueCheck] =useState<SessionQueueCheck>('pending');
+  const canBeOwnSessionQueue = sourceTaskQueue?.startsWith(SESSION_TASK_QUEUE_PREFIX) === true;
+  const sessionQueueCheck: SessionQueueCheck = sourceTaskQueueStatus === 'loading'
+    ? 'pending'
+    : canBeOwnSessionQueue ? hashedSessionQueueCheck : 'other';
+  const [derivedTaskQueue, setDerivedTaskQueue] = useState<DerivedSessionTaskQueue | null>(null);
   const stepTypes = useStepTypesOf(events);
   const points = isSourceRunning ? cloneForkPoints : cloneForkPoints.filter((point) => point.kind !== 'current');
+  const trimmedFlowId = flowId.trim();
+
+  useEffect(() => {
+    if (!open || !sourceTaskQueue?.startsWith(SESSION_TASK_QUEUE_PREFIX)) return undefined;
+    let isCurrent = true;
+    setHashedSessionQueueCheck('pending');
+    sessionTaskQueue(summary.flowId).then(
+      (ownTaskQueue) => {
+        if (isCurrent) setHashedSessionQueueCheck(ownTaskQueue === sourceTaskQueue ? 'own' : 'other');
+      },
+      () => {
+        if (isCurrent) setHashedSessionQueueCheck('unavailable');
+      },
+    );
+    return () => {
+      isCurrent = false;
+    };
+  }, [open, sourceTaskQueue, summary.flowId]);
+
+  const isOnOwnSessionQueue = sessionQueueCheck === 'own';
+  useEffect(() => {
+    if (!open || !isOnOwnSessionQueue || !trimmedFlowId) return undefined;
+    let isCurrent = true;
+    sessionTaskQueue(trimmedFlowId).then(
+      (taskQueueOfNewFlow) => {
+        if (isCurrent) setDerivedTaskQueue({ flowId: trimmedFlowId, taskQueue: taskQueueOfNewFlow });
+      },
+      (deriveError: unknown) => {
+        if (isCurrent) setError(deriveError instanceof Error ? deriveError.message : 'Deriving the session task queue failed');
+      },
+    );
+    return () => {
+      isCurrent = false;
+    };
+  }, [isOnOwnSessionQueue, open, trimmedFlowId]);
 
   // A layout effect resets the fields before anyone can type, even when the dialog opens outside an event.
   useLayoutEffect(() => {
@@ -106,15 +166,33 @@ export function CloneForkDialog({
     setError('');
   }, [initialEvent?.eventId, open]);
 
+  // A source task queue read after the dialog opened fills the field it would have opened with.
+  useEffect(() => {
+    if (open) setTaskQueue(sourceTaskQueue ?? '');
+  }, [open, sourceTaskQueue]);
+
   const modalRef = useModalFocus<HTMLDivElement>(open, onClose);
   if (!open) return null;
 
-  const trimmedFlowId = flowId.trim();
   const trimmedTaskQueue = taskQueue.trim();
   const flowIdError = trimmedFlowId === summary.flowId
     ? 'Choose a Flow ID other than the source. Time travel returns this Flow to an earlier point.'
     : '';
-  const taskQueueError = startTaskQueueError(trimmedTaskQueue) ?? '';
+  // An agent session is known by its definition or by running on its own session task queue.
+  const isAgentSession = isAgentSessionDefinition === true || isOnOwnSessionQueue;
+  const sessionTaskQueueOfNewFlow = isOnOwnSessionQueue && derivedTaskQueue?.flowId === trimmedFlowId
+    ? derivedTaskQueue.taskQueue
+    : null;
+  // Without the source's task queue, Dex Web cannot tell whether the fork needs the session rules.
+  const sessionQueueError = sourceTaskQueueStatus === 'failed'
+    ? 'Dex Web could not read the source run\'s task queue, so it cannot tell whether this run is an agent session. Reload the run and try again.'
+    : sessionQueueCheck === 'unavailable'
+      ? 'This browser cannot check whether this run is on its own agent session task queue: Web Crypto needs HTTPS or localhost.'
+      : '';
+  const isSessionCheckPending = isAgentSessionDefinition === null
+    || sessionQueueCheck === 'pending'
+    || (isOnOwnSessionQueue && sessionTaskQueueOfNewFlow === null);
+  const taskQueueError = isOnOwnSessionQueue ? '' : startTaskQueueError(trimmedTaskQueue) ?? '';
 
   async function submit() {
     setSubmitting(true);
@@ -130,8 +208,13 @@ export function CloneForkDialog({
       subFlowResetPolicy,
       reason,
     };
-    // An unchanged task queue sends no override, so the new run keeps the source's.
-    if (trimmedTaskQueue && trimmedTaskQueue !== sourceTaskQueue) payload.taskQueue = trimmedTaskQueue;
+    if (isOnOwnSessionQueue) {
+      if (sessionTaskQueueOfNewFlow) payload.taskQueue = sessionTaskQueueOfNewFlow;
+    } else if (trimmedTaskQueue && trimmedTaskQueue !== sourceTaskQueue) {
+      // An unchanged task queue sends no override, so the new run keeps the source's.
+      payload.taskQueue = trimmedTaskQueue;
+    }
+    if (isAgentSession) payload.deleteAttributeKeys = SESSION_FORK_DELETED_ATTRIBUTES;
     // The current state always belongs to the current run attempt.
     if (pointKind !== 'current' && runAttempt > 0) payload.runAttempt = runAttempt;
     try {
@@ -169,6 +252,11 @@ export function CloneForkDialog({
           Clone fork starts a new Flow from a copy of this run&apos;s state at the selected point.
           Dex only reads this run, so it never changes.
         </p>
+        {isAgentSession && (
+          <p className="muted" data-testid="clone-fork-session-note">
+            Agent session fork: the new session starts released, without the source&apos;s terminal lease.
+          </p>
+        )}
         {runAttempt > 0 && pointKind !== 'current' && (
           <p className="muted">Searching the history of run attempt {runAttempt}.</p>
         )}
@@ -201,6 +289,13 @@ export function CloneForkDialog({
           />
           {flowIdError && <small className="field-error">{flowIdError}</small>}
         </label>
+        {isOnOwnSessionQueue ? (
+          <label>
+            Task queue
+            <input readOnly spellCheck={false} value={sessionTaskQueueOfNewFlow ?? ''} />
+            <small className="muted">Derived from the new Flow ID: the new session runs on its own task queue.</small>
+          </label>
+        ) : (
         <label>
           Task queue
           <input
@@ -216,6 +311,7 @@ export function CloneForkDialog({
               ? 'Empty inherits the source\'s task queue; dex.default selects the default one.'
               : 'Empty keeps the source\'s task queue; dex.default selects the default one.'}</small>}
         </label>
+        )}
         <label>
           ID reuse policy
           <select value={idReusePolicy} onChange={(event) => setIdReusePolicy(Number(event.target.value))}>
@@ -233,7 +329,7 @@ export function CloneForkDialog({
             onChange={(event) => setReason(event.target.value)}
           />
         </label>
-        {error && <div className="error-banner">{error}</div>}
+        {(error || sessionQueueError) && <div className="error-banner">{error || sessionQueueError}</div>}
         <div className="modal-actions">
           <button className="button ghost" onClick={onClose}>Cancel</button>
           <button
@@ -243,6 +339,8 @@ export function CloneForkDialog({
               || !trimmedFlowId
               || Boolean(flowIdError)
               || Boolean(taskQueueError)
+              || Boolean(sessionQueueError)
+              || isSessionCheckPending
               || !isHistoryPointComplete(pointKind, target, stepMethod, timezone)}
             onClick={() => void submit()}
           >

@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/superdurable/dex/cli/internal/agentsterminal"
 	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
@@ -56,7 +57,11 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	}
 	switch args[0] {
 	case "dev":
-		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
+		launchEnvironment := dev.LaunchEnvironment{
+			IsStdoutTerminal:          term.IsTerminal(os.Stdout.Fd()),
+			LookupEnvironmentVariable: os.LookupEnv,
+		}
+		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version, launchEnvironment)
 	case "connectors":
 		return dev.ExecuteConnectors(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "agents-tui":

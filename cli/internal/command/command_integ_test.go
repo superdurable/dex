@@ -72,6 +72,7 @@ func (s *testFlowService) GetServerInfo(
 		ServerVersion:                   "test-server",
 		MinimumSupportedProtocolVersion: 1,
 		CurrentProtocolVersion:          1,
+		ServerEngine:                    dexpb.ServerEngine_SERVER_ENGINE_ZD,
 	}, nil
 }
 
@@ -868,8 +869,22 @@ func TestVersionCheckReportsNegotiatedProtocol(t *testing.T) {
 	if result["compatible"] != true || result["negotiatedProtocol"] != float64(1) {
 		t.Fatalf("unexpected version check result: %#v", result)
 	}
-	if result["clientVersion"] != "dev" || result["serverVersion"] != "test-server" {
+	if result["clientVersion"] != "dev" || result["serverVersion"] != "test-server" || result["serverEngine"] != "zd" {
 		t.Fatalf("unexpected artifact versions: %#v", result)
+	}
+}
+
+func TestVersionCheckTablePrintsTheServerVersion(t *testing.T) {
+	_, address := startTestFlowService(t)
+	stdout := &bytes.Buffer{}
+	app := NewApp(bytes.NewReader(nil), stdout, &bytes.Buffer{}, "test-cli")
+	if err := app.Execute(context.Background(), []string{"version", "check", "--server", address, "--output", "table"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"serverVersion", "test-server", "serverEngine", "zd"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table output lacks %q:\n%s", want, stdout.String())
+		}
 	}
 }
 
