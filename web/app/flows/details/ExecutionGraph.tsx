@@ -48,6 +48,8 @@ import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
 import {
   foldStepGraph,
   roundFrameBoxes,
+  roundFrameNodeID,
+  roundFramePadding,
   unfoldedStepGraph,
   type FoldedGraphItem,
   type FoldedStepGraph,
@@ -74,6 +76,8 @@ interface StepNodeData extends Record<string, unknown> {
   model?: StepGraphNode;
   /** The Round group a folded node, gap or frame stands for. */
   round?: StepRoundGroup;
+  /** The opened groups this node is drawn inside, outermost first. */
+  frameKeys?: string[];
   hasSubFlowChildren?: boolean;
   direction: GraphDirection;
 }
@@ -138,6 +142,8 @@ const waitingEdgeColor = 'var(--tone-wait)';
 const introLeaveMilliseconds = 220;
 /** The mini map panel's width plus its margin from the canvas edge. */
 const miniMapReservedWidth = 200;
+/** Space left of an opened group's frame after the view pans to it. */
+const revealMargin = 24;
 
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -401,6 +407,11 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   );
 }
 
+/** An opened range of multi-Step Rounds shows Rounds; anything else shows Steps. */
+function showsRounds(round: StepRoundGroup): boolean {
+  return round.kind === 'range' && !round.hasSingleStepRounds;
+}
+
 function stepCountLabel(count: number): string {
   return `${count.toLocaleString('en-US')} Step${count === 1 ? '' : 's'}`;
 }
@@ -440,7 +451,7 @@ export function RoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOp
           type="button"
         >
           <ChevronRight aria-hidden="true" size={13} strokeWidth={2.5} />
-          Show Steps
+          {showsRounds(round) ? 'Show Rounds' : 'Show Steps'}
         </button>
       </div>
     </div>
@@ -465,7 +476,7 @@ export function RoundFrameLabel({ round, onHide }: { round: StepRoundGroup; onHi
           type="button"
         >
           <ChevronDown aria-hidden="true" size={13} strokeWidth={2.5} />
-          Hide Steps
+          {showsRounds(round) ? 'Hide Rounds' : 'Hide Steps'}
         </button>
       )}
     </div>
@@ -587,12 +598,14 @@ function withRoundFrames(
   const shiftX = Math.max(0, frameTopClearance - Math.min(...frames.map((frame) => frame.x)));
   const shiftY = Math.max(0, frameTopClearance - Math.min(...frames.map((frame) => frame.y)));
   const roundByKey = new Map(folded.rounds.map((round) => [round.key, round]));
-  const frameNodes = frames.flatMap((frame): Array<Node<StepNodeData>> => {
+  // Larger frames first, so a range's frame draws behind the Round frames inside it.
+  const outerFramesFirst = [...frames].sort((left, right) => right.width * right.height - left.width * left.height);
+  const frameNodes = outerFramesFirst.flatMap((frame): Array<Node<StepNodeData>> => {
     const round = roundByKey.get(frame.roundKey);
     if (!round) return [];
     const size = { width: frame.width, height: frame.height };
     return [{
-      id: `__round-frame:${round.key}`,
+      id: roundFrameNodeID(round.key),
       type: 'graph',
       position: { x: frame.x + shiftX, y: frame.y + shiftY },
       className: `graph-round-frame${round.failedCount > 0 ? ' graph-round-frame-failed' : ''}`,
@@ -679,18 +692,25 @@ export function ExecutionGraph({
     [shownStepNodes],
   );
 
-  // Selecting a Step inside a folded Round opens that Round once; Hide Steps can fold it again.
+  // Selecting a Step inside folded groups opens them once; Hide can fold them again.
   const roundOpenedForStepID = useRef('');
   useEffect(() => {
     if (!isFolded || !selectedStepExecutionID || roundOpenedForStepID.current === selectedStepExecutionID) return;
-    const roundKey = folded.roundKeyByStepExecutionID.get(selectedStepExecutionID);
-    const round = folded.rounds.find((candidate) => candidate.key === roundKey);
-    if (!round) return;
+    const groupKeys = folded.groupKeysByStepExecutionID.get(selectedStepExecutionID);
+    if (!groupKeys) return;
     roundOpenedForStepID.current = selectedStepExecutionID;
-    if (!round.isOpen) setOpenRounds((current) => new Map(current).set(round.key, true));
+    const closedKeys = groupKeys.filter((key) => !folded.rounds.some((round) => round.key === key && round.isOpen));
+    if (closedKeys.length === 0) return;
+    setOpenRounds((current) => {
+      const next = new Map(current);
+      for (const key of closedKeys) next.set(key, true);
+      return next;
+    });
   }, [folded, isFolded, selectedStepExecutionID]);
 
+  const revealedRoundKey = useRef('');
   const setRoundOpen = (key: string, isOpen: boolean) => {
+    if (isOpen) revealedRoundKey.current = key;
     setOpenRounds((current) => new Map(current).set(key, isOpen));
   };
 
@@ -737,11 +757,14 @@ export function ExecutionGraph({
           data: {
             direction,
             display: item.display,
+            frameKeys: item.frameKeys,
             round: item.display === 'group' ? item.round : undefined,
             label: item.display === 'group' ? (
               <RoundGroupLabel round={item.round} onOpen={(key) => setRoundOpen(key, true)} />
             ) : (
-              <span className="graph-round-more">… {item.hiddenCount.toLocaleString('en-US')} more</span>
+              <span className="graph-round-more">
+                … {item.hiddenCount.toLocaleString('en-US')} more{item.unit === 'Rounds' ? ' Rounds' : ''}
+              </span>
             ),
           },
         };
@@ -767,6 +790,7 @@ export function ExecutionGraph({
         data: {
           direction,
           display: 'node',
+          frameKeys: item.frameKeys,
           model: node,
           hasSubFlowChildren: subFlowParentIDs.has(node.id),
           label: node.kind === 'step' ? (
@@ -878,6 +902,27 @@ export function ExecutionGraph({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [canvasSize, flowInstance, isWholeGraphShown, nodes, selectedEvent]);
+
+  // After Show Steps or Show Rounds, pans so the opened group's first node is in view; zoom stays.
+  useEffect(() => {
+    const key = revealedRoundKey.current;
+    if (!key || !flowInstance) return;
+    revealedRoundKey.current = '';
+    const members = nodes.filter((node) => node.data.frameKeys?.includes(key));
+    const first = members.reduce<Node<StepNodeData> | undefined>(
+      (leftmost, node) => (!leftmost || node.position.x < leftmost.position.x ? node : leftmost),
+      undefined,
+    );
+    if (!first) return;
+    const viewport = flowInstance.getViewport();
+    const size = { width: Number(first.width ?? 0), height: Number(first.height ?? 0) };
+    if (isNodeInView(viewport, canvasSize, first.position, size)) return;
+    void flowInstance.setViewport({
+      x: revealMargin - (first.position.x - roundFramePadding.side) * viewport.zoom,
+      y: viewport.y,
+      zoom: viewport.zoom,
+    }, { duration: viewportTransitionDuration() });
+  }, [canvasSize, flowInstance, nodes]);
 
   const wholeGraphZoom = fittingGraphZoom(bounds, { width: canvasWidth * fitPadding, height: canvasSize.height * fitPadding });
   /** Fits the whole graph into the box, however small, since Fit View must show everything. */

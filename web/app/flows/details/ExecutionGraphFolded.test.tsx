@@ -22,12 +22,18 @@ interface FakeNode {
 }
 
 const flow = vi.hoisted(() => {
-  const state = { nodes: [] as FakeNode[] };
+  const state = {
+    nodes: [] as FakeNode[],
+    setViewportCalls: [] as Array<{ viewport: { x: number; y: number; zoom: number }; options?: { duration?: number } }>,
+  };
   const instance = {
     getNode: () => undefined,
-    getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-    getZoom: () => 1,
-    setViewport: () => Promise.resolve(true),
+    getViewport: () => ({ x: 0, y: 7, zoom: 0.8 }),
+    getZoom: () => 0.8,
+    setViewport: (viewport: { x: number; y: number; zoom: number }, options?: { duration?: number }) => {
+      state.setViewportCalls.push({ viewport, options });
+      return Promise.resolve(true);
+    },
     setCenter: () => Promise.resolve(true),
   };
   return { state, instance };
@@ -82,6 +88,7 @@ function stubStorage({ isBlocked = false } = {}) {
 
 beforeEach(() => {
   flow.state.nodes = [];
+  flow.state.setViewportCalls = [];
   stubStorage();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -116,6 +123,7 @@ function shownNodeIDs(): string[] {
 
 // Step-1 … Step-20, the last one waiting: Folded merges Rounds 1–19 and keeps Round 20 open.
 const loopEvents = sequentialStepHistory(40);
+const foldedRangeID = '__group:rounds:Step-1';
 
 describe('Folded Graph', () => {
   it('is off by default and draws one node per Step execution', () => {
@@ -130,12 +138,12 @@ describe('Folded Graph', () => {
     expect(storedValues.get(graphViewStorageKeys.isFolded)).toBe('true');
     expect(screen.getByText('Step ×19')).toBeTruthy();
     // The latest Round is open, so its frame draws behind Step-20.
-    expect(shownNodeIDs()).toEqual(['__round-frame:Step-20', '__start__', '__round:Step-1', 'Step-20']);
+    expect(shownNodeIDs()).toEqual(['__frame:round:Step-20', '__start__', foldedRangeID, 'Step-20']);
     unmount();
 
     render(graph(loopEvents));
     expect(screen.getByRole('button', { name: 'Folded' }).getAttribute('aria-pressed')).toBe('true');
-    expect(shownNodeIDs()).toContain('__round:Step-1');
+    expect(shownNodeIDs()).toContain(foldedRangeID);
   });
 
   it('falls back to off when storage is blocked', () => {
@@ -146,22 +154,33 @@ describe('Folded Graph', () => {
     expect(screen.getByRole('button', { name: 'Folded' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('opens a folded Round with Show Steps and folds it again with Hide Steps', () => {
+  it('opens a folded group with Show Steps and folds it again with Hide Steps', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
     render(graph(loopEvents));
     fireEvent.click(screen.getByRole('button', { name: /Show Steps/ }));
     expect(shownNodeIDs()).toEqual(expect.arrayContaining(['Step-1', 'Step-2', 'Step-3', 'Step-18', 'Step-19', 'Step-20']));
     expect(screen.getByText('… 14 more')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Hide Steps/ }));
-    expect(shownNodeIDs()).toContain('__round:Step-1');
+    expect(shownNodeIDs()).toContain(foldedRangeID);
   });
 
-  it('opens the folded Round that holds the selected Step', async () => {
+  it('pans to the first node of an opened group without changing the zoom', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(loopEvents));
+    fireEvent.click(screen.getByRole('button', { name: /Show Steps/ }));
+    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
+    const [{ viewport, options }] = flow.state.setViewportCalls;
+    expect(viewport.zoom).toBe(0.8);
+    expect(viewport.y).toBe(7);
+    expect(options?.duration).toBeGreaterThan(0);
+  });
+
+  it('opens the folded group that holds the selected Step', async () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
     const selected = loopEvents.find((event) => event.eventId === 20)!;
     render(graph(loopEvents, selected));
     await waitFor(() => expect(shownNodeIDs()).toContain('Step-10'));
-    expect(shownNodeIDs()).not.toContain('__round:Step-1');
+    expect(shownNodeIDs()).not.toContain(foldedRangeID);
   });
 });
 

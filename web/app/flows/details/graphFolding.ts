@@ -9,89 +9,102 @@
 import { formatDuration } from '@/lib/format';
 import type { FlowHistoryEvent, StepGraphEdge, StepGraphNode } from '@/lib/types';
 
-/** An opened single-Step group longer than this shows only its first, failed, selected and last executions. */
-const maximumUnelidedGroupSize = 6;
-const shownFirstExecutions = 3;
-const shownLastExecutions = 2;
-/** A folded Round lists at most this many Step sequence entries before an ellipsis. */
+/** An opened range longer than this shows only its first, selected and last Rounds. */
+const maximumUnelidedRangeSize = 6;
+const shownFirstRounds = 3;
+const shownLastRounds = 2;
+/** A folded group lists at most this many Step sequence entries before an ellipsis. */
 const maximumSequenceEntries = 4;
 
-/** A Round, or consecutive single-Step Rounds of one Step type, shown as one unit. */
+/** A Round, or a range of consecutive Rounds with the same Step sequence, shown as one unit. */
 export interface StepRoundGroup {
-  /** The first Round's starting Step execution ID; it stays stable while events arrive. */
+  /** "round:" or "rounds:" and the first Round's starting Step execution ID; stable while events arrive. */
   key: string;
+  kind: 'round' | 'range';
   firstRoundNumber: number;
   lastRoundNumber: number;
-  /** "Round N", or "SyncBatch ×900" for merged single-Step Rounds. */
+  roundCount: number;
+  /** "Round N", "Rounds 1–100", or "SyncBatch ×900" for a range of one Step type. */
   title: string;
-  /** "Rounds 1–900" for merged single-Step Rounds; empty otherwise. */
+  /** "Rounds 1–900" when the title names the Step type; empty otherwise. */
   roundRangeLabel: string;
-  /** The Step type of merged single-Step Rounds; empty otherwise. */
-  repeatedStepType: string;
+  /** Each Round holds one Step execution, so opening the range shows Steps, not Rounds. */
+  hasSingleStepRounds: boolean;
   stepExecutionIDs: string[];
   stepCount: number;
   completedCount: number;
   failedCount: number;
-  /** Step types in execution order, consecutive repeats as "CallTool ×2"; empty for merged single-Step Rounds. */
+  /** Step types in execution order, consecutive repeats as "CallTool ×2"; empty when the title names them. */
   sequence: string[];
   duration: string;
   isLatest: boolean;
   /** Holds a waiting, running or pending Step, so it is never folded. */
   isLive: boolean;
   isOpen: boolean;
-  /** Only Rounds that are neither the latest nor live can be hidden again. */
+  /** The latest Round and live Rounds cannot be hidden. */
   canHide: boolean;
 }
 
-/** A node the folded graph draws: an original node, a folded Round, or the gap of an elided Round. */
+/** A node the folded graph draws: an original node, a folded group, or a gap of an opened range. */
 export type FoldedGraphItem =
-  | { display: 'node'; id: string; node: StepGraphNode; repeatCount: number; roundKey: string | null }
-  | { display: 'group'; id: string; round: StepRoundGroup }
-  | { display: 'more'; id: string; hiddenCount: number; roundKey: string };
+  | { display: 'node'; id: string; node: StepGraphNode; repeatCount: number; frameKeys: string[] }
+  | { display: 'group'; id: string; round: StepRoundGroup; frameKeys: string[] }
+  | { display: 'more'; id: string; hiddenCount: number; unit: 'Steps' | 'Rounds'; frameKeys: string[] };
 
 export interface FoldedStepGraph {
   items: FoldedGraphItem[];
   edges: StepGraphEdge[];
-  /** Every Round group in execution order; empty when no Step type repeats. */
+  /** Every Round and range in execution order, with each range's Rounds after it; empty when nothing repeats. */
   rounds: StepRoundGroup[];
-  /** The Round group key of each Step execution inside a Round. */
-  roundKeyByStepExecutionID: Map<string, string>;
+  /** The group keys that hold each Step execution, outermost first. */
+  groupKeysByStepExecutionID: Map<string, string[]>;
 }
 
 export interface StepGraphFoldingOptions {
-  /** Round groups a reader opened (true) or hid (false); others use the default open state. */
+  /** Groups a reader opened (true) or hid (false); others use the default open state. */
   openRounds: ReadonlyMap<string, boolean>;
   selectedStepExecutionID: string;
 }
 
 interface RoundDraft {
   number: number;
+  key: string;
   steps: StepGraphNode[];
+  signature: string;
+  isLive: boolean;
+  hasFailed: boolean;
+  isLatest: boolean;
 }
 
-/** Folds repeated Rounds; each starts when the run returns to the earliest repeated Step type. */
+interface FoldingContext {
+  options: StepGraphFoldingOptions;
+  displayIDByNodeID: Map<string, string>;
+  itemByID: Map<string, FoldedGraphItem>;
+  groupKeysByStepExecutionID: Map<string, string[]>;
+  rounds: StepRoundGroup[];
+}
+
+/** Folds repeated Rounds; each starts at the repeated Step type with the fewest executions. */
 export function foldStepGraph(
   nodes: StepGraphNode[],
   edges: StepGraphEdge[],
-  { openRounds, selectedStepExecutionID }: StepGraphFoldingOptions,
+  options: StepGraphFoldingOptions,
 ): FoldedStepGraph {
   const steps = stepsInExecutionOrder(nodes);
   const drafts = roundDrafts(steps);
   if (drafts.length === 0) return unfoldedStepGraph(nodes, edges);
-  const groups = mergeSingleStepRounds(drafts).map((members, index, all) => (
-    roundGroup(members, index === all.length - 1, openRounds)
-  ));
-  const displayIDByNodeID = new Map<string, string>();
-  const itemByID = new Map<string, FoldedGraphItem>();
-  const roundKeyByStepExecutionID = new Map<string, string>();
-  const stepByID = new Map(steps.map((step) => [step.id, step]));
-  for (const group of groups) {
-    for (const id of group.stepExecutionIDs) roundKeyByStepExecutionID.set(id, group.key);
-    const groupSteps = group.stepExecutionIDs.map((id) => stepByID.get(id)).filter(isDefined);
-    if (!group.isOpen) addFoldedGroup(group, displayIDByNodeID, itemByID);
-    else if (group.repeatedStepType) addOpenRepeatedGroup(group, groupSteps, selectedStepExecutionID, displayIDByNodeID, itemByID);
-    else addOpenRound(group, groupSteps, selectedStepExecutionID, displayIDByNodeID, itemByID);
+  const context: FoldingContext = {
+    options,
+    displayIDByNodeID: new Map(),
+    itemByID: new Map(),
+    groupKeysByStepExecutionID: new Map(),
+    rounds: [],
+  };
+  for (const unit of mergeIdenticalRounds(drafts)) {
+    if (unit.length === 1) addRound(context, unit[0], []);
+    else addRange(context, unit);
   }
+  const { displayIDByNodeID, itemByID } = context;
   for (const node of nodes) {
     if (displayIDByNodeID.has(node.id)) continue;
     if (node.kind === 'subflow') {
@@ -100,7 +113,7 @@ export function foldStepGraph(
       if ((displayIDByNodeID.get(parentID) ?? parentID) !== parentID) continue;
     }
     displayIDByNodeID.set(node.id, node.id);
-    itemByID.set(node.id, { display: 'node', id: node.id, node, repeatCount: 1, roundKey: null });
+    itemByID.set(node.id, { display: 'node', id: node.id, node, repeatCount: 1, frameKeys: [] });
   }
   const items: FoldedGraphItem[] = [];
   const emitted = new Set<string>();
@@ -111,20 +124,21 @@ export function foldStepGraph(
     const item = itemByID.get(displayID);
     if (item) items.push(item);
   }
-  // Every shown item maps from some node, so this only guards against a missed one.
-  for (const item of itemByID.values()) {
-    if (!emitted.has(item.id)) items.push(item);
-  }
-  return { items, edges: foldedEdges(edges, displayIDByNodeID), rounds: groups, roundKeyByStepExecutionID };
+  return {
+    items,
+    edges: foldedEdges(edges, displayIDByNodeID),
+    rounds: context.rounds,
+    groupKeysByStepExecutionID: context.groupKeysByStepExecutionID,
+  };
 }
 
 /** The graph as it is, one node per Step execution, for when Folded is off. */
 export function unfoldedStepGraph(nodes: StepGraphNode[], edges: StepGraphEdge[]): FoldedStepGraph {
   return {
-    items: nodes.map((node) => ({ display: 'node', id: node.id, node, repeatCount: 1, roundKey: null })),
+    items: nodes.map((node) => ({ display: 'node', id: node.id, node, repeatCount: 1, frameKeys: [] })),
     edges,
     rounds: [],
-    roundKeyByStepExecutionID: new Map(),
+    groupKeysByStepExecutionID: new Map(),
   };
 }
 
@@ -150,78 +164,190 @@ function stepTypeOf(node: StepGraphNode): string {
   return node.stepType || node.label;
 }
 
-/** Splits Steps into Rounds at the earliest repeated Step type; Steps before its first execution stay outside. */
-function roundDrafts(steps: StepGraphNode[]): RoundDraft[] {
-  const counts = new Map<string, number>();
-  for (const step of steps) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
-  const anchor = steps.find((step) => (counts.get(stepTypeOf(step)) ?? 0) > 1);
-  if (!anchor) return [];
-  const anchorType = stepTypeOf(anchor);
-  const drafts: RoundDraft[] = [];
-  for (const step of steps) {
-    if (stepTypeOf(step) === anchorType) drafts.push({ number: drafts.length + 1, steps: [step] });
-    else drafts.at(-1)?.steps.push(step);
-  }
-  return drafts;
-}
-
 export function isLiveStep(node: StepGraphNode): boolean {
   return Boolean(node.isPlanned || node.active)
     || node.status === 'Active' || node.status === 'Waiting' || node.status === 'Pending';
 }
 
-/** Groups Rounds; consecutive single-Step Rounds of one Step type merge unless one is the latest or live. */
-function mergeSingleStepRounds(drafts: RoundDraft[]): RoundDraft[][] {
-  const groups: RoundDraft[][] = [];
-  const isMergeable = (draft: RoundDraft, index: number) => (
-    draft.steps.length === 1 && index < drafts.length - 1 && !isLiveStep(draft.steps[0])
-  );
-  drafts.forEach((draft, index) => {
-    const previous = groups.at(-1);
-    const previousDraft = previous?.at(-1);
-    if (previous && previousDraft && isMergeable(draft, index) && isMergeable(previousDraft, index - 1)
-      && stepTypeOf(previousDraft.steps[0]) === stepTypeOf(draft.steps[0])) {
-      previous.push(draft);
-      return;
-    }
-    groups.push([draft]);
-  });
-  return groups;
+/** Anchors Rounds on the repeated Step type with the fewest executions, ties to the earliest. */
+function roundDrafts(steps: StepGraphNode[]): RoundDraft[] {
+  const counts = new Map<string, number>();
+  for (const step of steps) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
+  let anchorType = '';
+  for (const step of steps) {
+    const count = counts.get(stepTypeOf(step)) ?? 0;
+    if (count > 1 && (!anchorType || count < (counts.get(anchorType) ?? 0))) anchorType = stepTypeOf(step);
+  }
+  if (!anchorType) return [];
+  const groups: StepGraphNode[][] = [];
+  for (const step of steps) {
+    if (stepTypeOf(step) === anchorType) groups.push([step]);
+    else groups.at(-1)?.push(step);
+  }
+  return groups.map((roundSteps, index) => ({
+    number: index + 1,
+    key: `round:${roundSteps[0].id}`,
+    steps: roundSteps,
+    signature: stepSequence(roundSteps).join(' → '),
+    isLive: roundSteps.some(isLiveStep),
+    hasFailed: roundSteps.some((step) => step.status === 'Failed'),
+    isLatest: index === groups.length - 1,
+  }));
 }
 
-function roundGroup(members: RoundDraft[], isLatest: boolean, openRounds: ReadonlyMap<string, boolean>): StepRoundGroup {
-  const steps = members.flatMap((draft) => draft.steps);
-  const first = members[0];
-  const last = members.at(-1) ?? first;
-  const key = first.steps[0].id;
-  const isMerged = members.length > 1;
-  const repeatedStepType = isMerged ? stepTypeOf(first.steps[0]) : '';
-  const failedCount = steps.filter((step) => step.status === 'Failed').length;
-  const isLive = steps.some(isLiveStep);
-  const isOpen = isLive || isLatest || (openRounds.get(key) ?? failedCount > 0);
+/** Groups consecutive settled Rounds with the same Step sequence; open-by-default Rounds stand alone. */
+function mergeIdenticalRounds(drafts: RoundDraft[]): RoundDraft[][] {
+  const units: RoundDraft[][] = [];
+  const isMergeable = (draft: RoundDraft) => !draft.isLive && !draft.hasFailed && !draft.isLatest;
+  for (const draft of drafts) {
+    const previous = units.at(-1);
+    const previousDraft = previous?.at(-1);
+    if (previous && previousDraft && isMergeable(draft) && isMergeable(previousDraft)
+      && previousDraft.signature === draft.signature) {
+      previous.push(draft);
+    } else {
+      units.push([draft]);
+    }
+  }
+  return units;
+}
+
+function addRound(context: FoldingContext, draft: RoundDraft, outerKeys: string[]): void {
+  const group = roundGroup(draft, context.options.openRounds);
+  context.rounds.push(group);
+  const groupKeys = [...outerKeys, group.key];
+  for (const step of draft.steps) context.groupKeysByStepExecutionID.set(step.id, groupKeys);
+  if (!group.isOpen) {
+    addGroupNode(context, group, draft.steps, outerKeys);
+    return;
+  }
+  for (const run of consecutiveRuns(draft.steps, (step) => !isLiveStep(step))) {
+    const shown = run.find((step) => step.id === context.options.selectedStepExecutionID)
+      ?? run.findLast((step) => step.status === 'Failed')
+      ?? run.at(-1)
+      ?? run[0];
+    for (const step of run) context.displayIDByNodeID.set(step.id, shown.id);
+    context.itemByID.set(shown.id, { display: 'node', id: shown.id, node: shown, repeatCount: run.length, frameKeys: groupKeys });
+  }
+}
+
+/** A range of Rounds; opened, it shows its first, selected and last Rounds, each folded. */
+function addRange(context: FoldingContext, drafts: RoundDraft[]): void {
+  const group = rangeGroup(drafts, context.options.openRounds);
+  context.rounds.push(group);
+  const steps = drafts.flatMap((draft) => draft.steps);
+  for (const draft of drafts) {
+    const groupKeys = draft.steps.length > 1 ? [group.key, draft.key] : [group.key];
+    for (const step of draft.steps) context.groupKeysByStepExecutionID.set(step.id, groupKeys);
+  }
+  if (!group.isOpen) {
+    addGroupNode(context, group, steps, []);
+    return;
+  }
+  const frameKeys = [group.key];
+  const selectedID = context.options.selectedStepExecutionID;
+  const isElided = drafts.length > maximumUnelidedRangeSize;
+  const isShown = (draft: RoundDraft, index: number) => !isElided
+    || index < shownFirstRounds || index >= drafts.length - shownLastRounds
+    || draft.steps.some((step) => step.id === selectedID);
+  let gap: RoundDraft[] = [];
+  const closeGap = () => {
+    if (gap.length === 0) return;
+    const id = `__round-more:${group.key}:${gap[0].key}`;
+    for (const hidden of gap.flatMap((draft) => draft.steps)) context.displayIDByNodeID.set(hidden.id, id);
+    context.itemByID.set(id, {
+      display: 'more',
+      id,
+      hiddenCount: gap.length,
+      unit: group.hasSingleStepRounds ? 'Steps' : 'Rounds',
+      frameKeys,
+    });
+    gap = [];
+  };
+  drafts.forEach((draft, index) => {
+    if (!isShown(draft, index)) {
+      gap.push(draft);
+      return;
+    }
+    closeGap();
+    if (draft.steps.length === 1) {
+      const [step] = draft.steps;
+      context.displayIDByNodeID.set(step.id, step.id);
+      context.itemByID.set(step.id, { display: 'node', id: step.id, node: step, repeatCount: 1, frameKeys });
+      return;
+    }
+    addRound(context, draft, frameKeys);
+  });
+  closeGap();
+}
+
+function addGroupNode(context: FoldingContext, group: StepRoundGroup, steps: StepGraphNode[], frameKeys: string[]): void {
+  const id = roundGroupNodeID(group.key);
+  for (const step of steps) context.displayIDByNodeID.set(step.id, id);
+  context.itemByID.set(id, { display: 'group', id, round: group, frameKeys });
+}
+
+function roundGroup(draft: RoundDraft, openRounds: ReadonlyMap<string, boolean>): StepRoundGroup {
+  const isOpen = draft.isLive || draft.isLatest || (openRounds.get(draft.key) ?? draft.hasFailed);
   return {
+    ...stepTotals(draft.steps),
+    key: draft.key,
+    kind: 'round',
+    firstRoundNumber: draft.number,
+    lastRoundNumber: draft.number,
+    roundCount: 1,
+    title: `Round ${draft.number}`,
+    roundRangeLabel: '',
+    hasSingleStepRounds: draft.steps.length === 1,
+    sequence: truncatedSequence(stepSequence(draft.steps)),
+    isLatest: draft.isLatest,
+    isLive: draft.isLive,
+    isOpen,
+    canHide: !draft.isLive && !draft.isLatest,
+  };
+}
+
+function rangeGroup(drafts: RoundDraft[], openRounds: ReadonlyMap<string, boolean>): StepRoundGroup {
+  const first = drafts[0];
+  const last = drafts.at(-1) ?? first;
+  const steps = drafts.flatMap((draft) => draft.steps);
+  const key = `rounds:${first.steps[0].id}`;
+  const isOneStepType = new Set(first.steps.map(stepTypeOf)).size === 1;
+  const rangeLabel = `Rounds ${first.number}–${last.number}`;
+  return {
+    ...stepTotals(steps),
     key,
+    kind: 'range',
     firstRoundNumber: first.number,
     lastRoundNumber: last.number,
-    title: isMerged ? `${repeatedStepType} ×${members.length.toLocaleString('en-US')}` : `Round ${first.number}`,
-    roundRangeLabel: isMerged ? `Rounds ${first.number}–${last.number}` : '',
-    repeatedStepType,
+    roundCount: drafts.length,
+    title: isOneStepType ? `${stepTypeOf(first.steps[0])} ×${steps.length.toLocaleString('en-US')}` : rangeLabel,
+    roundRangeLabel: isOneStepType ? rangeLabel : '',
+    hasSingleStepRounds: first.steps.length === 1,
+    sequence: isOneStepType ? [] : truncatedSequence(stepSequence(first.steps)),
+    isLatest: false,
+    isLive: false,
+    isOpen: openRounds.get(key) ?? false,
+    canHide: true,
+  };
+}
+
+function stepTotals(steps: StepGraphNode[]) {
+  return {
     stepExecutionIDs: steps.map((step) => step.id),
     stepCount: steps.length,
     completedCount: steps.filter((step) => step.status === 'Completed').length,
-    failedCount,
-    sequence: isMerged ? [] : stepSequence(steps),
+    failedCount: steps.filter((step) => step.status === 'Failed').length,
     duration: stepsDuration(steps),
-    isLatest,
-    isLive,
-    isOpen,
-    canHide: !isLive && !isLatest,
   };
 }
 
 function stepSequence(steps: StepGraphNode[]): string[] {
-  const entries = consecutiveRuns(steps, () => true)
+  return consecutiveRuns(steps, () => true)
     .map((run) => (run.length > 1 ? `${stepTypeOf(run[0])} ×${run.length}` : stepTypeOf(run[0])));
+}
+
+function truncatedSequence(entries: string[]): string[] {
   return entries.length > maximumSequenceEntries ? [...entries.slice(0, maximumSequenceEntries), '…'] : entries;
 }
 
@@ -245,66 +371,6 @@ function consecutiveRuns(steps: StepGraphNode[], canJoin: (step: StepGraphNode) 
   return runs;
 }
 
-function addFoldedGroup(
-  group: StepRoundGroup,
-  displayIDByNodeID: Map<string, string>,
-  itemByID: Map<string, FoldedGraphItem>,
-): void {
-  const id = roundGroupNodeID(group.key);
-  for (const stepID of group.stepExecutionIDs) displayIDByNodeID.set(stepID, id);
-  itemByID.set(id, { display: 'group', id, round: group });
-}
-
-/** Opened merged single-Step Rounds; a long one shows its first, failed, selected and last executions. */
-function addOpenRepeatedGroup(
-  group: StepRoundGroup,
-  steps: StepGraphNode[],
-  selectedStepExecutionID: string,
-  displayIDByNodeID: Map<string, string>,
-  itemByID: Map<string, FoldedGraphItem>,
-): void {
-  const isElided = steps.length > maximumUnelidedGroupSize;
-  const isShown = (step: StepGraphNode, index: number) => !isElided
-    || index < shownFirstExecutions || index >= steps.length - shownLastExecutions
-    || step.status === 'Failed' || step.id === selectedStepExecutionID;
-  let gap: StepGraphNode[] = [];
-  const closeGap = () => {
-    if (gap.length === 0) return;
-    const id = `__round-more:${group.key}:${gap[0].id}`;
-    for (const hidden of gap) displayIDByNodeID.set(hidden.id, id);
-    itemByID.set(id, { display: 'more', id, hiddenCount: gap.length, roundKey: group.key });
-    gap = [];
-  };
-  steps.forEach((step, index) => {
-    if (!isShown(step, index)) {
-      gap.push(step);
-      return;
-    }
-    closeGap();
-    displayIDByNodeID.set(step.id, step.id);
-    itemByID.set(step.id, { display: 'node', id: step.id, node: step, repeatCount: 1, roundKey: group.key });
-  });
-  closeGap();
-}
-
-/** An opened Round; consecutive settled executions of one Step type show as one node with a ×N badge. */
-function addOpenRound(
-  group: StepRoundGroup,
-  steps: StepGraphNode[],
-  selectedStepExecutionID: string,
-  displayIDByNodeID: Map<string, string>,
-  itemByID: Map<string, FoldedGraphItem>,
-): void {
-  for (const run of consecutiveRuns(steps, (step) => !isLiveStep(step))) {
-    const shown = run.find((step) => step.id === selectedStepExecutionID)
-      ?? run.findLast((step) => step.status === 'Failed')
-      ?? run.at(-1)
-      ?? run[0];
-    for (const step of run) displayIDByNodeID.set(step.id, shown.id);
-    itemByID.set(shown.id, { display: 'node', id: shown.id, node: shown, repeatCount: run.length, roundKey: group.key });
-  }
-}
-
 /** Points each edge at the nodes that show its ends, without duplicates or edges inside one node. */
 function foldedEdges(edges: StepGraphEdge[], displayIDByNodeID: Map<string, string>): StepGraphEdge[] {
   const folded = new Map<string, StepGraphEdge>();
@@ -319,14 +385,18 @@ function foldedEdges(edges: StepGraphEdge[], displayIDByNodeID: Map<string, stri
 }
 
 export function roundGroupNodeID(key: string): string {
-  return `__round:${key}`;
+  return `__group:${key}`;
+}
+
+export function roundFrameNodeID(key: string): string {
+  return `__frame:${key}`;
 }
 
 function isDefined<Value>(value: Value | undefined): value is Value {
   return value !== undefined;
 }
 
-/** The box a Round frame draws around its nodes, with room for its heading above them. */
+/** The box a frame draws around an opened group's nodes, with room for its heading above them. */
 export interface RoundFrameBox {
   roundKey: string;
   x: number;
@@ -337,19 +407,26 @@ export interface RoundFrameBox {
 
 export const roundFramePadding = { side: 14, top: 40, bottom: 14 };
 
-/** Measures one frame per opened Round from the laid-out boxes of its nodes. */
-export function roundFrameBoxes(
-  items: FoldedGraphItem[],
-  boxes: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>,
-): RoundFrameBox[] {
-  const membersByRound = new Map<string, Array<{ x: number; y: number; width: number; height: number }>>();
+interface Box { x: number; y: number; width: number; height: number }
+
+/** Measures one frame per opened group; an outer frame also leaves room for the frames inside it. */
+export function roundFrameBoxes(items: FoldedGraphItem[], boxes: ReadonlyMap<string, Box>): RoundFrameBox[] {
+  const membersByKey = new Map<string, Box[]>();
   for (const item of items) {
-    const roundKey = item.display === 'group' ? null : item.roundKey;
     const box = boxes.get(item.id);
-    if (!roundKey || !box) continue;
-    membersByRound.set(roundKey, [...(membersByRound.get(roundKey) ?? []), box]);
+    if (!box) continue;
+    item.frameKeys.forEach((key, depth) => {
+      const innerFrames = item.frameKeys.length - depth - 1;
+      const grown = {
+        x: box.x - roundFramePadding.side * innerFrames,
+        y: box.y - roundFramePadding.top * innerFrames,
+        width: box.width + roundFramePadding.side * 2 * innerFrames,
+        height: box.height + (roundFramePadding.top + roundFramePadding.bottom) * innerFrames,
+      };
+      membersByKey.set(key, [...(membersByKey.get(key) ?? []), grown]);
+    });
   }
-  return [...membersByRound.entries()].map(([roundKey, members]) => {
+  return [...membersByKey.entries()].map(([roundKey, members]) => {
     const left = Math.min(...members.map((box) => box.x));
     const top = Math.min(...members.map((box) => box.y));
     const right = Math.max(...members.map((box) => box.x + box.width));
