@@ -3046,7 +3046,6 @@ html:has(.v1-page .stream-scroll--entries) {
   left: calc(100% + 4px);
   display: flex;
   width: max-content;
-  max-width: 320px;
   align-items: flex-start;
   gap: 8px;
   padding: 10px 8px 10px 12px;
@@ -3065,6 +3064,7 @@ html:has(.v1-page .stream-scroll--entries) {
   padding: 0;
   gap: 4px;
   list-style: none;
+  white-space: nowrap;
 }
 
 .htl-mode-intro strong {
@@ -3370,6 +3370,8 @@ html:has(.v1-page .stream-scroll--entries) {
   position: absolute;
   bottom: 30px;
   left: calc(50% - 4px);
+  /* An explicit width keeps the slot's width out of the label's shrink-to-fit width. */
+  width: max-content;
   max-width: var(--htl-label-max-width, 280px);
   overflow: hidden;
   color: var(--ui-ink-2);
