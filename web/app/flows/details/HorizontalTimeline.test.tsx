@@ -282,7 +282,7 @@ describe('horizontal Timeline', () => {
       expect(Number(bar.querySelector('.htl-bar-segment.htl-status-failed')?.getAttribute('height'))).toBeGreaterThanOrEqual(3);
       expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
     }
-    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 2 failures');
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toMatch(/^#\d+–#\d+ in view · spaced by event order · 2 failures$/);
     expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
 
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
@@ -364,7 +364,7 @@ describe('horizontal Timeline', () => {
     expect(dot(5)?.className).toContain('htl-status-failed');
     expect(dot(5)?.querySelector('.htl-dot-badge')).not.toBeNull();
     expect(option(5)?.getAttribute('aria-label')).toBe('Execute failed, Charge, #5');
-    expect(label(6)).toBe('getOrder');
+    expect(label(6)).toBe('Get Order');
     expect(dot(7)?.querySelector('.htl-dot-badge')).toBeNull();
     expect(screen.getByRole('list', { name: 'Event kinds' })).not.toBeNull();
     expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toBe('WaitingFailedCanceledRetried after failure');
@@ -616,7 +616,7 @@ describe('horizontal Timeline', () => {
     expect(bar.querySelector('.htl-bar-segment.htl-status-waiting')).not.toBeNull();
     expect(bar.querySelector('.htl-bar-segment.htl-status-failed')).toBeNull();
     expect(bar.querySelector('.htl-bar-segment.htl-status-normal')).not.toBeNull();
-    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 1 failure');
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toMatch(/^#\d+–#\d+ in view · spaced by event order · 1 failure$/);
 
     const dot = option(501)?.querySelector('.htl-dot');
     expect(dot?.classList.contains('htl-status-waiting')).toBe(true);
@@ -909,7 +909,8 @@ describe('horizontal Timeline layout', () => {
 
     it('wraps labels word by word and breaks a word wider than its column', () => {
       expect(labelLineCount('Run Model', 80)).toBe(1);
-      expect(labelLineCount('Lookup Order', 80)).toBe(2);
+      expect(labelLineCount('Lookup Order', 80)).toBe(1);
+      expect(labelLineCount('Lookup Payment', 80)).toBe(2);
       expect(labelLineCount('Lookup Payment Intent', 80)).toBe(3);
       expect(labelLineCount('Send To Quanzhenglong', 80)).toBe(3);
       expect(labelLineCount('Issue Payment Processor Refund Now', 80)).toBe(3);
@@ -917,7 +918,7 @@ describe('horizontal Timeline layout', () => {
 
     it('splits a word wider than its column into even parts with soft hyphens', () => {
       expect(labelWithBreakHints('Send To Quanzhenglong', 96)).toBe('Send To Quanzhenglong');
-      expect(labelWithBreakHints('Send To Quanzhenglong', 88)).toBe('Send To Quanzhe\u00ADnglong');
+      expect(labelWithBreakHints('Send To Quanzhenglong', 72)).toBe('Send To Quanzhe\u00ADnglong');
       expect(labelWithBreakHints('NotifyQuanzhenglongWorkspaceAdmins', 88)).toBe('NotifyQuanzh\u00ADenglongWorks\u00ADpaceAdmins');
       expect(labelWithBreakHints('审核步骤审核步骤审核步骤', 88)).toBe('审核步骤审核步骤审核步骤');
     });
@@ -939,8 +940,8 @@ describe('horizontal Timeline layout', () => {
     it('spreads a short page and packs a long one to the narrowest slot that keeps label columns readable', () => {
       expect(timelineSlotWidth(5, 1000)).toBe(160);
       expect(timelineSlotWidth(8, 1000)).toBe(125);
-      expect(timelineSlotWidth(25, 1000)).toBe(96);
-      expect(timelineSlotWidth(1000, 1000)).toBe(96);
+      expect(timelineSlotWidth(25, 1000)).toBe(64);
+      expect(timelineSlotWidth(1000, 1000)).toBe(64);
     });
   });
 });

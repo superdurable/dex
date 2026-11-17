@@ -27,6 +27,28 @@ export function formatDate(value: string | null, timezone: TimezonePreference): 
   return formatter.format(date);
 }
 
+// Seconds with milliseconds tell apart events that start in the same second.
+const millisecondTimeFormatters = new Map<TimezonePreference, Intl.DateTimeFormat>();
+
+/** Time of day with milliseconds, such as "10:24:17.302 PM"; the event's header carries the date. */
+export function formatTimeWithMilliseconds(value: string | null, timezone: TimezonePreference): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  let formatter = millisecondTimeFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      timeZone: timezone === 'UTC' ? 'UTC' : undefined,
+    });
+    millisecondTimeFormatters.set(timezone, formatter);
+  }
+  return formatter.format(date);
+}
+
 /** Time only, for a narrow column where the date would not fit and rarely differs. */
 export function formatTimeOfDay(value: string | null, timezone: TimezonePreference): string {
   if (!value) return '—';

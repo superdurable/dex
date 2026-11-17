@@ -9,7 +9,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { InlineValue, isShortFlatValue, LongValue } from '@/app/components/StructuredValue';
+import { EventValueBlock, InlineValue, isShortFlatValue, LongValue } from '@/app/components/StructuredValue';
 import { AttributeRows, ChannelRows, messageChannelGroups } from './CompactStateLists';
 import {
   isBlobReferenceValue,
@@ -35,7 +35,7 @@ import {
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate, formatTimeWithMilliseconds, type TimezonePreference } from '@/lib/format';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
 import { generatedSubFlowID } from '@/lib/subflows';
@@ -98,9 +98,9 @@ export function displayValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function DetailSection({ title, children }: { title?: string; children: ReactNode }) {
+export function DetailSection({ title, children, className }: { title?: string; children: ReactNode; className?: string }) {
   return (
-    <section className="semantic-section">
+    <section className={className ? `semantic-section ${className}` : 'semantic-section'}>
       {title && <h4>{title}</h4>}
       {children}
     </section>
@@ -173,7 +173,7 @@ export function ValueBlock({
 export function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?: string }) {
   const entries = asDataArray(values);
   if (entries.length === 0) return emptyLabel ? <p className="muted">{emptyLabel}</p> : null;
-  return <AttributeRows attributes={entries} characterLimit={eventValuePreviewCharacters} expandValues={false} />;
+  return <AttributeRows attributes={entries} characterLimit={eventValuePreviewCharacters} expandValues={false} isBlockLayout />;
 }
 
 /** Lists event Channel messages grouped by Channel, each with its decoded value and short message ID. */
@@ -359,12 +359,11 @@ function WaitingConditionContent({
         <div className="semantic-records">
           {channels.map((channel, index) => (
             <div className="semantic-record channel-record" key={`${String(channel.channelName)}-${index}`}>
-              <strong><ChannelIcon />{displayValue(channel.channelName)}</strong>
-              <Fields values={[
-                ['Condition ID', channel.conditionId],
-                ['At least', channel.atLeast],
-                ['At most', channel.atMost],
-              ]} />
+              <strong>
+                <ChannelIcon />{displayValue(channel.channelName)}
+                <span className="channel-record-range">{channelCountRange(channel.atLeast, channel.atMost)}</span>
+              </strong>
+              <Fields values={[['Condition ID', channel.conditionId]]} />
             </div>
           ))}
         </div>
@@ -406,6 +405,19 @@ function WaitingConditionContent({
       )}
     </>
   );
+}
+
+/** The largest 32-bit count, which a Channel condition uses for "no upper limit". */
+const unboundedChannelCount = 2147483647;
+
+/** Reads a Channel condition's counts as words, such as "1 or more", "exactly 1", or "2 to 5". */
+export function channelCountRange(atLeast: unknown, atMost: unknown): string {
+  const least = Number(atLeast);
+  const most = Number(atMost);
+  const lower = Number.isFinite(least) && least > 0 ? least : 0;
+  if (!Number.isFinite(most) || most <= 0 || most >= unboundedChannelCount) return lower > 0 ? `${lower} or more` : 'any number';
+  if (most === lower) return `exactly ${lower}`;
+  return `${lower} to ${most}`;
 }
 
 function waitingConditionCompletionRule(condition: Data, conditionCount: number): string {
@@ -932,7 +944,7 @@ export function StepMethodInputSection({
         </div>
       ) : hasInput ? (
         <>
-          <ValueBlock label="Step input" value={input.stepInput} />
+          <div className="event-values"><EventValueBlock name="Step input" value={input.stepInput} /></div>
           {!isWaitFor && (hasData(asData(input.conditionResults)) || subFlowConditions.length > 0) && (
             <div className="semantic-subsection">
               <h5>Condition results</h5>
@@ -1015,9 +1027,9 @@ export function StepMethodContextSection({
   if (isGrouped) {
     const groups: [string, Field[]][] = [
       ['Timing', [
-        ['Scheduled', isPresent(context.scheduledTime) ? formatDate(String(context.scheduledTime), timezone) : undefined],
-        ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined],
-        ['Duration', protobufDuration(context.duration)],
+        ['Scheduled', isPresent(context.scheduledTime) ? formatTimeWithMilliseconds(String(context.scheduledTime), timezone) : undefined],
+        ['Started', isPresent(context.startedTime) ? formatTimeWithMilliseconds(String(context.startedTime), timezone) : undefined],
+        ['Took', protobufDuration(context.duration)],
       ]],
       ['Attempt', [
         ['Execution ID', context.stepExecutionId],
@@ -1035,7 +1047,7 @@ export function StepMethodContextSection({
         {groups.map(([title, values]) => (values.some(([, value]) => isPresent(value)) || (title === 'Attempt' && hasData(lastFailure))) && (
           <div className="semantic-subsection" key={title}>
             <h5>{title}</h5>
-            <Fields compact values={values} />
+            <Fields inline values={values} />
             {title === 'Attempt' && hasData(lastFailure) && (
               <div className="semantic-subsection">
                 <h5>Last failure</h5>
@@ -1083,7 +1095,7 @@ export function StepMethodDetails({
     <>
       <StepMethodInputSection event={event} history={history} parentFlowId={parentFlowId} />
       <StepMethodOutputSection event={event} history={history} parentFlowId={parentFlowId} />
-      <DetailSection title="Context">
+      <DetailSection className="semantic-section-context" title="Context">
         <StepMethodContextSection event={event} history={history} parentFlowId={parentFlowId} wrapSection={false} isGrouped />
       </DetailSection>
     </>

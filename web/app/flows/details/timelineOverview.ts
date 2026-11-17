@@ -259,10 +259,10 @@ export function brushPixelSpan(
 
 /** The widest slot: a short page spreads its events up to this width. */
 export const LANE_SLOT_MAX_WIDTH = 160;
-/** Narrowest slot: a label column still fits about 12 characters per line; more events scroll. */
-export const LANE_SLOT_MIN_WIDTH = 96;
+/** Narrowest slot: a label column still fits about 9 characters per line; more events scroll. */
+export const LANE_SLOT_MIN_WIDTH = 64;
 
-/** Returns the lane's width per event: the whole page when it fits, from 160 px down to 96 px each, else 96 px. */
+/** Returns the lane's width per event: the whole page when it fits, from 160 px down to 64 px each, else 64 px. */
 export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
   return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));

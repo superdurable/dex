@@ -674,15 +674,15 @@ describe('RPC event details', () => {
     const attributeMarkup = renderDetails(attributesEvent);
     const channelMarkup = renderDetails(channelEvent);
 
-    expect(attributeMarkup).toContain('<strong class="compact-row-label">status</strong><div class="compact-row-value"><span class="inline-value"><code>ready</code></span></div>');
-    expect(attributeMarkup).toContain('aria-label="AttributeMap orders"');
-    expect(attributeMarkup).toContain('first order');
+    // Each Attribute's name sits above or beside its value, and map instances read "map / instance".
+    expect(attributeMarkup).toContain('<strong class="event-value-name">status</strong><code class="event-value-inline">ready</code>');
+    expect(attributeMarkup).toContain('orders / first order');
     // Published messages show decoded values inline, grouped by Channel.
     expect(channelMarkup).toContain('aria-label="Channel notifications"');
     expect(channelMarkup).toContain('>sent<');
     expect(channelMarkup).toContain('>eleven<');
     expect(channelMarkup).not.toContain('stringValue');
-    expectStrongLabelsInOrder(attributeMarkup, ['2', '11', 'first order']);
+    expectStrongLabelsInOrder(attributeMarkup, ['orders / 2', 'orders / 11', 'orders / first order']);
     expectStrongLabelsInOrder(channelMarkup, ['updates / 2', 'updates / 11', 'updates / first order']);
   });
 });

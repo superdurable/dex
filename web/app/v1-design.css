@@ -3220,8 +3220,8 @@ html:has(.v1-page .stream-scroll--entries) {
   overflow: hidden;
   color: var(--ui-ink-2);
   cursor: pointer;
-  font-size: var(--ui-text-sm);
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 15px;
   overflow-wrap: anywhere;
   pointer-events: auto;
   text-align: center;
@@ -3554,6 +3554,199 @@ html:has(.v1-page .stream-scroll--entries) {
   }
 }
 
+
+/* Input and Output share the width; Context is a narrow column of short values. */
+@container event-panel (min-width: 1180px) {
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 300px);
+    gap: 0;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > * {
+    padding: 0 24px;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > :first-child {
+    padding-left: 0;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > * + * {
+    border-left: 1px solid var(--ui-hairline);
+  }
+
+  .v1-page .run-sidebar .semantic-event > .semantic-section-context {
+    align-self: stretch;
+    padding-right: 0;
+  }
+}
+
+/* Section names are small labels, so field names and values carry the panel. */
+.v1-page .run-sidebar .semantic-section > h4 {
+  margin-bottom: 10px;
+  color: var(--ui-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-subsection h5 {
+  margin: 14px 0 6px;
+  color: var(--ui-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* One label width for every Context group, so values start on one line. */
+.v1-page .run-sidebar .semantic-section-context .semantic-fields.semantic-fields-inline {
+  grid-template-columns: 9.5em minmax(0, 1fr);
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-fields-inline dd {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-fields-inline dt {
+  color: var(--ui-ink-3);
+}
+
+/* Each value sits under its name; objects are pretty-printed and capped. */
+.event-values {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.event-value {
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.event-value + .event-value {
+  border-top: 1px dashed var(--ui-hairline);
+}
+
+.event-value-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.event-value-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-value-inline {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-value-none {
+  color: var(--ui-ink-3);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.event-value-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ui-ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.event-value-tools {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  gap: 2px;
+}
+
+.v1-page .event-value-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.v1-page .event-value-tool:hover {
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+}
+
+.v1-page .event-value-tool svg {
+  width: 12px;
+  height: 12px;
+}
+
+.v1-page .event-value-code {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: var(--ui-well);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.v1-page .event-value-code.is-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Seven lines show; a fade says more follows, and Expand shows the rest. */
+.v1-page .event-value-code.is-capped {
+  max-height: calc(7 * 1.5em + 16px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+
+.channel-record-range {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ui-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.v1-page .run-sidebar .channel-record > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* --------------------------------------------------------- experimental */
 

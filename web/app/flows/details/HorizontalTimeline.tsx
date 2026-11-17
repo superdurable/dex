@@ -68,11 +68,11 @@ const axisBandHeight = 18;
 const dotBandHeight = 30;
 /** Each label wraps inside its event's column, centered over the dot, up to this many lines. */
 const labelMaxLines = 3;
-const labelLineHeight = 16;
+const labelLineHeight = 15;
 /** The label column is this much narrower than the slot, so neighbors never touch. */
-const labelColumnGap = 8;
+const labelColumnGap = 6;
 /** About the width of one label character at the label font, for sizing the band before layout. */
-const labelCharacterWidth = 7.2;
+const labelCharacterWidth = 6.6;
 
 /** Returns how many lines a label takes in a column, estimated word by word, at most labelMaxLines. */
 export function labelLineCount(label: string, columnWidth: number): number {
@@ -568,15 +568,12 @@ export function HorizontalTimeline({
   const helpId = useId();
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-  /** Where the press grabbed the track thumb, in events from the thumb's left end; null when not dragging. */
-  const trackGrabOffset = useRef<number | null>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
   const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
   const maxStart = Math.max(0, chronological.length - visibleCount);
-  // Each overview bar sits under its own dot; on a longer page the overview scrolls with the lane.
-  const isLaneOverview = true;
+  // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
+  const isLaneOverview = maxStart === 0;
   const [windowStart, setWindowStart] = useState(maxStart);
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
@@ -591,9 +588,9 @@ export function HorizontalTimeline({
   const isFewEvents = isLaneOverview || chronological.length <= histogramBucketCount;
   const overviewAxis = useMemo(
     () => (isLaneOverview
-      ? laneOverviewAxis(chronological, slotWidth, overviewPlotInset, plotWidth, windowStart)
+      ? laneOverviewAxis(chronological, slotWidth, overviewPlotInset, plotWidth)
       : buildOverviewAxis(chronological, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0)),
-    [chronological, histogramBucketCount, isFewEvents, isLaneOverview, plotWidth, slotWidth, windowStart],
+    [chronological, histogramBucketCount, isFewEvents, isLaneOverview, plotWidth, slotWidth],
   );
   const bucketCount = isLaneOverview || (isFewEvents && overviewAxis.kind === 'index')
     ? Math.max(1, chronological.length)
@@ -851,32 +848,6 @@ export function HorizontalTimeline({
     } else return;
     event.preventDefault();
     moveWindow(next);
-  };
-
-  /** The pointer's position on the track, as a fractional event index. */
-  const trackEventIndex = (clientX: number) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    const width = rect && rect.width > 0 ? rect.width : stripWidth;
-    return ((clientX - (rect?.left ?? 0)) / width) * chronological.length;
-  };
-
-  // Pressing the thumb drags it from where it was grabbed; pressing beside it centers the view there.
-  const handleTrackPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const index = trackEventIndex(event.clientX);
-    const isOnThumb = index >= windowStart && index <= windowStart + visibleCount;
-    trackGrabOffset.current = isOnThumb ? index - windowStart : visibleCount / 2;
-    if (!isOnThumb) moveWindow(index - visibleCount / 2);
-  };
-
-  const handleTrackPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (trackGrabOffset.current === null) return;
-    moveWindow(trackEventIndex(event.clientX) - trackGrabOffset.current);
-  };
-
-  const endTrackDrag = () => {
-    trackGrabOffset.current = null;
   };
 
   if (!chronological.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
@@ -1199,26 +1170,6 @@ export function HorizontalTimeline({
         />
       )}
       </div>
-
-      {maxStart > 0 && (
-        <div
-          aria-hidden="true"
-          className="htl-track"
-          onLostPointerCapture={endTrackDrag}
-          onPointerDown={handleTrackPointerDown}
-          onPointerMove={handleTrackPointerMove}
-          onPointerUp={endTrackDrag}
-          ref={trackRef}
-        >
-          <span
-            className="htl-track-thumb"
-            style={{
-              left: `${(windowStart / chronological.length) * 100}%`,
-              width: `${(Math.min(visibleCount, chronological.length) / chronological.length) * 100}%`,
-            }}
-          />
-        </div>
-      )}
 
       <p className="sr-only" id={helpId}>
         Left and Right, or J and K, move the selection; Page Up and Page Down move by a screen. T time travels from the selected event. A sideways swipe or Shift with the wheel scrolls the lane.
