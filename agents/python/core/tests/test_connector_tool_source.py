@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,7 +30,6 @@ from dex_connectors.sdk import (
     RetryError,
     derive_call_id,
 )
-from dex_connectors.sdk.singledispatch import DecisionKind, Fence
 
 from dex_agents import (
     AgentEventWriter,
@@ -248,13 +247,9 @@ async def _run_send_attempt(
 async def test_refused_arguments_fail_on_every_attempt(
     case: dict[str, Any], tmp_path: Path
 ) -> None:
-    operation = OperationRef("fake-ledger", "sendMessage")
-    call_id = str(derive_call_id("session-1", "CallSingleAttemptTool-5", operation))
     ledger = FakeLedgerProvider(tmp_path)
     heartbeats = _ToolStepHeartbeats()
-    previous = case["previousCheckpoint"]
-    if previous is not None:
-        heartbeats.checkpoint = previous.replace("<callId>", call_id)
+    heartbeats.checkpoint = case["previousCheckpoint"]
     deferred = SimpleNamespace(
         arguments=case["arguments"], tool_source_reference='{"tool": "send", "maxSends": 3}'
     )
@@ -736,54 +731,48 @@ async def test_an_operation_reads_the_flow_start_and_first_attempt_times(
     assert json.loads(result.output) == {"accountId": "acct-1", "amount": 5}
 
 
-async def test_every_fence_method_keeps_its_marker_through_the_session_checkpoint() -> None:
+@dataclass(frozen=True)
+class _OpaqueProgress:
+    """A heartbeat value the step context stores without knowing its shape."""
+
+    stage: str
+    count: int
+
+
+async def test_a_heartbeat_value_persists_across_attempts_as_opaque_text() -> None:
     first = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
-    assert (await fence.decide()).kind is DecisionKind.SEND_ALLOWED
-
-    async def send(deadline: datetime) -> str:
-        # A bare background heartbeat now repeats the claim instead of clearing it.
-        await first.record()
-        return "note-1"
-
-    assert await fence.dispatch(send) == "note-1"
-    await fence.record_provider_id("note-1")
-    assert first.checkpoint is not None
-    assert all(value is not None for value in first.recorded)
+    context = cast(ConnectorStepContext, _fenced_call(1, None, first).context)
+    assert not context.has_last_heartbeat_value()
+    assert context.get_last_heartbeat_value(_OpaqueProgress) is None
+    await context.heartbeat(_OpaqueProgress("sent", 2))
+    saved = first.checkpoint
+    assert saved is not None
+    # A bare background heartbeat repeats the saved text instead of clearing it.
+    await context.heartbeat()
+    assert first.recorded == [saved, saved]
 
     second = _ToolStepHeartbeats()
-    retry = Fence(_fenced_call(2, first.checkpoint, second), timedelta(seconds=30))
-    decision = await retry.decide()
-    assert decision.kind is DecisionKind.READ_BACK_REQUIRED
+    retry = cast(ConnectorStepContext, _fenced_call(2, saved, second).context)
+    assert retry.has_last_heartbeat_value()
+    assert retry.get_last_heartbeat_value(str) == saved
+    assert retry.get_last_heartbeat_value(_OpaqueProgress) == _OpaqueProgress("sent", 2)
+
+    # A later value replaces the checkpoint, and the next attempt reads the latest text.
+    await retry.heartbeat(_OpaqueProgress("read back", 3))
+    assert second.checkpoint is not None and second.checkpoint != saved
+    third = cast(ConnectorStepContext, _fenced_call(3, second.checkpoint, second).context)
+    assert third.get_last_heartbeat_value(_OpaqueProgress) == _OpaqueProgress("read back", 3)
 
 
-async def test_a_marker_proving_no_send_lets_the_next_attempt_send() -> None:
-    first = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
-    await fence.decide()
-    await fence.record_not_sent()
-    retry = Fence(_fenced_call(2, first.checkpoint, _ToolStepHeartbeats()), timedelta(seconds=30))
-    decision = await retry.decide()
-    assert decision.kind is DecisionKind.SEND_ALLOWED
-
-    resent = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, resent), timedelta(seconds=30))
-    await fence.decide()
-
-    async def rejected_send(deadline: datetime) -> None:
-        return None
-
-    await fence.dispatch(rejected_send)
-    await fence.record_can_resend()
-    decision = await Fence(
-        _fenced_call(2, resent.checkpoint, _ToolStepHeartbeats()), timedelta(seconds=30)
-    ).decide()
-    assert decision.kind is DecisionKind.SEND_ALLOWED
-
-
-async def test_a_checkpoint_that_is_not_a_marker_fails_closed() -> None:
-    fence = Fence(_fenced_call(2, '"a task handle"', _ToolStepHeartbeats()), timedelta(seconds=30))
-    assert (await fence.decide()).kind is DecisionKind.FAIL_CLOSED
+async def test_a_step_that_cannot_save_checkpoints_refuses_a_heartbeat_value() -> None:
+    context = ConnectorStepContext(
+        cast(AsyncContext, _LiveContext(1)),
+        previous_checkpoint=None,
+        heartbeat=_ToolStepHeartbeats().record,
+        save_checkpoint=None,
+    )
+    with pytest.raises(RuntimeError):
+        await context.heartbeat(_OpaqueProgress("sent", 1))
 
 
 def test_the_call_id_depends_only_on_the_flow_step_execution_and_operation() -> None:

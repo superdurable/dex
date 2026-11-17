@@ -1127,7 +1127,7 @@
     ]
   },
   "argumentRefusalCases": {
-    "description": "One attempt of a sendMessage call (tool send, Step execution CallSingleAttemptTool-5) whose arguments this Worker refuses before the operation runs. previousCheckpoint is the checkpoint an earlier attempt saved, which the core does not read; <callId> stands for the call's Call ID. outcome is always failed: the operation never ran in this attempt, and the connector, not the core, reports a possible earlier send.",
+    "description": "One attempt of a sendMessage call (tool send, Step execution CallSingleAttemptTool-5) whose arguments this Worker refuses before the operation runs. previousCheckpoint is the opaque checkpoint text an earlier attempt saved, which the core does not read. outcome is always failed: the operation never ran in this attempt, and the connector, not the core, reports a possible earlier send.",
     "cases": [
       {
         "name": "a first attempt",
@@ -1139,21 +1139,21 @@
       {
         "name": "a later attempt after an earlier checkpoint",
         "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "previousCheckpoint": "opaque checkpoint of attempt 1",
         "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
         "outcome": "failed"
       },
       {
-        "name": "a later attempt after an earlier checkpoint that is not JSON",
+        "name": "a later attempt after an earlier JSON checkpoint",
         "attempt": 3,
-        "previousCheckpoint": "a task handle",
+        "previousCheckpoint": "{\"opaque\": \"checkpoint of attempt 2\"}",
         "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
         "outcome": "failed"
       },
       {
         "name": "arguments that are not JSON on a later attempt",
         "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "previousCheckpoint": "opaque checkpoint of attempt 1",
         "arguments": "not json",
         "outcome": "failed"
       }

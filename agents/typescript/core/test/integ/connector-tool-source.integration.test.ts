@@ -24,7 +24,6 @@ import {
   type Call,
   type QueryAttempt,
 } from "@superdurable/connectors-sdk";
-import { Fence } from "@superdurable/connectors-sdk/singledispatch";
 
 import {
   ConnectorStepContext,
@@ -233,13 +232,10 @@ describe("connector tools follow the shared conformance cases", () => {
   });
 
   test("refused arguments fail on every attempt, as the conformance suite says", async () => {
-    const operation = { connectorId: "fake-ledger", operationId: "sendMessage" };
-    const callId = deriveCallID("session-1", "CallSingleAttemptTool-5", operation);
     const ledger = new FakeLedgerProvider(mkdtempSync(join(tmpdir(), "fake-ledger-arguments-")));
     for (const testCase of conformance.argumentRefusalCases.cases) {
       const checkpoints = new SessionCheckpoints();
-      checkpoints.checkpoint =
-        testCase.previousCheckpoint === null ? undefined : testCase.previousCheckpoint.replaceAll("<callId>", callId);
+      checkpoints.checkpoint = testCase.previousCheckpoint ?? undefined;
       const outcome = await runSendAttempt(
         boundedResendSource(ledger, "cap3"),
         testCase.arguments,
@@ -629,52 +625,42 @@ describe("the Step context the single-dispatch fence uses", () => {
     });
   });
 
-  test("every fence method keeps its marker through the session checkpoint", async () => {
+  test("a heartbeat value persists across attempts as opaque text", async () => {
     const first = new SessionCheckpoints();
-    const fence = new Fence(fencedCall(1, undefined, first), 30_000);
-    assert.equal(fence.decide().kind, "sendAllowed");
-    const sent = await fence.dispatch(async () => {
-      // A bare background heartbeat now repeats the claim instead of clearing it.
-      await first.record();
-      return "note-1";
+    const context = fencedCallWithContext(1, undefined, first).context;
+    assert.equal(context.hasLastHeartbeatValue(), false);
+    assert.equal(context.getLastHeartbeatValue(), undefined);
+    await context.recordHeartbeat({ stage: "sent", count: 2 });
+    const saved = first.checkpoint;
+    assert.notEqual(saved, undefined);
+    // A bare background heartbeat repeats the saved text instead of clearing it.
+    await context.recordHeartbeat();
+    assert.deepEqual(first.recorded, [saved, saved]);
+
+    const second = new SessionCheckpoints();
+    const retry = fencedCallWithContext(2, saved, second).context;
+    assert.equal(retry.hasLastHeartbeatValue(), true);
+    assert.deepEqual(retry.getLastHeartbeatValue(), { stage: "sent", count: 2 });
+
+    // A later value replaces the checkpoint, and the next attempt reads the latest text.
+    await retry.recordHeartbeat({ stage: "read back", count: 3 });
+    assert.notEqual(second.checkpoint, saved);
+    assert.deepEqual(fencedCallWithContext(3, second.checkpoint, second).context.getLastHeartbeatValue(), {
+      stage: "read back",
+      count: 3,
     });
-    assert.equal(sent, "note-1");
-    await fence.recordProviderId("note-1");
-    assert.notEqual(first.checkpoint, undefined);
-    assert.ok(first.recorded.every((value) => value !== undefined));
-
-    const decision = new Fence(fencedCall(2, first.checkpoint, new SessionCheckpoints()), 30_000).decide();
-    assert.equal(decision.kind, "readBackRequired");
   });
 
-  test("a marker proving no send lets the next attempt send", async () => {
-    const first = new SessionCheckpoints();
-    const fence = new Fence(fencedCall(1, undefined, first), 30_000);
-    fence.decide();
-    await fence.recordNotSent();
-    const decision = new Fence(fencedCall(2, first.checkpoint, new SessionCheckpoints()), 30_000).decide();
-    assert.equal(decision.kind, "sendAllowed");
-
-    const resent = new SessionCheckpoints();
-    const rejectedFence = new Fence(fencedCall(1, undefined, resent), 30_000);
-    rejectedFence.decide();
-    await rejectedFence.dispatch(async () => undefined);
-    await rejectedFence.recordCanResend();
-    assert.equal(new Fence(fencedCall(2, resent.checkpoint, new SessionCheckpoints()), 30_000).decide().kind, "sendAllowed");
-  });
-
-  test("a checkpoint that is not a marker fails closed, and the text matches the Python core", () => {
-    assert.equal(new Fence(fencedCall(2, '"a task handle"', new SessionCheckpoints()), 30_000).decide().kind, "failClosed");
-    assert.equal(new Fence(fencedCall(2, "not json", new SessionCheckpoints()), 30_000).decide().kind, "failClosed");
-  });
-
-  test("the stored marker is the Python core's text", async () => {
+  test("a heartbeat value is stored as the Python core's text, and a Step without checkpoints refuses one", async () => {
     const checkpoints = new SessionCheckpoints();
-    const call = fencedCall(1, undefined, checkpoints);
-    const fence = new Fence(call, 30_000);
-    fence.decide();
-    await fence.recordNotSent();
-    assert.equal(checkpoints.checkpoint, `{"attempt":1,"callId":"${call.id}","state":"notSent"}`);
+    await fencedCallWithContext(1, undefined, checkpoints).context.recordHeartbeat({ stage: "sent", count: 2, absent: undefined });
+    assert.equal(checkpoints.checkpoint, '{"count":2,"stage":"sent"}');
+
+    const context = new ConnectorStepContext({ attempt: 1 } as unknown as AsyncContext, {
+      previousCheckpoint: undefined,
+      heartbeat: async () => {},
+    });
+    await assert.rejects(context.recordHeartbeat({ stage: "sent" }), TypeError);
   });
 
   test("the Call ID depends only on the Flow, the Step execution, and the operation", () => {
