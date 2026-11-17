@@ -3389,7 +3389,7 @@ html:has(.v1-page .stream-scroll--entries) {
   line-height: 17px;
   pointer-events: auto;
   text-overflow: ellipsis;
-  transform: rotate(var(--htl-label-angle, -45deg));
+  transform: rotate(var(--htl-label-angle, -30deg));
   transform-origin: left bottom;
   white-space: nowrap;
 }

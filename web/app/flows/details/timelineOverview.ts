@@ -262,7 +262,7 @@ export type TimelineLabelMode = 'dense' | 'tidy';
 
 /** Slot widths per label mode: short pages spread up to max; long pages pack to min and scroll. */
 export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: number }> = {
-  // 45° labels 36 px apart stay 25 px apart, as 36 * sin(45°) ≈ 25.
+  // Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll.
   dense: { min: 36, max: 120 },
   // A 64 px label column still fits about 9 characters per line.
   tidy: { min: 64, max: 160 },
