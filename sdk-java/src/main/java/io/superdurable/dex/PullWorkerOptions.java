@@ -33,7 +33,9 @@ import java.time.Duration;
  * }</pre>
  */
 public final class PullWorkerOptions {
+    private static final int DEFAULT_MAX_CONCURRENT_TASKS = 100;
     private final int maxConcurrentTasks;
+    private final boolean isMaxConcurrentTasksDefault;
     private final int reservedRpcTasks;
     private final boolean shouldWarnRpcCapacity;
     private final String appWorkerID;
@@ -43,8 +45,9 @@ public final class PullWorkerOptions {
 
     private PullWorkerOptions(final Builder builder) {
         this.stopOnPermanentStreamRejection = builder.stopOnPermanentStreamRejection;
-        this.maxConcurrentTasks = builder.maxConcurrentTasks == 0
-                ? Runtime.getRuntime().availableProcessors() : builder.maxConcurrentTasks;
+        this.isMaxConcurrentTasksDefault = builder.maxConcurrentTasks == 0;
+        this.maxConcurrentTasks = isMaxConcurrentTasksDefault
+                ? DEFAULT_MAX_CONCURRENT_TASKS : builder.maxConcurrentTasks;
         this.shouldWarnRpcCapacity = builder.reservedRpcTasks == null && maxConcurrentTasks == 1;
         this.reservedRpcTasks = builder.reservedRpcTasks == null
                 ? (maxConcurrentTasks >= 2 ? 1 : 0) : builder.reservedRpcTasks;
@@ -58,7 +61,7 @@ public final class PullWorkerOptions {
     }
 
     /**
-     * Creates a builder with CPU-count execution slots and a 30-second drain.
+     * Creates a builder with 100 execution slots and a 30-second drain.
      *
      * @return a mutable pull options builder
      */
@@ -68,6 +71,10 @@ public final class PullWorkerOptions {
 
     int getMaxConcurrentTasks() {
         return maxConcurrentTasks;
+    }
+
+    boolean isMaxConcurrentTasksDefault() {
+        return isMaxConcurrentTasksDefault;
     }
 
     boolean shouldWarnRpcCapacity() {
@@ -114,17 +121,29 @@ public final class PullWorkerOptions {
         /**
          * Sets the number of long-lived execution-slot streams for Step and RPC tasks.
          *
-         * <p>This also sizes the Worker's handler pool. Worker start fails when this exceeds
-         * the Server's per-Worker limit, matching.maxConcurrentTasksCap. Every received task
-         * executes without a capacity rejection. The server limit defaults to 256. Lower this
-         * option or raise the server limit before starting the Worker; this failure is not retried
-         * in the background. Budget server matching.maxStreams for the sum of Worker slots,
-         * including overlap during deployments.
+         * <p>This also sizes the Worker's handler pool, which creates threads on demand. The
+         * default of 100 suits I/O-bound handlers, such as model calls, HTTP requests, and
+         * database queries. Each slot holds one long-lived stream to the Server, so idle slots
+         * cost Server resources, and 100 keeps the stream count bounded. Lower the value for
+         * CPU-bound handlers, to about one slot per CPU, or to respect a downstream rate limit.
+         * Raise it, up to the Server cap, only when every slot is busy and Steps wait in the
+         * task queue.
+         *
+         * <p>When the value is not set, the Worker lowers the default to the Server's per-Worker
+         * limit, matching.maxConcurrentTasksCap, if that limit is lower, and logs one info
+         * message. When the value is set, Worker start fails if it exceeds that limit. Every
+         * received task executes without a capacity rejection. The server limit defaults to 256.
+         * Lower this option or raise the server limit before starting the Worker; this failure
+         * is not retried in the background. Budget server matching.maxStreams for the sum of
+         * Worker slots, including overlap during deployments.
          *
          * <p>Changed in 1.35.0: this value is also the exact stream count, and exceeding the
          * server cap fails startup.
          *
-         * @param value a nonnegative count; zero uses the available CPU count
+         * <p>Changed in 1.45.4: the default is 100 instead of the available CPU count, and an
+         * unset value is lowered to the Server cap instead of failing startup.
+         *
+         * @param value a nonnegative count; zero uses the default of 100
          * @return this builder
          * @throws IllegalArgumentException if value is negative
          */

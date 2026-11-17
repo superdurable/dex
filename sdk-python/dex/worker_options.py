@@ -18,6 +18,9 @@ from dex.flow_definition import FlowDefinitionDocument
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 
+DEFAULT_MAX_CONCURRENT_TASKS = 100
+
+
 @dataclass(frozen=True)
 class PullWorkerOptions:
     """Configure outbound task polling for a Worker or AsyncWorker.
@@ -40,11 +43,25 @@ class PullWorkerOptions:
        Start fails above matching.maxConcurrentTasksCap. Tasks received during
        stop return to Dex without consuming a retry.
 
+    .. versionchanged:: 1.45.5
+       max_concurrent_tasks defaults to 100 instead of the CPU count. An unset
+       value is lowered to the Server cap instead of failing start.
+
     Attributes:
         max_concurrent_tasks: Execution slots, each owning one long-lived poll
-            stream. Zero uses the CPU count. Negative values are invalid. Start
-            fails if this exceeds the Server's nonzero per-Worker limit reported
-            by matching.maxConcurrentTasksCap.
+            stream. Zero uses the default of 100. Negative values are invalid.
+            Each slot holds one stream to the Server, so idle slots cost Server
+            resources; 100 suits I/O-bound handlers, such as model calls, HTTP
+            requests, and database queries, while bounding the stream count.
+            Lower it for CPU-bound handlers, to about one slot per CPU, or to
+            respect a downstream rate limit. Sync handlers run in a thread
+            pool of this size, so CPU-bound Python work needs more Worker
+            processes instead of more slots. Raise it, up to the Server cap,
+            only when every slot is busy and Steps wait in the task queue.
+            When zero, the Worker lowers the default to the Server's nonzero
+            per-Worker limit matching.maxConcurrentTasksCap when that is lower,
+            and logs one info message. When set, start fails if it exceeds
+            that limit.
         reserved_rpc_tasks: Slots accepting only RPCs. The remaining slots accept
             Steps and RPCs. Steps are never declined for capacity. None reserves
             one slot when the resolved task limit is at least two, otherwise zero.
@@ -129,7 +146,7 @@ class PullWorkerOptions:
             )
         if self.max_concurrent_tasks < 0:
             raise ValueError("max_concurrent_tasks must not be negative")
-        task_limit = self.max_concurrent_tasks or os.cpu_count() or 1
+        task_limit = self.max_concurrent_tasks or DEFAULT_MAX_CONCURRENT_TASKS
         if self.reserved_rpc_tasks is not None and (
             self.reserved_rpc_tasks < 0 or self.reserved_rpc_tasks >= task_limit
         ):

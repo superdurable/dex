@@ -288,8 +288,7 @@ final class PullWorkerTest {
         }
         try (Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache())) {
             assertFalse(worker.getPullRegistrationState().isReady());
-            assertEquals(Runtime.getRuntime().availableProcessors() >= 2 ? 2 : 1,
-                    worker.getPullRegistrationState().getQueues().size());
+            assertEquals(2, worker.getPullRegistrationState().getQueues().size());
             assertThrows(java.util.concurrent.TimeoutException.class,
                     () -> worker.waitPullRegistered(Duration.ZERO));
         }
@@ -433,7 +432,9 @@ final class PullWorkerTest {
         final PullWorkerOptions defaults = PullWorkerOptions.newBuilder()
                 .maxConcurrentTasks(0).idleStreamsPerQueue(0)
                 .stopDrainTimeout(Duration.ZERO).build();
-        assertEquals(Runtime.getRuntime().availableProcessors(), defaults.getMaxConcurrentTasks());
+        assertEquals(100, defaults.getMaxConcurrentTasks());
+        assertTrue(defaults.isMaxConcurrentTasksDefault());
+        assertFalse(PullWorkerOptions.newBuilder().maxConcurrentTasks(8).build().isMaxConcurrentTasksDefault());
         assertEquals(Duration.ofSeconds(30), defaults.getStopDrainTimeout());
         final String workerID = PullWorker.generateAppWorkerID("My.Host_Name");
         assertTrue(workerID.matches("my-host-name-[a-z2-7]{8}"));
@@ -600,6 +601,36 @@ final class PullWorkerTest {
                 assertTrue(stream.frames.isEmpty());
             }
             assertEquals(0, flow.executeCalls.get());
+        }
+    }
+
+    @Test
+    void defaultConcurrencyLowersToServerLimitWithoutExceedingIt() throws Exception {
+        final PollServer pollServer = new PollServer();
+        pollServer.maxConcurrentTasks = 3;
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 0)) {
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (pollServer.allStreams.size() < 3 && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            Thread.sleep(300L);
+            assertEquals(3, pollServer.allStreams.size());
+            assertTrue(running.workerThread.isAlive());
+            assertEquals(null, running.failure.get());
+        }
+    }
+
+    @Test
+    void defaultConcurrencyOpensDefaultStreamsWhenServerHasNoLimit() throws Exception {
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 0)) {
+            running.worker.waitPullRegistered(Duration.ofSeconds(5));
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (pollServer.allStreams.size() < 100 && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            assertEquals(100, pollServer.allStreams.size());
         }
     }
 

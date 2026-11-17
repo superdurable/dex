@@ -314,6 +314,79 @@ def test_lower_limit_after_first_registration_only_warns(
     assert runtime._rejection_stop_task is None
 
 
+def test_unset_max_concurrent_tasks_defaults_to_one_hundred() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(), "unused", None
+    )
+    assert runtime.max_concurrent_tasks == 100
+    assert runtime.reserved_rpc_tasks == 1
+
+
+def test_unset_max_concurrent_tasks_lowers_to_server_cap(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(), "unused", None
+    )
+    with caplog.at_level(logging.INFO, logger="dex._pull_worker"):
+        assert runtime.accept_registration(
+            pb.PollWorkerTaskRegistered(max_concurrent_tasks_per_app_worker=3)
+        )
+    assert runtime.max_concurrent_tasks == 3
+    assert runtime._permanent_error is None
+    assert caplog.text.count("Lowered default max_concurrent_tasks") == 1
+
+
+def test_unset_max_concurrent_tasks_opens_one_stream_before_cap_is_known() -> None:
+    asyncio.run(_unset_max_concurrent_tasks_opens_one_stream_before_cap_is_known())
+
+
+async def _unset_max_concurrent_tasks_opens_one_stream_before_cap_is_known() -> None:
+    class IdleStream:
+        def __init__(self, _runtime: Any, _stub: Any, slot_kind: int) -> None:
+            self.slot_kind = slot_kind
+            self.run_task: asyncio.Task[None] | None = None
+
+        async def run(self) -> None:
+            await asyncio.sleep(60)
+
+        def on_done(self, _completed: asyncio.Task[None]) -> None:
+            return None
+
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(), "unused", None
+    )
+    runtime._stopping = asyncio.Event()
+    with patch.object(_pull_worker, "PullStream", IdleStream):
+        runtime._reconcile(None)
+        assert len(runtime._streams) == 2
+        assert runtime.accept_registration(
+            pb.PollWorkerTaskRegistered(max_concurrent_tasks_per_app_worker=3)
+        )
+        runtime._reconcile(None)
+        assert len(runtime._streams) == 3
+    for stream in tuple(runtime._streams):
+        assert stream.run_task is not None
+        stream.run_task.cancel()
+
+
+def test_explicit_max_concurrent_tasks_above_server_cap_still_fails() -> None:
+    asyncio.run(_explicit_max_concurrent_tasks_above_server_cap_still_fails())
+
+
+async def _explicit_max_concurrent_tasks_above_server_cap_still_fails() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]), None, PullWorkerOptions(max_concurrent_tasks=8), "unused", None
+    )
+    runtime._stopping = asyncio.Event()
+    assert not runtime.accept_registration(
+        pb.PollWorkerTaskRegistered(max_concurrent_tasks_per_app_worker=4)
+    )
+    assert runtime._rejection_stop_task is not None
+    await asyncio.wait_for(runtime._rejection_stop_task, 2)
+    assert runtime.max_concurrent_tasks == 8
+
+
 def test_registrations_after_limit_failure_are_not_recorded() -> None:
     asyncio.run(_registrations_after_limit_failure_are_not_recorded())
 

@@ -323,6 +323,64 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 	}
 }
 
+func TestWorkerPullDefaultMaxConcurrentTasksWithoutServerCap(t *testing.T) {
+	worker, server, result := startRegistrationTestWorkerKeepingSlotDefault(t, PullWorkerOptions{}, &workerSyncFlowService{})
+	require.Equal(t, 100, worker.pull.maxConcurrentTasks)
+	go func() { result <- worker.Start() }()
+	first := awaitRegistrationTestStream(t, server, 5*time.Second)
+	second := awaitRegistrationTestStream(t, server, 5*time.Second)
+	require.NotEqual(t, first.queue, second.queue)
+	select {
+	case extra := <-server.streams:
+		t.Fatalf("opened stream %s before the first acknowledgement", extra.queue)
+	case <-time.After(200 * time.Millisecond):
+	}
+	first.register()
+	second.register()
+	for range 4 {
+		awaitRegistrationTestStream(t, server, 5*time.Second)
+	}
+}
+
+func TestWorkerPullDefaultMaxConcurrentTasksLowersToServerCap(t *testing.T) {
+	worker, server, result := startRegistrationTestWorkerKeepingSlotDefault(t, PullWorkerOptions{}, &workerSyncFlowService{})
+	go func() { result <- worker.Start() }()
+	first := awaitRegistrationTestStream(t, server, 5*time.Second)
+	second := awaitRegistrationTestStream(t, server, 5*time.Second)
+	first.registerWithLimit(3)
+	second.registerWithLimit(3)
+	// Cap 3 with one reserved RPC slot leaves two shared slots; one shared stream is already open.
+	extra := awaitRegistrationTestStream(t, server, 5*time.Second)
+	require.Equal(t, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC.String(), extra.queue)
+	select {
+	case surplus := <-server.streams:
+		t.Fatalf("opened stream %s beyond the Server cap", surplus.queue)
+	case <-time.After(300 * time.Millisecond):
+	}
+	worker.pull.mu.Lock()
+	require.Equal(t, 3, worker.pull.maxConcurrentTasks)
+	require.Equal(t, 1, worker.pull.reservedRPCTasks)
+	worker.pull.mu.Unlock()
+	select {
+	case err := <-result:
+		t.Fatalf("lowering the default stopped Start: %v", err)
+	default:
+	}
+}
+
+func TestWorkerPullExplicitMaxConcurrentTasksAboveServerCapFails(t *testing.T) {
+	worker, server, result := startRegistrationTestWorker(t, PullWorkerOptions{MaxConcurrentTasks: 8}, &workerSyncFlowService{})
+	go func() { result <- worker.Start() }()
+	stream := awaitRegistrationTestStream(t, server, 5*time.Second)
+	stream.registerWithLimit(4)
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "MaxConcurrentTasks 8 exceeds Server matching.maxConcurrentTasksCap 4")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not fail for an explicit limit above the Server cap")
+	}
+}
+
 func TestWorkerPullPermanentRejectionDrainsActiveHandler(t *testing.T) {
 	flow := &workerBlockingFlow{entered: make(chan struct{}), release: make(chan struct{})}
 	worker, server, result := startRegistrationTestWorker(t, PullWorkerOptions{
@@ -367,19 +425,24 @@ func TestWorkerPullPermanentRejectionDrainsActiveHandler(t *testing.T) {
 
 func startRegistrationTestWorker(t *testing.T, options PullWorkerOptions, flowService *workerSyncFlowService, flows ...Flow) (*Worker, *registrationTestServer, chan error) {
 	t.Helper()
+	if options.MaxConcurrentTasks == 0 {
+		options.MaxConcurrentTasks = 2
+	}
+	return startRegistrationTestWorkerKeepingSlotDefault(t, options, flowService, flows...)
+}
+
+func startRegistrationTestWorkerKeepingSlotDefault(t *testing.T, options PullWorkerOptions, flowService *workerSyncFlowService, flows ...Flow) (*Worker, *registrationTestServer, chan error) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	grpcServer := grpc.NewServer()
-	server := &registrationTestServer{streams: make(chan *registrationTestStream, 32)}
+	server := &registrationTestServer{streams: make(chan *registrationTestStream, 128)}
 	dexpb.RegisterWorkerTaskServiceServer(grpcServer, server)
 	dexpb.RegisterFlowServiceServer(grpcServer, flowService)
 	serveResult := make(chan error, 1)
 	go servePullTestServer(grpcServer, listener, serveResult)
 	if len(flows) == 0 {
 		flows = []Flow{workerFlow}
-	}
-	if options.MaxConcurrentTasks == 0 {
-		options.MaxConcurrentTasks = 2
 	}
 	worker, err := newWorkerForTest(t, flows, WorkerOptions{FlowServiceAddress: listener.Addr().String(), Pull: &options})
 	require.NoError(t, err)
@@ -414,6 +477,10 @@ func queueStateIndex(worker *Worker, queue string) int {
 
 func (stream *registrationTestStream) register() {
 	stream.commands <- registrationTestCommand{response: &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{}}}}
+}
+
+func (stream *registrationTestStream) registerWithLimit(limit uint32) {
+	stream.commands <- registrationTestCommand{response: &dexpb.PollWorkerTaskResponse{Frame: &dexpb.PollWorkerTaskResponse_Registered{Registered: &dexpb.PollWorkerTaskRegistered{MaxConcurrentTasksPerAppWorker: limit}}}}
 }
 
 func (stream *registrationTestStream) registerOnTaskQueue(taskQueue string) {

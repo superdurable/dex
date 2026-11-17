@@ -35,7 +35,7 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.pull_registration import _PullRegistration
-from dex.worker_options import PullWorkerOptions
+from dex.worker_options import DEFAULT_MAX_CONCURRENT_TASKS, PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
 _GRPC_AIO_EOF = getattr(grpc.aio, "EOF")
@@ -135,7 +135,10 @@ class PullWorkerRuntime:
         )
         self._permanent_error: RuntimeError | None = None
         self._rejection_stop_task: asyncio.Task[None] | None = None
-        self.max_concurrent_tasks = options.max_concurrent_tasks or os.cpu_count() or 1
+        self._is_max_concurrent_tasks_default = not options.max_concurrent_tasks
+        self.max_concurrent_tasks = (
+            options.max_concurrent_tasks or DEFAULT_MAX_CONCURRENT_TASKS
+        )
         self.reserved_rpc_tasks = (
             options.reserved_rpc_tasks
             if options.reserved_rpc_tasks is not None
@@ -232,11 +235,14 @@ class PullWorkerRuntime:
     def _reconcile(self, stub: Any) -> None:
         if self._stopping is None or self._stopping.is_set():
             return
+        step_count = self.max_concurrent_tasks - self.reserved_rpc_tasks
+        if self._is_max_concurrent_tasks_default and not (
+            self._has_checked_registration_limit
+        ):
+            # The Server cap is unknown until the first acknowledgement.
+            step_count = min(step_count, 1)
         for slot_kind, desired_count in (
-            (
-                pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
-                self.max_concurrent_tasks - self.reserved_rpc_tasks,
-            ),
+            (pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC, step_count),
             (pb.POLL_WORKER_SLOT_KIND_RPC_ONLY, self.reserved_rpc_tasks),
         ):
             existing_count = sum(
@@ -276,7 +282,22 @@ class PullWorkerRuntime:
                 )
             return True
         self._has_checked_registration_limit = True
+        self.signal()
         if not is_limit_exceeded:
+            return True
+        if (
+            self._is_max_concurrent_tasks_default
+            and self.reserved_rpc_tasks < server_limit
+        ):
+            _LOGGER.info(
+                "Lowered default max_concurrent_tasks to the Server "
+                "matching.maxConcurrentTasksCap",
+                extra={
+                    "default_max_concurrent_tasks": self.max_concurrent_tasks,
+                    "max_concurrent_tasks": server_limit,
+                },
+            )
+            self.max_concurrent_tasks = server_limit
             return True
         self._permanent_error = RuntimeError(
             f"max_concurrent_tasks={self.max_concurrent_tasks} exceeds Server "

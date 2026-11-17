@@ -85,6 +85,9 @@ final class PullWorker {
     private PullRegistrationError initialRegistrationError;
     private PullRegistrationError permanentStreamError;
     private int busyTasks;
+    // Start from the options; a default slot count may be lowered once to the Server cap.
+    private int maxConcurrentTasks;
+    private final int reservedRpcTasks;
     private boolean hasCheckedRegistrationLimit;
     private String registrationLimitFailure;
 
@@ -116,6 +119,8 @@ final class PullWorker {
         this.taskService = credential == null ? serviceStub
                 : serviceStub.withCallCredentials(new GrpcCredential(credential));
         this.options = options;
+        this.maxConcurrentTasks = options.getMaxConcurrentTasks();
+        this.reservedRpcTasks = options.getReservedRpcTasks();
         this.sdkVersion = sdkVersion;
         this.scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-pull-timer");
@@ -451,16 +456,20 @@ final class PullWorker {
         if (isStopping) {
             return;
         }
-        if (streams.isEmpty()) {
-            for (int slot = 0; slot < options.getMaxConcurrentTasks(); slot++) {
-                final PollWorkerSlotKind slotKind = slot < options.getReservedRpcTasks()
-                        ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
-                        : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC;
-                streams.add(new PullStream(slotKind));
-            }
-            for (PullStream stream : new ArrayList<PullStream>(streams)) {
-                stream.open();
-            }
+        // The Server cap is unknown until the first acknowledgement, so a default slot count opens one stream first.
+        final boolean isAwaitingServerLimit = options.isMaxConcurrentTasksDefault() && !hasCheckedRegistrationLimit;
+        final int desiredStreams = isAwaitingServerLimit ? 1 : maxConcurrentTasks;
+        final List<PullStream> opened = new ArrayList<PullStream>();
+        while (streams.size() < desiredStreams) {
+            final PollWorkerSlotKind slotKind = streams.size() < reservedRpcTasks
+                    ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
+                    : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC;
+            final PullStream stream = new PullStream(slotKind);
+            streams.add(stream);
+            opened.add(stream);
+        }
+        for (PullStream stream : opened) {
+            stream.open();
         }
     }
 
@@ -632,10 +641,10 @@ final class PullWorker {
         private boolean isRegistrationWithinServerLimit(final PollWorkerTaskResponse response) {
             final long serverLimit = Integer.toUnsignedLong(response.getRegistered()
                     .getMaxConcurrentTasksPerAppWorker());
-            final boolean isWithinLimit = serverLimit == 0 || serverLimit >= options.getMaxConcurrentTasks();
+            final boolean isWithinLimit = serverLimit == 0 || serverLimit >= maxConcurrentTasks;
             if (hasCheckedRegistrationLimit) {
                 if (!isWithinLimit) {
-                    LOGGER.warning("maxConcurrentTasks " + options.getMaxConcurrentTasks()
+                    LOGGER.warning("maxConcurrentTasks " + maxConcurrentTasks
                             + " exceeds the Server setting matching.maxConcurrentTasksCap " + serverLimit
                             + " reported on reconnect; the Worker keeps running and the Server may reject"
                             + " extra slot streams");
@@ -643,12 +652,31 @@ final class PullWorker {
                 return true;
             }
             hasCheckedRegistrationLimit = true;
+            if (!isWithinLimit && options.isMaxConcurrentTasksDefault()) {
+                return lowerDefaultToServerLimit(serverLimit);
+            }
             if (!isWithinLimit) {
-                registrationLimitFailure = "maxConcurrentTasks " + options.getMaxConcurrentTasks()
+                registrationLimitFailure = "maxConcurrentTasks " + maxConcurrentTasks
                         + " exceeds Server setting matching.maxConcurrentTasksCap " + serverLimit
                         + "; lower maxConcurrentTasks or raise the Server setting";
             }
             return isWithinLimit;
+        }
+
+        // Returns false and records a limit failure when the lowered default leaves no Step slot.
+        private boolean lowerDefaultToServerLimit(final long serverLimit) {
+            final int previous = maxConcurrentTasks;
+            maxConcurrentTasks = (int) serverLimit;
+            if (reservedRpcTasks >= maxConcurrentTasks) {
+                registrationLimitFailure = "reservedRpcTasks " + reservedRpcTasks
+                        + " must be less than the default maxConcurrentTasks lowered to Server setting"
+                        + " matching.maxConcurrentTasksCap " + serverLimit
+                        + "; set reservedRpcTasks to zero or raise the Server setting";
+                return false;
+            }
+            LOGGER.info("Lowered default maxConcurrentTasks " + previous
+                    + " to the Server setting matching.maxConcurrentTasksCap " + serverLimit);
+            return true;
         }
 
         private void startTask(final PollWorkerTask task) {

@@ -905,7 +905,8 @@ without a registered stream makes `Start` drain all streams within
 registration error. Always call `Stop` before exiting.
 
 The Worker keeps exactly `MaxConcurrentTasks` long-lived execution slot streams.
-Zero uses the CPU count. Each stream registers an empty queue, the Worker ID,
+Zero uses 100, lowered to the Server's `matching.maxConcurrentTasksCap` when it is
+lower; an explicit value above the cap fails start. Each stream registers an empty queue, the Worker ID,
 and every registered Flow type; it is ready while idle and busy while executing
 one task. `ReservedRPCTasks` streams accept only RPCs; the others accept Steps
 and RPCs. The Worker executes every received task without capacity rejections.
@@ -993,8 +994,7 @@ and Worker. Their option-level loggers override it for that component.
 
 Set `ReservedRPCTasks` when synchronous RPC latency must stay responsive behind
 long-running Steps. When unset, it reserves one slot if the resolved task limit
-is at least two, otherwise zero. With the CPU-count default, Steps get one fewer
-slot than before. Set it explicitly to zero to opt out. With one slot and no
+is at least two, otherwise zero. With the default of 100, Steps get 99 slots. Set it explicitly to zero to opt out. With one slot and no
 explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
 Flows must stay responsive because RPCs share Worker task capacity with Steps.

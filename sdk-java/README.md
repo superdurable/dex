@@ -333,8 +333,9 @@ Every stream serves the sticky Worker identity and every registered Flow type;
 its registration has an empty queue. A stream is ready while idle and busy while
 its task runs. The Worker executes every delivered task and never rejects for
 capacity. It can reject an unknown Step or RPC before invoking its handler.
-The default slot count is the available CPU count. Worker start fails if it
-exceeds the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit.
+The default slot count is 100, lowered to the Server's reported
+`matching.maxConcurrentTasksCap` per-Worker limit when that is lower. Worker
+start fails if an explicit value exceeds that limit.
 The deprecated `idleStreamsPerQueue` option is accepted but has no effect.
 Heartbeat and Stream writes from cancelled or completed invocations are rejected
 locally, including after stream reuse. A stream error cancels its running task;

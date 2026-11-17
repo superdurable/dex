@@ -88,7 +88,7 @@ type WorkerOptions struct {
 // PullWorkerOptions configures outbound execution slot streams.
 //
 // Use it with WorkerOptions.Pull to tune outbound task streams.
-// MaxConcurrentTasks defaults to runtime.NumCPU; each task slot owns one long-lived stream.
+// MaxConcurrentTasks defaults to 100, lowered to the Server cap when unset; each task slot owns one long-lived stream.
 // StopDrainTimeout defaults to 30 seconds.
 // Changed in SDK v1.35.0: streams represent execution slots instead of per-queue idle capacity.
 // The total stream count stays MaxConcurrentTasks while idle or busy, including RPC-only slots.
@@ -110,9 +110,15 @@ type PullWorkerOptions struct {
 	// Always call Stop before exiting; it remains safe after Start returns.
 	StopOnPermanentStreamRejection bool
 	// MaxConcurrentTasks sets the number of long-lived execution slot streams and bounds simultaneous handlers.
-	// Zero uses runtime.NumCPU(); negative values are invalid. Each idle stream can accept one task.
-	// Start fails when this exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.
+	// Zero uses the default of 100; negative values are invalid. Each idle stream can accept one task.
+	// Each slot holds one long-lived stream to the Server, so idle slots cost Server resources.
+	// 100 suits I/O-bound handlers, such as model calls, HTTP requests, and database queries, while bounding the stream count.
+	// Lower it for CPU-bound handlers, to about one slot per CPU, or to respect a downstream rate limit.
+	// Raise it, up to the Server cap, only when every slot is busy and Steps wait in the task queue.
+	// When zero, the Worker lowers the default to the Server's matching.maxConcurrentTasksCap and logs one info message.
+	// When set, Start fails if the value exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.
 	// The server cap defaults to 256. Raise it before starting a Worker that needs more slots.
+	// Changed in SDK v1.45.7: the default is 100 instead of runtime.NumCPU(), clamped to the Server cap.
 	// Changed in SDK v1.35.0: exceeding the first registration's cap fails startup without background retry.
 	// A smaller cap on reconnect logs a warning and lets the Server reject surplus streams; the Worker keeps running.
 	MaxConcurrentTasks int

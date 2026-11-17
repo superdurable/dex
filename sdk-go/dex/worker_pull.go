@@ -17,7 +17,6 @@ import (
 	"io"
 	"math/big"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +37,8 @@ type pullWorker struct {
 	queues                         []string
 	maxConcurrentTasks             int
 	reservedRPCTasks               int
-	shouldWarnRPCCapacity          bool
+	isMaxConcurrentTasksDefault    bool
+	shouldWarnRPCCapacity         bool
 	stopDrainTimeout               time.Duration
 	finalOutputFlushTimeout        time.Duration
 	stopOnPermanentStreamRejection bool
@@ -102,6 +102,9 @@ type pullStream struct {
 
 const busyPullStreamKeepaliveInterval = 20 * time.Second
 
+// defaultMaxConcurrentTasks is the slot count used when MaxConcurrentTasks is zero.
+const defaultMaxConcurrentTasks = 100
+
 // defaultFinalOutputFlushTimeout bounds how long an expired drain waits for a queued final output to reach the Server.
 const defaultFinalOutputFlushTimeout = 5 * time.Second
 
@@ -110,8 +113,9 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	if maxConcurrentTasks < 0 {
 		return nil, fmt.Errorf("dex: MaxConcurrentTasks must not be negative")
 	}
-	if maxConcurrentTasks == 0 {
-		maxConcurrentTasks = runtime.NumCPU()
+	isMaxConcurrentTasksDefault := maxConcurrentTasks == 0
+	if isMaxConcurrentTasksDefault {
+		maxConcurrentTasks = defaultMaxConcurrentTasks
 	}
 	reservedRPCTasks := 0
 	if options.ReservedRPCTasks != nil {
@@ -168,7 +172,8 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		queueRegistrations: queueRegistrations, registrationChanged: make(chan struct{}), permanentStreamRejected: make(chan struct{}),
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
-		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
+		isMaxConcurrentTasksDefault: isMaxConcurrentTasksDefault,
+		shouldWarnRPCCapacity:options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
 		stopDrainTimeout:      stopDrainTimeout, finalOutputFlushTimeout: defaultFinalOutputFlushTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}), stopBegan: make(chan struct{}),
 	}, nil
@@ -324,6 +329,10 @@ func (worker *pullWorker) reconcile() {
 				existing++
 			}
 		}
+		if worker.isMaxConcurrentTasksDefault && !worker.hasCheckedRegistrationLimit && desired > 1 {
+			// The Server cap is unknown until the first acknowledgement, so open one stream per queue first.
+			desired = 1
+		}
 		for existing < desired {
 			streamCtx, cancel := context.WithCancel(worker.ctx)
 			stream := &pullStream{worker: worker, queue: queue, slotKind: slotKind, ctx: streamCtx, cancel: cancel}
@@ -392,8 +401,14 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledge
 	isOverLimit := limit != 0 && uint64(worker.maxConcurrentTasks) > uint64(limit)
 	if !worker.hasCheckedRegistrationLimit {
 		worker.hasCheckedRegistrationLimit = true
-		if isOverLimit {
-			err := fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
+		defer worker.signal()
+		var err error
+		if isOverLimit && worker.isMaxConcurrentTasksDefault {
+			err = worker.lowerDefaultToServerLimit(uint64(limit))
+		} else if isOverLimit {
+			err = fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
+		}
+		if err != nil {
 			if worker.permanentStreamError == nil {
 				worker.permanentStreamError = err
 				worker.initialRegistrationError = err
@@ -424,6 +439,18 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledge
 		worker.hasRegisteredAllQueues = hasRegisteredAllQueues
 	}
 	worker.notifyRegistrationChanged()
+	return nil
+}
+
+// lowerDefaultToServerLimit lowers the default slot count to the Server cap; the caller holds worker.mu.
+func (worker *pullWorker) lowerDefaultToServerLimit(limit uint64) error {
+	previous := worker.maxConcurrentTasks
+	worker.maxConcurrentTasks = int(limit)
+	if worker.reservedRPCTasks >= worker.maxConcurrentTasks {
+		return fmt.Errorf("dex: ReservedRPCTasks %d must be less than the default MaxConcurrentTasks lowered to Server matching.maxConcurrentTasksCap %d; set ReservedRPCTasks to zero or raise the cap", worker.reservedRPCTasks, limit)
+	}
+	worker.service.logger.Info("dex: lowered default MaxConcurrentTasks to the Server matching.maxConcurrentTasksCap",
+		"defaultMaxConcurrentTasks", previous, "maxConcurrentTasks", worker.maxConcurrentTasks)
 	return nil
 }
 
