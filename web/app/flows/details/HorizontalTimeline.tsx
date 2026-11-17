@@ -18,7 +18,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate, isSameCalendarDay, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
@@ -406,12 +406,6 @@ function retriedSpoken(event: FlowHistoryEvent, status: EventStatus): string {
   return Number.isFinite(finalAttempt) && finalAttempt > 1
     ? `succeeded on attempt ${finalAttempt}`
     : 'succeeded after a failed attempt';
-}
-
-/** Reports whether two instants fall on the same calendar day in the viewer's timezone. */
-export function isSameCalendarDay(startMs: number, endMs: number, timezone: TimezonePreference): boolean {
-  if (timezone === 'UTC') return new Date(startMs).toISOString().slice(0, 10) === new Date(endMs).toISOString().slice(0, 10);
-  return new Date(startMs).toDateString() === new Date(endMs).toDateString();
 }
 
 const clockFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -961,6 +955,8 @@ export function HorizontalTimeline({
   // The brush only appears when the page is wider than the strip; otherwise there is nothing to move.
   const hasBrush = !isLaneOverview && maxStart > 0;
   const isIndexInView = (index: number) => xOf(index) >= 0 && xOf(index) <= stripWidth;
+  // The lane overview draws only what is in view; the whole-page overview marks every event.
+  const isOverviewMarkShown = (index: number) => !isLaneOverview || isIndexInView(index);
   const barSlotWidth = plotWidth / bucketCount;
   const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
   /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
@@ -1145,11 +1141,11 @@ export function HorizontalTimeline({
           {[...linkedEventIds].flatMap((eventId) => {
             const index = indexByEventId.get(eventId);
             const pageIndex = pageIndexByEventId.get(eventId);
-            if (index === undefined || pageIndex === undefined || index === selectedIndex || !isIndexInView(index)) return [];
+            if (index === undefined || pageIndex === undefined || index === selectedIndex || !isOverviewMarkShown(index)) return [];
             const x = plotX(pageIndex);
             return [<line className="htl-overview-linked" key={eventId} x1={x} x2={x} y1={overviewMarkerLaneHeight} y2={overviewHeight} />];
           })}
-          {selectedIndex >= 0 && selectedPageIndex >= 0 && isIndexInView(selectedIndex) && (
+          {selectedIndex >= 0 && selectedPageIndex >= 0 && isOverviewMarkShown(selectedIndex) && (
             <g className="htl-overview-selection">
               <line x1={plotX(selectedPageIndex)} x2={plotX(selectedPageIndex)} y1={overviewMarkerLaneHeight - 2} y2={overviewHeight} />
               <circle cx={plotX(selectedPageIndex)} cy={overviewMarkerLaneHeight - 2} r={2.5} />

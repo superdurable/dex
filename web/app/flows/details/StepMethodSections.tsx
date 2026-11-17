@@ -35,7 +35,7 @@ import {
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
-import { formatDate, formatTimeWithMilliseconds, type TimezonePreference } from '@/lib/format';
+import { formatDate, formatTimeBesideReference, type TimezonePreference } from '@/lib/format';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
 import { generatedSubFlowID } from '@/lib/subflows';
@@ -46,7 +46,8 @@ export type Data = Record<string, unknown>;
 
 /** Long Attribute values in event details preview about one line before Show all. */
 const eventValuePreviewCharacters = 64;
-export type Field = [label: string, value: unknown, wide?: boolean];
+/** A label and value; hoverTitle replaces the value's own text as its tooltip. */
+export type Field = [label: string, value: unknown, wide?: boolean, hoverTitle?: string];
 
 export function asData(value: unknown): Data {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
@@ -129,10 +130,10 @@ export function Fields({
   ].filter(Boolean).join(' ');
   return (
     <dl className={classes}>
-      {visible.map(([label, value, wide]) => (
+      {visible.map(([label, value, wide, hoverTitle]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
-          <dd title={displayValue(value) === '—' ? undefined : displayValue(value)}>{displayValue(value)}</dd>
+          <dd title={hoverTitle ?? (displayValue(value) === '—' ? undefined : displayValue(value))}>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -407,15 +408,23 @@ function WaitingConditionContent({
   );
 }
 
-/** The largest 32-bit count, which a Channel condition uses for "no upper limit". */
-const unboundedChannelCount = 2147483647;
+/** A Channel condition bound as the server reads it: omitted stays undefined, and a negative count is 0. */
+function channelConditionBound(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, count) : undefined;
+}
 
-/** Reads a Channel condition's counts as words, such as "1 or more", "exactly 1", or "2 to 5". */
+/**
+ * Reads a Channel condition's counts as words, such as "exactly 1", "1 or more", or "2 to 5".
+ * Both bounds omitted means exactly one message; only an omitted upper bound means no limit.
+ */
 export function channelCountRange(atLeast: unknown, atMost: unknown): string {
-  const least = Number(atLeast);
-  const most = Number(atMost);
-  const lower = Number.isFinite(least) && least > 0 ? least : 0;
-  if (!Number.isFinite(most) || most <= 0 || most >= unboundedChannelCount) return lower > 0 ? `${lower} or more` : 'any number';
+  const least = channelConditionBound(atLeast);
+  const most = channelConditionBound(atMost);
+  if (least === undefined && most === undefined) return 'exactly 1';
+  const lower = least ?? 0;
+  if (most === undefined) return `${lower} or more`;
   if (most === lower) return `exactly ${lower}`;
   return `${lower} to ${most}`;
 }
@@ -1027,8 +1036,8 @@ export function StepMethodContextSection({
   if (isGrouped) {
     const groups: [string, Field[]][] = [
       ['Timing', [
-        ['Scheduled', isPresent(context.scheduledTime) ? formatTimeWithMilliseconds(String(context.scheduledTime), timezone) : undefined],
-        ['Started', isPresent(context.startedTime) ? formatTimeWithMilliseconds(String(context.startedTime), timezone) : undefined],
+        contextTimeField('Scheduled', context.scheduledTime, event.eventTime, timezone),
+        contextTimeField('Started', context.startedTime, event.eventTime, timezone),
         ['Took', protobufDuration(context.duration)],
       ]],
       ['Attempt', [
@@ -1080,6 +1089,13 @@ export function StepMethodContextSection({
       )}
     </SectionShell>
   );
+}
+
+/** A Context time with milliseconds, dated when its day differs from the event's; hover shows the full timestamp. */
+function contextTimeField(label: string, value: unknown, eventTime: string | null, timezone: TimezonePreference): Field {
+  if (!isPresent(value)) return [label, undefined];
+  const time = String(value);
+  return [label, formatTimeBesideReference(time, eventTime, timezone), false, formatDate(time, timezone)];
 }
 
 export function StepMethodDetails({

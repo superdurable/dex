@@ -192,10 +192,7 @@ function objectSizeLabel(decoded: object): string {
   return `${count} ${count === 1 ? 'key' : 'keys'}`;
 }
 
-/**
- * Shows one named value with its name above it: short values on the name's line, objects as
- * pretty-printed JSON capped at a few lines with Copy and Expand.
- */
+/** Shows one named value: short values beside the name, objects as capped JSON with Copy and Expand. */
 export function EventValueBlock({ name, value }: { name: string; value: unknown }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const decoded = parsedJSONText(isDexValue(value) ? decodedValue(value) : value);
@@ -216,7 +213,7 @@ export function EventValueBlock({ name, value }: { name: string; value: unknown 
         <strong className="event-value-name">{name}</strong>
         {isInline && (isEmpty
           ? <span className="event-value-none">none</span>
-          : <code className="event-value-inline">{text}</code>)}
+          : <code className="event-value-inline" title={text}>{text}</code>)}
         {!isInline && (
           <span className="event-value-meta">
             {isObject ? `${objectSizeLabel(decoded as object)} · ` : ''}{valueSizeLabel(text)}

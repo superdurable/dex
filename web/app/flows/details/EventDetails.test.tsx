@@ -16,7 +16,9 @@ import {
   ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED,
   STEP_INPUT_SNAPSHOT_UNAVAILABLE,
 } from '@/lib/unavailable';
+import { formatTimeBesideReference } from '@/lib/format';
 import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
+import { channelCountRange, StepMethodContextSection } from './StepMethodSections';
 
 function executeEvent(durability: number): FlowHistoryEvent {
   return {
@@ -675,7 +677,7 @@ describe('RPC event details', () => {
     const channelMarkup = renderDetails(channelEvent);
 
     // Each Attribute's name sits above or beside its value, and map instances read "map / instance".
-    expect(attributeMarkup).toContain('<strong class="event-value-name">status</strong><code class="event-value-inline">ready</code>');
+    expect(attributeMarkup).toContain('<strong class="event-value-name">status</strong><code class="event-value-inline" title="ready">ready</code>');
     expect(attributeMarkup).toContain('orders / first order');
     // Published messages show decoded values inline, grouped by Channel.
     expect(channelMarkup).toContain('aria-label="Channel notifications"');
@@ -781,6 +783,58 @@ describe('scheduled time', () => {
   });
   it('omits it for events from older Servers', () => {
     expect(renderDetails(executeEvent(1))).not.toContain('>Scheduled<');
+  });
+
+  it('dates a Context time on another day than the event, in UTC and in local time', () => {
+    expect(formatTimeBesideReference('2026-11-16T23:59:00Z', '2026-11-17T00:01:00Z', 'UTC')).toMatch(/^Nov 16, /);
+    expect(formatTimeBesideReference('2026-11-17T00:00:30Z', '2026-11-17T00:01:00Z', 'UTC')).not.toMatch(/Nov/);
+    const lateLocal = new Date(2026, 10, 16, 23, 59).toISOString();
+    const earlyLocal = new Date(2026, 10, 17, 0, 1).toISOString();
+    expect(formatTimeBesideReference(lateLocal, earlyLocal, 'local')).toMatch(/^Nov 16, /);
+    expect(formatTimeBesideReference(earlyLocal, earlyLocal, 'local')).not.toMatch(/Nov/);
+  });
+
+  it('shows the date of a Scheduled time across midnight, with the full timestamp on hover', () => {
+    const event = executeEvent(1);
+    event.eventTime = new Date(2026, 10, 17, 0, 1).toISOString();
+    (event.payload.context as Record<string, unknown>).scheduledTime = new Date(2026, 10, 16, 23, 59).toISOString();
+    (event.payload.context as Record<string, unknown>).startedTime = new Date(2026, 10, 17, 0, 0, 30).toISOString();
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <StepMethodContextSection event={event} history={[event]} isGrouped parentFlowId="parent" />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    expect(markup).toMatch(/<dt>Scheduled<\/dt><dd title="Nov 16, 2026[^"]*">Nov 16, /);
+    expect(markup).toMatch(/<dt>Started<\/dt><dd title="Nov 17, 2026[^"]*">\d/);
+  });
+});
+
+describe('short values', () => {
+  it('shows a 120-character Step input in full, wrapping beside its name', () => {
+    const longInput = 'x'.repeat(60) + ' ' + 'y'.repeat(59);
+    const event = executeEvent(1);
+    (event.payload.input as Record<string, unknown>).stepInput = { stringValue: longInput };
+    expect(renderDetails(event)).toContain(`title="${longInput}">${longInput}</code>`);
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const start = designCss.indexOf('.event-value-inline {');
+    const block = designCss.slice(start, designCss.indexOf('}', start));
+    expect(block).toContain('white-space: pre-wrap');
+    expect(block).not.toContain('text-overflow: ellipsis');
+  });
+});
+
+describe('Channel condition counts', () => {
+  it('reads omitted, zero, and finite bounds the way the server applies them', () => {
+    // Both bounds omitted waits for exactly one message.
+    expect(channelCountRange(undefined, undefined)).toBe('exactly 1');
+    expect(channelCountRange(undefined, 3)).toBe('0 to 3');
+    expect(channelCountRange(2, undefined)).toBe('2 or more');
+    expect(channelCountRange(0, 0)).toBe('exactly 0');
+    expect(channelCountRange(undefined, 0)).toBe('exactly 0');
+    expect(channelCountRange(1, 2147483647)).toBe('1 to 2147483647');
+    expect(channelCountRange(2, 5)).toBe('2 to 5');
   });
 });
 
