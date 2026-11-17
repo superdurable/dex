@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.47 {#v1-47}
 
-Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8); 1.47.9 released 2026-11-16 as [cli-v1.47.9](https://github.com/superdurable/dex/releases/tag/cli-v1.47.9).
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8); 1.47.9 released 2026-11-16 as [cli-v1.47.9](https://github.com/superdurable/dex/releases/tag/cli-v1.47.9); 1.47.10 released 2026-11-16 as [cli-v1.47.10](https://github.com/superdurable/dex/releases/tag/cli-v1.47.10).
 
 ### Added
 
@@ -60,6 +60,10 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
 - **dexcli api** lists the **CloneForkFlow** call of the FlowService and, as for other writes, calls it only with **--yes**. Since 1.47.8.
 - Flow analysis accepts the **agent.repeatOnUnknown** and **agent.maxSends** fields of a Connector package's **dex-connector.json**, and the published manifest schema declares them. Since 1.47.8.
 - **dexcli flow stop** accepts **--type graceful-complete** and **--type force-complete**, which close the Flow as completed, and **--result JSON|@FILE|-**, which adds one Flow result with those two types. They need server-zd 0.1.34 or later. Since 1.47.9.
+- **dexcli version check** also reports **serverEngine**, and **dexcli dev**
+  prints the **Server version** line with the version and protocol range of
+  server-zd once it is ready. See
+  [Check protocol compatibility](/reference/cli/#check-protocol-compatibility). Since 1.47.10.
 
 ### Changed
 
