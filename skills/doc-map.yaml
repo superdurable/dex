@@ -60,6 +60,7 @@ mappings:
     docs:
       - docs/content/components/index.mdx
       - docs/content/components/application.mdx
+      - docs/content/components/production.mdx
 
   - skill: dex-sdk/references/core/server.md
     docs:

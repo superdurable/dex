@@ -68,6 +68,16 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 - Scale Workers on the Server's task queue depth and oldest-age metrics. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#step-task-queue).
 - Long-running tasks keep their stream alive with periodic pings. Set load balancer and proxy idle timeouts above the Server's ping interval, with margin, and preserve bidirectional HTTP/2 streaming.
 
+Size each Worker with this checklist. Defaults, caps, and metric names are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#choose-slot-count).
+
+- Set the slot count explicitly for every production Worker, especially in containers and schedulers. The Server Workers reference lists the SDK defaults.
+- I/O-bound handlers (model calls, HTTP, databases) need many slots, within the downstream rate limits.
+- CPU-bound handlers need about one slot per allocated CPU. To grow throughput, add Worker processes with more CPU capacity; extra processes on the same saturated CPUs add nothing. Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
+- Idle slots still hold Server streams. Size slots for the expected load, not for the cap.
+- Scale Workers on the oldest age of queued Steps. A rising age with a low Server CPU means too few slots or Workers.
+- The Server is limited by CPU. Move to a larger node when its CPU saturates.
+- Past one node, split clusters by Flow type or tenant.
+
 ## Worker registration and readiness
 
 - Start the Worker on its own goroutine, thread, or task when its start call blocks. Then call the SDK's bounded registration wait before serving traffic.
@@ -159,6 +169,6 @@ When a Step or RPC fails because the Worker API is unavailable:
 
 - Do the Worker and the Client share one registry and payload configuration?
 - Does the Worker wait for registration before serving, and stop gracefully before exit?
-- Is the slot count sized for Steps plus reserved RPC capacity?
+- Is the slot count set explicitly and sized for Steps plus reserved RPC capacity?
 - Are credentials and TLS configured independently on the Client and the Worker?
 - Is business behavior locked at Flow start, with old definitions kept until old Flows finish?
