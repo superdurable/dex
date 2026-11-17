@@ -2063,10 +2063,7 @@ manifest's to the attempts. While the operation definition is `LIMITED`, every
 attempt sets `Call.max_sends` to the pinned cap, which the connector hands to
 its `Fence`, also after a deploy changes the manifest; otherwise the fence
 keeps one send. `dex-connectors-sdk` 0.9 has no `Call.max_sends`, so its
-connectors never resend. The fence observation reads a marker's `send_count`:
-a send it counts from an earlier attempt keeps an optional branch
-`OUTCOME_UNKNOWN`, and so does an earlier attempt's claim that the operation
-returned before reading.
+connectors never resend.
 
 Approval: a call waits for `resolve_interrupt` when the manifest says
 `agent.approval: recommended`. Other Mutations run without approval, though
@@ -2090,49 +2087,28 @@ What a call does:
    such as the fence's marker, as the tool Step's text checkpoint, so the
    session's background heartbeats repeat the marker and the next attempt
    reads it back. It exposes only what the fence uses, which
-   `tests/test_connector_tool_source.py` pins.
+   `tests/test_connector_tool_source.py` pins. The source never reads the
+   checkpoints itself.
 4. Run the operation. A connector `RetryError` goes through `raise_dex_retry`,
-   so the tool Step's retry policy applies. A single-attempt write that asks to
-   retry would then record `OUTCOME_UNKNOWN`. When its fence saved `notSent` or
-   `canResend` in this attempt, which proves the provider did not process it, it
-   records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
+   so the tool Step's retry policy applies. When the retries run out, a Query
+   records `FAILED` and a Mutation records `OUTCOME_UNKNOWN`; a single-attempt
+   write that asks to retry has none.
 5. Map the selected branch with `classify_connector_branch`. The first
-   matching row wins. The rows before the listing can only make an outcome
-   unknown:
+   matching row wins, for a Query and a Mutation alike:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
 | `uncertain`, whatever the listing or the required branches say | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
-| A Mutation's `defect`, whatever the listing or the required branches say | `OUTCOME_UNKNOWN` | The same text |
 | A required (success) branch other than `defect` | `SUCCEEDED` | The value as compact JSON, keys sorted |
-| Any Mutation branch when its fence cannot prove that nothing was sent | `OUTCOME_UNKNOWN` | The same text |
 | Listed `rejected` under `agent.branches` | `FAILED` (`ToolExecutionError`) | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
-| Listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` | `OUTCOME_UNKNOWN_TOOL_RESULT` |
-| A Query branch not listed, including `defect` | `FAILED` | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
+| Listed `unknown` | `OUTCOME_UNKNOWN` | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| Any other branch, including `defect` | `FAILED` | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
 
-A Mutation's `defect` is not always local: the Connector SDK selects it for
-some attempts that already called the provider, such as an invalid attempt or
-an undeclared branch, and the source cannot tell those apart. A Query's
-`defect` follows its listing.
-
-A Mutation that uses the single-dispatch fence gets one more check, the same
-one the Go Connector SDK makes for Go agent hosts. The source observes every
-fence marker the attempt saves through its Step context, bound to the call's
-Call ID and attempt. Once the fence claims a send, or records a provider ID,
-the attempt may have sent. Only a later `canResend` marker of the same call and
-attempt, after a claim without a provider ID, lowers that, as the fence's own
-`record_can_resend` does. The operation's own later checkpoints never lower it.
-On a retry that reads the earlier checkpoint, a missing checkpoint, one that is
-not a fence marker, a malformed one, another call's, or one that does not allow
-this attempt a send also means the request may have been sent. While the
-request may have been sent, every branch but the success branch records outcome
-unknown, whatever the listing says, and a Retry is never proof that nothing was
-sent. The core cannot see inside the fence, so it reads the markers instead of
-the fence's own events: a forged `canResend` marker of the same call would
-count. A Mutation that never reads its checkpoint and never saves a fence
-marker gets no such check and relies on its listing.
-`agents/conformance/connector_tools.json` pins these cases in
-`fenceObservationCases`.
+The source classifies a call only from what the connector returns. The
+connector's single-dispatch fence is internal to it: when a send may have
+happened, the connector reads back or resends within its limit, and otherwise
+selects `uncertain` or raises a Retry, also for a rejection after a possible
+earlier send.
 
 A result over `max_result_bytes` (default `DEFAULT_CONNECTOR_RESULT_MAX_BYTES`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

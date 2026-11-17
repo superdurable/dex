@@ -34,7 +34,6 @@ from dex_connectors.sdk import (
     run_mutation,
     run_query,
 )
-from dex_connectors.sdk.singledispatch import Marker, State
 
 from dex_agents._connector_max_sends import (
     CONNECTOR_MANIFEST_MINIMUM_MAX_SENDS,
@@ -42,11 +41,7 @@ from dex_agents._connector_max_sends import (
 )
 from dex_agents.approval_display import build_connector_tool_approval_display
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._step_context import (
-    ConnectorStepContext,
-    FenceEvidence,
-    prior_send_count,
-)
+from dex_agents.connectors._step_context import ConnectorStepContext
 from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolCall,
@@ -79,6 +74,10 @@ CONNECTOR_RESULT_TRUNCATED_NOTE = "[Dex] truncated, {total_bytes} bytes"
 #: Error text of a single-attempt write whose fence proved no send before the connector's Retry.
 #:
 #: .. versionadded:: 0.4.0
+#:
+#: .. deprecated:: 0.6.15
+#:     No call records it any more. A connector Retry always goes to the tool
+#:     Step's retry policy.
 CONNECTOR_NOT_SENT_RETRY_LATER = "not sent; the provider asked to retry later"
 
 #: Name of the manifest file every Connector language package ships.
@@ -111,13 +110,11 @@ class ConnectorBranchOutcome(StrEnum):
             ``agent.branches``, such as ``providerRejected``. Nothing took
             effect. The record is ``FAILED`` with an error the model reads, and
             the session continues.
-        FAILED: An optional branch of a Query that ``agent.branches`` does
-            not list, including ``defect``. The record is ``FAILED``.
-        OUTCOME_UNKNOWN: ``uncertain``, a Mutation's ``defect``, any optional
-            branch of a Mutation whose single-dispatch fence cannot prove that
-            nothing was sent, a branch listed as ``unknown``, or an optional
-            branch of a Mutation that ``agent.branches`` does not list. The
-            write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
+        FAILED: An optional branch that ``agent.branches`` does not list,
+            including ``defect``, of a Query or a Mutation. The record is
+            ``FAILED``.
+        OUTCOME_UNKNOWN: ``uncertain``, or a branch listed as ``unknown``.
+            The write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
 
     .. versionadded:: 0.4.0
 
@@ -127,6 +124,13 @@ class ConnectorBranchOutcome(StrEnum):
         ``defect`` follows ``agent.branches``. A fenced Mutation whose fence
         cannot prove that nothing was sent is ``OUTCOME_UNKNOWN`` on any
         optional branch.
+
+    .. versionchanged:: 0.6.15
+        The outcome comes only from the branch the connector returns. A
+        Mutation's ``defect`` and its unlisted optional branches are
+        ``FAILED``, and the single-dispatch fence no longer decides an
+        outcome. A connector selects ``uncertain`` or asks to retry when a
+        send may have happened.
     """
 
     SUCCEEDED = "succeeded"
@@ -145,39 +149,28 @@ def classify_connector_branch(
 ) -> ConnectorBranchOutcome:
     """Return what a connector tool call records for one selected branch.
 
-    The rules apply in this order. The manifest listing comes after the
-    checks that can only tighten an outcome to ``OUTCOME_UNKNOWN``:
+    The outcome comes only from the branch the connector returns. The
+    connector reconciles a send whose outcome is unknown. It selects
+    ``uncertain``, or asks to retry, whenever a send may have happened. The
+    rules apply in this order, for a Query and a Mutation alike:
 
     1. ``uncertain`` is ``OUTCOME_UNKNOWN``, whatever ``agent.branches`` says
        or whether it is declared required. It means the write may have
        happened, so a listing of it as ``rejected`` is a manifest error.
-    2. A Mutation's ``defect`` is ``OUTCOME_UNKNOWN``, whatever
-       ``agent.branches`` says or whether it is declared required. The
-       Connector SDK selects ``defect`` for some attempts that already called
-       the provider, such as an invalid attempt or an undeclared branch, and a
-       host cannot tell those apart.
-    3. A required branch other than ``defect`` is ``SUCCEEDED``.
-    4. On a Mutation, any other branch is ``OUTCOME_UNKNOWN`` when
-       ``may_have_dispatched`` is set: its single-dispatch fence cannot prove
-       that no request reached the provider.
-    5. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
-    6. A branch that ``agent.branches`` lists as ``unknown`` is
+    2. A required branch other than ``defect`` is ``SUCCEEDED``.
+    3. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
+    4. A branch that ``agent.branches`` lists as ``unknown`` is
        ``OUTCOME_UNKNOWN``.
-    7. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``.
-    8. Any other branch of a Query, including ``defect``, is ``FAILED``.
-
-    The rule fails closed: an optional branch of a Mutation that the manifest
-    does not classify is ``OUTCOME_UNKNOWN``, because the write may have
-    happened.
+    5. Any other branch, including ``defect``, is ``FAILED``.
 
     Example:
         >>> classify_connector_branch(
         ...     kind="mutation",
-        ...     branch="defect",
+        ...     branch="providerRejected",
         ...     required_branches=frozenset({"refunded"}),
-        ...     agent_branches={"defect": "rejected"},
+        ...     agent_branches={},
         ... )
-        <ConnectorBranchOutcome.OUTCOME_UNKNOWN: 'outcome_unknown'>
+        <ConnectorBranchOutcome.FAILED: 'failed'>
 
     Args:
         kind: Whether the operation is a Query or a Mutation.
@@ -185,13 +178,9 @@ def classify_connector_branch(
         required_branches: The operation's branches that are not optional.
         agent_branches: The manifest's ``agent.branches``: branch ID to
             ``"rejected"`` or ``"unknown"``.
-        may_have_dispatched: Whether the attempt's single-dispatch fence
-            checkpoints leave open that the request reached the provider: this
-            attempt claimed a send and no canResend followed, a marker's
-            ``sendCount`` counts a send of an earlier attempt, or the earlier
-            attempt's checkpoint is missing, not a fence marker, malformed,
-            foreign, or does not allow this attempt a send.
-            ``ConnectorToolSource`` computes it. It applies only to a Mutation.
+        may_have_dispatched: Deprecated in 0.6.15: ignored. The
+            single-dispatch fence is internal to the connector, which reports
+            a possible send through ``uncertain`` or a Retry. Omit it.
 
     Returns:
         The outcome to record.
@@ -202,17 +191,22 @@ def classify_connector_branch(
         Added ``may_have_dispatched``. ``agent.branches`` no longer decides a
         Mutation's ``defect``, which is ``OUTCOME_UNKNOWN`` instead of
         ``FAILED``. A Query's ``defect`` follows ``agent.branches``.
+
+    .. versionchanged:: 0.6.15
+        A Mutation's ``defect`` and its optional branches that
+        ``agent.branches`` does not list are ``FAILED`` instead of
+        ``OUTCOME_UNKNOWN``. A Mutation's ``defect`` follows
+        ``agent.branches``, as a Query's does. ``may_have_dispatched`` is
+        ignored.
     """
-    if branch == _UNCERTAIN_BRANCH or (kind == "mutation" and branch == _DEFECT_BRANCH):
+    if branch == _UNCERTAIN_BRANCH:
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     if branch != _DEFECT_BRANCH and branch in required_branches:
         return ConnectorBranchOutcome.SUCCEEDED
-    if kind == "mutation" and may_have_dispatched:
-        return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     listed = agent_branches.get(branch)
     if listed == "rejected":
         return ConnectorBranchOutcome.REJECTED
-    if listed == "unknown" or kind == "mutation":
+    if listed == "unknown":
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     return ConnectorBranchOutcome.FAILED
 
@@ -506,12 +500,10 @@ class ConnectorToolSource:
     fence lets the connector read back and resend while the call's sends stay
     below its cap. A read-back that confirms an earlier send succeeds. At the
     cap, an unconfirmed write selects ``uncertain``, so the call records
-    ``OUTCOME_UNKNOWN``, as it does when the attempts run out. Any other
-    single-attempt write that asks to retry ends
-    ``OUTCOME_UNKNOWN``, unless its single-dispatch fence saved a ``notSent`` or
-    ``canResend`` marker in this attempt: that proves the provider did not
-    process the request, so the call records ``FAILED`` with
-    ``CONNECTOR_NOT_SENT_RETRY_LATER``. Either way it stops the later writes.
+    ``OUTCOME_UNKNOWN``. When the attempts run out, a Query records
+    ``FAILED`` and a Mutation records ``OUTCOME_UNKNOWN``. A single-attempt
+    write that asks to retry therefore records ``OUTCOME_UNKNOWN`` and stops
+    the later writes.
     A result longer than ``max_result_bytes`` reaches the model truncated,
     with ``CONNECTOR_RESULT_TRUNCATED_NOTE``, and the record's
     ``truncated_output_bytes`` holds the full size.
@@ -542,6 +534,11 @@ class ConnectorToolSource:
             ``max_result_bytes`` is not positive.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.6.15
+        A single-attempt write whose connector asks to retry records
+        ``OUTCOME_UNKNOWN``, also when its fence proved that nothing was sent.
+        Arguments this Worker refuses always record ``FAILED``.
     """
 
     def __init__(
@@ -688,14 +685,9 @@ class ConnectorToolSource:
 
         Raises:
             ToolExecutionError: The arguments break the schema or do not
-                decode, the operation selected a ``rejected`` or failed branch,
-                or a single-attempt write asked to retry after its fence
-                recorded ``notSent`` or ``canResend`` in this attempt, which
-                proves the provider did not process it
-                (``CONNECTOR_NOT_SENT_RETRY_LATER``).
-            ToolOutcomeUnknownError: The operation selected an unknown branch,
-                or this Worker refuses the arguments while an earlier attempt's
-                checkpoint records a possible send of this call.
+                decode, or the operation selected a ``rejected`` or failed
+                branch.
+            ToolOutcomeUnknownError: The operation selected an unknown branch.
             LookupError: This source no longer has the tool, so the effect class decides.
             RuntimeError: The call has no Step context.
             Exception: A connector retry, raised for the tool Step's retry policy.
@@ -704,25 +696,19 @@ class ConnectorToolSource:
         tool = self._tools.get(_reference_tool_name(record))
         if tool is None:
             raise LookupError(f"connector tool {record.tool_name} is not configured on this Worker")
+        values = _parse_arguments(tool.name, record.arguments)
+        problem = find_input_violation(values, tool.input_schema)
+        if problem is not None:
+            raise ToolExecutionError(f"invalid arguments for {tool.name}: {problem}")
         try:
-            values = _parse_arguments(tool.name, record.arguments)
-            problem = find_input_violation(values, tool.input_schema)
-            if problem is not None:
-                raise ToolExecutionError(f"invalid arguments for {tool.name}: {problem}")
-            try:
-                operation_input = _CODECS.resolve(tool.input_type).decode(
-                    Value(WireKind.JSON, json.dumps(values))
-                )
-            except Exception:
-                # A fixed text: codec messages differ between languages and versions.
-                raise ToolExecutionError(
-                    f"invalid arguments for {tool.name}: arguments do not decode"
-                ) from None
-        except ToolExecutionError as error:
-            # Refused arguments fail the call only when no earlier attempt may have sent it.
-            if _has_earlier_send_checkpoint(call, tool):
-                raise ToolOutcomeUnknownError(str(error)) from None
-            raise
+            operation_input = _CODECS.resolve(tool.input_type).decode(
+                Value(WireKind.JSON, json.dumps(values))
+            )
+        except Exception:
+            # A fixed text: codec messages differ between languages and versions.
+            raise ToolExecutionError(
+                f"invalid arguments for {tool.name}: arguments do not decode"
+            ) from None
         if call.context is None:
             raise RuntimeError("a connector tool call needs the tool Step's context")
         connector_call = _connector_call(tool, call.context, call)
@@ -736,22 +722,12 @@ class ConnectorToolSource:
                     cast(Query[Any, Any], tool.operation), connector_call, operation_input
                 )
         except RetryError as error:
-            call_max_sends = _reference_max_sends(record)
-            is_bounded_resend = call_max_sends is not None and call_max_sends >= 2
-            if (
-                tool.effect is ToolEffect.NON_IDEMPOTENT_WRITE
-                and not is_bounded_resend
-                and _is_proven_not_sent(connector_call)
-            ):
-                # One attempt only, so a Retry would record outcome_unknown though nothing was sent.
-                raise ToolExecutionError(_not_sent_detail(tool, error.failure)) from None
             raise_dex_retry(error)
         outcome = classify_connector_branch(
             kind=tool.kind,
             branch=result.branch,
             required_branches=tool.required_branches,
             agent_branches=tool.agent_branches,
-            may_have_dispatched=_may_have_dispatched(connector_call),
         )
         if outcome is ConnectorBranchOutcome.SUCCEEDED:
             return bound_connector_result(
@@ -897,108 +873,6 @@ def _integral_floats_as_ints(value: Any) -> Any:
     if isinstance(value, list):
         return [_integral_floats_as_ints(item) for item in value]
     return value
-
-
-def _is_proven_not_sent(call: Call) -> bool:
-    """Report whether this attempt's fence recorded proof that the write was not sent."""
-    return _observe_fence(call).is_proven_not_sent
-
-
-def _may_have_dispatched(call: Call) -> bool:
-    """Report whether fence events leave open that the request was sent, as sdkgo does."""
-    return _observe_fence(call).may_have_dispatched
-
-
-@dataclass(frozen=True)
-class _FenceObservation:
-    may_have_dispatched: bool
-    is_proven_not_sent: bool
-
-
-def _observe_fence(call: Call) -> _FenceObservation:
-    context = call.context
-    if not isinstance(context, ConnectorStepContext):
-        return _FenceObservation(may_have_dispatched=False, is_proven_not_sent=False)
-    evidence = context._fence_evidence.get(str(call.id), FenceEvidence())
-    is_claimed = evidence.is_claimed
-    has_not_sent_proof = evidence.has_not_sent_proof
-    # A bounded resend's markers count earlier sends that may still have taken effect.
-    has_prior_send = evidence.has_prior_send
-    is_prior_dispatch_possible = (
-        _is_prior_dispatch_possible(call, context)
-        if context._has_read_checkpoint
-        else _has_prior_send_marker(call, context)
-    )
-    may_have_dispatched = is_claimed or has_prior_send or is_prior_dispatch_possible
-    return _FenceObservation(
-        may_have_dispatched=may_have_dispatched,
-        is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
-    )
-
-
-def _has_earlier_send_checkpoint(call: DeferredToolExecution, tool: ConnectorTool) -> bool:
-    """Report whether an earlier attempt's checkpoint is this call's marker for a possible send.
-
-    It needs no ``ConnectorStepContext``, so a check that fails before the
-    operation runs can still see it.
-    """
-    if call.context is None or call.heartbeat_checkpoint is None:
-        return False
-    try:
-        marker = Marker.from_wire(json.loads(call.heartbeat_checkpoint))
-    except (ValueError, TypeError):
-        return False
-    call_id = derive_call_id(
-        call.context.flow_id,
-        call.context.step_execution_id,
-        OperationRef(tool.connector_id, tool.operation_id),
-    )
-    return marker.call_id == call_id and (
-        marker.state is State.CLAIMED or prior_send_count(marker) > 0
-    )
-
-
-def _has_prior_send_marker(call: Call, context: ConnectorStepContext) -> bool:
-    """Report whether the earlier checkpoint is this call's marker for a possible send.
-
-    It holds even when the operation returned before it read the checkpoint.
-    """
-    previous = context._previous_checkpoint
-    if previous is None:
-        return False
-    try:
-        marker = Marker.from_wire(json.loads(previous))
-    except ValueError:
-        return False
-    return marker.call_id == call.id and (
-        marker.state is State.CLAIMED or prior_send_count(marker) > 0
-    )
-
-
-def _is_prior_dispatch_possible(call: Call, context: ConnectorStepContext) -> bool:
-    """Report whether the earlier attempt's checkpoint denies this attempt a send."""
-    previous = context._previous_checkpoint
-    if previous is None:
-        # A lost checkpoint after attempt one may hide an earlier send.
-        return context.attempt > 1
-    try:
-        marker = Marker.from_wire(json.loads(previous))
-    except ValueError:
-        # Not a marker, malformed, or not JSON: the fence fails closed, and so does this.
-        return True
-    is_send_allowed = (
-        marker.call_id == call.id
-        and marker.attempt == context.attempt - 1
-        and not marker.provider_id
-        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
-        and prior_send_count(marker) == 0
-    )
-    return not is_send_allowed
-
-
-def _not_sent_detail(tool: ConnectorTool, failure: Any) -> str:
-    detail = f"{tool.connector_id} {tool.operation_id} {CONNECTOR_NOT_SENT_RETRY_LATER}"
-    return f"{detail}: {failure.kind}: {failure.message}" if failure is not None else detail
 
 
 def _branch_detail(tool: ConnectorTool, branch: str, failure: Any) -> str:

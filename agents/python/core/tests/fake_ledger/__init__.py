@@ -17,20 +17,23 @@ provider does not drop repeats. ``sendMessage`` is the same kind of write with
 resend under a send cap. ``closeAccount`` is not exposed to agents.
 
 Space-separated words in a payout ``memo`` or a note ``text`` steer the provider:
-``reject``, ``invalid``, ``uncertain``, ``rate-limit-once`` (refused before the
-claim, ``notSent``), ``rate-limit-after-send`` (the provider refuses the sent
-note, ``canResend``), ``hide`` (read-back finds nothing), and
-``gate-before-send:<gate>``, ``gate-after-claim:<gate>``,
-``gate-after-accept:<gate>``, or ``gate-before-can-resend:<gate>``, which wait at
-a ``FileGate`` on attempt 1 only. A message ``text`` takes ``reject`` (refused
-before sending), ``reject-on-send`` (the provider refuses the sent message,
-``canResend``), ``lose-first`` (attempt 1's message is accepted where read-back
-cannot see it, and its response is lost), ``lose-visible`` (the same, but
-read-back finds it), ``lose-always`` (every send is lost and hidden), and
-``reject-before-fence-later`` (attempt 2 and later refuse before the fence
-decides, a wrong order the agent core must still treat as unknown), and
-``gate-after-send:<gate>`` (attempt 1 waits at a ``FileGate`` after the
-provider accepted the message).
+``reject``, ``invalid``, ``uncertain``, ``defect``, ``rate-limit-once`` (refused
+before the claim, ``notSent``), ``rate-limit-after-send`` (the provider refuses
+the sent note, ``canResend``), ``retry-after-send`` (the connector asks to retry
+after the note was sent), ``retry-always`` (every payout attempt asks to retry),
+``hide`` (read-back finds nothing), and ``gate-before-send:<gate>``,
+``gate-after-claim:<gate>``, ``gate-after-accept:<gate>``, or
+``gate-before-can-resend:<gate>``, which wait at a ``FileGate`` on attempt 1
+only. A message ``text`` takes ``reject`` (refused before sending),
+``reject-on-send`` (the provider refuses the sent message, ``canResend``),
+``lose-first`` (attempt 1's message is accepted where read-back cannot see it,
+and its response is lost), ``lose-visible`` (the same, but read-back finds it),
+``lose-always`` (every send is lost and hidden), ``reject-later`` (attempt 2
+and later return ``providerRejected``), and ``gate-after-send:<gate>`` (attempt
+1 waits at a ``FileGate`` after the provider accepted the message). A balance's
+``accountId`` takes ``missing``, ``garbled``, ``defect``, ``retry-then-garbled``
+(attempt 1 asks to retry, later attempts return ``invalidResponse``), and
+``retry-always``.
 """
 
 from __future__ import annotations
@@ -40,7 +43,7 @@ import os
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from dex_connectors.sdk import (
     BranchDefinition,
@@ -122,13 +125,6 @@ class Note:
     """A note the provider stored."""
 
     note_id: str = field(default="", metadata={"dex_json_name": "noteId"})
-
-
-@dataclass(frozen=True)
-class NoteProgress:
-    """The operation's own heartbeat checkpoint, which is not a fence marker."""
-
-    stage: str
 
 
 @dataclass(frozen=True)
@@ -292,7 +288,14 @@ class GetBalanceOperation:
                 Receipt(),
                 _failure("getBalance", "no account"),
             )
-        if input.account_id == "garbled":
+        attempt = call.context.attempt if call.context is not None else 1
+        if input.account_id == "retry-always" or (
+            input.account_id == "retry-then-garbled" and attempt == 1
+        ):
+            return QueryAttempt.retry(
+                Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "getBalance", "rate limited")
+            )
+        if input.account_id in ("garbled", "retry-then-garbled"):
             return QueryAttempt.branch_result(
                 "invalidResponse",
                 Balance(input.account_id, 0),
@@ -342,7 +345,7 @@ class CreatePayoutOperation:
                 _failure("createPayout", "insufficient funds"),
             )
         await _wait_at(self._provider, words, "gate-before-send", attempt)
-        if "rate-limit-once" in words and attempt == 1:
+        if "retry-always" in words or ("rate-limit-once" in words and attempt == 1):
             _append_line(
                 self._provider._sends, {"operation": "rate-limited", "key": call.idempotency_key}
             )
@@ -392,26 +395,9 @@ class PostNoteOperation:
             return MutationAttempt.branch_result(
                 "providerRejected", Note(), Receipt(), _failure("postNote", "channel archived")
             )
-        if (
-            "own-checkpoint-once" in words
-            and call.context is not None
-            and call.context.attempt == 1
-        ):
-            await _save_note_progress(call, "before the fence")
-            return MutationAttempt.retry(
-                Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
-            )
         fence = Fence(call, timedelta(seconds=30))
         decision = await fence.decide()
         attempt = call.context.attempt if call.context is not None else 1
-        if decision.kind is DecisionKind.FAIL_CLOSED and "reject-when-fail-closed" in words:
-            # A wrong listing: the fence cannot tell whether an earlier attempt sent.
-            return MutationAttempt.branch_result(
-                "providerRejected",
-                Note(),
-                Receipt(),
-                _failure("postNote", "refused after a lost marker"),
-            )
         if decision.kind is DecisionKind.FAIL_CLOSED:
             return MutationAttempt.uncertain(
                 Note(), _failure("postNote", decision.error), Receipt()
@@ -452,16 +438,9 @@ class PostNoteOperation:
             return MutationAttempt.retry(
                 Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
             )
-        if "overwrite-after-send" in words:
-            await _save_note_progress(call, "after send")
         if "retry-after-send" in words:
             return MutationAttempt.retry(
                 Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
-            )
-        if "reject-after-send" in words:
-            # A wrong listing: the claim proves the provider may have acted.
-            return MutationAttempt.branch_result(
-                "providerRejected", Note(), Receipt(), _failure("postNote", "refused after send")
             )
         await fence.record_provider_id(note_id)
         if "uncertain" in words:
@@ -492,13 +471,12 @@ class SendMessageOperation:
         words = input.text.split()
         key = str(call.idempotency_key)
         attempt = call.context.attempt if call.context is not None else 1
-        if "reject-before-fence-later" in words and attempt > 1:
-            # A wrong order: a later attempt refuses before the fence reads the earlier claim.
+        if "reject-later" in words and attempt > 1:
             return MutationAttempt.branch_result(
                 "providerRejected",
                 Message(),
                 Receipt(),
-                _failure("sendMessage", "refused before the fence"),
+                _failure("sendMessage", "refused on a later attempt"),
             )
         # The fence decides before credentials or provider lookups, as the contract requires.
         fence = Fence(call, timedelta(seconds=30), max_sends=call.max_sends)
@@ -576,11 +554,6 @@ class CloseAccountOperation:
 
     async def invoke(self, call: Call, input: CloseAccountInput) -> MutationAttempt[Note]:
         raise AssertionError("closeAccount must never run")
-
-
-async def _save_note_progress(call: Call, stage: str) -> None:
-    context = cast(Any, call.context)
-    await context.heartbeat(NoteProgress(stage))
 
 
 def _refused(operation: str) -> Failure:

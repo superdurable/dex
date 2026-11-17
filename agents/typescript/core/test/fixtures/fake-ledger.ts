@@ -12,10 +12,12 @@
 // getBalance is a Query. createPayout is a Stripe-like Mutation: the provider drops a repeated idempotency key, so
 // it is retry: safe. postNote is a Slack-like Mutation guarded by the single-dispatch fence; the provider does not
 // drop repeats. closeAccount is not exposed to agents. Words in a payout memo or a note text steer the provider:
-// reject, invalid, uncertain, rate-limit-once (refused before the claim, notSent), rate-limit-after-send (the
-// provider refuses the sent note, canResend), hide (read-back finds nothing), and gate-before-send:<gate>,
+// reject, invalid, uncertain, defect, rate-limit-once (refused before the claim, notSent), rate-limit-after-send (the
+// provider refuses the sent note, canResend), retry-after-send (the connector asks to retry after the note was sent),
+// retry-always (every payout attempt asks to retry), hide (read-back finds nothing), and gate-before-send:<gate>,
 // gate-after-claim:<gate>, gate-after-accept:<gate>, or gate-before-can-resend:<gate>, which wait at a FileGate on
-// attempt 1 only.
+// attempt 1 only. A balance's accountId takes missing, garbled, defect, retry-then-garbled (attempt 1 asks to retry,
+// later attempts return invalidResponse), and retry-always.
 
 import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,6 +30,7 @@ import {
   newMutationRetry,
   newMutationUncertain,
   newQueryBranch,
+  newQueryRetry,
   type Call,
   type ConnectionRef,
   type Failure,
@@ -204,7 +207,10 @@ export class GetBalanceOperation implements Query<GetBalanceInput, Balance> {
     if (input.accountId === "missing") {
       return newQueryBranch("notFound", { accountId: input.accountId, amount: 0 }, {}, failure("getBalance", "no account"));
     }
-    if (input.accountId === "garbled") {
+    if (input.accountId === "retry-always" || (input.accountId === "retry-then-garbled" && call.context.attempt === 1)) {
+      return newQueryRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "getBalance", message: "rate limited" });
+    }
+    if (input.accountId === "garbled" || input.accountId === "retry-then-garbled") {
       return newQueryBranch("invalidResponse", { accountId: input.accountId, amount: 0 }, {}, failure("getBalance", "bad body"));
     }
     if (input.accountId === "defect") {
@@ -250,7 +256,7 @@ export class CreatePayoutOperation implements Mutation<CreatePayoutInput, Payout
       return newMutationBranch("providerRejected", {}, {}, failure("createPayout", "insufficient funds"));
     }
     await this.provider.waitAt(words, "gate-before-send", attempt);
-    if (words.includes("rate-limit-once") && attempt === 1) {
+    if (words.includes("retry-always") || (words.includes("rate-limit-once") && attempt === 1)) {
       this.provider.recordRateLimited(key);
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "createPayout", message: "rate limited" });
     }
@@ -290,17 +296,9 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
     if (words.includes("reject")) {
       return newMutationBranch("providerRejected", {}, {}, failure("postNote", "channel archived"));
     }
-    if (words.includes("own-checkpoint-once") && call.context.attempt === 1) {
-      await call.context.recordHeartbeat({ stage: "before the fence" });
-      return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
-    }
     const fence = new Fence(call, 30_000);
     const decision = fence.decide();
     const attempt = call.context.attempt;
-    if (decision.kind === "failClosed" && words.includes("reject-when-fail-closed")) {
-      // A wrong listing: the fence cannot tell whether an earlier attempt sent.
-      return newMutationBranch("providerRejected", {}, {}, failure("postNote", "refused after a lost marker"));
-    }
     if (decision.kind === "failClosed") {
       return newMutationUncertain({}, failure("postNote", decision.error?.message ?? "invalid checkpoint"));
     }
@@ -333,15 +331,8 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
       await fence.recordCanResend();
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
     }
-    if (words.includes("overwrite-after-send")) {
-      await call.context.recordHeartbeat({ stage: "after send" });
-    }
     if (words.includes("retry-after-send")) {
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
-    }
-    if (words.includes("reject-after-send")) {
-      // A wrong listing: the claim proves the provider may have acted.
-      return newMutationBranch("providerRejected", {}, {}, failure("postNote", "refused after send"));
     }
     await fence.recordProviderId(noteId);
     if (words.includes("uncertain")) {
@@ -356,9 +347,8 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
  * lets a later attempt read back and resend while the call's sends stay below the cap. Words steer it: reject
  * (refused before sending), reject-on-send (the provider refuses the sent message, canResend), lose-first (attempt
  * 1's message is accepted where read-back cannot see it and its response is lost), lose-visible (the same, but
- * read-back finds it), lose-always (every send is lost and hidden), reject-before-fence-later (attempt 2 and
- * later refuse before the fence decides, a wrong order the agent core must still treat as unknown), and
- * gate-after-send:<gate> (attempt 1 waits at a FileGate after the provider accepted the message).
+ * read-back finds it), lose-always (every send is lost and hidden), reject-later (attempt 2 and later return
+ * providerRejected), and gate-after-send:<gate> (attempt 1 waits at a FileGate after the provider accepted the message).
  */
 export class SendMessageOperation implements Mutation<SendMessageInput, Message> {
   public constructor(
@@ -378,9 +368,8 @@ export class SendMessageOperation implements Mutation<SendMessageInput, Message>
     const words = input.text.split(/\s+/).filter((word) => word !== "");
     const key = call.idempotencyKey ?? call.id;
     const attempt = call.context.attempt;
-    if (words.includes("reject-before-fence-later") && attempt > 1) {
-      // A wrong order: a later attempt refuses before the fence reads the earlier attempt's claim.
-      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "refused before the fence"));
+    if (words.includes("reject-later") && attempt > 1) {
+      return newMutationBranch("providerRejected", {}, {}, failure("sendMessage", "refused on a later attempt"));
     }
     // The fence decides before credentials or provider lookups, as the Connector contract requires.
     const fence = new Fence(call, 30_000, { maxSends: definitionMaxSends(this.operationDefinition) });

@@ -26,7 +26,7 @@ from dex_agents import (
     ToolCallStatus,
     ToolEffect,
 )
-from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER, CONNECTOR_RESULT_TRUNCATED_NOTE
+from dex_agents.connectors import CONNECTOR_RESULT_TRUNCATED_NOTE
 from dex_agents.testing import resolve_dexcli_path, wait_for_agent_snapshot
 from dex_agents.ui_stream import agent_snapshot_to_json
 from tests.conftest import ScriptedAgentHarness
@@ -125,21 +125,24 @@ async def test_each_branch_kind_maps_to_its_record_and_the_session_continues(
     assert not records["call-2"].skipped
     await harness.wait_for_turns(session_id, 1)
 
-    # An unlisted optional branch of a Mutation and uncertain both fail closed.
+    # An unlisted optional branch of a Mutation fails; only uncertain is unknown.
     await harness.sessions.send_user_message(
         session_id,
         _calls(
             ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "invalid"}),
-            hold="unknown",
+            hold="unlisted",
         ),
     )
-    records = await _held_records(harness, session_id, "unknown")
-    assert records["call-0"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    records = await _held_records(harness, session_id, "unlisted")
+    assert records["call-0"].status is ToolCallStatus.FAILED
     assert records["call-0"].error == (
         "fake-ledger createPayout returned invalidResponse: PROVIDER_REJECTION: bad body"
     )
     snapshot = await harness.wait_for_turns(session_id, 2)
-    assert _answer_lines(snapshot) == [f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert _answer_lines(snapshot) == [
+        f"create_payout: {FAILED}fake-ledger createPayout returned invalidResponse: "
+        "PROVIDER_REJECTION: bad body"
+    ]
     assert len(ledger.writes("createPayout")) == 1
 
     await harness.sessions.send_user_message(
@@ -151,7 +154,7 @@ async def test_each_branch_kind_maps_to_its_record_and_the_session_continues(
     assert snapshot.state is not None and snapshot.state.last_turn_error is None
 
 
-async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
+async def test_an_unlisted_defect_fails_for_a_query_and_a_mutation(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     harness = connector_harness
@@ -170,8 +173,8 @@ async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
     assert records["call-0"].error == (
         "fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch"
     )
-    # The defect follows the provider call, so the payout may exist and must not run again.
-    assert records["call-1"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    # The core trusts the branch: a connector reports a possible send as uncertain or Retry.
+    assert records["call-1"].status is ToolCallStatus.FAILED
     assert records["call-1"].error == (
         "fake-ledger createPayout returned defect: "
         "LOCAL_DEFECT: mutation returned an unknown branch"
@@ -180,80 +183,58 @@ async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
     assert _answer_lines(snapshot) == [
         f"get_balance: {FAILED}fake-ledger getBalance returned defect: "
         "LOCAL_DEFECT: query returned an unknown branch",
-        f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+        f"create_payout: {FAILED}fake-ledger createPayout returned defect: "
+        "LOCAL_DEFECT: mutation returned an unknown branch",
     ]
     assert len(ledger.sends("createPayout")) == 1
     assert len(ledger.writes("createPayout")) == 1
     assert snapshot.state is not None and snapshot.state.last_turn_error is None
 
 
-async def test_a_fenced_write_listed_rejected_after_its_claim_is_unknown(
+async def test_a_write_whose_connector_retries_after_a_send_is_never_sent_again(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     harness = connector_harness
     await harness.stack.start_worker()
-    session_id = harness.new_session_id()
-    await harness.sessions.start_session(
-        session_id,
-        _calls(("post_note", {"accountId": "a-1", "text": "reject-after-send"}), hold="claimed"),
-    )
-    records = await _held_records(harness, session_id, "claimed")
-    # The manifest lists providerRejected as rejected, but the fence claimed the send.
-    assert records["call-0"].status is ToolCallStatus.OUTCOME_UNKNOWN
-    assert records["call-0"].error == (
-        "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send"
-    )
-    snapshot = await harness.wait_for_turns(session_id, 1)
-    assert _answer_lines(snapshot) == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
-    assert len(ledger.writes("postNote")) == 1
-
-
-async def test_a_fenced_write_that_overwrites_its_claim_then_is_listed_rejected_stays_unknown(
-    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
-) -> None:
-    harness = connector_harness
-    await harness.stack.start_worker()
-    _, lines = await _run_turn(
-        harness,
-        ("post_note", {"accountId": "a-1", "text": "overwrite-after-send reject-after-send"}),
-    )
-    # The operation's own checkpoint replaced the claim; the claim still counts.
-    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
-    assert len(ledger.writes("postNote")) == 1
-
-
-async def test_a_fenced_write_that_overwrites_its_claim_then_retries_is_never_sent_again(
-    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
-) -> None:
-    harness = connector_harness
-    await harness.stack.start_worker()
-    words = "overwrite-after-send retry-after-send"
+    words = "retry-after-send"
     _, lines = await _run_turn(harness, ("post_note", {"accountId": "a-1", "text": words}))
-    # A single attempt: the overwrite proves nothing, so the call is not retry-later.
+    # A single attempt: a Retry goes to the Step, whose one attempt then fails.
     assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
     assert len(ledger.sends("postNote")) == 1
 
     _, lines = await _run_turn(harness, ("post_note_retried", {"accountId": "a-1", "text": words}))
-    # In CallTool, attempt 2 reads the overwrite, fails closed, and does not send.
-    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    # In CallTool, attempt 2's fence reads the claim, and the connector reads the note back.
+    assert lines == ['post_note_retried: {"noteId":"postNote-2"}']
     assert len(ledger.sends("postNote")) == 2
 
 
-async def test_a_retry_whose_fence_fails_closed_stays_unknown(
+async def test_a_retried_query_maps_its_later_branch_and_exhausted_retries_fail(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     harness = connector_harness
     await harness.stack.start_worker()
     _, lines = await _run_turn(
         harness,
-        (
-            "post_note_retried",
-            {"accountId": "a-1", "text": "own-checkpoint-once reject-when-fail-closed"},
-        ),
+        ("get_balance", {"accountId": "retry-then-garbled"}),
+        ("get_balance", {"accountId": "retry-always"}),
     )
-    # Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
-    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
-    assert ledger.sends("postNote") == []
+    assert lines[0] == (
+        f"get_balance: {FAILED}fake-ledger getBalance returned invalidResponse: "
+        "PROVIDER_REJECTION: bad body"
+    )
+    assert lines[1].startswith(f"get_balance: {FAILED}")
+
+
+async def test_a_retry_safe_write_whose_retries_run_out_is_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    _, lines = await _run_turn(
+        harness, ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "retry-always"})
+    )
+    assert lines == [f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert ledger.writes("createPayout") == []
 
 
 async def _run_held_write(
@@ -464,7 +445,7 @@ async def test_a_failed_or_unknown_write_skips_the_later_writes_of_the_response(
     assert ledger.writes("postNote") == []
 
 
-async def test_a_write_proven_unsent_still_skips_the_later_writes(
+async def test_a_single_attempt_write_that_asks_to_retry_is_unknown_and_skips_the_later_writes(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     await connector_harness.stack.start_worker()
@@ -473,9 +454,9 @@ async def test_a_write_proven_unsent_still_skips_the_later_writes(
         ("post_note", {"accountId": "a-1", "text": "rate-limit-once"}),
         ("create_payout", {"accountId": "a-1", "amount": 5}),
     )
+    # The fence recorded notSent, but the core no longer reads it.
     assert lines == [
-        f"post_note: {FAILED}fake-ledger postNote {CONNECTOR_NOT_SENT_RETRY_LATER}: "
-        "RATE_LIMIT: rate limited",
+        f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}",
         f"create_payout: {FAILED}{SKIPPED_ERROR}",
     ]
     assert ledger.writes() == []

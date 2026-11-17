@@ -1,5 +1,5 @@
 {
-  "description": "Connector tool behavior every core must match: argument checks, branch mapping, fence observation, send caps, result text, truncation, and default tool names. Hand-written; see README.md.",
+  "description": "Connector tool behavior every core must match: argument checks, branch mapping, send caps, result text, truncation, and default tool names. Hand-written; see README.md.",
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -353,7 +353,7 @@
         "done"
       ],
       "agentBranches": {},
-      "outcome": "outcome_unknown"
+      "outcome": "failed"
     },
     {
       "kind": "mutation",
@@ -362,7 +362,7 @@
         "done"
       ],
       "agentBranches": {},
-      "outcome": "outcome_unknown"
+      "outcome": "failed"
     },
     {
       "kind": "mutation",
@@ -393,7 +393,7 @@
         "done"
       ],
       "agentBranches": {},
-      "outcome": "outcome_unknown"
+      "outcome": "failed"
     },
     {
       "kind": "query",
@@ -413,7 +413,7 @@
       "agentBranches": {
         "defect": "rejected"
       },
-      "outcome": "outcome_unknown"
+      "outcome": "rejected"
     },
     {
       "kind": "mutation",
@@ -456,7 +456,17 @@
         "providerRejected": "rejected"
       },
       "mayHaveDispatched": true,
-      "outcome": "outcome_unknown"
+      "outcome": "rejected"
+    },
+    {
+      "kind": "mutation",
+      "branch": "providerRejected",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "mayHaveDispatched": true,
+      "outcome": "failed"
     },
     {
       "kind": "mutation",
@@ -488,7 +498,7 @@
         "defect"
       ],
       "agentBranches": {},
-      "outcome": "outcome_unknown"
+      "outcome": "failed"
     },
     {
       "kind": "mutation",
@@ -677,462 +687,6 @@
       "maxResultBytes": 2,
       "expectedOutput": "a\n[Dex] truncated, 4 bytes",
       "truncatedOutputBytes": 4
-    }
-  ],
-  "fenceObservationCases": [
-    {
-      "name": "an operation without the fence",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "notSent before sending",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "notSent"
-        }
-      ],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": true
-    },
-    {
-      "name": "a claim",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a claim, then a provider ID",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed",
-          "providerId": "note-1"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a claim, then canResend",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "canResend"
-        }
-      ],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": true
-    },
-    {
-      "name": "a claim, then the operation's own checkpoint",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "stage": "after send"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a claim, then a notSent marker",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "notSent"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "canResend after a provider ID",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed",
-          "providerId": "note-1"
-        },
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "canResend"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "canResend of another call",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "claimed"
-        },
-        {
-          "callId": "<otherCallId>",
-          "attempt": 1,
-          "state": "canResend"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "notSent, then the operation's own checkpoint",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 1,
-          "state": "notSent"
-        },
-        {
-          "stage": "after send"
-        }
-      ],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": true
-    },
-    {
-      "name": "a retry after notSent",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after canResend",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"canResend\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after notSent, sent not again",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 2,
-          "state": "notSent"
-        }
-      ],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": true
-    },
-    {
-      "name": "a retry after a claim",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after a claim, then notSent",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "callId": "<callId>",
-          "attempt": 2,
-          "state": "notSent"
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after the operation's own checkpoint",
-      "attempt": 2,
-      "previousCheckpoint": "{\"stage\":\"after send\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after a checkpoint that is not an object",
-      "attempt": 2,
-      "previousCheckpoint": "\"a task handle\"",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after a malformed marker",
-      "attempt": 2,
-      "previousCheckpoint": "{\"callId\":7,\"state\":\"notSent\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after another call's marker",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"state\":\"notSent\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry after a lost checkpoint",
-      "attempt": 2,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a retry without the fence and without a checkpoint",
-      "attempt": 2,
-      "previousCheckpoint": null,
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a stale marker two attempts back",
-      "attempt": 3,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a bounded claim on the first send",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "attempt": 1,
-          "callId": "<callId>",
-          "state": "claimed",
-          "sendCount": 1
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a bounded claim on the first send, then canResend",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "attempt": 1,
-          "callId": "<callId>",
-          "state": "claimed",
-          "sendCount": 1
-        },
-        {
-          "attempt": 1,
-          "callId": "<callId>",
-          "state": "canResend"
-        }
-      ],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": true
-    },
-    {
-      "name": "a bounded resend's claim, then canResend, still counts the earlier send",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "attempt": 2,
-          "callId": "<callId>",
-          "state": "claimed",
-          "sendCount": 2
-        },
-        {
-          "attempt": 2,
-          "callId": "<callId>",
-          "state": "canResend",
-          "sendCount": 1
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a bounded notSent after an earlier send",
-      "attempt": 3,
-      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "attempt": 3,
-          "callId": "<callId>",
-          "state": "notSent",
-          "sendCount": 1
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "an earlier canResend that counts an earlier send",
-      "attempt": 3,
-      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
-      "readsCheckpoint": true,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "a bounded claim with a provider ID",
-      "attempt": 1,
-      "previousCheckpoint": null,
-      "readsCheckpoint": true,
-      "savedHeartbeats": [
-        {
-          "attempt": 1,
-          "callId": "<callId>",
-          "state": "claimed",
-          "sendCount": 1
-        },
-        {
-          "attempt": 1,
-          "callId": "<callId>",
-          "state": "claimed",
-          "providerId": "message-1",
-          "sendCount": 1
-        }
-      ],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "an earlier claim the operation did not read",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "an earlier bounded claim the operation did not read",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "an earlier canResend that counts a send, which the operation did not read",
-      "attempt": 3,
-      "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": true,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "an earlier notSent the operation did not read",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
-    },
-    {
-      "name": "another call's claim the operation did not read",
-      "attempt": 2,
-      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"state\":\"claimed\"}",
-      "readsCheckpoint": false,
-      "savedHeartbeats": [],
-      "mayHaveDispatched": false,
-      "isProvenNotSent": false
     }
   ],
   "sendCapCases": [
@@ -1523,8 +1077,8 @@
         "writes": 3
       },
       {
-        "name": "a later attempt that refuses before the fence, after a send, stays unknown",
-        "text": "lose-always reject-before-fence-later",
+        "name": "a later attempt whose connector returns providerRejected fails",
+        "text": "lose-always reject-later",
         "deferVariant": "cap3",
         "policyMaxSends": null,
         "reference": "{\"tool\": \"send\", \"maxSends\": 3}",
@@ -1534,7 +1088,7 @@
         ],
         "outcomes": [
           "retry",
-          "outcome_unknown"
+          "failed"
         ],
         "writes": 1
       },
@@ -1573,7 +1127,7 @@
     ]
   },
   "argumentRefusalCases": {
-    "description": "One attempt of a sendMessage call (tool send, Step execution CallSingleAttemptTool-5) whose arguments this Worker refuses before the operation runs. previousCheckpoint is the checkpoint an earlier attempt saved; <callId> stands for the call's Call ID. outcome is failed, or outcome_unknown when the checkpoint records a possible send of this call.",
+    "description": "One attempt of a sendMessage call (tool send, Step execution CallSingleAttemptTool-5) whose arguments this Worker refuses before the operation runs. previousCheckpoint is the opaque checkpoint text an earlier attempt saved, which the core does not read. outcome is always failed: the operation never ran in this attempt, and the connector, not the core, reports a possible earlier send.",
     "cases": [
       {
         "name": "a first attempt",
@@ -1583,53 +1137,25 @@
         "outcome": "failed"
       },
       {
-        "name": "after an earlier bounded claim",
+        "name": "a later attempt after an earlier checkpoint",
         "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "previousCheckpoint": "opaque checkpoint of attempt 1",
         "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
-        "outcome": "outcome_unknown"
+        "outcome": "failed"
       },
       {
-        "name": "after an earlier claim without a send count",
-        "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
-        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
-        "outcome": "outcome_unknown"
-      },
-      {
-        "name": "after an earlier canResend that counts a send",
+        "name": "a later attempt after an earlier JSON checkpoint",
         "attempt": 3,
-        "previousCheckpoint": "{\"attempt\":2,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"canResend\"}",
-        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
-        "outcome": "outcome_unknown"
-      },
-      {
-        "name": "after an earlier notSent",
-        "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+        "previousCheckpoint": "{\"opaque\": \"checkpoint of attempt 2\"}",
         "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
         "outcome": "failed"
       },
       {
-        "name": "after another call's claim",
+        "name": "arguments that are not JSON on a later attempt",
         "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"sendCount\":1,\"state\":\"claimed\"}",
-        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
-        "outcome": "failed"
-      },
-      {
-        "name": "after an earlier checkpoint that is not a fence marker",
-        "attempt": 2,
-        "previousCheckpoint": "{\"stage\": \"before the fence\"}",
-        "arguments": "{\"accountId\": 7, \"text\": \"hello\"}",
-        "outcome": "failed"
-      },
-      {
-        "name": "arguments that are not JSON, after an earlier claim",
-        "attempt": 2,
-        "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"sendCount\":1,\"state\":\"claimed\"}",
+        "previousCheckpoint": "opaque checkpoint of attempt 1",
         "arguments": "not json",
-        "outcome": "outcome_unknown"
+        "outcome": "failed"
       }
     ]
   }
