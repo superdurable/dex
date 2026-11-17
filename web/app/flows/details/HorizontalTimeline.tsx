@@ -126,6 +126,20 @@ export function tidyStripHeight(labels: readonly string[], slotWidth: number): n
   return lines * labelLineHeight + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
 }
 
+/**
+ * Returns the Tidy slot width that keeps the page's longest word on one line, without a soft hyphen.
+ * Words with wide characters wrap anywhere, so they never widen the slot.
+ */
+export function tidyWordSlotWidth(labels: readonly string[]): number {
+  let longestUnits = 0;
+  for (const label of labels) {
+    for (const word of label.split(/\s+/)) {
+      if (word && !hasWideCharacter(word)) longestUnits = Math.max(longestUnits, labelWidthUnits(word));
+    }
+  }
+  return Math.ceil(longestUnits * labelCharacterWidth) + labelColumnGap;
+}
+
 /** True when the word holds an East Asian wide character, which wraps between any two characters. */
 function hasWideCharacter(word: string): boolean {
   return labelWidthUnits(word) !== [...word].length;
@@ -604,7 +618,11 @@ export function HorizontalTimeline({
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
-  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth, labelMode);
+  const subjects = useMemo(() => chronological.map(eventSubject), [chronological]);
+  const labels = useMemo(() => (isTidy ? subjects.map(timelineLabelText) : subjects), [isTidy, subjects]);
+  // The whole page sets it, so scrolling never changes the slot width.
+  const pageMinimumSlotWidth = useMemo(() => (isTidy ? tidyWordSlotWidth(labels) : 0), [isTidy, labels]);
+  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth, labelMode, pageMinimumSlotWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
   const maxStart = Math.max(0, chronological.length - visibleCount);
   // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
@@ -635,8 +653,6 @@ export function HorizontalTimeline({
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
-  const subjects = useMemo(() => chronological.map(eventSubject), [chronological]);
-  const labels = useMemo(() => (isTidy ? subjects.map(timelineLabelText) : subjects), [isTidy, subjects]);
   const stripHeight = useMemo(
     () => (isTidy ? tidyStripHeight(labels, slotWidth) : denseStripHeight(labels)),
     [isTidy, labels, slotWidth],

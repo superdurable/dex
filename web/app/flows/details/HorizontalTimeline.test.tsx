@@ -24,6 +24,7 @@ import {
   denseStripHeight,
   endNoteRunWidth,
   tidyStripHeight,
+  tidyWordSlotWidth,
   timelineLabelText,
 } from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
@@ -1099,6 +1100,36 @@ describe('horizontal Timeline layout', () => {
       expect(timelineSlotWidth(25, 1000, 'dense')).toBe(40);
       expect(timelineSlotWidth(100, 1000, 'dense')).toBe(36);
       expect(timelineSlotWidth(1000, 1000, 'dense')).toBe(36);
+    });
+
+    it('widens a Tidy page\'s slot so its longest word stays whole, up to the Tidy max', () => {
+      const wordSlot = tidyWordSlotWidth(['Checkpoint', 'Sync Batch']);
+      const slot = timelineSlotWidth(1000, 1000, 'tidy', wordSlot);
+      expect(slot).toBeGreaterThan(64);
+      expect(labelWithBreakHints('Checkpoint', slot - 6)).toBe('Checkpoint');
+      // Dense ignores the Tidy word width.
+      expect(timelineSlotWidth(1000, 1000, 'dense')).toBe(36);
+      // A word past the 160 px cap still breaks with soft hyphens.
+      const longWord = 'NotifyQuanzhenglongWorkspaceAdministrators';
+      const cappedSlot = timelineSlotWidth(1000, 1000, 'tidy', tidyWordSlotWidth([longWord]));
+      expect(cappedSlot).toBe(160);
+      expect(labelWithBreakHints(longWord, cappedSlot - 6)).toContain('­');
+      // Wide-character words wrap anywhere and never widen the slot.
+      expect(tidyWordSlotWidth(['审核步骤审核步骤审核步骤'])).toBe(6);
+    });
+
+    it('keeps "Checkpoint" whole in a long Tidy page and keeps the slot while scrolling', () => {
+      window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+      const pageEvents = events(1000).map((event) => (event.eventId % 10 === 0
+        ? { ...event, payload: { context: { stepType: 'Checkpoint', stepExecutionId: `Checkpoint-${event.eventId}` } } }
+        : { ...event, payload: { context: { stepType: 'SyncBatch', stepExecutionId: `SyncBatch-${event.eventId}` } } }));
+      render(<Harness pageEvents={pageEvents} />);
+      const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      expect(option(1000)?.querySelector('.htl-label')?.textContent).toBe('Checkpoint');
+      const slotWidth = timelineStrip().style.getPropertyValue('--htl-slot-width');
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(timelineStrip().style.getPropertyValue('--htl-slot-width')).toBe(slotWidth);
+      expect(option(10)?.querySelector('.htl-label')?.textContent).toBe('Checkpoint');
     });
 
     it('spreads a short Tidy page and packs a long one to the narrowest slot that keeps label columns readable', () => {
