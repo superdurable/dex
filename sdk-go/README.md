@@ -158,7 +158,9 @@ and its own request. Successful negotiation
 and a definitive protocol mismatch are cached. A failed `GetServerInfo` request
 returns a `*ServiceError` with `Op` `GetServerInfo`, like other request failures,
 and the next call retries. A Server whose minimum protocol is newer than the SDK
-reports that the Go SDK must be upgraded.
+reports that the Go SDK must be upgraded. `SupportedServerProtocolVersionRange()`
+returns the protocol range this SDK negotiates with, for tools that check
+compatibility before they connect.
 
 ## Step and timeout-handler state loading
 

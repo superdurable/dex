@@ -14,12 +14,8 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-)
-
-const (
-	minimumSupportedServerProtocolVersion uint32 = 1
-	maximumSupportedServerProtocolVersion uint32 = 1
 )
 
 func (a *App) executeVersion(ctx context.Context, args []string, options options) error {
@@ -50,13 +46,14 @@ func (a *App) executeVersion(ctx context.Context, args []string, options options
 		if err != nil {
 			return newCompatibilityError(a.artifactVersion, serverInfo, err.Error(), err)
 		}
+		clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
 		return writeOutput(a.stdout, options.output, map[string]any{
 			"clientVersion": a.artifactVersion,
 			"serverVersion": serverInfo.GetServerVersion(),
 			"serverEngine":  serverEngineName(serverInfo.GetServerEngine()),
 			"clientProtocol": map[string]uint32{
-				"minimum": minimumSupportedServerProtocolVersion,
-				"maximum": maximumSupportedServerProtocolVersion,
+				"minimum": clientMinimum,
+				"maximum": clientMaximum,
 			},
 			"serverProtocol": map[string]uint32{
 				"minimum": serverInfo.GetMinimumSupportedProtocolVersion(),
@@ -68,26 +65,37 @@ func (a *App) executeVersion(ctx context.Context, args []string, options options
 	})
 }
 
+// negotiateServerProtocol mirrors the Go SDK's negotiation, because every other dexcli command connects through it.
+// It returns the highest protocol version in both ranges, or an error whose text names the side to upgrade.
 func negotiateServerProtocol(serverInfo *dexpb.ServerInfo) (uint32, error) {
 	if serverInfo == nil {
 		return 0, fmt.Errorf("Server returned an empty response")
 	}
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	serverMinimum := serverInfo.GetMinimumSupportedProtocolVersion()
 	serverCurrent := serverInfo.GetCurrentProtocolVersion()
-	if minimumSupportedServerProtocolVersion == 0 ||
-		maximumSupportedServerProtocolVersion == 0 ||
-		minimumSupportedServerProtocolVersion > maximumSupportedServerProtocolVersion {
-		return 0, fmt.Errorf("dexcli protocol interval is invalid")
-	}
 	if serverMinimum == 0 || serverCurrent == 0 || serverMinimum > serverCurrent {
 		return 0, fmt.Errorf("Server protocol interval is invalid")
 	}
-	negotiatedProtocol := min(serverCurrent, maximumSupportedServerProtocolVersion)
-	if negotiatedProtocol < serverMinimum ||
-		negotiatedProtocol < minimumSupportedServerProtocolVersion {
-		return 0, fmt.Errorf("protocol intervals do not overlap")
+	if serverCurrent < clientMinimum {
+		return 0, fmt.Errorf(
+			"protocol intervals do not overlap: this dexcli requires Server protocol version %d or later, "+
+				"but the Server supports %d-%d; upgrade the Server or use an older dexcli",
+			clientMinimum,
+			serverMinimum,
+			serverCurrent,
+		)
 	}
-	return negotiatedProtocol, nil
+	if serverMinimum > clientMaximum {
+		return 0, fmt.Errorf(
+			"protocol intervals do not overlap: the Server requires protocol version %d or later, "+
+				"but this dexcli supports %d-%d; upgrade dexcli",
+			serverMinimum,
+			clientMinimum,
+			clientMaximum,
+		)
+	}
+	return min(serverCurrent, clientMaximum), nil
 }
 
 // serverEngineName returns the engine name that Dex Web's GET /api/server-info also reports.
@@ -121,6 +129,7 @@ func newCompatibilityError(
 		serverMinimum = serverInfo.GetMinimumSupportedProtocolVersion()
 		serverMaximum = serverInfo.GetCurrentProtocolVersion()
 	}
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	return &Error{
 		operation: "version check",
 		kind:      "compatibility",
@@ -131,8 +140,8 @@ func newCompatibilityError(
 			"clientVersion": clientVersion,
 			"serverVersion": serverVersion,
 			"clientProtocol": map[string]uint32{
-				"minimum": minimumSupportedServerProtocolVersion,
-				"maximum": maximumSupportedServerProtocolVersion,
+				"minimum": clientMinimum,
+				"maximum": clientMaximum,
 			},
 			"serverProtocol": map[string]any{
 				"minimum": serverMinimum,

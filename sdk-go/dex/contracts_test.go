@@ -268,6 +268,10 @@ func TestPublicContractsCompile(t *testing.T) {
 	if !registrationState.IsReady || !registrationState.Queues[0].HasRegisteredStream {
 		t.Fatal("unexpected pull registration snapshot")
 	}
+	minimumServerProtocol, maximumServerProtocol := dex.SupportedServerProtocolVersionRange()
+	if minimumServerProtocol != 4 || maximumServerProtocol != 7 {
+		t.Fatalf("unexpected Server protocol range %d-%d", minimumServerProtocol, maximumServerProtocol)
+	}
 	if dex.WorkQueuePermissionsIndexKey != "DexWorkQueuePermissions" {
 		t.Fatal("unexpected Work Queue permissions index key")
 	}
