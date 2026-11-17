@@ -48,7 +48,7 @@ const companyHeaderNavigation = {
       items: [
         {label: 'Dex Docs', to: '/'},
         {label: 'Quick start', to: '/quick-start'},
-        {label: 'App structure', href: 'https://superdurable.io/dex-app-structure/', target: '_self'},
+        {label: 'App structure', to: '/reference/dex-app/manifest'},
         {label: 'GitHub', href: 'https://github.com/superdurable/dex', target: '_self'},
         {label: 'Compare engines', href: 'https://superdurable.io/#compare', target: '_self'},
       ],
