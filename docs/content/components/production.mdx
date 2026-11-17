@@ -46,8 +46,8 @@ Two limits bound the work of a cluster:
 - The CPU of the server node bounds how fast the cluster commits work.
 
 Set the slot count of each Worker yourself. I/O-bound handlers need many slots.
-CPU-bound handlers need about one slot per CPU, and more Worker processes for
-more concurrency. Idle slots still hold server streams, so size them for the
+CPU-bound handlers need about one slot per allocated CPU. To grow throughput,
+add Worker processes with more CPU capacity. Idle slots still hold server streams, so size them for the
 load you expect.
 
 Scale Workers on the age of the oldest queued Step. Scale the server node when

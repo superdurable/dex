@@ -940,10 +940,13 @@ The [benchmark](/intro/performance) used Step handlers that do almost no work.
 Real applications usually reach the Worker limits first; see
 [Choose the slot count](/reference/server/workers#choose-slot-count).
 
-| Use | Node | Starting point |
+Choose CPU capacity from the throughput you need and your own load test. These
+two measured examples show what the benchmark reached.
+
+| Measurement | Node | Settings and result |
 | --- | --- | --- |
-| Test and development | 2 vCPU | The defaults. The benchmark peaked near 1,800 SYNC Steps per second, with peak RSS of 0.2 to 0.3 GiB. |
-| Production | 16 vCPU | The defaults plus the changes below. The benchmark peaked near 8,400 SYNC Steps per second. Peak RSS reached 3.4 GiB in the busiest search runs. |
+| Measured: small node | 2 vCPU | The defaults. The benchmark peaked near 1,800 SYNC Steps per second. Peak RSS stayed at or below 0.41 GiB at every point. |
+| Measured: larger node, tuned | 16 vCPU | The defaults plus the changes below. The benchmark peaked near 8,400 SYNC Steps per second. Peak RSS reached 4.7 GiB in the S2 C=12,288 final trials. |
 
 The 16-vCPU benchmark changed these settings from their defaults:
 

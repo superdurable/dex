@@ -348,8 +348,9 @@ the handlers wait on:
   database queries. Set the limit well above the CPU count, up to
   **matching.maxConcurrentTasksCap**. A waiting handler uses almost no CPU, so
   more slots raise throughput.
-- **CPU-bound handlers** keep a CPU busy. Keep the limit near the CPU count of
-  the Worker and add Worker processes for more concurrency. Python runs sync
+- **CPU-bound handlers** keep a CPU busy. Use about one slot per allocated CPU.
+  To grow throughput, add Worker processes with more CPU capacity, because
+  extra processes on the same saturated CPUs add nothing. Python runs sync
   handlers in a thread pool of the same size, so CPU-bound Python work needs
   more processes, not more slots.
 - **Downstream limits** cap useful concurrency. A model provider or database
@@ -376,7 +377,8 @@ Workers. A busy server CPU points at the server.
 | Worker CPU is high | Worker host CPU | Add Worker processes. More slots on the same CPUs add queueing, not throughput. |
 | Server CPU is near saturation | Server host CPU | Move to a larger server node. See [Size a server node](/reference/server/configuration#size-a-server-node). |
 | Commits are slow | **dexzd_commit_latency_seconds** | Check object store latency, and place the node in the Region of its bucket. |
-| A Worker fails to start with **RESOURCE_EXHAUSTED** | Worker start error | Lower the task limit, or raise **matching.maxConcurrentTasksCap** or **matching.maxStreams**. |
+| A Worker fails to start because its task limit exceeds **matching.maxConcurrentTasksCap** | Worker startup error | Lower the task limit, or raise **matching.maxConcurrentTasksCap**. |
+| A Worker stream is rejected with **RESOURCE_EXHAUSTED** | Stream registration error | Check **matching.maxStreams** and the streams each Worker uses. |
 
 Past the capacity of one node, split Flows between clusters. See
 [Grow past one node](/intro/limits#grow-past-one-node). The oldest age is
