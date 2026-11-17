@@ -2,8 +2,9 @@
 
 A **Managed Dex App** is a Dex application that Dex Cloud imports from a
 GitHub repository in the Dex app structure. Dex Cloud builds it and runs its
-web server and Worker in Live, and in an optional Preview. Dex Web on that
-deployment owns management. The user keeps the code in GitHub.
+web server and Worker in Live, and in an optional Preview. Dex Cloud's
+**Runs** tab opens Dex Web on that deployment for management. The user keeps
+the code in GitHub.
 
 The repository rules, manifest fields, limits, and finding codes live in the
 [Dex app manifest and repository layout](https://docs.superdurable.io/reference/dex-app/manifest)
@@ -22,8 +23,23 @@ and the language-neutral product constraints: Dex as the store, effects only
 in `Execute`, start identity, and credentials outside the code. Implement the
 TypeScript shape with the [Dex SDK](../../dex-sdk/SKILL.md) TypeScript
 references, and follow the example's `AGENTS.md` for the Flow shapes its check
-accepts. Go FDG authoring and the Go Connector packages apply only to the Go
-profile. The repository shape and the checks come from this file.
+accepts. Go FDG authoring applies only to the Go profile. Connectors work on
+every profile; use the connector packages of the application's language. The
+repository shape and the checks come from this file.
+
+## Supported stacks
+
+The import accepts three kinds of application:
+
+| Application | `kind` | `stack` | Build profile |
+| --- | --- | --- | --- |
+| Go process app | `process` | `go` | `go-react-v1` |
+| TypeScript process app | `process` | `typescript` | `node-ts-v1` |
+| TypeScript Dex Agents agent app | `agent` | `pi` | `node-ts-v1` |
+
+The import refuses other agent frameworks. There are no Go agent apps. The
+[template manifest](https://docs.superdurable.io/reference/dex-app/manifest#template-manifest)
+reference keeps the current list.
 
 ## Start from the example
 
@@ -43,7 +59,7 @@ API, page, and tests with the first business feature. Do not invent a layout.
 
 ## Repository rules S1 to S8
 
-Each rule below is complete. Its link has the exact fields and limits.
+Each link has the exact fields and limits.
 
 - **S1, template manifest.** The root `.dex/template.json` is a JSON object
   with `"schemaVersion": 1`. It names a build profile, `kind`, and `stack`
@@ -94,7 +110,7 @@ Each rule below is complete. Its link has the exact fields and limits.
 
 These rules collide with two App Builder defaults:
 
-- S3 and S6 always need a web server, `openapi/openapi.yaml`, and
+- S1 and S6 always need a web server, `openapi/openapi.yaml`, and
   `AGENTS.md`. They are target requirements, not a custom UI decision. Dex Web
   still owns management.
 - A Managed Dex App backend follows the example's stack, so it is TypeScript
@@ -127,18 +143,21 @@ others. They need Node.js, Go, Python 3, `dexcli`, and `dex-server-zd`.
 2. `make check-static` renders and checks every Flow as strict FDG 2.0,
    type-checks, and builds. It reads `dex-app.yaml` with the
    `tools/appmanifest` decoder, exactly as the import does.
-3. `make test-app` runs the API tests on a real Dex engine. Locally, point it
-   at a `dex-server-zd` binary with `DEX_SERVER_ZD_BINARY`.
+3. `make test-app` runs the API tests on a real Dex engine. Locally, set
+   `DEX_SERVER_ZD_BINARY` to a `dex-server-zd` binary; the tests fail
+   without it.
 
 Report each result separately. A passing `check-static` is source readiness,
 not a passing import or a running Live deployment.
 
 ## Import, Preview, and Live
 
-Import and **Publish to Live** deploy the application. They are the user's
-steps unless the user explicitly asks you to perform them.
+Import and **Publish to Live** are the user's steps in Dex Cloud: a Teamspace
+member imports, and a builder or owner of the project publishes. Prepare the
+repository, push it to GitHub, and hand off these steps.
 
-1. A Teamspace admin who owns the GitHub account connects it under
+1. A Teamspace admin who is an owner of the GitHub organization, or the
+   personal account itself, connects it under
    **Connections** by installing the **SuperDurable Dex Cloud** GitHub App with
    access to the repository and choosing **Connect GitHub**.
 2. A Teamspace member chooses **Import project**, picks the repository or
@@ -146,7 +165,8 @@ steps unless the user explicitly asks you to perform them.
 3. The check reads `main` and lists every rule the repository breaks. When it
    passes, the member chooses **Create project**. The import leaves the
    repository unchanged.
-4. For Live, choose **Publish**, pick a version (a commit of `main`), and
+4. Complete **Setup** (connections and environment values). For Live, choose
+   **Publish**, pick a version (a commit of `main`), and
    choose **Publish to Live**.
 5. Preview is optional. It runs a version quickly on data separate from Live.
    Skip it when the user does not need to try a change first.

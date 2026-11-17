@@ -72,6 +72,8 @@ precedence.
 - **Go backend only.** This is a product decision. Strict FDG 2.0 only, and
   Dex Web metadata comes only from the Go analyzer. Connectors also ship
   for Python and TypeScript, but App Builder uses the Go packages.
+  Exception: a Managed Dex App on the TypeScript profile
+  ([Managed Dex App](references/managed-dex-app.md)).
 - **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
   history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
   binary or image when deployed. Do not recreate management APIs or UI. A
