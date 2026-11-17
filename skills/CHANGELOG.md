@@ -3,6 +3,19 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.2.2 - 2026-11-17
+
+- `dex-sdk` operator recovery explains **Clone Fork**: what the new Flow copies from the source point, that the source is only read, a table for choosing Time Travel, Clone Fork, or **StartFlow**, and anti-patterns such as a fork that shares the source's task queue.
+- `dex-sdk` explains the **SubFlow reset policy** for Time Travel and Clone Fork: when to attach, restart, fail, or reject a restored or copied SubFlow wait, and why a running child cannot attach under Clone Fork.
+- Correct the Worker dispatch rules in `dex-sdk`: each Worker serves one task queue, a Flow type name must be unique within one task queue rather than on a whole Server, and sticky routing never crosses task queues.
+- Add the **graceful completion** Condition to `dex-sdk` `step.md`: it completes when the Flow has a graceful completion request, from a **GracefulComplete** decision or a Flow stop with graceful complete. **AnyOf** checks it after Timers, Channels, and SubFlows. Its result reports completed whenever a request exists, so **Execute** handles consumed messages first and returns **DeadEnd** only when there are none.
+- Correct the Mutation resend rule in `dex-sdk` `connector.md`: a Connector operation that declares a bounded resend limit may resend within that limit when the outcome is unknown, reading the write back first when the provider supports it. It selects the uncertainty branch only when the outcome is still unknown. Such a Mutation stays a non-idempotent write, and application code never resends on its own.
+- **dex-app-builder** asks early whether an application runs locally only or
+  is a **Managed Dex App** that Dex Cloud imports from GitHub, and adds the
+  **managed-dex-app.md** reference: start from the example repository,
+  repository rules S1 to S8, strict YAML for **dex-app.yaml**, the checks,
+  import, Live, and how to read a refused import.
+
 ## 1.2.1 - 2026-11-12
 
 - Move release-specific UI details and edge-case semantics out of the Skills into the Developer reference, and keep one short rule with a link in each place. The Developer reference now holds Step cancellation, completion requests, and Flow outputs (new Step and Flow close page), Attribute lock order, Channel waiter order, Join edge cases, and SubFlow reuse by later parent runs and parent close.
