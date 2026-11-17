@@ -30,6 +30,7 @@ A Worker with its floor equal to its ceiling behaves exactly as today. Phase 1 s
 - **RPC before Step, then backlog.** A newly idle stream wakes the oldest RPC waiter, else the oldest Step waiter, and otherwise claims durable backlog (`stream_registry.rs:150-200`). RPC waiters get the stream promised (`stream_registry.rs:233-236`).
 - **Step dispatch.** A Step first checks for qualified backlog. If the queue already has backlog that a connected Worker can run, the Step goes straight to the durable task queue (`server-zd/crates/dexzd-worker-dispatch/src/worker_registry/step_reservation.rs:162-164`). Otherwise it waits for the sticky Worker for up to `matching.stickyWait` (5 s), then for any Worker of the Flow type for up to `matching.syncMatchWait` (200 ms), then enqueues (`step_reservation.rs:165-211`; defaults in `server-zd/crates/dexzd-worker-dispatch/src/matching_config.rs:44-59`). The sticky wait ends early only when the sticky queue has no streams or the sticky Worker declined the type (`step_reservation.rs:254-259`).
 - **RPC dispatch.** An RPC never queues. It waits in memory, sticky first, until `matching.dispatchWait` (10 s) ends (`worker_registry.rs:350-420`).
+- **Backlog Claims.** Matching keeps one head per partition and queue. A head is claimable only while no Claim of that partition and queue is in flight (`server-zd/crates/dexzd-worker-dispatch/src/task_backlog.rs:87-95, 241-260`). A Claim takes an idle stream and holds it while the partition owner answers (`backlog_matching.rs:497-531`). The owner's reply names the next row (`task_backlog.rs:47-55`). So each partition drains one queue one Claim round trip at a time. Backlog drain parallelism is the number of partitions with backlog for the queue, not the number of idle streams.
 - **Declined-type cache.** A decline of an unknown Step type or RPC name is cached per app Worker (`worker_streams.rs:259-269, 280-289`). The entries are removed when the app Worker's last stream disconnects (`worker_registry.rs:941-950`).
 - **Clean half-close.** When a Worker half-closes a reserved-slot stream, the server stops sending on it. A sent task with no output is returned as `NOT_DELIVERED` and dispatched again with the same attempt number. A reset within 200 ms after the half-close counts as a disconnect instead (`worker_streams.rs:118-148`; `worker_protocol.rs:194-197`; `protos/dex.proto:185-197`).
 - **Keepalive.** Every `matching.pingInterval` (20 s) the server sends a `Ping` to an idle stream and an empty response to a busy one (`worker_protocol.rs:182-201, 212-234`). HTTP/2 keepalive is per connection, every 20 s with a 10 s timeout (`server-zd/crates/dexzd-server/src/server_node/grpc_server.rs:38-39, 149-151`).
@@ -66,7 +67,7 @@ All five SDKs open every slot stream at start and keep the count fixed. None has
 | Stream creation | incremental `reconcile` per slot kind (`worker_pull.go:312-334`) | incremental `_reconcile` (`_pull_worker.py:232-253`) | only when `streams.isEmpty()` (`PullWorker.java:454-463`) | only when `streams.size == 0` (`pull-worker.ts:225-243`) | once in `open_slots` (`worker_pull.rs:343-388`) |
 | Cap check | first ack over the cap fails start; later only warns (`worker_pull.go:391-410`) | same (`_pull_worker.py:267-288`) | same (`PullWorker.java:632-652`) | same (`pull-worker.ts:312-325`) | same (`worker_pull.rs:810-838`) |
 | Reconnect backoff | 100 ms doubling to 5 s, plus up to half as jitter (`worker_pull.go:523-541`) | same (`_pull_worker.py:512-521`) | same (`PullWorker.java:467-469, 1126`) | same (`pull-worker.ts:676-677`) | same (`sdk-rust/crates/dex-sdk/src/worker_pull/reconnect.rs:60-72`) |
-| `RESOURCE_EXHAUSTED` | permanent: 60 s retry and a recorded permanent error (`worker_pull.go:552-554`) | permanent (`_pull_worker.py:50`) | permanent (`PullWorker.java:385`) | permanent (`pull-worker.ts:668, 691`) | not checked |
+| `RESOURCE_EXHAUSTED` | permanent: 60 s retry and a recorded permanent error (`worker_pull.go:552-554`) | permanent (`_pull_worker.py:50`) | permanent (`PullWorker.java:385`) | permanent (`pull-worker.ts:668, 691`) | permanent (`worker_pull.rs:1095-1104`) |
 
 "Same" means the same rule as the Go column. Every SDK keeps a deprecated, no-op idle-streams-per-queue option. Readiness waits for one registered stream of each slot kind in Go, Python, Java, and Rust. In TypeScript, readiness returns after the first registered slot (`pull-worker.ts:218-223`). Each slot runs its handler concurrently with its stream loop: goroutines in Go, asyncio tasks with a thread pool in Python, a fixed handler pool in Java, promises in TypeScript, and tokio tasks in Rust. The Python and Java handler pools are sized by the slot count (`sdk-python/dex/worker.py:128-131`; `sdk-java/src/main/java/io/superdurable/dex/Worker.java:415-431`). These SDK facts come from a survey of the files at the commit above.
 
@@ -114,7 +115,12 @@ The unmerged branch `sdk/worker-slot-defaults` (commit `b782e79c3`, WIP) changes
 **Mechanism.** Each SDK varies the number of open Step-and-RPC slot streams between a floor and the ceiling. It uses only what it sees on its own streams.
 
 - *All slots busy.* A task frame takes the Worker's last idle Step-and-RPC stream. The server only sends a task to an idle stream, so this is exact.
-- *A freed slot receives a task at once.* When a stream finishes, the server re-idles it (`worker_streams.rs:271-277`; `worker_registry.rs:893-916`). It wakes a waiter or claims backlog (`stream_registry.rs:196-199`). The server picks the longest-idle stream first, so a just-freed stream receives a task quickly only when the Worker has no older idle stream. That is the same event as "all busy" happening again. This document therefore folds the two signals into one trigger: the last idle stream is taken. Hypothesis: this approximates "the queue has a waiter or backlog" closely when one Worker serves the queue. With several Workers, it also depends on how idle streams are spread across them. See [Fairness](#multi-worker-fairness-and-mixed-fleets).
+- *A freed slot receives a task at once.* When a stream finishes, the server re-idles it (`worker_streams.rs:271-277`; `worker_registry.rs:893-916`). It wakes a waiter, or else starts a Claim if a head is claimable (`stream_registry.rs:196-199`). The server picks the longest-idle stream first, so a just-freed stream receives a task quickly only when the Worker has no older idle stream. That is the same event as "all busy" happening again. This document therefore folds the two signals into one trigger: the last idle stream is taken.
+
+How close this is to "the queue has demand" differs by path. These are hypotheses for the benchmarks:
+- **In-memory waiters:** RPCs, and Steps inside the sticky wait or `syncMatchWait`. Every waiter takes an idle stream at once, so demand above the open streams empties the idle set and triggers growth.
+- **Durable backlog.** Matching runs at most one Claim per partition and queue (see [Background](#the-reserved-slot-protocol-today)). Backlog can sit while the Worker still has idle streams, and the Worker then does not grow. That is the right outcome, because more streams would not drain a Claim-bound queue faster. The Worker grows only when the Claims in flight, plus the waiters, use up its idle streams.
+- **Several Workers.** The signal also depends on how idle streams are spread across them. See [Fairness](#multi-worker-fairness-and-mixed-fleets).
 
 Shrink uses the existing clean half-close of an idle stream.
 
@@ -218,7 +224,8 @@ The rules below apply only to Step-and-RPC streams. RPC-only streams stay at `R`
 - **Ceiling.** `MaxConcurrentTasks` keeps its meaning and its current default, the CPU count. Phase 2 changes the default to 100 (see [Rollout](#rollout-and-api-changes)).
 - **Floor.** A new option, proposed as `MinOpenSlots` (pending decision D7). It counts Step-and-RPC streams and must satisfy `1 ≤ L ≤ MaxConcurrentTasks - R`.
   - **Phase 1 default:** `MaxConcurrentTasks - R`, so the Worker stays fixed and identical to today. Adaptation is opt-in by setting a lower floor.
-  - **Phase 2 default:** `min(MaxConcurrentTasks - R, max(1, CPU count - R))`. A Worker with the default ceiling then still holds exactly today's default stream count while idle. Only the capacity above the CPU count adapts.
+  - **Phase 2 default:** `min(MaxConcurrentTasks - R, max(1, CPU count - R))`. On a machine with at least 2 CPUs, a Worker with the default ceiling then still holds exactly today's default stream count while idle. Only the capacity above the CPU count adapts.
+  - With 1 CPU, today's Worker holds 1 stream and no RPC slot. With a ceiling of 100, `R` becomes 1, so the Worker holds 2 streams.
 - **Why the floor is at least 1:**
   - Readiness needs one registered Step-and-RPC stream (`docs/reference/server/workers.mdx:20-26`).
   - The declined-type cache entries of an app Worker are dropped when its last stream disconnects (`worker_registry.rs:941-950`). A Worker that scaled to zero would silently reset its exclusions.
@@ -232,7 +239,7 @@ The rules below apply only to Step-and-RPC streams. RPC-only streams stay at `R`
 
 **Cooldown.** No new batch starts while `P > 0`. Growth therefore runs at the speed of one registration round trip, with no timer constant to tune. A batch is complete when each of its streams has been acknowledged or has failed.
 
-**Continuation.** When the last stream of a batch registers and the trigger condition already holds again, the Worker grows at once. Under backlog every new stream is consumed on registration (`worker_protocol.rs:149`; `stream_registry.rs:196-199`), so growth repeats until supply exceeds demand or `S = E`.
+**Continuation.** When the last stream of a batch registers and the trigger condition already holds again, the Worker grows at once. A new stream becomes idle on registration and wakes a waiter or starts a Claim (`worker_protocol.rs:149`; `stream_registry.rs:196-199`). Under in-memory demand, growth therefore repeats until supply exceeds demand or `S = E`. Under durable backlog alone, growth stops once the streams outnumber the Claims that can run at once. Hypothesis, to be measured by the `burst` benchmark.
 
 **Thresholds considered.**
 - A low-water mark, such as growing when `I < S/4`, grows before tasks have to wait. It also keeps more idle streams.
@@ -262,7 +269,9 @@ The trigger and the step are pending decision D5.
 2. It drops any task that arrives after that decision, sending no frame for it (`protos/dex.proto:189-196`).
 3. It keeps reading until the server ends the stream.
 
-A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no retry spent (`worker_streams.rs:118-148`). An RPC dispatch whose stream ends before output is retried on another stream within its wait budget.
+A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no retry spent (`worker_streams.rs:118-148`). An RPC handles a half-close in one of two ways:
+- If the frame was not sent, the RPC dispatch keeps searching (`worker_registry.rs:499-505`).
+- If the half-close arrives before any output, the RPC dispatch excludes that stream and keeps searching until its dispatch wait ends (`worker_registry.rs:564-568, 661-664`).
 
 **Safety rules.**
 - Never close a busy stream.
@@ -306,7 +315,7 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 The server picks the longest-idle stream across all Workers of a queue (`stream_registry.rs:55-65`; `worker_registry.rs:800-826`).
 
 - **Without backlog.** Work spreads in proportion to idle streams. A Worker that receives more work runs out of idle streams and grows. A Worker with surplus shrinks. Hypothesis: busy streams converge toward an even split between Workers with equal ceilings. Exact balance is not a goal. Each Worker stays within its own ceiling.
-- **Under backlog.** Every Worker's freed and new streams claim backlog at once, so all Workers grow in parallel. A Worker that started earlier holds more streams and takes a larger share until all reach their ceilings or the backlog clears.
+- **Under backlog.** A Worker's freed and new streams start Claims while heads are claimable. The number of Claims that can run at once bounds this (one per partition and queue). Workers grow only while those Claims, together with the waiters, use up their idle streams. A Worker that started earlier holds more streams and may take a larger share. Hypothesis, measured by the `fairness` benchmark.
 - **Mixed fleets during a rollout.** Old fixed Workers always hold idle streams, so they attract most of the tasks. New adaptive Workers rarely see "all busy" and stay at their floor. When the old Workers stop, their share moves to the new ones, which ramp from their floors under load. The ramp costs a few round trips (see [Ramp-up latency](#ramp-up-latency)). Graceful stop already half-closes the old Workers' idle streams first. The benchmark plan measures this case.
 - **Slow handlers.** A Worker whose handlers slow down, for example from CPU saturation, keeps its streams busy and grows toward its ceiling. Fixed slots already behave this way at the ceiling, so adaptation adds no new risk here. Resource-based throttling is a non-goal.
 
@@ -437,7 +446,7 @@ Each SDK's integration tests check invariants 3 and 5 against a real server. The
 | ASYNC Step or RPC, in-memory waiter, same region | about 1.5 RTT ≈ 2 ms | ≈ 8 ms | ≈ 14 ms |
 | Same, cross region | ≈ 75 ms | ≈ 0.3 s | ≈ 0.5 s |
 | SYNC Step, in-memory waiter: the task frame waits for the `StepAttemptStarted` commit (#1253) | ≈ 1.5 RTT + commit ≈ 30 to 50 ms | ≈ 0.1 to 0.2 s | ≈ 0.2 to 0.35 s |
-| SYNC Step from backlog: Claim to the partition owner, commit, then the frame (`backlog_matching.rs:24-36`) | ≈ 1.5 RTT + Claim + commit ≈ 30 to 60 ms | ≈ 0.1 to 0.25 s | ≈ 0.2 to 0.4 s |
+| Step from durable backlog: Claim to the partition owner, commit, then the frame (`backlog_matching.rs:24-36`) | Claim-bound, not stream-bound: each partition and queue hands out one row per Claim round trip, about 1.5 RTT + commit ≈ 30 to 60 ms | growth happens only while concurrent Claims use up the idle streams | same |
 
 **Side effects.**
 - During a SYNC ramp, Steps that miss the 200 ms `syncMatchWait` are enqueued and cost one extra commit each. Once a queue has backlog, new Steps enqueue directly (`step_reservation.rs:162-164`). So a slow ramp moves a burst onto the queued path. The benchmark measures that share.
@@ -522,7 +531,10 @@ Nothing here is decided. Each row has a recommendation for the owner.
 
 The owner's goal is that server cost follows real concurrency, so the slot ceiling can be high.
 - **A** reaches that goal with no protocol or server change. The server already tells the Worker the moment its last idle slot is taken.
-- **B** adds what A cannot see, queue age. A grows on backlog anyway, because backlog consumes every freed and new stream. So B's main gains are faster growth and per-Worker schedule-to-start.
+- **B** adds what A cannot see, queue age.
+  - A grows whenever in-memory waiters use up the idle streams.
+  - Durable backlog drains one Claim per partition and queue at a time, so extra streams would not drain it faster. A not growing there loses little. This is a hypothesis for the `burst` benchmark.
+  - So B's main gains are faster growth and per-Worker schedule-to-start.
 - **C** removes even the cost of busy streams. It does so by changing hand-out, half-close, and reset handling, which #1253 made correct. A reset would then fail every running attempt on the stream as `NOT_COMPLETED` and spend their retries.
 - **D** keeps fixed cost. A default of 100 would then limit a node to 1,000 idle Workers.
 
@@ -647,7 +659,7 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
 
 1. **Fixed mode is unchanged.** With the floor equal to the ceiling, the stream count stays at the ceiling through load and idle periods. This guards requirement 8 and the phase 1 default.
 2. **Idle Worker at the floor.** An adaptive Worker holds exactly `L + R` streams after start, and readiness holds.
-3. **Burst growth.** A burst of `N` concurrent Steps, with `L < N ≤ E`, grows streams to at least `N` and at most `min(E, 2N)`. Every Step completes, and none spends a retry. This covers the grow rule and the overshoot bound.
+3. **Burst growth.** A burst of `N` concurrent long-running ASYNC Steps, with `L < N ≤ E`, grows streams to at least `N` and at most `min(E, 2N)`. A burst of `N` concurrent RPCs gives the same result. Every task completes, and no Step spends a retry. This covers the grow rule and the overshoot bound. A SYNC variant checks only that streams grow above `L` and stay at most `min(E, 2N)`. Some SYNC Steps may take the Claim-bound backlog path.
 4. **Return to the floor.** After load stops, the count reaches `L + R` within the bound of invariant 5. It does not rise again over three more windows, which guards against the #740 leak.
 5. **Shrink race.** Steps are dispatched continuously while the Worker shrinks. Every Step completes with attempt number 1 and no retry spent. Any race appears as `dexzd_step_attempts_returned_total{reason="not_delivered"}`. This guards requirement 3.
 6. **Soft rejection at the cap.** With `matching.maxConcurrentTasksCap` below the ceiling, growth stops at the cap. Readiness stays true. No `PullRegistrationError` appears. Registration attempts stay bounded, with no tight loop.
