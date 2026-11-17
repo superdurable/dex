@@ -155,6 +155,10 @@ mappings:
     docs:
       - docs/content/components/application.mdx
 
+  - skill: dex-app-builder/references/managed-dex-app.md
+    docs:
+      - docs/content/components/managed-dex-app.mdx
+
 unmapped:
   # Entry points and skill-only guidance.
   - skills/dex-sdk/SKILL.md
@@ -172,8 +176,6 @@ unmapped:
   - skills/dex-app-builder/references/product-discovery.md
   - skills/dex-app-builder/references/workflow-import.md
   - skills/dex-app-builder/references/n8n-semantics.md
-  # Managed Dex App repository rules; its docs guide is not on main yet.
-  - skills/dex-app-builder/references/managed-dex-app.md
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
@@ -181,7 +183,6 @@ unmapped:
   - docs/content/concepts/primitives/index.mdx
   # Operations guides for people running Dex; the Skills cover code, not hosting choices or deploy runbooks.
   - docs/content/components/dex-cloud.mdx
-  - docs/content/components/managed-dex-app.mdx
   - docs/content/components/self-host.mdx
   - docs/content/components/operate-and-debug.mdx
   - docs/content/concepts/change-flow-code.mdx
