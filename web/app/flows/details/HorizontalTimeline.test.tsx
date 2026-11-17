@@ -878,7 +878,11 @@ describe('horizontal Timeline', () => {
     const intro = screen.getByRole('note', { name: 'Timeline label modes' });
     expect(intro.textContent).toContain('Dense');
     expect(intro.textContent).toContain('Tidy');
-    // The note is not modal: events still take clicks while it shows.
+    // The note is not modal, and clicks pass through it to the events it covers.
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const block = (selector: string) => designCss.slice(designCss.indexOf(`${selector} {`), designCss.indexOf('}', designCss.indexOf(`${selector} {`)));
+    expect(block('.htl-mode-intro')).toContain('pointer-events: none');
+    expect(block('.v1-page .htl-mode-intro-dismiss')).toContain('pointer-events: auto');
     fireEvent.click(option(2)!);
     expect(onSelectEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 2 }));
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));

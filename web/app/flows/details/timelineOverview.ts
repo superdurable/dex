@@ -260,13 +260,11 @@ export function brushPixelSpan(
 /** How the lane draws event labels: Dense slants them, Tidy wraps them straight in columns. */
 export type TimelineLabelMode = 'dense' | 'tidy';
 
-/**
- * Slot widths per label mode. A short page spreads its events up to max; a long page packs them to
- * min and scrolls. Dense: 45° labels 36 px apart stay 25 px apart, as 36 * sin(45°) ≈ 25.
- * Tidy: a 64 px label column still fits about 9 characters per line.
- */
+/** Slot widths per label mode: short pages spread up to max; long pages pack to min and scroll. */
 export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: number }> = {
+  // 45° labels 36 px apart stay 25 px apart, as 36 * sin(45°) ≈ 25.
   dense: { min: 36, max: 120 },
+  // A 64 px label column still fits about 9 characters per line.
   tidy: { min: 64, max: 160 },
 };
 

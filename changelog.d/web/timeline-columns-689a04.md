@@ -3,8 +3,7 @@ section: Changed
 ---
 - The Timeline lane has two label modes, picked from **Dense** and **Tidy** tabs
   at the left end of the lane. **Dense**, the default, slants each event's label
-  at 45 degrees; each label's width follows its own text, up to 280 px, and
-  not the width of its event's slot. **Tidy** shows each label straight above its dot, wrapped at
+  at 45 degrees. **Tidy** shows each label straight above its dot, wrapped at
   word boundaries in up to three lines; identifiers read as words, such as
   **Send User Message** for **send_user_message**, and the tooltip keeps the
   exact name. The browser remembers the mode, and a short note introduces both

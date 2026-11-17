@@ -3038,8 +3038,9 @@ html:has(.v1-page .stream-scroll--entries) {
   outline-offset: 1px;
 }
 
-/* A small note beside the tabs, shown once; it covers only a corner of the lane. */
+/* A small note beside the tabs, shown once; clicks pass through it to the events below. */
 .htl-mode-intro {
+  pointer-events: none;
   position: absolute;
   z-index: 4;
   bottom: 50px;
@@ -3073,6 +3074,7 @@ html:has(.v1-page .stream-scroll--entries) {
 }
 
 .v1-page .htl-mode-intro-dismiss {
+  pointer-events: auto;
   display: inline-flex;
   flex: none;
   padding: 2px;
