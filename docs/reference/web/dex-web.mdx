@@ -804,12 +804,18 @@ A run that a clone fork created shows **Clone forked from FLOW_ID at event #N**
 in the line under the bar. The link opens the source run at the copied run
 attempt, with event N selected. N is the last source event the copy includes.
 
-A run that Dex Web identifies as an agent session through its loaded Flow Definition
-Graph offers no **Clone fork**. Dex Web also hides the action until it loads a
-definition that identifies the Flow as another type. A session's clone fork needs
-its own task queue and session state, which a generic clone fork does not set.
-Since 1.45.8, the **Conversation** tab forks a session with both; see
-[Fork a session](#agent-session-fork).
+Changed in 1.45.11: every run offers **Clone fork**, including a Flow whose type
+has no Flow definition. When Dex Web identifies the run as an agent session, the
+dialog says so and applies the session rules of [Fork a session](#agent-session-fork).
+Dex Web identifies a session in two ways: its Flow Definition Graph is a session
+graph, or the run's task queue is the session's own task queue, derived from its
+Flow ID. A session clone fork sends **deleteAttributeKeys** with
+**SessionTerminalLease** and **SessionLastTerminalEnvironment**. A session on its
+own task queue moves to the task queue derived from the new Flow ID. The dialog
+shows that task queue in place of the **Task queue** field and updates it as you
+edit the ID. Every other run's clone fork works as described above. Before
+1.45.11, Dex Web hid **Clone fork** until a loaded definition showed the Flow was
+not an agent session.
 
 **POST /api/flows/clone-fork** takes **sourceFlowId**, **sourceRunId**,
 **flowId**, **reason**, an optional **requestId**, and the point fields

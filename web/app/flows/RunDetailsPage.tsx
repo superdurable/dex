@@ -53,7 +53,7 @@ import { FlowOverview } from './details/FlowOverview';
 import type { FlowConfigChange } from './details/FlowConfigCard';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
-import { CloneForkDialog, type CloneForkResult } from './details/CloneForkDialog';
+import { CloneForkDialog, type CloneForkResult, type SourceTaskQueueStatus } from './details/CloneForkDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
@@ -275,6 +275,7 @@ export function RunDetailsPage({
   const runHistory = useRunHistory(flowId, runId, historyPageSize);
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
+  const [hasStateLoadFailed, setHasStateLoadFailed] = useState(false);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const [closedFlowConfig, setClosedFlowConfig] = useState<
     { runIdentity: string; value: Record<string, unknown> } | { runIdentity: string; error: string } | null
@@ -440,6 +441,7 @@ export function RunDetailsPage({
       if (stateLoad < publishedStateLoad.current) return false;
       publishedStateLoad.current = stateLoad;
       setState(value);
+      setHasStateLoadFailed(false);
       setSavedHistorySettings((saved) => saved && saved.savedAfterStateLoad < stateLoad ? null : saved);
       return true;
     };
@@ -454,6 +456,7 @@ export function RunDetailsPage({
       if (!publishState(hydrated.value)) return;
       if (hydrated.error) addDataWarning(hydrated.error);
     } catch (stateError) {
+      if (stateLoad >= publishedStateLoad.current) setHasStateLoadFailed(true);
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
   }, [addDataWarning, flowId, stateURL]);
@@ -562,6 +565,7 @@ export function RunDetailsPage({
     let active = true;
     setSummary(null);
     setState(null);
+    setHasStateLoadFailed(false);
     clearLoadedRun();
     setError('');
     setLoading(true);
@@ -868,8 +872,10 @@ export function RunDetailsPage({
 
   // Live state is not loaded for a closed run, so State reads its Flow config once.
   const isClosedRunShown = summary !== null && terminalStatuses.has(summary.flowStatusCode);
+  // Clone fork also needs it: the source's task queue tells whether it is an agent session.
+  const needsClosedFlowConfig = shownTab === 'overview' || cloneForkOpen;
   useEffect(() => {
-    if (shownTab !== 'overview' || !isClosedRunShown || closedFlowConfig?.runIdentity === runIdentity) return undefined;
+    if (!needsClosedFlowConfig || !isClosedRunShown || closedFlowConfig?.runIdentity === runIdentity) return undefined;
     const controller = new AbortController();
     void fetch(stateURL, { cache: 'no-store', signal: controller.signal })
       .then((response) => readResponseJSON<FlowState>(response))
@@ -883,7 +889,7 @@ export function RunDetailsPage({
         });
       });
     return () => controller.abort();
-  }, [closedFlowConfig?.runIdentity, isClosedRunShown, runIdentity, shownTab, stateURL]);
+  }, [closedFlowConfig?.runIdentity, isClosedRunShown, needsClosedFlowConfig, runIdentity, stateURL]);
 
   useLayoutEffect(() => {
     const content = runContent.current;
@@ -1020,8 +1026,9 @@ export function RunDetailsPage({
 
   const isRunOpen = summary !== null && !terminalStatuses.has(summary.flowStatusCode);
   const cloneForkSource = cloneForkSourceOf(flowStartEvent);
-  // An agent session forks through its agents package, which also moves the session's task queue.
-  const canCloneFork = isCatalogReady && hasRunHistoryForks && catalogEntry !== null && runSessionSchema === null;
+  // Any run can be clone forked; an agent session forks with its session rules, which also move the session's task queue.
+  const canCloneFork = hasRunHistoryForks;
+  const isAgentSessionDefinition = isCatalogReady ? runSessionSchema !== null : null;
   const sourceTaskQueue = (() => {
     const startFlowConfig = flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined;
     const closedConfig = closedFlowConfig?.runIdentity === runIdentity && 'value' in closedFlowConfig
@@ -1030,6 +1037,18 @@ export function RunDetailsPage({
       ?? startFlowConfig?.workerTarget
       ?? closedConfig?.workerTarget) as Record<string, unknown> | undefined;
     return typeof workerTarget?.taskQueue === 'string' ? workerTarget.taskQueue : null;
+  })();
+  const sourceTaskQueueStatus = ((): SourceTaskQueueStatus => {
+    if (summary === null) return 'loading';
+    if (isRunOpen) {
+      if (state !== null) return 'loaded';
+      return hasStateLoadFailed ? 'failed' : 'loading';
+    }
+    const closedConfigOfRun = closedFlowConfig?.runIdentity === runIdentity ? closedFlowConfig : null;
+    if (closedConfigOfRun && 'value' in closedConfigOfRun) return 'loaded';
+    const startWorkerTarget = (flowStartEvent?.payload.flowConfig as Record<string, unknown> | undefined)?.workerTarget;
+    if (startWorkerTarget !== undefined) return 'loaded';
+    return closedConfigOfRun ? 'failed' : 'loading';
   })();
   const childFlowsHref = `${FLOWS_PATH}?${new URLSearchParams({ q: childFlowsQuery(flowId) })}`;
   const runState = summary && !runFailure && !isViewingEarlierRunAttempt ? runStateOf(history, isRunOpen) : null;
@@ -1426,6 +1445,8 @@ export function RunDetailsPage({
           initialEvent={cloneForkEvent}
           runAttempt={isViewingEarlierRunAttempt ? displayedRunAttempt : 0}
           sourceTaskQueue={sourceTaskQueue}
+          sourceTaskQueueStatus={sourceTaskQueueStatus}
+          isAgentSessionDefinition={isAgentSessionDefinition}
           isSourceRunning={isRunOpen && !isViewingEarlierRunAttempt}
           timezone={timezone}
           onClose={closeCloneFork}
