@@ -323,6 +323,8 @@ The report lists at most 10 findings of each rule and counts the rest.
 
 If the import says the repository cannot be read, give the SuperDurable Dex Cloud GitHub App access to the repository on GitHub. That case is outside the finding list.
 
+[Troubleshooting and FAQ](/reference/dex-app/v1/troubleshooting) covers common problems outside the finding list, and refusals of older repositories.
+
 ## S1: Template manifest {#s1}
 
 `.dex/template.json` exists at the root, is at most 64 KiB, and is a JSON object with the fields of the [template manifest](#template-manifest). `schemaVersion` is `1`. `buildProfile`, `kind`, and `stack` are supported and agree with each other. `openapiSpec` is `openapi/openapi.yaml` and `agentInstructions` is `AGENTS.md`, and both files exist. `commands` declares `bootstrap`, `checkStatic`, and `testApplication`, each as `make <target>`.
