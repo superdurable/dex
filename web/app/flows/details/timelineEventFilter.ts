@@ -149,7 +149,7 @@ function parsedNameSelection(value: unknown): TimelineNameSelection | null {
   return { mode, names: names.filter((name): name is string => typeof name === 'string') };
 }
 
-/** Reads a saved filter, dropping every part that is not valid; null when the value is not a filter at all. */
+/** Returns the saved filter without its invalid parts, or null when the text is not a filter. */
 export function parseTimelineEventFilter(text: string): TimelineEventFilter | null {
   let value: unknown;
   try {

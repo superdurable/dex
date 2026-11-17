@@ -218,10 +218,7 @@ export function overviewBucketSelectionIndex(
   return bestIndex;
 }
 
-/**
- * Maps a fractional lane index to a fractional page index. laneToPage holds each lane event's page
- * index in order; a slot past the lane's end maps to pageCount.
- */
+/** Returns the page index of a lane index; laneToPage lists each lane event's page index, past the end is pageCount. */
 export function laneIndexToPageIndex(laneToPage: readonly number[], pageCount: number, laneIndex: number): number {
   const whole = Math.floor(Math.max(0, laneIndex));
   if (whole >= laneToPage.length) return pageCount;
