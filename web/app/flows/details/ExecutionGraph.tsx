@@ -16,7 +16,6 @@ import {
   Controls,
   Handle,
   MarkerType,
-  MiniMap,
   Position,
   ReactFlow,
   type Edge,
@@ -27,18 +26,33 @@ import {
 } from '@xyflow/react';
 import {
   Ban,
+  ChevronDown,
+  ChevronRight,
   CircleCheck,
   CircleDashed,
   CircleDot,
   CircleX,
   Clock,
+  FoldHorizontal,
   Hourglass,
+  Map as MapIcon,
   Maximize,
+  Minus,
   Play,
+  Repeat2,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
+import {
+  foldStepGraph,
+  roundFrameBoxes,
+  unfoldedStepGraph as unfoldedGraph,
+  type FoldedGraphItem,
+  type FoldedStepGraph,
+  type StepRoundGroup,
+} from './graphFolding';
 import {
   defaultGraphZoom,
   fittingGraphZoom,
@@ -47,13 +61,28 @@ import {
   minimumGraphZoom,
   type GraphDirection,
 } from './graphLayout';
+import { GraphOverview } from './GraphOverview';
+import { graphViewStorageKeys, useStoredGraphFlag } from './graphViewPreferences';
+
+/** What a graph node draws: a Step execution or source, a folded Round, an elision gap, or a Round frame. */
+type GraphNodeDisplay = 'node' | 'group' | 'more' | 'frame';
 
 interface StepNodeData extends Record<string, unknown> {
   label: React.ReactNode;
-  model: StepGraphNode;
+  display: GraphNodeDisplay;
+  /** The Step execution, source or SubFlow node; absent for Round groups, gaps and frames. */
+  model?: StepGraphNode;
+  /** The Round group a folded node, gap or frame stands for. */
+  round?: StepRoundGroup;
   hasSubFlowChildren?: boolean;
   direction: GraphDirection;
 }
+
+const foldedGroupDimensions = { width: 280, withSequenceHeight: 136, height: 112 };
+const elisionGapDimensions = { width: 140, height: 44 };
+/** The canvas keeps this much room above the highest Round frame heading. */
+const frameTopClearance = 12;
+const viewportTransitionMilliseconds = 280;
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
 
@@ -105,6 +134,16 @@ function isNodeInView(
 
 const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
+const waitingEdgeColor = 'var(--tone-wait)';
+const introLeaveMilliseconds = 220;
+
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function viewportTransitionDuration(): number {
+  return prefersReducedMotion() ? 0 : viewportTransitionMilliseconds;
+}
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -255,11 +294,14 @@ export function StepNodeLabel({
   node,
   onSelect,
   selectedEventId = null,
+  repeatCount = 1,
 }: {
   node: StepGraphNode;
   onSelect: (event: FlowHistoryEvent) => void;
   /** The selected event; the method that recorded it shows as selected. */
   selectedEventId?: number | null;
+  /** Consecutive executions of this Step type the node stands for; above 1 it shows a ×N badge. */
+  repeatCount?: number;
 }) {
   const condition = waitingCondition(node);
   const timerCount = conditionCount(condition, 'timerConditions');
@@ -276,6 +318,11 @@ export function StepNodeLabel({
           <StatusIcon status={node.status} size={15} />
         </span>
         <b>{node.label}</b>
+        {repeatCount > 1 && (
+          <span className="graph-step-repeat" title={`${repeatCount} consecutive Step executions of ${node.label}`}>
+            ×{repeatCount}
+          </span>
+        )}
         <span className="graph-step-meta">
           <span className={`graph-step-status-text status-tone-${node.status.toLowerCase()}`}>{node.status}</span>
           <code title={node.isPlanned
@@ -352,6 +399,77 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   );
 }
 
+function stepCountLabel(count: number): string {
+  return `${count.toLocaleString('en-US')} Step${count === 1 ? '' : 's'}`;
+}
+
+/** A folded Round: its title, Step count, status bar, Step sequence and duration. */
+export function RoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
+  const completedShare = round.stepCount > 0 ? (round.completedCount / round.stepCount) * 100 : 0;
+  const failedShare = round.stepCount > 0 ? (round.failedCount / round.stepCount) * 100 : 0;
+  return (
+    <div className={`graph-round-group${round.failedCount > 0 ? ' has-failed' : ''}`}>
+      <div className="graph-round-heading">
+        <Repeat2 aria-hidden="true" className="graph-round-icon" size={15} strokeWidth={2.25} />
+        <b title={round.title}>{round.title}</b>
+        <span className="graph-round-count">{stepCountLabel(round.stepCount)}</span>
+      </div>
+      <div
+        aria-label={`${round.completedCount} completed, ${round.failedCount} failed`}
+        className="graph-round-bar"
+        role="img"
+      >
+        <span className="graph-round-bar-completed" style={{ width: `${completedShare}%` }} />
+        <span className="graph-round-bar-failed" style={{ width: `${failedShare}%` }} />
+      </div>
+      {round.sequence.length > 0 && (
+        <p className="graph-round-sequence" title={round.sequence.join(' → ')}>{round.sequence.join(' → ')}</p>
+      )}
+      <div className="graph-round-facts">
+        {round.roundRangeLabel && <span>{round.roundRangeLabel}</span>}
+        {round.duration && <span>{round.duration}</span>}
+        {round.failedCount > 0 && <span className="graph-round-failed">{round.failedCount.toLocaleString('en-US')} failed</span>}
+        <button
+          className="graph-round-action nodrag nopan"
+          onClick={(clickEvent) => {
+            clickEvent.stopPropagation();
+            onOpen(round.key);
+          }}
+          type="button"
+        >
+          <ChevronRight aria-hidden="true" size={13} strokeWidth={2.5} />
+          Show Steps
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The heading of an opened Round's frame, with Hide Steps unless it is the latest or a live Round. */
+export function RoundFrameLabel({ round, onHide }: { round: StepRoundGroup; onHide: (key: string) => void }) {
+  const facts = [round.roundRangeLabel, stepCountLabel(round.stepCount), round.duration].filter(Boolean).join(' · ');
+  return (
+    <div className="graph-round-frame-heading">
+      <Repeat2 aria-hidden="true" className="graph-round-icon" size={14} strokeWidth={2.25} />
+      <b>{round.title}</b>
+      <span>{facts}</span>
+      {round.canHide && (
+        <button
+          className="graph-round-action nodrag nopan"
+          onClick={(clickEvent) => {
+            clickEvent.stopPropagation();
+            onHide(round.key);
+          }}
+          type="button"
+        >
+          <ChevronDown aria-hidden="true" size={13} strokeWidth={2.5} />
+          Hide Steps
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Where edges meet a node: topology edges follow the direction, and SubFlow edges cross it. */
 function handlePositions(direction: GraphDirection) {
   return direction === 'lr'
@@ -359,19 +477,27 @@ function handlePositions(direction: GraphDirection) {
     : { topologyIn: Position.Top, topologyOut: Position.Bottom, subFlowOut: Position.Right, subFlowIn: Position.Left };
 }
 
+/** The node kind that decides its handles; Round groups and gaps connect like Steps. */
+function handleKind(data: StepNodeData): StepGraphNode['kind'] | 'frame' {
+  if (data.display === 'frame') return 'frame';
+  if (data.display !== 'node' || !data.model) return 'step';
+  return data.model.kind;
+}
+
 function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
-  const { model } = data;
+  const kind = handleKind(data);
   const positions = handlePositions(data.direction);
+  if (kind === 'frame') return <div className="graph-node-root">{data.label}</div>;
   return (
     <div className="graph-node-root">
-      {model.kind === 'step' && (
+      {kind === 'step' && (
         <Handle id="topology" position={positions.topologyIn} type="target" />
       )}
       <div className="graph-node-body">{data.label}</div>
-      {(model.kind === 'source' || model.kind === 'step') && (
+      {(kind === 'source' || kind === 'step') && (
         <Handle id="topology" position={positions.topologyOut} type="source" />
       )}
-      {model.kind === 'step' && data.hasSubFlowChildren === true && (
+      {kind === 'step' && data.hasSubFlowChildren === true && (
         <Handle
           className="graph-subflow-handle"
           id="subflow"
@@ -379,7 +505,7 @@ function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
           type="source"
         />
       )}
-      {model.kind === 'subflow' && (
+      {kind === 'subflow' && (
         <Handle
           className="graph-subflow-handle"
           id="subflow"
@@ -407,18 +533,27 @@ export function graphNodeDimensions(node: StepGraphNode): { height: number; widt
   };
 }
 
+function foldedItemDimensions(item: FoldedGraphItem): { height: number; width: number } {
+  if (item.display === 'node') return graphNodeDimensions(item.node);
+  if (item.display === 'more') return elisionGapDimensions;
+  return {
+    width: foldedGroupDimensions.width,
+    height: item.round.sequence.length > 0 ? foldedGroupDimensions.withSequenceHeight : foldedGroupDimensions.height,
+  };
+}
+
 function nodeHandles(
-  node: StepGraphNode,
+  kind: StepGraphNode['kind'],
   dimensions: { height: number; width: number },
   hasSubFlowChildren: boolean,
   direction: GraphDirection,
 ): Node['handles'] {
   const box = { x: 0, y: 0, width: dimensions.width, height: dimensions.height };
   const positions = handlePositions(direction);
-  if (node.kind === 'subflow') {
+  if (kind === 'subflow') {
     return [{ ...box, id: 'subflow', type: 'target', position: positions.subFlowIn }];
   }
-  if (node.kind === 'source') {
+  if (kind === 'source') {
     return [{ ...box, id: 'topology', type: 'source', position: positions.topologyOut }];
   }
   const handles: NonNullable<Node['handles']> = [
@@ -429,6 +564,50 @@ function nodeHandles(
     handles.push({ ...box, id: 'subflow', type: 'source', position: positions.subFlowOut });
   }
   return handles;
+}
+
+/** Adds a frame behind each opened Round and moves the graph so every frame heading fits. */
+function withRoundFrames(
+  nodes: Array<Node<StepNodeData>>,
+  folded: FoldedStepGraph,
+  direction: GraphDirection,
+  onHide: (key: string) => void,
+): Array<Node<StepNodeData>> {
+  if (folded.rounds.length === 0) return nodes;
+  const boxes = new Map(nodes.map((node) => [node.id, {
+    x: node.position.x,
+    y: node.position.y,
+    width: typeof node.style?.width === 'number' ? node.style.width : node.width ?? 0,
+    height: typeof node.style?.height === 'number' ? node.style.height : node.height ?? 0,
+  }]));
+  const frames = roundFrameBoxes(folded.items, boxes);
+  if (frames.length === 0) return nodes;
+  const shiftX = Math.max(0, frameTopClearance - Math.min(...frames.map((frame) => frame.x)));
+  const shiftY = Math.max(0, frameTopClearance - Math.min(...frames.map((frame) => frame.y)));
+  const roundByKey = new Map(folded.rounds.map((round) => [round.key, round]));
+  const frameNodes = frames.flatMap((frame): Array<Node<StepNodeData>> => {
+    const round = roundByKey.get(frame.roundKey);
+    if (!round) return [];
+    const size = { width: frame.width, height: frame.height };
+    return [{
+      id: `__round-frame:${round.key}`,
+      type: 'graph',
+      position: { x: frame.x + shiftX, y: frame.y + shiftY },
+      className: `graph-round-frame${round.failedCount > 0 ? ' graph-round-frame-failed' : ''}`,
+      ...size,
+      // Frames only draw behind their Steps; the canvas keeps panning through them.
+      style: { ...size, pointerEvents: 'none' },
+      zIndex: -1,
+      focusable: false,
+      selectable: false,
+      handles: [],
+      data: { direction, display: 'frame', round, label: <RoundFrameLabel round={round} onHide={onHide} /> },
+    }];
+  });
+  const shifted = shiftX === 0 && shiftY === 0
+    ? nodes
+    : nodes.map((node) => ({ ...node, position: { x: node.position.x + shiftX, y: node.position.y + shiftY } }));
+  return [...frameNodes, ...shifted];
 }
 
 export function ExecutionGraph({
@@ -454,53 +633,118 @@ export function ExecutionGraph({
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const canvasWidth = canvasSize.width;
   const isLeftToRight = direction === 'lr';
-  const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
+  const [isMiniMapHidden, setIsMiniMapHidden] = useStoredGraphFlag(graphViewStorageKeys.isMiniMapHidden, false);
+  const [isFolded, setIsFolded] = useStoredGraphFlag(graphViewStorageKeys.isFolded, false);
+  const [isFoldedIntroDismissed, setIsFoldedIntroDismissed] = useStoredGraphFlag(
+    graphViewStorageKeys.isFoldedIntroDismissed,
+    false,
+  );
+  const [isFoldedIntroLeaving, setIsFoldedIntroLeaving] = useState(false);
+  const [openRounds, setOpenRounds] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId, { hasEarlierEvents }),
     [events, flowId, hasEarlierEvents, state],
   );
-  const selection = useMemo(
-    () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent),
+  const selectedStepExecutionID = useMemo(
+    () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent).selectedStepExecutionID,
     [graph.edges, graph.nodes, selectedEvent],
   );
-  const nodeByID = useMemo(
-    () => new Map(graph.nodes.map((node) => [node.id, node])),
-    [graph.nodes],
+  const folded = useMemo<FoldedStepGraph>(
+    () => (isFolded
+      ? foldStepGraph(graph.nodes, graph.edges, { openRounds, selectedStepExecutionID })
+      : unfoldedGraph(graph.nodes, graph.edges)),
+    [graph.edges, graph.nodes, isFolded, openRounds, selectedStepExecutionID],
+  );
+  const shownStepNodes = useMemo(
+    () => folded.items.flatMap((item) => (item.display === 'node' ? [item.node] : [])),
+    [folded.items],
+  );
+  const selection = useMemo(
+    () => stepGraphSelection(shownStepNodes, folded.edges, selectedEvent),
+    [folded.edges, selectedEvent, shownStepNodes],
+  );
+  const shownNodeByID = useMemo(
+    () => new Map(shownStepNodes.map((node) => [node.id, node])),
+    [shownStepNodes],
   );
   const subFlowParentIDs = useMemo(
     () => new Set(
-      graph.nodes
+      shownStepNodes
         .filter((node) => node.kind === 'subflow')
         .map((node) => node.parentStepId),
     ),
-    [graph.nodes],
+    [shownStepNodes],
   );
-  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => {
+
+  // Selecting a Step inside a folded Round opens that Round once; Hide Steps can fold it again.
+  const roundOpenedForStepID = useRef('');
+  useEffect(() => {
+    if (!isFolded || !selectedStepExecutionID || roundOpenedForStepID.current === selectedStepExecutionID) return;
+    const roundKey = folded.roundKeyByStepExecutionID.get(selectedStepExecutionID);
+    const round = folded.rounds.find((candidate) => candidate.key === roundKey);
+    if (!round) return;
+    roundOpenedForStepID.current = selectedStepExecutionID;
+    if (!round.isOpen) setOpenRounds((current) => new Map(current).set(round.key, true));
+  }, [folded, isFolded, selectedStepExecutionID]);
+
+  const setRoundOpen = (key: string, isOpen: boolean) => {
+    setOpenRounds((current) => new Map(current).set(key, isOpen));
+  };
+
+  const edges = useMemo<Edge[]>(() => folded.edges.map((edge) => {
     const isIncoming = selection.incomingEdgeIDs.has(edge.id);
     const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
-    const isSubFlow = nodeByID.get(edge.target)?.kind === 'subflow';
-    const color = isIncoming || isOutgoing ? connectedStepColor : graphEdgeColor;
+    const target = shownNodeByID.get(edge.target);
+    const isSubFlow = target?.kind === 'subflow';
+    const isWaitingTarget = target?.kind === 'step' && (target.status === 'Waiting' || target.status === 'Pending');
+    const color = isIncoming || isOutgoing ? connectedStepColor : isWaitingTarget ? waitingEdgeColor : graphEdgeColor;
     return {
       ...edge,
-      className: isSubFlow
-        ? 'graph-edge-subflow'
-        : isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : undefined,
+      className: [
+        isSubFlow ? 'graph-edge-subflow' : isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : '',
+        isWaitingTarget ? 'graph-edge-waiting' : '',
+      ].filter(Boolean).join(' ') || undefined,
       type: 'smoothstep',
       sourceHandle: isSubFlow ? 'subflow' : 'topology',
       targetHandle: isSubFlow ? 'subflow' : 'topology',
-      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
       style: {
         stroke: color,
-        strokeWidth: isIncoming || isOutgoing ? 3 : 1.5,
-        strokeDasharray: isSubFlow ? '6 4' : undefined,
+        strokeWidth: isIncoming || isOutgoing ? 2.25 : 1.25,
+        strokeDasharray: isSubFlow || isWaitingTarget ? '5 4' : undefined,
       },
       zIndex: isIncoming || isOutgoing ? 2 : 0,
     };
-  }), [graph.edges, nodeByID, selection]);
+  }), [folded.edges, selection, shownNodeByID]);
   const nodes = useMemo(() => {
-    const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => {
-      const dimensions = graphNodeDimensions(node);
+    const raw: Array<Node<StepNodeData>> = folded.items.map((item) => {
+      const dimensions = foldedItemDimensions(item);
+      if (item.display !== 'node') {
+        return {
+          id: item.id,
+          type: 'graph',
+          position: { x: 0, y: 0 },
+          className: item.display === 'group'
+            ? `step-flow-node node-round-group${item.round.failedCount > 0 ? ' node-round-group-failed' : ''}`
+            : 'step-flow-node node-round-more',
+          width: dimensions.width,
+          height: dimensions.height,
+          style: dimensions,
+          handles: nodeHandles('step', dimensions, false, direction),
+          data: {
+            direction,
+            display: item.display,
+            round: item.display === 'group' ? item.round : undefined,
+            label: item.display === 'group' ? (
+              <RoundGroupLabel round={item.round} onOpen={(key) => setRoundOpen(key, true)} />
+            ) : (
+              <span className="graph-round-more">… {item.hiddenCount.toLocaleString('en-US')} more</span>
+            ),
+          },
+        };
+      }
+      const { node } = item;
       return {
         id: node.id,
         type: 'graph',
@@ -509,6 +753,7 @@ export function ExecutionGraph({
           'step-flow-node',
           `node-${node.kind}`,
           `node-${node.status.toLowerCase()}`,
+          item.repeatCount > 1 ? 'node-repeated' : '',
           node.id === selection.selectedStepExecutionID ? 'graph-node-current' : '',
           selection.previousStepExecutionIDs.has(node.id) ? 'graph-node-previous' : '',
           selection.nextStepExecutionIDs.has(node.id) ? 'graph-node-next' : '',
@@ -516,13 +761,19 @@ export function ExecutionGraph({
         width: dimensions.width,
         height: dimensions.height,
         style: dimensions,
-        handles: nodeHandles(node, dimensions, subFlowParentIDs.has(node.id), direction),
+        handles: nodeHandles(node.kind, dimensions, subFlowParentIDs.has(node.id), direction),
         data: {
           direction,
+          display: 'node',
           model: node,
           hasSubFlowChildren: subFlowParentIDs.has(node.id),
           label: node.kind === 'step' ? (
-            <StepNodeLabel node={node} onSelect={onSelectEvent} selectedEventId={selectedEvent?.eventId ?? null} />
+            <StepNodeLabel
+              node={node}
+              onSelect={onSelectEvent}
+              repeatCount={item.repeatCount}
+              selectedEventId={selectedEvent?.eventId ?? null}
+            />
           ) : node.kind === 'subflow' ? (
             <SubFlowNodeLabel flow={node} />
           ) : (
@@ -537,8 +788,9 @@ export function ExecutionGraph({
         },
       };
     });
-    return layoutGraph(raw, edges, direction);
-  }, [direction, edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
+    const laidOut = layoutGraph(raw, edges, direction);
+    return withRoundFrames(laidOut, folded, direction, (key) => setRoundOpen(key, false));
+  }, [direction, edges, folded, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   // Left to right fits the whole graph while readable; otherwise it fits the height and frames the selection.
   const fitZoom = fittingGraphZoom(bounds, canvasSize);
@@ -562,7 +814,9 @@ export function ExecutionGraph({
   }, []);
 
   // The first viewport is set once; later events, layouts and resizes keep a reader's zoom and pan.
+  // Turning Folded on or off lays the graph out anew, so it sets the viewport again.
   const hasAppliedInitialViewport = useRef(false);
+  const isViewportTransitionWanted = useRef(false);
   useEffect(() => {
     if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
     hasAppliedInitialViewport.current = true;
@@ -570,8 +824,26 @@ export function ExecutionGraph({
       x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
       y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
-    });
-  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isLeftToRight]);
+    }, isViewportTransitionWanted.current ? { duration: viewportTransitionDuration() } : undefined);
+  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isFolded, isLeftToRight]);
+
+  const dismissFoldedIntro = () => {
+    if (isFoldedIntroDismissed) return;
+    setIsFoldedIntroDismissed(true);
+    setIsFoldedIntroLeaving(true);
+  };
+  useEffect(() => {
+    if (!isFoldedIntroLeaving) return undefined;
+    const timer = window.setTimeout(() => setIsFoldedIntroLeaving(false), introLeaveMilliseconds);
+    return () => window.clearTimeout(timer);
+  }, [isFoldedIntroLeaving]);
+  const toggleFolded = () => {
+    hasAppliedInitialViewport.current = false;
+    framedEventId.current = null;
+    isViewportTransitionWanted.current = true;
+    setIsFolded(!isFolded);
+    dismissFoldedIntro();
+  };
 
   // Frames the selected Step on first show, and later only when a newly selected Step is out of view.
   const framedEventId = useRef<number | null>(null);
@@ -593,7 +865,10 @@ export function ExecutionGraph({
     // Pan the graph, not the page, so the bar and the run line stay in view.
     // A frame later, so the initial viewport above has been set first.
     const frame = window.requestAnimationFrame(() => {
-      void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, { zoom: flowInstance.getZoom() });
+      void flowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, {
+        zoom: flowInstance.getZoom(),
+        duration: isViewportTransitionWanted.current ? viewportTransitionDuration() : undefined,
+      });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [canvasSize, flowInstance, isWholeGraphShown, nodes, selectedEvent]);
@@ -612,11 +887,50 @@ export function ExecutionGraph({
   // Zooming out can always reach the whole graph.
   const lowestZoom = Math.min(controlMinimumZoom, wholeGraphZoom);
 
+  const isFoldedIntroShown = !isFoldedIntroDismissed || isFoldedIntroLeaving;
+  const centerOnMiniMapPoint = (position: { x: number; y: number }) => {
+    if (!flowInstance) return;
+    void flowInstance.setCenter(position.x, position.y, {
+      zoom: flowInstance.getZoom(),
+      duration: viewportTransitionDuration(),
+    });
+  };
+
   if (!nodes.length) return <div className="card empty-state"><h3>No execution topology loaded</h3></div>;
   return (
-    <div className={isLeftToRight ? 'graph-view graph-view--lr' : 'graph-view'}>
-      <div className="view-toolbar">
+    <div className={`graph-view${isLeftToRight ? ' graph-view--lr' : ''}${isFolded ? ' graph-view--folded' : ''}`}>
+      <div className="view-toolbar graph-toolbar">
         <h2 className="sr-only">Execution graph</h2>
+        <div className="graph-fold-controls">
+          <button
+            aria-pressed={isFolded}
+            className="graph-fold-toggle"
+            onClick={toggleFolded}
+            title="Fold repeated Rounds of Steps"
+            type="button"
+          >
+            <FoldHorizontal aria-hidden="true" size={14} strokeWidth={2.25} />
+            Folded
+          </button>
+          {isFolded && folded.rounds.length === 0 && (
+            <span className="graph-fold-note">No Step type repeats, so nothing folds.</span>
+          )}
+          {isFoldedIntroShown && (
+            <span className={`graph-fold-intro${isFoldedIntroLeaving ? ' is-leaving' : ''}`} role="note">
+              <span><b>Folded</b> groups repeated Rounds of Steps into one node. Turn it on for long runs.</span>
+              <button
+                aria-label="Dismiss"
+                className="graph-fold-intro-dismiss"
+                disabled={isFoldedIntroLeaving}
+                onClick={dismissFoldedIntro}
+                title="Dismiss"
+                type="button"
+              >
+                <X aria-hidden="true" size={13} strokeWidth={2.5} />
+              </button>
+            </span>
+          )}
+        </div>
         <div className="graph-legend">
           <span><i className="legend-source" />Source</span>
           <span><i className="legend-active" />Active / Pending</span>
@@ -624,6 +938,7 @@ export function ExecutionGraph({
           <span><i className="legend-failed" />Failed</span>
           <span><i className="legend-canceled" />Canceled</span>
           <span><i className="legend-subflow" />SubFlow</span>
+          {isFolded && folded.rounds.length > 0 && <span><i className="legend-folded" />Folded Round</span>}
         </div>
       </div>
       <div
@@ -649,8 +964,13 @@ export function ExecutionGraph({
           panOnScroll={!isLeftToRight}
           onInit={setFlowInstance}
           onNodeClick={(_, node) => {
-            const model = (node.data as StepNodeData).model;
-            if (model.kind === 'subflow') return;
+            const data = node.data as StepNodeData;
+            if (data.display === 'group' && data.round) {
+              setRoundOpen(data.round.key, true);
+              return;
+            }
+            const { model } = data;
+            if (data.display !== 'node' || !model || model.kind === 'subflow') return;
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
         >
@@ -661,28 +981,33 @@ export function ExecutionGraph({
               <Maximize aria-hidden="true" size={12} strokeWidth={2.5} />
             </ControlButton>
           </Controls>
-          <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
-            {isMiniMapExpanded && (
-              <MiniMap
-                ariaLabel="Execution graph Mini Map"
-                className="graph-minimap"
-                pannable
-                position="top-left"
-                zoomable
-                nodeStrokeWidth={2}
-              />
-            )}
+          {isMiniMapHidden ? (
             <button
-              aria-expanded={isMiniMapExpanded}
-              aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
-              className="graph-minimap-toggle nodrag nopan"
-              onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
-              title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              aria-label="Show mini map"
+              className="graph-minimap-show nodrag nopan"
+              onClick={() => setIsMiniMapHidden(false)}
+              title="Show mini map"
               type="button"
             >
-              {isMiniMapExpanded ? 'Close ×' : 'Mini Map'}
+              <MapIcon aria-hidden="true" size={15} strokeWidth={2} />
             </button>
-          </div>
+          ) : (
+            <div className="graph-minimap-shell nodrag nopan">
+              <div className="graph-minimap-heading">
+                <span>Mini map</span>
+                <button
+                  aria-label="Hide mini map"
+                  className="graph-minimap-hide"
+                  onClick={() => setIsMiniMapHidden(true)}
+                  title="Hide mini map"
+                  type="button"
+                >
+                  <Minus aria-hidden="true" size={13} strokeWidth={2.5} />
+                </button>
+              </div>
+              <GraphOverview bounds={bounds} nodes={nodes} onCenter={centerOnMiniMapPoint} />
+            </div>
+          )}
         </ReactFlow>
       </div>
     </div>

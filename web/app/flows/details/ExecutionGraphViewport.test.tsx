@@ -79,6 +79,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     ReactFlow,
     Background: () => null,
     MiniMap: () => null,
+    useViewport: () => flow.state.viewport,
+    useStore: (selector: (store: { width: number; height: number }) => number) => selector(canvasSize),
     Handle: () => null,
     Controls: ({ children }: { children: ReactNode }) => (
       <div>
