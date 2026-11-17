@@ -15,11 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
@@ -68,10 +70,11 @@ func (s *testFlowService) GetServerInfo(
 	if s.serverInfo != nil {
 		return s.serverInfo, nil
 	}
+	_, clientMaximum := dex.SupportedServerProtocolVersionRange()
 	return &dexpb.ServerInfo{
 		ServerVersion:                   "test-server",
 		MinimumSupportedProtocolVersion: 1,
-		CurrentProtocolVersion:          1,
+		CurrentProtocolVersion:          clientMaximum,
 		ServerEngine:                    dexpb.ServerEngine_SERVER_ENGINE_ZD,
 	}, nil
 }
@@ -866,8 +869,17 @@ func TestAPIDescriptorIncludesEveryFlowServiceMethod(t *testing.T) {
 func TestVersionCheckReportsNegotiatedProtocol(t *testing.T) {
 	_, address := startTestFlowService(t)
 	result := executeTestCommand(t, nil, "version", "check", "--server", address)
-	if result["compatible"] != true || result["negotiatedProtocol"] != float64(1) {
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
+	if result["compatible"] != true || result["negotiatedProtocol"] != float64(clientMaximum) {
 		t.Fatalf("unexpected version check result: %#v", result)
+	}
+	clientProtocol := result["clientProtocol"].(map[string]any)
+	if clientProtocol["minimum"] != float64(clientMinimum) || clientProtocol["maximum"] != float64(clientMaximum) {
+		t.Fatalf("clientProtocol must equal the Go SDK range: %#v", clientProtocol)
+	}
+	serverProtocol := result["serverProtocol"].(map[string]any)
+	if serverProtocol["minimum"] != float64(1) || serverProtocol["maximum"] != float64(clientMaximum) {
+		t.Fatalf("unexpected serverProtocol: %#v", serverProtocol)
 	}
 	if result["clientVersion"] != "dev" || result["serverVersion"] != "test-server" || result["serverEngine"] != "zd" {
 		t.Fatalf("unexpected artifact versions: %#v", result)
@@ -889,27 +901,72 @@ func TestVersionCheckTablePrintsTheServerVersion(t *testing.T) {
 }
 
 func TestVersionCheckRejectsNonoverlappingProtocols(t *testing.T) {
-	service, address := startTestFlowService(t)
-	service.serverInfo = &dexpb.ServerInfo{
-		ServerVersion:                   "future-server",
-		MinimumSupportedProtocolVersion: 2,
-		CurrentProtocolVersion:          2,
+	clientMinimum, clientMaximum := dex.SupportedServerProtocolVersionRange()
+	testCases := []struct {
+		name          string
+		serverMinimum uint32
+		serverCurrent uint32
+		reason        string
+	}{
+		{
+			name:          "Server too old",
+			serverMinimum: 1,
+			serverCurrent: clientMinimum - 1,
+			reason: fmt.Sprintf(
+				"protocol intervals do not overlap: this dexcli requires Server protocol version %d or later, "+
+					"but the Server supports 1-%d; upgrade the Server or use an older dexcli",
+				clientMinimum,
+				clientMinimum-1,
+			),
+		},
+		{
+			name:          "dexcli too old",
+			serverMinimum: clientMaximum + 1,
+			serverCurrent: clientMaximum + 2,
+			reason: fmt.Sprintf(
+				"protocol intervals do not overlap: the Server requires protocol version %d or later, "+
+					"but this dexcli supports %d-%d; upgrade dexcli",
+				clientMaximum+1,
+				clientMinimum,
+				clientMaximum,
+			),
+		},
 	}
-	stdout := &bytes.Buffer{}
-	app := NewApp(bytes.NewReader(nil), stdout, &bytes.Buffer{}, "test-cli")
-	err := app.Execute(context.Background(), []string{"version", "check", "--server", address})
-	if err == nil || ExitCode(err) != 1 {
-		t.Fatalf("expected compatibility failure, got %v", err)
-	}
-	errorOutput := &bytes.Buffer{}
-	WriteError(errorOutput, err)
-	var payload map[string]any
-	if decodeErr := json.Unmarshal(errorOutput.Bytes(), &payload); decodeErr != nil {
-		t.Fatal(decodeErr)
-	}
-	errorPayload := payload["error"].(map[string]any)
-	if errorPayload["kind"] != "compatibility" || errorPayload["compatible"] != false {
-		t.Fatalf("unexpected structured error: %#v", errorPayload)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service, address := startTestFlowService(t)
+			service.serverInfo = &dexpb.ServerInfo{
+				ServerVersion:                   "other-server",
+				MinimumSupportedProtocolVersion: testCase.serverMinimum,
+				CurrentProtocolVersion:          testCase.serverCurrent,
+			}
+			stdout := &bytes.Buffer{}
+			app := NewApp(bytes.NewReader(nil), stdout, &bytes.Buffer{}, "test-cli")
+			err := app.Execute(context.Background(), []string{"version", "check", "--server", address})
+			if err == nil || ExitCode(err) != 1 {
+				t.Fatalf("expected compatibility failure, got %v", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("expected no success output, got %s", stdout.String())
+			}
+			errorOutput := &bytes.Buffer{}
+			WriteError(errorOutput, err)
+			var payload map[string]any
+			if decodeErr := json.Unmarshal(errorOutput.Bytes(), &payload); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			errorPayload := payload["error"].(map[string]any)
+			if errorPayload["kind"] != "compatibility" || errorPayload["compatible"] != false {
+				t.Fatalf("unexpected structured error: %#v", errorPayload)
+			}
+			if errorPayload["reason"] != testCase.reason {
+				t.Fatalf("unexpected reason: %#v", errorPayload["reason"])
+			}
+			clientProtocol := errorPayload["clientProtocol"].(map[string]any)
+			if clientProtocol["minimum"] != float64(clientMinimum) || clientProtocol["maximum"] != float64(clientMaximum) {
+				t.Fatalf("clientProtocol must equal the Go SDK range: %#v", clientProtocol)
+			}
+		})
 	}
 }
 

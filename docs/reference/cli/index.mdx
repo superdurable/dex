@@ -426,7 +426,10 @@ Workers and the server use them internally; they are not operator APIs.
 
 **dexcli version** prints the CLI build version. **dexcli version check** asks
 the server for its supported protocol range (inclusive) and checks that it
-overlaps the range built into this CLI:
+overlaps the range of the Go SDK built into this CLI. Every other dexcli
+command connects through that Go SDK, so the check uses the same range and
+picks the same protocol. Changed in 1.47.11: earlier releases checked a fixed
+range of 1-1 instead.
 
 ```bash
 dexcli version check --server dex.example.internal:8801
@@ -441,7 +444,8 @@ prints one field per row.
 The command then exits with status 0. It prints a structured compatibility
 error and exits with status 1 when the server does not implement the
 information RPC, returns an invalid response, cannot be reached, or shares no
-protocol with the CLI. The command supports the normal **--server**,
+protocol with the CLI. When the ranges do not overlap, the error's **reason**
+says whether to upgrade the server or dexcli. The command supports the normal **--server**,
 **--timeout**, and **--output** flags.
 
 ## Describe or step down the active server process {#admin-step-down}

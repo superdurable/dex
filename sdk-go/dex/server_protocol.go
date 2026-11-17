@@ -37,6 +37,28 @@ const (
 	minimumSupportedServerZDRelease = "server-zd newer than v0.1.16"
 )
 
+// SupportedServerProtocolVersionRange returns the inclusive range of Dex Server protocol versions this Go SDK supports.
+//
+// Use it to show or check compatibility before a Client or Worker connects,
+// for example in a version or health command of a tool built on the Go SDK.
+// A Client and a Worker negotiate the same way: they call GetServerInfo and use
+// the highest protocol version that both this range and the Server's range contain.
+// The connection fails when the two ranges do not overlap.
+// The range is fixed when the SDK is built, so it changes only with the SDK version.
+//
+// Example:
+//
+//	minimum, maximum := dex.SupportedServerProtocolVersionRange()
+//	fmt.Printf("Go SDK supports Server protocol versions %d-%d\n", minimum, maximum)
+//
+// It returns minimum, the lowest Server protocol version this SDK supports, and
+// maximum, the highest one. Both are at least 1, and minimum is never greater than maximum.
+//
+// Since 1.45.7.
+func SupportedServerProtocolVersionRange() (minimum uint32, maximum uint32) {
+	return minimumSupportedServerProtocolVersion, maximumSupportedServerProtocolVersion
+}
+
 func negotiateServerProtocol(
 	serverInfo *dexpb.ServerInfo,
 	sdkVersion string,
