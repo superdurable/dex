@@ -142,7 +142,7 @@ func TestHelpListsFlagsInOrder(t *testing.T) {
 			t.Fatalf("removed flag %s still documented:\n%s", name, text)
 		}
 	}
-	if !strings.Contains(text, "open Dex Web after startup (default true)") {
+	if !strings.Contains(text, "open Dex Web after startup; when omitted, only if stdout is a terminal and CI is unset (default true)") {
 		t.Fatalf("missing --open default in help:\n%s", text)
 	}
 }
@@ -167,6 +167,47 @@ func TestOpenFalseDisablesBrowser(t *testing.T) {
 	if cfg.OpenBrowser {
 		t.Fatal("expected --open=false to disable Dex Web")
 	}
+}
+
+func TestLaunchEnvironmentDecidesWhetherToOpenBrowser(t *testing.T) {
+	for _, testCase := range []struct {
+		name              string
+		args              []string
+		isStdoutTerminal  bool
+		ciValue           *string
+		shouldOpenBrowser bool
+	}{
+		{name: "terminal opens", isStdoutTerminal: true, shouldOpenBrowser: true},
+		{name: "empty CI is unset", isStdoutTerminal: true, ciValue: ptrTo(""), shouldOpenBrowser: true},
+		{name: "non-terminal stays closed", isStdoutTerminal: false, shouldOpenBrowser: false},
+		{name: "CI stays closed", isStdoutTerminal: true, ciValue: ptrTo("true"), shouldOpenBrowser: false},
+		{name: "explicit open opens outside a terminal in CI", args: []string{"-open=true"}, ciValue: ptrTo("1"), shouldOpenBrowser: true},
+		{name: "explicit open=false stays closed in a terminal", args: []string{"-open=false"}, isStdoutTerminal: true, shouldOpenBrowser: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
+			cfg, err := parseConfig(testCase.args, &bytes.Buffer{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.applyLaunchEnvironment(LaunchEnvironment{
+				IsStdoutTerminal: testCase.isStdoutTerminal,
+				LookupEnvironmentVariable: func(name string) (string, bool) {
+					if name != "CI" || testCase.ciValue == nil {
+						return "", false
+					}
+					return *testCase.ciValue, true
+				},
+			})
+			if cfg.OpenBrowser != testCase.shouldOpenBrowser {
+				t.Fatalf("OpenBrowser = %t, want %t", cfg.OpenBrowser, testCase.shouldOpenBrowser)
+			}
+		})
+	}
+}
+
+func ptrTo(value string) *string {
+	return &value
 }
 
 func TestOpenFalseSeparateTokenIsRejected(t *testing.T) {
