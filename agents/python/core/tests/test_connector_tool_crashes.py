@@ -22,7 +22,6 @@ import json
 import pytest
 
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, ToolCallStatus
-from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER
 from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE
 from tests.fake_ledger import FakeLedgerProvider
@@ -151,13 +150,13 @@ async def test_a_killed_single_attempt_write_ends_outcome_unknown_and_never_send
 @pytest.mark.parametrize(
     ("words", "provider_refusals"),
     [
-        # The fence recorded notSent before the claim, so the request never left the process.
+        # The fence recorded notSent before the claim; the core does not read it.
         ("rate-limit-once", 1),
         # The provider refused the sent note without acting, and the fence recorded canResend.
         ("rate-limit-after-send", 1),
     ],
 )
-async def test_a_single_attempt_write_proven_unsent_fails_with_a_retry_later_error(
+async def test_a_single_attempt_write_that_asks_to_retry_is_unknown(
     connector_harness: ScriptedAgentHarness,
     ledger: FakeLedgerProvider,
     words: str,
@@ -166,10 +165,8 @@ async def test_a_single_attempt_write_proven_unsent_fails_with_a_retry_later_err
     answer = await _write_with_kill(
         connector_harness, "post_note", {"accountId": "a-1", "text": words}, None
     )
-    assert answer == (
-        f"The tool call failed: fake-ledger postNote {CONNECTOR_NOT_SENT_RETRY_LATER}: "
-        "RATE_LIMIT: rate limited"
-    )
+    # A Retry goes to the Step retry, and a single-attempt Step has none left.
+    assert answer == OUTCOME_UNKNOWN_TOOL_RESULT
     assert ledger.writes("postNote") == []
     assert len(ledger.sends("rate-limited")) == provider_refusals
 
@@ -202,7 +199,7 @@ async def test_a_retry_safe_fenced_write_refused_after_send_is_retried_and_sent_
     assert len(ledger.writes("postNote")) == 1
 
 
-async def test_a_bounded_write_sent_before_a_kill_stays_unknown_when_the_next_worker_refuses_it(
+async def test_a_bounded_write_sent_before_a_kill_fails_when_the_next_worker_refuses_it(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     harness = connector_harness
@@ -220,11 +217,11 @@ async def test_a_bounded_write_sent_before_a_kill_stays_unknown_when_the_next_wo
     snapshot = await harness.sessions.get_agent_snapshot(session_id)
     harness.gate("held").release()
     record = next(call for call in snapshot.tool_calls if call.tool_call_id == "call-0")
-    # The first attempt's claim stands, so the refusal cannot prove that nothing was sent.
-    assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
+    # Arguments this Worker refuses fail the call; the core does not read the earlier claim.
+    assert record.status is ToolCallStatus.FAILED
     assert record.error is not None and record.error.startswith(
         "invalid arguments for send_message: "
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
-    assert snapshot.messages[-1].text == f"send_message: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert (snapshot.messages[-1].text or "").startswith("send_message: The tool call failed: ")
     assert len(ledger.writes("sendMessage")) == 1

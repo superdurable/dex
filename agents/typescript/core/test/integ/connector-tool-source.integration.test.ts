@@ -41,9 +41,7 @@ import {
 import {
   boundedResendAttempts,
   connectorSendCapOf,
-  isProvenNotSent,
   lowerCamelToSnake,
-  mayHaveDispatched,
 } from "../../src/connectors/connector-tool-source.js";
 import {
   ToolExecutionError,
@@ -96,15 +94,6 @@ interface ConformanceCases {
     readonly outcome: ConnectorBranchOutcome;
   }[];
   readonly toolNameCases: readonly { readonly operationId: string; readonly snakeName: string }[];
-  readonly fenceObservationCases: readonly {
-    readonly name: string;
-    readonly attempt: number;
-    readonly previousCheckpoint: string | null;
-    readonly readsCheckpoint: boolean;
-    readonly savedHeartbeats: readonly unknown[];
-    readonly mayHaveDispatched: boolean;
-    readonly isProvenNotSent: boolean;
-  }[];
   readonly sendCapCases: readonly {
     readonly name: string;
     readonly kind: "query" | "mutation";
@@ -194,25 +183,6 @@ describe("connector tools follow the shared conformance cases", () => {
     }
   });
 
-  test("fence events are observed as the conformance suite says", async () => {
-    const operation = { connectorId: "fake-ledger", operationId: "postNote" };
-    const callId = deriveCallID("session-1", "CallTool-3", operation);
-    const otherCallId = deriveCallID("session-1", "CallTool-4", operation);
-    const bind = (value: string) => value.replaceAll("<callId>", callId).replaceAll("<otherCallId>", otherCallId);
-    for (const testCase of conformance.fenceObservationCases) {
-      const previous = testCase.previousCheckpoint === null ? undefined : bind(testCase.previousCheckpoint);
-      const fenced = fencedCallWithContext(testCase.attempt, previous, new SessionCheckpoints());
-      if (testCase.readsCheckpoint) {
-        fenced.context.hasLastHeartbeatValue();
-      }
-      for (const saved of testCase.savedHeartbeats) {
-        await fenced.context.recordHeartbeat(JSON.parse(bind(JSON.stringify(saved))) as unknown);
-      }
-      assert.equal(mayHaveDispatched(fenced.call, fenced.context), testCase.mayHaveDispatched, testCase.name);
-      assert.equal(isProvenNotSent(fenced.call, fenced.context), testCase.isProvenNotSent, testCase.name);
-    }
-  });
-
   test("send caps are read as the conformance suite says", () => {
     for (const testCase of conformance.sendCapCases) {
       assert.equal(
@@ -262,17 +232,14 @@ describe("connector tools follow the shared conformance cases", () => {
     }
   });
 
-  test("refused arguments stay unknown after an earlier send, as the conformance suite says", async () => {
+  test("refused arguments fail on every attempt, as the conformance suite says", async () => {
     const operation = { connectorId: "fake-ledger", operationId: "sendMessage" };
     const callId = deriveCallID("session-1", "CallSingleAttemptTool-5", operation);
-    const otherCallId = deriveCallID("session-1", "CallSingleAttemptTool-6", operation);
     const ledger = new FakeLedgerProvider(mkdtempSync(join(tmpdir(), "fake-ledger-arguments-")));
     for (const testCase of conformance.argumentRefusalCases.cases) {
       const checkpoints = new SessionCheckpoints();
       checkpoints.checkpoint =
-        testCase.previousCheckpoint === null
-          ? undefined
-          : testCase.previousCheckpoint.replaceAll("<callId>", callId).replaceAll("<otherCallId>", otherCallId);
+        testCase.previousCheckpoint === null ? undefined : testCase.previousCheckpoint.replaceAll("<callId>", callId);
       const outcome = await runSendAttempt(
         boundedResendSource(ledger, "cap3"),
         testCase.arguments,
@@ -678,7 +645,6 @@ describe("the Step context the single-dispatch fence uses", () => {
 
     const decision = new Fence(fencedCall(2, first.checkpoint, new SessionCheckpoints()), 30_000).decide();
     assert.equal(decision.kind, "readBackRequired");
-    assert.equal(decision.marker?.providerId, "note-1");
   });
 
   test("a marker proving no send lets the next attempt send", async () => {
@@ -688,7 +654,6 @@ describe("the Step context the single-dispatch fence uses", () => {
     await fence.recordNotSent();
     const decision = new Fence(fencedCall(2, first.checkpoint, new SessionCheckpoints()), 30_000).decide();
     assert.equal(decision.kind, "sendAllowed");
-    assert.equal(decision.marker?.state, "notSent");
 
     const resent = new SessionCheckpoints();
     const rejectedFence = new Fence(fencedCall(1, undefined, resent), 30_000);
@@ -710,101 +675,6 @@ describe("the Step context the single-dispatch fence uses", () => {
     fence.decide();
     await fence.recordNotSent();
     assert.equal(checkpoints.checkpoint, `{"attempt":1,"callId":"${call.id}","state":"notSent"}`);
-  });
-
-  test("only a saved notSent or canResend marker of this attempt proves no send", async () => {
-    const proves = (fenced: FencedCall) => isProvenNotSent(fenced.call, fenced.context);
-    assert.equal(proves(fencedCallWithContext(1, undefined, new SessionCheckpoints())), false);
-
-    const notSent = fencedCallWithContext(1, undefined, new SessionCheckpoints());
-    let fence = new Fence(notSent.call, 30_000);
-    fence.decide();
-    await fence.recordNotSent();
-    assert.equal(proves(notSent), true);
-
-    const claimed = fencedCallWithContext(1, undefined, new SessionCheckpoints());
-    fence = new Fence(claimed.call, 30_000);
-    fence.decide();
-    await fence.dispatch(async () => "note-1");
-    assert.equal(proves(claimed), false);
-    await fence.recordCanResend();
-    assert.equal(proves(claimed), true);
-
-    const accepted = fencedCallWithContext(1, undefined, new SessionCheckpoints());
-    fence = new Fence(accepted.call, 30_000);
-    fence.decide();
-    await fence.dispatch(async () => "note-1");
-    await fence.recordProviderId("note-1");
-    assert.equal(proves(accepted), false);
-
-    // A marker an earlier attempt saved is history, not proof about this attempt.
-    const first = new SessionCheckpoints();
-    fence = new Fence(fencedCallWithContext(1, undefined, first).call, 30_000);
-    fence.decide();
-    await fence.recordNotSent();
-    assert.equal(proves(fencedCallWithContext(2, first.checkpoint, new SessionCheckpoints())), false);
-  });
-
-  test("only fence checkpoints proving no send keep the manifest listing", async () => {
-    const dispatched = (fenced: FencedCall, _previous: string | undefined) =>
-      mayHaveDispatched(fenced.call, fenced.context);
-    assert.equal(dispatched(fencedCallWithContext(2, undefined, new SessionCheckpoints()), undefined), false);
-
-    const notSent = new SessionCheckpoints();
-    const notSentCall = fencedCallWithContext(1, undefined, notSent);
-    let fence = new Fence(notSentCall.call, 30_000);
-    fence.decide();
-    assert.equal(dispatched(notSentCall, undefined), false);
-    await fence.recordNotSent();
-    assert.equal(dispatched(notSentCall, undefined), false);
-
-    const claimed = new SessionCheckpoints();
-    const claimedCall = fencedCallWithContext(1, undefined, claimed);
-    fence = new Fence(claimedCall.call, 30_000);
-    fence.decide();
-    await fence.dispatch(async () => "note-1");
-    assert.equal(dispatched(claimedCall, undefined), true);
-    await fence.recordProviderId("note-1");
-    assert.equal(dispatched(claimedCall, undefined), true);
-
-    const canResend = new SessionCheckpoints();
-    const canResendCall = fencedCallWithContext(1, undefined, canResend);
-    fence = new Fence(canResendCall.call, 30_000);
-    fence.decide();
-    await fence.dispatch(async () => undefined);
-    await fence.recordCanResend();
-    assert.equal(dispatched(canResendCall, undefined), false);
-
-    const callId = notSentCall.call.id;
-    const previousCheckpoints: readonly (readonly [string, string | undefined, boolean])[] = [
-      ["a notSent marker of the attempt before", notSent.checkpoint, false],
-      ["a canResend marker of the attempt before", canResend.checkpoint, false],
-      ["a claim", claimed.checkpoint, true],
-      ["a marker of another call", notSent.checkpoint?.replace(callId, "f".repeat(callId.length)), true],
-      ["a malformed marker", '{"callId": 7, "state": "notSent"}', true],
-      ["a checkpoint that is not a marker", '"a task handle"', true],
-      ["no checkpoint", undefined, true],
-    ];
-    for (const [label, previous, expected] of previousCheckpoints) {
-      const retry = fencedCallWithContext(2, previous, new SessionCheckpoints());
-      new Fence(retry.call, 30_000).decide();
-      assert.equal(dispatched(retry, previous), expected, label);
-    }
-    const stale = fencedCallWithContext(3, notSent.checkpoint, new SessionCheckpoints());
-    new Fence(stale.call, 30_000).decide();
-    assert.equal(dispatched(stale, notSent.checkpoint), true);
-  });
-
-  test("a marker that failed to save proves nothing", async () => {
-    const failing = new SessionCheckpoints();
-    failing.save = async () => {
-      throw new Error("the heartbeat did not reach Dex");
-    };
-    const fenced = fencedCallWithContext(1, undefined, failing);
-    const fence = new Fence(fenced.call, 30_000);
-    fence.decide();
-    await assert.rejects(fence.recordNotSent());
-    assert.equal(isProvenNotSent(fenced.call, fenced.context), false);
   });
 
   test("the Call ID depends only on the Flow, the Step execution, and the operation", () => {
