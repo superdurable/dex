@@ -874,13 +874,13 @@ describe('horizontal Timeline', () => {
   const labelTexts = () => [...document.querySelectorAll('.htl-event .htl-label')].map((label) => label.textContent);
   const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
 
-  it('opens in Dense mode and gives every event its own label slanted at 45 degrees', () => {
+  it('opens in Dense mode and gives every event its own label slanted at 30 degrees', () => {
     render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
     expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
     expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
-    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-45deg');
+    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
     expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
-    expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -45deg))');
+    expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -30deg))');
   });
 
   it.each(['dense', 'tidy'])('shows no cut label for an event scrolled past the left edge in %s mode', (labelMode) => {
@@ -1032,8 +1032,8 @@ describe('horizontal Timeline layout', () => {
       const long = denseStripHeight(['StoreGeneratedCustomerMessageStep']);
       expect(short).toBeLessThan(long);
       expect(denseStripHeight(['x'.repeat(200)])).toBe(denseStripHeight(['x'.repeat(100)]));
-      // At 45 degrees a label rises as far as it runs right.
-      expect(denseStripHeight(['x'.repeat(100)]) - denseStripHeight([])).toBe(Math.ceil(280 * Math.SQRT1_2) - Math.ceil(8 * Math.SQRT1_2));
+      // At 30 degrees a label rises half as far as its length: 280 / 2 for the widest, 8 / 2 for an empty one.
+      expect(denseStripHeight(['x'.repeat(100)]) - denseStripHeight([])).toBe(280 / 2 - 8 / 2);
       render(<Harness pageEvents={events(1000)} />);
       const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
       expect(strip.style.height).toBe(`${denseStripHeight(['Charge'])}px`);

@@ -71,7 +71,7 @@ const arcBandHeight = 28;
 const axisBandHeight = 18;
 const dotBandHeight = 30;
 /** Dense: each event's label slants up at this angle, like angled parking, so long names fit side by side. */
-const denseLabelAngleDegrees = 45;
+const denseLabelAngleDegrees = 30;
 const denseLabelMaxWidth = 280;
 const denseLabelAngle = (denseLabelAngleDegrees * Math.PI) / 180;
 /** About the width of one Dense label character, for sizing the band before layout. */
