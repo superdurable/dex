@@ -3206,26 +3206,28 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* Each event's own label slants up from its dot, like angled parking, so long names fit side by side. */
+/* Each event's label wraps inside its own column, centered over its dot; every label ends on one baseline. */
 .htl-event {
   top: 0;
 }
 
 .htl-event .htl-label {
   position: absolute;
+  right: 4px;
   bottom: 30px;
-  left: calc(50% - 4px);
-  max-width: var(--htl-label-max-width, 280px);
+  left: 4px;
+  display: -webkit-box;
   overflow: hidden;
   color: var(--ui-ink-2);
   cursor: pointer;
   font-size: var(--ui-text-sm);
-  line-height: 17px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
   pointer-events: auto;
-  text-overflow: ellipsis;
-  transform: rotate(var(--htl-label-angle, -30deg));
-  transform-origin: left bottom;
-  white-space: nowrap;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--htl-label-lines, 3);
+  line-clamp: var(--htl-label-lines, 3);
 }
 
 .htl-event:hover .htl-label,
@@ -3249,6 +3251,34 @@ html:has(.v1-page .stream-scroll--entries) {
 
 .htl-event.jump-highlighted .htl-dot {
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+}
+
+/* Where the lane is on a page wider than it; drag the thumb or press beside it. */
+.htl-track {
+  position: relative;
+  height: 6px;
+  margin: 2px 0 4px;
+  border-radius: 3px;
+  background: var(--ui-well);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.htl-track-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 16px;
+  border-radius: 3px;
+  background: var(--ui-ink-3);
+}
+
+.htl-track:hover .htl-track-thumb {
+  background: var(--ui-ink-2);
+}
+
+.htl-in-view {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Event numbers every tenth event, and at the selection, below the baseline. */

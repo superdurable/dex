@@ -18,7 +18,10 @@ import {
   HorizontalTimeline,
   horizontalTimelineLayout,
   isSameCalendarDay,
+  labelLineCount,
+  labelWithBreakHints,
   labelWidthUnits,
+  timelineLabelText,
   timelineStripHeight,
 } from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
@@ -807,15 +810,14 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
-  it('gives every event its own slanted label, never grouped or shortened to a count', () => {
+  it('gives every event its own straight label in words, never grouped or shortened to a count', () => {
     render(<HorizontalTimeline events={[
       ...events(3),
       { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
     ]} onSelectEvent={() => {}} selectedEvent={null} />);
     const labels = [...document.querySelectorAll('.htl-event .htl-label')];
-    expect(labels.map((label) => label.textContent)).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
-    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
-    expect(strip.style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
+    expect(labels.map((label) => label.textContent)).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+    expect(document.querySelector('[data-event-id="4"]')?.getAttribute('title')).toBe('AwaitNextWindow · #4');
   });
 
   it('moves the selection with J and K and time travels with T from anywhere on the page', () => {
@@ -883,15 +885,14 @@ describe('horizontal Timeline layout', () => {
   });
 
   describe('lane density', () => {
-    it('sizes the label band to the longest label on the page, up to the widest label', () => {
-      const short = timelineStripHeight(['SyncBatch', 'Checkpoint']);
-      const long = timelineStripHeight(['StoreGeneratedCustomerMessageStep']);
-      expect(short).toBeLessThan(long);
-      expect(timelineStripHeight(['x'.repeat(200)])).toBe(timelineStripHeight(['x'.repeat(100)]));
+    it('sizes the label band to the page\'s tallest wrapped label, up to three lines', () => {
+      const oneLine = timelineStripHeight(['Sync Batch', 'Checkpoint'], 120);
+      const twoLines = timelineStripHeight(['Call Single Attempt Tool'], 120);
+      expect(oneLine).toBeLessThan(twoLines);
+      expect(timelineStripHeight(['x'.repeat(200)], 88)).toBe(timelineStripHeight(['x'.repeat(100)], 88));
       render(<Harness pageEvents={events(1000)} />);
       const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
       const height = strip.style.height;
-      expect(height).toBe(`${timelineStripHeight(['Charge'])}px`);
       fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
       expect(strip.style.height).toBe(height);
     });
@@ -902,16 +903,44 @@ describe('horizontal Timeline layout', () => {
       expect(labelWidthUnits('Ｒｅｖｉｅｗ')).toBe(12);
       expect(labelWidthUnits('\uAC80\uD1A0-1')).toBe(6);
       expect(labelWidthUnits('𠀀')).toBe(2);
-      expect(timelineStripHeight(['审核步骤'])).toBe(timelineStripHeight(['ReviewSt']));
-      expect(timelineStripHeight(['审核步骤'])).toBeGreaterThan(timelineStripHeight(['Revi']));
+      expect(labelLineCount('审核步骤审核步骤', 80)).toBe(2);
+      expect(labelLineCount('Review', 80)).toBe(1);
     });
 
-    it('spreads a short page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
-      expect(timelineSlotWidth(5, 1000)).toBe(120);
-      expect(timelineSlotWidth(12, 1000)).toBe(83);
-      expect(timelineSlotWidth(25, 1000)).toBe(40);
-      expect(timelineSlotWidth(100, 1000)).toBe(36);
-      expect(timelineSlotWidth(1000, 1000)).toBe(36);
+    it('wraps labels word by word and breaks a word wider than its column', () => {
+      expect(labelLineCount('Run Model', 80)).toBe(1);
+      expect(labelLineCount('Lookup Order', 80)).toBe(2);
+      expect(labelLineCount('Lookup Payment Intent', 80)).toBe(3);
+      expect(labelLineCount('Send To Quanzhenglong', 80)).toBe(3);
+      expect(labelLineCount('Issue Payment Processor Refund Now', 80)).toBe(3);
+    });
+
+    it('splits a word wider than its column into even parts with soft hyphens', () => {
+      expect(labelWithBreakHints('Send To Quanzhenglong', 96)).toBe('Send To Quanzhenglong');
+      expect(labelWithBreakHints('Send To Quanzhenglong', 88)).toBe('Send To Quanzhe\u00ADnglong');
+      expect(labelWithBreakHints('NotifyQuanzhenglongWorkspaceAdmins', 88)).toBe('NotifyQuanzh\u00ADenglongWorks\u00ADpaceAdmins');
+      expect(labelWithBreakHints('审核步骤审核步骤审核步骤', 88)).toBe('审核步骤审核步骤审核步骤');
+    });
+
+    it('shows identifiers as words and keeps text that already has spaces', () => {
+      expect(timelineLabelText('send_user_message')).toBe('Send User Message');
+      expect(timelineLabelText('lookup_payment_intent')).toBe('Lookup Payment Intent');
+      expect(timelineLabelText('CallSingleAttemptTool')).toBe('Call Single Attempt Tool');
+      expect(timelineLabelText('SendToQuanzhenglong')).toBe('Send To Quanzhenglong');
+      expect(timelineLabelText('HTTPRequestStep')).toBe('HTTP Request Step');
+      expect(timelineLabelText('order-sync')).toBe('Order Sync');
+      expect(timelineLabelText('RunModel')).toBe('Run Model');
+      expect(timelineLabelText('Charge')).toBe('Charge');
+      expect(timelineLabelText('Flow started')).toBe('Flow started');
+      expect(timelineLabelText('审核步骤')).toBe('审核步骤');
+      expect(timelineLabelText('order_total, customer_id')).toBe('Order Total, Customer Id');
+    });
+
+    it('spreads a short page and packs a long one to the narrowest slot that keeps label columns readable', () => {
+      expect(timelineSlotWidth(5, 1000)).toBe(160);
+      expect(timelineSlotWidth(8, 1000)).toBe(125);
+      expect(timelineSlotWidth(25, 1000)).toBe(96);
+      expect(timelineSlotWidth(1000, 1000)).toBe(96);
     });
   });
 });

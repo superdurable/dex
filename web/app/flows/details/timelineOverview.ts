@@ -258,30 +258,32 @@ export function brushPixelSpan(
 }
 
 /** The widest slot: a short page spreads its events up to this width. */
-export const LANE_SLOT_MAX_WIDTH = 120;
-/** Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll. */
-export const LANE_SLOT_MIN_WIDTH = 36;
+export const LANE_SLOT_MAX_WIDTH = 160;
+/** Narrowest slot: a label column still fits about 12 characters per line; more events scroll. */
+export const LANE_SLOT_MIN_WIDTH = 96;
 
-/** Returns the lane's width per event: the whole page when it fits, from 120 px down to 36 px each, else 36 px. */
+/** Returns the lane's width per event: the whole page when it fits, from 160 px down to 96 px each, else 96 px. */
 export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
   return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));
 }
 
 /**
- * Returns the overview axis of a page that fits the lane: each event sits under its own dot, so the
- * lane and the overview share one x mapping. Positions are ratios of the plot, which starts plotInset
- * pixels into the strip and is plotWidth pixels wide.
+ * Returns the overview axis that draws each event under its own dot, so the lane and the overview
+ * share one x mapping. Positions are ratios of the plot, which starts plotInset pixels into the strip
+ * and is plotWidth pixels wide. windowStart shifts the mapping with the lane; events out of view clamp
+ * to the ends.
  */
 export function laneOverviewAxis(
   events: readonly FlowHistoryEvent[],
   slotWidth: number,
   plotInset: number,
   plotWidth: number,
+  windowStart = 0,
 ): OverviewAxis {
   const times = monotonicEventTimes(events);
   const positions = events.map((_, index) => (
-    Math.min(1, Math.max(0, ((index + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
+    Math.min(1, Math.max(0, ((index - windowStart + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
   ));
   return {
     kind: 'index',
