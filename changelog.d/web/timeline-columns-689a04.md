@@ -1,11 +1,16 @@
 ---
 section: Changed
 ---
-- The Timeline lane shows each event's label straight above its dot, wrapped at
-  word boundaries in up to three lines, instead of slanted. Identifiers read as
-  words, such as **Send User Message** for **send_user_message**, and the tooltip
-  keeps the exact name. Columns are 64 to 160 px wide, and a page wider than the
-  lane shows how many events are in view.
+- The Timeline lane has two label modes, picked from **Dense** and **Tidy** tabs
+  at the left end of the lane. **Dense**, the default, slants each event's label
+  at 45 degrees. **Tidy** shows each label straight above its dot, wrapped at
+  word boundaries in up to three lines; identifiers read as words, such as
+  **Send User Message** for **send_user_message**, and the tooltip keeps the
+  exact name. The browser remembers the mode, and a short note introduces both
+  modes the first time the Timeline opens.
+- A page wider than the Timeline lane shows which events are in view.
+- The run page opens on the tab chosen last, on any run. An agent session opens
+  on **Conversation** only when no tab was chosen yet.
 - The selected event's panel gives Input and Output equal width and Context a
   narrow column. Each value sits under its name; objects, including JSON stored
   as a string, are pretty-printed and capped at seven lines with **Copy** and

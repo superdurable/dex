@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
@@ -21,19 +21,40 @@ import {
   labelLineCount,
   labelWithBreakHints,
   labelWidthUnits,
+  denseStripHeight,
+  tidyStripHeight,
   timelineLabelText,
-  timelineStripHeight,
 } from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
+import { timelineLabelModeIntroStorageKey, timelineLabelModeStorageKey } from './timelineLabelModeStorage';
 
-/** Events in view at the 1200 px jsdom fallback width, for a page of eventCount events. */
+/** Dense lane width at the 1200 px jsdom fallback width, before any event. */
+const denseAvailableWidth = 1200 - horizontalTimelineLayout.labelRunWidth.dense;
+
+/** Events in view in Dense mode at the 1200 px jsdom fallback width, for a page of eventCount events. */
 function visibleCountFor(eventCount: number): number {
-  const available = 1200 - horizontalTimelineLayout.labelRunWidth;
-  return Math.floor(available / timelineSlotWidth(eventCount, available));
+  return Math.floor(denseAvailableWidth / timelineSlotWidth(eventCount, denseAvailableWidth, 'dense'));
 }
 /** A 1000- or 2000-event page is dense. */
 const visibleCount = visibleCountFor(1000);
 const visibleCount100 = visibleCountFor(100);
+
+function memoryStorage(entries: Record<string, string> = {}): Storage {
+  const values = new Map(Object.entries(entries));
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => { values.delete(key); },
+    setItem: (key: string, value: string) => { values.set(key, String(value)); },
+  };
+}
+
+beforeEach(() => {
+  // The intro is dismissed in most tests, so it never covers what they check.
+  vi.stubGlobal('localStorage', memoryStorage({ [timelineLabelModeIntroStorageKey]: 'true' }));
+});
 
 afterEach(() => {
   cleanup();
@@ -364,7 +385,7 @@ describe('horizontal Timeline', () => {
     expect(dot(5)?.className).toContain('htl-status-failed');
     expect(dot(5)?.querySelector('.htl-dot-badge')).not.toBeNull();
     expect(option(5)?.getAttribute('aria-label')).toBe('Execute failed, Charge, #5');
-    expect(label(6)).toBe('Get Order');
+    expect(label(6)).toBe('getOrder');
     expect(dot(7)?.querySelector('.htl-dot-badge')).toBeNull();
     expect(screen.getByRole('list', { name: 'Event kinds' })).not.toBeNull();
     expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toBe('WaitingFailedCanceledRetried after failure');
@@ -429,7 +450,7 @@ describe('horizontal Timeline', () => {
     expect(wheel(0, -300, true).defaultPrevented).toBe(true);
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
 
-    const denseSlotWidth = timelineSlotWidth(1000, 1200 - horizontalTimelineLayout.labelRunWidth);
+    const denseSlotWidth = timelineSlotWidth(1000, denseAvailableWidth, 'dense');
     act(() => { wheel(denseSlotWidth * 5, 0); });
     expect(overview.getAttribute('aria-valuenow')).toBe('5');
     act(() => { wheel(0, denseSlotWidth * 5, true); });
@@ -654,7 +675,7 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('data-axis')).toBe('index');
     overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
     // The page fits the lane, so event #3's bar sits under its dot, at the center of the third slot.
-    const slot = timelineSlotWidth(8, 1200 - horizontalTimelineLayout.labelRunWidth);
+    const slot = timelineSlotWidth(8, denseAvailableWidth, 'dense');
     fireEvent.pointerMove(overview, { clientX: 2.5 * slot, pointerId: 1 });
     const tooltip = document.querySelector('.htl-overview-tooltip');
     expect(tooltip?.textContent).toContain('#3 · Charge');
@@ -810,14 +831,85 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
-  it('gives every event its own straight label in words, never grouped or shortened to a count', () => {
-    render(<HorizontalTimeline events={[
-      ...events(3),
-      { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
-    ]} onSelectEvent={() => {}} selectedEvent={null} />);
-    const labels = [...document.querySelectorAll('.htl-event .htl-label')];
-    expect(labels.map((label) => label.textContent)).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+  const labelModeEvents: FlowHistoryEvent[] = [
+    ...events(3),
+    { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
+  ];
+  const labelTexts = () => [...document.querySelectorAll('.htl-event .htl-label')].map((label) => label.textContent);
+  const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+
+  it('opens in Dense mode and gives every event its own label slanted at 45 degrees', () => {
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
+    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-45deg');
+    expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
+    expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -45deg))');
+  });
+
+  it('gives every event its own straight label in words in Tidy mode', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('');
     expect(document.querySelector('[data-event-id="4"]')?.getAttribute('title')).toBe('AwaitNextWindow · #4');
+  });
+
+  it('switches between Dense and Tidy from the mode tabs and remembers the choice', () => {
+    const { unmount } = render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+    expect(screen.getByRole('button', { name: 'Tidy' }).getAttribute('aria-pressed')).toBe('true');
+    expect(window.localStorage.getItem(timelineLabelModeStorageKey)).toBe('tidy');
+    unmount();
+
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    fireEvent.click(screen.getByRole('button', { name: 'Dense' }));
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
+    expect(window.localStorage.getItem(timelineLabelModeStorageKey)).toBe('dense');
+  });
+
+  it('introduces the label modes once, until the reader dismisses the note', () => {
+    window.localStorage.removeItem(timelineLabelModeIntroStorageKey);
+    const onSelectEvent = vi.fn();
+    const { unmount } = render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={onSelectEvent} selectedEvent={null} />);
+    const intro = screen.getByRole('note', { name: 'Timeline label modes' });
+    expect(intro.textContent).toContain('Dense');
+    expect(intro.textContent).toContain('Tidy');
+    // The note is not modal: events still take clicks while it shows.
+    fireEvent.click(option(2)!);
+    expect(onSelectEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 2 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    expect(window.localStorage.getItem(timelineLabelModeIntroStorageKey)).toBe('true');
+    unmount();
+
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+  });
+
+  it('closes the intro when the reader picks a mode', () => {
+    window.localStorage.removeItem(timelineLabelModeIntroStorageKey);
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    expect(window.localStorage.getItem(timelineLabelModeIntroStorageKey)).toBe('true');
+  });
+
+  it('opens in Dense mode without the intro when storage fails', () => {
+    const failingStorage = memoryStorage();
+    failingStorage.getItem = () => { throw new Error('storage blocked'); };
+    failingStorage.setItem = () => { throw new Error('storage blocked'); };
+    vi.stubGlobal('localStorage', failingStorage);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    warn.mockRestore();
   });
 
   it('moves the selection with J and K and time travels with T from anywhere on the page', () => {
@@ -885,11 +977,26 @@ describe('horizontal Timeline layout', () => {
   });
 
   describe('lane density', () => {
-    it('sizes the label band to the page\'s tallest wrapped label, up to three lines', () => {
-      const oneLine = timelineStripHeight(['Sync Batch', 'Checkpoint'], 120);
-      const twoLines = timelineStripHeight(['Call Single Attempt Tool'], 120);
+    it('sizes the Dense label band to the longest label on the page, up to the widest label', () => {
+      const short = denseStripHeight(['SyncBatch', 'Checkpoint']);
+      const long = denseStripHeight(['StoreGeneratedCustomerMessageStep']);
+      expect(short).toBeLessThan(long);
+      expect(denseStripHeight(['x'.repeat(200)])).toBe(denseStripHeight(['x'.repeat(100)]));
+      // At 45 degrees a label rises as far as it runs right.
+      expect(denseStripHeight(['x'.repeat(100)]) - denseStripHeight([])).toBe(Math.ceil(280 * Math.SQRT1_2) - Math.ceil(8 * Math.SQRT1_2));
+      render(<Harness pageEvents={events(1000)} />);
+      const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      expect(strip.style.height).toBe(`${denseStripHeight(['Charge'])}px`);
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(strip.style.height).toBe(`${denseStripHeight(['Charge'])}px`);
+    });
+
+    it('sizes the Tidy label band to the page\'s tallest wrapped label, up to three lines', () => {
+      const oneLine = tidyStripHeight(['Sync Batch', 'Checkpoint'], 120);
+      const twoLines = tidyStripHeight(['Call Single Attempt Tool'], 120);
       expect(oneLine).toBeLessThan(twoLines);
-      expect(timelineStripHeight(['x'.repeat(200)], 88)).toBe(timelineStripHeight(['x'.repeat(100)], 88));
+      expect(tidyStripHeight(['x'.repeat(200)], 88)).toBe(tidyStripHeight(['x'.repeat(100)], 88));
+      window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
       render(<Harness pageEvents={events(1000)} />);
       const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
       const height = strip.style.height;
@@ -937,11 +1044,19 @@ describe('horizontal Timeline layout', () => {
       expect(timelineLabelText('order_total, customer_id')).toBe('Order Total, Customer Id');
     });
 
-    it('spreads a short page and packs a long one to the narrowest slot that keeps label columns readable', () => {
-      expect(timelineSlotWidth(5, 1000)).toBe(160);
-      expect(timelineSlotWidth(8, 1000)).toBe(125);
-      expect(timelineSlotWidth(25, 1000)).toBe(64);
-      expect(timelineSlotWidth(1000, 1000)).toBe(64);
+    it('spreads a short Dense page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
+      expect(timelineSlotWidth(5, 1000, 'dense')).toBe(120);
+      expect(timelineSlotWidth(12, 1000, 'dense')).toBe(83);
+      expect(timelineSlotWidth(25, 1000, 'dense')).toBe(40);
+      expect(timelineSlotWidth(100, 1000, 'dense')).toBe(36);
+      expect(timelineSlotWidth(1000, 1000, 'dense')).toBe(36);
+    });
+
+    it('spreads a short Tidy page and packs a long one to the narrowest slot that keeps label columns readable', () => {
+      expect(timelineSlotWidth(5, 1000, 'tidy')).toBe(160);
+      expect(timelineSlotWidth(8, 1000, 'tidy')).toBe(125);
+      expect(timelineSlotWidth(25, 1000, 'tidy')).toBe(64);
+      expect(timelineSlotWidth(1000, 1000, 'tidy')).toBe(64);
     });
   });
 });

@@ -257,15 +257,24 @@ export function brushPixelSpan(
   return { left, right };
 }
 
-/** The widest slot: a short page spreads its events up to this width. */
-export const LANE_SLOT_MAX_WIDTH = 160;
-/** Narrowest slot: a label column still fits about 9 characters per line; more events scroll. */
-export const LANE_SLOT_MIN_WIDTH = 64;
+/** How the lane draws event labels: Dense slants them, Tidy wraps them straight in columns. */
+export type TimelineLabelMode = 'dense' | 'tidy';
 
-/** Returns the lane's width per event: the whole page when it fits, from 160 px down to 64 px each, else 64 px. */
-export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
+/**
+ * Slot widths per label mode. A short page spreads its events up to max; a long page packs them to
+ * min and scrolls. Dense: 45° labels 36 px apart stay 25 px apart, as 36 * sin(45°) ≈ 25.
+ * Tidy: a 64 px label column still fits about 9 characters per line.
+ */
+export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: number }> = {
+  dense: { min: 36, max: 120 },
+  tidy: { min: 64, max: 160 },
+};
+
+/** Returns the lane's width per event in a label mode: the whole page when it fits, between the mode's min and max. */
+export function timelineSlotWidth(eventCount: number, availableWidth: number, labelMode: TimelineLabelMode): number {
+  const { min, max } = laneSlotWidths[labelMode];
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
-  return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));
+  return Math.max(min, Math.min(max, fitWidth));
 }
 
 /**

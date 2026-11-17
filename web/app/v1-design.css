@@ -2964,8 +2964,163 @@ html:has(.v1-page .stream-scroll--entries) {
   font-family: var(--ui-font-sans);
 }
 
+/* The label mode tabs take a left gutter; the overview shifts with it, so bars stay over their dots. */
+.htl {
+  --htl-mode-gutter: 84px;
+}
+
 .htl-lane {
   position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.htl-lane-events {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.htl > .htl-minimap {
+  margin-left: var(--htl-mode-gutter);
+}
+
+.htl-mode {
+  position: relative;
+  display: flex;
+  width: var(--htl-mode-gutter);
+  flex: none;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 10px 56px 0;
+}
+
+.htl-mode-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v1-page .htl-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  line-height: 16px;
+  text-align: left;
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+
+.v1-page .htl-mode-tab:hover {
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+}
+
+.v1-page .htl-mode-tab:active {
+  transform: scale(0.97);
+}
+
+.v1-page .htl-mode-tab[aria-pressed='true'] {
+  color: var(--tone-accent-ink);
+  background: color-mix(in srgb, var(--tone-accent) 14%, transparent);
+}
+
+.v1-page .htl-mode-tab:focus-visible {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+
+/* A small note beside the tabs, shown once; it covers only a corner of the lane. */
+.htl-mode-intro {
+  position: absolute;
+  z-index: 4;
+  bottom: 50px;
+  left: calc(100% + 4px);
+  display: flex;
+  width: max-content;
+  max-width: 320px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 8px 10px 12px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 16%), 0 0 0 1px color-mix(in srgb, var(--ui-ink) 6%, transparent);
+  font-size: 12px;
+  line-height: 17px;
+  animation: htl-mode-intro-in 180ms ease-out;
+}
+
+.htl-mode-intro ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 4px;
+  list-style: none;
+}
+
+.htl-mode-intro strong {
+  color: var(--tone-accent-ink);
+  font-weight: 600;
+}
+
+.v1-page .htl-mode-intro-dismiss {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-mode-intro-dismiss:hover {
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+}
+
+@keyframes htl-mode-intro-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+@keyframes htl-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.htl-strip {
+  transition: height 180ms ease;
+}
+
+.htl-strip .htl-label {
+  animation: htl-label-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .htl-strip,
+  .htl-mode-tab,
+  .htl-mode-intro-dismiss {
+    transition: none;
+  }
+
+  .htl-strip .htl-label,
+  .htl-mode-intro {
+    animation: none;
+  }
 }
 
 .htl-overview-axis {
@@ -3206,12 +3361,30 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* Each event's label wraps inside its own column, centered over its dot; every label ends on one baseline. */
 .htl-event {
   top: 0;
 }
 
-.htl-event .htl-label {
+/* Dense: each event's own label slants up from its dot, like angled parking, so long names fit side by side. */
+.htl-strip.is-dense .htl-label {
+  position: absolute;
+  bottom: 30px;
+  left: calc(50% - 4px);
+  max-width: var(--htl-label-max-width, 280px);
+  overflow: hidden;
+  color: var(--ui-ink-2);
+  cursor: pointer;
+  font-size: var(--ui-text-sm);
+  line-height: 17px;
+  pointer-events: auto;
+  text-overflow: ellipsis;
+  transform: rotate(var(--htl-label-angle, -45deg));
+  transform-origin: left bottom;
+  white-space: nowrap;
+}
+
+/* Tidy: each event's label wraps inside its own column, centered over its dot; every label ends on one baseline. */
+.htl-strip.is-tidy .htl-label {
   position: absolute;
   right: 4px;
   bottom: 30px;
