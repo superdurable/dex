@@ -31,7 +31,7 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--bind-address** | **127.0.0.1**; bind IP for local services. |
 | **--dex-port** | **8801**; Dex gRPC port. |
 | **--web-port** | **8802**; embedded Dex Web port. |
-| **--open** | **true**; opens Dex Web in the browser when stdout is a terminal and **CI** is unset or empty. Without the flag, a script, a test, or CI keeps the browser closed. **--open=true** always opens it, and **--open=false** always keeps it closed. Changed in 1.47.10: without the flag, dexcli dev no longer opens the browser when stdout is not a terminal or **CI** is set. |
+| **--open** | **true**; opens Dex Web in the browser when stdout is a terminal and **CI** is unset or empty. Without the flag, a script, a test, or CI keeps the browser closed. **--open=true** always opens it, and **--open=false** always keeps it closed. Changed in 1.47.10: without the flag, dexcli dev no longer opens the browser when stdout is not a terminal or **CI** is non-empty. |
 | **--server-log-folder** | Empty; logs go to stderr. When set, also writes **dex-server-zd.log** in that directory. |
 | **--flow-rendering-dir** | Empty; optional Flow Definition Graph JSON directory. Leave it empty when Workers or **dexcli flow-definition upload** store the definitions on the server. |
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |

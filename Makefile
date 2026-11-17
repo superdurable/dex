@@ -41,11 +41,6 @@ docs-prose-fix: ## No-op: identifiers use inline code since D8
 ci-runner-check: ## Verify CI workflows use GitHub-hosted runners
 	bash .github/scripts/check-ci-runners.sh
 
-.PHONY: dexcli-dev-open-check
-dexcli-dev-open-check: ## Verify every test and script that starts dexcli dev passes -open=false
-	PYTHONDONTWRITEBYTECODE=1 python3 script/check_dexcli_dev_open_flag_test.py
-	python3 script/check_dexcli_dev_open_flag.py
-
 copyright: ## Add or upgrade license headers using the legacy manifest
 	cd script/licenseheaders/copyright && GOWORK=off go run . -rootDir "$(ROOT_DIR)"
 

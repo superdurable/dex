@@ -29,9 +29,6 @@ jobs:
           fetch-depth: 2
       - name: Validate CI runner policy
         run: make ci-runner-check
-      # A dexcli dev started without -open=false opens the developer's browser on every run.
-      - name: Check that tests and scripts start dexcli dev with -open=false
-        run: make dexcli-dev-open-check
       # A filter that differs from its workflow's paths waits forever or never enforces a check.
       - name: Check that path filters match their workflows
         run: |

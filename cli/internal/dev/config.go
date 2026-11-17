@@ -94,7 +94,7 @@ type Config struct {
 	// ConnectorsMCP configures the Dex Connectors MCP server that dexcli dev proxies at /mcp on the Dex Web port.
 	ConnectorsMCP ConnectorsMCPConfig
 	// OpenBrowser defaults true and opens Dex Web after readiness. Without an explicit --open, the launch environment
-	// turns it off when stdout is not a terminal or CI is set.
+	// turns it off when stdout is not a terminal or CI is non-empty.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
 	ZDStartupTimeout time.Duration
@@ -173,7 +173,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		&cfg.OpenBrowser,
 		"open",
 		true,
-		"open Dex Web after startup; when omitted, only if stdout is a terminal and CI is unset",
+		"open Dex Web after startup; when omitted, only if stdout is a terminal and CI is unset or empty",
 	)
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
