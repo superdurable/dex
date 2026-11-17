@@ -575,6 +575,8 @@ export function createScriptedAgentFlow(
       endless_publish_task: { effect: "non_idempotent_write", requiresApproval: false },
       uncancellable_report_task: { effect: "read" },
       stubborn_report_task: { effect: "read" },
+      // The graceful completion test's runner handles it; ScriptedAgentRunner does not.
+      complete_session: { effect: "idempotent_write", requiresApproval: false },
     },
   });
 }

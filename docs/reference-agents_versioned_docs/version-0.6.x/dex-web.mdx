@@ -1,0 +1,260 @@
+---
+description: "Show agent sessions in Dex Web with the session Flow Definition Graph that the Python and TypeScript packages ship."
+title: Show sessions in Dex Web
+sidebar_label: Dex Web
+---
+
+# Show sessions in Dex Web {#dex-web}
+
+[Dex Web](/reference/web/dex-web) draws a Flow and offers its Actions from a
+Flow Definition Graph. **dexcli visualize** cannot read the session Flow,
+because the Flow lives in the agents package and each application chooses its
+Flow type. The Python and TypeScript packages ship the session graph instead.
+
+## Upload the session graph from the Worker {#upload-the-graph}
+
+Since 0.5.0. With server-zd 0.1.26 or later, the Worker uploads the graph to
+the Dex Server when it starts, and Dex Web reads it from there. Pass the
+document that **session_flow_definition_document** (Python) or
+**sessionFlowDefinitionDocument** (TypeScript) returns for each agent, with the
+agent's Flow type and the permission its Actions require, such as
+**SupportAgent** and **support-agent.operate**. Python takes it in
+**WorkerOptions.flow_definitions**, and TypeScript in
+**WorkerOptions.flowDefinitions**.
+
+The Worker uploads only the Flow types it registers. A failed upload, such as
+on an older server, logs a warning, and the Worker still starts. See Flow
+definitions in the [Python](/reference/python/workers#flow-definitions) and
+[TypeScript](/reference/typescript/workers#flow-definitions) Worker references.
+
+The document's generation time is the time the graph template last changed,
+the same in both packages. Restarting a Worker writes nothing, and Workers of
+an upgraded package replace the graph. The server keeps a stored graph whose
+generation time is the same or later, so changing only the permission does not
+replace it. To change the permission, upload the new document once with
+**force**, through **upload_flow_definitions** or **uploadFlowDefinitions** on
+the Client.
+
+The Dex Agents CLI commands also upload the graph of their session Flow type
+when they start. Their Actions require the permission **dex-agents-cli.operate**.
+See [Sessions in Dex Web](/reference/agents/0.6.x/cli#dex-web) for the CLI commands.
+
+## Render the session graph {#render-the-graph}
+
+For a server older than 0.1.26, render the graph to a file instead. Render it
+once for each agent, with the agent's Flow type and the permission its Actions
+require:
+
+```bash
+dex-agents-session-graph --flow-type SupportAgent --permission support-agent.operate \
+  --out definitions/support-agent.json
+```
+
+Both packages install the **dex-agents-session-graph** command, and both write
+the same bytes. In code, call **render_session_flow_graph** in Python or
+**renderSessionFlowGraph** in TypeScript. Point Dex Web at the directory:
+
+```bash
+dex-web --flow-rendering-dir ./definitions
+```
+
+The command fills the Flow type and the permission into the graph that ships
+with the package. It runs no application code, needs no Dex Server, and uses
+no network, so it also runs in a build environment without network access. It
+needs only the installed package and its runtime: Node.js 22 or later for the
+npm package, or Python for the Python package. Run the installed command from
+the application's dependencies:
+
+```bash
+# npm package
+npx --no-install dex-agents-session-graph --flow-type SupportAgent \
+  --permission support-agent.operate --out definitions/support-agent.json
+# Python package
+python -m dex_agents.session_graph --flow-type SupportAgent \
+  --permission support-agent.operate --out definitions/support-agent.json
+```
+
+It prints the graph to standard output when **--out** is omitted. An invalid
+permission or a blank Flow type exits with status 2.
+
+On a development machine, **dexcli dev --flow-rendering-dir ./definitions**
+does the same. Render the files in the build or deployment step that ships the
+Workers, and mount the directory into Dex Web. Dex Web reads the directory on
+every definition request, so a changed file shows on the next page load.
+Render the files again after you upgrade the agents packages.
+
+## Declare Connector Trigger bindings {#trigger-bindings}
+
+Since 0.6.12. The session graph can declare the Connector Trigger bindings
+that deliver into the session Flow. A hosting platform reads them from
+`v2.connectorTriggerBindings` and offers their configuration, as it does for
+bindings that application code declares. Without them, it finds no Flow that
+declares the Trigger. Add one `--trigger-binding` for each binding:
+
+```bash
+npx --no-install dex-agents-session-graph --flow-type SupportAgent \
+  --permission support-agent.operate \
+  --trigger-binding slack-workspace=@superdurable/connector-slack@0.6.0:threadReplyCreated:support-thread-replies \
+  --out definitions/support-agent.json
+```
+
+The value is
+`connectionName=packageName@packageVersion:triggerName[#factoryName]:bindingName`:
+
+| Part | Meaning |
+| --- | --- |
+| `connectionName` | The Connector connection that the hosting platform configures. |
+| `packageName` | The published Connector package, as `package.name` in its `dex-connector.json`. |
+| `packageVersion` | The exact installed version. It must equal `package.version` in the manifest. |
+| `triggerName` | A Trigger of the package, as `triggerName` of a Trigger factory in the manifest. |
+| `factoryName` | Optional. The `name` of one Trigger factory in the manifest. See the rule below. |
+| `bindingName` | The binding's name. One Connector, connection, Trigger, and binding name appear once. |
+
+In this form, a Trigger name cannot contain `:` or `#`, and a binding name
+cannot contain `:`. Write such a binding in a `--trigger-bindings` file
+instead.
+
+The command reads the manifest of the installed package. The npm command
+looks in `node_modules` from the current directory upward. The Python
+command looks among the installed files of the distribution named
+`packageName`. A package that is not installed, a package without
+`dex-connector.json`, another version, or an unknown Trigger exits with
+status 2 and names the cause. The command still uses no network.
+
+Each binding becomes the same entry that `dexcli visualize` writes for a
+binding declared in code, with the same fields, order, and values. Its
+`configurationUI` is the Trigger factory's `configurationUI` from the manifest,
+or no units when the factory has none. A manifest may have several Trigger
+factories for one Trigger. When their `configurationUI` is the same, any of
+them gives the binding. When it differs, the command exits with status 2 unless
+`factoryName` names one of them.
+
+To set the UI units yourself, or to read a package from a directory, pass
+`--trigger-bindings` with a JSON array:
+
+```json
+[
+  {
+    "connectionName": "slack-workspace",
+    "packageName": "@superdurable/connector-slack",
+    "packageVersion": "0.6.0",
+    "triggerName": "threadReplyCreated",
+    "bindingName": "support-thread-replies",
+    "configurationUI": {
+      "units": [
+        {
+          "id": "channel",
+          "unitId": "channelPicker",
+          "label": "Channel",
+          "required": true,
+          "bindings": [{ "port": "channelId", "jsonPointer": "/channelId" }]
+        },
+        {
+          "id": "posters",
+          "unitId": "memberPicker",
+          "label": "Posters",
+          "required": true,
+          "bindings": [{ "port": "memberIds", "jsonPointer": "/threadReplyMatcher/posterUserIds" }]
+        }
+      ]
+    }
+  }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `connectionName`, `packageName`, `packageVersion`, `triggerName`, `bindingName` | The same parts as in `--trigger-binding`. Required. |
+| `factoryName` | Optional. The same as in `--trigger-binding`. |
+| `packageDirectory` | Optional. The directory that holds `dex-connector.json`, relative to the file. It replaces the installed-package lookup. |
+| `configurationUI` | Optional. Replaces the manifest's UI units. Each unit has a unique `id`, a `unitId`, a `label`, an optional `description`, `required` (default `false`), and `bindings` (default none), each with a unique `port` and a `jsonPointer`. |
+
+Leave out an optional field instead of setting it to `null`. A `null` value
+anywhere in an entry exits with status 2, in both packages.
+
+The graph lists the bindings of `--trigger-binding` first, in order, and then
+the file's. Without either option, the graph is byte for byte the same as
+before. In code, resolve each binding with `resolve_session_trigger_binding`
+(Python) or `resolveSessionTriggerBinding` (TypeScript), and pass the results
+to `render_session_flow_graph` or `renderSessionFlowGraph` in
+`connector_trigger_bindings` or `connectorTriggerBindings`. The Flow
+definition document functions take the same option. An uploaded graph keeps
+the template's generation time, so a binding change needs one forced upload,
+as a permission change does.
+
+A binding declares only where the Trigger delivers. The application's Trigger
+target still delivers each event, such as with `newDexRPCTriggerTarget` to
+the session's `send_user_message` RPC. See
+[Connector Triggers](/reference/agents/0.6.x/connector-triggers#session-graph-bindings).
+
+## Rendered file or uploaded graph {#definition-authority}
+
+Give each agent one source: a rendered file in the directory, or the graph
+that its Workers upload. When both exist, a rule decides which one Dex Web
+shows. See
+[Definition sources](/reference/web/flow-visualization#definition-sources).
+For an uploaded graph, a permission change needs one forced upload, as
+described in [Upload the session graph](#upload-the-graph).
+
+## What Dex Web shows {#what-dex-web-shows}
+
+The graph shows every session Step, its wait conditions, the RPCs, and the
+Channels between them. It leaves out Attribute reads and writes. Dex Web offers
+four Actions: **resolve_interrupt**, **answer_question**, **steer_user_message**,
+and **cancel_turn**. Each takes its request fields as input, such as the
+interrupt ID and the decision, and requires the permission you chose. The
+Actions have no condition, because each RPC checks the session state itself.
+Dex Web offers all four while the session runs, and an RPC that does not apply
+returns false. Read the interrupt ID from **PendingInterrupts** in the run's
+state, or from the session snapshot.
+
+The run page of a session also has a **Conversation** tab. It shows the
+conversation with each tool call where the agent made it, one approval card for
+each pending call, and a message box with **Steer** and **Stop turn**. The tab
+reads the session's Attributes directly, so it still shows the session while its
+Workers are down. It can also edit the session's settings. Dex Web does not
+start sessions; start one with a command or a Client. See
+[Agent session view](/reference/web/dex-web#agent-session-view).
+
+The session declares no Summary or Display fields, so Dex Web shows a session
+without calling a Worker. Actions still need a Worker.
+
+### Sender names {#sender-names}
+
+Since 0.6.2, a user message can carry a sender name. Set **sender_name** on
+**AgentUserMessage** for **send_user_message**, or on
+**SteerUserMessageRequest** with **text** for **steer_user_message**. Dex
+Web 1.45.2 and later sets it from **Your name**. dexcli 1.47.1 and later
+shows the message as **› Alice: text**; an earlier dexcli shows
+**(another client)**. The session stores the name on the message's
+**AgentMessage.sender_name**. The model sees the message as
+**Alice: text** in every harness, because the session builds the framework
+item from that text. A context summary sees it the same way.
+**AgentMessage.text** keeps the text as sent.
+
+A valid name has 1 to 64 Unicode code points. It contains no control
+character, no format character such as a bidirectional override or a
+zero-width character, no lone surrogate, and no line or paragraph separator.
+It neither starts nor ends with a space. The RPCs return false for any other name, and for a name sent
+with **message_id**. Check a typed name with **is_valid_sender_name**
+(Python), **isValidSenderName** (TypeScript), or **IsValidSenderName** (Go)
+after you trim it.
+
+The name is self-declared, not authenticated. Anyone who can call the RPC can
+send any name. Do not base an approval or a permission on it.
+
+An absent name is omitted from the encoded value, so values without one keep
+their bytes. A Worker before 0.6.2 ignores the field: it queues the message
+without the name, and the model sees only the text. It also drops the name of
+a stored message when it moves the message into an archive chunk. Send names
+after every Worker of the Flow type runs 0.6.2 or later.
+
+Dex Web shows an Action form only to a user **Working as** its permission.
+The session Actions have no condition, so **Working as** hides no session of
+the agent. It lists every session whose Flow type offers the permission.
+
+The agent mode of Work Queue lists the sessions that wait for a person, grouped
+by agent, and answers them in its side panel. See
+[Agent inbox](/reference/web/dex-web#agent-inbox). A session appears there only
+while its Flow searches by active Step type, which **start_session** turns on.
+See [Find sessions that need a person](/reference/agents/0.6.x/approvals#find-sessions).

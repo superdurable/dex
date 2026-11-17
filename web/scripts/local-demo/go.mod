@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/superdurable/dex/agents/go/core v0.0.0
 	github.com/superdurable/dex/blob-cache-go v0.1.2
-	github.com/superdurable/dex/sdk-go v1.45.1-0.20261112014933-d42ec7ae6850
+	github.com/superdurable/dex/sdk-go v1.45.6
 )
 
 require (

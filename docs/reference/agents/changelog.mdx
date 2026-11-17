@@ -16,7 +16,7 @@ and upgrade steps.
 
 ## 0.6 {#v0-6}
 
-Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5); 0.6.6 released 2026-11-13 as [agents/v0.6.6](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.6); 0.6.7 released 2026-11-13 as [agents/v0.6.7](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.7); 0.6.8 released 2026-11-14 as [agents/v0.6.8](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.8); 0.6.9 released 2026-11-14 as [agents/v0.6.9](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.9); 0.6.10 released 2026-11-14 as [agents/v0.6.10](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.10); 0.6.11 released 2026-11-15 as [agents/v0.6.11](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.11); 0.6.12 released 2026-11-15 as [agents/v0.6.12](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.12); 0.6.13 released 2026-11-15 as [agents/v0.6.13](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.13).
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0); 0.6.1 released 2026-11-12 as [agents/v0.6.1](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.1); 0.6.2 released 2026-11-12 as [agents/v0.6.2](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.2); 0.6.3 released 2026-11-13 as [agents/v0.6.3](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.3); 0.6.4 released 2026-11-13 as [agents/v0.6.4](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.4); 0.6.5 released 2026-11-13 as [agents/v0.6.5](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.5); 0.6.6 released 2026-11-13 as [agents/v0.6.6](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.6); 0.6.7 released 2026-11-13 as [agents/v0.6.7](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.7); 0.6.8 released 2026-11-14 as [agents/v0.6.8](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.8); 0.6.9 released 2026-11-14 as [agents/v0.6.9](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.9); 0.6.10 released 2026-11-14 as [agents/v0.6.10](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.10); 0.6.11 released 2026-11-15 as [agents/v0.6.11](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.11); 0.6.12 released 2026-11-15 as [agents/v0.6.12](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.12); 0.6.13 released 2026-11-15 as [agents/v0.6.13](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.13); 0.6.14 released 2026-11-16 as [agents/v0.6.14](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.14).
 
 ### Breaking
 
@@ -77,6 +77,13 @@ Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/relea
   to fork after message **N**, and the plain chat runs **/fork**; both offer
   to open the new session. Forks need server-zd 0.1.33 or later, which
   **dexcli** 1.47.8 runs. [Reference](/reference/agents/cli#fork). Since 0.6.13.
+- Python, TypeScript, and Go cores: **StopFlow** with graceful complete ends a
+  session as **COMPLETED**, from a client or from one of the session's own
+  tools. The running turn and the user messages queued before the request
+  finish first. It needs server-zd 0.1.34 or later, which **dexcli** 1.47.9
+  runs, and every Worker of the session's Flow type on 0.6.14 or later. A
+  session idle since before the upgrade completes this way after its next
+  turn. [Reference](/reference/agents/session-limits#end-a-session). Since 0.6.14.
 
 ### Changed
 

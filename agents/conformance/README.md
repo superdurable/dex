@@ -221,8 +221,9 @@ graph yet.
 ## Scripted-turn transcripts
 
 Each file in `transcripts/` is one scenario: a read, an approval, a question,
-a durable wait, a steer, plan execution, compaction, a tool task, and a call
-to an unknown tool. Every
+a durable wait, a steer, plan execution, compaction, a tool task, a call
+to an unknown tool, and a graceful completion that ends the session after a
+queued message. Every
 core builds the same built-in loop agent, plays the `actions` against a private
 Dex engine, and compares the result with `expected`.
 
@@ -247,11 +248,18 @@ The agent, as built in
   scenarios' `replies`, keyed by the request's last user text. The reply
   index advances past each reply's tool call count as tool results arrive.
   Tool call IDs keep the default `<step_execution_id>-<index>`.
+- A scripted tool call with `gate` waits at the file gate of that name before
+  it runs, until the scenario's `release_gate` action.
 
 Actions are `start_session`, `send_user_message`, `resolve_interrupt`,
 `answer_question`, `steer_user_message`, `execute_plan`, `snapshot` (stores
-the `get_agent_snapshot` output under a label), `wait_for_idle`, and
-`wait_for_interrupt`. An action with `returns` must return that value.
+the `get_agent_snapshot` output under a label), `wait_for_idle`,
+`wait_for_interrupt`, `wait_for_queued_messages` (returns the queued message
+count once it reaches `count`), `wait_for_gate` and `release_gate` (for a
+scripted tool call with `gate`), `graceful_complete` (`StopFlow` with graceful
+complete), and `wait_for_flow_closed` (returns the closed Flow's status in
+lowercase, such as `completed`). An action with `returns` must return that
+value.
 
 `expected` holds:
 
@@ -276,8 +284,8 @@ timestamp in another format stays and fails the comparison.
 
 MCP servers are not part of the transcripts; each core's own MCP tests cover
 them, and the suite fixes the MCP texts above. The transcripts need a Dex
-engine. Python runs all nine in about 12 seconds
-and TypeScript in about 10, so they run on every PR in each core's `ci.sh`.
+engine. Python runs all ten in about 13 seconds
+and TypeScript in about 13, so they run on every PR in each core's `ci.sh`.
 Each scenario fails after 90 seconds rather than waiting out every poll.
 
 ## Regenerate
