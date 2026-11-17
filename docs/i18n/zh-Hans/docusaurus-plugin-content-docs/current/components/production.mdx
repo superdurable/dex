@@ -35,7 +35,18 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 
 ### 容量规划 {#sizing}
 
-作为从 benchmark 得出的起点：2 vCPU 的节点峰值接近每秒 1,800 个 SYNC Step，16 vCPU 的节点接近 8,400 个。从小规模开始，观察 CPU。超出一个节点后，运行多个独立的集群。
+作为从 benchmark 得出的起点：2 vCPU 的节点峰值接近每秒 1,800 个 SYNC Step，16 vCPU 的节点接近 8,400 个。从小规模开始，观察 CPU。
+
+两个限制决定一个集群的工作量：
+
+- Worker 的任务槽（task slot）决定同时运行多少个 Step。超出空闲槽的 Step 在持久队列中等待。
+- 服务器节点的 CPU 决定集群提交工作的速度。
+
+请为每个 Worker 显式设置槽数。I/O 密集的 handler 需要很多槽。CPU 密集的 handler 每个 CPU 约配一个槽，要提高并发就增加 Worker 进程。空闲的槽仍然占用服务器的 stream，所以按预期负载来设置。
+
+根据最旧排队 Step 的等待时间来扩展 Worker。服务器节点的 CPU 接近饱和时，扩大节点。超出一个节点后，运行多个独立的集群。
+
+参见[选择槽数](/reference/server/workers#choose-slot-count)和[确定服务器节点规格](/reference/server/configuration#size-a-server-node)。
 
 ## 最小配置 {#minimal-configuration}
 

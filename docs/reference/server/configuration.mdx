@@ -929,6 +929,52 @@ load. Each key takes effect when the node starts.
 The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at
 startup.
 
+### Size a server node {#size-a-server-node}
+
+CPU limits one node. Pick the node size from the throughput you need, then check
+its memory against the components below. One active node is the capacity of a
+cluster; past it, see
+[Grow past one node](/intro/limits#grow-past-one-node).
+
+The [benchmark](/intro/performance) used Step handlers that do almost no work.
+Real applications usually reach the Worker limits first; see
+[Choose the slot count](/reference/server/workers#choose-slot-count).
+
+| Use | Node | Starting point |
+| --- | --- | --- |
+| Test and development | 2 vCPU | The defaults. The benchmark peaked near 1,800 SYNC Steps per second, with peak RSS of 0.2 to 0.3 GiB. |
+| Production | 16 vCPU | The defaults plus the changes below. The benchmark peaked near 8,400 SYNC Steps per second. Peak RSS reached 3.4 GiB in the busiest search runs. |
+
+The 16-vCPU benchmark changed these settings from their defaults:
+
+| Key | Benchmark value | Default |
+| --- | --- | --- |
+| **localStorage.blockCacheBytes** | 8589934592 (8 GiB) | 268435456 (256 MiB) |
+| **localStorage.writeBufferBytes** | 134217728 (128 MiB) | 67108864 (64 MiB) |
+| **commit.maxUnappliedBytes** | 268435456 (256 MiB) | 67108864 (64 MiB) |
+| **limits.maxInFlightRpcsPerNode** | 4096 | 1000 |
+
+The memory of a node is the sum of these components:
+
+- **localStorage.blockCacheBytes**, the RocksDB block cache.
+- Memtables, up to 12 times **localStorage.writeBufferBytes**.
+- **commit.maxUnappliedBytes**, the accepted commands that the node has not
+  applied yet.
+- **history.uploadMaxInFlightBytes**, the in-flight history uploads, and the
+  segment headers that the node keeps in memory.
+- **history.timeTravelReplayMemoryBytes** for each time travel that runs.
+- Per-connection and per-stream buffers, which grow with Workers and Clients.
+
+**history.readCacheMaxBytes** is a disk cache and adds no memory beyond the
+page cache of the operating system. Leave headroom for the page cache and for
+the process beyond the sum.
+
+The benchmark has not measured these yet:
+
+- memory for each stored Flow;
+- 4-vCPU and 8-vCPU nodes;
+- Workers in languages other than Go.
+
 ## Streams {#streams}
 
 **streamStore.backend** controls best-effort
