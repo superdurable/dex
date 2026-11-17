@@ -93,7 +93,8 @@ type Config struct {
 	AllowedHosts string
 	// ConnectorsMCP configures the Dex Connectors MCP server that dexcli dev proxies at /mcp on the Dex Web port.
 	ConnectorsMCP ConnectorsMCPConfig
-	// OpenBrowser defaults true and opens Dex Web after readiness.
+	// OpenBrowser defaults true and opens Dex Web after readiness. Without an explicit --open, the launch environment
+	// turns it off when stdout is not a terminal or CI is non-empty.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
 	ZDStartupTimeout time.Duration
@@ -102,6 +103,14 @@ type Config struct {
 
 	explicitLocalFlags map[string]bool
 	version            string
+}
+
+// LaunchEnvironment describes where dexcli dev runs, so it opens Dex Web only for an interactive user.
+type LaunchEnvironment struct {
+	// IsStdoutTerminal reports whether stdout is an interactive terminal.
+	IsStdoutTerminal bool
+	// LookupEnvironmentVariable reads one environment variable, as os.LookupEnv does.
+	LookupEnvironmentVariable func(string) (string, bool)
 }
 
 func parseConfig(args []string, output io.Writer) (*Config, error) {
@@ -160,7 +169,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	)
 	connectorsMCPConnections := connectorsMCPConnectionFlag{}
 	addConnectorsMCPServerFlags(flags, &cfg.ConnectorsMCP, &connectorsMCPConnections)
-	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
+	flags.BoolVar(
+		&cfg.OpenBrowser,
+		"open",
+		true,
+		"open Dex Web after startup; when omitted, only if stdout is a terminal and CI is unset or empty",
+	)
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
 		&cfg.LogDirectory,
@@ -183,7 +197,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability":
+		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability", "open":
 			cfg.explicitLocalFlags[item.Name] = true
 		}
 	})
@@ -375,6 +389,21 @@ func validateDistinctAddresses(addresses map[string]string) error {
 
 func (c *Config) isExplicit(flagName string) bool {
 	return c.explicitLocalFlags[flagName]
+}
+
+// applyLaunchEnvironment keeps the browser closed by default in scripts, tests, and CI.
+// An explicit --open always wins.
+func (c *Config) applyLaunchEnvironment(environment LaunchEnvironment) {
+	if environment.LookupEnvironmentVariable == nil {
+		panic("dexcli dev launch environment needs LookupEnvironmentVariable")
+	}
+	if c.isExplicit("open") {
+		return
+	}
+	ciValue, isCISet := environment.LookupEnvironmentVariable("CI")
+	if !environment.IsStdoutTerminal || (isCISet && ciValue != "") {
+		c.OpenBrowser = false
+	}
 }
 
 // resolveZDBinary returns the dex-server-zd executable path, or an error naming every location searched.

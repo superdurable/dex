@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 func TestServerLogFolderFlag(t *testing.T) {
@@ -142,7 +144,7 @@ func TestHelpListsFlagsInOrder(t *testing.T) {
 			t.Fatalf("removed flag %s still documented:\n%s", name, text)
 		}
 	}
-	if !strings.Contains(text, "open Dex Web after startup (default true)") {
+	if !strings.Contains(text, "open Dex Web after startup; when omitted, only if stdout is a terminal and CI is unset or empty (default true)") {
 		t.Fatalf("missing --open default in help:\n%s", text)
 	}
 }
@@ -166,6 +168,50 @@ func TestOpenFalseDisablesBrowser(t *testing.T) {
 	}
 	if cfg.OpenBrowser {
 		t.Fatal("expected --open=false to disable Dex Web")
+	}
+}
+
+func TestLaunchEnvironmentDecidesWhetherToOpenBrowser(t *testing.T) {
+	for _, testCase := range []struct {
+		name              string
+		args              []string
+		isStdoutTerminal  bool
+		ciValue           *string
+		shouldOpenBrowser bool
+	}{
+		{name: "terminal opens", isStdoutTerminal: true, shouldOpenBrowser: true},
+		{name: "empty CI is unset", isStdoutTerminal: true, ciValue: ptr.Any(""), shouldOpenBrowser: true},
+		{name: "non-terminal stays closed", isStdoutTerminal: false, shouldOpenBrowser: false},
+		{name: "CI stays closed", isStdoutTerminal: true, ciValue: ptr.Any("true"), shouldOpenBrowser: false},
+		{name: "CI=false is non-empty and stays closed", isStdoutTerminal: true, ciValue: ptr.Any("false"), shouldOpenBrowser: false},
+		{name: "-open opens outside a terminal in CI", args: []string{"-open"}, ciValue: ptr.Any("1"), shouldOpenBrowser: true},
+		{name: "--open opens outside a terminal in CI", args: []string{"--open"}, ciValue: ptr.Any("1"), shouldOpenBrowser: true},
+		{name: "-open=true opens outside a terminal in CI", args: []string{"-open=true"}, ciValue: ptr.Any("1"), shouldOpenBrowser: true},
+		{name: "--open=true opens outside a terminal in CI", args: []string{"--open=true"}, ciValue: ptr.Any("1"), shouldOpenBrowser: true},
+		{name: "-open=false stays closed in a terminal", args: []string{"-open=false"}, isStdoutTerminal: true, shouldOpenBrowser: false},
+		{name: "--open=false stays closed in a terminal", args: []string{"--open=false"}, isStdoutTerminal: true, shouldOpenBrowser: false},
+		{name: "last repeated true wins outside a terminal in CI", args: []string{"-open=false", "-open=true"}, ciValue: ptr.Any("1"), shouldOpenBrowser: true},
+		{name: "last repeated false wins in a terminal", args: []string{"-open=true", "-open=false"}, isStdoutTerminal: true, shouldOpenBrowser: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
+			cfg, err := parseConfig(testCase.args, &bytes.Buffer{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.applyLaunchEnvironment(LaunchEnvironment{
+				IsStdoutTerminal: testCase.isStdoutTerminal,
+				LookupEnvironmentVariable: func(name string) (string, bool) {
+					if name != "CI" || testCase.ciValue == nil {
+						return "", false
+					}
+					return *testCase.ciValue, true
+				},
+			})
+			if cfg.OpenBrowser != testCase.shouldOpenBrowser {
+				t.Fatalf("OpenBrowser = %t, want %t", cfg.OpenBrowser, testCase.shouldOpenBrowser)
+			}
+		})
 	}
 }
 
