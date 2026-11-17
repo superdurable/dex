@@ -3038,25 +3038,33 @@ html:has(.v1-page .stream-scroll--entries) {
   outline-offset: 1px;
 }
 
-/* A small note beside the tabs, shown once; clicks pass through it to the events below. */
+/* A small note above the overview, shown once; its caret points down to the mode tabs. */
 .htl-mode-intro {
-  pointer-events: none;
-  position: absolute;
-  z-index: 4;
-  bottom: 50px;
-  left: calc(100% + 4px);
+  position: relative;
   display: flex;
   width: max-content;
+  max-width: 100%;
+  margin: 2px 0 10px;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 8px 10px 12px;
+  padding: 8px 6px 8px 12px;
   border-radius: var(--ui-radius-control);
   color: var(--ui-ink-2);
-  background: var(--ui-surface-raised);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 16%), 0 0 0 1px color-mix(in srgb, var(--ui-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--tone-accent) 10%, var(--ui-surface));
   font-size: 12px;
   line-height: 17px;
   animation: htl-mode-intro-in 180ms ease-out;
+}
+
+.htl-mode-intro::after {
+  position: absolute;
+  bottom: -5px;
+  left: 32px;
+  width: 10px;
+  height: 10px;
+  content: '';
+  background: inherit;
+  transform: rotate(45deg);
 }
 
 .htl-mode-intro ul {
@@ -3074,7 +3082,6 @@ html:has(.v1-page .stream-scroll--entries) {
 }
 
 .v1-page .htl-mode-intro-dismiss {
-  pointer-events: auto;
   display: inline-flex;
   flex: none;
   padding: 2px;
@@ -3094,7 +3101,7 @@ html:has(.v1-page .stream-scroll--entries) {
 @keyframes htl-mode-intro-in {
   from {
     opacity: 0;
-    transform: translateX(-4px);
+    transform: translateY(-4px);
   }
 }
 

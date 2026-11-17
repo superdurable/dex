@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useId, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Italic, WrapText, X, type LucideIcon } from 'lucide-react';
 import type { TimelineLabelMode } from './timelineOverview';
 import {
@@ -19,42 +19,36 @@ const labelModeChoices: { mode: TimelineLabelMode; label: string; icon: LucideIc
   { mode: 'tidy', label: 'Tidy', icon: WrapText, intro: 'Straight labels in columns, wrapped to three lines.' },
 ];
 
-/** Switches the Timeline between Dense and Tidy labels; the first visit also explains both once. */
+/** Whether the label mode intro shows, and how to dismiss it for good. */
+export function useTimelineLabelModeIntro(): { isIntroShown: boolean; dismissIntro: () => void } {
+  const [isIntroShown, setIsIntroShown] = useState(shouldShowTimelineLabelModeIntro);
+  const dismissIntro = useCallback(() => {
+    setIsIntroShown(false);
+    persistTimelineLabelModeIntroDismissed();
+  }, []);
+  return { isIntroShown, dismissIntro };
+}
+
+/** Switches the Timeline between Dense and Tidy labels. */
 export function TimelineLabelModeTabs({
   labelMode,
   onChangeLabelMode,
+  introId,
 }: {
   labelMode: TimelineLabelMode;
   onChangeLabelMode: (labelMode: TimelineLabelMode) => void;
+  /** The intro's element ID while it shows, so the tabs point to it. */
+  introId?: string;
 }) {
-  const [isIntroShown, setIsIntroShown] = useState(shouldShowTimelineLabelModeIntro);
-  const introId = useId();
-
-  const dismissIntro = () => {
-    setIsIntroShown(false);
-    persistTimelineLabelModeIntroDismissed();
-  };
-
-  // Choosing a mode shows the reader has found the tabs, so the intro is done.
-  const chooseLabelMode = (nextLabelMode: TimelineLabelMode) => {
-    if (isIntroShown) dismissIntro();
-    onChangeLabelMode(nextLabelMode);
-  };
-
   return (
     <div className="htl-mode">
-      <div
-        aria-describedby={isIntroShown ? introId : undefined}
-        aria-label="Timeline labels"
-        className="htl-mode-tabs"
-        role="group"
-      >
+      <div aria-describedby={introId} aria-label="Timeline labels" className="htl-mode-tabs" role="group">
         {labelModeChoices.map(({ mode, label, icon: Icon }) => (
           <button
             aria-pressed={labelMode === mode}
             className="htl-mode-tab"
             key={mode}
-            onClick={() => chooseLabelMode(mode)}
+            onClick={() => onChangeLabelMode(mode)}
             type="button"
           >
             <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
@@ -62,18 +56,22 @@ export function TimelineLabelModeTabs({
           </button>
         ))}
       </div>
-      {isIntroShown && (
-        <div aria-label="Timeline label modes" className="htl-mode-intro" id={introId} role="note">
-          <ul>
-            {labelModeChoices.map(({ mode, label, intro }) => (
-              <li key={mode}><strong>{label}</strong> {intro}</li>
-            ))}
-          </ul>
-          <button aria-label="Dismiss" className="htl-mode-intro-dismiss" onClick={dismissIntro} title="Dismiss" type="button">
-            <X aria-hidden="true" size={14} strokeWidth={2.25} />
-          </button>
-        </div>
-      )}
+    </div>
+  );
+}
+
+/** A one-time note on the two label modes, above the lane so it covers no event. */
+export function TimelineLabelModeIntro({ id, onDismiss }: { id: string; onDismiss: () => void }) {
+  return (
+    <div aria-label="Timeline label modes" className="htl-mode-intro" id={id} role="note">
+      <ul>
+        {labelModeChoices.map(({ mode, label, intro }) => (
+          <li key={mode}><strong>{label}</strong> {intro}</li>
+        ))}
+      </ul>
+      <button aria-label="Dismiss" className="htl-mode-intro-dismiss" onClick={onDismiss} title="Dismiss" type="button">
+        <X aria-hidden="true" size={14} strokeWidth={2.25} />
+      </button>
     </div>
   );
 }

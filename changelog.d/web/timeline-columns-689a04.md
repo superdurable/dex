@@ -8,7 +8,9 @@ section: Changed
   **Send User Message** for **send_user_message**, and the tooltip keeps the
   exact name. The browser remembers the mode, and a short note introduces both
   modes the first time the Timeline opens.
-- A page wider than the Timeline lane shows which events are in view.
+- A page wider than the Timeline lane shows which events are in view. A page
+  that fits beside the run's end note shows every event from the first one, and
+  an event scrolled past the lane's left edge shows no cut-off label.
 - The run page opens on the tab chosen last, on any run. An agent session opens
   on **Conversation** only when no tab was chosen yet.
 - The selected event's panel gives Input and Output equal width and Context a

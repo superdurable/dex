@@ -64,7 +64,7 @@ import {
   type TimelineLabelMode,
 } from './timelineOverview';
 import { persistTimelineLabelMode, storedTimelineLabelMode } from './timelineLabelModeStorage';
-import { TimelineLabelModeTabs } from './TimelineLabelModeTabs';
+import { TimelineLabelModeIntro, TimelineLabelModeTabs, useTimelineLabelModeIntro } from './TimelineLabelModeTabs';
 
 const arcBandHeight = 28;
 const axisBandHeight = 18;
@@ -204,9 +204,13 @@ export const horizontalTimelineLayout = {
     dense: Math.ceil(denseLabelMaxWidth * Math.cos(denseLabelAngle)) + 10,
     tidy: 0,
   } satisfies Record<TimelineLabelMode, number>,
-  /** Room at the right edge for the run's end note, when the strip shows one. */
-  endNoteRunWidth: 240,
 };
+
+/** Returns the room at the right edge for the run's end note: its estimated width, at most 240 px. */
+export function endNoteRunWidth(endNoteLabel: string): number {
+  // The note starts 18 px past the newest dot; its mark and padding take about 28 px.
+  return Math.min(240, 18 + 28 + Math.ceil(labelWidthUnits(endNoteLabel) * 7));
+}
 const overscanSlots = 6;
 
 const fallbackStripWidth = 1200;
@@ -582,13 +586,19 @@ export function HorizontalTimeline({
   onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
 }) {
   const [labelMode, setLabelMode] = useState<TimelineLabelMode>(storedTimelineLabelMode);
+  const { isIntroShown: isLabelModeIntroShown, dismissIntro: dismissLabelModeIntro } = useTimelineLabelModeIntro();
+  const labelModeIntroId = useId();
   const changeLabelMode = useCallback((nextLabelMode: TimelineLabelMode) => {
+    // Choosing a mode shows the reader has found the tabs, so the intro is done.
+    if (isLabelModeIntroShown) dismissLabelModeIntro();
     setLabelMode(nextLabelMode);
     persistTimelineLabelMode(nextLabelMode);
-  }, []);
+  }, [dismissLabelModeIntro, isLabelModeIntroShown]);
   const isTidy = labelMode === 'tidy';
   const shownEndNote = endNote && !paging?.hasNewer ? endNote : null;
-  const labelRunWidth = shownEndNote ? horizontalTimelineLayout.endNoteRunWidth : horizontalTimelineLayout.labelRunWidth[labelMode];
+  const labelRunWidth = shownEndNote
+    ? Math.max(horizontalTimelineLayout.labelRunWidth[labelMode], endNoteRunWidth(shownEndNote.label))
+    : horizontalTimelineLayout.labelRunWidth[labelMode];
   const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
   const states = useMemo(() => eventStates(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
   const indexByEventId = useMemo(
@@ -962,6 +972,8 @@ export function HorizontalTimeline({
         </span>
       </div>
 
+      {isLabelModeIntroShown && <TimelineLabelModeIntro id={labelModeIntroId} onDismiss={dismissLabelModeIntro} />}
+
       <div
         aria-describedby={overviewHelpId}
         aria-label="Timeline overview"
@@ -1101,7 +1113,11 @@ export function HorizontalTimeline({
       </div>
 
       <div className="htl-lane">
-      <TimelineLabelModeTabs labelMode={labelMode} onChangeLabelMode={changeLabelMode} />
+      <TimelineLabelModeTabs
+        introId={isLabelModeIntroShown ? labelModeIntroId : undefined}
+        labelMode={labelMode}
+        onChangeLabelMode={changeLabelMode}
+      />
       <div className="htl-lane-events">
       <div
         aria-activedescendant={selectedEvent && selectedIndex >= firstRendered && selectedIndex <= lastRendered
@@ -1159,9 +1175,12 @@ export function HorizontalTimeline({
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
               title={`${subject} · #${event.eventId}`}
             >
-              <span aria-hidden="true" className="htl-label">
-                {isTidy ? labelWithBreakHints(labels[index], slotWidth - labelColumnGap) : labels[index]}
-              </span>
+              {/* An event whose dot scrolled past the left edge shows no label, so no label is cut. */}
+              {xOf(index) >= 0 && (
+                <span aria-hidden="true" className="htl-label">
+                  {isTidy ? labelWithBreakHints(labels[index], slotWidth - labelColumnGap) : labels[index]}
+                </span>
+              )}
               <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
                 <KindIcon size={13} strokeWidth={2.5} />
                 {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
