@@ -227,6 +227,20 @@ describe('Round ranges', () => {
     expect(folded.rounds[0].sequence).toEqual(['Plan', 'CallTool ×2', 'Reply']);
   });
 
+  it('folds repeated Steps before the first Round into one ×N node, except a live one', () => {
+    const graph = chain([
+      ...repeat(9, [['SyncBatch']]),
+      ...repeat(3, [['Checkpoint'], ...repeat(9, [['SyncBatch']])]),
+      ['Checkpoint'],
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(shown(folded.items)).toEqual(['__start__', 'SyncBatch-9 ×9', '[Rounds 1–3]', 'Checkpoint-4']);
+
+    const live = chain([['Sync'], ['Sync', 'Waiting'], ['Sync'], ['Check'], ['Sync'], ['Check']]);
+    const liveFolded = foldStepGraph(live.nodes, live.edges, defaultOptions);
+    expect(shown(liveFolded.items).slice(0, 4)).toEqual(['__start__', 'Sync-1', 'Sync-2', 'Sync-3']);
+  });
+
   it('hides SubFlow nodes of a Step inside a folded group', () => {
     const graph = chain([...repeat(3, [['Poll'], ['Check']])]);
     const subFlow: StepGraphNode = { id: '__subflow:Check-1:0', label: 'child', kind: 'subflow', status: 'Completed', parentStepId: 'Check-1' };

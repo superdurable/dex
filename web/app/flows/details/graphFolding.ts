@@ -100,6 +100,8 @@ export function foldStepGraph(
     groupKeysByStepExecutionID: new Map(),
     rounds: [],
   };
+  // Steps before the first Round fold their repeats as inside a Round.
+  addStepRuns(context, steps.slice(0, steps.indexOf(drafts[0].steps[0])), []);
   for (const unit of mergeIdenticalRounds(drafts)) {
     if (unit.length === 1) addRound(context, unit[0], []);
     else addRange(context, unit);
@@ -221,13 +223,18 @@ function addRound(context: FoldingContext, draft: RoundDraft, outerKeys: string[
     addGroupNode(context, group, draft.steps, outerKeys);
     return;
   }
-  for (const run of consecutiveRuns(draft.steps, (step) => !isLiveStep(step))) {
+  addStepRuns(context, draft.steps, groupKeys);
+}
+
+/** Shows consecutive settled executions of one Step type as one node with a ×N badge. */
+function addStepRuns(context: FoldingContext, steps: StepGraphNode[], frameKeys: string[]): void {
+  for (const run of consecutiveRuns(steps, (step) => !isLiveStep(step))) {
     const shown = run.find((step) => step.id === context.options.selectedStepExecutionID)
       ?? run.findLast((step) => step.status === 'Failed')
       ?? run.at(-1)
       ?? run[0];
     for (const step of run) context.displayIDByNodeID.set(step.id, shown.id);
-    context.itemByID.set(shown.id, { display: 'node', id: shown.id, node: shown, repeatCount: run.length, frameKeys: groupKeys });
+    context.itemByID.set(shown.id, { display: 'node', id: shown.id, node: shown, repeatCount: run.length, frameKeys });
   }
 }
 

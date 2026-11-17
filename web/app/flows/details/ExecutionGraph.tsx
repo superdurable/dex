@@ -579,6 +579,38 @@ function nodeHandles(
   return handles;
 }
 
+/** The box of the latest Round and the node just before it, or null when nothing is folded. */
+function newestFoldedBox(
+  nodes: Array<Node<StepNodeData>>,
+  folded: FoldedStepGraph,
+): { x: number; width: number } | null {
+  const latest = folded.rounds.find((round) => round.isLatest);
+  const frame = latest && nodes.find((node) => node.id === roundFrameNodeID(latest.key));
+  if (!frame) return null;
+  const widthOf = (node: Node<StepNodeData>) => Number(node.width ?? 0);
+  const previous = nodes
+    .filter((node) => node.data.display !== 'frame' && node.position.x + widthOf(node) <= frame.position.x)
+    .reduce<Node<StepNodeData> | undefined>((nearest, node) => (
+      !nearest || node.position.x > nearest.position.x ? node : nearest
+    ), undefined);
+  const left = previous ? previous.position.x : frame.position.x;
+  return { x: left, width: frame.position.x + widthOf(frame) - left };
+}
+
+/** Centers the newest box, or right-aligns it when it is wider than the canvas, never past the graph's ends. */
+function newestFoldedViewportX(
+  newest: { x: number; width: number },
+  zoom: number,
+  canvasWidth: number,
+  graphWidth: number,
+): number {
+  const isWiderThanCanvas = newest.width * zoom > canvasWidth - revealMargin * 2;
+  const x = isWiderThanCanvas
+    ? canvasWidth - revealMargin - (newest.x + newest.width) * zoom
+    : (canvasWidth - newest.width * zoom) / 2 - newest.x * zoom;
+  return Math.min(0, Math.max(canvasWidth - graphWidth * zoom, x));
+}
+
 /** Adds a frame behind each opened Round and moves the graph so every frame heading fits. */
 function withRoundFrames(
   nodes: Array<Node<StepNodeData>>,
@@ -849,12 +881,17 @@ export function ExecutionGraph({
   useEffect(() => {
     if (hasAppliedInitialViewport.current || !flowInstance || canvasWidth <= 0) return;
     hasAppliedInitialViewport.current = true;
+    // A folded graph too wide to fit opens on its newest part instead of its left edge.
+    const newest = isFolded && isLeftToRight && !isWholeGraphShown ? newestFoldedBox(nodes, folded) : null;
+    const x = newest
+      ? newestFoldedViewportX(newest, initialZoom, shownCanvasWidth, bounds.width)
+      : Math.max(0, (shownCanvasWidth - bounds.width * initialZoom) / 2);
     void flowInstance.setViewport({
-      x: Math.max(0, (shownCanvasWidth - bounds.width * initialZoom) / 2),
+      x,
       y: isLeftToRight ? Math.max(0, (canvasSize.height - bounds.height * initialZoom) / 2) : 0,
       zoom: initialZoom,
     }, isViewportTransitionWanted.current ? { duration: viewportTransitionDuration() } : undefined);
-  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, initialZoom, isFolded, isLeftToRight, shownCanvasWidth]);
+  }, [bounds.height, bounds.width, canvasSize.height, canvasWidth, flowInstance, folded, initialZoom, isFolded, isLeftToRight, isWholeGraphShown, nodes, shownCanvasWidth]);
 
   const dismissFoldedIntro = () => {
     if (isFoldedIntroDismissed) return;
