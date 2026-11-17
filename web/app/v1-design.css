@@ -3574,9 +3574,77 @@ html:has(.v1-page .stream-scroll--entries) {
   transform: scale(0.85);
 }
 
-/* Names sit under their type, indented past the check mark. */
+/* The type row: its checkbox, then a count and chevron that open the type's names. */
+.htl-filter-kind-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.htl-filter-kind-row > .htl-filter-row {
+  min-width: 0;
+  flex: 1;
+}
+
+.v1-page .htl-filter-expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-filter-expand:hover {
+  color: var(--ui-ink);
+  background: color-mix(in srgb, var(--ui-ink) 6%, transparent);
+}
+
+.v1-page .htl-filter-expand:focus-visible {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+
+/* Counts outside the expand button leave the chevron's room, so every count lines up. */
+.htl-filter-row .htl-filter-row-count {
+  margin-right: 15px;
+}
+
+.htl-filter-chevron {
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.htl-filter-expand[aria-expanded='true'] .htl-filter-chevron {
+  transform: rotate(90deg);
+}
+
+/* Names sit under their type, indented past the check mark; the grid row animates the height. */
 .htl-filter-names {
-  margin: 2px 0 8px 22px;
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-left: 22px;
+  opacity: 0;
+  transition: grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms ease;
+}
+
+.htl-filter-names[data-expanded='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.htl-filter-names-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.htl-filter-names-inner > ul {
+  padding-bottom: 8px;
 }
 
 .htl-filter-names .htl-filter-section-head {
@@ -3702,6 +3770,9 @@ html:has(.v1-page .stream-scroll--entries) {
   .v1-page .htl-filter-actions button,
   .v1-page .htl-filter-show-all,
   .htl-filter-check,
+  .v1-page .htl-filter-expand,
+  .htl-filter-chevron,
+  .htl-filter-names,
   .htl-filter-popover,
   .htl-bar,
   .htl-strip.is-filter-changing .htl-event,

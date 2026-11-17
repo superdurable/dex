@@ -7,8 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, ListFilter, Minus } from 'lucide-react';
-import { eventKindNameNouns, eventKinds } from './timelineEventKinds';
+import { Check, ChevronRight, ListFilter, Minus } from 'lucide-react';
+import { eventKindNameNouns, eventKinds, type EventKind } from './timelineEventKinds';
 import {
   allTimelineEventsFilter,
   clearAllTimelineEventKinds,
@@ -54,6 +54,12 @@ export function TimelineEventFilterMenu({
   onChangeFilter: (filter: TimelineEventFilter) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  /** Name lists the reader opened or closed; others open only while partly selected. */
+  const [expandedByChoice, setExpandedByChoice] = useState<Partial<Record<EventKind, boolean>>>({});
+  const isKindExpanded = (option: TimelineEventFilterKindOption) => expandedByChoice[option.kind] ?? option.selection === 'some';
+  const toggleKindExpanded = (option: TimelineEventFilterKindOption) => {
+    setExpandedByChoice((current) => ({ ...current, [option.kind]: !isKindExpanded(option) }));
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
@@ -115,24 +121,43 @@ export function TimelineEventFilterMenu({
             const { icon: Icon, name: kindName, family } = eventKinds[option.kind];
             const nameNoun = eventKindNameNouns[option.kind];
             const checked = checkedState(option.selection);
+            const hasNames = Boolean(nameNoun) && option.names.length > 0;
+            const isExpanded = hasNames && isKindExpanded(option);
+            const namesId = `${popoverId}-${option.kind}`;
             return (
               <li className={option.count === 0 ? 'is-absent' : undefined} key={option.kind}>
-                <button
-                  aria-checked={checked}
-                  className="htl-filter-row"
-                  onClick={() => onChangeFilter(setTimelineEventKindShown(filter, option.kind, option.selection !== 'all'))}
-                  role="checkbox"
-                  type="button"
-                >
-                  <CheckMark checked={checked} />
-                  <span aria-hidden="true" className={`htl-legend-mark htl-family-${family}`}>
-                    <Icon size={13} strokeWidth={2.25} />
-                  </span>
-                  <span className="htl-filter-row-name">{kindName}</span>
-                  <span className="htl-filter-row-count">{option.count}</span>
-                </button>
-                {nameNoun && option.names.length > 0 && (
-                  <div className="htl-filter-names">
+                <div className="htl-filter-kind-row">
+                  <button
+                    aria-checked={checked}
+                    className="htl-filter-row"
+                    onClick={() => onChangeFilter(setTimelineEventKindShown(filter, option.kind, option.selection !== 'all'))}
+                    role="checkbox"
+                    type="button"
+                  >
+                    <CheckMark checked={checked} />
+                    <span aria-hidden="true" className={`htl-legend-mark htl-family-${family}`}>
+                      <Icon size={13} strokeWidth={2.25} />
+                    </span>
+                    <span className="htl-filter-row-name">{kindName}</span>
+                    {!hasNames && <span className="htl-filter-row-count">{option.count}</span>}
+                  </button>
+                  {hasNames && (
+                    <button
+                      aria-controls={namesId}
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? 'Hide' : 'Show'} ${nameListLabel(kindName, nameNoun ?? '')}`}
+                      className="htl-filter-expand"
+                      onClick={() => toggleKindExpanded(option)}
+                      type="button"
+                    >
+                      <span className="htl-filter-row-count">{option.count}</span>
+                      <ChevronRight aria-hidden="true" className="htl-filter-chevron" size={13} strokeWidth={2.25} />
+                    </button>
+                  )}
+                </div>
+                {nameNoun && hasNames && (
+                  <div className="htl-filter-names" data-expanded={isExpanded} id={namesId} inert={!isExpanded}>
+                  <div className="htl-filter-names-inner">
                     <div className="htl-filter-section-head">
                       <span className="htl-filter-noun">{nameNoun}</span>
                       {option.names.length > 1 && (
@@ -172,6 +197,7 @@ export function TimelineEventFilterMenu({
                         </li>
                       ))}
                     </ul>
+                  </div>
                   </div>
                 )}
               </li>

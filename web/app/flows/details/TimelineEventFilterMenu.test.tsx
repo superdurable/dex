@@ -115,9 +115,47 @@ describe('Timeline event filter', () => {
     expect(window.localStorage.getItem(timelineEventFilterStorageKey('OrderFlow'))).toBeNull();
   });
 
+  it('keeps name lists collapsed until the chevron or count opens them', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    const expandExecute = dialog.getByRole('button', { name: 'Show Execute Step types' });
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('false');
+    const executeNames = document.getElementById(expandExecute.getAttribute('aria-controls')!)!;
+    expect(executeNames.getAttribute('data-expanded')).toBe('false');
+    expect(executeNames.hasAttribute('inert')).toBe(true);
+    expect(expandExecute.textContent).toBe('3');
+
+    fireEvent.click(expandExecute);
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('true');
+    expect(expandExecute.getAttribute('aria-label')).toBe('Hide Execute Step types');
+    expect(executeNames.getAttribute('data-expanded')).toBe('true');
+    expect(executeNames.hasAttribute('inert')).toBe(false);
+    // The type checkbox still toggles the whole type, not the list.
+    fireEvent.click(dialog.getByRole('checkbox', { name: /^Execute/ }));
+    expect(laneEventIds()).toEqual([1, 2, 4, 6, 7]);
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens the name list of a partly selected type by itself', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('OrderFlow')]: JSON.stringify({
+        hiddenKinds: [],
+        nameSelections: { rpc: { mode: 'except', names: ['cancelOrder'] } },
+      }),
+    }));
+    render(<Harness />);
+    const dialog = openFilter();
+    expect(dialog.getByRole('button', { name: 'Hide RPC names' }).getAttribute('aria-expanded')).toBe('true');
+    expect(dialog.getByRole('button', { name: 'Show Execute Step types' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(dialog.getByRole('button', { name: 'Hide RPC names' }));
+    expect(dialog.getByRole('button', { name: 'Show RPC names' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('clears all Step types of Execute and then shows only the one picked', () => {
     render(<Harness />);
     const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('button', { name: 'Show Execute Step types' }));
     fireEvent.click(dialog.getByRole('button', { name: 'Clear all Execute Step types' }));
     expect(laneEventIds()).toEqual([1, 2, 4, 6, 7]);
     expect(dialog.getByRole('checkbox', { name: /^Execute/ }).getAttribute('aria-checked')).toBe('false');
