@@ -204,10 +204,7 @@ export function TimelineEventFilterMenu({
             );
           })}
         </ul>
-        <p className="htl-filter-scope">
-          Applies to the Timeline lane; the overview dims hidden events. A selected event always shows.
-          {flowType && <> Saved in this browser for Flow type <strong>{flowType}</strong>.</>}
-        </p>
+        {flowType && <p className="htl-filter-scope">Saved for Flow type <strong>{flowType}</strong>.</p>}
       </div>
     </div>
   );
