@@ -856,6 +856,37 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
+  it('offers Now, with the live dot, to go back to the newest event of an open run', () => {
+    const endNote = { label: 'Now · waiting', eventId: 1000, isOpen: true };
+    render(<HorizontalTimeline endNote={endNote} events={events(1000)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(screen.queryByRole('button', { name: 'Go to the newest event' })).toBeNull();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    const now = screen.getByRole('button', { name: 'Go to the newest event' });
+    expect(now.textContent).toBe('Now');
+    expect(now.querySelector('.live-status-dot')).not.toBeNull();
+    fireEvent.click(now);
+    expect(option(1000)).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Now · waiting' })).not.toBeNull();
+  });
+
+  it('draws no end note, no Now button, and reserves no end note room for a closed run', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+    const endNote = { label: 'Ended', eventId: 18, isOpen: false };
+    // 18 Tidy slots of 64 px fit 1200 px only when no end note room is reserved.
+    expect(18 * 64).toBeLessThanOrEqual(1200);
+    expect(18 * 64 + endNoteRunWidth(endNote.label)).toBeGreaterThan(1200);
+    const { unmount } = render(<HorizontalTimeline endNote={endNote} events={events(18)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(option(1)).not.toBeNull();
+    expect(screen.getByRole('slider', { name: 'Timeline overview' }).getAttribute('aria-valuemax')).toBe('0');
+    expect(document.querySelector('.htl-end-note')).toBeNull();
+    unmount();
+
+    render(<HorizontalTimeline endNote={{ ...endNote, eventId: 1000 }} events={events(1000)} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(screen.queryByRole('button', { name: 'Go to the newest event' })).toBeNull();
+    expect(document.querySelector('.htl-end-jump')).toBeNull();
+  });
+
   it.each(['dense', 'tidy'])('shows a page that fits from #1, leaving only the end note\'s own width at the right, in %s mode', (labelMode) => {
     window.localStorage.setItem(timelineLabelModeStorageKey, labelMode);
     const endNote = { label: 'Now · waiting', eventId: 16, isOpen: true };
@@ -881,6 +912,11 @@ describe('horizontal Timeline', () => {
     expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
     expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
     expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -30deg))');
+    // The mode tabs sit in the head row just before Legend, so the lane keeps its full width.
+    const modeTabs = screen.getByRole('group', { name: 'Timeline labels' });
+    expect(modeTabs.closest('.htl-head')).not.toBeNull();
+    expect(modeTabs.closest('.htl-lane')).toBeNull();
+    expect(modeTabs.nextElementSibling?.classList.contains('htl-legend-fold')).toBe(true);
   });
 
   it.each(['dense', 'tidy'])('shows no cut label for an event scrolled past the left edge in %s mode', (labelMode) => {

@@ -38,7 +38,7 @@ describe('Flow config card', () => {
     expect(value('Retention window')).toContain('Server default');
     expect(value('Step durability')).toContain('Sync');
     expect(value('Active step search')).toContain('Server default');
-    expect(value('Attribute stores')).toContain('Server default');
+    expect(value('Sync Attribute stores')).toContain('Server default');
     expect(value('Offload history')).toBe('On (default)');
     // Every field explains what it does for the run, then whether it can change.
     expect(screen.getAllByRole('img').map((hint) => hint.getAttribute('aria-label'))).toEqual([
@@ -82,7 +82,7 @@ describe('Flow config card', () => {
       'Edit Retention window',
       'Edit Step durability',
       'Edit Active step search',
-      'Edit Attribute stores',
+      'Edit Sync Attribute stores',
     ]);
     expect(screen.getByRole('img', { name: flowConfigFieldHints.offloadHistory })).toBeTruthy();
   });
@@ -184,8 +184,8 @@ describe('Flow config card', () => {
     fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ activeStepSearchMode: 3 }, runningSummary));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Attribute stores' }));
-    const names = screen.getByLabelText('Attribute stores') as HTMLInputElement;
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Sync Attribute stores' }));
+    const names = screen.getByLabelText('Sync Attribute stores') as HTMLInputElement;
     expect(names.value).toBe('primary');
     expect(save().disabled).toBe(true);
     // Clearing the box is not a way to turn sync off.
@@ -304,7 +304,7 @@ describe('Flow config card', () => {
 
   it('opens the Attribute stores editor of a run with sync off on Turn sync off, without an error', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{ attributeStoreNames: { names: [] } }} onSaved={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Attribute stores' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sync Attribute stores' }));
     expect((screen.getByLabelText('Turn sync off for this run') as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByText('Enter at least one store name, or choose Turn sync off.')).toBeNull();
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);

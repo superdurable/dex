@@ -2,12 +2,17 @@
 section: Changed
 ---
 - The Timeline lane has two label modes, picked from **Dense** and **Tidy** tabs
-  at the left end of the lane. **Dense**, the default, keeps each event's slanted
+  next to **Legend**. **Dense**, the default, keeps each event's slanted
   label. **Tidy** shows each label straight above its dot, wrapped at
   word boundaries in up to three lines; identifiers read as words, such as
   **Send User Message** for **send_user_message**, and the tooltip keeps the
   exact name. The browser remembers the mode, and a short note introduces both
   modes the first time the Timeline opens.
+- Only an open run shows the end note at the Timeline lane's newest end; a
+  closed run uses that room for events. When an open run's newest end is out of
+  view, **Now**, with the live dot, goes back to the newest event.
+- The run configuration field **Attribute stores** is now named **Sync
+  Attribute stores**.
 - A page wider than the Timeline lane shows which events are in view. A page
   that fits beside the run's end note shows every event from the first one, and
   an event scrolled past the lane's left edge shows no cut-off label.
