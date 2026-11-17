@@ -41,26 +41,24 @@ export function TimelineLabelModeTabs({
   introId?: string;
 }) {
   return (
-    <div className="htl-mode">
-      <div aria-describedby={introId} aria-label="Timeline labels" className="htl-mode-tabs" role="group">
-        {labelModeChoices.map(({ mode, label, icon: Icon }) => (
-          <button
-            aria-pressed={labelMode === mode}
-            className="htl-mode-tab"
-            key={mode}
-            onClick={() => onChangeLabelMode(mode)}
-            type="button"
-          >
-            <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
-            {label}
-          </button>
-        ))}
-      </div>
+    <div aria-describedby={introId} aria-label="Timeline labels" className="htl-mode-tabs" role="group">
+      {labelModeChoices.map(({ mode, label, icon: Icon }) => (
+        <button
+          aria-pressed={labelMode === mode}
+          className="htl-mode-tab"
+          key={mode}
+          onClick={() => onChangeLabelMode(mode)}
+          type="button"
+        >
+          <Icon aria-hidden="true" size={12} strokeWidth={2.25} />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
 
-/** A one-time note on the two label modes, above the lane so it covers no event. */
+/** A one-time note on the two label modes, under the head row so it covers no event. */
 export function TimelineLabelModeIntro({ id, onDismiss }: { id: string; onDismiss: () => void }) {
   return (
     <div aria-label="Timeline label modes" className="htl-mode-intro" id={id} role="note">

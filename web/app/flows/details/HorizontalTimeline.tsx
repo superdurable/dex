@@ -593,7 +593,8 @@ export function HorizontalTimeline({
     filterChangeTimer.current = setTimeout(() => setIsFilterChanging(false), 320);
   }, [flowType]);
   const isTidy = labelMode === 'tidy';
-  const shownEndNote = endNote && !paging?.hasNewer ? endNote : null;
+  // Only an open run has a "now" to note; a closed run's last event already says how it ended.
+  const shownEndNote = endNote?.isOpen && !paging?.hasNewer ? endNote : null;
   const labelRunWidth = shownEndNote
     ? Math.max(horizontalTimelineLayout.labelRunWidth[labelMode], endNoteRunWidth(shownEndNote.label))
     : horizontalTimelineLayout.labelRunWidth[labelMode];
@@ -1047,11 +1048,23 @@ export function HorizontalTimeline({
             )}
           </span>
           {shownEndNote && !isEndInView && (
-            <button className="pager-button htl-end-jump" onClick={() => moveWindow(maxStart)} title={shownEndNote.label} type="button">
-              {shownEndNote.isOpen ? 'Now' : 'End'}
-              <ChevronRight aria-hidden="true" size={14} strokeWidth={2.25} />
+            <button
+              aria-label="Go to the newest event"
+              className="htl-end-jump"
+              onClick={() => moveWindow(maxStart)}
+              title="Go to the newest event"
+              type="button"
+            >
+              <span aria-hidden="true" className="live-status-dot" />
+              Now
+              <ChevronRight aria-hidden="true" size={13} strokeWidth={2.25} />
             </button>
           )}
+          <TimelineLabelModeTabs
+            introId={isLabelModeIntroShown ? labelModeIntroId : undefined}
+            labelMode={labelMode}
+            onChangeLabelMode={changeLabelMode}
+          />
           <TimelineEventFilterMenu
             filter={eventFilter}
             filteredKindCount={filteredKinds}
@@ -1211,12 +1224,6 @@ export function HorizontalTimeline({
       </div>
 
       <div className="htl-lane">
-      <TimelineLabelModeTabs
-        introId={isLabelModeIntroShown ? labelModeIntroId : undefined}
-        labelMode={labelMode}
-        onChangeLabelMode={changeLabelMode}
-      />
-      <div className="htl-lane-events">
       <div
         aria-activedescendant={selectedEvent && selectedIndex >= firstRendered && selectedIndex <= lastRendered
           ? `htl-event-${selectedEvent.eventId}`
@@ -1343,7 +1350,6 @@ export function HorizontalTimeline({
           onShowEvent={onShowEndNoteEvent}
         />
       )}
-      </div>
       </div>
 
       <p className="sr-only" id={helpId}>

@@ -939,7 +939,7 @@ string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
 The State tab's **Configuration** card shows the run's `FlowConfig` in plain
 words: **Retention window** (`history_window_events`), **Step durability**,
-**Active step search**, **Attribute stores**, and **Offload history**. An unset
+**Active step search**, **Sync Attribute stores**, and **Offload history**. An unset
 field reads **Server default**, and unset `offload_history` reads
 **On (default)**. The card hides `worker_target`, whose task queue shows under
 **Identity**, and `delete_expired_history_objects`, which the server ignores.
