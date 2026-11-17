@@ -80,6 +80,11 @@ Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/release
 - **dexcli agents-tui**: the notice for an image over the size limit gives both sizes in exact bytes, such as "an image may have at most 3,750,000", instead of a rounded "3.6 MB". Since 1.47.8.
 - The release archives bundle **dex-server-zd** 0.1.33 instead of 0.1.30, so **dexcli dev** serves **CloneForkFlow**, Time Travel to an event ID, and the SubFlow reset policy (Server protocol version 6). [Reference](/reference/server/runtime-client#clone-fork). Since 1.47.8.
 - The release archives bundle **dex-server-zd** 0.1.34 instead of 0.1.33, so **dexcli dev** serves the graceful completion wait condition and **StopFlow** with the graceful and force complete stop types (Server protocol version 7). [Reference](/reference/server/step-and-flow-close#graceful-completion-condition). Since 1.47.9.
+- **dexcli dev** opens Dex Web in the browser only when it runs interactively:
+  stdout is a terminal and **CI** is unset or empty. Without **--open**, it
+  keeps the browser closed when stdout is not a terminal or **CI** is
+  non-empty, as in scripts, tests, and CI. **--open=true** still
+  always opens it, and **--open=false** still always keeps it closed. Since 1.47.10.
 
 ### Fixed
 
