@@ -52,6 +52,14 @@ reference once its facts are recorded.
 | 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [Go FDG authoring](references/fdg-authoring.md) |
 | 3b. Connectors | Catalog discovery, Connector Steps, Triggers, `llm`, credentials | [Connector architecture](references/connector-architecture.md) |
 | 4. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
+| 4'. Managed Dex App | Repository rules, checks, import, and Live for Dex Cloud | [Managed Dex App](references/managed-dex-app.md) |
+
+Before Stage 0 picks a stack, ask whether the application runs locally only
+or is imported into Dex Cloud as a Managed Dex App. A Managed Dex App is the
+one exception to Go backend only: the example repository's TypeScript shape
+replaces Stage 0's Go bootstrap. Build it to its repository rules, and hand
+off with its checks and import steps instead of the local `dexcli dev` steps.
+Import and publishing stay the user's steps.
 
 Keep source readiness separate from configured real execution at every stage.
 Never report compilation as provider or end-to-end success.
@@ -64,6 +72,8 @@ precedence.
 - **Go backend only.** This is a product decision. Strict FDG 2.0 only, and
   Dex Web metadata comes only from the Go analyzer. Connectors also ship
   for Python and TypeScript, but App Builder uses the Go packages.
+  Exception: a Managed Dex App on the TypeScript profile
+  ([Managed Dex App](references/managed-dex-app.md)).
 - **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
   history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
   binary or image when deployed. Do not recreate management APIs or UI. A

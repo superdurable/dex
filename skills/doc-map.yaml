@@ -155,6 +155,10 @@ mappings:
     docs:
       - docs/content/components/application.mdx
 
+  - skill: dex-app-builder/references/managed-dex-app.md
+    docs:
+      - docs/content/components/managed-dex-app.mdx
+
 unmapped:
   # Entry points and skill-only guidance.
   - skills/dex-sdk/SKILL.md
@@ -179,7 +183,6 @@ unmapped:
   - docs/content/concepts/primitives/index.mdx
   # Operations guides for people running Dex; the Skills cover code, not hosting choices or deploy runbooks.
   - docs/content/components/dex-cloud.mdx
-  - docs/content/components/managed-dex-app.mdx
   - docs/content/components/self-host.mdx
   - docs/content/components/operate-and-debug.mdx
   - docs/content/concepts/change-flow-code.mdx
