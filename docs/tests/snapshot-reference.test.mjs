@@ -14,7 +14,7 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {Globby} from '@docusaurus/utils';
 import {
-  droppedVersionRedirects, localizeAllSnapshotLinks, pinServerCompatibilityVersion, readReferenceDocuments,
+  compareVersions, droppedVersionRedirects, localizeAllSnapshotLinks, pinServerCompatibilityVersion, readReferenceDocuments,
   referenceVersion, retargetRedirects, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
 
@@ -61,6 +61,13 @@ test('release versions follow component boundaries', () => {
   for (const version of ['0.5.0-rc.1', '0.5', '../0.5.0']) {
     assert.throws(() => referenceVersion('agents', version));
   }
+  assert.equal(referenceVersion('dex-app', 'v1'), 'v1');
+  assert.equal(referenceVersion('dex-app', '2'), 'v2');
+  for (const version of ['v0', '1.0.0', 'v1.1', '../v1']) {
+    assert.throws(() => referenceVersion('dex-app', version), /Invalid dex-app/);
+  }
+  assert.ok(compareVersions('v2', 'v1') > 0);
+  assert.equal(compareVersions('v1', 'v1'), 0);
 });
 
 test('pruning matches document IDs across slugs and falls back to the index in both locales', () => {
@@ -313,7 +320,7 @@ test('the next release of every component leaves no link to a version it prunes'
   try {
     for (const entry of await readdir(docsDirectory)) {
       if (['reference', 'content', 'i18n', 'src', 'redirects.json'].includes(entry)
-        || /^reference-[a-z]+_(?:versioned_docs|versioned_sidebars|versions\.json)$/.test(entry)) {
+        || /^reference-[a-z-]+_(?:versioned_docs|versioned_sidebars|versions\.json)$/.test(entry)) {
         await cp(join(docsDirectory, entry), join(siteDirectory, entry), {recursive: true});
       }
     }
@@ -327,7 +334,9 @@ test('the next release of every component leaves no link to a version it prunes'
     const droppedRoutes = [];
     for (const [component, latestVersion] of Object.entries(latestVersions)) {
       const [major, minor, patch] = latestVersion.split('.');
-      const nextRelease = patch === 'x' ? `${major}.${Number(minor) + 1}.0` : `${major}.${minor}.${Number(patch) + 1}`;
+      const schemaVersion = latestVersion.match(/^v(\d+)$/)?.[1];
+      const nextRelease = schemaVersion ? `v${Number(schemaVersion) + 1}`
+        : patch === 'x' ? `${major}.${Number(minor) + 1}.0` : `${major}.${minor}.${Number(patch) + 1}`;
       const {droppedVersions} = await snapshotReference(component, nextRelease, {siteDirectory, createSnapshot});
       droppedRoutes.push(...droppedVersions.map((version) => `/reference/${component}/${version}`));
     }

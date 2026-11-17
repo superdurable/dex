@@ -25,6 +25,14 @@ const linkDestinationStart = '(?<=^|[\\s("\'\\[=]|\\(<|\\]:[ \\t]*<)';
 const linkDestinationEndCharacter = '[\\s)"\'\\]#?>]';
 
 export function referenceVersion(component, releaseVersion) {
+  // The Dex app reference follows the manifest schema version, such as v1, not a release.
+  if (component === 'dex-app') {
+    const schema = releaseVersion.match(/^v?([1-9]\d*)$/);
+    if (!schema) {
+      throw new Error(`Invalid ${component} reference version: ${releaseVersion}`);
+    }
+    return `v${schema[1]}`;
+  }
   const release = releaseVersion.replace(/^v/, '');
   if (component === 'server' && /^0\.1\.\d+$/.test(release)) {
     return release;
@@ -39,11 +47,13 @@ export function referenceVersion(component, releaseVersion) {
 }
 
 export function compareVersions(first, second) {
-  const firstParts = first.split('.').map((part) => part === 'x' ? 0 : Number(part));
-  const secondParts = second.split('.').map((part) => part === 'x' ? 0 : Number(part));
+  // A schema version such as v2 compares as 2.0.0.
+  const versionParts = (version) => version.replace(/^v/, '').split('.').map((part) => part === 'x' ? 0 : Number(part));
+  const firstParts = versionParts(first);
+  const secondParts = versionParts(second);
   for (let index = 0; index < 3; index += 1) {
-    if (firstParts[index] !== secondParts[index]) {
-      return firstParts[index] - secondParts[index];
+    if ((firstParts[index] ?? 0) !== (secondParts[index] ?? 0)) {
+      return (firstParts[index] ?? 0) - (secondParts[index] ?? 0);
     }
   }
   return 0;
@@ -179,7 +189,7 @@ export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = do
     `${linkDestinationStart}${escapeRegExp(fromRoute)}(/?)(?=$|${linkDestinationEndCharacter})`, 'gm');
   const changedFiles = [];
   for (const entry of await readdir(siteDirectory, {withFileTypes: true})) {
-    if (!entry.isDirectory() || !/^reference-[a-z]+_versioned_(?:docs|sidebars)$/.test(entry.name)) {
+    if (!entry.isDirectory() || !/^reference-[a-z-]+_versioned_(?:docs|sidebars)$/.test(entry.name)) {
       continue;
     }
     for (const source of await Globby(['**/*.{md,mdx,json}'], {cwd: join(siteDirectory, entry.name)})) {
@@ -229,7 +239,7 @@ export async function localizeSnapshotLinks(component, version, {siteDirectory =
   const destinationEnd = `(?:$|/|${linkDestinationEndCharacter})`;
   // Links that already name a version stay unchanged, so reruns are idempotent.
   const linkPattern = new RegExp(`${linkDestinationStart}${escapeRegExp(componentRoute)}`
-    + `(?!/\\d+\\.\\d+\\.(?:\\d+|x)${destinationEnd})(?=${destinationEnd})`, 'gm');
+    + `(?!/(?:\\d+\\.\\d+\\.(?:\\d+|x)|v\\d+)${destinationEnd})(?=${destinationEnd})`, 'gm');
   const versionDirectory = snapshotDirectory(siteDirectory, component, version);
   const paths = [
     ...(await Globby(['**/*.{md,mdx}'], {cwd: versionDirectory})).map((source) => join(versionDirectory, source)),

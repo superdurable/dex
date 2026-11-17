@@ -1,0 +1,75 @@
+---
+title: Managed Dex App
+sidebar_label: Managed Dex App
+slug: /components/managed-dex-app
+description: Managed Dex App 是一个由 Dex Cloud 从你的 GitHub 仓库构建、预览并在 Live 中运行的 Dex 应用。
+---
+
+# Managed Dex App {#managed-dex-app}
+
+**Managed Dex App** 是由 Dex Cloud 从你的 GitHub 仓库构建并运行的 Dex 应用。Super Durable 在 Live 中运行应用及其 Worker，也可以在可选的 Preview 中运行。你负责维护代码。
+
+## 何时使用 {#when-to-use}
+
+Dex Cloud 提供两种产品：
+
+| | Managed Dex Server | Managed Dex App |
+| --- | --- | --- |
+| Super Durable 运行 | Dex Server | Dex Server、你的 Worker 和你的 web server |
+| 你运行 | 你的 Worker，部署在你选择的地方 | 无需运行。你把代码推送到 GitHub。 |
+| 你提供 | Worker 代码和它的部署 | 一个符合 Dex app 结构的 GitHub 仓库 |
+| 从这里开始 | [在 Dex Cloud 上运行](/components/dex-cloud) | 本页 |
+
+如果你希望 Dex Cloud 运行应用和 Worker，就选 Managed Dex App。导入前，先查看[支持的 stack](/reference/dex-app/manifest#template-manifest)（英文）。如果你自己部署 Worker，就选 Managed Dex Server。
+
+## 从示例开始 {#example}
+
+最小示例是 [`superdurable-apps/cloud-dex-app-example`](https://github.com/superdurable-apps/cloud-dex-app-example)。它是一个满足所有仓库规则的小型 TypeScript process。复制它，或者逐个文件对照你的仓库。
+
+## 遵守仓库规则 {#repository-rules}
+
+按照[仓库结构和导入规则](/reference/dex-app/manifest#repository-layout)（英文）准备仓库。
+
+## 导入仓库 {#import}
+
+导入功能处于早期体验阶段，正在 Dex Cloud 中逐步开启。尚未开启的地方，Import 视图会显示 "GitHub connections are not available here."
+
+Dex Cloud 通过 **SuperDurable Dex Cloud** GitHub App 读取你的仓库。这个 app 申请以下权限：
+
+- **Contents**：读写。你让 coding agent 做修改时，它会推送到 `main`。
+- **Metadata**：只读。
+- **Members**：只读。
+
+导入仓库的步骤：
+
+1. 拥有该 GitHub 组织（或个人账号）的 Teamspace 管理员打开 **Connections**，选择 **Install the GitHub App**，安装 [SuperDurable Dex Cloud](https://github.com/apps/superdurable-dex-cloud) GitHub App 并授予它访问该仓库的权限，然后选择 **Connect GitHub**。
+2. Teamspace 的任何成员在开始页面选择 **Import project**。
+3. 在 **Import from** 下选择 GitHub 账号。从列表中选择仓库，或者输入 `owner/name` 并选择 **Check repository**。
+4. 查看检查结果。Dex Cloud 读取 `main`，显示 `kind`、`stack`，以及仓库违反的每条规则。
+5. 检查通过后，选择 **Create project**。
+
+导入时，你的仓库保持原样。删除 project 会删除它的 Preview、Live 和数据，你的仓库保持原样。
+
+## 构建、Preview 和 Live {#build-preview-live}
+
+Dex Cloud 按 build profile 构建应用。你的仓库里不需要 Dockerfile。
+
+- **Live** 运行你发布的版本：选择 **Publish**，选一个版本（`main` 的一个 commit），再选择 **Publish to Live**；Dex Cloud 构建镜像并部署它。
+- **Preview** 是可选的：它不构建镜像，快速运行一个版本，使用和 Live 分开的数据，让你在用户看到之前先试一个改动。它运行在自己的 Dex Server 上。有新的 commit 进入 `main` 时，Preview 会提示你跟进。如果你用不到它，就直接发布到 Live。
+
+两者都把你的 web server 和 Worker 作为同一次构建的两种模式运行。Dex Cloud 根据 `dex-app.yaml` 声明的 Flow 源文件发布 Flow 定义。**Runs** 标签页会在当前的 Live 部署上打开 Dex Web；Preview 运行时，也可以在 Preview 上打开。
+
+你和团队照常向 `main` 推送代码。你让 coding agent 做修改时，它会提交到 `main`，Dex Cloud 按同样的规则检查这些 commit。
+
+## 修复被拒绝的导入 {#fix-refused-import}
+
+导入检查把每个问题列为一条 finding。每条 finding 写明问题在哪里、错在哪里以及如何修复，并链接到对应的规则。
+
+每个 finding 代码在 [reference 页面](/reference/dex-app/manifest#import-report)（英文）上都有自己的小节，例如 [`flow_source_missing`](/reference/dex-app/manifest#flow_source_missing)。修复仓库，推送到 `main`，然后再检查一次。
+
+如果检查结果说无法读取仓库，就在 GitHub 上给 SuperDurable Dex Cloud GitHub App 授予该仓库的访问权限。
+
+## 下一步 {#next}
+
+- [在生产环境运行 Dex](/components/production)：关于 Flow 代码和代码变更的检查项同样适用于 Managed Dex App。
+- [Dex app manifest and repository layout](/reference/dex-app/manifest)（英文）：manifest 的每个字段、规则、限制和 finding。
