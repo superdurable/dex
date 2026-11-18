@@ -33,8 +33,6 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 | 修复 bug 后恢复 | Reset 从较早的事件开始一次新的运行。 | Time Travel 恢复较早时间点的 Attribute、Channel 消息和等待中的 Step，Run ID 不变。 |
 | Worker 停止后的状态 | 通过重放 Event History 重建，在两次任务之间缓存在 Worker 上 | 从每个 Step 一起保存的 Attribute 读取。Worker 不保留缓存。 |
 
-<a id="capabilities"></a>
-
 ## 运行服务器 {#run-the-server}
 
 Temporal 需要一个数据库。Dex 只需要对象存储。
@@ -250,8 +248,6 @@ impl Step for ReminderStep {
 提醒不带幂等键，因为重复发送提醒不会造成影响。在 Rust 中，`has_any_timer_fired` 返回这个 Wait 中是否有 Timer 已触发。
 
 Temporal 版本从上往下读。退出是一个设置变量的 Signal handler，重放会重建这个变量。Dex 版本给等待状态起了名字。Timer 和 Channel 是同一个 Wait，由决定选择接下来做什么。
-
-<a id="when-another-tool-is-the-better-fit"></a>
 
 ## 术语对照 {#term-map}
 

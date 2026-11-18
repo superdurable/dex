@@ -33,8 +33,6 @@ The table lists what each design means for your code, most important first.
 | Recover after a bug fix | Reset starts a new run from an earlier event. | Time Travel restores Attributes, Channel messages, and waiting Steps at an earlier point, with the same Run ID. |
 | State after a Worker stops | Rebuilt by replaying the Event History, and cached on a Worker between tasks | Read from the Attributes saved with each Step. A Worker keeps no cache. |
 
-<a id="capabilities"></a>
-
 ## Run the server {#run-the-server}
 
 Temporal needs a database. Dex needs only object storage.
@@ -250,8 +248,6 @@ impl Step for ReminderStep {
 The reminder omits an idempotency key because a duplicate reminder is harmless. In Rust, `has_any_timer_fired` reports whether any Timer in the Wait has fired.
 
 The Temporal version reads top to bottom. The opt-out is a Signal handler that sets a variable, and replay rebuilds the variable. The Dex version names the waiting state. The Timer and the Channel are one Wait, and the decision chooses what comes next.
-
-<a id="when-another-tool-is-the-better-fit"></a>
 
 ## Terms map {#term-map}
 
