@@ -13,7 +13,8 @@ import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isSameCalendarDay } from '@/lib/format';
-import type { TimelineSelectedRelations } from '@/lib/timeline';
+import type { TimelineRelatedEvent, TimelineSelectedRelations } from '@/lib/timeline';
+import { timelineEventFilterStorageKey } from './timelineEventFilter';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   HorizontalTimeline,
@@ -77,10 +78,12 @@ function Harness({
   pageEvents,
   initialEventId,
   relations,
+  flowType,
 }: {
   pageEvents: FlowHistoryEvent[];
   initialEventId?: number;
   relations?: TimelineSelectedRelations;
+  flowType?: string;
 }) {
   const [selected, setSelected] = useState<FlowHistoryEvent | null>(
     pageEvents.find((event) => event.eventId === initialEventId) ?? null,
@@ -91,8 +94,75 @@ function Harness({
       selectedEvent={selected}
       onSelectEvent={setSelected}
       relations={relations}
+      flowType={flowType}
     />
   );
+}
+
+/** A loaded event the panel lists under From (older) or To (newer). */
+function loadedRelatedEvent(
+  eventId: number,
+  relation: TimelineRelatedEvent['relation'],
+  kind: TimelineRelatedEvent['kind'] = 'lineage',
+): TimelineRelatedEvent {
+  return {
+    id: `${relation}-${eventId}`,
+    kind,
+    relation,
+    direction: relation === 'wait-for' || relation === 'source' ? 'older' : 'newer',
+    stepExecutionId: `Charge-${eventId}`,
+    description: `Charge-${eventId} · ${relation}`,
+    eventId,
+    location: 'loaded',
+    elapsedDurationMs: null,
+  };
+}
+
+/** A Step whose first event the given event decided, so the real relations link the two. */
+function startedEvent(eventId: number, sourceEventId: number): FlowHistoryEvent {
+  return {
+    eventId,
+    eventTime: '2026-10-24T17:00:00Z',
+    type: 'StepExecuteCompleted',
+    payload: {
+      context: {
+        stepType: 'Ship',
+        stepExecutionId: `Ship-${eventId}`,
+        fromStepExecutionId: `Charge-${sourceEventId}`,
+        fromEventId: sourceEventId,
+      },
+    },
+  };
+}
+
+/** A matchMedia stub whose reduced motion answer can change after render. */
+function reducedMotionMedia(initialMatches: boolean) {
+  const listeners = new Set<() => void>();
+  const media = {
+    matches: initialMatches,
+    media: '(prefers-reduced-motion: reduce)',
+    addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+  };
+  vi.stubGlobal('matchMedia', () => media);
+  return {
+    change(matches: boolean) {
+      media.matches = matches;
+      act(() => listeners.forEach((listener) => listener()));
+    },
+  };
+}
+
+/** A link line's first and last points as [x, y], from its d attribute. */
+function linkLineEnds(group: Element): { start: [number, number]; end: [number, number] } {
+  const numbers = (group.querySelector('.htl-arc-line')?.getAttribute('d') ?? '').match(/-?\d+(\.\d+)?/g)!.map(Number);
+  return { start: [numbers[0], numbers[1]], end: [numbers[numbers.length - 2], numbers[numbers.length - 1]] };
+}
+
+function arrowTip(group: Element): [number, number] {
+  const [tip] = (group.querySelector('.htl-arc-arrow')?.getAttribute('points') ?? '').split(' ');
+  const [x, y] = tip.split(',').map(Number);
+  return [x, y];
 }
 
 function option(eventId: number): HTMLElement | null {
@@ -218,6 +288,237 @@ describe('horizontal Timeline', () => {
     expect(option(1000)).toBeNull();
     expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
     expect(document.querySelectorAll('.htl-overview-linked')).toHaveLength(1);
+  });
+
+  it('draws a flowing line in from the event the selection came from and out to the event it started', () => {
+    const relations: TimelineSelectedRelations = {
+      // The page link and the panel's From entry name the same WaitFor, so one line comes in.
+      links: [{
+        kind: 'condition-wait',
+        stepExecutionId: 'Charge-10',
+        fromEventId: 8,
+        toEventId: 10,
+        label: 'Charge-10',
+        elapsedDurationMs: null,
+        lane: 0,
+      }],
+      stubs: [],
+      related: [loadedRelatedEvent(8, 'wait-for', 'condition-wait'), loadedRelatedEvent(12, 'started')],
+    };
+    render(<Harness pageEvents={events(20)} initialEventId={10} relations={relations} />);
+    expect(document.querySelectorAll('.htl-arc')).toHaveLength(2);
+    expect(option(8)?.className).toContain('linked');
+    expect(option(12)?.className).toContain('linked');
+
+    const incoming = document.querySelector('.htl-arc.is-incoming')!;
+    expect(incoming.getAttribute('data-from-event-id')).toBe('8');
+    expect(incoming.getAttribute('data-to-event-id')).toBe('10');
+    const outgoing = document.querySelector('.htl-arc.is-outgoing')!;
+    expect(outgoing.getAttribute('data-from-event-id')).toBe('10');
+    expect(outgoing.getAttribute('data-to-event-id')).toBe('12');
+
+    // Each line starts at its source; the arrow sits at its target.
+    for (const line of [incoming, outgoing]) {
+      const { start, end } = linkLineEnds(line);
+      expect(start[0]).toBeLessThan(end[0]);
+      expect(arrowTip(line)).toEqual(end);
+      expect(line.classList.contains('is-flowing')).toBe(true);
+    }
+    // Incoming ends left of the selection's center and outgoing starts right of it.
+    expect(linkLineEnds(incoming).end[0]).toBeLessThan(linkLineEnds(outgoing).start[0]);
+  });
+
+  it('runs a line to the lane edge for a linked event out of view, and its marker scrolls to that event', () => {
+    const relations: TimelineSelectedRelations = {
+      links: [],
+      stubs: [],
+      related: [loadedRelatedEvent(5, 'source')],
+    };
+    render(<Harness pageEvents={events(1000)} initialEventId={1000} relations={relations} />);
+    expect(option(5)).toBeNull();
+    const line = document.querySelector('.htl-arc.is-incoming')!;
+    const { start, end } = linkLineEnds(line);
+    // The source end lies flat at the left edge and the arrow points up into the selection.
+    expect(start[0]).toBeLessThan(10);
+    expect(start[1]).toBeGreaterThan(10);
+    expect(arrowTip(line)).toEqual(end);
+
+    const marker = screen.getByRole('button', { name: 'Show linked event #5' });
+    expect(marker.className).toContain('is-left');
+    expect(marker.className).toContain('is-incoming');
+    fireEvent.click(marker);
+    expect(option(5)).not.toBeNull();
+    expect(option(1000)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Show linked event/ })).toBeNull();
+  });
+
+  it('shows a linked event the filter hides, faded, with its line end faded too', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('ChargeFlow')]: JSON.stringify({ hiddenKinds: ['execute'], nameSelections: {} }),
+    }));
+    const relations: TimelineSelectedRelations = {
+      links: [],
+      stubs: [],
+      related: [loadedRelatedEvent(8, 'source'), loadedRelatedEvent(12, 'started')],
+    };
+    render(<Harness pageEvents={events(20)} initialEventId={10} relations={relations} flowType="ChargeFlow" />);
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(3);
+    expect(option(8)?.className).toContain('is-filtered-out');
+    expect(option(8)?.getAttribute('aria-label')).toContain('shown because it is linked to the selected event');
+    expect(document.querySelectorAll('.htl-arc.is-filtered-out')).toHaveLength(2);
+  });
+
+  it('moves the selection past a linked event the filter hides, by key', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('ChargeFlow')]: JSON.stringify({ hiddenKinds: ['execute'], nameSelections: {} }),
+    }));
+    // Even events are WaitFor, which the filter shows; odd events are Execute, which it hides.
+    const pageEvents = events(20).map((event) => (
+      event.eventId % 2 === 0 ? { ...event, type: 'StepWaitForCompleted' as const } : event
+    ));
+    const relations: TimelineSelectedRelations = { links: [], stubs: [], related: [loadedRelatedEvent(11, 'started')] };
+    render(<Harness pageEvents={pageEvents} initialEventId={10} relations={relations} flowType="ChargeFlow" />);
+    expect(option(11)?.className).toContain('is-filtered-out');
+
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(option(12)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(10)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(option(12)?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('draws one line per edge for a wide fan-out, and the right marker counts every target and scrolls to the nearest', () => {
+    const pageEvents = [events(1)[0], ...Array.from({ length: 299 }, (_, offset) => startedEvent(offset + 2, 1))];
+    render(<Harness pageEvents={pageEvents} initialEventId={1} />);
+    const renderedIds = [...document.querySelectorAll('[role="option"]')].map((node) => Number(node.getAttribute('data-event-id')));
+    const lines = document.querySelectorAll('.htl-arc');
+    // In-view targets each get a line; the off-window ones share one.
+    expect(lines.length).toBeLessThan(renderedIds.length + 2);
+    expect(document.querySelectorAll('.htl-arc.is-outgoing').length).toBe(lines.length);
+
+    const marker = document.querySelector<HTMLButtonElement>('.htl-link-edge.is-right')!;
+    expect(marker.className).toContain('is-outgoing');
+    const nearest = Number(marker.getAttribute('aria-label')!.match(/#(\d+)/)![1]);
+    const inViewTargets = document.querySelectorAll('.htl-arc.is-outgoing').length - 1;
+    expect(nearest).toBe(inViewTargets + 2);
+    expect(marker.querySelector('.htl-link-edge-more')?.textContent).toBe(`+${300 - nearest}`);
+    fireEvent.click(marker);
+    expect(option(nearest)).not.toBeNull();
+    expect(option(nearest)?.getAttribute('aria-selected')).toBe('false');
+    expect(document.querySelector('.htl-arc')?.getAttribute('data-from-event-id')).toBe('1');
+  });
+
+  it('draws no line when both ends are past one edge, and a flat line when they are past opposite edges', () => {
+    const relations: TimelineSelectedRelations = {
+      links: [],
+      stubs: [],
+      related: [loadedRelatedEvent(990, 'source'), loadedRelatedEvent(5, 'source')],
+    };
+    render(<Harness pageEvents={events(1000)} initialEventId={1000} relations={relations} />);
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    fireEvent.keyDown(overview, { key: 'Home' });
+    fireEvent.keyDown(overview, { key: 'PageDown' });
+    expect(option(5)).toBeNull();
+    expect(option(990)).toBeNull();
+    expect(option(1000)).toBeNull();
+    const lines = document.querySelectorAll('.htl-arc');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].getAttribute('data-from-event-id')).toBe('5');
+    const { start, end } = linkLineEnds(lines[0]);
+    expect(start[1]).toBe(end[1]);
+    expect(start[0]).toBeLessThan(end[0]);
+    expect(screen.getByRole('button', { name: 'Show linked event #5' }).className).toContain('is-left');
+  });
+
+  it('draws the link lines in Tidy mode', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineLabelModeStorageKey]: 'tidy',
+    }));
+    const relations: TimelineSelectedRelations = {
+      links: [],
+      stubs: [],
+      related: [loadedRelatedEvent(8, 'source'), loadedRelatedEvent(12, 'started')],
+    };
+    render(<Harness pageEvents={events(20)} initialEventId={10} relations={relations} />);
+    expect(document.querySelector('.htl-strip')?.getAttribute('data-label-mode')).toBe('tidy');
+    expect(document.querySelector('.htl-arc.is-incoming')?.getAttribute('data-from-event-id')).toBe('8');
+    expect(document.querySelector('.htl-arc.is-outgoing')?.getAttribute('data-to-event-id')).toBe('12');
+  });
+
+  it('skips linked events the filter hides on Page Up, Page Down, Home, and End', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('ChargeFlow')]: JSON.stringify({ hiddenKinds: ['execute'], nameSelections: {} }),
+    }));
+    // Odd events are hidden Executes; the first and last are among them.
+    const pageEvents = events(19).map((event) => (
+      event.eventId % 2 === 0 ? { ...event, type: 'StepWaitForCompleted' as const } : event
+    ));
+    const relations: TimelineSelectedRelations = {
+      links: [],
+      stubs: [],
+      related: [loadedRelatedEvent(1, 'source'), loadedRelatedEvent(11, 'started'), loadedRelatedEvent(19, 'started')],
+    };
+    render(<Harness pageEvents={pageEvents} initialEventId={10} relations={relations} flowType="ChargeFlow" />);
+    expect(option(1)).not.toBeNull();
+    expect(option(19)).not.toBeNull();
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    fireEvent.keyDown(strip, { key: 'Home' });
+    expect(option(2)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'End' });
+    expect(option(18)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'PageUp' });
+    expect(option(2)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'PageDown' });
+    expect(option(18)?.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('starts and stops the flow when the reduced motion setting changes', () => {
+    const media = reducedMotionMedia(false);
+    const relations: TimelineSelectedRelations = { links: [], stubs: [], related: [loadedRelatedEvent(12, 'started')] };
+    render(<Harness pageEvents={events(20)} initialEventId={10} relations={relations} />);
+    expect(document.querySelector('.htl-arc')?.classList.contains('is-flowing')).toBe(true);
+    media.change(true);
+    expect(document.querySelector('.htl-arc')?.classList.contains('is-flowing')).toBe(false);
+    media.change(false);
+    expect(document.querySelector('.htl-arc')?.classList.contains('is-flowing')).toBe(true);
+  });
+
+  it('clears the old lines when the selection moves to an event without links', () => {
+    const pageEvents = [events(1)[0], startedEvent(2, 1), events(3)[2]];
+    render(<Harness pageEvents={pageEvents} initialEventId={2} />);
+    expect(document.querySelector('.htl-arc.is-incoming')?.getAttribute('data-from-event-id')).toBe('1');
+    fireEvent.click(option(3)!.querySelector('.htl-dot')!);
+    expect(option(3)?.getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelectorAll('.htl-arc')).toHaveLength(0);
+  });
+
+  it('adds a To line when Live appends a Step the selection started', () => {
+    const firstEvents = [events(1)[0], events(2)[1]];
+    const { rerender } = render(<Harness pageEvents={firstEvents} initialEventId={1} />);
+    expect(document.querySelectorAll('.htl-arc')).toHaveLength(0);
+    rerender(<Harness pageEvents={[...firstEvents, startedEvent(3, 1)]} initialEventId={1} />);
+    const line = document.querySelector('.htl-arc.is-outgoing')!;
+    expect(line.getAttribute('data-from-event-id')).toBe('1');
+    expect(line.getAttribute('data-to-event-id')).toBe('3');
+  });
+
+  it('keeps link lines static under the reduced motion setting', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    const relations: TimelineSelectedRelations = { links: [], stubs: [], related: [loadedRelatedEvent(12, 'started')] };
+    render(<Harness pageEvents={events(20)} initialEventId={10} relations={relations} />);
+    const line = document.querySelector('.htl-arc.is-outgoing')!;
+    expect(line.classList.contains('is-flowing')).toBe(false);
   });
 
   it('brings a jumped-to event into view and highlights it', () => {
