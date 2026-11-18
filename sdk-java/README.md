@@ -328,14 +328,33 @@ Client client = new Client(registry, blobCache,
 new Thread(worker::start).start();
 ```
 
-Each Worker keeps exactly `maxConcurrentTasks` long-lived execution-slot streams.
+A fixed Worker, the default, keeps exactly `maxConcurrentTasks` long-lived execution-slot streams.
 Every stream serves the sticky Worker identity and every registered Flow type;
 its registration has an empty queue. A stream is ready while idle and busy while
 its task runs. The Worker executes every delivered task and never rejects for
 capacity. It can reject an unknown Step or RPC before invoking its handler.
 The default slot count is the available CPU count. Worker start fails if it
 exceeds the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit.
+Since 1.45.4 that failure applies to an explicit `maxConcurrentTasks` of a fixed
+Worker. A fixed Worker with `maxConcurrentTasks` unset opens one stream first,
+learns the cap from its registration, and clamps its CPU-count default to the cap
+with a warning before it opens the other streams.
 The deprecated `idleStreamsPerQueue` option is accepted but has no effect.
+
+`minOpenSlots` (since 1.45.4) below `maxConcurrentTasks` makes the Worker
+adaptive. It keeps between `minOpenSlots` and `maxConcurrentTasks` slot streams
+open; both counts include `reservedRpcTasks`. It doubles its Step-and-RPC
+streams, one batch at a time, when a task takes the last idle one. Every 30
+seconds it half-closes half of the idle surplus above the window's peak busy
+count plus 25% headroom. An adaptive Worker clamps `maxConcurrentTasks` to the
+Server cap with a warning. It treats `RESOURCE_EXHAUSTED` for a growth stream,
+or for a reconnect after readiness, as a soft limit: no permanent error, and at
+most one retry per window. It counts handlers that still run after their stream
+ended against its capacity, so it never registers a stream for a busy slot.
+`Worker.getPullSlotStreamState()` returns a snapshot of the streams. The state
+machine is specified in `docs/design/adaptive-worker-slot-streams.md`; the
+real-server tests in `PullWorkerAdaptiveSlotStreamsTest` need
+`DEX_SERVER_ZD_BINARY` and run in `localIntegrationTest`.
 Heartbeat and Stream writes from cancelled or completed invocations are rejected
 locally, including after stream reuse. A stream error cancels its running task;
 that task's output is never sent over a later connection. The SDK sends a Pong
@@ -407,7 +426,8 @@ client.startFlow(orderFlow, "order-42", input,
 `reservedRpcTasks` selects slots that accept only RPCs; the remaining slots
 accept Steps and RPCs. The Server routes Steps to the latter slots. The Worker
 never declines a Step for reserved capacity. By default, one slot is reserved
-when `maxConcurrentTasks` is at least two; otherwise none are reserved. Set zero
+when `maxConcurrentTasks` and `minOpenSlots` are both at least two; otherwise
+none are reserved. Set zero
 to opt out. The reserve must be nonnegative and less than the resolved slot count.
 With one slot and no explicit reserve, startup warns about RPC starvation.
 
