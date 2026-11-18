@@ -118,7 +118,7 @@ function loadedRelatedEvent(
   };
 }
 
-/** The x of a path's first point and its last point, from its d attribute. */
+/** A link line's first and last points as [x, y], from its d attribute. */
 function linkLineEnds(group: Element): { start: [number, number]; end: [number, number] } {
   const numbers = (group.querySelector('.htl-arc-line')?.getAttribute('d') ?? '').match(/-?\d+(\.\d+)?/g)!.map(Number);
   return { start: [numbers[0], numbers[1]], end: [numbers[numbers.length - 2], numbers[numbers.length - 1]] };
@@ -282,7 +282,7 @@ describe('horizontal Timeline', () => {
     expect(outgoing.getAttribute('data-from-event-id')).toBe('10');
     expect(outgoing.getAttribute('data-to-event-id')).toBe('12');
 
-    // Each line starts at its source, so the dash flows toward the target, where the arrow points up into it.
+    // Each line starts at its source; the arrow sits at its target.
     for (const line of [incoming, outgoing]) {
       const { start, end } = linkLineEnds(line);
       expect(start[0]).toBeLessThan(end[0]);
@@ -332,6 +332,28 @@ describe('horizontal Timeline', () => {
     expect(option(8)?.className).toContain('is-filtered-out');
     expect(option(8)?.getAttribute('aria-label')).toContain('shown because it is linked to the selected event');
     expect(document.querySelectorAll('.htl-arc.is-filtered-out')).toHaveLength(2);
+  });
+
+  it('moves the selection past a linked event the filter hides, by key', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('ChargeFlow')]: JSON.stringify({ hiddenKinds: ['execute'], nameSelections: {} }),
+    }));
+    // Even events are WaitFor, which the filter shows; odd events are Execute, which it hides.
+    const pageEvents = events(20).map((event) => (
+      event.eventId % 2 === 0 ? { ...event, type: 'StepWaitForCompleted' as const } : event
+    ));
+    const relations: TimelineSelectedRelations = { links: [], stubs: [], related: [loadedRelatedEvent(11, 'started')] };
+    render(<Harness pageEvents={pageEvents} initialEventId={10} relations={relations} flowType="ChargeFlow" />);
+    expect(option(11)?.className).toContain('is-filtered-out');
+
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(option(12)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(10)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(option(12)?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('keeps link lines static under the reduced motion setting', () => {

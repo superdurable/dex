@@ -458,7 +458,7 @@ export function timelineSelectionLinks(
   return [...linksByEventId.values()];
 }
 
-/** One end of a link line: an event's number in view, or the lane edge when the event is out of view. */
+/** A link line end: an event's number in view, or the lane edge. */
 interface LinkLineEnd {
   x: number;
   isAtEdge: boolean;
@@ -728,6 +728,10 @@ export function HorizontalTimeline({
     });
     return { laneEvents: lane, laneToPage: pageIndexes };
   }, [highlightedEventId, linkedEventIds, pageEvents, pageShownFlags, selectedEventId]);
+  /** Keys skip lane events shown only as a link end, so a chain of links never walks past the filter. */
+  const laneKeyStopFlags = useMemo(() => laneEvents.map((event, laneIndex) => (
+    pageShownFlags[laneToPage[laneIndex]] || event.eventId === selectedEventId || event.eventId === highlightedEventId
+  )), [highlightedEventId, laneEvents, laneToPage, pageShownFlags, selectedEventId]);
   /** Lane event IDs at the last commit, so a filter change fades in only added events. */
   const previousLaneEventIds = useRef<ReadonlySet<number>>(new Set());
   useEffect(() => {
@@ -894,6 +898,16 @@ export function HorizontalTimeline({
     const event = laneEvents[Math.min(laneEvents.length - 1, Math.max(0, index))];
     if (event) selectEvent(event);
   }, [laneEvents, selectEvent]);
+  /**
+   * Returns the lane index a key lands on: the target, or the nearest key stop past it in the step direction.
+   * Returns -1 when no key stop lies that way.
+   */
+  const keyStopIndex = (target: number, step: 1 | -1): number => {
+    for (let index = Math.min(laneEvents.length - 1, Math.max(0, target)); index >= 0 && index < laneEvents.length; index += step) {
+      if (laneKeyStopFlags[index]) return index;
+    }
+    return -1;
+  };
 
   /** J selects the older neighbour and K the newer one; T time travels from the selection. */
   const handlePageKey = (key: string): boolean => {
@@ -903,9 +917,12 @@ export function HorizontalTimeline({
       return true;
     }
     const activeIndex = selectedIndex >= 0 ? selectedIndex : laneEvents.length - 1;
-    const target = key === 'j' ? activeIndex - 1 : activeIndex + 1;
+    const step = key === 'j' ? -1 : 1;
+    const target = activeIndex + step;
     if (target < 0 || target >= laneEvents.length) return false;
-    selectIndex(target);
+    const stopIndex = keyStopIndex(target, step);
+    if (stopIndex < 0) return false;
+    selectIndex(stopIndex);
     return true;
   };
   const handlePageKeyRef = useRef(handlePageKey);
@@ -926,16 +943,19 @@ export function HorizontalTimeline({
   const handleStripKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const activeIndex = selectedIndex >= 0 ? selectedIndex : Math.min(laneEvents.length - 1, Math.floor(windowStart) + visibleCount - 1);
     let target: number;
-    if (event.key === 'ArrowLeft') target = activeIndex - 1;
+    let step: 1 | -1 = 1;
+    if (event.key === 'ArrowLeft') [target, step] = [activeIndex - 1, -1];
     else if (event.key === 'ArrowRight') target = activeIndex + 1;
-    else if (event.key === 'PageUp') target = activeIndex - visibleCount;
+    else if (event.key === 'PageUp') [target, step] = [activeIndex - visibleCount, -1];
     else if (event.key === 'PageDown') target = activeIndex + visibleCount;
     else if (event.key === 'Home') target = 0;
-    else if (event.key === 'End') target = laneEvents.length - 1;
+    else if (event.key === 'End') [target, step] = [laneEvents.length - 1, -1];
     else if (event.key === 'Enter' || event.key === ' ') target = activeIndex;
     else return;
     event.preventDefault();
-    selectIndex(target);
+    // Past the lane end, the key lands on the outermost key stop instead.
+    const stopIndex = keyStopIndex(target, step);
+    selectIndex(stopIndex >= 0 ? stopIndex : keyStopIndex(target, step === 1 ? -1 : 1));
   };
 
   /** The pointer's x from the plot's left end in pixels, unclamped, so a grip in the inset still counts. */
