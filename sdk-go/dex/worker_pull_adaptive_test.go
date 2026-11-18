@@ -804,8 +804,7 @@ func TestWorkerPullAdaptiveGrantRevokedAfterCapDropWithRealServer(t *testing.T) 
 	requireNoPermanentRegistrationError(t, run)
 }
 
-// TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer holds streams between their admission
-// and their Register's Send while another stream reports a lower cap; no Register may then exceed that cap.
+// Admission is re-checked before Send; a cap drop after it gets a Server rejection, soft in adaptive mode.
 func TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer(t *testing.T) {
 	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
 	proxy := startPullSlotProxy(t, server.address)

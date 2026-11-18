@@ -502,8 +502,7 @@ func (worker *pullWorker) sendSlotRegistration(stream *pullStream, register *dex
 	return stream.send(register)
 }
 
-// admitSlotRegistrationLocked revokes an attempt granted before the Worker learned a lower cap when it
-// no longer fits, so no Register exceeds a known cap (F5).
+// admitSlotRegistrationLocked re-checks before Send. A later cap drop meets a Server rejection, soft in adaptive mode.
 func (worker *pullWorker) admitSlotRegistrationLocked(stream *pullStream) bool {
 	if worker.isStopping || stream.slot.phase != pullSlotPhaseRegistering || stream.slot.hasEnded {
 		return false
