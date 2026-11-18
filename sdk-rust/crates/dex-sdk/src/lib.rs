@@ -110,5 +110,6 @@ pub use wait::{
 pub use wait_options::{WaitForAttributeOptions, WaitForStepCompletionOptions};
 pub use worker::Worker;
 pub use worker_options::{PullWorkerOptions, WorkerOptions};
+pub use worker_pull::PullSlotStreamState;
 
 pub(crate) use value::short_type_name;

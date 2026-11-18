@@ -454,7 +454,7 @@ let client = Client::try_new(
 )?;
 ```
 
-The Worker opens exactly `max_concurrent_tasks` long-lived poll streams. Each stream
+A fixed Worker, the default, opens exactly `max_concurrent_tasks` long-lived poll streams. Each stream
 is one execution slot serving the Worker's sticky queue and every registered Flow type.
 The task limit defaults to the CPU count. An idle slot is ready for work; a busy slot
 executes its task and sends its final output before becoming ready again. The Worker
@@ -463,7 +463,29 @@ executes every assignment and never rejects work for capacity. Start fails with 
 `matching.maxConcurrentTasksCap` reported by the first registered stream. That stream
 half-closes and drops any task already sent, so Dex returns it without consuming an
 attempt. A lower limit reported after a later reconnect only logs a warning.
+Since 1.45.4 this failure applies to an explicit `max_concurrent_tasks` of a fixed
+Worker. A fixed Worker without `max_concurrent_tasks` opens one stream first, learns
+the cap from its acknowledgement, and clamps its CPU-count default to the cap with a
+WARN log before it opens the other streams.
 The deprecated `idle_streams_per_queue` setting is still accepted and has no effect.
+
+`min_open_slots` (since 1.45.4) below `max_concurrent_tasks` makes the Worker
+adaptive. It keeps between `min_open_slots` and `max_concurrent_tasks` slot streams
+open; both counts include `reserved_rpc_tasks`. It doubles its Step-and-RPC streams,
+one batch at a time, when a task takes the last idle one. Every 30 seconds it
+half-closes half of the idle surplus above the window's peak busy count plus 25%
+headroom. An adaptive Worker clamps `max_concurrent_tasks` to the Server cap with a
+WARN log. It treats `RESOURCE_EXHAUSTED` for a growth stream, or for a reconnect after
+readiness, as a soft limit: no permanent error and no immediate retry. It retries when
+one of its own registered streams ends, or at the next shrink window. While growth
+batches keep being rejected, it sends at most one growth batch per window. It
+counts handlers that still run after their stream ended against its capacity, so it
+never registers a stream for a busy slot. `Worker::pull_slot_stream_state()` returns a
+snapshot of the streams. The state machine is specified in
+`docs/design/adaptive-worker-slot-streams.md`. The real-server tests in
+`crates/dex-sdk/tests/integ/adaptive_slot_streams_test.rs` start their own
+`dex-server-zd` from `DEX_SERVER_ZD_BINARY`; the `test-util` feature exposes their
+`_for_test` timing hooks.
 Flow type names must be unique within a Dex server.
 The SDK sends an upstream Pong every 20 seconds while a task runs and stops before
 its final frame. This interval is internal and needs no Worker option. An unregistered
@@ -483,7 +505,7 @@ A permanent registration error waits one minute. If the next attempt fails
 transiently before registration, that retry also waits one minute; subsequent
 transient retries resume at the five-second cap. A registered stream or a
 server-directed reconnect resets backoff to 100 ms, with jitter on every retry.
-The stream count stays equal to `max_concurrent_tasks` across load changes. Choose
+The stream count of a fixed Worker stays equal to `max_concurrent_tasks` across load changes. Choose
 this limit within `matching.maxConcurrentTasksCap` per app Worker ID and the available
 `matching.maxStreams` budget on the Server.
 
@@ -512,7 +534,8 @@ instead of half-closing it.
 `reserved_rpc_tasks` selects slots that accept only RPCs. The remaining slots accept
 Steps and RPCs. The Server routes each assignment to an eligible idle slot; the Worker
 never declines a Step to preserve the reservation. When unset, one slot is reserved
-if the resolved task limit is at least two, otherwise zero. Set zero to let Steps use
+if the resolved task limit and `min_open_slots` are both at least two, otherwise zero.
+Set zero to let Steps use
 all slots. With one slot and no explicit reservation, startup warns that RPCs may
 wait behind long-running Steps. The reservation must be less than the resolved
 `max_concurrent_tasks`; invalid values fail construction.

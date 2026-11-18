@@ -40,11 +40,17 @@ use crate::{PullWorkerOptions, SdkError, SdkResult};
 mod final_frame_lock_tests;
 mod poll_transport;
 mod reconnect;
+mod slot_events;
+mod slot_stream_state;
+mod slot_streams;
 mod task_deadline;
 mod task_frame_sender;
 mod worker_error;
 mod worker_identity;
 
+pub use slot_stream_state::PullSlotStreamState;
+pub(crate) use slot_streams::PullSlotSettings;
+use slot_streams::{SlotAttempt, SlotConfig, SlotMachine, SlotStreams, default_reserved_rpc_tasks};
 use task_deadline::task_deadline;
 use task_frame_sender::TaskFrameSender;
 use worker_error::worker_error_response;
@@ -79,12 +85,12 @@ pub(crate) struct PullWorker {
     app_worker_id: String,
     flow_types: Vec<String>,
     pub(crate) task_queue: String,
-    max_concurrent_tasks: usize,
-    reserved_rpc_tasks: usize,
     stop_drain_timeout: Duration,
     task_start_gate: Arc<Mutex<bool>>,
     pub(crate) registration: Arc<PullRegistration>,
+    shared: Arc<PullShared>,
     should_warn_rpc_capacity: bool,
+    should_warn_floor_rpc_capacity: bool,
     stop_on_permanent_stream_rejection: bool,
 }
 
@@ -93,22 +99,31 @@ struct PullState {
     busy_tasks: usize,
     is_stopping: bool,
     logged_unsupported: bool,
+    has_checked_registration_limit: bool,
+    config: SlotConfig,
+    slots: SlotStreams,
+    next_stream_id: u64,
+    /// Streams the state machine opened and the run loop has not spawned yet.
+    pending_spawns: Vec<u64>,
 }
 
 struct StreamSlot {
     is_busy: bool,
     is_registered: bool,
     is_draining: bool,
+    slot_kind: PollWorkerSlotKind,
+    /// The current attempt in the slot stream state machine.
+    attempt: SlotAttempt,
 }
 
 struct PullShared {
     registration: Arc<PullRegistration>,
+    /// Lock order: the task start gate, then this state, then the startup error and registration.
     state: Mutex<PullState>,
     notify: Notify,
-    max_concurrent_tasks: usize,
-    has_checked_registration_limit: Mutex<bool>,
     startup_error: Mutex<Option<SdkError>>,
     task_start_gate: Arc<Mutex<bool>>,
+    slot_settings: PullSlotSettings,
 }
 
 struct ActiveTask {
@@ -157,12 +172,23 @@ struct StreamRegistration {
 
 impl Drop for StreamRegistration {
     fn drop(&mut self) {
-        let mut state = self.shared.state.lock().expect("pull state lock");
-        if let Some(slot) = state.streams.remove(&self.stream_id)
-            && slot.is_busy
-        {
-            state.busy_tasks -= 1;
-        }
+        self.shared.with_slot_machine(|machine| {
+            machine.abandon(self.stream_id);
+            // A runner that exits with a busy slot, such as after a panic, frees its handler's slot.
+            if machine
+                .state
+                .streams
+                .get(&self.stream_id)
+                .is_some_and(|slot| slot.is_busy)
+            {
+                machine.task_completed(self.stream_id, true);
+            }
+            if let Some(slot) = machine.state.streams.remove(&self.stream_id)
+                && slot.is_busy
+            {
+                machine.state.busy_tasks -= 1;
+            }
+        });
         self.shared.notify.notify_one();
     }
 }
@@ -184,9 +210,6 @@ impl PullWorker {
                     ),
                 })?,
         };
-        let reserved_rpc_tasks = options
-            .reserved_rpc_tasks
-            .unwrap_or(usize::from(max_concurrent_tasks >= 2));
         let stop_drain_timeout = options
             .stop_drain_timeout
             .unwrap_or(Duration::from_secs(30));
@@ -195,10 +218,24 @@ impl PullWorker {
                 "pull Worker task limit and drain timeout must be positive",
             ));
         }
+        let min_open_slots = options.min_open_slots.unwrap_or(max_concurrent_tasks);
+        if min_open_slots > max_concurrent_tasks {
+            return Err(invalid(format!(
+                "min_open_slots {min_open_slots} must not exceed max_concurrent_tasks {max_concurrent_tasks}"
+            )));
+        }
+        let reserved_rpc_tasks = options
+            .reserved_rpc_tasks
+            .unwrap_or_else(|| default_reserved_rpc_tasks(max_concurrent_tasks, min_open_slots));
         if reserved_rpc_tasks >= max_concurrent_tasks {
             return Err(invalid(
                 "reserved_rpc_tasks must be less than max_concurrent_tasks",
             ));
+        }
+        if reserved_rpc_tasks + 1 > min_open_slots {
+            return Err(invalid(format!(
+                "min_open_slots {min_open_slots} must be at least reserved_rpc_tasks {reserved_rpc_tasks} plus one Step-and-RPC slot"
+            )));
         }
         let app_worker_id = match &options.app_worker_id {
             Some(value) => value.clone(),
@@ -220,6 +257,29 @@ impl PullWorker {
         if reserved_rpc_tasks > 0 {
             slot_kinds.push("RPC_ONLY".to_string());
         }
+        let registration = Arc::new(PullRegistration::new(
+            &slot_kinds,
+            options.task_queue.clone(),
+        ));
+        let task_start_gate = Arc::new(Mutex::new(false));
+        let config = SlotConfig {
+            max_concurrent_tasks,
+            configured_max_concurrent_tasks: max_concurrent_tasks,
+            reserved_rpc_tasks,
+            min_open_slots,
+            is_max_concurrent_tasks_explicit: options.max_concurrent_tasks.is_some(),
+            is_reserved_rpc_tasks_explicit: options.reserved_rpc_tasks.is_some(),
+            is_min_open_slots_explicit: options.min_open_slots.is_some(),
+            is_adaptive: min_open_slots < max_concurrent_tasks,
+            shrink_window: options.slot_settings.shrink_window,
+            app_worker_id: app_worker_id.clone(),
+        };
+        let shared = Arc::new(PullShared::new(
+            Arc::clone(&registration),
+            config,
+            Arc::clone(&task_start_gate),
+            options.slot_settings.clone(),
+        ));
         Ok(Self {
             dispatcher: dispatcher.clone(),
             credential: channel.credential(),
@@ -227,18 +287,22 @@ impl PullWorker {
             app_worker_id,
             flow_types,
             task_queue: options.task_queue.clone(),
-            registration: Arc::new(PullRegistration::new(
-                &slot_kinds,
-                options.task_queue.clone(),
-            )),
+            registration,
+            shared,
             stop_on_permanent_stream_rejection: options.stop_on_permanent_stream_rejection,
-            max_concurrent_tasks,
-            reserved_rpc_tasks,
             should_warn_rpc_capacity: options.reserved_rpc_tasks.is_none()
                 && max_concurrent_tasks == 1,
+            should_warn_floor_rpc_capacity: options.reserved_rpc_tasks.is_none()
+                && max_concurrent_tasks >= 2
+                && min_open_slots == 1,
             stop_drain_timeout,
-            task_start_gate: Arc::new(Mutex::new(false)),
+            task_start_gate,
         })
+    }
+
+    /// Returns an independent snapshot of the slot streams.
+    pub(crate) fn slot_stream_state(&self) -> PullSlotStreamState {
+        self.shared.with_slot_machine(|machine| machine.snapshot())
     }
 
     pub(crate) fn stop_accepting_tasks(&self) {
@@ -251,26 +315,19 @@ impl PullWorker {
                 "RPCs may wait behind long-running Steps; use max_concurrent_tasks >= 2 or set reserved_rpc_tasks explicitly"
             );
         }
-        let shared = Arc::new(PullShared {
-            registration: Arc::clone(&self.registration),
-            state: Mutex::new(PullState {
-                streams: HashMap::new(),
-                busy_tasks: 0,
-                is_stopping: false,
-                logged_unsupported: false,
-            }),
-            notify: Notify::new(),
-            max_concurrent_tasks: self.max_concurrent_tasks,
-            has_checked_registration_limit: Mutex::new(false),
-            startup_error: Mutex::new(None),
-            task_start_gate: Arc::clone(&self.task_start_gate),
-        });
+        if self.should_warn_floor_rpc_capacity {
+            tracing::warn!(
+                "RPCs may wait behind long-running Steps; min_open_slots 1 reserves no RPC slot, so use min_open_slots >= 2 to reserve one"
+            );
+        }
+        let shared = Arc::clone(&self.shared);
         let (stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
             deadline: None,
         });
         let mut streams = JoinSet::new();
-        self.open_slots(&shared, &stop_receiver, &mut streams);
+        shared.with_slot_machine(|machine| machine.start());
+        self.spawn_pending_streams(&shared, &stop_receiver, &mut streams);
         loop {
             if shared
                 .startup_error
@@ -283,18 +340,30 @@ impl PullWorker {
             {
                 break;
             }
+            let shrink_window_deadline = shared.shrink_window_deadline();
             tokio::select! {
                 change = shutdown.changed() => {
                     if change.is_err() || *shutdown.borrow() { break; }
                 }
-                () = shared.notify.notified() => {}
+                () = shared.notify.notified() => {
+                    shared.with_slot_machine(|machine| machine.reconcile());
+                }
                 result = streams.join_next(), if !streams.is_empty() => {
                     if let Some(Err(error)) = result { tracing::error!(%error, "pull Worker stream failed"); }
                 }
+                () = async {
+                    match shrink_window_deadline {
+                        Some(deadline) => sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    shared.with_slot_machine(|machine| machine.expire_shrink_window(Instant::now()));
+                }
             }
+            self.spawn_pending_streams(&shared, &stop_receiver, &mut streams);
         }
         self.stop_accepting_tasks();
-        shared.state.lock().expect("pull state lock").is_stopping = true;
+        shared.with_slot_machine(|machine| machine.begin_stop());
         self.registration.finish(None);
         let stop_deadline = Instant::now() + self.stop_drain_timeout;
         stop.send_replace(StopSignal {
@@ -340,32 +409,25 @@ impl PullWorker {
         Ok(())
     }
 
-    fn open_slots(
+    /// Spawns a runner for each stream that the state machine opened since the last call.
+    fn spawn_pending_streams(
         &self,
         shared: &Arc<PullShared>,
         stop: &watch::Receiver<StopSignal>,
         streams: &mut JoinSet<()>,
     ) {
-        let mut state = shared.state.lock().expect("pull state lock");
-        for stream_id in 0..self.max_concurrent_tasks as u64 {
-            let slot_kind = if stream_id < self.reserved_rpc_tasks as u64 {
-                PollWorkerSlotKind::RpcOnly
-            } else {
-                PollWorkerSlotKind::StepAndRpc
-            };
-            let queue = match slot_kind {
-                PollWorkerSlotKind::RpcOnly => "RPC_ONLY",
-                PollWorkerSlotKind::Unspecified | PollWorkerSlotKind::StepAndRpc => "STEP_AND_RPC",
-            }
-            .to_string();
-            state.streams.insert(
-                stream_id,
-                StreamSlot {
-                    is_busy: false,
-                    is_registered: false,
-                    is_draining: false,
-                },
-            );
+        let pending: Vec<(u64, PollWorkerSlotKind)> = {
+            let mut state = shared.state.lock().expect("pull state lock");
+            let pending_ids = std::mem::take(&mut state.pending_spawns);
+            pending_ids
+                .into_iter()
+                .filter_map(|stream_id| {
+                    let slot = state.streams.get(&stream_id)?;
+                    Some((stream_id, slot.slot_kind))
+                })
+                .collect()
+        };
+        for (stream_id, slot_kind) in pending {
             let worker = PullStream {
                 channel: self.channel.clone(),
                 credential: self.credential.clone(),
@@ -373,7 +435,7 @@ impl PullWorker {
                 app_worker_id: self.app_worker_id.clone(),
                 flow_types: self.flow_types.clone(),
                 task_queue: self.task_queue.clone(),
-                queue,
+                queue: slot_kind_label(slot_kind).to_string(),
                 slot_kind,
                 stream_id,
                 shared: Arc::clone(shared),
@@ -382,9 +444,18 @@ impl PullWorker {
                 is_registered: false,
                 has_recorded_result: false,
                 has_task_queue_mismatch: false,
+                was_soft_rejected: false,
             };
             streams.spawn(async move { worker.run().await });
         }
+    }
+}
+
+/// Returns the registration label of a slot kind.
+fn slot_kind_label(slot_kind: PollWorkerSlotKind) -> &'static str {
+    match slot_kind {
+        PollWorkerSlotKind::RpcOnly => "RPC_ONLY",
+        PollWorkerSlotKind::Unspecified | PollWorkerSlotKind::StepAndRpc => "STEP_AND_RPC",
     }
 }
 
@@ -404,6 +475,8 @@ struct PullStream {
     is_registered: bool,
     has_recorded_result: bool,
     has_task_queue_mismatch: bool,
+    /// Whether the last attempt's rejection was soft (F5); its runner must not retry it.
+    was_soft_rejected: bool,
 }
 
 impl PullStream {
@@ -411,6 +484,7 @@ impl PullStream {
         self.is_registered = false;
         self.has_recorded_result = false;
         self.has_task_queue_mismatch = false;
+        self.was_soft_rejected = false;
         self.shared
             .state
             .lock()
@@ -449,18 +523,14 @@ impl PullStream {
         }
         self.has_recorded_result = true;
         let permanent_failure = failure.filter(|status| self.is_permanent_stream_failure(status));
-        self.shared
-            .registration
-            .ended(&self.queue, self.is_registered, permanent_failure);
+        self.was_soft_rejected = self.shared.record_stream_result(
+            self.stream_id,
+            &self.queue,
+            self.is_registered,
+            failure.map(Status::code),
+            permanent_failure,
+        );
         self.is_registered = false;
-        self.shared
-            .state
-            .lock()
-            .expect("pull state lock")
-            .streams
-            .get_mut(&self.stream_id)
-            .expect("registered pull stream")
-            .is_registered = false;
         self.shared.notify.notify_one();
     }
 
@@ -499,7 +569,16 @@ impl PullStream {
             self.channel.clone(),
             stream_reset,
         ));
-        let opening = client.poll_worker_task(ReceiverStream::new(receiver));
+        let register_send_latch = self
+            .shared
+            .slot_settings
+            .register_send_latch
+            .as_ref()
+            .map(|latch| latch());
+        let opening = client.poll_worker_task(poll_transport::LatchedRequestStream::new(
+            register_send_latch,
+            ReceiverStream::new(receiver),
+        ));
         tokio::pin!(opening);
         let opening = tokio::select! {
             result = &mut opening => result,
@@ -528,7 +607,22 @@ impl PullStream {
         let mut keepalive_interval: Option<Interval> = None;
         // Only the next task assignment proves that Dex received the previous final output.
         let mut has_unacknowledged_final_output = false;
+        let close_request = self.shared.close_request(self.stream_id);
         loop {
+            if active.is_none() && close_request.is_cancelled() {
+                // The Worker closed this idle slot on purpose: shrink or a lowered cap.
+                reset_guard.allow_clean_half_close();
+                let result = close_poll_send_and_wait(
+                    &mut sender,
+                    &mut response_stream,
+                    &mut self.stop,
+                    self.stop_drain_timeout,
+                    has_unacknowledged_final_output,
+                    &reset_guard,
+                )
+                .await;
+                return (was_registered, false, result);
+            }
             if self.stop.borrow().phase != 0 && active.is_none() {
                 reset_guard.allow_clean_half_close();
                 let result = close_poll_send_and_wait(
@@ -558,7 +652,7 @@ impl PullStream {
                                             }
                                             return (false, false, Err(status));
                                         }
-                                        if let Err(status) = self.shared.check_registration_limit(registered.max_concurrent_tasks_per_app_worker) {
+                                        if let Err(status) = self.shared.record_registered(self.stream_id, &self.queue, registered.max_concurrent_tasks_per_app_worker) {
                                             // Half-close and drop later tasks so Dex returns them without consuming an attempt.
                                             reset_guard.allow_clean_half_close();
                                             if let Err(drain_status) = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, false, &reset_guard).await {
@@ -566,7 +660,7 @@ impl PullStream {
                                             }
                                             return (false, false, Err(status));
                                         }
-                                        was_registered = true; self.is_registered = true; self.shared.state.lock().expect("pull state lock").streams.get_mut(&self.stream_id).expect("registered pull stream").is_registered = true; self.shared.registration.registered(&self.queue); self.shared.notify.notify_one(); }
+                                        was_registered = true; self.is_registered = true; self.shared.notify.notify_one(); }
                                     Some(ResponseFrame::Reconnect(_)) => {
                                         reset_guard.allow_clean_half_close();
                                         return (false, true, Ok(()));
@@ -592,11 +686,17 @@ impl PullStream {
                                         if let Some(previous) = active.take() {
                                             finish_handler_after_final_output(previous.handler).await;
                                         }
+                                        // A surplus slot cancels close_request here, so the task below is dropped.
                                         self.shared.release(self.stream_id);
                                         keepalive_interval = None;
                                         if self.is_task_start_closed() {
                                             continue;
                                         }
+                                    }
+                                    if close_request.is_cancelled() {
+                                        // The Server returns a task dropped after the close decision as not delivered.
+                                        self.shared.record_task_dropped(self.stream_id);
+                                        continue;
                                     }
                                     // Validate untrusted metadata before admission; a malformed task never reaches a handler.
                                     let assigned_deadline = match validate_assigned_task(&task) {
@@ -664,7 +764,7 @@ impl PullStream {
                                     }
                                 }
                                 Some(ResponseFrame::Reconnect(_)) => {
-                                    self.shared.mark_draining(self.stream_id);
+                                    self.shared.mark_reconnect_requested(self.stream_id);
                                     is_draining = true;
                                     if active.is_none() {
                                         reset_guard.allow_clean_half_close();
@@ -699,14 +799,14 @@ impl PullStream {
                     if let Err(error) = result { tracing::error!(%error, "pull Worker handler failed"); }
                     keepalive_interval = None;
                     active = None;
-                    self.shared.release(self.stream_id);
+                    let is_surplus = self.shared.release(self.stream_id);
                     if !*final_frame_sent.lock().expect("final frame lock") {
                         reset_guard.reset();
                         return (was_registered, false, Err(Status::internal("Worker task ended without final output; reset stream")));
                     }
                     has_unacknowledged_final_output = true;
-                    if is_draining || self.stop.borrow().phase != 0 {
-                        let is_reconnecting = is_draining && self.stop.borrow().phase == 0;
+                    if is_draining || is_surplus || self.stop.borrow().phase != 0 {
+                        let is_reconnecting = is_draining && !is_surplus && self.stop.borrow().phase == 0;
                         reset_guard.allow_clean_half_close();
                         let result = close_poll_send_and_wait(&mut sender, &mut response_stream, &mut self.stop, self.stop_drain_timeout, true, &reset_guard).await;
                         return (was_registered, is_reconnecting, result);
@@ -726,6 +826,7 @@ impl PullStream {
                         tracing::debug!(%error, "send Worker keepalive Pong");
                     }
                 }
+                () = close_request.cancelled(), if active.is_none() => {}
                 () = async { sleep_until(deadline.expect("task deadline")).await }, if deadline.is_some() => {
                     if let Some(task) = &mut active {
                         task.cancel(Code::DeadlineExceeded, false);
@@ -793,88 +894,281 @@ impl PullStream {
 }
 
 impl PullShared {
-    fn check_registration_limit(&self, server_limit: u32) -> Result<(), Status> {
-        let mut has_checked = self
-            .has_checked_registration_limit
-            .lock()
-            .expect("registration limit lock");
-        if let Some(error) = self
-            .startup_error
-            .lock()
-            .expect("startup error lock")
-            .as_ref()
-        {
-            return Err(Status::failed_precondition(error.to_string()));
+    fn new(
+        registration: Arc<PullRegistration>,
+        config: SlotConfig,
+        task_start_gate: Arc<Mutex<bool>>,
+        slot_settings: PullSlotSettings,
+    ) -> Self {
+        let mut state = PullState {
+            streams: HashMap::new(),
+            busy_tasks: 0,
+            is_stopping: false,
+            logged_unsupported: false,
+            has_checked_registration_limit: false,
+            config,
+            slots: SlotStreams::default(),
+            next_stream_id: 0,
+            pending_spawns: Vec::new(),
+        };
+        SlotMachine {
+            state: &mut state,
+            registration: &registration,
         }
-        let is_over_limit = server_limit != 0 && self.max_concurrent_tasks > server_limit as usize;
-        if *has_checked {
-            if is_over_limit {
+        .initialize_capacity();
+        Self {
+            registration,
+            state: Mutex::new(state),
+            notify: Notify::new(),
+            startup_error: Mutex::new(None),
+            task_start_gate,
+            slot_settings,
+        }
+    }
+
+    /// Returns shared state of a fixed Worker with one registering Step-and-RPC stream.
+    #[cfg(test)]
+    fn with_stream_for_test(
+        registration: Arc<PullRegistration>,
+        max_concurrent_tasks: usize,
+        stream_id: u64,
+    ) -> Arc<Self> {
+        let config = SlotConfig {
+            max_concurrent_tasks,
+            configured_max_concurrent_tasks: max_concurrent_tasks,
+            reserved_rpc_tasks: 0,
+            min_open_slots: max_concurrent_tasks,
+            is_max_concurrent_tasks_explicit: true,
+            is_reserved_rpc_tasks_explicit: true,
+            is_min_open_slots_explicit: false,
+            is_adaptive: false,
+            shrink_window: slot_streams::DEFAULT_SHRINK_WINDOW,
+            app_worker_id: "test-worker".to_string(),
+        };
+        let shared = Self::new(
+            registration,
+            config,
+            Arc::new(Mutex::new(false)),
+            PullSlotSettings::default(),
+        );
+        shared.with_slot_machine(|machine| {
+            let mut attempt = SlotAttempt::new(false, false);
+            attempt.is_register_sent = true;
+            machine.state.streams.insert(
+                stream_id,
+                StreamSlot {
+                    is_busy: false,
+                    is_registered: false,
+                    is_draining: false,
+                    slot_kind: PollWorkerSlotKind::StepAndRpc,
+                    attempt,
+                },
+            );
+            machine.set_phase(stream_id, slot_streams::SlotPhase::Registering);
+            machine.state.next_stream_id = stream_id + 1;
+        });
+        Arc::new(shared)
+    }
+
+    /// Runs `update` on the locked state machine and wakes the run loop for streams it opened.
+    ///
+    /// Returns the result of `update`. It takes the state lock, so never call it while holding it.
+    fn with_slot_machine<R>(&self, update: impl FnOnce(&mut SlotMachine<'_>) -> R) -> R {
+        let mut state = self.state.lock().expect("pull state lock");
+        let result = update(&mut SlotMachine {
+            state: &mut state,
+            registration: &self.registration,
+        });
+        let has_pending_spawns = !state.pending_spawns.is_empty();
+        drop(state);
+        if has_pending_spawns {
+            self.notify.notify_one();
+        }
+        result
+    }
+
+    fn shrink_window_deadline(&self) -> Option<Instant> {
+        self.state
+            .lock()
+            .expect("pull state lock")
+            .slots
+            .shrink_window_deadline
+    }
+
+    /// Returns the signal that the Worker cancels to half-close the stream's current attempt.
+    fn close_request(&self, stream_id: u64) -> InvocationCancellation {
+        self.state
+            .lock()
+            .expect("pull state lock")
+            .streams
+            .get(&stream_id)
+            .map_or_else(InvocationCancellation::new, |slot| {
+                slot.attempt.close_request.clone()
+            })
+    }
+
+    /// Handles an acknowledgement; returns the status that half-closes a stream when Start fails.
+    fn record_registered(&self, stream_id: u64, queue: &str, limit: u32) -> Result<(), Status> {
+        let failure = self.with_slot_machine(|machine| {
+            if let Some(error) = self
+                .startup_error
+                .lock()
+                .expect("startup error lock")
+                .as_ref()
+            {
+                return Err(Status::failed_precondition(error.to_string()));
+            }
+            let config = &machine.state.config;
+            let is_over_limit = limit != 0 && config.max_concurrent_tasks > limit as usize;
+            if !machine.state.has_checked_registration_limit {
+                machine.state.has_checked_registration_limit = true;
+                if let Err(message) = machine.resolve_ceiling_at_first_acknowledgement(limit) {
+                    machine.begin_stop();
+                    let status = Status::failed_precondition(message);
+                    let error = SdkError::from_status(
+                        status.clone(),
+                        "start",
+                        None,
+                        crate::sdk_error::FlowTargetRequirement::None,
+                    );
+                    machine.registration.finish(Some(error.clone()));
+                    *self.startup_error.lock().expect("startup error lock") = Some(error);
+                    return Err(status);
+                }
+            } else if is_over_limit && !config.is_adaptive {
+                // The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
                 tracing::warn!(
-                    max_concurrent_tasks = self.max_concurrent_tasks,
-                    server_limit,
+                    max_concurrent_tasks = config.max_concurrent_tasks,
+                    server_limit = limit,
                     "Server matching.maxConcurrentTasksCap is below max_concurrent_tasks after reconnect; extra slots may be rejected"
                 );
             }
-            return Ok(());
-        }
-        *has_checked = true;
-        if is_over_limit {
-            let message = format!(
-                "max_concurrent_tasks {} exceeds Server matching.maxConcurrentTasksCap {}",
-                self.max_concurrent_tasks, server_limit
-            );
+            if let Some(slot) = machine.state.streams.get_mut(&stream_id) {
+                slot.is_registered = true;
+            }
+            machine.registration.registered(queue);
+            machine.registered(stream_id, limit);
+            Ok(())
+        });
+        if failure.is_err() {
             *self.task_start_gate.lock().expect("task start gate lock") = true;
-            let status = Status::failed_precondition(message);
-            let error = SdkError::from_status(
-                status.clone(),
-                "start",
-                None,
-                crate::sdk_error::FlowTargetRequirement::None,
-            );
-            self.registration.finish(Some(error.clone()));
-            *self.startup_error.lock().expect("startup error lock") = Some(error);
-            self.notify.notify_one();
-            return Err(status);
         }
-        Ok(())
+        self.notify.notify_one();
+        failure
+    }
+
+    /// Ends the stream's attempt and returns whether its rejection was soft (F5).
+    ///
+    /// A soft rejection is not recorded as a permanent error, and its runner must not retry it.
+    fn record_stream_result(
+        &self,
+        stream_id: u64,
+        queue: &str,
+        was_registered: bool,
+        failure_code: Option<Code>,
+        permanent_failure: Option<&Status>,
+    ) -> bool {
+        self.with_slot_machine(|machine| {
+            let is_soft_rejection = !machine.state.is_stopping
+                && failure_code.is_some_and(|code| machine.is_soft_rejection(stream_id, code));
+            if is_soft_rejection {
+                machine.registration.ended(queue, was_registered, None);
+                machine.registration_rejected(stream_id);
+            } else {
+                machine
+                    .registration
+                    .ended(queue, was_registered, permanent_failure);
+            }
+            if let Some(slot) = machine.state.streams.get_mut(&stream_id) {
+                slot.is_registered = false;
+            }
+            machine.stream_ended(stream_id);
+            is_soft_rejection
+        })
+    }
+
+    /// Checks an attempt before its runner opens a stream; false ends the runner.
+    fn admit_slot_registration(&self, stream_id: u64) -> bool {
+        self.with_slot_machine(|machine| machine.admit(stream_id))
+    }
+
+    /// Re-checks the attempt and marks its Register as sent; the caller sends after the lock.
+    fn begin_register_send(&self, stream_id: u64) -> bool {
+        self.with_slot_machine(|machine| machine.begin_register_send(stream_id))
+    }
+
+    /// Reports whether the reopen rule gave this runner the next attempt, and consumes that grant.
+    fn take_reopen_grant(&self, stream_id: u64) -> bool {
+        self.with_slot_machine(|machine| machine.take_reopen_grant(stream_id))
+    }
+
+    fn record_task_dropped(&self, stream_id: u64) {
+        self.with_slot_machine(|machine| machine.task_dropped(stream_id));
     }
 
     fn try_accept(&self, stream_id: u64) -> bool {
         let is_stopping = self.task_start_gate.lock().expect("task start gate lock");
         let mut state = self.state.lock().expect("pull state lock");
-        if *is_stopping || state.is_stopping {
+        let mut machine = SlotMachine {
+            state: &mut state,
+            registration: &self.registration,
+        };
+        let is_closing = machine
+            .state
+            .streams
+            .get(&stream_id)
+            .is_some_and(|slot| slot.attempt.is_closed_on_purpose);
+        if *is_stopping || machine.state.is_stopping || is_closing {
+            machine.task_dropped(stream_id);
             return false;
         }
-        let slot = state
+        let slot = machine
+            .state
             .streams
             .get_mut(&stream_id)
             .expect("registered pull stream");
         assert!(!slot.is_busy, "reserved slot has at most one running task");
         slot.is_busy = true;
-        state.busy_tasks += 1;
+        machine.state.busy_tasks += 1;
+        machine.task_started(stream_id);
+        let has_pending_spawns = !state.pending_spawns.is_empty();
+        drop(state);
+        drop(is_stopping);
+        if has_pending_spawns {
+            self.notify.notify_one();
+        }
         true
     }
 
-    fn release(&self, stream_id: u64) {
-        let mut state = self.state.lock().expect("pull state lock");
-        let slot = state
-            .streams
-            .get_mut(&stream_id)
-            .expect("registered pull stream");
-        assert!(slot.is_busy, "pull stream must have an active task");
-        slot.is_busy = false;
-        state.busy_tasks -= 1;
+    /// Frees the stream's handler slot; returns true when the stream must half-close as surplus.
+    fn release(&self, stream_id: u64) -> bool {
+        let is_surplus = self.with_slot_machine(|machine| {
+            let is_stopping = machine.state.is_stopping;
+            let slot = machine
+                .state
+                .streams
+                .get_mut(&stream_id)
+                .expect("registered pull stream");
+            assert!(slot.is_busy, "pull stream must have an active task");
+            slot.is_busy = false;
+            let is_draining = slot.is_draining || is_stopping;
+            machine.state.busy_tasks -= 1;
+            machine.task_completed(stream_id, is_draining)
+        });
         self.notify.notify_one();
+        is_surplus
     }
 
-    fn mark_draining(&self, stream_id: u64) {
-        self.state
-            .lock()
-            .expect("pull state lock")
-            .streams
-            .get_mut(&stream_id)
-            .expect("registered pull stream")
-            .is_draining = true;
+    fn mark_reconnect_requested(&self, stream_id: u64) {
+        self.with_slot_machine(|machine| {
+            machine
+                .state
+                .streams
+                .get_mut(&stream_id)
+                .expect("registered pull stream")
+                .is_draining = true;
+            machine.reconnect_requested(stream_id);
+        });
     }
 }
 
@@ -996,6 +1290,14 @@ async fn send_control_frame(
                 "Worker task stream cannot send control frame: {error}"
             ))
         })
+}
+
+async fn wait_for_stop(stop: &mut watch::Receiver<StopSignal>) {
+    while stop.borrow_and_update().phase == 0 {
+        if stop.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 async fn wait_for_forced_stop(stop: &mut watch::Receiver<StopSignal>) {
@@ -1669,7 +1971,10 @@ mod tests {
                 channel,
             )
             .expect("Worker");
-            assert_eq!(usize::from(capacity >= 2), worker.reserved_rpc_tasks);
+            assert_eq!(
+                usize::from(capacity >= 2),
+                worker.slot_stream_state().rpc_only_slots
+            );
             let (_stop, shutdown) = watch::channel(true);
             worker.run(shutdown).await.expect("stop Worker");
         }
@@ -1681,25 +1986,12 @@ mod tests {
         let warnings = Arc::new(AtomicU64::new(0));
         let _subscriber =
             tracing::subscriber::set_default(ReserveWarningSubscriber(Arc::clone(&warnings)));
-        let shared = PullShared {
-            registration: Arc::default(),
-            state: Mutex::new(PullState {
-                streams: HashMap::new(),
-                busy_tasks: 0,
-                is_stopping: false,
-                logged_unsupported: false,
-            }),
-            notify: Notify::new(),
-            max_concurrent_tasks: 2,
-            has_checked_registration_limit: Mutex::new(false),
-            startup_error: Mutex::new(None),
-            task_start_gate: Arc::new(Mutex::new(false)),
-        };
+        let shared = PullShared::with_stream_for_test(Arc::default(), 2, 0);
         shared
-            .check_registration_limit(2)
+            .record_registered(0, "STEP_AND_RPC", 2)
             .expect("first registration within the limit");
         shared
-            .check_registration_limit(1)
+            .record_registered(0, "STEP_AND_RPC", 1)
             .expect("a later lower limit does not stop the Worker");
         assert_eq!(1, warnings.load(Ordering::Relaxed));
         assert!(
@@ -2140,27 +2432,7 @@ mod tests {
             ValueHydrator::new(FlowServiceClient::new(channel.clone()), cache),
             crate::server_protocol::NegotiatedServerProtocolVersion::default(),
         );
-        let shared = Arc::new(PullShared {
-            registration: Arc::default(),
-            state: Mutex::new(PullState {
-                streams: HashMap::from([(
-                    1,
-                    StreamSlot {
-                        is_busy: false,
-                        is_registered: false,
-                        is_draining: false,
-                    },
-                )]),
-                busy_tasks: 0,
-                is_stopping: false,
-                logged_unsupported: false,
-            }),
-            notify: Notify::new(),
-            max_concurrent_tasks: 1,
-            has_checked_registration_limit: Mutex::new(false),
-            startup_error: Mutex::new(None),
-            task_start_gate: Arc::new(Mutex::new(false)),
-        });
+        let shared = PullShared::with_stream_for_test(Arc::default(), 1, 1);
         let (_stop, stop_receiver) = watch::channel(StopSignal {
             phase: 0,
             deadline: None,
@@ -2181,6 +2453,7 @@ mod tests {
             is_registered: false,
             has_recorded_result: false,
             has_task_queue_mismatch: false,
+            was_soft_rejected: false,
         };
         for _ in 0..3 {
             let (was_registered, _, result) = timeout(Duration::from_secs(5), stream.poll())

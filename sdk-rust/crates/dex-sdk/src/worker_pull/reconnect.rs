@@ -20,9 +20,25 @@ impl PullStream {
             if self.stop.borrow().phase != 0 {
                 break;
             }
+            // The grant may be older than a cap that another stream reported during the backoff.
+            if !self.shared.admit_slot_registration(self.stream_id) {
+                break;
+            }
+            if !self.wait_before_register_send().await {
+                break;
+            }
+            // The check marks the Register as sent; the send itself happens without the state lock.
+            if !self.shared.begin_register_send(self.stream_id) {
+                break;
+            }
             let (was_registered, is_reconnecting, result) = self.poll().await;
             if self.stop.borrow().phase != 0 {
                 self.record_stream_result(None);
+                break;
+            }
+            if self.was_soft_rejected {
+                // A soft rejection waits for another registered stream to end or for the next shrink window.
+                tracing::debug!(queue = %self.queue, "Worker task stream reached the Server stream limit");
                 break;
             }
             if was_registered {
@@ -35,6 +51,9 @@ impl PullStream {
                 && self.prepare_immediate_auth_reconnect().await
             {
                 self.record_stream_result(None);
+                if !self.shared.take_reopen_grant(self.stream_id) {
+                    break;
+                }
                 has_immediate_auth_reconnect = true;
                 continue;
             }
@@ -68,6 +87,10 @@ impl PullStream {
                 }
                 Ok(()) => {}
             }
+            // Only the reopen rule continues this runner; a stream closed on purpose never reopens.
+            if !self.shared.take_reopen_grant(self.stream_id) {
+                break;
+            }
             let jitter = Duration::from_millis(
                 (uuid::Uuid::new_v4().as_u128() as u64) % (backoff.as_millis() as u64 / 2).max(1),
             );
@@ -78,6 +101,17 @@ impl PullStream {
             if !has_permanent_error {
                 backoff = (backoff * 2).min(Duration::from_secs(5));
             }
+        }
+    }
+
+    /// Runs the test hook that holds a Register after admission; returns false when Stop began.
+    async fn wait_before_register_send(&mut self) -> bool {
+        let Some(hook) = self.shared.slot_settings.before_register_send.clone() else {
+            return true;
+        };
+        tokio::select! {
+            () = hook() => true,
+            () = wait_for_stop(&mut self.stop) => false,
         }
     }
 

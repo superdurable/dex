@@ -394,6 +394,10 @@ adaptive; for Java, see [Java Workers](/reference/java/workers#capacity-and-shut
 **MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
 behaves as the sections above describe.
 
+Since 1.45.4 (Rust). A Rust Worker is adaptive the same way, with
+**PullWorkerOptions::min_open_slots** below **max_concurrent_tasks**. See
+[Rust Workers](/reference/rust/workers#capacity-and-shutdown).
+
 Since 1.45.5 (Python). A Python Worker is adaptive the same way, with
 **PullWorkerOptions.min_open_slots** below **max_concurrent_tasks**. See
 [Python Workers](/reference/python/workers#capacity-and-shutdown). Workers of
