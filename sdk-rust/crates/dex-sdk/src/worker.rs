@@ -166,7 +166,7 @@ impl Worker {
     /// older than 5. A stream that the Server confirms for a different task queue is a permanent
     /// rejection with the gRPC code `FAILED_PRECONDITION`.
     ///
-    /// Changed in 1.45.4: the `max_concurrent_tasks` failure applies to an explicit value of a
+    /// Changed in 1.45.7: the `max_concurrent_tasks` failure applies to an explicit value of a
     /// fixed Worker. Without that setting, or in an adaptive Worker, the Worker clamps the value
     /// to the Server setting instead, with a WARN log; see
     /// [`crate::PullWorkerOptions::max_concurrent_tasks`] and
@@ -347,7 +347,7 @@ impl Worker {
     /// capacities come from the options; the first registration may lower them to the Server cap.
     /// See [`crate::PullSlotStreamState`] for the meaning of each field.
     ///
-    /// Since 1.45.4.
+    /// Since 1.45.7.
     ///
     /// ```no_run
     /// # fn report(worker: &dex_sdk::Worker) {

@@ -240,11 +240,11 @@ The option names are builder methods.
 The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
 has no effect.
 
-Since 1.45.4, **minOpenSlots** below **maxConcurrentTasks** makes the Worker
+Since 1.45.7, **minOpenSlots** below **maxConcurrentTasks** makes the Worker
 adaptive, and **Worker.getPullSlotStreamState()** returns a snapshot of its slot
 streams. For example, a task limit of 64 with **minOpenSlots** of 8 keeps between
 8 and 64 slot streams, one of them reserved for RPCs. A fixed Worker with
-**maxConcurrentTasks** unset also changes in 1.45.4: it opens one stream first and
+**maxConcurrentTasks** unset also changes in 1.45.7: it opens one stream first and
 clamps its CPU-count default to the Server cap with a warning. See
 [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
 [API reference](pathname:///api/java/latest/io/superdurable/dex/PullWorkerOptions.Builder.html#minOpenSlots(int)).

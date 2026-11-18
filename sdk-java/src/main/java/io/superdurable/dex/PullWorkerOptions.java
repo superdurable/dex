@@ -24,7 +24,7 @@ import java.time.Duration;
  * streams. Other streams accept both Step and RPC tasks. Capacity no longer causes task declines.
  * Server protocol 4, provided by server-zd 0.1.17 or newer, is required.
  *
- * <p>Changed in 1.45.4: with {@link Builder#minOpenSlots(int)} below maxConcurrentTasks the Worker
+ * <p>Changed in 1.45.7: with {@link Builder#minOpenSlots(int)} below maxConcurrentTasks the Worker
  * is adaptive. It keeps between minOpenSlots and maxConcurrentTasks slot streams open, so idle
  * Workers hold fewer Server streams. With minOpenSlots unset or equal to maxConcurrentTasks the
  * Worker is fixed and keeps every slot open as before.
@@ -182,7 +182,7 @@ public final class PullWorkerOptions {
          * <p>Changed in 1.35.0: this value is also the exact stream count, and exceeding the
          * server cap fails startup.
          *
-         * <p>Changed in 1.45.4: this value is the ceiling of the slot streams, including the
+         * <p>Changed in 1.45.7: this value is the ceiling of the slot streams, including the
          * reserved RPC-only slots. A fixed Worker, whose {@link #minOpenSlots(int)} is unset or
          * equal to this value, keeps this many streams open. An adaptive Worker, whose
          * minOpenSlots is below this value, opens streams up to it only while every open
@@ -269,7 +269,7 @@ public final class PullWorkerOptions {
          * @return this builder
          * @throws IllegalArgumentException if value is negative; build throws if the resolved value
          *     exceeds maxConcurrentTasks or is not above reservedRpcTasks
-         * @since 1.45.4
+         * @since 1.45.7
          */
         public Builder minOpenSlots(final int value) {
             if (value < 0) {
@@ -299,7 +299,7 @@ public final class PullWorkerOptions {
          * <p>Changed in 1.35.0: the reserve uses RPC-only streams instead of declining Steps
          * after delivery.
          *
-         * <p>Changed in 1.45.4: unset also reserves zero when {@link #minOpenSlots(int)} is one,
+         * <p>Changed in 1.45.7: unset also reserves zero when {@link #minOpenSlots(int)} is one,
          * and start then warns that RPCs may wait behind Steps.
          *
          * <pre>{@code

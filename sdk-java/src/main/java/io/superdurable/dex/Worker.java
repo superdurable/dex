@@ -164,7 +164,7 @@ public final class Worker implements AutoCloseable {
      * {@link PullWorkerOptions.Builder#taskQueue(String)} requires Server protocol 5 and fails
      * before syncing Attribute indexes when the Server is older.
      *
-     * <p>Changed in 1.45.4: the failure for maxConcurrentTasks above matching.maxConcurrentTasksCap
+     * <p>Changed in 1.45.7: the failure for maxConcurrentTasks above matching.maxConcurrentTasksCap
      * applies to an explicit maxConcurrentTasks of a fixed Worker. An unset maxConcurrentTasks, or
      * any value of an adaptive Worker, is clamped to the cap instead; see
      * {@link PullWorkerOptions.Builder#maxConcurrentTasks(int)} and
@@ -282,7 +282,7 @@ public final class Worker implements AutoCloseable {
      * }</pre>
      *
      * @return an immutable snapshot; see {@link PullSlotStreamState} for each field
-     * @since 1.45.4
+     * @since 1.45.7
      */
     public PullSlotStreamState getPullSlotStreamState() {
         return pullWorker.slotStreamState();

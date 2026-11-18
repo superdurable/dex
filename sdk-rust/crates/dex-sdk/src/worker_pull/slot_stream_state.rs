@@ -30,7 +30,7 @@
 /// New fields may be added in later releases, so the type cannot be built with a struct literal
 /// outside the SDK.
 ///
-/// Since 1.45.4.
+/// Since 1.45.7.
 ///
 /// ```no_run
 /// # fn report(worker: &dex_sdk::Worker) {

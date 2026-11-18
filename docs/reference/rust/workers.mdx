@@ -212,7 +212,7 @@ The option names are builder methods.
 The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
 has no effect.
 
-Since 1.45.4, **min_open_slots** below **max_concurrent_tasks** makes the Worker
+Since 1.45.7, **min_open_slots** below **max_concurrent_tasks** makes the Worker
 adaptive, and **Worker::pull_slot_stream_state()** returns a snapshot of its slot
 streams. For example, a task limit of 64 with **min_open_slots** of 8 keeps between
 8 and 64 slot streams, one of them reserved for RPCs.

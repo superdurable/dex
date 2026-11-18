@@ -101,7 +101,7 @@ Example: [examples/python/dex_examples/production/pull_workers.py](https://githu
 The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
 has no effect.
 
-Since 1.45.5, **min_open_slots** below **max_concurrent_tasks** makes the Worker
+Since 1.45.7, **min_open_slots** below **max_concurrent_tasks** makes the Worker
 adaptive, and **pull_slot_stream_state()** on **Worker** and **AsyncWorker**
 returns a **PullSlotStreamState** snapshot of its slot streams. For example, a
 task limit of 64 with **min_open_slots** of 8 keeps between 8 and 64 slot
