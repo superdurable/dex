@@ -389,7 +389,7 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
 
 ### Budgeting `maxConcurrentTasksCap` and `maxStreams`
 
-`matching.maxConcurrentTasksCap` still bounds each Worker's streams on a node. A ceiling above it is reached only up to the cap, and the excess growth is rejected softly. `matching.maxStreams` still bounds the node.
+`matching.maxConcurrentTasksCap` still bounds each Worker's streams on a node. An explicit ceiling above it fails at the first acknowledgement, and an unset ceiling is clamped to it (D4). `matching.maxStreams` still bounds the node. When the node is full, an adaptive Worker's growth is rejected softly.
 
 **What changes.** Operators budget streams for real concurrency plus floors, instead of the sum of ceilings. A node limit reached under peak load now costs capacity, not Worker start failures.
 
@@ -420,7 +420,7 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
 
   `open` of 0 with `orphanedHandlers` above 0 means the Worker holds no live Step stream while it waits for a free slot. Readiness keeps today's semantics and does not report this. Today no SDK has pull metrics, so an accessor fits all five SDKs without choosing a metrics library.
 - Counters: `streamsGrown`, `streamsShrunk`, `growRejectedAtCap`, and `shrinkRaceDrops`. The last one counts tasks dropped because they arrived after a shrink decision.
-- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. A WARN log when an unset default is clamped to the server cap (D4). One info log when a growth rejection clamps the effective ceiling.
+- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. A WARN log when an unset default is clamped to the server cap (D4). One info log when a soft rejection clamps `growthTarget`.
 
 **Existing server metrics answer the operator questions without a new family:**
 - `dexzd_matching_worker_streams` (gauge, basic; `server-zd/crates/dexzd-metrics/src/lib.rs:415-419`) follows real concurrency plus floors.
@@ -441,6 +441,8 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
   - They assert the stream count trajectory read from `dexzd_matching_worker_streams` and from the SDK snapshot.
   - They check the trajectory at fixed checkpoints, with tolerance for scheduling jitter.
 
+Only `maybe_reopen` and `maybe_grow` open streams. Both return at once while the retry latch `is_reopen_deferred` is set. Both open only within free capacity: `maybe_reopen` from `C - (S + H + Sr + Hr)`, and `maybe_grow` below `G ≤ E`. Every end of a stream, whether a disconnect, a failover, a completed half-close, or a rejected Register, goes through `stream_ended` once. Only an end of a stream that received `Registered` clears the latch.
+
 ```text
 on task_frame(stream):                      # Step-and-RPC stream
     B += 1; I -= 1
@@ -449,22 +451,36 @@ on task_frame(stream):                      # Step-and-RPC stream
 on final_frame_sent(stream):               # Step-and-RPC stream
     B -= 1; I += 1
     if S + H > max(0, C - R_eff):           # surplus after a lowered cap
-        half-close stream; S -= 1; I -= 1
+        half_close(stream)
         recompute_capacity(); maybe_reopen()
 
 on rpc_only_final_frame_sent(stream):
     if Sr + Hr > R_eff:                     # surplus after a cap drop
-        half-close stream; Sr -= 1
+        half_close(stream)
         recompute_capacity(); maybe_reopen()
 
-on stream_lost(stream):                     # disconnect, failover
-    if stream is RPC-only:
-        Sr -= 1; if its handler still runs: Hr += 1
-    else:
-        S -= 1
-        if stream was busy and its handler still runs: B -= 1; H += 1
-        elif stream was idle: I -= 1
-    recompute_capacity(); maybe_reopen()    # C stays the last known cap
+half_close(stream):                         # every deliberate close goes through here
+    send END_STREAM; stream.is_removed = true   # its stream_ended changes no count
+    if stream is RPC-only: Sr -= 1 else: S -= 1; I -= 1
+
+on stream_ended(stream):                    # the only end event: disconnect, failover,
+                                            # a completed half-close, or a rejected Register
+    if stream.has_ended: return             # one stream may report lost and closed
+    stream.has_ended = true
+    if not stream.is_removed:               # not yet taken out of S or Sr
+        stream.is_removed = true
+        if stream is RPC-only:
+            Sr -= 1; if its handler still runs: Hr += 1
+        else:
+            S -= 1
+            if stream was registering: P -= 1
+            elif stream was busy and its handler still runs: B -= 1; H += 1
+            elif stream was idle: I -= 1
+    if stream received Registered:          # it held capacity; a rejected one never did
+        is_reopen_deferred = false
+    recompute_capacity()                    # C stays the last known cap
+    maybe_reopen(); maybe_grow()
+    if P == 0: settle_growth_batch()
 
 on orphaned_handler_returned(kind):
     if kind is RPC-only: Hr -= 1 else: H -= 1
@@ -481,12 +497,13 @@ on registered(stream):                      # either stream kind
 on registration_rejected(stream, RESOURCE_EXHAUSTED):
     if not is_soft_rejection(stream):
         today's permanent handling; return  # fixed mode, first registration per kind
+    stream.is_removed = true                # its stream_ended event changes no count
     if stream is RPC-only: Sr -= 1
     else: P -= 1; S -= 1
     if stream is growth: has_batch_rejection = true
     is_reopen_deferred = true               # no tight retry loop
     recompute_capacity()
-    if P == 0: settle_growth_batch()
+    if P == 0: settle_growth_batch()        # cannot reopen: the latch is set
 
 is_soft_rejection(stream):                  # F5
     return MinOpenSlots < T - R             # adaptive mode only
@@ -494,16 +511,11 @@ is_soft_rejection(stream):                  # F5
        and (stream is growth above the floor
             or (stream is a reconnect and every slot kind reached initial readiness))
 
-on stream_closed(stream):                   # a half-close completes or a stream ends
-    if stream received Registered:          # it held capacity; a rejected one never did
-        is_reopen_deferred = false
-        maybe_reopen()
-
 close_surplus():                            # Step-and-RPC capacity comes first
     while Sr + Hr > R_eff and an RPC-only stream is idle:
-        half-close it; Sr -= 1
+        half_close(that stream)
     while S + H > max(0, C - R_eff) and a Step-and-RPC stream is idle:
-        half-close it; S -= 1; I -= 1
+        half_close(that stream)
     # busy surplus streams close after their final frame (events above)
 
 recompute_capacity():
@@ -527,7 +539,8 @@ settle_growth_batch():                      # only when the whole batch is done
         has_batch_rejection = false
     maybe_grow()
 
-maybe_grow():
+maybe_grow():                               # S + H < G ≤ E also keeps total usage below C
+    if is_reopen_deferred: return           # every opening path respects the latch
     if I == 0 and P == 0 and S + H < G
             and not (is_growth_target_clamped and has_grown_this_window):
         n = min(G - S - H, max(1, S))
@@ -543,7 +556,7 @@ every W:
     maybe_reopen()
     target = min(E, max(L_eff, peakBusy + max(1, ceil(peakBusy / 4))))
     if S > target:
-        close ceil((S - target) / 2) idle streams, newest idle first,
+        half_close ceil((S - target) / 2) idle streams, newest idle first,
               never the last idle stream, never below L_eff
     peakBusy = B
     maybe_grow()
@@ -862,14 +875,29 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
     - Repeat with the failover landing while a growth batch is registering, and while a shrink half-close is in flight.
     - Repeat with orphaned RPC-only handlers.
     - Repeat with a restart that lowers the cap below the orphaned handler count. This case checks the transient exception (F5), so it asserts convergence, not a strict bound. Usage may exceed the new `totalCapacity` only through handlers and streams that started before the first acknowledgement with the new cap. Assert that the Worker sends no new Register after that acknowledgement until usage falls below the new cap. Registers sent earlier under the old cap may still be acknowledged; let them settle. Assert that usage reaches at most the new cap once the old handlers return.
-17. **Cap drop to 1 across a reconnect.** An adaptive Worker (`MinOpenSlots` below the ceiling) with `R` = 1 runs against cap 4, with busy RPC-only and Step handlers. It has reached initial readiness. Restart the server with cap 1. A fixed-mode variant asserts that today's permanent classification still applies.
-    - Usage may exceed 1 for a while. The test asserts convergence, not a strict bound, during that window.
-    - Assert that any `RESOURCE_EXHAUSTED` is soft. Readiness stays successful, and no `PullRegistrationError` appears, even with `StopOnPermanentStreamRejection` set.
-    - Assert that `rpcOnlySlots` becomes 0 and that the RPC-only stream half-closes, after its final frame when busy.
-    - Assert that, within a bounded time after the handlers return, the Worker holds exactly one Step-and-RPC stream and usage stays at most 1.
-    - Assert that Steps and RPCs keep running on that stream.
+17. **Cap drop to 1 across a reconnect.** A Worker with `R` = 1 runs against cap 4 and has reached initial readiness. Restart the server with cap 1. A test proxy between the Worker and the server forces the reconnect order: it holds the Step-and-RPC Register until the RPC-only stream is acknowledged, so the Step-and-RPC Register really gets `RESOURCE_EXHAUSTED`. The test runs in two modes with separate assertions.
+    - **17a, adaptive mode** (`MinOpenSlots` below the ceiling), with busy RPC-only and Step handlers during the restart:
+      - Usage may exceed 1 for a while. The test asserts convergence, not a strict bound, during that window.
+      - Assert that the rejection is soft. Readiness stays successful, and no `PullRegistrationError` appears, even with `StopOnPermanentStreamRejection` set.
+      - Assert that `rpcOnlySlots` becomes 0 and that the RPC-only stream half-closes, after its final frame when busy.
+      - Assert that the Step-and-RPC stream registers after that close, and that within a bounded time the Worker holds exactly one Step-and-RPC stream with usage at most 1.
+      - Assert that Steps and RPCs keep running on that stream.
+    - **17b, fixed mode** (`MinOpenSlots` equal to the ceiling):
+      - Assert today's behavior. The rejection is a permanent error in the Step-and-RPC slot kind's registration state.
+      - With `StopOnPermanentStreamRejection` set, **Start** returns `PullRegistrationError`, as documented (`docs/reference/server/workers.mdx:64-68`).
+      - Without it, the Worker retries with today's permanent-error backoff.
 18. **Growth batch partly rejected.** With the node limit setup of test 6, make a batch where some Registers succeed and some are rejected. Assert that `growthTarget` equals the streams that registered plus `orphanedHandlers`. Assert that `effectiveCeiling` stays unchanged, and that `growthTarget` returns to `effectiveCeiling` at the next window.
-19. **Floor retries at the node limit.** An adaptive Worker past initial readiness loses a floor stream while `matching.maxStreams` stays full. Use the test 6 setup, and keep the fixed Worker running. Count the Register attempts for the missing stream over 3 windows. Assert at most one per window plus one per close of another registered stream. Assert no attempt is triggered by the rejected stream's own end. Assert that readiness stays successful.
+19. **Floor retries at the node limit.**
+    - **Setup.** Set `matching.maxStreams` to 20 and `matching.maxConcurrentTasksCap` to 20. Start an adaptive Worker with `MaxConcurrentTasks` = 12, `R` = 1, and `L` = 2, with no load, so its `S` sits exactly at the floor of 2. A test-only shrink window of 1 s keeps the run short.
+    - **Competitor.** The test runs its own raw `PollWorkerTask` client under another app Worker ID. It fills the other 17 node slots. It re-registers into any freed slot in a tight loop, so it wins every freed slot against the Worker's jittered backoff of 100 ms or more.
+    - **Trigger.** A test proxy between the Worker and the server resets one of the Worker's two floor streams, after readiness. The competitor takes the freed slot. The Worker's reconnect Register is then rejected, and the rejection is soft, rule (b).
+    - **Counting.** The proxy counts the Worker's Register frames for 3 windows. Close one of the competitor's streams once during that time. The competitor takes its slot again at once.
+    - **Assertions.**
+      - At most one Register per window.
+      - The competitor's close triggers no extra Register. The latch clears only when one of this Worker's own registered streams ends.
+      - No Register follows the rejected stream's own end at once.
+      - Readiness stays successful.
+      - `open` stays at 1 until the competitor stops, and then returns to 2 within one window.
 16. **Fixed-mode startup is parallel.** With the floor equal to the ceiling, every stream is opened before the first acknowledgement arrives, as today. This guards the phase 1 "no behavior change" claim.
 
 ## Documentation
