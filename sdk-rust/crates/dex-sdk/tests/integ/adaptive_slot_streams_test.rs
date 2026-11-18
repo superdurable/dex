@@ -308,8 +308,7 @@ fn adaptive_slot_streams_floor_retry_latch() {
     require_slot_state(&run, "the reset stream ended", 5 * SECOND, |state| {
         state.open - state.registering == 1
     });
-    // The checks of the full node hold while the competitor holds every slot but the Worker's.
-    // A competitor stream that ends by itself frees a slot that the Worker may fill legitimately.
+    // Full-node checks need every other slot held; a lost competitor slot may go to the Worker.
     let has_filled_lost_slot = || {
         let state = run.state();
         state.open - state.registering == 2 && !competitor.losses_since(since).is_empty()
@@ -395,7 +394,7 @@ fn adaptive_slot_streams_floor_retry_latch() {
         require_one_register_per_window();
     }
     if has_filled_lost_slot() {
-        // The Worker took a slot that a competitor stream gave up by itself; that fill is a real registration.
+        // Filling a lost competitor slot is a real registration.
         assert!(
             eventually(5 * SECOND, || proxy
                 .registered_streams(&app_worker_id, STEP_AND_RPC)
@@ -1395,8 +1394,7 @@ impl RegisterSendLatch {
     }
 }
 
-/// The client transport holds one Register before the proxy receives it, like a blocked send.
-/// Cap updates and handlers on the other streams still progress, and Stop still finishes.
+/// The client transport holds one Register before the proxy sees it; other streams and Stop proceed.
 #[test]
 #[ignore = "requires DEX_SERVER_ZD_BINARY"]
 fn adaptive_slot_streams_blocked_register_send() {
@@ -1480,8 +1478,7 @@ fn adaptive_slot_streams_blocked_register_send() {
     );
 }
 
-/// One Register reaches the proxy, which holds it before the server; the Worker awaits the
-/// answer. Cap updates and handlers on the other streams still progress, and Stop still finishes.
+/// The proxy holds one sent Register from the server; other streams and Stop proceed.
 #[test]
 #[ignore = "requires DEX_SERVER_ZD_BINARY"]
 fn adaptive_slot_streams_register_sent_awaiting_answer() {
