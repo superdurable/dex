@@ -140,6 +140,10 @@ DEX_WEB_ADDRESS="127.0.0.1:${web_port}" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   run_go_test -count=1 -race -tags pullintegration -v ./dex -run '^TestWorkerPull(KeepsFixedSlotsWithRealServer|ReservedRPC(WithRealServer|WithStepBacklog))$'
 
+# Adaptive slot stream tests start their own servers, so they can set caps and restart them.
+DEX_SERVER_ZD_BINARY="$DEX_SERVER_ZD_BINARY" \
+  run_go_test -count=1 -race -tags pullintegration -v -timeout 20m ./dex -run '^TestWorkerPull(Adaptive|Fixed)[A-Za-z]*WithRealServer$'
+
 if $coverage; then
   mkdir -p coverage
   go tool covdata textfmt -i="$cover_dir" -o=coverage/coverage.out

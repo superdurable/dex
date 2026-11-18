@@ -366,6 +366,48 @@ the handlers wait on:
 - **Reserved RPC slots** come out of the task limit. To run eight Steps at once
   with one reserved slot, set the limit to nine.
 
+### Adaptive slot streams {#adaptive-slot-streams}
+
+Since 1.45.7 (Go). A Go Worker can vary its open slot streams with load. Set
+**PullWorkerOptions.MinOpenSlots** below **MaxConcurrentTasks** to make it
+adaptive. The task limit is then the most streams the Worker opens, and
+**MinOpenSlots** is the fewest. Both count the reserved RPC slots. With
+**MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
+behaves as the sections above describe. Workers of the other SDKs keep fixed
+slots.
+
+An adaptive Worker works as follows:
+
+- It starts at its floor. It opens its Step-and-RPC streams first, and its
+  RPC-only streams after the first registration.
+- It doubles its Step-and-RPC streams when a task takes its last idle one. One
+  growth batch is in flight at a time, up to the task limit.
+- Every 30 seconds it half-closes half of the idle streams above the window's
+  peak busy count plus 25% headroom. It keeps its floor and its last idle
+  stream. A task that reaches a closing stream returns to Dex without consuming
+  a retry.
+- Its RPC-only streams stay at the reserve.
+- It clamps a task limit above **matching.maxConcurrentTasksCap** to the cap,
+  with a warning that names both values. A fixed Worker with an explicit limit
+  above the cap still fails to start.
+- It treats a rejection at **matching.maxStreams** or at the cap as a soft limit
+  when the rejected stream is a growth stream or a reconnect after readiness.
+  It keeps its readiness, records no registration error, and retries at most
+  once per 30 seconds.
+- It lowers its capacity when a reconnect reports a lower cap. It half-closes
+  the surplus streams, RPC-only streams first, and opens no stream above the new
+  cap.
+- It registers a stream only for a slot whose handler has returned, so after a
+  server restart it holds no stream while handlers that ignore cancellation
+  still run.
+
+An idle adaptive Worker holds only its floor, so budget **matching.maxStreams**
+for the real concurrency plus each Worker's floor. A fixed Go Worker with the
+task limit unset also changes in 1.45.7. It opens one stream first, learns the
+cap from its registration, and clamps its CPU-count default to the cap with a
+warning. **Worker.PullSlotStreamState()** returns the open, busy, and idle
+streams and the capacities. See [Go Workers](/reference/go/workers#capacity-and-shutdown).
+
 ### Find the bottleneck {#find-bottleneck}
 
 Read the symptoms together. Step queue growth with an idle server points at the

@@ -634,6 +634,65 @@ type orphanedHandlerScenario struct {
 	sampler     *slotUsageSampler
 }
 
+// TestWorkerPullAdaptiveGracefulStopDuringGrowthWithRealServer covers design Test 12.
+func TestWorkerPullAdaptiveGracefulStopDuringGrowthWithRealServer(t *testing.T) {
+	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{})
+	handlers := newAdaptiveSlotHandlers()
+	run := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 32, MinOpenSlots: 3, AppWorkerID: "adaptive-stop-" + uuid.NewString()[:8]}, time.Second, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, run.worker.WaitPullRegistered(ctx))
+	client := server.newClient(t, run.worker.registry)
+	flow := &adaptiveSlotFlow{handlers: handlers}
+	flowIDs := startAdaptiveSlotFlowsConcurrently(t, ctx, client, flow, adaptiveSlotModeBlock, 20)
+	awaitAdaptiveSlotEntries(t, handlers, 4)
+	stopped := make(chan error, 1)
+	go func() { stopped <- run.worker.Stop(ctx) }()
+	require.Eventually(t, func() bool {
+		run.worker.pull.mu.Lock()
+		defer run.worker.pull.mu.Unlock()
+		return run.worker.pull.isStopping
+	}, 10*time.Second, time.Millisecond)
+	// Busy handlers finish during the drain; tasks that never started return without spending a retry.
+	close(handlers.release)
+	require.NoError(t, <-stopped)
+	require.NoError(t, run.awaitStartResult(t, 10*time.Second))
+	replacement := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 8, AppWorkerID: "fixed-replacement-" + uuid.NewString()[:8]}, time.Hour, nil)
+	require.NoError(t, replacement.worker.WaitPullRegistered(ctx))
+	requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
+	for _, entry := range drainAdaptiveSlotEntries(handlers) {
+		require.Equal(t, int32(1), entry.attempt, "a Step spent a retry: %+v", entry)
+	}
+}
+
+// TestWorkerPullAdaptiveMixedFleetWithRealServer covers design Test 13 against one server.
+func TestWorkerPullAdaptiveMixedFleetWithRealServer(t *testing.T) {
+	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{})
+	handlers := newAdaptiveSlotHandlers()
+	fixed := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 4, AppWorkerID: "fixed-fleet-" + uuid.NewString()[:8]}, time.Hour, nil)
+	adaptive := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 16, MinOpenSlots: 2, AppWorkerID: "adaptive-fleet-" + uuid.NewString()[:8]}, time.Second, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, fixed.worker.WaitPullRegistered(ctx))
+	require.NoError(t, adaptive.worker.WaitPullRegistered(ctx))
+	client := server.newClient(t, adaptive.worker.registry)
+	flow := &adaptiveSlotFlow{handlers: handlers}
+	quickIDs := startAdaptiveSlotFlows(t, ctx, client, flow, adaptiveSlotModeQuick, 10)
+	requireAdaptiveSlotFlowsCompleted(t, ctx, client, quickIDs)
+	// The fixed Worker leaves; its share moves to the adaptive Worker, which grows from its floor.
+	require.NoError(t, fixed.worker.Stop(ctx))
+	flowIDs := startAdaptiveSlotFlows(t, ctx, client, flow, adaptiveSlotModeBlock, 8)
+	awaitAdaptiveSlotEntries(t, handlers, 8)
+	requireSlotState(t, adaptive.worker, "the adaptive Worker grew to the load", func(state PullSlotStreamState) bool {
+		return state.Busy == 8 && state.Open >= 8 && state.Open <= 15
+	})
+	close(handlers.release)
+	requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
+	for _, entry := range drainAdaptiveSlotEntries(handlers) {
+		require.Equal(t, int32(1), entry.attempt, "a Step spent a retry: %+v", entry)
+	}
+}
+
 // startOrphanedHandlerScenario fills every slot of an adaptive Worker with handlers that ignore cancellation.
 func startOrphanedHandlerScenario(t *testing.T) *orphanedHandlerScenario {
 	t.Helper()

@@ -904,7 +904,7 @@ without a registered stream makes `Start` drain all streams within
 `StopDrainTimeout`, then cancel them and wait for handlers before returning the
 registration error. Always call `Stop` before exiting.
 
-The Worker keeps exactly `MaxConcurrentTasks` long-lived execution slot streams.
+A fixed Worker, the default, keeps exactly `MaxConcurrentTasks` long-lived execution slot streams.
 Zero uses the CPU count. Each stream registers an empty queue, the Worker ID,
 and every registered Flow type; it is ready while idle and busy while executing
 one task. `ReservedRPCTasks` streams accept only RPCs; the others accept Steps
@@ -915,7 +915,26 @@ a nonzero `max_concurrent_tasks_per_app_worker` below `MaxConcurrentTasks`.
 The error names both values and `matching.maxConcurrentTasksCap`. The Worker then
 half-closes its streams, so a task sent right after registration returns to the
 Server without costing an attempt. A lower limit reported on a later reconnect
-only logs a warning; the Server rejects any surplus stream.
+only logs a warning; the Server rejects any surplus stream. Since 1.45.7 this
+failure applies to an explicit `MaxConcurrentTasks` of a fixed Worker. A fixed
+Worker with `MaxConcurrentTasks` unset opens one stream first, learns the cap
+from its acknowledgement, and clamps its CPU-count default to the cap with a
+WARN log before it opens the other streams.
+
+`MinOpenSlots` (since 1.45.7) below `MaxConcurrentTasks` makes the Worker
+adaptive. It keeps between `MinOpenSlots` and `MaxConcurrentTasks` slot streams
+open; both counts include `ReservedRPCTasks`. It doubles its Step-and-RPC
+streams, one batch at a time, when a task takes the last idle one. Every 30
+seconds it half-closes half of the idle surplus above the window's peak busy
+count plus 25% headroom. An adaptive Worker clamps `MaxConcurrentTasks` to the
+Server cap with a WARN log. It treats `RESOURCE_EXHAUSTED` for a growth stream,
+or for a reconnect after readiness, as a soft limit: no permanent error, and at
+most one retry per window. It counts handlers that still run after their stream
+ended against its capacity, so it never registers a stream for a busy slot.
+`Worker.PullSlotStreamState()` returns a snapshot of the streams. The state
+machine is specified in `docs/design/adaptive-worker-slot-streams.md`; the
+real-server tests in `dex/worker_pull_adaptive_test.go` run with
+`-tags pullintegration` and `DEX_SERVER_ZD_BINARY`.
 
 Unknown Step types and RPC names can still be rejected before the handler runs.
 Flow type names must be unique within a Dex Server.

@@ -164,12 +164,21 @@ See the [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions) a
 | Setting | Go name |
 | --- | --- |
 | Concurrent tasks | **MaxConcurrentTasks** |
+| Fewest open slot streams | **MinOpenSlots** |
 | Reserved RPC slots | **ReservedRPCTasks** |
 | Stop drain timeout | **StopDrainTimeout** |
 | Shutdown | **Stop** |
+| Slot stream snapshot | **PullSlotStreamState()** |
 
 The idle stream option, **IdleStreamsPerQueue**, is deprecated. It is still accepted and
 has no effect.
+
+Since 1.45.7, **MinOpenSlots** below **MaxConcurrentTasks** makes the Worker
+adaptive, and **PullSlotStreamState()** returns a snapshot of its slot streams.
+For example, a task limit of 64 with **MinOpenSlots** of 8 keeps between 8 and
+64 slot streams, one of them reserved for RPCs.
+See [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
+[API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions).
 
 ## Reserved RPC capacity
 
