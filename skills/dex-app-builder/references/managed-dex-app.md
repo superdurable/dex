@@ -70,8 +70,8 @@ Each link has the exact fields and limits.
   [S1](https://docs.superdurable.io/reference/dex-app/manifest#s1)
 - **S2, deployment manifest.** The root `dex-app.yaml` starts with
   `schemaVersion: dex.superdurable.io/dex-app/v1`. It declares
-  `application` (port, health path, and the environment variables the code
-  reads; see Alternative settings), one `flowDefinitions` entry per Flow
+  `application` (port, health path, and the environment variables the user
+  configures; see Alternative settings), one `flowDefinitions` entry per Flow
   source file, and `connectors`, which is `[]` when the application uses
   none. Each Flow source is a committed file outside `node_modules`. A field
   the reference does not list is an error.
@@ -136,35 +136,31 @@ version: "<release>"
 
 ## Alternative settings
 
-Declare every environment variable the code reads in
-`application.environment`. Decide for each one whether Dex Cloud must see it
-set before publishing:
+Declare in `application.environment` every variable the user configures for
+the application, except the variables the platform sets, such as `PORT`. The
+[`application.environment`](https://docs.superdurable.io/reference/dex-app/manifest#application-environment)
+reference lists the names the platform reserves. Decide for each declared
+variable what the application needs:
 
 | The application needs | Declare |
 | --- | --- |
-| This variable in every deployment | `required: true` |
-| One of several sets of variables, such as a model API key or a bring-your-own endpoint | Each variable `required: false`, plus one `application.requiredOneOf` entry that lists the sets |
-| This variable only for an optional feature | `required: false`, and no `requiredOneOf` |
+| This variable in every deployment | The variable as required |
+| One of several alternative sets of variables, such as a model API key or a bring-your-own endpoint | Every variable of every set as optional, plus one `application.requiredOneOf` entry that lists the sets |
+| This variable only for an optional feature | The variable as optional, and no `requiredOneOf` |
 
-A `requiredOneOf` entry has a short `label` and two or more `groups`. Each
-group is a list of variable names that must all be set. The entry is met when
-every variable of at least one group is set. Dex Cloud checks it before
-Publish and Preview and shows an unmet entry as a gap in **Setup**.
-
-- Declare every group member in `application.environment` with
-  `required: false`. The import refuses a member declared `required: true`.
-- Give each member `minLength: 1`, so an empty value does not meet a group.
-  Mark credentials `secret: true`.
-- In the code, read the groups in a fixed order and use the first group whose
-  variables are all set.
+A `requiredOneOf` entry lists the alternative sets as `groups`, with an
+optional `label`. Each group is a list of variable names that must all be
+set. The entry is met when every variable of at least one group is set. In
+the code, read the groups in a fixed order and use the first one that is
+fully set.
 
 Anti-patterns:
 
-- Marking every variable of every alternative `required: true`. That forces
-  the user to set all of them.
-- Marking none of them required and declaring no `requiredOneOf`. Dex Cloud
-  then cannot see that the application has no usable credential, and the
-  application fails at run time.
+- Marking every variable of every alternative as required. That forces the
+  user to set all of them.
+- Marking none of them required and declaring no `requiredOneOf`. Nothing then
+  checks before publishing that the application has a usable credential, and
+  it fails at run time.
 
 ```yaml
 application:
@@ -182,7 +178,7 @@ application:
 ```
 
 The [`application.requiredOneOf`](https://docs.superdurable.io/reference/dex-app/manifest#application-required-one-of)
-reference has the limits.
+reference has the field rules, the limits, and how an unmet entry is shown.
 
 ## Check before handoff
 
