@@ -127,7 +127,7 @@ const fieldLabels: Record<EditableField, string> = {
   historyWindowEvents: 'Retention window',
   stepDurability: 'Step durability',
   activeStepSearchMode: 'Active step search',
-  attributeStoreNames: 'Attribute stores',
+  attributeStoreNames: 'Sync Attribute stores',
 };
 
 /** The run's Flow config in plain words; fields UpdateFlowConfig changes carry Edit while the run is active. */

@@ -10,7 +10,7 @@ import { Trash2 } from 'lucide-react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
 import { groupPersistenceEntries } from '@/lib/persistenceGroups';
 import { CopyButton } from '../../components/CopyButton';
-import { InlineValue } from '../../components/StructuredValue';
+import { EventValueBlock, InlineValue } from '../../components/StructuredValue';
 
 /** Switches a whole Overview section between its compact rows and the raw server JSON. */
 export function SectionViewToggle({
@@ -48,11 +48,14 @@ export function AttributeRows({
   attributes,
   expandValues,
   characterLimit,
+  isBlockLayout = false,
 }: {
   attributes: unknown[];
   expandValues: boolean;
   /** Shortens long value previews, as the event panel does. */
   characterLimit?: number;
+  /** Puts each name above its value, with objects as capped JSON blocks, as the event panel does. */
+  isBlockLayout?: boolean;
 }) {
   const entries = attributes.flatMap((attribute): AttributeEntry[] => {
     if (typeof attribute !== 'object' || attribute === null) return [];
@@ -62,6 +65,18 @@ export function AttributeRows({
   const groups = groupPersistenceEntries(entries, (entry) => entry.key);
   const plainEntries = groups.flatMap((group) => group.kind === 'value' ? [group] : []);
   const mapGroups = groups.flatMap((group) => group.kind === 'map' ? [group] : []);
+  if (isBlockLayout) {
+    return (
+      <div className="event-values">
+        {plainEntries.map((group) => (
+          <EventValueBlock key={`${group.entry.key}-${group.index}`} name={group.entry.key} value={group.entry.value} />
+        ))}
+        {mapGroups.flatMap((group) => group.entries.map(({ entry, instance, index }) => (
+          <EventValueBlock key={`${group.name}-${instance}-${index}`} name={`${group.name} / ${instance}`} value={entry.value} />
+        )))}
+      </div>
+    );
+  }
   return (
     <div className="compact-groups">
       {plainEntries.length > 0 && (

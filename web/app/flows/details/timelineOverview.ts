@@ -257,31 +257,49 @@ export function brushPixelSpan(
   return { left, right };
 }
 
-/** The widest slot: a short page spreads its events up to this width. */
-export const LANE_SLOT_MAX_WIDTH = 120;
-/** Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll. */
-export const LANE_SLOT_MIN_WIDTH = 36;
+/** How the lane draws event labels: Dense slants them, Tidy wraps them straight in columns. */
+export type TimelineLabelMode = 'dense' | 'tidy';
 
-/** Returns the lane's width per event: the whole page when it fits, from 120 px down to 36 px each, else 36 px. */
-export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
+/** Slot widths per label mode: short pages spread up to max; long pages pack to min and scroll. */
+export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: number }> = {
+  // Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll.
+  dense: { min: 36, max: 120 },
+  // A 64 px label column still fits about 9 characters per line.
+  tidy: { min: 64, max: 160 },
+};
+
+/**
+ * Returns the lane's width per event in a label mode: the whole page when it fits, between the mode's
+ * min and max. pageMinimumWidth raises the min, up to the max, such as to fit the page's longest word.
+ */
+export function timelineSlotWidth(
+  eventCount: number,
+  availableWidth: number,
+  labelMode: TimelineLabelMode,
+  pageMinimumWidth = 0,
+): number {
+  const { min: modeMinimum, max } = laneSlotWidths[labelMode];
+  const min = Math.min(max, Math.max(modeMinimum, pageMinimumWidth));
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
-  return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));
+  return Math.max(min, Math.min(max, fitWidth));
 }
 
 /**
- * Returns the overview axis of a page that fits the lane: each event sits under its own dot, so the
- * lane and the overview share one x mapping. Positions are ratios of the plot, which starts plotInset
- * pixels into the strip and is plotWidth pixels wide.
+ * Returns the overview axis that draws each event under its own dot, so the lane and the overview
+ * share one x mapping. Positions are ratios of the plot, which starts plotInset pixels into the strip
+ * and is plotWidth pixels wide. windowStart shifts the mapping with the lane; events out of view clamp
+ * to the ends.
  */
 export function laneOverviewAxis(
   events: readonly FlowHistoryEvent[],
   slotWidth: number,
   plotInset: number,
   plotWidth: number,
+  windowStart = 0,
 ): OverviewAxis {
   const times = monotonicEventTimes(events);
   const positions = events.map((_, index) => (
-    Math.min(1, Math.max(0, ((index + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
+    Math.min(1, Math.max(0, ((index - windowStart + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
   ));
   return {
     kind: 'index',

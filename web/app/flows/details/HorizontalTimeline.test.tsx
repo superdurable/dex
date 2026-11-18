@@ -11,26 +11,52 @@
 import { readFileSync } from 'node:fs';
 import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isSameCalendarDay } from '@/lib/format';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
   HorizontalTimeline,
   horizontalTimelineLayout,
-  isSameCalendarDay,
+  labelLineCount,
+  labelWithBreakHints,
   labelWidthUnits,
-  timelineStripHeight,
+  denseStripHeight,
+  endNoteRunWidth,
+  tidyStripHeight,
+  tidyWordSlotWidth,
+  timelineLabelText,
 } from './HorizontalTimeline';
 import { timelineSlotWidth } from './timelineOverview';
+import { timelineLabelModeIntroStorageKey, timelineLabelModeStorageKey } from './timelineLabelModeStorage';
 
-/** Events in view at the 1200 px jsdom fallback width, for a page of eventCount events. */
+/** Dense lane width at the 1200 px jsdom fallback width, before any event. */
+const denseAvailableWidth = 1200 - horizontalTimelineLayout.labelRunWidth.dense;
+
+/** Events in view in Dense mode at the 1200 px jsdom fallback width, for a page of eventCount events. */
 function visibleCountFor(eventCount: number): number {
-  const available = 1200 - horizontalTimelineLayout.labelRunWidth;
-  return Math.floor(available / timelineSlotWidth(eventCount, available));
+  return Math.floor(denseAvailableWidth / timelineSlotWidth(eventCount, denseAvailableWidth, 'dense'));
 }
 /** A 1000- or 2000-event page is dense. */
 const visibleCount = visibleCountFor(1000);
 const visibleCount100 = visibleCountFor(100);
+
+function memoryStorage(entries: Record<string, string> = {}): Storage {
+  const values = new Map(Object.entries(entries));
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => { values.delete(key); },
+    setItem: (key: string, value: string) => { values.set(key, String(value)); },
+  };
+}
+
+beforeEach(() => {
+  // The intro is dismissed in most tests, so it never covers what they check.
+  vi.stubGlobal('localStorage', memoryStorage({ [timelineLabelModeIntroStorageKey]: 'true' }));
+});
 
 afterEach(() => {
   cleanup();
@@ -171,6 +197,29 @@ describe('horizontal Timeline', () => {
     expect(screen.queryByRole('button', { name: /Review-1 WaitFor completed/ })).toBeNull();
   });
 
+  it('keeps the selection and a link across the window marked on the whole-page overview after the lane scrolls away', () => {
+    const relations: TimelineSelectedRelations = {
+      links: [{
+        kind: 'lineage',
+        stepExecutionId: 'Charge-1000',
+        fromEventId: 5,
+        toEventId: 1000,
+        label: 'Charge-1000',
+        elapsedDurationMs: null,
+        lane: 0,
+      }],
+      stubs: [],
+      related: [],
+    };
+    render(<Harness pageEvents={events(1000)} initialEventId={1000} relations={relations} />);
+    expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
+    expect(document.querySelectorAll('.htl-overview-linked')).toHaveLength(1);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(option(1000)).toBeNull();
+    expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
+    expect(document.querySelectorAll('.htl-overview-linked')).toHaveLength(1);
+  });
+
   it('brings a jumped-to event into view and highlights it', () => {
     const pageEvents = events(1000);
     const { rerender } = render(
@@ -279,7 +328,7 @@ describe('horizontal Timeline', () => {
       expect(Number(bar.querySelector('.htl-bar-segment.htl-status-failed')?.getAttribute('height'))).toBeGreaterThanOrEqual(3);
       expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
     }
-    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 2 failures');
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toMatch(/^#\d+–#\d+ in view · spaced by event order · 2 failures$/);
     expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
 
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
@@ -426,7 +475,7 @@ describe('horizontal Timeline', () => {
     expect(wheel(0, -300, true).defaultPrevented).toBe(true);
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
 
-    const denseSlotWidth = timelineSlotWidth(1000, 1200 - horizontalTimelineLayout.labelRunWidth);
+    const denseSlotWidth = timelineSlotWidth(1000, denseAvailableWidth, 'dense');
     act(() => { wheel(denseSlotWidth * 5, 0); });
     expect(overview.getAttribute('aria-valuenow')).toBe('5');
     act(() => { wheel(0, denseSlotWidth * 5, true); });
@@ -613,7 +662,7 @@ describe('horizontal Timeline', () => {
     expect(bar.querySelector('.htl-bar-segment.htl-status-waiting')).not.toBeNull();
     expect(bar.querySelector('.htl-bar-segment.htl-status-failed')).toBeNull();
     expect(bar.querySelector('.htl-bar-segment.htl-status-normal')).not.toBeNull();
-    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 1 failure');
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toMatch(/^#\d+–#\d+ in view · spaced by event order · 1 failure$/);
 
     const dot = option(501)?.querySelector('.htl-dot');
     expect(dot?.classList.contains('htl-status-waiting')).toBe(true);
@@ -651,7 +700,7 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('data-axis')).toBe('index');
     overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
     // The page fits the lane, so event #3's bar sits under its dot, at the center of the third slot.
-    const slot = timelineSlotWidth(8, 1200 - horizontalTimelineLayout.labelRunWidth);
+    const slot = timelineSlotWidth(8, denseAvailableWidth, 'dense');
     fireEvent.pointerMove(overview, { clientX: 2.5 * slot, pointerId: 1 });
     const tooltip = document.querySelector('.htl-overview-tooltip');
     expect(tooltip?.textContent).toContain('#3 · Charge');
@@ -807,15 +856,146 @@ describe('horizontal Timeline', () => {
     expect(document.querySelector('.htl-end-note')).toBeNull();
   });
 
-  it('gives every event its own slanted label, never grouped or shortened to a count', () => {
-    render(<HorizontalTimeline events={[
-      ...events(3),
-      { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
-    ]} onSelectEvent={() => {}} selectedEvent={null} />);
-    const labels = [...document.querySelectorAll('.htl-event .htl-label')];
-    expect(labels.map((label) => label.textContent)).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
-    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
-    expect(strip.style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
+  it('offers Now, with the live dot, to go back to the newest event of an open run', () => {
+    const endNote = { label: 'Now · waiting', eventId: 1000, isOpen: true };
+    render(<HorizontalTimeline endNote={endNote} events={events(1000)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(screen.queryByRole('button', { name: 'Go to the newest event' })).toBeNull();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    const now = screen.getByRole('button', { name: 'Go to the newest event' });
+    expect(now.textContent).toBe('Now');
+    expect(now.querySelector('.live-status-dot')).not.toBeNull();
+    fireEvent.click(now);
+    expect(option(1000)).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Now · waiting' })).not.toBeNull();
+  });
+
+  it('draws no end note, no Now button, and reserves no end note room for a closed run', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+    const endNote = { label: 'Ended', eventId: 18, isOpen: false };
+    // 18 Tidy slots of 64 px fit 1200 px only when no end note room is reserved.
+    expect(18 * 64).toBeLessThanOrEqual(1200);
+    expect(18 * 64 + endNoteRunWidth(endNote.label)).toBeGreaterThan(1200);
+    const { unmount } = render(<HorizontalTimeline endNote={endNote} events={events(18)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(option(1)).not.toBeNull();
+    expect(screen.getByRole('slider', { name: 'Timeline overview' }).getAttribute('aria-valuemax')).toBe('0');
+    expect(document.querySelector('.htl-end-note')).toBeNull();
+    unmount();
+
+    render(<HorizontalTimeline endNote={{ ...endNote, eventId: 1000 }} events={events(1000)} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(screen.queryByRole('button', { name: 'Go to the newest event' })).toBeNull();
+    expect(document.querySelector('.htl-end-jump')).toBeNull();
+  });
+
+  it.each(['dense', 'tidy'])('shows a page that fits from #1, leaving only the end note\'s own width at the right, in %s mode', (labelMode) => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, labelMode);
+    const endNote = { label: 'Now · waiting', eventId: 16, isOpen: true };
+    // 16 Tidy slots of 64 px fit 1200 px beside this short note, though not beside a fixed 240 px room.
+    expect(16 * 64 + endNoteRunWidth(endNote.label)).toBeLessThanOrEqual(1200);
+    render(<HorizontalTimeline endNote={endNote} events={events(16)} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(option(1)).not.toBeNull();
+    expect(screen.getByRole('slider', { name: 'Timeline overview' }).getAttribute('aria-valuemax')).toBe('0');
+    expect(document.querySelector('.htl-in-view')).toBeNull();
+  });
+
+  const labelModeEvents: FlowHistoryEvent[] = [
+    ...events(3),
+    { eventId: 4, eventTime: '2026-10-24T17:00:00Z', type: 'StepWaitForCompleted', payload: { context: { stepType: 'AwaitNextWindow', stepExecutionId: 'Await-1' } } },
+  ];
+  const labelTexts = () => [...document.querySelectorAll('.htl-event .htl-label')].map((label) => label.textContent);
+  const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+
+  it('opens in Dense mode and gives every event its own label slanted at 30 degrees', () => {
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
+    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
+    expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
+    expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -30deg))');
+    // The mode tabs sit in the head row just before Legend, so the lane keeps its full width.
+    const modeTabs = screen.getByRole('group', { name: 'Timeline labels' });
+    expect(modeTabs.closest('.htl-head')).not.toBeNull();
+    expect(modeTabs.closest('.htl-lane')).toBeNull();
+    expect(modeTabs.nextElementSibling?.classList.contains('htl-legend-fold')).toBe(true);
+  });
+
+  it.each(['dense', 'tidy'])('shows no cut label for an event scrolled past the left edge in %s mode', (labelMode) => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, labelMode);
+    render(<Harness pageEvents={events(1000)} />);
+    const rendered = [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+    const slotWidth = Number.parseFloat(timelineStrip().style.getPropertyValue('--htl-slot-width'));
+    const pastLeftEdge = rendered.filter((option) => Number.parseFloat(option.style.left) + slotWidth / 2 < 0);
+    expect(pastLeftEdge.length).toBeGreaterThan(0);
+    pastLeftEdge.forEach((option) => expect(option.querySelector('.htl-label')).toBeNull());
+    expect(option(1000)?.querySelector('.htl-label')?.textContent).toBe('Charge');
+  });
+
+  it('gives every event its own straight label in words in Tidy mode', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('');
+    expect(document.querySelector('[data-event-id="4"]')?.getAttribute('title')).toBe('AwaitNextWindow · #4');
+  });
+
+  it('switches between Dense and Tidy from the mode tabs and remembers the choice', () => {
+    const { unmount } = render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
+    expect(screen.getByRole('button', { name: 'Tidy' }).getAttribute('aria-pressed')).toBe('true');
+    expect(window.localStorage.getItem(timelineLabelModeStorageKey)).toBe('tidy');
+    unmount();
+
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    fireEvent.click(screen.getByRole('button', { name: 'Dense' }));
+    expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
+    expect(window.localStorage.getItem(timelineLabelModeStorageKey)).toBe('dense');
+  });
+
+  it('introduces the label modes once, until the reader dismisses the note', () => {
+    window.localStorage.removeItem(timelineLabelModeIntroStorageKey);
+    const onSelectEvent = vi.fn();
+    const { unmount } = render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={onSelectEvent} selectedEvent={null} />);
+    const intro = screen.getByRole('note', { name: 'Timeline label modes' });
+    expect(intro.textContent).toContain('Dense');
+    expect(intro.textContent).toContain('Tidy');
+    // The note sits above the overview and the lane, in the page flow, so it covers no event.
+    expect(intro.closest('.htl-lane')).toBeNull();
+    expect(intro.compareDocumentPosition(screen.getByRole('slider', { name: 'Timeline overview' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Timeline labels' }).getAttribute('aria-describedby')).toBe(intro.id);
+    fireEvent.click(option(2)!);
+    expect(onSelectEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 2 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    expect(window.localStorage.getItem(timelineLabelModeIntroStorageKey)).toBe('true');
+    unmount();
+
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+  });
+
+  it('closes the intro when the reader picks a mode', () => {
+    window.localStorage.removeItem(timelineLabelModeIntroStorageKey);
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    expect(window.localStorage.getItem(timelineLabelModeIntroStorageKey)).toBe('true');
+  });
+
+  it('opens in Dense mode without the intro when storage fails', () => {
+    const failingStorage = memoryStorage();
+    failingStorage.getItem = () => { throw new Error('storage blocked'); };
+    failingStorage.setItem = () => { throw new Error('storage blocked'); };
+    vi.stubGlobal('localStorage', failingStorage);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    warn.mockRestore();
   });
 
   it('moves the selection with J and K and time travels with T from anywhere on the page', () => {
@@ -883,15 +1063,29 @@ describe('horizontal Timeline layout', () => {
   });
 
   describe('lane density', () => {
-    it('sizes the label band to the longest label on the page, up to the widest label', () => {
-      const short = timelineStripHeight(['SyncBatch', 'Checkpoint']);
-      const long = timelineStripHeight(['StoreGeneratedCustomerMessageStep']);
+    it('sizes the Dense label band to the longest label on the page, up to the widest label', () => {
+      const short = denseStripHeight(['SyncBatch', 'Checkpoint']);
+      const long = denseStripHeight(['StoreGeneratedCustomerMessageStep']);
       expect(short).toBeLessThan(long);
-      expect(timelineStripHeight(['x'.repeat(200)])).toBe(timelineStripHeight(['x'.repeat(100)]));
+      expect(denseStripHeight(['x'.repeat(200)])).toBe(denseStripHeight(['x'.repeat(100)]));
+      // At 30 degrees a label rises half as far as its length: 280 / 2 for the widest, 8 / 2 for an empty one.
+      expect(denseStripHeight(['x'.repeat(100)]) - denseStripHeight([])).toBe(280 / 2 - 8 / 2);
+      render(<Harness pageEvents={events(1000)} />);
+      const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      expect(strip.style.height).toBe(`${denseStripHeight(['Charge'])}px`);
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(strip.style.height).toBe(`${denseStripHeight(['Charge'])}px`);
+    });
+
+    it('sizes the Tidy label band to the page\'s tallest wrapped label, up to three lines', () => {
+      const oneLine = tidyStripHeight(['Sync Batch', 'Checkpoint'], 120);
+      const twoLines = tidyStripHeight(['Call Single Attempt Tool'], 120);
+      expect(oneLine).toBeLessThan(twoLines);
+      expect(tidyStripHeight(['x'.repeat(200)], 88)).toBe(tidyStripHeight(['x'.repeat(100)], 88));
+      window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
       render(<Harness pageEvents={events(1000)} />);
       const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
       const height = strip.style.height;
-      expect(height).toBe(`${timelineStripHeight(['Charge'])}px`);
       fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
       expect(strip.style.height).toBe(height);
     });
@@ -902,16 +1096,83 @@ describe('horizontal Timeline layout', () => {
       expect(labelWidthUnits('Ｒｅｖｉｅｗ')).toBe(12);
       expect(labelWidthUnits('\uAC80\uD1A0-1')).toBe(6);
       expect(labelWidthUnits('𠀀')).toBe(2);
-      expect(timelineStripHeight(['审核步骤'])).toBe(timelineStripHeight(['ReviewSt']));
-      expect(timelineStripHeight(['审核步骤'])).toBeGreaterThan(timelineStripHeight(['Revi']));
+      expect(labelLineCount('审核步骤审核步骤', 80)).toBe(2);
+      expect(labelLineCount('Review', 80)).toBe(1);
     });
 
-    it('spreads a short page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
-      expect(timelineSlotWidth(5, 1000)).toBe(120);
-      expect(timelineSlotWidth(12, 1000)).toBe(83);
-      expect(timelineSlotWidth(25, 1000)).toBe(40);
-      expect(timelineSlotWidth(100, 1000)).toBe(36);
-      expect(timelineSlotWidth(1000, 1000)).toBe(36);
+    it('wraps labels word by word and breaks a word wider than its column', () => {
+      expect(labelLineCount('Run Model', 80)).toBe(1);
+      expect(labelLineCount('Lookup Order', 80)).toBe(1);
+      expect(labelLineCount('Lookup Payment', 80)).toBe(2);
+      expect(labelLineCount('Lookup Payment Intent', 80)).toBe(3);
+      expect(labelLineCount('Send To Quanzhenglong', 80)).toBe(3);
+      expect(labelLineCount('Issue Payment Processor Refund Now', 80)).toBe(3);
+    });
+
+    it('splits a word wider than its column into even parts with soft hyphens', () => {
+      expect(labelWithBreakHints('Send To Quanzhenglong', 96)).toBe('Send To Quanzhenglong');
+      expect(labelWithBreakHints('Send To Quanzhenglong', 72)).toBe('Send To Quanzhe\u00ADnglong');
+      expect(labelWithBreakHints('NotifyQuanzhenglongWorkspaceAdmins', 88)).toBe('NotifyQuanzh\u00ADenglongWorks\u00ADpaceAdmins');
+      expect(labelWithBreakHints('审核步骤审核步骤审核步骤', 88)).toBe('审核步骤审核步骤审核步骤');
+    });
+
+    it('shows identifiers as words and keeps text that already has spaces', () => {
+      expect(timelineLabelText('send_user_message')).toBe('Send User Message');
+      expect(timelineLabelText('lookup_payment_intent')).toBe('Lookup Payment Intent');
+      expect(timelineLabelText('CallSingleAttemptTool')).toBe('Call Single Attempt Tool');
+      expect(timelineLabelText('SendToQuanzhenglong')).toBe('Send To Quanzhenglong');
+      expect(timelineLabelText('HTTPRequestStep')).toBe('HTTP Request Step');
+      expect(timelineLabelText('order-sync')).toBe('Order Sync');
+      expect(timelineLabelText('RunModel')).toBe('Run Model');
+      expect(timelineLabelText('Charge')).toBe('Charge');
+      expect(timelineLabelText('Flow started')).toBe('Flow started');
+      expect(timelineLabelText('审核步骤')).toBe('审核步骤');
+      expect(timelineLabelText('order_total, customer_id')).toBe('Order Total, Customer Id');
+    });
+
+    it('spreads a short Dense page and packs a long one to the narrowest slot that keeps slanted labels apart', () => {
+      expect(timelineSlotWidth(5, 1000, 'dense')).toBe(120);
+      expect(timelineSlotWidth(12, 1000, 'dense')).toBe(83);
+      expect(timelineSlotWidth(25, 1000, 'dense')).toBe(40);
+      expect(timelineSlotWidth(100, 1000, 'dense')).toBe(36);
+      expect(timelineSlotWidth(1000, 1000, 'dense')).toBe(36);
+    });
+
+    it('widens a Tidy page\'s slot so its longest word stays whole, up to the Tidy max', () => {
+      const wordSlot = tidyWordSlotWidth(['Checkpoint', 'Sync Batch']);
+      const slot = timelineSlotWidth(1000, 1000, 'tidy', wordSlot);
+      expect(slot).toBeGreaterThan(64);
+      expect(labelWithBreakHints('Checkpoint', slot - 6)).toBe('Checkpoint');
+      // Dense ignores the Tidy word width.
+      expect(timelineSlotWidth(1000, 1000, 'dense')).toBe(36);
+      // A word past the 160 px cap still breaks with soft hyphens.
+      const longWord = 'NotifyQuanzhenglongWorkspaceAdministrators';
+      const cappedSlot = timelineSlotWidth(1000, 1000, 'tidy', tidyWordSlotWidth([longWord]));
+      expect(cappedSlot).toBe(160);
+      expect(labelWithBreakHints(longWord, cappedSlot - 6)).toContain('­');
+      // Wide-character words wrap anywhere and never widen the slot.
+      expect(tidyWordSlotWidth(['审核步骤审核步骤审核步骤'])).toBe(6);
+    });
+
+    it('keeps "Checkpoint" whole in a long Tidy page and keeps the slot while scrolling', () => {
+      window.localStorage.setItem(timelineLabelModeStorageKey, 'tidy');
+      const pageEvents = events(1000).map((event) => (event.eventId % 10 === 0
+        ? { ...event, payload: { context: { stepType: 'Checkpoint', stepExecutionId: `Checkpoint-${event.eventId}` } } }
+        : { ...event, payload: { context: { stepType: 'SyncBatch', stepExecutionId: `SyncBatch-${event.eventId}` } } }));
+      render(<Harness pageEvents={pageEvents} />);
+      const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+      expect(option(1000)?.querySelector('.htl-label')?.textContent).toBe('Checkpoint');
+      const slotWidth = timelineStrip().style.getPropertyValue('--htl-slot-width');
+      fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+      expect(timelineStrip().style.getPropertyValue('--htl-slot-width')).toBe(slotWidth);
+      expect(option(10)?.querySelector('.htl-label')?.textContent).toBe('Checkpoint');
+    });
+
+    it('spreads a short Tidy page and packs a long one to the narrowest slot that keeps label columns readable', () => {
+      expect(timelineSlotWidth(5, 1000, 'tidy')).toBe(160);
+      expect(timelineSlotWidth(8, 1000, 'tidy')).toBe(125);
+      expect(timelineSlotWidth(25, 1000, 'tidy')).toBe(64);
+      expect(timelineSlotWidth(1000, 1000, 'tidy')).toBe(64);
     });
   });
 });

@@ -18,7 +18,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate, isSameCalendarDay, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
@@ -61,26 +61,125 @@ import {
   type EventStatus,
   type OverviewAxis,
   type OverviewBucket,
+  type TimelineLabelMode,
 } from './timelineOverview';
+import { persistTimelineLabelMode, storedTimelineLabelMode } from './timelineLabelModeStorage';
+import { TimelineLabelModeIntro, TimelineLabelModeTabs, useTimelineLabelModeIntro } from './TimelineLabelModeTabs';
 
 const arcBandHeight = 28;
 const axisBandHeight = 18;
 const dotBandHeight = 30;
-/** Each event's label slants up at this angle, like angled parking, so long names fit side by side. */
-const labelAngleDegrees = 30;
-const labelMaxWidth = 280;
-const labelAngle = (labelAngleDegrees * Math.PI) / 180;
-/** About the width of one label character at the label font, for sizing the band before layout. */
-const labelCharacterWidth = 7;
+/** Dense: each event's label slants up at this angle, like angled parking, so long names fit side by side. */
+const denseLabelAngleDegrees = 30;
+const denseLabelMaxWidth = 280;
+const denseLabelAngle = (denseLabelAngleDegrees * Math.PI) / 180;
+/** About the width of one Dense label character, for sizing the band before layout. */
+const denseLabelCharacterWidth = 7;
 
 /**
- * Returns the strip height for the longest label on the page: its estimated width, at most
- * labelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
+ * Returns the Dense strip height for the longest label on the page: its estimated width, at most
+ * denseLabelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
  */
-export function timelineStripHeight(subjects: readonly string[]): number {
+export function denseStripHeight(subjects: readonly string[]): number {
   const longest = subjects.reduce((max, subject) => Math.max(max, labelWidthUnits(subject)), 0);
-  const labelWidth = Math.min(labelMaxWidth, longest * labelCharacterWidth + 8);
-  return Math.ceil(labelWidth * Math.sin(labelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+  const labelWidth = Math.min(denseLabelMaxWidth, longest * denseLabelCharacterWidth + 8);
+  return Math.ceil(labelWidth * Math.sin(denseLabelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/** Tidy: each label wraps inside its event's column, centered over the dot, up to this many lines. */
+const labelMaxLines = 3;
+const labelLineHeight = 15;
+/** The label column is this much narrower than the slot, so neighbors never touch. */
+const labelColumnGap = 6;
+/** About the width of one Tidy label character at the label font, for sizing the band before layout. */
+const labelCharacterWidth = 6.6;
+
+/** Returns how many lines a label takes in a column, estimated word by word, at most labelMaxLines. */
+export function labelLineCount(label: string, columnWidth: number): number {
+  const lineUnits = Math.max(1, Math.floor(columnWidth / labelCharacterWidth));
+  let lines = 1;
+  let used = 0;
+  for (const word of label.split(' ').filter(Boolean)) {
+    let units = labelWidthUnits(word);
+    if (used > 0 && used + 1 + units <= lineUnits) {
+      used += 1 + units;
+      continue;
+    }
+    if (used > 0) lines += 1;
+    // A word wider than the column breaks inside itself across lines.
+    while (units > lineUnits) {
+      lines += 1;
+      units -= lineUnits;
+    }
+    used = units;
+  }
+  return Math.min(labelMaxLines, lines);
+}
+
+/**
+ * Returns the Tidy strip height for the page's tallest wrapped label, from one to labelMaxLines lines.
+ * The whole page sets it, so scrolling never changes it.
+ */
+export function tidyStripHeight(labels: readonly string[], slotWidth: number): number {
+  const columnWidth = slotWidth - labelColumnGap;
+  const lines = labels.reduce((max, label) => Math.max(max, labelLineCount(label, columnWidth)), 1);
+  return lines * labelLineHeight + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/**
+ * Returns the Tidy slot width that keeps the page's longest word on one line, without a soft hyphen.
+ * Words with wide characters wrap anywhere, so they never widen the slot.
+ */
+export function tidyWordSlotWidth(labels: readonly string[]): number {
+  let longestUnits = 0;
+  for (const label of labels) {
+    for (const word of label.split(/\s+/)) {
+      if (word && !hasWideCharacter(word)) longestUnits = Math.max(longestUnits, labelWidthUnits(word));
+    }
+  }
+  return Math.ceil(longestUnits * labelCharacterWidth) + labelColumnGap;
+}
+
+/** True when the word holds an East Asian wide character, which wraps between any two characters. */
+function hasWideCharacter(word: string): boolean {
+  return labelWidthUnits(word) !== [...word].length;
+}
+
+/**
+ * Returns the label with soft hyphens in each word wider than its column, splitting it into even parts,
+ * so the word breaks with a hyphen and never leaves one or two letters alone on a line.
+ */
+export function labelWithBreakHints(label: string, columnWidth: number): string {
+  const lineUnits = Math.max(1, Math.floor(columnWidth / labelCharacterWidth));
+  return label.split(' ').map((word) => {
+    const characters = [...word];
+    if (characters.length <= lineUnits || hasWideCharacter(word)) return word;
+    const partCount = Math.ceil(characters.length / lineUnits);
+    const partLength = Math.ceil(characters.length / partCount);
+    const parts: string[] = [];
+    for (let start = 0; start < characters.length; start += partLength) parts.push(characters.slice(start, start + partLength).join(''));
+    return parts.join('\u00AD');
+  }).join(' ');
+}
+
+/** Splits an identifier into words: snake_case, kebab-case, camelCase and PascalCase, keeping acronyms. */
+function identifierWords(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Returns an event subject as words for the lane, such as "Send User Message" for send_user_message
+ * or SendUserMessage. Text that already has spaces stays as it is. The exact name stays in the tooltip.
+ */
+export function timelineLabelText(subject: string): string {
+  return subject.split(', ').map((part) => {
+    if (/\s/.test(part) || !/[_-]|[a-z][A-Z]|[A-Z]{2}[a-z]/.test(part)) return part;
+    return identifierWords(part).map((word) => word[0].toUpperCase() + word.slice(1)).join(' ');
+  }).join(', ');
 }
 
 /** East Asian wide and fullwidth ranges, which take about two label characters each. */
@@ -109,15 +208,23 @@ export function labelWidthUnits(subject: string): number {
   return units;
 }
 
-/** The strip geometry: slanted labels on top, then dots, event numbers, and link arcs. */
+/** The strip geometry: labels on top, then dots, event numbers, and link arcs. */
 export const horizontalTimelineLayout = {
-  labelAngleDegrees,
-  labelMaxWidth,
-  /** Room at the right edge for the slanted labels of the newest events. */
-  labelRunWidth: Math.ceil(labelMaxWidth * Math.cos(labelAngle)) + 10,
-  /** Room at the right edge for the run's end note, when the strip shows one. */
-  endNoteRunWidth: 240,
+  denseLabelAngleDegrees,
+  denseLabelMaxWidth,
+  labelMaxLines,
+  /** Room at the right edge: Dense labels of the newest events slant past their dots. */
+  labelRunWidth: {
+    dense: Math.ceil(denseLabelMaxWidth * Math.cos(denseLabelAngle)) + 10,
+    tidy: 0,
+  } satisfies Record<TimelineLabelMode, number>,
 };
+
+/** Returns the room at the right edge for the run's end note: its estimated width, at most 240 px. */
+export function endNoteRunWidth(endNoteLabel: string): number {
+  // The note starts 18 px past the newest dot; its mark and padding take about 28 px.
+  return Math.min(240, 18 + 28 + Math.ceil(labelWidthUnits(endNoteLabel) * 7));
+}
 const overscanSlots = 6;
 
 const fallbackStripWidth = 1200;
@@ -351,12 +458,6 @@ function retriedSpoken(event: FlowHistoryEvent, status: EventStatus): string {
     : 'succeeded after a failed attempt';
 }
 
-/** Reports whether two instants fall on the same calendar day in the viewer's timezone. */
-export function isSameCalendarDay(startMs: number, endMs: number, timezone: TimezonePreference): boolean {
-  if (timezone === 'UTC') return new Date(startMs).toISOString().slice(0, 10) === new Date(endMs).toISOString().slice(0, 10);
-  return new Date(startMs).toDateString() === new Date(endMs).toDateString();
-}
-
 const clockFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /** Time of day with seconds, plus tenths when a range is shorter than a minute. */
@@ -463,7 +564,7 @@ function overviewBarSegments(bucket: OverviewBucket, maxCount: number): { tone: 
   return remaining > 0 && normalCount > 0 ? [...segments, { tone: 'normal', height: remaining }] : segments;
 }
 
-/** Shows a Timeline page left to right with slanted labels; only events in view render. */
+/** Shows a Timeline page left to right with Dense or Tidy labels; only events in view render. */
 export function HorizontalTimeline({
   events,
   selectedEvent,
@@ -492,8 +593,21 @@ export function HorizontalTimeline({
   /** Opens time travel at an event; T calls it for the selected event. */
   onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
 }) {
-  const shownEndNote = endNote && !paging?.hasNewer ? endNote : null;
-  const labelRunWidth = shownEndNote ? horizontalTimelineLayout.endNoteRunWidth : horizontalTimelineLayout.labelRunWidth;
+  const [labelMode, setLabelMode] = useState<TimelineLabelMode>(storedTimelineLabelMode);
+  const { isIntroShown: isLabelModeIntroShown, dismissIntro: dismissLabelModeIntro } = useTimelineLabelModeIntro();
+  const labelModeIntroId = useId();
+  const changeLabelMode = useCallback((nextLabelMode: TimelineLabelMode) => {
+    // Choosing a mode shows the reader has found the tabs, so the intro is done.
+    if (isLabelModeIntroShown) dismissLabelModeIntro();
+    setLabelMode(nextLabelMode);
+    persistTimelineLabelMode(nextLabelMode);
+  }, [dismissLabelModeIntro, isLabelModeIntroShown]);
+  const isTidy = labelMode === 'tidy';
+  // Only an open run has a "now" to note; a closed run's last event already says how it ended.
+  const shownEndNote = endNote?.isOpen && !paging?.hasNewer ? endNote : null;
+  const labelRunWidth = shownEndNote
+    ? Math.max(horizontalTimelineLayout.labelRunWidth[labelMode], endNoteRunWidth(shownEndNote.label))
+    : horizontalTimelineLayout.labelRunWidth[labelMode];
   const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
   const states = useMemo(() => eventStates(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
   const indexByEventId = useMemo(
@@ -505,7 +619,11 @@ export function HorizontalTimeline({
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
-  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth);
+  const subjects = useMemo(() => chronological.map(eventSubject), [chronological]);
+  const labels = useMemo(() => (isTidy ? subjects.map(timelineLabelText) : subjects), [isTidy, subjects]);
+  // The whole page sets it, so scrolling never changes the slot width.
+  const pageMinimumSlotWidth = useMemo(() => (isTidy ? tidyWordSlotWidth(labels) : 0), [isTidy, labels]);
+  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth, labelMode, pageMinimumSlotWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
   const maxStart = Math.max(0, chronological.length - visibleCount);
   // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
@@ -536,7 +654,10 @@ export function HorizontalTimeline({
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
-  const stripHeight = useMemo(() => timelineStripHeight(chronological.map(eventSubject)), [chronological]);
+  const stripHeight = useMemo(
+    () => (isTidy ? tidyStripHeight(labels, slotWidth) : denseStripHeight(labels)),
+    [isTidy, labels, slotWidth],
+  );
   const statusList = useMemo(
     () => chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
     [chronological, states],
@@ -718,7 +839,8 @@ export function HorizontalTimeline({
     const pointerX = pointerPlotX(event.clientX);
     const isGripPress = maxStart > 0 && isOverBrushGrip(pointerX);
     let start = windowStart;
-    if (!isOverBrush(pointerX)) {
+    // A lane overview shows only what is in view, so a press selects; the track below moves the view.
+    if (!isLaneOverview && !isOverBrush(pointerX)) {
       start = clampStart(ratioToEventIndex(overviewAxis, plotXToRatio(pointerX)) - visibleCount / 2);
       moveWindow(start);
     }
@@ -735,6 +857,7 @@ export function HorizontalTimeline({
   const handleMinimapPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointerX = pointerPlotX(event.clientX);
     if (isDraggingMinimap.current) {
+      if (isLaneOverview) return;
       const origin = brushDragOrigin.current;
       if (Math.abs(pointerX - origin.pointerX) > overviewClickSlop) origin.hasDragged = true;
       // Back at the press point, restore the exact start; the pixel round trip may differ by float noise.
@@ -795,7 +918,10 @@ export function HorizontalTimeline({
   const brushInPlot = brushSpan();
   const brush = { left: overviewPlotInset + brushInPlot.left, right: overviewPlotInset + brushInPlot.right };
   // The brush only appears when the page is wider than the strip; otherwise there is nothing to move.
-  const hasBrush = maxStart > 0;
+  const hasBrush = !isLaneOverview && maxStart > 0;
+  const isIndexInView = (index: number) => xOf(index) >= 0 && xOf(index) <= stripWidth;
+  // The lane overview draws only what is in view; the whole-page overview marks every event.
+  const isOverviewMarkShown = (index: number) => !isLaneOverview || isIndexInView(index);
   const barSlotWidth = plotWidth / bucketCount;
   const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
   /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
@@ -835,6 +961,9 @@ export function HorizontalTimeline({
       <div className="htl-head">
         <span className="htl-head-range">{axisStartLabel} → {axisEndLabel}</span>
         <span className="htl-overview-summary">
+          {maxStart > 0 && (
+            <span className="htl-in-view">#{firstVisible.eventId}–#{lastVisible.eventId} in view · </span>
+          )}
           {axisSpanLabel}
           {problemCount > 0 && (
             <>
@@ -847,14 +976,28 @@ export function HorizontalTimeline({
         </span>
         <span className="htl-head-tools">
           {shownEndNote && !isEndInView && (
-            <button className="pager-button htl-end-jump" onClick={() => moveWindow(maxStart)} title={shownEndNote.label} type="button">
-              {shownEndNote.isOpen ? 'Now' : 'End'}
-              <ChevronRight aria-hidden="true" size={14} strokeWidth={2.25} />
+            <button
+              aria-label="Go to the newest event"
+              className="htl-end-jump"
+              onClick={() => moveWindow(maxStart)}
+              title="Go to the newest event"
+              type="button"
+            >
+              <span aria-hidden="true" className="live-status-dot" />
+              Now
+              <ChevronRight aria-hidden="true" size={13} strokeWidth={2.25} />
             </button>
           )}
+          <TimelineLabelModeTabs
+            introId={isLabelModeIntroShown ? labelModeIntroId : undefined}
+            labelMode={labelMode}
+            onChangeLabelMode={changeLabelMode}
+          />
           <EventKindLegend />
         </span>
       </div>
+
+      {isLabelModeIntroShown && <TimelineLabelModeIntro id={labelModeIntroId} onDismiss={dismissLabelModeIntro} />}
 
       <div
         aria-describedby={overviewHelpId}
@@ -887,7 +1030,7 @@ export function HorizontalTimeline({
             y2={overviewHeight - 0.5}
           />
           {overviewBuckets.flatMap((bucket, bucketIndex) => {
-            if (!bucket.count) return [];
+            if (!bucket.count || (isLaneOverview && !isIndexInView(bucket.firstEventIndex))) return [];
             const segments = overviewBarSegments(bucket, maxBucketCount);
             const centerX = barCenterX(bucket, bucketIndex);
             const x = centerX - barWidth / 2;
@@ -944,11 +1087,11 @@ export function HorizontalTimeline({
           })}
           {[...linkedEventIds].flatMap((eventId) => {
             const index = indexByEventId.get(eventId);
-            if (index === undefined || index === selectedIndex) return [];
+            if (index === undefined || index === selectedIndex || !isOverviewMarkShown(index)) return [];
             const x = plotX(index);
             return [<line className="htl-overview-linked" key={eventId} x1={x} x2={x} y1={overviewMarkerLaneHeight} y2={overviewHeight} />];
           })}
-          {selectedIndex >= 0 && (
+          {selectedIndex >= 0 && isOverviewMarkShown(selectedIndex) && (
             <g className="htl-overview-selection">
               <line x1={plotX(selectedIndex)} x2={plotX(selectedIndex)} y1={overviewMarkerLaneHeight - 2} y2={overviewHeight} />
               <circle cx={plotX(selectedIndex)} cy={overviewMarkerLaneHeight - 2} r={2.5} />
@@ -1001,11 +1144,13 @@ export function HorizontalTimeline({
           : undefined}
         aria-describedby={helpId}
         aria-label="Timeline events, oldest on the left"
-        className="htl-strip"
+        className={`htl-strip is-${labelMode}`}
+        data-label-mode={labelMode}
         style={{
           '--htl-slot-width': `${slotWidth}px`,
-          '--htl-label-angle': `-${labelAngleDegrees}deg`,
-          '--htl-label-max-width': `${labelMaxWidth}px`,
+          '--htl-label-lines': isTidy ? labelMaxLines : undefined,
+          '--htl-label-angle': isTidy ? undefined : `-${denseLabelAngleDegrees}deg`,
+          '--htl-label-max-width': isTidy ? undefined : `${denseLabelMaxWidth}px`,
           height: `${stripHeight}px`,
         } as CSSProperties}
         onKeyDown={handleStripKeyDown}
@@ -1042,13 +1187,19 @@ export function HorizontalTimeline({
               className={classes}
               data-event-id={event.eventId}
               id={`htl-event-${event.eventId}`}
-              key={event.eventId}
+              // A mode switch remounts the labels, so they fade in at their new places.
+              key={`${labelMode}-${event.eventId}`}
               onClick={() => selectIndex(index)}
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
               title={`${subject} · #${event.eventId}`}
             >
-              <span aria-hidden="true" className="htl-label">{subject}</span>
+              {/* An event whose dot scrolled past the left edge shows no label, so no label is cut. */}
+              {xOf(index) >= 0 && (
+                <span aria-hidden="true" className="htl-label">
+                  {isTidy ? labelWithBreakHints(labels[index], slotWidth - labelColumnGap) : labels[index]}
+                </span>
+              )}
               <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
                 <KindIcon size={13} strokeWidth={2.5} />
                 {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
@@ -1100,7 +1251,6 @@ export function HorizontalTimeline({
         />
       )}
       </div>
-
 
       <p className="sr-only" id={helpId}>
         Left and Right, or J and K, move the selection; Page Up and Page Down move by a screen. T time travels from the selected event. A sideways swipe or Shift with the wheel scrolls the lane.
