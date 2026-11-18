@@ -648,7 +648,7 @@ Each SDK's integration tests check invariants 3 and 5 against a real server. The
 
 ## Benchmark plan
 
-**Decided (owner, 2026-11-18): dropped.** Dex benchmarks measure peak throughput with common default configuration, using the existing `dexbench` scenarios. No adaptive-stream scenarios are added. The SDK integration tests cover adaptive behavior. The plan below is kept for the record. The slot-stream scenarios were added in #1997 and reverted.
+**Decided (owner, 2026-11-18): replaced.** Dex benchmarks measure peak throughput with common default configuration, using the existing `dexbench` scenarios. The only addition is a `dexbench` option that runs the existing scenarios with adaptive mode on (`MinOpenSlots` below the ceiling). It compares peak throughput against fixed slots, so adaptive mode is shown not to cost throughput. No new scenarios are added. The SDK integration tests cover the adaptive behavior itself. The plan below is kept for the record. The slot-stream scenarios were added in #1997 and reverted.
 
 The scenarios extend `dexbench` in `benchmark/dexbench`:
 
@@ -675,7 +675,7 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
 
 ## Rollout and API changes
 
-**Phase 0: measure.** Add `idle-slots` to `dexbench` and commit results (#1989 item 1). The results size the phase 2 floor and feed the D8 evidence check. No product change. Dropped by the owner on 2026-11-18; see the benchmark plan.
+**Phase 0: measure.** Add `idle-slots` to `dexbench` and commit results (#1989 item 1). The results size the phase 2 floor and feed the D8 evidence check. No product change. Replaced by the owner on 2026-11-18 with an adaptive-mode option for the existing scenarios. See the benchmark plan.
 
 **Phase 1: opt-in adaptive streams, an SDK patch release in all five SDKs.**
 - Add `MinOpenSlots`, an optional field that defaults to `MaxConcurrentTasks`. With that default, behavior is identical to today. A lower value enables adaptation.
