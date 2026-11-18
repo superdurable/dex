@@ -193,7 +193,7 @@ Each entry declares one requirement that any one of several groups of environmen
 | `label` | string | no | 1 to 64 characters without control characters. Unique in the list. **Setup** shows it. |
 | `groups` | list of lists of strings | yes | 2 to 4 groups. Each group holds 1 to 8 names. |
 
-Each name in a group is declared in [`application.environment`](#application-environment) with `required: false`, which is the default. A name declared `required: true` is an error, because the requirement decides when the variable is needed. A name appears once in its requirement. Two requirements may share a name.
+Each name in a group is declared in [`application.environment`](#application-environment) with `required: false`, which is the default. A name declared `required: true` is an error, because the requirement decides when the variable is needed. A name appears once in its requirement. Two requirements may share a name. A rule that a `requiredOneOf` entry breaks is reported like any other manifest error: the import or publish says the manifest is invalid, and the message names the rule.
 
 The requirement is met when every variable of one group is set to a value its declaration accepts. Give each member `minLength: 1` so that an empty value does not meet a group. Declare a credential member with `secret: true`. Dex Cloud shows an unmet requirement as a gap in **Setup**, with the code `ENVIRONMENT_ONE_OF_REQUIRED`. The gap blocks **Publish** and **Preview** start, like a missing required value.
 
