@@ -233,7 +233,9 @@ They differ from S1 to S6 in three ways:
   keeps its planned time even when the scheduler wakes late, so its lateness
   counts as latency. This avoids coordinated omission. A periodic wave needs a
   period of at least 100 ms, so that sampling stays within 1% of the wave's
-  integral. Rates and percents must be finite and nonnegative.
+  integral. Rates and percents must be finite and nonnegative. A point fails
+  at once when its computed peak rate is not finite or when it would plan more
+  than 10 million starts.
 - **Request loss.** A planned start can be skipped because the start queue is
   full, fail in StartFlow, or never run its Step before the point ends. Such a
   request has no latency. The scheduler wakes every 5 ms. A start queued more
@@ -316,6 +318,9 @@ counts the lost ones by cause. Its `slot_streams` object adds:
 - `is_usable`, `unusable_reasons`, and `request_loss`: planned starts, skipped
   starts, StartFlow failures, Flows started, Steps started, Steps not started,
   starts queued more than 20 ms late, and the largest scheduler lag.
+- `steps_outside_phases`: Steps that started in the short gap between two
+  phases, or after the last one. A phase lists only Steps that started within
+  its own `started_at` and `ended_at`.
 - `phases`: per phase, the offered rate, Steps started, schedule-to-start
   percentiles, Steps and share per Worker, Jain's index, the server stream
   range, and the peak of busy handlers.

@@ -27,11 +27,14 @@ type slotProbeRecorder struct {
 	mutex             sync.Mutex
 	intervalLatencies []time.Duration
 	phases            []slotPhaseBucket
+	// stepsOutsidePhases counts starts stamped before the first phase or between a phase's end and the next start.
+	stepsOutsidePhases int64
 }
 
-// slotPhaseBucket holds the Step starts whose timestamps fall at or after startedAt and before the next bucket.
+// slotPhaseBucket holds the Step starts stamped in [startedAt, endedAt); endedAt is zero while the phase is open.
 type slotPhaseBucket struct {
 	startedAt   time.Time
+	endedAt     time.Time
 	workerSteps []int64
 	latencies   []time.Duration
 	firstStart  time.Time
@@ -56,6 +59,21 @@ func (recorder *slotProbeRecorder) beginPhase() (int, time.Time) {
 	return len(recorder.phases) - 1, startedAt
 }
 
+// endPhase closes a phase bucket now and returns its end time; later starts no longer land in it.
+func (recorder *slotProbeRecorder) endPhase(phase int) time.Time {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	endedAt := time.Now()
+	recorder.phases[phase].endedAt = endedAt
+	return endedAt
+}
+
+func (recorder *slotProbeRecorder) stepsOutsideAnyPhase() int64 {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	return recorder.stepsOutsidePhases
+}
+
 // phaseSteps returns a copy of a phase's per-Worker Step starts, its latencies, and its first and last start times.
 // The times are zero when the phase saw no Step start.
 func (recorder *slotProbeRecorder) phaseSteps(phase int) ([]int64, []time.Duration, time.Time, time.Time) {
@@ -76,6 +94,7 @@ func (recorder *slotProbeRecorder) recordStart(worker int, plannedAt time.Time) 
 	recorder.intervalLatencies = append(recorder.intervalLatencies, latency)
 	phase := slotPhaseAt(recorder.phases, now)
 	if phase < 0 {
+		recorder.stepsOutsidePhases++
 		return
 	}
 	bucket := &recorder.phases[phase]
@@ -89,12 +108,17 @@ func (recorder *slotProbeRecorder) recordStart(worker int, plannedAt time.Time) 
 	}
 }
 
-// slotPhaseAt returns the index of the last bucket that started at or before at, or -1 before the first.
+// slotPhaseAt returns the index of the bucket whose [startedAt, endedAt) holds at, or -1 when none does.
 func slotPhaseAt(phases []slotPhaseBucket, at time.Time) int {
 	for index := len(phases) - 1; index >= 0; index-- {
-		if !at.Before(phases[index].startedAt) {
-			return index
+		bucket := phases[index]
+		if at.Before(bucket.startedAt) {
+			continue
 		}
+		if !bucket.endedAt.IsZero() && !at.Before(bucket.endedAt) {
+			return -1
+		}
+		return index
 	}
 	return -1
 }

@@ -172,6 +172,54 @@ func TestSlotPhaseAtUsesTheEventTimestamp(t *testing.T) {
 	}
 }
 
+func TestRecorderCountsStartsBetweenPhasesOutsideEveryPhase(t *testing.T) {
+	recorder := newSlotProbeRecorder(1)
+	first, _ := recorder.beginPhase()
+	recorder.recordStart(0, time.Now())
+	firstEndedAt := recorder.endPhase(first)
+	recorder.recordStart(0, time.Now())
+	second, _ := recorder.beginPhase()
+	recorder.recordStart(0, time.Now())
+	firstCounts, _, _, lastStart := recorder.phaseSteps(first)
+	secondCounts, _, _, _ := recorder.phaseSteps(second)
+	if firstCounts[0] != 1 || secondCounts[0] != 1 || recorder.stepsOutsideAnyPhase() != 1 {
+		t.Fatalf("first %v, second %v, outside %d", firstCounts, secondCounts, recorder.stepsOutsideAnyPhase())
+	}
+	if !lastStart.Before(firstEndedAt) {
+		t.Fatalf("the first phase lists a start at %v, at or after its end %v", lastStart, firstEndedAt)
+	}
+	start := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	closed := []slotPhaseBucket{{startedAt: start, endedAt: start.Add(time.Second)}, {startedAt: start.Add(2 * time.Second)}}
+	if slotPhaseAt(closed, start.Add(time.Second)) != -1 || slotPhaseAt(closed, start.Add(1500*time.Millisecond)) != -1 {
+		t.Fatal("a start in the gap was assigned to the closed phase")
+	}
+}
+
+func TestResolveSlotStreamSettingsRejectsHugeFiniteLoads(t *testing.T) {
+	for name, test := range map[string]struct {
+		scenario string
+		change   func(*Config)
+	}{
+		"periodic 1e308 percent": {"periodic", func(config *Config) { config.SlotStreams.LoadHighPercent = 1e308 }},
+		"fairness 1e9 percent":   {"fairness", func(config *Config) { config.SlotStreams.LoadPercents = []float64{1e9} }},
+		"burst huge level":       {"burst-async", func(config *Config) { config.SlotStreams.BurstLevels = []int{1 << 40} }},
+		"idle probe rate":        {"idle-slots-f1", func(config *Config) { config.SlotStreams.ProbeRatePerSecond, config.SlotStreams.ProbeSeconds = 1e7, 2 }},
+		"backlog of 20 million":  {"backlog-one-partition-10ms", func(config *Config) { config.Concurrency = 20_000_000 }},
+	} {
+		config := slotTestConfig(test.scenario, 99)
+		test.change(&config)
+		_, err := resolveSlotStreamSettings(&config)
+		if err == nil || (!strings.Contains(err.Error(), "over the limit") && !strings.Contains(err.Error(), "not finite")) {
+			t.Fatalf("%s gave %v", name, err)
+		}
+	}
+	config := slotTestConfig("periodic", 99)
+	config.SlotStreams.LoadLowPercent, config.SlotStreams.LoadHighPercent = 10, 90
+	if _, err := resolveSlotStreamSettings(&config); err != nil {
+		t.Fatalf("a normal periodic load was rejected: %v", err)
+	}
+}
+
 func TestUnusableReasonsReportEveryLossAndAnyLateSubmission(t *testing.T) {
 	if reasons := unusableReasons(SlotRequestLoss{Planned: 10, FlowsStarted: 10, StepsStarted: 10, MaxSchedulerLagMs: 5}); reasons != nil {
 		t.Fatalf("a complete point is unusable: %v", reasons)

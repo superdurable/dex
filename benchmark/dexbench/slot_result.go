@@ -70,9 +70,11 @@ type SlotStreamResult struct {
 	PartitionPinning string  `json:"partition_pinning,omitempty"`
 	BaselineStreams  float64 `json:"baseline_server_streams"`
 	// IsUsable is false when requests were lost or the load generator fell behind; UnusableReasons says why.
-	IsUsable           bool                    `json:"is_usable"`
-	UnusableReasons    []string                `json:"unusable_reasons,omitempty"`
-	RequestLoss        SlotRequestLoss         `json:"request_loss"`
+	IsUsable        bool            `json:"is_usable"`
+	UnusableReasons []string        `json:"unusable_reasons,omitempty"`
+	RequestLoss     SlotRequestLoss `json:"request_loss"`
+	// StepsOutsidePhases started between two phases or after the last one, so no phase table lists them.
+	StepsOutsidePhases int64                   `json:"steps_outside_phases"`
 	Phases             []SlotStreamPhase       `json:"phases"`
 	Samples            []SlotStreamSample      `json:"samples"`
 	Idle               *IdleStreamCost         `json:"idle,omitempty"`

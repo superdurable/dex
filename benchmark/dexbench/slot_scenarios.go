@@ -200,6 +200,9 @@ func resolveSlotStreamSettings(config *Config) (slotStreamSettings, error) {
 	if err := validateSlotLoadInputs(scenario.kind, options); err != nil {
 		return slotStreamSettings{}, err
 	}
+	if err := validatePlannedLoad(settings, options, config.DurationSeconds, config.Concurrency); err != nil {
+		return slotStreamSettings{}, err
+	}
 	options.Workers = len(settings.workerSlots)
 	options.SlotsPerWorker = settings.workerSlots[0]
 	options.FlowTypes = settings.flowTypes
@@ -228,6 +231,54 @@ func validateSlotLoadInputs(kind slotScenarioKind, options *SlotStreamConfig) er
 		return fmt.Errorf("load period %.3fs is shorter than the minimum %v", options.LoadPeriodSeconds, minWavePeriod)
 	}
 	return nil
+}
+
+// maxPlannedStartsPerPoint bounds the probe starts one point may plan, so the schedule and its queue stay executable.
+const maxPlannedStartsPerPoint = 10_000_000
+
+// validatePlannedLoad fails when a scenario's peak rate is not finite or its planned starts exceed maxPlannedStartsPerPoint.
+// Finite inputs such as a 1e308 percent can still overflow the rate or plan billions of starts.
+func validatePlannedLoad(settings slotStreamSettings, options *SlotStreamConfig, durationSeconds float64, concurrency int) error {
+	peakRate, planned := plannedSlotLoad(settings, options, durationSeconds, concurrency)
+	if !isFiniteNonnegative(peakRate) || !isFiniteNonnegative(planned) {
+		return fmt.Errorf("the scenario's peak rate %v or planned starts %v is not finite; lower the rate, percent, or level inputs", peakRate, planned)
+	}
+	if planned > maxPlannedStartsPerPoint {
+		return fmt.Errorf("the point plans %.0f starts at a peak of %.0f per second, over the limit of %d; lower the rate or the duration",
+			planned, peakRate, maxPlannedStartsPerPoint)
+	}
+	return nil
+}
+
+// plannedSlotLoad returns a scenario's peak start rate per second and an upper bound of the starts it plans.
+func plannedSlotLoad(settings slotStreamSettings, options *SlotStreamConfig, durationSeconds float64, concurrency int) (float64, float64) {
+	capacityRate := float64(settings.totalSlots()) / settings.handlerDuration.Seconds()
+	switch settings.scenario.kind {
+	case slotScenarioIdle:
+		return options.ProbeRatePerSecond, options.ProbeRatePerSecond * options.ProbeSeconds
+	case slotScenarioBurst:
+		var peak, planned float64
+		for _, level := range options.BurstLevels {
+			rate := float64(level) * float64(len(settings.workerSlots)) / settings.handlerDuration.Seconds()
+			peak = math.Max(peak, rate)
+			planned += rate * durationSeconds
+		}
+		return peak, planned
+	case slotScenarioFairness:
+		var peak, planned float64
+		for _, percent := range options.LoadPercents {
+			rate := capacityRate * percent / 100
+			peak = math.Max(peak, rate)
+			planned += rate * durationSeconds
+		}
+		return peak, planned
+	case slotScenarioPeriodic:
+		peak := capacityRate * math.Max(options.LoadLowPercent, options.LoadHighPercent) / 100
+		return peak, peak * durationSeconds
+	default:
+		// A backlog queues concurrency Steps at once, with no rate.
+		return 0, float64(concurrency)
+	}
 }
 
 func isFiniteNonnegative(value float64) bool {
@@ -661,12 +712,12 @@ type slotPhaseBucketRef struct {
 	startedAt time.Time
 }
 
-// endPhase records the phase window; fillPhaseStepStats adds its Step counts and latencies at the end.
-// A start belongs to the phase whose start time is the latest one not after its timestamp.
+// endPhase closes the phase's recorder bucket and records the same end time; fillPhaseStepStats adds its Steps at the end.
+// A start belongs to the phase whose [StartedAt, EndedAt) holds its timestamp; gap starts count as outside every phase.
 func (runner *SlotStreamRunner) endPhase() {
 	runner.phaseMutex.Lock()
 	defer runner.phaseMutex.Unlock()
-	ended := time.Now()
+	ended := runner.recorder.endPhase(runner.phaseBuckets[len(runner.phaseBuckets)-1].index)
 	runner.phases = append(runner.phases, SlotStreamPhase{
 		Name:                 runner.phaseName,
 		StartedAt:            runner.phaseStartedAt.UTC(),
@@ -1129,19 +1180,20 @@ func (runner *SlotStreamRunner) fillResult(result *Result, elapsed time.Duration
 	result.Latency = calculatePercentiles(allLatencies)
 	reasons := unusableReasons(loss)
 	slotResult := &SlotStreamResult{
-		Workers:          len(runner.settings.workerSlots),
-		SlotsPerWorker:   runner.settings.workerSlots,
-		TotalSlots:       runner.settings.totalSlots(),
-		PartitionPinning: runner.partitionPinningLabel(),
-		BaselineStreams:  runner.baselineStreams,
-		IsUsable:         len(reasons) == 0,
-		UnusableReasons:  reasons,
-		RequestLoss:      loss,
-		Phases:           phases,
-		Samples:          samples,
-		Idle:             runner.idle,
-		Restart:          runner.restart,
-		Backlog:          runner.backlog,
+		Workers:            len(runner.settings.workerSlots),
+		SlotsPerWorker:     runner.settings.workerSlots,
+		TotalSlots:         runner.settings.totalSlots(),
+		PartitionPinning:   runner.partitionPinningLabel(),
+		BaselineStreams:    runner.baselineStreams,
+		IsUsable:           len(reasons) == 0,
+		UnusableReasons:    reasons,
+		RequestLoss:        loss,
+		StepsOutsidePhases: runner.recorder.stepsOutsideAnyPhase(),
+		Phases:             phases,
+		Samples:            samples,
+		Idle:               runner.idle,
+		Restart:            runner.restart,
+		Backlog:            runner.backlog,
 	}
 	if runner.backlog != nil {
 		if drain, isFound := findSlotPhase(phases, slotPhaseDrain); isFound {
