@@ -1,6 +1,6 @@
 # Adaptive pull Worker slot streams
 
-- **Status:** accepted. The owner decided D1 to D13 in [Decisions](#decisions) on 2026-11-17. The review follow-ups F3, F4, and F5 at the end of that section wait for owner confirmation. F5 supersedes F1 and F2.
+- **Status:** accepted, with all decisions made. The owner decided D1 to D13 and the review follow-ups F3 to F6 in [Decisions](#decisions) on 2026-11-17. F5 supersedes F1 and F2.
 - **Tracking issue:** [#1989](https://github.com/superdurable/dex/issues/1989) and its 2026-11-17 comment.
 - **Code read:** `origin/main` at `35ee8dcdccf64fb9db38d8b0cc0a7aacefa29d4f` (2026-11-17). Every `path:line` below refers to that commit.
 - **Scope:** design only. It proposes no product code in this change.
@@ -213,17 +213,37 @@ These are the paths that #1253 hardened.
 
 ## Design (Option A)
 
+### Configuration shape
+
+`MaxConcurrentTasks` is the ceiling and `MinOpenSlots` is the floor. Both count all slot streams, including reserved RPC slots. A Worker is adaptive when its floor is below its ceiling, and fixed when they are equal.
+
+```go
+// Fixed: every slot keeps a stream. This is the phase 1 default.
+dex.PullWorkerOptions{MaxConcurrentTasks: 64}
+
+// Adaptive: between 8 and 64 open slot streams.
+dex.PullWorkerOptions{MaxConcurrentTasks: 64, MinOpenSlots: 8}
+
+// Phase 2: the default floor is min(ceiling, CPU count), so this Worker is adaptive.
+dex.PullWorkerOptions{MaxConcurrentTasks: 64}
+
+// Phase 2: setting the floor equal to the ceiling keeps it fixed.
+dex.PullWorkerOptions{MaxConcurrentTasks: 64, MinOpenSlots: 64}
+```
+
 ### Terms
 
 Per Worker, for Step-and-RPC slot streams only:
 
-- `T`, the total ceiling: `MaxConcurrentTasks`, or for an unset default, the default clamped to the reported cap (D4). The reported cap is `max_concurrent_tasks_per_app_worker`, where zero means none.
+- `T`, the total ceiling. The reported cap is `max_concurrent_tasks_per_app_worker`, where zero means none.
+  - In fixed mode, `T` is an explicit `MaxConcurrentTasks`, or an unset default clamped to the reported cap (D4).
+  - In adaptive mode, `T` is `MaxConcurrentTasks`, explicit or default, clamped to the reported cap (F6).
 - `C`, the total capacity: `min(T, reported cap)`, from the last acknowledgement. It counts Step-and-RPC and RPC-only slots.
 - `R`, the configured reserved RPC slot count, derived from `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)). `R_eff` is the RPC-only stream count the Worker may hold: `R`, or `max(0, C - 1)` when `R + 1` exceeds `C` (F5).
 - `Sr` and `Hr`, the open RPC-only streams and the orphaned RPC-only handlers.
 - `E`, the hard Step-and-RPC capacity: `max(0, C - max(R_eff, Sr + Hr))`. RPC-only handlers above `R_eff`, busy or orphaned, take Step capacity until they return. A soft rejection never lowers `E`.
 - `G`, the soft growth target: `E`, or lower after a growth batch with a soft rejection (see [Registration failures](#registration-failures-and-the-cap)). `G ≤ E` always holds, and growth never goes above `G`.
-- `L`, the configured floor, and `L_eff = min(L, E)`, the effective floor. Both `E` and `L_eff` are never negative.
+- `L`, the Step-and-RPC floor: `MinOpenSlots - R`. `L_eff = min(L, E)` is the effective floor. Both `E` and `L_eff` are never negative.
 - `S`, the open Step-and-RPC streams: registered or registering, and not closing.
 - `P`, the registering streams: opened, with no acknowledgement yet.
 - `B`, the busy streams: a task frame received and no final frame sent yet.
@@ -241,14 +261,17 @@ The rules below apply to Step-and-RPC streams unless they name RPC-only streams.
 ### Floor and ceiling defaults
 
 - **Ceiling.** `MaxConcurrentTasks` keeps its meaning and its current default, the CPU count. Phase 2 changes the default to 100 (see [Rollout](#rollout-and-api-changes)).
-- **Defaults are derived after the clamp.** `matching.maxConcurrentTasksCap` may be as low as 1 (`server-zd/crates/dexzd-server/src/config/validation.rs:571-579`), and the cap counts RPC-only streams. So when an unset ceiling is clamped (D4), the Worker computes the defaults from the clamped `T`, not from the unclamped default:
+- **Clamping the ceiling.** The first acknowledgement reports the cap.
+  - **Fixed mode:** an explicit `MaxConcurrentTasks` above the cap fails start, as today. An unset default above the cap is clamped with a WARN log (D4).
+  - **Adaptive mode:** `MaxConcurrentTasks` above the cap is clamped to the cap with a WARN log that names both values, whether it is explicit or the default (F6). In adaptive mode the ceiling is only a growth limit, and users often set it high to mean "as many as allowed".
+- **Defaults are derived after the clamp.** `matching.maxConcurrentTasksCap` may be as low as 1 (`server-zd/crates/dexzd-server/src/config/validation.rs:571-579`), and the cap counts RPC-only streams. So when the ceiling is clamped, the Worker computes the defaults from the clamped `T`, not from the unclamped value:
   - `R` defaults to 1 when `T ≥ 2`, else 0. This is today's rule (`sdk-go/dex/worker_pull.go:116-123`) applied to `T`.
-  - `L` defaults from `T - R`, as below.
-  - An explicit `ReservedRPCTasks` with `R ≥ T` fails start with an error that names `R`, `T`, and the cap. An explicit `MinOpenSlots` above `T - R` fails start the same way.
-  - Example: cap 1 with the default ceiling of 100 gives `T` = 1, `R` = 0, `E` = 1, and `L` = 1. The Worker runs one Step-and-RPC stream and logs the clamp at WARN.
-- **Floor.** A new option, `MinOpenSlots` (decision D7). It counts Step-and-RPC streams and must satisfy `1 ≤ L ≤ T - R`.
-  - **Phase 1 default:** `MaxConcurrentTasks - R`, so the Worker stays fixed and identical to today. Adaptation is opt-in by setting a lower floor.
-  - **Phase 2 default:** `min(T - R, max(1, CPU count - R))`. On a machine with at least 2 CPUs, a Worker with the default ceiling then still holds exactly today's default stream count while idle. Only the capacity above the CPU count adapts.
+  - `MinOpenSlots` defaults from `T`, as below.
+  - An explicit `ReservedRPCTasks` with `R ≥ T` fails start with an error that names `R`, `T`, and the cap. An explicit `MinOpenSlots` above `T` fails start the same way.
+  - Example, fixed mode with an unset ceiling: cap 1 with the default ceiling of 100 gives `T` = 1, `R` = 0, `E` = 1, and `L` = 1. The Worker runs one Step-and-RPC stream and logs the clamp at WARN.
+- **Floor.** A new option, `MinOpenSlots` (decision D7). It counts all slot streams, like `MaxConcurrentTasks`, and must satisfy `R + 1 ≤ MinOpenSlots ≤ MaxConcurrentTasks`. The Step-and-RPC floor is `L = MinOpenSlots - R`.
+  - **Phase 1 default:** `MaxConcurrentTasks`, so the Worker stays fixed and identical to today. Adaptation is opt-in by setting a lower floor.
+  - **Phase 2 default:** `min(T, max(R + 1, CPU count))`. On a machine with at least 2 CPUs, a Worker with the default ceiling then still holds exactly today's default stream count while idle. Only the capacity above the CPU count adapts. A user who sets only `MaxConcurrentTasks` becomes adaptive. Setting `MinOpenSlots` equal to `MaxConcurrentTasks` keeps the Worker fixed.
   - With 1 CPU, today's Worker holds 1 stream and no RPC slot. With a ceiling of 100, `R` becomes 1, so the Worker holds 2 streams.
 - **Why the floor is at least 1:**
   - Readiness needs one registered Step-and-RPC stream (`docs/reference/server/workers.mdx:20-26`).
@@ -273,8 +296,10 @@ The trigger and the step are decision D5.
 
 **Opening a stream.**
 - A new stream runs the same registration as today.
-- **Fixed mode** (`L = T - R`), and any Worker with an explicit `MaxConcurrentTasks`: at start, the Worker opens all `R + L` streams in parallel, as today (`sdk-go/dex/worker_pull.go:314-334`; `sdk-java/src/main/java/io/superdurable/dex/PullWorker.java:454-463`). An explicit ceiling above the cap still fails at the first acknowledgement, so it needs no probe. This keeps phase 1 startup and burst behavior identical to today.
-- **Unset ceiling that may be clamped** (from phase 2): the Worker first opens one Step-and-RPC stream and waits for its acknowledgement. It computes `T`, `R`, `E`, and `L` from the reported cap, then opens the `R` RPC-only streams and the other `L - 1` Step-and-RPC streams in parallel. This adds one round trip to startup only in this case, and it keeps a cap of 1 from rejecting the RPC-only stream. The on-hold branch uses the same probe.
+- **Fixed mode with an explicit `MaxConcurrentTasks`:** at start, the Worker opens all `R + L` streams in parallel, as today (`sdk-go/dex/worker_pull.go:314-334`; `sdk-java/src/main/java/io/superdurable/dex/PullWorker.java:454-463`). An explicit ceiling above the cap still fails at the first acknowledgement, so it needs no probe. This keeps phase 1 startup and burst behavior identical to today.
+- **Fixed mode with an unset ceiling that may be clamped** (from phase 2): the Worker first opens one Step-and-RPC stream and waits for its acknowledgement (F4). It computes `T`, `R`, `E`, and `L` from the reported cap, then opens the `R` RPC-only streams and the other `L - 1` Step-and-RPC streams in parallel. This adds one round trip to startup only in this case, and it keeps a cap of 1 from rejecting the RPC-only stream. The on-hold branch uses the same probe.
+- **Adaptive mode, with the ceiling set or not:** the Worker starts at the floor. It opens its `L` Step-and-RPC floor streams in parallel. It opens the RPC-only streams after the first acknowledgement, with `R` derived from the clamped `T`. Step-and-RPC capacity comes first, as in F5, so a cap of 1 leaves the one slot to a Step-and-RPC stream. The ceiling is clamped at that acknowledgement (F6) and only limits growth, so adaptive mode needs no cap probe.
+  - When the cap is below `L`, the extra floor streams get `RESOURCE_EXHAUSTED`. The Worker keeps running on the registered ones, because `L_eff = min(L, E)` and another stream of the kind is registered. That is today's rule for a rejection while another stream of the same kind stays registered (`docs/reference/server/workers.mdx:64-68`). The rejection is recorded as today and not retried, because the stream is above `L_eff`. With `StopOnPermanentStreamRejection` set, a rejection that arrives before any acknowledgement can still stop start, as it does today when the slot count exceeds the cap.
 - Java, TypeScript, and Rust must turn their one-shot stream creation into an incremental reconcile, as Go and Python already have.
 - TypeScript readiness changes to one registered stream of each slot kind, as decision D13 authorizes (`sdk-typescript/src/pull-worker.ts:218-223`). It is the only phase 1 behavior change in fixed mode, and the TypeScript change log records it.
 
@@ -328,7 +353,7 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 - does not record a permanent error in the registration state, change readiness, return `PullRegistrationError` (`docs/reference/server/workers.mdx:35-43`), or enter the 60 s permanent-error retry (`worker_pull.go:552-554` and the other SDKs).
 
 **Which rejections are soft (F5).** Today a `RESOURCE_EXHAUSTED` registration is a permanent stream error in every SDK. It is recorded in the registration state, and it can make **Start** return `PullRegistrationError` under `StopOnPermanentStreamRejection` (`sdk-go/dex/worker_pull.go:438-446, 552-555`; `sdk-python/dex/_pull_worker.py:45-50, 467-482`; `sdk-java/src/main/java/io/superdurable/dex/PullWorker.java:354-385`; `sdk-typescript/src/pull-worker.ts:686-703`; `sdk-rust/crates/dex-sdk/src/worker_pull.rs:281-283, 446-454, 1096-1104`; `docs/reference/server/workers.mdx:34-43, 64-68`). This design softens it only when all of these hold:
-- The Worker is in adaptive mode: `MinOpenSlots` below `T - R`.
+- The Worker is in adaptive mode: `MinOpenSlots` below `MaxConcurrentTasks`.
 - The stream has not received `Registered`.
 - The stream is either (a) a growth stream above the floor, or (b) an adaptive reconnect registration made after every required slot kind has reached initial readiness.
 
@@ -343,11 +368,15 @@ A cap drop is the case that needs (b). An RPC-only stream can re-register first 
 - Usage above the new `C` is the transient exception of the capacity invariant. The Worker opens no stream while it lasts.
 - Step-and-RPC capacity comes first. RPC-only streams above `R_eff` half-close: at once when idle, after their final frame when busy. They are not reopened. Orphaned RPC-only handlers above `R_eff` count against `C` until they return.
 - Then Step-and-RPC streams above `C - R_eff` half-close the same way. The shrink rule closes other idle surplus. The Worker never resets a busy stream.
-- The first-acknowledgement check stays unchanged: an explicit `MaxConcurrentTasks` above the cap fails start.
+- The first-acknowledgement check stays unchanged in fixed mode: an explicit `MaxConcurrentTasks` above the cap fails start. In adaptive mode it is clamped instead (F6).
 
 **After a reconnect**, the Worker uses the last known cap. Operators rarely lower the cap, and the server enforces it at registration anyway. A lower cap is learned from the next acknowledgement and handled as above.
 
-**An unset default above the cap (decision D4).** When `MaxConcurrentTasks` is unset and the first acknowledgement reports a cap below the default, the Worker clamps `T` to the cap. It derives `R` and `L` from the clamped `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)), logs the clamp at WARN level naming both values, and keeps running.
+**A ceiling above the cap at the first acknowledgement (D4 and F6).** The Worker clamps `T` to the cap, derives `R` and the default floor from the clamped `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)), logs the clamp at WARN level naming both values, and keeps running, when:
+- the Worker is in fixed mode and `MaxConcurrentTasks` is unset (D4); or
+- the Worker is in adaptive mode, with an explicit or default `MaxConcurrentTasks` (F6).
+
+In fixed mode, an explicit `MaxConcurrentTasks` above the cap fails start, as today.
 
 ### Reconnect, server restart, and failover
 
@@ -389,7 +418,7 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
 
 ### Budgeting `maxConcurrentTasksCap` and `maxStreams`
 
-`matching.maxConcurrentTasksCap` still bounds each Worker's streams on a node. An explicit ceiling above it fails at the first acknowledgement, and an unset ceiling is clamped to it (D4). `matching.maxStreams` still bounds the node. When the node is full, an adaptive Worker's growth is rejected softly.
+`matching.maxConcurrentTasksCap` still bounds each Worker's streams on a node. In fixed mode, an explicit ceiling above it fails at the first acknowledgement, and an unset ceiling is clamped to it (D4). In adaptive mode, any ceiling above it is clamped to it (F6), so a high ceiling means "as many as the server allows". `matching.maxStreams` still bounds the node. When the node is full, an adaptive Worker's growth is rejected softly.
 
 **What changes.** Operators budget streams for real concurrency plus floors, instead of the sum of ceilings. A node limit reached under peak load now costs capacity, not Worker start failures.
 
@@ -420,7 +449,7 @@ A sticky Step waits up to `matching.stickyWait` (5 s) while the sticky Worker ha
 
   `open` of 0 with `orphanedHandlers` above 0 means the Worker holds no live Step stream while it waits for a free slot. Readiness keeps today's semantics and does not report this. Today no SDK has pull metrics, so an accessor fits all five SDKs without choosing a metrics library.
 - Counters: `streamsGrown`, `streamsShrunk`, `growRejectedAtCap`, and `shrinkRaceDrops`. The last one counts tasks dropped because they arrived after a shrink decision.
-- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. A WARN log when an unset default is clamped to the server cap (D4). One info log when a soft rejection clamps `growthTarget`.
+- Debug logs for each batch: grow with `from`, `to`, and `reason`, and shrink with `from`, `to`, and `peakBusy`. A WARN log when the ceiling is clamped to the server cap: an unset default in fixed mode (D4), or any ceiling in adaptive mode (F6). It names the configured value and the cap. One info log when a soft rejection clamps `growthTarget`.
 
 **Existing server metrics answer the operator questions without a new family:**
 - `dexzd_matching_worker_streams` (gauge, basic; `server-zd/crates/dexzd-metrics/src/lib.rs:415-419`) follows real concurrency plus floors.
@@ -488,7 +517,14 @@ on orphaned_handler_returned(kind):
 
 on registered(stream):                      # either stream kind
     if stream is Step-and-RPC: P -= 1; I += 1
-    C = min(T, reported_cap or inf)         # T derived after any clamp (D4)
+    if this is the first acknowledgement:
+        if is_adaptive or MaxConcurrentTasks is unset:  # F6, D4
+            T = min(MaxConcurrentTasks or default, reported_cap or inf)
+            derive R and MinOpenSlots defaults from T; L = MinOpenSlots - R
+            if T was clamped: log WARN with the configured value and the cap
+        elif MaxConcurrentTasks > reported_cap: fail start   # fixed, explicit
+        has_first_ack = true                # adaptive RPC-only streams may open now
+    C = min(T, reported_cap or inf)
     R_eff = R if R + 1 <= C else max(0, C - 1)
     close_surplus()
     recompute_capacity(); maybe_reopen()
@@ -506,7 +542,7 @@ on registration_rejected(stream, RESOURCE_EXHAUSTED):
     if P == 0: settle_growth_batch()        # cannot reopen: the latch is set
 
 is_soft_rejection(stream):                  # F5
-    return MinOpenSlots < T - R             # adaptive mode only
+    return MinOpenSlots < MaxConcurrentTasks    # adaptive mode only
        and stream never received Registered
        and (stream is growth above the floor
             or (stream is a reconnect and every slot kind reached initial readiness))
@@ -528,8 +564,9 @@ maybe_reopen():                             # counts are clamped at zero
     free = max(0, C - (S + H + Sr + Hr))    # zero during the transient exception
     if S == 0 and free > 0:
         open 1 Step-and-RPC stream; S += 1; P += 1; free -= 1
-    n = min(free, max(0, R_eff - Sr - Hr))
-    open n RPC-only streams; Sr += n; free -= n
+    if has_first_ack or not is_adaptive:    # adaptive start: Step floor first
+        n = min(free, max(0, R_eff - Sr - Hr))
+        open n RPC-only streams; Sr += n; free -= n
     n = min(free, max(0, min(L_eff, E - H) - S))
     open n Step-and-RPC streams; S += n; P += n
 
@@ -639,7 +676,8 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
 **Phase 0: measure.** Add `idle-slots` to `dexbench` and commit results (#1989 item 1). The results size the phase 2 floor and feed the D8 evidence check. No product change.
 
 **Phase 1: opt-in adaptive streams, an SDK patch release in all five SDKs.**
-- Add `MinOpenSlots`, an optional field that defaults to `MaxConcurrentTasks - R`. With that default, behavior is identical to today. A lower value enables adaptation.
+- Add `MinOpenSlots`, an optional field that defaults to `MaxConcurrentTasks`. With that default, behavior is identical to today. A lower value enables adaptation.
+- In adaptive mode, a ceiling above the server cap is clamped with a WARN log instead of failing start (F6). Fixed mode keeps today's failure for an explicit value.
 - Make stream creation incremental in Java, TypeScript, and Rust.
 - Implement the state machine, the reconnect rules, the snapshot accessor, and the logs. Soft rejection applies in adaptive mode only (F5). Fixed mode keeps today's permanent classification of `RESOURCE_EXHAUSTED`.
 - Doc comments carry "Since 1.NN.P" with the next patch version.
@@ -653,11 +691,11 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
 - Phase 2 updates the default values in the same pages.
 
 **Phase 2: adaptive by default, together with the new default ceiling.**
-- The floor default becomes `min(MaxConcurrentTasks - R, max(1, CPU count - R))`.
-- The `MaxConcurrentTasks` default becomes 100, and an unset default is clamped to the server cap.
+- The `MinOpenSlots` default becomes `min(MaxConcurrentTasks, max(R + 1, CPU count))`. A Worker that sets only `MaxConcurrentTasks` is therefore adaptive. Setting `MinOpenSlots` equal to `MaxConcurrentTasks` keeps it fixed.
+- The `MaxConcurrentTasks` default becomes 100. A ceiling above the server cap is clamped: an unset default in fixed mode (D4), and any value in adaptive mode (F6).
 - These two changes ship in the same SDK release, after phase 0 and the phase 1 benchmarks.
 - Changing defaults is a behavior change under Beta compatibility. The owner authorized these two default changes in D2 and D3 on 2026-11-17.
-- An unset default above the server cap is clamped with a WARN log (D4).
+- Each clamp logs at WARN (D4, F6).
 - Migration: an application that needs every slot open at all times sets `MinOpenSlots` equal to its slot count.
 
 **The default of 100 relative to adaptive streams:**
@@ -682,7 +720,7 @@ The owner decided every row on 2026-11-17. The options and costs stay here for t
 | D1 | Which option | Server cost should follow real concurrency | A; A plus B; C; D | A: SDK work only. B: plus a protocol field and a server release. C: protocol and server rework of #1253 paths. D: none, but no headroom for a higher default | A now; B later if benchmarks need it; C only on evidence |
 | D2 | Opt-in or default-on, and the default floor | Existing Workers set or inherit a slot count | Opt-in first (floor = ceiling), then default floor = CPU count; default-on at once; always opt-in | Opt-in delays the server saving. Default-on changes burst behavior for explicit large slot counts without notice | Opt-in in phase 1. Default floor `min(ceiling, CPU count)` in phase 2 with owner authorization |
 | D3 | When the default ceiling moves from CPU count to 100 | Raising the default without raising server cost | Before, with, or after adaptive default-on | Before: 1,000 idle Workers fill `maxStreams`. With: one coordinated release. After: the higher ceiling waits a release | With phase 2; never before |
-| D4 | A ceiling above the server cap | Default 100 against a server with a lower cap | Fail start (today); clamp unset defaults only; clamp all values with a warning | Fail: breaks Workers on low-cap servers when the default rises. Clamp all: hides a misconfiguration | Clamp unset defaults with a WARN log; keep failing for explicit values |
+| D4 | A ceiling above the server cap | Default 100 against a server with a lower cap | Fail start (today); clamp unset defaults only; clamp all values with a warning | Fail: breaks Workers on low-cap servers when the default rises. Clamp all: hides a misconfiguration | Clamp unset defaults with a WARN log; keep failing for explicit values. Amended by F6: this applies to fixed mode; adaptive mode clamps explicit values too |
 | D5 | Grow trigger and step | A burst arrives at a Worker at its floor | `I = 0` and doubling; a low-water mark (`I < S/4`); 1.5x step; linear +1 | Low-water: more idle streams. 1.5x: about 1.7 times the rounds. Linear: E rounds | `I = 0`, doubling, one batch in flight |
 | D6 | Shrink window and step | Load drops or cycles | `W` of 30 s, 60 s, or 5 min; close half the surplus, or all of it; headroom of 25% or a fixed count | A short `W` and closing everything cause churn. A long `W` delays the saving | `W` = 30 s, half the surplus, 25% headroom (minimum 1) |
 | D7 | Public option name and shape | Users opt in or pin fixed slots | `MinOpenSlots` integer; `MinIdleSlots`; a mode enum `Fixed` or `Adaptive` | An enum cannot express a custom floor. "Idle" is wrong after growth | `MinOpenSlots` integer, the same idiom in each SDK |
@@ -742,6 +780,8 @@ Today, a first acknowledgement whose cap is below `MaxConcurrentTasks` fails sta
 
 Decided (owner, 2026-11-17): clamp unset defaults to the server cap with a WARN log that names both values, and keep failing start for explicit values above the cap. WARN, not info, because the Worker then runs with less capacity than its default.
 
+Amended by F6 (owner, 2026-11-17): the text above now applies to fixed mode. In adaptive mode, an explicit value above the cap is also clamped with a WARN log. See F6.
+
 ### D5: Grow trigger and step
 
 A Worker at its floor receives a burst.
@@ -768,7 +808,7 @@ Users need to opt in during phase 1, and to pin fixed slots after phase 2.
 - A mode enum cannot express a custom floor.
 - "Idle" is wrong for the floor, because the floor counts streams that may be busy.
 
-Names: `MinOpenSlots` in Go, `min_open_slots` in Python and Rust, and `minOpenSlots` in Java and TypeScript. Validation: `1 ≤ MinOpenSlots ≤ MaxConcurrentTasks - ReservedRPCTasks`. As with the slot count, zero means the default, except in Rust, which uses `Option`.
+Names: `MinOpenSlots` in Go, `min_open_slots` in Python and Rust, and `minOpenSlots` in Java and TypeScript. Validation: `ReservedRPCTasks + 1 ≤ MinOpenSlots ≤ MaxConcurrentTasks`. `MinOpenSlots` counts all slot streams, in the same unit as `MaxConcurrentTasks` (see [Configuration shape](#configuration-shape)). As with the slot count, zero means the default, except in Rust, which uses `Option`.
 
 Decided (owner, 2026-11-17): the `MinOpenSlots` integer.
 
@@ -812,21 +852,27 @@ TypeScript reports ready after the first registered slot of any kind (`sdk-types
 
 Decided (owner, 2026-11-17): align it in phase 1 and note it in the TypeScript change log.
 
-### Follow-up from review (pending owner confirmation)
+### Follow-ups from review
 
-The reviews of this document needed new choices. Each follows the safest option. None is decided. F1 and F2 are superseded by F5 and kept only for the record.
+The reviews of this document needed new choices. The owner decided F3 to F6 on 2026-11-17. F1 and F2 are superseded by F5 and kept only for the record.
 
 - **F1: superseded by F5.** It proposed a Step-and-RPC probe after every reconnect. The review showed that the probe could take a task before the Worker read the new cap, so it did not keep the bound. F5 replaces it.
 - **F2: superseded by F5.** Its delayed registration and its readiness rule are now part of F5.
-- **F3: retry bound after a soft rejection.** At most one growth batch per 30 s shrink window while rejections continue. The batch settles when all its Registers are done. The soft target `G` then becomes the registered `S + H`, and it returns to the hard capacity `E` at the end of each window. `E` itself never drops on a soft rejection. Alternatives: a separate backoff, or no retry until the next acknowledgement.
-- **F4: the startup probe only for an unset ceiling.** One Step-and-RPC stream is opened first only when the ceiling is unset and may be clamped. Fixed mode and explicit ceilings keep today's parallel startup. Alternative: probe always, which adds one round trip to every Worker start.
-- **F5: reconnect, cap drops, and orphaned handlers.**
+- **F3: retry bound after a soft rejection.** Decided (owner, 2026-11-17). At most one growth batch per 30 s shrink window while rejections continue. The batch settles when all its Registers are done. The soft target `G` then becomes the registered `S + H`, and it returns to the hard capacity `E` at the end of each window. `E` itself never drops on a soft rejection. Alternatives: a separate backoff, or no retry until the next acknowledgement.
+- **F4: the startup probe only for fixed mode with an unset ceiling.** Decided (owner, 2026-11-17). One Step-and-RPC stream is opened first only in fixed mode with an unset ceiling that may be clamped. Fixed mode with an explicit ceiling keeps today's parallel startup. Adaptive mode starts at the floor whether the ceiling is set or not (F6), and needs no probe. Alternative: probe always, which adds one round trip to every Worker start.
+- **F5: reconnect, cap drops, and orphaned handlers.** Decided (owner, 2026-11-17).
   - **Reconnect.** The Worker uses the last known cap. It opens a stream only while `S + H + Sr + Hr < C` and never registers a stream for a slot that a running handler still holds. A reserved slot cannot refuse a task, so registering early would break the bound.
   - **Order of freed capacity.** One Step-and-RPC stream if none is open, then RPC-only streams up to `R_eff`, then the Step floor, then growth.
   - **An acknowledgement that reveals a lower cap.** `R_eff` becomes `max(0, C - 1)` when `R + 1` exceeds `C`, with a WARN log. Local usage may exceed the new cap transiently, but only through handlers and streams that started before the Worker learned it. While it does, the Worker opens no stream. Usage converges as handlers return and surplus streams half-close: RPC-only surplus first, then Step-and-RPC streams above `C - R_eff`. A busy surplus stream half-closes after its final frame. No stream is reset.
   - **Soft rejection, adaptive mode only.** `RESOURCE_EXHAUSTED` is soft only in adaptive mode (`MinOpenSlots` below the ceiling), and only for a stream that has not received `Registered`. It must also be either a growth stream above the floor, or a reconnect registration after every required slot kind has reached initial readiness. Fixed mode, and the first registration of each required slot kind, keep today's permanent classification and retry semantics. A soft-rejected stream is retried only after another registered stream closes, or at the next window. Its own end does not trigger the retry.
   - **Readiness.** The readiness wait keeps today's semantics. The snapshot shows `open` = 0 and `orphanedHandlers` > 0 while the Worker waits for a free slot.
   - **Alternatives:** a probe stream before other streams after each reconnect, which still races a hand-out; or a protocol addition for a stream that accepts no tasks yet.
+- **F6: an explicit ceiling above the cap in adaptive mode.** Decided (owner, 2026-11-17).
+  - In adaptive mode (`MinOpenSlots` below `MaxConcurrentTasks`), an explicit `MaxConcurrentTasks` above the server cap does not fail. It is clamped to the cap at the first acknowledgement, with a WARN log that names both values.
+  - In fixed mode, an explicit value above the cap still fails at the first acknowledgement, as D4 says.
+  - Reason: in adaptive mode the ceiling is only a growth limit, and users often set it high to mean "as many as allowed".
+  - Consequence: adaptive mode starts at the floor whether the ceiling is set or not. It opens the RPC-only streams after the first acknowledgement, so Step-and-RPC capacity comes first. The F4 cap probe applies only to fixed mode with an unset ceiling.
+  - D4 is amended to point here.
 
 ## Tests
 
@@ -863,9 +909,10 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
 12. **Graceful stop with adaptive streams.** Stop during growth half-closes idle and registering streams, lets busy ones finish, and returns undelivered tasks without spending a retry.
 13. **Mixed fleet E2E.** A fixed Worker and an adaptive Worker serve one queue. Stopping the fixed one moves its load to the adaptive one, which grows. No Step fails. This uses the server-zd E2E harness (`server-zd/crates/dexzd-e2e-tests`).
 14. **Cap of 1.** Against `matching.maxConcurrentTasksCap = 1`:
-    - With an unset ceiling, the Worker starts with `T` = 1, `R` = 0, and one Step-and-RPC stream, and logs the clamp at WARN. It runs Steps and RPCs.
-    - With an explicit `ReservedRPCTasks` of 1 and an unset ceiling, start fails with an error that names `R`, `T`, and the cap.
-    - With an explicit `MaxConcurrentTasks` of 2, start fails as today.
+    - Fixed mode with an unset ceiling: the Worker probes first (F4). It starts with `T` = 1, `R` = 0, and one Step-and-RPC stream, and logs the clamp at WARN. It runs Steps and RPCs.
+    - Adaptive mode with `MinOpenSlots` = 1 and the default `R`, with the ceiling set or not: the Worker opens one Step-and-RPC stream. At the first acknowledgement it clamps `T` to 1 with a WARN log and derives `R` = 0, so it opens no RPC-only stream. It runs Steps and RPCs.
+    - With an explicit `ReservedRPCTasks` of 1, in either mode, start fails with an error that names `R`, `T`, and the cap.
+    - Fixed mode with an explicit `MaxConcurrentTasks` of 2: start fails as today.
 15. **Failover with orphaned handlers.** Start `E` handlers that ignore cancellation for 3 s: Python sync handlers on the executor path, and blocking handlers in the other SDKs. Then fail the server over.
     - Read `open`, `rpcOnlyOpen`, `orphanedHandlers`, and `orphanedRpcOnlyHandlers` from the SDK snapshot.
     - With the cap unchanged, assert that `open + orphanedHandlers + rpcOnlyOpen + orphanedRpcOnlyHandlers ≤ totalCapacity` at every sample.
@@ -898,6 +945,9 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
       - No Register follows the rejected stream's own end at once.
       - Readiness stays successful.
       - `open` stays at 1 until the competitor stops, and then returns to 2 within one window.
+20. **Explicit ceiling above the cap (F6).** Use the default `matching.maxConcurrentTasksCap` of 256.
+    - **20a, adaptive mode:** `MaxConcurrentTasks` = 300 and `MinOpenSlots` = 8. Assert that the Worker starts and becomes ready. Assert that it logs one WARN naming 300 and 256, and that `totalCapacity` is 256. Drive it with 400 long-running concurrent ASYNC Steps. Assert that open streams, `open + rpcOnlyOpen`, reach at most 256, and that no registration is rejected for the per-Worker cap.
+    - **20b, fixed mode:** `MaxConcurrentTasks` = 300 with `MinOpenSlots` unset in phase 1, or equal to 300. Assert that start fails at the first acknowledgement with today's error, which names both values.
 16. **Fixed-mode startup is parallel.** With the floor equal to the ceiling, every stream is opened before the first acknowledgement arrives, as today. This guards the phase 1 "no behavior change" claim.
 
 ## Documentation
