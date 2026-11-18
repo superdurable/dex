@@ -164,6 +164,12 @@ public final class Worker implements AutoCloseable {
      * {@link PullWorkerOptions.Builder#taskQueue(String)} requires Server protocol 5 and fails
      * before syncing Attribute indexes when the Server is older.
      *
+     * <p>Changed in 1.45.4: the failure for maxConcurrentTasks above matching.maxConcurrentTasksCap
+     * applies to an explicit maxConcurrentTasks of a fixed Worker. An unset maxConcurrentTasks, or
+     * any value of an adaptive Worker, is clamped to the cap instead; see
+     * {@link PullWorkerOptions.Builder#maxConcurrentTasks(int)} and
+     * {@link PullWorkerOptions.Builder#minOpenSlots(int)}.
+     *
      * @throws PullRegistrationError if an uncovered permanent stream rejection stops the Worker
      *     with stopOnPermanentStreamRejection enabled, before or after readiness
      * @throws IllegalStateException if the worker was already started or startup fails, including
@@ -253,6 +259,33 @@ public final class Worker implements AutoCloseable {
      */
     public PullRegistrationState getPullRegistrationState() {
         return pullWorker.registrationState();
+    }
+
+    /**
+     * Returns an independent snapshot of the Worker's slot streams.
+     *
+     * <p>Use it to observe how many Server streams the Worker holds and how many of them are busy,
+     * for example in a debug endpoint or a periodic log line. It is most useful for an adaptive
+     * Worker, whose {@link PullWorkerOptions.Builder#minOpenSlots(int)} is below maxConcurrentTasks
+     * and whose stream count varies with load. It is safe to call concurrently before, during, or
+     * after start and stop, and it does not block on the network. Readiness is separate: use
+     * {@link #getPullRegistrationState()} or {@link #waitPullRegistered(Duration)} for probes.
+     * Before start the counts are zero, and the capacities come from the options; the first
+     * registration may lower them to the Server cap.
+     *
+     * <pre>{@code
+     * PullSlotStreamState state = worker.getPullSlotStreamState();
+     * System.out.println("open=" + state.getOpen() + " busy=" + state.getBusy()
+     *         + " idle=" + state.getIdle() + " rpcOnly=" + state.getRpcOnlyOpen()
+     *         + " orphaned=" + state.getOrphanedHandlers()
+     *         + " capacity=" + state.getTotalCapacity());
+     * }</pre>
+     *
+     * @return an immutable snapshot; see {@link PullSlotStreamState} for each field
+     * @since 1.45.4
+     */
+    public PullSlotStreamState getPullSlotStreamState() {
+        return pullWorker.slotStreamState();
     }
 
     private void startInternal() {
