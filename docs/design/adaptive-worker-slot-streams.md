@@ -1,6 +1,6 @@
 # Adaptive pull Worker slot streams
 
-- **Status:** accepted. The owner decided D1 to D13 in [Decisions](#decisions) on 2026-11-17. The review follow-ups F1 to F4 at the end of that section wait for owner confirmation.
+- **Status:** accepted. The owner decided D1 to D13 in [Decisions](#decisions) on 2026-11-17. The review follow-ups F3, F4, and F5 at the end of that section wait for owner confirmation. F5 supersedes F1 and F2.
 - **Tracking issue:** [#1989](https://github.com/superdurable/dex/issues/1989) and its 2026-11-17 comment.
 - **Code read:** `origin/main` at `35ee8dcdccf64fb9db38d8b0cc0a7aacefa29d4f` (2026-11-17). Every `path:line` below refers to that commit.
 - **Scope:** design only. It proposes no product code in this change.
@@ -219,18 +219,22 @@ Per Worker, for Step-and-RPC slot streams only:
 
 - `T`, the total ceiling: `MaxConcurrentTasks`, or for an unset default, the default clamped to the reported cap (D4). The reported cap is `max_concurrent_tasks_per_app_worker`, where zero means none.
 - `C`, the total capacity: `min(T, reported cap)`, from the last acknowledgement. It counts Step-and-RPC and RPC-only slots.
-- `R`, the configured reserved RPC slot count, derived from `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)). `R_eff` is the RPC-only stream count the Worker may hold: `R`, or less after a cap drop (F1).
+- `R`, the configured reserved RPC slot count, derived from `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)). `R_eff` is the RPC-only stream count the Worker may hold: `R`, or `max(0, C - 1)` when `R + 1` exceeds `C` (F5).
 - `Sr` and `Hr`, the open RPC-only streams and the orphaned RPC-only handlers.
-- `E`, the hard Step-and-RPC capacity: `C - max(R_eff, Sr + Hr)`. RPC-only handlers above `R_eff`, busy or orphaned, take Step capacity until they return. A soft rejection never lowers `E`.
-- `G`, the soft growth target: `E`, or lower after a growth batch with a soft rejection (see [Registration failures](#registration-failures-and-the-cap)). Growth never goes above `G`.
-- `L`, the configured floor, and `L_eff = min(L, E)`, the effective floor.
+- `E`, the hard Step-and-RPC capacity: `max(0, C - max(R_eff, Sr + Hr))`. RPC-only handlers above `R_eff`, busy or orphaned, take Step capacity until they return. A soft rejection never lowers `E`.
+- `G`, the soft growth target: `E`, or lower after a growth batch with a soft rejection (see [Registration failures](#registration-failures-and-the-cap)). `G ≤ E` always holds, and growth never goes above `G`.
+- `L`, the configured floor, and `L_eff = min(L, E)`, the effective floor. Both `E` and `L_eff` are never negative.
 - `S`, the open Step-and-RPC streams: registered or registering, and not closing.
 - `P`, the registering streams: opened, with no acknowledgement yet.
 - `B`, the busy streams: a task frame received and no final frame sent yet.
 - `I`, the idle streams: `S - P - B`.
 - `H`, the orphaned handlers: Step-and-RPC handlers still running locally after their stream ended, such as after a disconnect or failover. A slot is free only when its handler has returned.
 
-The capacity invariant is `S + H + Sr + Hr ≤ C`, and so `S + H ≤ E`. A handler that runs without a stream still uses a slot, so the Worker never opens a stream for it. It has one transient exception. After a cap drop, handlers and busy streams that started under the older, higher cap may exceed the new capacity. The Worker then opens no stream until usage falls below the new capacity. It computes how many streams it may open as `max(0, …)`, never a negative count.
+The capacity invariant is `S + H + Sr + Hr ≤ C`, and so `S + H ≤ E`. A handler that runs without a stream still uses a slot, so the Worker never opens a stream for it.
+
+The invariant has one transient exception (F5). An acknowledgement may reveal that the cap dropped. Local usage may then exceed the new `C`, but only through handlers and streams that started before the Worker learned the new cap.
+- While usage exceeds `C`, the Worker opens no new stream. It computes how many streams it may open as `max(0, …)`, never a negative count.
+- Usage converges as handlers return and surplus streams half-close: RPC-only surplus first, then Step-and-RPC streams above `C - R_eff`.
 
 The rules below apply to Step-and-RPC streams unless they name RPC-only streams. RPC-only streams stay at `R_eff`. An orphaned RPC-only handler blocks the reopening of its RPC-only stream the same way.
 
@@ -298,15 +302,15 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 **Safety rules.**
 - Never close a busy stream.
 - Never close a registering stream.
-- Never close the last idle stream, unless `S > E`.
+- Never close the last idle stream, unless `S + H > C - R_eff` after a cap drop.
 - Never go below `L_eff`.
 - Never close RPC-only streams, except when a lowered cap no longer fits them (see [Registration failures](#registration-failures-and-the-cap)).
 
-**Busy streams above the target.** When `S > E` after a lowered cap, a busy stream that sends its final frame half-closes right after that frame instead of staying idle. The protocol allows this, because the final output comes before the half-close (`protos/dex.proto:195`). A task the server sends in between returns as `NOT_DELIVERED`. So `S` converges to `E` as busy streams finish, without any reset.
+**Busy streams above the target.** After a lowered cap, a busy stream of a kind that is in surplus half-closes right after its final frame instead of staying idle. RPC-only streams are in surplus when `Sr + Hr > R_eff`. Step-and-RPC streams are in surplus when `S + H > C - R_eff`. The protocol allows this, because the final output comes before the half-close (`protos/dex.proto:195`). A task the server sends in between returns as `NOT_DELIVERED`. So usage converges to the new cap as busy streams finish, without any reset.
 
 ### Reserved RPC slots
 
-- `R_eff` RPC-only streams stay open from start to stop. That is `R` unless a cap drop lowers it (F1). They are counted inside `MaxConcurrentTasks` as today.
+- `R_eff` RPC-only streams stay open from start to stop. That is `R` unless a cap drop lowers it (F5). They are counted inside `MaxConcurrentTasks` as today.
 - They never trigger growth and are never shrunk.
 - An RPC that takes a Step-and-RPC stream counts toward `B` like a Step.
 - RPC waiters are served before Step waiters (`stream_registry.rs:150-172`), so RPC demand on the shared slots also drives growth.
@@ -323,19 +327,18 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 - logs once at info level per clamped window and increments a counter;
 - does not record a permanent error in the registration state, change readiness, return `PullRegistrationError` (`docs/reference/server/workers.mdx:35-43`), or enter the 60 s permanent-error retry (`worker_pull.go:552-554` and the other SDKs).
 
-**A rejection of a floor stream or the first stream** keeps today's handling.
+**A rejection during Worker start**, before the first registration, keeps today's handling.
 
-**The server lowers the cap.** Every acknowledgement reports the cap. When a later acknowledgement reports a lower cap:
-- The Worker recomputes `C`, `R_eff`, `E`, and `L_eff = min(L, E)`. The shrink rule then closes idle surplus, and busy streams above `E` half-close after their final frame. It never resets a busy stream.
-- `R_eff = R` while `R + 1` fits the new cap.
-- When `R + 1` exceeds the new cap, `R_eff = max(0, cap - 1)`, and the Worker logs at WARN. Step capacity comes first: the Worker keeps at least one Step-and-RPC stream (F1).
-- RPC-only handlers above `R_eff`, busy or orphaned, keep counting against `C` until they return. RPC-only streams above `R_eff` half-close when idle or after their final frame. They are not reopened.
+**A rejection after the first registration** is soft for every stream kind, not only for growth streams (F5). The Worker never records it as a permanent error, so readiness and `StopOnPermanentStreamRejection` (`docs/reference/server/workers.mdx:64-68`) are unaffected. It retries the stream when surplus streams close, or at the next window. A cap drop can cause such a rejection: an RPC-only stream can register first and take the only slot of a cap of 1. The Step-and-RPC stream then gets `RESOURCE_EXHAUSTED` (`worker_protocol.rs:98-149`). It registers once the surplus RPC-only stream closes.
+
+**The server lowers the cap.** Every acknowledgement reports the cap. When an acknowledgement reports a lower cap (F5):
+- The Worker recomputes `C`, `R_eff`, `E`, and `L_eff`. It logs at WARN when `R + 1` exceeds the new cap and `R_eff` drops below `R`.
+- Usage above the new `C` is the transient exception of the capacity invariant. The Worker opens no stream while it lasts.
+- Step-and-RPC capacity comes first. RPC-only streams above `R_eff` half-close: at once when idle, after their final frame when busy. They are not reopened. Orphaned RPC-only handlers above `R_eff` count against `C` until they return.
+- Then Step-and-RPC streams above `C - R_eff` half-close the same way. The shrink rule closes other idle surplus. The Worker never resets a busy stream.
 - The first-acknowledgement check stays unchanged: an explicit `MaxConcurrentTasks` above the cap fails start.
 
-**The cap is unknown after a reconnect.** After a server restart or failover, the cap may have changed (F1).
-- The Worker first registers one Step-and-RPC probe stream, when a slot is free (see [Reconnect](#reconnect-server-restart-and-failover)). It registers no RPC-only stream before the probe's acknowledgement.
-- It recomputes `C`, `R_eff`, and `E` from that acknowledgement, and only then opens RPC-only streams up to `R_eff` and the other floor streams.
-- This keeps an RPC-only stream from taking the only slot of a cap of 1. In that case the Step stream would get `RESOURCE_EXHAUSTED` as a permanent floor error (`worker_protocol.rs:98-149`). Today all streams open in parallel (`sdk-go/dex/worker_pull.go:314-334`), and that order is not safe after a cap drop.
+**After a reconnect**, the Worker uses the last known cap. Operators rarely lower the cap, and the server enforces it at registration anyway. A lower cap is learned from the next acknowledgement and handled as above.
 
 **An unset default above the cap (decision D4).** When `MaxConcurrentTasks` is unset and the first acknowledgement reports a cap below the default, the Worker clamps `T` to the cap. It derives `R` and `L` from the clamped `T` (see [Floor and ceiling defaults](#floor-and-ceiling-defaults)), logs the clamp at WARN level naming both values, and keeps running.
 
@@ -343,19 +346,19 @@ A dropped Step returns as `NOT_DELIVERED` with the same attempt number and no re
 
 **A stream that the server or the network ends.** Today every stream reconnects with backoff (`worker_pull.go:523-541`).
 - If the stream was busy, its handler may keep running. It moves from `B` to `H` until it returns. Not every SDK can stop it: the Python executor path does not cancel a sync handler (`sdk-python/dex/_pull_worker.py:624-634, 968-971`).
-- A reconnect supervisor reopens a lost stream only while `S + H < E` and `S < max(L_eff, B + 1)`. Otherwise it drops the stream. A slot whose handler is still running is reopened only after the handler returns. The same holds for RPC-only streams, with `Sr + Hr < R_eff`.
+- A reconnect supervisor reopens a lost stream only while total usage is below `C`, `S + H < E`, and `S < max(L_eff, B + 1)`. Otherwise it drops the stream. A slot whose handler is still running is reopened only after the handler returns. The same holds for RPC-only streams, with `Sr + Hr < R_eff`.
 - A server-directed `Reconnect` on a busy stream still waits for the task to finish (`worker_protocol.rs:236-244`).
 
 **A whole-server restart or failover.** Every stream breaks. Up to `C` handlers may still run locally as `H` and `Hr`.
-- **Probe first.** When `S + H + Sr + Hr < C` for the last known `C`, the Worker registers one Step-and-RPC probe stream. It waits for the probe's acknowledgement, which reports the new cap (see [The cap is unknown after a reconnect](#registration-failures-and-the-cap)).
-- **Then, in order.** From the new `C`, the Worker opens RPC-only streams up to `max(0, R_eff - Sr - Hr)`. It then opens Step-and-RPC streams up to `max(0, min(L_eff, E - H) - S)`, with today's jittered backoff. Both counts are clamped at zero. When old handlers exceed the new capacity, the Worker opens nothing more until they return. That is the transient exception of the capacity invariant.
-- **Freed slots.** As orphaned handlers return, freed capacity goes first to a Step-and-RPC stream if none is open. It then goes to RPC-only streams up to `R_eff`, then to the Step floor `L_eff`, and finally to growth.
+- **Last known cap.** The Worker computes free capacity from the last known `C`: `max(0, C - (S + H + Sr + Hr))`.
+- **Order.** Free capacity goes first to one Step-and-RPC stream if none is open. Then it goes to RPC-only streams up to `max(0, R_eff - Sr - Hr)`, then to Step-and-RPC streams up to `max(0, min(L_eff, E - H) - S)`, and finally to growth. Streams open with today's jittered backoff. The same order applies whenever an orphaned handler returns.
 - **No early registration.** Every newly registered stream accepts a task at once. So the Worker never registers a stream for a slot that a running handler still holds. While `H + Hr` fills the capacity, it holds no stream at all.
 - **Growth.** The grow rule then takes the Worker to the needed level, still bounded by `S + H ≤ E` and `G`. The re-registration burst after a failover is therefore at most the sum of floors, not the sum of ceilings.
-- **Protocol.** The reserved-slot protocol has no way to register a stream that refuses tasks: a NO_CAPACITY rejection on a reserved slot is a protocol error (`worker_protocol.rs:325-334`). Delaying the registration is the only protocol-safe choice (F2).
+- **A lower cap after the failover.** The first acknowledgement reveals it, and the Worker converges as described in [Registration failures](#registration-failures-and-the-cap).
+- **Protocol.** The reserved-slot protocol has no way to register a stream that refuses tasks: a NO_CAPACITY rejection on a reserved slot is a protocol error (`worker_protocol.rs:325-334`). Delaying the registration is the only protocol-safe choice (F5).
 - **Readiness keeps today's semantics.** Once every required slot kind has registered, the readiness wait keeps returning success through reconnects (`sdk-go/dex/worker_pull.go:338-343, 416-424`; `sdk-python/dex/pull_registration.py:90-94, 205-210`; `docs/reference/server/workers.mdx:42-43`). A delayed registration does not change that. The snapshot shows the gap instead. `open` is 0 and `orphanedHandlers` is above 0 while the Worker waits for a free slot (see [Observability](#observability)).
 
-**Attempts interrupted by the failover.** They fail as `NOT_COMPLETED`, as today. A handler that is still running counts in `H` or `Hr` until it returns. So the capacity invariant holds through the reconnect, apart from its transient exception after a cap drop.
+**Attempts interrupted by the failover.** They fail as `NOT_COMPLETED`, as today. A handler that is still running counts in `H` or `Hr` until it returns. So the capacity invariant holds through the reconnect, apart from its transient exception after a cap drop (F5).
 
 **Never reopen a stream closed on purpose.** The supervisor must not reopen a stream that the Worker closed for shrink or stop. This is the #740 leak class. Tests in each SDK cover it.
 
@@ -436,11 +439,16 @@ on task_frame(stream):                      # Step-and-RPC stream
     B += 1; I -= 1
     maybe_grow()
 
-on final_frame_sent(stream):
+on final_frame_sent(stream):               # Step-and-RPC stream
     B -= 1; I += 1
+    if S + H > max(0, C - R_eff):           # surplus after a lowered cap
+        half-close stream; S -= 1; I -= 1
+        recompute_capacity(); maybe_reopen()
 
-on final_frame_sent(stream) and S > E:      # after a lowered cap
-    half-close stream; S -= 1; I -= 1
+on rpc_only_final_frame_sent(stream):
+    if Sr + Hr > R_eff:                     # surplus after a cap drop
+        half-close stream; Sr -= 1
+        recompute_capacity(); maybe_reopen()
 
 on stream_lost(stream):                     # disconnect, failover
     if stream is RPC-only:
@@ -449,44 +457,54 @@ on stream_lost(stream):                     # disconnect, failover
         S -= 1
         if stream was busy and its handler still runs: B -= 1; H += 1
         elif stream was idle: I -= 1
-    if every stream is lost: is_cap_unknown = true
-    maybe_reopen()
+    recompute_capacity(); maybe_reopen()    # C stays the last known cap
 
 on orphaned_handler_returned(kind):
     if kind is RPC-only: Hr -= 1 else: H -= 1
+    recompute_capacity(); maybe_reopen()
+
+on registered(stream):                      # either stream kind
+    if stream is Step-and-RPC: P -= 1; I += 1
+    C = min(T, reported_cap or inf)         # T derived after any clamp (D4)
+    R_eff = R if R + 1 <= C else max(0, C - 1)
+    close_surplus()
+    recompute_capacity(); maybe_reopen()
+    if P == 0: settle_growth_batch()
+
+on registration_rejected(stream, RESOURCE_EXHAUSTED) after first registration:
+    if stream is RPC-only: Sr -= 1
+    else: P -= 1; S -= 1
+    if stream is growth: has_batch_rejection = true
+    # soft for every kind (F5); no tight retry loop
+    is_reopen_deferred = true               # cleared when a stream closes or at W
     recompute_capacity()
+    if P == 0: settle_growth_batch()
+
+on stream_closed(stream):                   # any half-close completes or stream ends
+    is_reopen_deferred = false
     maybe_reopen()
 
+close_surplus():                            # Step-and-RPC capacity comes first
+    while Sr + Hr > R_eff and an RPC-only stream is idle:
+        half-close it; Sr -= 1
+    while S + H > max(0, C - R_eff) and a Step-and-RPC stream is idle:
+        half-close it; S -= 1; I -= 1
+    # busy surplus streams close after their final frame (events above)
+
 recompute_capacity():
-    E = C - max(R_eff, Sr + Hr)             # RPC-only overflow takes Step capacity
+    E = max(0, C - max(R_eff, Sr + Hr))     # RPC-only overflow takes Step capacity
     L_eff = min(L, E)
-    if not is_growth_target_clamped: G = E
+    G = min(G, E) if is_growth_target_clamped else E
 
 maybe_reopen():                             # counts are clamped at zero
-    free = max(0, C - (S + H + Sr + Hr))
-    if is_cap_unknown:
-        if free > 0 and P == 0: open 1 Step-and-RPC probe; S += 1; P += 1
-        return                              # nothing else until the probe's ack
+    if is_reopen_deferred: return
+    free = max(0, C - (S + H + Sr + Hr))    # zero during the transient exception
     if S == 0 and free > 0:
         open 1 Step-and-RPC stream; S += 1; P += 1; free -= 1
     n = min(free, max(0, R_eff - Sr - Hr))
     open n RPC-only streams; Sr += n; free -= n
     n = min(free, max(0, min(L_eff, E - H) - S))
     open n Step-and-RPC streams; S += n; P += n
-
-on registered(stream):
-    if stream is Step-and-RPC: P -= 1; I += 1
-    C = min(T, reported_cap or inf)         # T derived after any clamp (D4)
-    R_eff = R if R + 1 <= C else max(0, C - 1)
-    is_cap_unknown = false
-    recompute_capacity()
-    maybe_reopen()
-    if P == 0: settle_growth_batch()
-
-on registration_rejected(stream, RESOURCE_EXHAUSTED) and stream is growth:
-    P -= 1; S -= 1
-    has_batch_rejection = true
-    if P == 0: settle_growth_batch()
 
 settle_growth_batch():                      # only when the whole batch is done
     if has_batch_rejection:
@@ -505,11 +523,13 @@ maybe_grow():
 every W:
     is_growth_target_clamped = false
     has_grown_this_window = false
+    is_reopen_deferred = false
     recompute_capacity()                    # restores G = E
+    maybe_reopen()
     target = min(E, max(L_eff, peakBusy + max(1, ceil(peakBusy / 4))))
     if S > target:
         close ceil((S - target) / 2) idle streams, newest idle first,
-              never the last idle stream unless S > E, never below L_eff
+              never the last idle stream, never below L_eff
     peakBusy = B
     maybe_grow()
 ```
@@ -528,7 +548,7 @@ every W:
 
 The #740 bug kept every queue at its historical peak. The invariants that prevent the same class here:
 
-1. `S + H + Sr + Hr ≤ C` and `S + H ≤ E` at all times, with one transient exception. After a cap drop, handlers and busy streams started under the older cap may exceed the new capacity until they return. During it the Worker opens no stream. `S ≥ L_eff` after the first registration, except while orphaned handlers fill the capacity or the probe is outstanding.
+1. `S + H + Sr + Hr ≤ C` and `S + H ≤ E` at all times, with one transient exception (F5). After an acknowledgement reveals a cap drop, handlers and streams started before the Worker learned it may exceed the new capacity. During it the Worker opens no stream, and usage converges as handlers return and surplus streams half-close. `S ≥ L_eff` after the first registration, except while orphaned handlers fill the capacity.
 2. Every stream is in exactly one state: registering, idle, busy, or closing. A stream leaves `S` when it starts closing.
 3. The reconnect supervisor never reopens a closing stream or a stream closed on purpose.
 4. A lost stream is reopened only while `S + H < E` and `S < max(L_eff, B + 1)`.
@@ -766,18 +786,19 @@ Decided (owner, 2026-11-17): align it in phase 1 and note it in the TypeScript c
 
 ### Follow-up from review (pending owner confirmation)
 
-The review of this document needed four new choices. Each follows the safest option. None is decided.
+The reviews of this document needed new choices. Each follows the safest option. None is decided. F1 and F2 are superseded by F5 and kept only for the record.
 
-- **F1: a cap drop, and a cap unknown after a reconnect.**
-  - When the cap is unknown after a reconnect, the Worker registers one Step-and-RPC probe stream first. It recomputes `R_eff` and `E` from the probe's acknowledgement, and only then opens RPC-only streams.
-  - When `R + 1` exceeds the cap, `R_eff = max(0, cap - 1)`, with a WARN log. RPC-only handlers above `R_eff`, busy or orphaned, count against Step capacity until they drain. Busy streams above the new ceiling half-close after their final frame instead of being reset.
-  - Alternatives: keep `R` and drop Step capacity to zero; or stop the Worker.
-- **F2: failover while orphaned handlers fill the capacity.**
-  - The Worker delays every registration until a slot is free. A reserved slot cannot refuse a task, so registering early would break the capacity invariant.
-  - The readiness wait keeps today's semantics and stays successful after the first success. The snapshot shows the gap: `open` is 0 and `orphanedHandlers` is above 0.
-  - Alternative: a protocol addition that registers a stream which accepts no tasks yet.
+- **F1: superseded by F5.** It proposed a Step-and-RPC probe after every reconnect. The review showed that the probe could take a task before the Worker read the new cap, so it did not keep the bound. F5 replaces it.
+- **F2: superseded by F5.** Its delayed registration and its readiness rule are now part of F5.
 - **F3: retry bound after a soft rejection.** At most one growth batch per 30 s shrink window while rejections continue. The batch settles when all its Registers are done. The soft target `G` then becomes the registered `S + H`, and it returns to the hard capacity `E` at the end of each window. `E` itself never drops on a soft rejection. Alternatives: a separate backoff, or no retry until the next acknowledgement.
 - **F4: the startup probe only for an unset ceiling.** One Step-and-RPC stream is opened first only when the ceiling is unset and may be clamped. Fixed mode and explicit ceilings keep today's parallel startup. Alternative: probe always, which adds one round trip to every Worker start.
+- **F5: reconnect, cap drops, and orphaned handlers.**
+  - **Reconnect.** The Worker uses the last known cap. It opens a stream only while `S + H + Sr + Hr < C` and never registers a stream for a slot that a running handler still holds. A reserved slot cannot refuse a task, so registering early would break the bound.
+  - **Order of freed capacity.** One Step-and-RPC stream if none is open, then RPC-only streams up to `R_eff`, then the Step floor, then growth.
+  - **An acknowledgement that reveals a lower cap.** `R_eff` becomes `max(0, C - 1)` when `R + 1` exceeds `C`, with a WARN log. Local usage may exceed the new cap transiently, but only through handlers and streams that started before the Worker learned it. While it does, the Worker opens no stream. Usage converges as handlers return and surplus streams half-close: RPC-only surplus first, then Step-and-RPC streams above `C - R_eff`. A busy surplus stream half-closes after its final frame. No stream is reset.
+  - **Soft rejection after the first registration.** `RESOURCE_EXHAUSTED` on any stream is never a permanent error. The stream is retried once surplus closes, or at the next window.
+  - **Readiness.** The readiness wait keeps today's semantics. The snapshot shows `open` = 0 and `orphanedHandlers` > 0 while the Worker waits for a free slot.
+  - **Alternatives:** a probe stream before other streams after each reconnect, which still races a hand-out; or a protocol addition for a stream that accepts no tasks yet.
 
 ## Tests
 
@@ -803,7 +824,7 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
    - Assert that growth stops at the room left, readiness stays true, and no `PullRegistrationError` appears.
    - Assert that registration attempts stay at most one batch per shrink window.
    - Stop the fixed Worker. Assert that the adaptive Worker grows again after the next window.
-7. **Cap lowered on reconnect.** After a server restart with a lower cap, the Worker keeps running. Busy streams above the new `E` half-close after their final frame, idle surplus closes, and `S` converges to `min(E, target)`. The test covers three cases: a cap still above `L`, a cap below `L` (so `L_eff = E`), and a cap below `R + 1` (follow-up F1). No busy task is reset.
+7. **Cap lowered on reconnect.** After a server restart with a lower cap, the Worker keeps running. Surplus busy streams half-close after their final frame, idle surplus closes, and `S` converges to `min(E, target)`. The test covers three cases: a cap still above `L`, a cap below `L` (so `L_eff = E`), and a cap below `R + 1` (F5). No busy task is reset.
 8. **Failover reopens the floor.** With the standby failover harness (`server-zd/crates/dexzd-server/tests/serve_process/standby_failover/`):
    - Queue `4 × L` Steps of 1 s ASYNC handlers before the failover, spread over at least two partitions. A 1 s handler is far longer than a Claim round trip, so Claims keep the started tasks running and fill the streams.
    - Assert that the Worker re-registers at most `L + R` streams first, not `E + R`.
@@ -819,13 +840,19 @@ The Rust `cross_sdk` suite checks that the five SDKs produce the same trajectori
     - With an explicit `MaxConcurrentTasks` of 2, start fails as today.
 15. **Failover with orphaned handlers.** Start `E` handlers that ignore cancellation for 3 s: Python sync handlers on the executor path, and blocking handlers in the other SDKs. Then fail the server over.
     - Read `open`, `rpcOnlyOpen`, `orphanedHandlers`, and `orphanedRpcOnlyHandlers` from the SDK snapshot.
-    - Assert that `open + orphanedHandlers + rpcOnlyOpen + orphanedRpcOnlyHandlers ≤ totalCapacity` at every sample.
+    - With the cap unchanged, assert that `open + orphanedHandlers + rpcOnlyOpen + orphanedRpcOnlyHandlers ≤ totalCapacity` at every sample.
     - Assert that the Worker registers no stream while the orphaned handlers fill the capacity.
-    - Assert that it registers the Step-and-RPC probe first, then RPC-only streams, then the floor, as handlers return.
+    - Assert that, as handlers return one by one, freed capacity goes to a Step-and-RPC stream first, then to RPC-only streams, then to the floor.
     - Assert that the readiness wait keeps returning success throughout.
     - Repeat with the failover landing while a growth batch is registering, and while a shrink half-close is in flight.
-    - Repeat with orphaned RPC-only handlers, and with a restart that lowers the cap below the orphaned handler count. The second case checks the transient exception: no stream opens until usage falls below the new capacity.
-17. **Cap drop to 1 across a reconnect.** A Worker with `R` = 1 runs against cap 4. Restart the server with cap 1. Assert that the Worker registers its Step-and-RPC probe first and gets no `RESOURCE_EXHAUSTED` on it. Assert that `rpcOnlySlots` becomes 0 and Steps and RPCs keep running on the one stream.
+    - Repeat with orphaned RPC-only handlers.
+    - Repeat with a restart that lowers the cap below the orphaned handler count. This case checks the transient exception (F5), so it asserts convergence, not a strict bound. Usage may exceed the new `totalCapacity` only through handlers and streams that started before the first acknowledgement with the new cap. Assert that no stream registers after that acknowledgement until usage falls below the new cap. Assert that usage reaches at most the new cap once the old handlers return.
+17. **Cap drop to 1 across a reconnect.** A Worker with `R` = 1 runs against cap 4, with busy RPC-only and Step handlers. Restart the server with cap 1.
+    - Usage may exceed 1 for a while. The test asserts convergence, not a strict bound, during that window.
+    - Assert that any `RESOURCE_EXHAUSTED` is soft. Readiness stays successful, and no `PullRegistrationError` appears, even with `StopOnPermanentStreamRejection` set.
+    - Assert that `rpcOnlySlots` becomes 0 and that the RPC-only stream half-closes, after its final frame when busy.
+    - Assert that, within a bounded time after the handlers return, the Worker holds exactly one Step-and-RPC stream and usage stays at most 1.
+    - Assert that Steps and RPCs keep running on that stream.
 18. **Growth batch partly rejected.** With the node limit setup of test 6, make a batch where some Registers succeed and some are rejected. Assert that `growthTarget` equals the streams that registered plus `orphanedHandlers`. Assert that `effectiveCeiling` stays unchanged, and that `growthTarget` returns to `effectiveCeiling` at the next window.
 16. **Fixed-mode startup is parallel.** With the floor equal to the ceiling, every stream is opened before the first acknowledgement arrives, as today. This guards the phase 1 "no behavior change" claim.
 
