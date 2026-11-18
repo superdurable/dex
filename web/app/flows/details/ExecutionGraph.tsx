@@ -230,7 +230,7 @@ function conditionLineCounts(node: StepGraphNode): { kinds: number; channelLines
   return { kinds, channelLines };
 }
 
-/** The Step decision a completed Execute shows in place of its status; both the label and the node height read it. */
+/** The decision a completed Execute shows; the label and node height both read it. */
 function completedExecuteDecision(node: StepGraphNode): ExecuteDecisionSummary | undefined {
   return executeStatus(node) === 'Completed' ? executeDecisionSummary(node.execute) : undefined;
 }
@@ -340,21 +340,24 @@ function MethodSection({
 
 function ExecuteDecisionLine({ decision }: { decision: ExecuteDecisionSummary }) {
   const Icon = executeDecisionIcons[decision.kind];
-  const showsCount = decision.kind === 'cancel-steps' || decision.count > 1;
+  const kindCount = decision.kind === 'cancel-steps'
+    ? decision.canceledStepTypeCount
+    : decision.kind === 'go-to' && decision.nextStepCount > 1 ? decision.nextStepCount : undefined;
+  const addedCancelCount = decision.kind === 'cancel-steps' ? 0 : decision.canceledStepTypeCount;
   const shownChannels = visibleChannelNames(decision.channelNames);
   return (
     <span className="graph-execute-decision-lines" title={decision.fullText}>
       <strong className="graph-execute-decision">
         <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
         <span className="graph-execute-decision-text">{decision.label}</span>
-        {showsCount && <span className="graph-execute-decision-count">×{decision.count}</span>}
-        {decision.addedCancelCount > 0 && (
+        {kindCount !== undefined && <span className="graph-execute-decision-count">×{kindCount}</span>}
+        {addedCancelCount > 0 && (
           <>
             <span aria-hidden="true" className="graph-execute-decision-separator">·</span>
             <span className="graph-execute-decision-cancel">
               <Ban aria-hidden="true" size={12} strokeWidth={2.25} />
               <span className="graph-execute-decision-text">{executeDecisionSDKNames['cancel-steps']}</span>
-              <span className="graph-execute-decision-count">×{decision.addedCancelCount}</span>
+              <span className="graph-execute-decision-count">×{addedCancelCount}</span>
             </span>
           </>
         )}

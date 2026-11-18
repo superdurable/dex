@@ -27,10 +27,10 @@ export interface ExecuteDecisionSummary {
   kind: ExecuteDecisionKind;
   /** The SDK decision name, such as `GoTo` or `ForceFail`. */
   label: string;
-  /** Next Steps for `go-to`, canceled Step types for `cancel-steps`, otherwise 0. */
-  count: number;
-  /** Canceled Step types added to a decision of another kind; 0 for none. */
-  addedCancelCount: number;
+  /** Next Steps the decision starts, counting each movement. */
+  nextStepCount: number;
+  /** Step types the decision cancels, across the entire Flow and the same parent execution. */
+  canceledStepTypeCount: number;
   /** Conditional Channel names of a `force-complete-if-channels-empty` decision. */
   channelNames: string[];
   /** Every part of the decision, one per line, each starting with its SDK name. */
@@ -62,8 +62,7 @@ const closeDecisionKindByLabel: Record<string, ExecuteDecisionKind> = {
  *
  * Returns undefined for any other event, and for a decision with no next Step,
  * close decision, or cancellation. A close decision decides the kind first,
- * then next Steps, then cancellations. Cancellations alongside another kind are
- * counted in `addedCancelCount`. The full text lists every part.
+ * then next Steps, then cancellations. The full text lists every part.
  */
 export function executeDecisionSummary(event: FlowHistoryEvent | undefined): ExecuteDecisionSummary | undefined {
   if (event?.type !== 'StepExecuteCompleted') return undefined;
@@ -86,12 +85,11 @@ export function executeDecisionSummary(event: FlowHistoryEvent | undefined): Exe
 
   const kind = closeKind ?? (nextStepTypes.length > 0 ? 'go-to' : cancelCount > 0 ? 'cancel-steps' : undefined);
   if (!kind) return undefined;
-  const count = kind === 'go-to' ? nextStepTypes.length : kind === 'cancel-steps' ? cancelCount : 0;
   return {
     kind,
     label: executeDecisionSDKNames[kind],
-    count,
-    addedCancelCount: kind === 'cancel-steps' ? 0 : cancelCount,
+    nextStepCount: nextStepTypes.length,
+    canceledStepTypeCount: cancelCount,
     channelNames,
     fullText,
   };

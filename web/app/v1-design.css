@@ -1584,9 +1584,18 @@ body:has(.v1-page) {
 }
 
 /* Beside WaitFor conditions Execute takes its content width, so the text needs a cap. */
-.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-text,
-.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-channel-names {
-  max-width: 120px;
+.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-lines {
+  max-width: 132px;
+}
+
+/* There the cancel suffix keeps its icon and count; screen readers still hear its name. */
+.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-cancel .graph-execute-decision-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-count,
