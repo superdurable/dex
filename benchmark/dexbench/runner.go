@@ -69,6 +69,9 @@ func NewRunner(config Config) (*Runner, error) {
 	if config.Connections < 1 {
 		config.Connections = 1
 	}
+	if err := ValidateMinOpenSlots(config.MinOpenSlots, config.WorkerPool, config.Connections); err != nil {
+		return nil, err
+	}
 	runner := &Runner{config: config, runPrefix: fmt.Sprintf("bench-%d", time.Now().UnixNano())}
 	runner.chain = &chainFlow{latencies: &runner.stepLatencies}
 	runner.asyncChain = &asyncChainFlow{latencies: &runner.stepLatencies}
@@ -113,7 +116,7 @@ func NewRunner(config Config) (*Runner, error) {
 func (runner *Runner) openConnection(registry *dex.Registry, tasksPerWorker int) (*benchmarkConnection, error) {
 	worker, err := dex.NewWorker(registry, runner.cache, dex.WorkerOptions{
 		FlowServiceAddress: runner.config.Address,
-		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: tasksPerWorker, ReservedRPCTasks: ptr.Any(0)},
+		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: tasksPerWorker, ReservedRPCTasks: ptr.Any(0), MinOpenSlots: runner.config.MinOpenSlots},
 	})
 	if err != nil {
 		return nil, err
@@ -198,6 +201,7 @@ func (runner *Runner) Run(ctx context.Context) (result Result, err error) {
 	start := time.Now()
 	runErr := runner.runWindow(ctx, time.Duration(config.DurationSeconds*float64(time.Second)), true, persistentFlowIDs, &result)
 	actualDuration := time.Since(start)
+	result.WorkerSlotStreams = runner.workerSlotStreams()
 	stopSampling()
 	result.MeasurementStartedAt = start.UTC()
 	result.MeasurementEndedAt = start.Add(actualDuration).UTC()
@@ -223,6 +227,32 @@ func (runner *Runner) Run(ctx context.Context) (result Result, err error) {
 		result.VerifiedBytes = runner.expectedBytesPerRead
 	}
 	return result, runErr
+}
+
+// ValidateMinOpenSlots rejects a floor that NewWorker would reject, before any connection opens.
+// ReservedRPCTasks is 0 here, so any floor from 1 to the per-Worker slots is valid; 0 keeps fixed slots.
+func ValidateMinOpenSlots(minOpenSlots int, workerPool int, connections int) error {
+	tasksPerWorker := (workerPool + connections - 1) / connections
+	if minOpenSlots < 0 {
+		return fmt.Errorf("min-open-slots %d must not be negative", minOpenSlots)
+	}
+	if minOpenSlots > tasksPerWorker {
+		return fmt.Errorf("min-open-slots %d exceeds the %d task slots of each Worker; lower it or raise -workers", minOpenSlots, tasksPerWorker)
+	}
+	return nil
+}
+
+// workerSlotStreams sums the slot streams of every pull Worker of this point.
+func (runner *Runner) workerSlotStreams() *WorkerSlotStreams {
+	total := &WorkerSlotStreams{}
+	for _, connection := range runner.connections {
+		state := connection.worker.PullSlotStreamState()
+		total.Open += state.Open
+		total.Busy += state.Busy
+		total.Idle += state.Idle
+		total.RPCOnlyOpen += state.RPCOnlyOpen
+	}
+	return total
 }
 
 // usesPersistentFlows reports whether each client works on one long-lived run; only start-complete starts a run per operation.

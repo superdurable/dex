@@ -38,7 +38,16 @@ type pullWorker struct {
 	queues                         []string
 	maxConcurrentTasks             int
 	reservedRPCTasks               int
+	minOpenSlots                   int
+	configuredMaxConcurrentTasks   int
+	isMaxConcurrentTasksExplicit   bool
+	isReservedRPCTasksExplicit     bool
+	isMinOpenSlotsExplicit         bool
+	isAdaptive                     bool
+	slotSettings                   pullSlotSettings
+	slots                          pullSlotStreams
 	shouldWarnRPCCapacity          bool
+	shouldWarnFloorRPCCapacity     bool
 	stopDrainTimeout               time.Duration
 	finalOutputFlushTimeout        time.Duration
 	stopOnPermanentStreamRejection bool
@@ -98,6 +107,8 @@ type pullStream struct {
 	taskFinished chan struct{}
 	isBusy       bool
 	isDraining   bool
+	// slot is the current attempt in the slot stream state machine; worker.mu guards it.
+	slot pullSlotAttempt
 }
 
 const busyPullStreamKeepaliveInterval = 20 * time.Second
@@ -105,7 +116,7 @@ const busyPullStreamKeepaliveInterval = 20 * time.Second
 // defaultFinalOutputFlushTimeout bounds how long an expired drain waits for a queued final output to reach the Server.
 const defaultFinalOutputFlushTimeout = 5 * time.Second
 
-func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string) (*pullWorker, error) {
+func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string, slotSettings pullSlotSettings) (*pullWorker, error) {
 	maxConcurrentTasks := options.MaxConcurrentTasks
 	if maxConcurrentTasks < 0 {
 		return nil, fmt.Errorf("dex: MaxConcurrentTasks must not be negative")
@@ -113,14 +124,25 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	if maxConcurrentTasks == 0 {
 		maxConcurrentTasks = runtime.NumCPU()
 	}
-	reservedRPCTasks := 0
+	minOpenSlots := options.MinOpenSlots
+	if minOpenSlots < 0 {
+		return nil, fmt.Errorf("dex: MinOpenSlots must not be negative")
+	}
+	if minOpenSlots == 0 {
+		minOpenSlots = maxConcurrentTasks
+	}
+	if minOpenSlots > maxConcurrentTasks {
+		return nil, fmt.Errorf("dex: MinOpenSlots %d must not exceed MaxConcurrentTasks %d", minOpenSlots, maxConcurrentTasks)
+	}
+	reservedRPCTasks := defaultReservedRPCTasks(maxConcurrentTasks, minOpenSlots)
 	if options.ReservedRPCTasks != nil {
 		reservedRPCTasks = *options.ReservedRPCTasks
-	} else if maxConcurrentTasks >= 2 {
-		reservedRPCTasks = 1
 	}
 	if reservedRPCTasks < 0 || reservedRPCTasks >= maxConcurrentTasks {
 		return nil, fmt.Errorf("dex: ReservedRPCTasks must be nonnegative and less than MaxConcurrentTasks")
+	}
+	if reservedRPCTasks+1 > minOpenSlots {
+		return nil, fmt.Errorf("dex: MinOpenSlots %d must be at least ReservedRPCTasks %d plus one Step-and-RPC slot", minOpenSlots, reservedRPCTasks)
 	}
 	stopDrainTimeout := options.StopDrainTimeout
 	if stopDrainTimeout < 0 {
@@ -162,16 +184,22 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 	for _, queue := range queues {
 		queueRegistrations[queue] = &pullQueueRegistration{}
 	}
-	return &pullWorker{
+	worker := &pullWorker{
 		service: service, client: dexpb.NewWorkerTaskServiceClient(conn), appWorkerID: appWorkerID,
 		taskQueue: options.TaskQueue, flowTypes: flowTypes, queues: queues,
 		queueRegistrations: queueRegistrations, registrationChanged: make(chan struct{}), permanentStreamRejected: make(chan struct{}),
 		stopOnPermanentStreamRejection: options.StopOnPermanentStreamRejection,
-		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks,
-		shouldWarnRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
-		stopDrainTimeout:      stopDrainTimeout, finalOutputFlushTimeout: defaultFinalOutputFlushTimeout, sdkVersion: sdkVersion,
+		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks, minOpenSlots: minOpenSlots,
+		configuredMaxConcurrentTasks: maxConcurrentTasks, isMaxConcurrentTasksExplicit: options.MaxConcurrentTasks != 0,
+		isReservedRPCTasksExplicit: options.ReservedRPCTasks != nil, isMinOpenSlotsExplicit: options.MinOpenSlots != 0,
+		isAdaptive: minOpenSlots < maxConcurrentTasks, slotSettings: slotSettings,
+		shouldWarnRPCCapacity:      options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
+		shouldWarnFloorRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks >= 2 && minOpenSlots == 1,
+		stopDrainTimeout:           stopDrainTimeout, finalOutputFlushTimeout: defaultFinalOutputFlushTimeout, sdkVersion: sdkVersion,
 		ctx: ctx, cancel: cancel, streams: make(map[*pullStream]struct{}), wake: make(chan struct{}, 1), done: make(chan struct{}), stopBegan: make(chan struct{}),
-	}, nil
+	}
+	worker.initializeSlotCapacityLocked()
+	return worker, nil
 }
 
 func generateAppWorkerID() (string, error) {
@@ -228,11 +256,14 @@ func (worker *pullWorker) run() error {
 	if worker.shouldWarnRPCCapacity {
 		worker.service.logger.Warn("RPCs may wait behind long-running Steps; use MaxConcurrentTasks >= 2 or set ReservedRPCTasks explicitly")
 	}
+	if worker.shouldWarnFloorRPCCapacity {
+		worker.service.logger.Warn("RPCs may wait behind long-running Steps; MinOpenSlots 1 reserves no RPC slot, so use MinOpenSlots >= 2 to reserve one")
+	}
 	defer func() {
 		worker.streamWG.Wait()
 		close(worker.done)
 	}()
-	worker.reconcile()
+	worker.startSlotStreams()
 	for {
 		select {
 		case <-worker.ctx.Done():
@@ -263,6 +294,7 @@ func (worker *pullWorker) stop() {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
 	worker.isStopping = true
+	worker.stopShrinkWindowLocked()
 	worker.stopOnce.Do(func() { close(worker.stopBegan) })
 	worker.notifyRegistrationChanged()
 	for stream := range worker.streams {
@@ -302,36 +334,6 @@ func (worker *pullWorker) signal() {
 	select {
 	case worker.wake <- struct{}{}:
 	default:
-	}
-}
-
-func (worker *pullWorker) reconcile() {
-	worker.mu.Lock()
-	defer worker.mu.Unlock()
-	if worker.isStopping {
-		return
-	}
-	for _, queue := range worker.queues {
-		slotKind := dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC
-		desired := worker.maxConcurrentTasks - worker.reservedRPCTasks
-		if queue == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY.String() {
-			slotKind = dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY
-			desired = worker.reservedRPCTasks
-		}
-		existing := 0
-		for stream := range worker.streams {
-			if stream.queue == queue {
-				existing++
-			}
-		}
-		for existing < desired {
-			streamCtx, cancel := context.WithCancel(worker.ctx)
-			stream := &pullStream{worker: worker, queue: queue, slotKind: slotKind, ctx: streamCtx, cancel: cancel}
-			worker.streams[stream] = struct{}{}
-			worker.streamWG.Add(1)
-			existing++
-			go stream.run()
-		}
 	}
 }
 
@@ -392,18 +394,18 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledge
 	isOverLimit := limit != 0 && uint64(worker.maxConcurrentTasks) > uint64(limit)
 	if !worker.hasCheckedRegistrationLimit {
 		worker.hasCheckedRegistrationLimit = true
-		if isOverLimit {
-			err := fmt.Errorf("dex: MaxConcurrentTasks %d exceeds Server matching.maxConcurrentTasksCap %d", worker.maxConcurrentTasks, limit)
+		if err := worker.resolveSlotCeilingAtFirstAcknowledgementLocked(limit); err != nil {
 			if worker.permanentStreamError == nil {
 				worker.permanentStreamError = err
 				worker.initialRegistrationError = err
 				worker.isStopping = true
+				worker.stopShrinkWindowLocked()
 				close(worker.permanentStreamRejected)
 			}
 			worker.notifyRegistrationChanged()
 			return err
 		}
-	} else if isOverLimit {
+	} else if isOverLimit && !worker.isAdaptive {
 		// The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
 		worker.service.logger.Warn("Server lowered matching.maxConcurrentTasksCap below MaxConcurrentTasks",
 			"maxConcurrentTasks", worker.maxConcurrentTasks, "maxConcurrentTasksPerAppWorker", limit)
@@ -423,11 +425,14 @@ func (worker *pullWorker) recordRegisteredStream(stream *pullStream, acknowledge
 		}
 		worker.hasRegisteredAllQueues = hasRegisteredAllQueues
 	}
+	worker.recordSlotRegisteredLocked(stream, limit)
 	worker.notifyRegistrationChanged()
 	return nil
 }
 
-func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) {
+// recordStreamResult ends the stream's attempt and reports whether its rejection was soft (F5).
+// A soft rejection is not recorded as a permanent error, and its runner must not retry it.
+func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) bool {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
 	registration := worker.queueRegistrations[stream.queue]
@@ -435,7 +440,10 @@ func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) {
 		stream.isRegistered = false
 		registration.registeredStreams--
 	}
-	if isPermanentPullStreamError(err) {
+	isSoftRejection := !worker.isStopping && worker.isSoftSlotRejectionLocked(stream, err)
+	if isSoftRejection {
+		worker.recordSlotRegistrationRejectedLocked(stream)
+	} else if isPermanentPullStreamError(err) {
 		registration.lastPermanentError = err
 		rejection := &PullRegistrationError{Queue: stream.queue, TaskQueue: worker.taskQueue, Err: err}
 		if registration.registeredStreams == 0 && !worker.hasRegisteredAllQueues && worker.initialRegistrationError == nil {
@@ -446,7 +454,9 @@ func (worker *pullWorker) recordStreamResult(stream *pullStream, err error) {
 			close(worker.permanentStreamRejected)
 		}
 	}
+	worker.recordSlotStreamEndedLocked(stream)
 	worker.notifyRegistrationChanged()
+	return isSoftRejection
 }
 
 func (worker *pullWorker) finishRegistration(err error) {
@@ -474,19 +484,27 @@ func (stream *pullStream) run() {
 		if isStopping {
 			return
 		}
+		// The grant may be older than the cap that another stream reported during the backoff.
+		if !stream.worker.admitSlotRegistration(stream) {
+			return
+		}
 		observer := &rejectedTokenObserver{}
 		wasRegistered, err := stream.poll(observer)
+		if errors.Is(err, errSlotAttemptRevoked) {
+			// The revocation already ended the attempt and re-ran the reopen rule.
+			return
+		}
 		if wasRegistered {
 			hasReconnectedWithFreshToken = false
 		}
 		// A discarded token lets the next stream use a fresh one, so the first rejection is not yet permanent.
 		shouldReconnectWithFreshToken := !hasReconnectedWithFreshToken && status.Code(err) == codes.Unauthenticated &&
 			observer.hasDiscardedRejectedToken.Load()
+		recordedErr := err
 		if shouldReconnectWithFreshToken {
-			stream.worker.recordStreamResult(stream, nil)
-		} else {
-			stream.worker.recordStreamResult(stream, err)
+			recordedErr = nil
 		}
+		isSoftRejection := stream.worker.recordStreamResult(stream, recordedErr)
 		stream.waitForTaskFinished()
 		if wasRegistered {
 			backoff = 100 * time.Millisecond
@@ -500,7 +518,15 @@ func (stream *pullStream) run() {
 		if isStopping {
 			return
 		}
+		if isSoftRejection {
+			// A soft rejection waits for another registered stream to end or for the next shrink window.
+			stream.worker.service.logger.Debug("Worker task stream reached the Server stream limit", "queue", stream.queue, "error", err)
+			return
+		}
 		if shouldReconnectWithFreshToken {
+			if !stream.takeReopenGrant() {
+				return
+			}
 			stream.worker.service.logger.Warn("Worker task stream rejected its token; reconnecting with a fresh token", "queue", stream.queue, "error", err)
 			hasReconnectedWithFreshToken = true
 			continue
@@ -519,6 +545,10 @@ func (stream *pullStream) run() {
 			backoff = time.Minute
 		} else if err != nil && !errors.Is(err, io.EOF) {
 			stream.worker.service.logger.Warn("Worker task stream disconnected", "queue", stream.queue, "error", err)
+		}
+		// Only the reopen rule continues this runner; a stream closed on purpose never reopens.
+		if !stream.takeReopenGrant() {
+			return
 		}
 		jitter, jitterErr := rand.Int(rand.Reader, big.NewInt(int64(backoff/2)))
 		if jitterErr != nil {
@@ -592,7 +622,15 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (wasRegistered b
 		SupportsReservedSlotDispatch: true, SlotKind: stream.slotKind, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
 		TaskQueue: stream.worker.taskQueue,
 	}}}
-	if err := stream.send(register); err != nil {
+	if beforeRegisterSend := stream.worker.slotSettings.beforeRegisterSendForTest; beforeRegisterSend != nil {
+		beforeRegisterSend(stream)
+	}
+	if err := stream.worker.sendSlotRegistration(stream, register); err != nil {
+		if errors.Is(err, errSlotAttemptRevoked) {
+			// No frame left, so the Server holds nothing for this stream; the deferred cancel ends it.
+			stream.closeSend()
+			return false, err
+		}
 		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 	}
 	stream.mu.Lock()
@@ -655,6 +693,9 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (wasRegistered b
 				}
 			case *dexpb.PollWorkerTaskResponse_Reconnect:
 				// A reset could make the Server count an in-flight task as possibly run; a half-close returns it.
+				stream.worker.mu.Lock()
+				stream.worker.recordSlotReconnectRequestedLocked(stream)
+				stream.worker.mu.Unlock()
 				if !stream.markDraining() {
 					stream.closeSend()
 				}
@@ -720,6 +761,7 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) error {
 	stream.mu.Lock()
 	if stream.isDraining || stream.worker.isStopping {
 		stream.mu.Unlock()
+		stream.worker.recordSlotTaskDroppedLocked(stream)
 		stream.worker.mu.Unlock()
 		return nil
 	}
@@ -748,6 +790,7 @@ func (stream *pullStream) startTask(task *dexpb.PollWorkerTask) error {
 	stream.isBusy = true
 	stream.worker.busyTasks++
 	stream.mu.Unlock()
+	stream.worker.recordSlotTaskStartedLocked(stream)
 	stream.worker.mu.Unlock()
 	stream.worker.signal()
 	stream.startKeepalive()
@@ -917,6 +960,9 @@ func (stream *pullStream) completeTask() {
 	stream.worker.busyTasks--
 	isDraining := stream.isDraining
 	stream.mu.Unlock()
+	if stream.worker.recordSlotTaskCompletedLocked(stream, isDraining) {
+		isDraining = true
+	}
 	stream.worker.mu.Unlock()
 	if isDraining && stream.ctx.Err() == nil {
 		stream.closeSend()
@@ -965,9 +1011,19 @@ func (stream *pullStream) isReconnecting() bool {
 	return true
 }
 
+// takeReopenGrant reports whether the reopen rule gave this runner the next attempt, and consumes that grant.
+func (stream *pullStream) takeReopenGrant() bool {
+	stream.worker.mu.Lock()
+	defer stream.worker.mu.Unlock()
+	isGranted := stream.slot.isReopenGranted
+	stream.slot.isReopenGranted = false
+	return isGranted
+}
+
 func (stream *pullStream) remove() {
 	stream.cancelTaskContext()
 	stream.worker.mu.Lock()
+	stream.worker.abandonSlotAttemptLocked(stream)
 	delete(stream.worker.streams, stream)
 	if stream.worker.isStopping && len(stream.worker.streams) == 0 {
 		stream.worker.cancel()
@@ -1043,6 +1099,12 @@ func (stream *pullStream) sendKeepalivePong(done chan struct{}) error {
 }
 
 func (stream *pullStream) closeSendForStop() {
+	defer stream.worker.streamWG.Done()
+	stream.closeSend()
+}
+
+// closeSendForSlotRelease half-closes a stream that the Worker no longer needs, outside worker.mu.
+func (stream *pullStream) closeSendForSlotRelease() {
 	defer stream.worker.streamWG.Done()
 	stream.closeSend()
 }

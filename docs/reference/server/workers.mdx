@@ -246,7 +246,9 @@ older server, because that server provides protocol version 4.
 ## Capacity and shutdown
 
 The concurrent task limit sets the number of task slots. The default is the
-CPU count; see [Choose the slot count](#choose-slot-count). A Worker opens one long-lived stream for each slot. Each stream
+CPU count; see [Choose the slot count](#choose-slot-count). A fixed Worker, the default, opens one long-lived stream for each slot.
+An adaptive Go Worker opens streams between a floor and the task limit; see
+[Adaptive slot streams](#adaptive-slot-streams). Each stream
 serves the Worker's app Worker ID queue and every Flow type it registers, inside
 the Worker's task queue. A stream runs one task at a time and is ready for a
 new task while it is idle.
@@ -259,15 +261,28 @@ slots, the stop drain timeout, and the shutdown method. See
 [Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
 and [Rust](/reference/rust/workers).
 
-The stream count equals the task limit and does not change with load. It must
-fit within **matching.maxConcurrentTasksCap**, which defaults to 256 streams per
-app Worker ID. Dex reports this limit when a Worker registers. If the first
-registration reports a limit below the task limit, the Worker fails to start,
-with an error that names both values. A task that Dex already sent to that
-Worker returns to Dex without consuming an attempt. If a later reconnect
-reports a lower limit, the Worker only logs a warning. **matching.maxStreams**
+The stream count of a fixed Worker equals the task limit and does not change
+with load. The streams of one app Worker ID must fit within
+**matching.maxConcurrentTasksCap**, which defaults to 256. Dex reports this
+limit when a Worker registers:
+
+- **Fixed Worker with an explicit task limit.** If the first registration
+  reports a limit below the task limit, the Worker fails to start, with an error
+  that names both values. A task that Dex already sent to that Worker returns to
+  Dex without consuming an attempt. If a later reconnect reports a lower limit,
+  the Worker only logs a warning, and Dex rejects its surplus streams.
+- **Fixed Go Worker with the task limit unset.** Since 1.45.7, the Worker
+  clamps its CPU-count default to the limit at the first registration, with a
+  warning. A later lower limit behaves as for an explicit task limit.
+- **Adaptive Go Worker.** Since 1.45.7, the Worker clamps its task limit to the
+  limit at the first registration, with a warning. A later lower limit lowers
+  its capacity: it half-closes surplus streams and opens none above the new
+  limit. See [Adaptive slot streams](#adaptive-slot-streams).
+
+**matching.maxStreams**
 limits the node to 100,000 registered streams by default, so count the slots of
-all Workers against it. **matching.maxQueueLength**, **matching.maxFlowTypes**,
+all fixed Workers against it, and the real concurrency plus the floor of each
+adaptive Worker. **matching.maxQueueLength**, **matching.maxFlowTypes**,
 and **matching.maxFlowTypeLength** also limit registration. Each defaults to
 256.
 
@@ -329,7 +344,9 @@ for RPCs, which matches the default.
 
 ### Choose the slot count {#choose-slot-count}
 
-Each task slot is one stream that runs one Step or RPC handler at a time. The
+Each task slot of a fixed Worker is one stream that runs one Step or RPC handler
+at a time. An adaptive Go Worker opens a slot's stream only when it needs it; see
+[Adaptive slot streams](#adaptive-slot-streams). The
 slot count of a Worker is the most handlers it runs at once. Steps beyond the
 free slots of all Workers wait in the durable task queue.
 
@@ -356,15 +373,59 @@ the handlers wait on:
 - **Downstream limits** cap useful concurrency. A model provider or database
   that allows 50 concurrent calls gains nothing from 500 slots across your
   Workers.
-- **Idle slots cost the server.** Each slot holds one registered stream and its
-  keepalives, busy or not. Size the limit for the load you expect, not for the
-  cap.
+- **Idle slots cost the server.** Each slot of a fixed Worker holds one
+  registered stream and its keepalives, busy or not. Size the limit for the load
+  you expect, not for the cap. An idle adaptive Go Worker holds only its floor;
+  see [Adaptive slot streams](#adaptive-slot-streams).
 - **Containers and schedulers** such as Ray can show a process the CPU count of
   the whole host instead of its allocation. Set the limit explicitly there.
 - **Rolling deploys** run old and new Workers at the same time. Budget
-  **matching.maxStreams** for the sum of the slots of both generations.
+  **matching.maxStreams** for the sum of the slots of both generations of fixed
+  Workers. Adaptive Go Workers need their real concurrency plus their floors.
 - **Reserved RPC slots** come out of the task limit. To run eight Steps at once
   with one reserved slot, set the limit to nine.
+
+### Adaptive slot streams {#adaptive-slot-streams}
+
+Since 1.45.7 (Go). A Go Worker can vary its open slot streams with load. Set
+**PullWorkerOptions.MinOpenSlots** below **MaxConcurrentTasks** to make it
+adaptive. The task limit is then the most streams the Worker opens, and
+**MinOpenSlots** is the fewest. Both count the reserved RPC slots. With
+**MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
+behaves as the sections above describe. Workers of the other SDKs keep fixed
+slots.
+
+An adaptive Worker works as follows:
+
+- It starts at its floor. It opens its Step-and-RPC streams first, and its
+  RPC-only streams after the first registration.
+- It doubles its Step-and-RPC streams when a task takes its last idle one. One
+  growth batch is in flight at a time, up to the task limit.
+- Every 30 seconds it half-closes half of the idle streams above the window's
+  peak busy count plus 25% headroom. It keeps its floor and its last idle
+  stream. A task that reaches a closing stream returns to Dex without consuming
+  a retry.
+- Its RPC-only streams stay at the reserve.
+- It clamps a task limit above **matching.maxConcurrentTasksCap** to the cap,
+  with a warning that names both values. A fixed Worker with an explicit limit
+  above the cap still fails to start.
+- It treats a rejection at **matching.maxStreams** or at the cap as a soft limit
+  when the rejected stream is a growth stream or a reconnect after readiness.
+  It keeps its readiness, records no registration error, and retries at most
+  once per 30 seconds.
+- It lowers its capacity when a reconnect reports a lower cap. It half-closes
+  the surplus streams, RPC-only streams first, and opens no stream above the new
+  cap.
+- It registers a stream only for a slot whose handler has returned, so after a
+  server restart it holds no stream while handlers that ignore cancellation
+  still run.
+
+An idle adaptive Worker holds only its floor, so budget **matching.maxStreams**
+for the real concurrency plus each Worker's floor. A fixed Go Worker with the
+task limit unset also changes in 1.45.7. It opens one stream first, learns the
+cap from its registration, and clamps its CPU-count default to the cap with a
+warning. **Worker.PullSlotStreamState()** returns the open, busy, and idle
+streams and the capacities. See [Go Workers](/reference/go/workers#capacity-and-shutdown).
 
 ### Find the bottleneck {#find-bottleneck}
 
@@ -453,7 +514,7 @@ matching:
 | **matching.syncMatchWait** | 200ms | Time to try any Worker of the Flow type for a Step after the sticky wait, before the Step goes to the durable task queue. Must be greater than 0. |
 | **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
-| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by the total slots of fixed Workers, plus the real concurrency and floors of [adaptive Workers](#adaptive-slot-streams). |
 | **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, task queue, Flow type, Step type or RPC name, app Worker ID) entries that Dex remembers as unsupported. |
 | **matching.maxQueueLength** | 256 | Longest Flow type or app Worker ID queue name, in characters. Named task queues have a fixed limit of 63 characters. |
 | **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
