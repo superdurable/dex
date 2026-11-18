@@ -115,7 +115,10 @@ impl PullWorkerOptions {
     /// a Step retry, and the Server dispatches it again. When the Server rejects a stream at its
     /// stream limit (`RESOURCE_EXHAUSTED`), an adaptive Worker treats the rejection of a growth
     /// stream, or of a reconnect after readiness, as a soft limit: it records no
-    /// [`crate::PullRegistrationError`] and retries at most once per 30 seconds. Use
+    /// [`crate::PullRegistrationError`] and does not retry at once. It retries when one of its
+    /// own registered streams ends, or at the next 30-second shrink window. A rejected growth
+    /// batch also holds growth until that window ends, so while growth keeps being rejected the
+    /// Worker sends at most one growth batch per window. Use
     /// [`crate::Worker::pull_slot_stream_state`] to observe the streams.
     ///
     /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`] unless
@@ -166,6 +169,21 @@ impl PullWorkerOptions {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         self.slot_settings.before_register_send = Some(Arc::new(move || Box::pin(hook())));
+        self
+    }
+
+    /// Holds each slot stream's Register in the transport until `latch` completes, for tests only.
+    ///
+    /// The latch runs after the Register is marked as sent and the stream opens, before the
+    /// frame reaches the Server, like a blocked client send. A reset stream drops its latch.
+    /// Returns these options with the latch applied.
+    #[cfg(feature = "test-util")]
+    pub fn register_send_latch_for_test<F, Fut>(mut self, latch: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.slot_settings.register_send_latch = Some(Arc::new(move || Box::pin(latch())));
         self
     }
 

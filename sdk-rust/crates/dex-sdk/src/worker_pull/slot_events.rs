@@ -320,10 +320,7 @@ impl SlotMachine<'_> {
         false
     }
 
-    /// Re-checks the attempt and marks its Register as sent; the caller sends after the lock.
-    ///
-    /// A cap drop after this check reaches the Server, which enforces the cap; an adaptive Worker
-    /// treats that rejection as soft. Returns false when the attempt no longer fits.
+    /// Marks a re-checked attempt as sent; returns false when it no longer fits.
     pub(super) fn begin_register_send(&mut self, stream_id: u64) -> bool {
         if !self.admit(stream_id) {
             return false;

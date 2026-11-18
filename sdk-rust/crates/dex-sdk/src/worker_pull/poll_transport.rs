@@ -47,6 +47,35 @@ impl Service<http::Request<TonicBody>> for PollTransport {
     }
 }
 
+/// The request frames of one poll stream; an optional test latch holds the first frame.
+pub(super) struct LatchedRequestStream<S> {
+    latch: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    requests: S,
+}
+
+impl<S> LatchedRequestStream<S> {
+    pub(super) fn new(
+        latch: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+        requests: S,
+    ) -> Self {
+        Self { latch, requests }
+    }
+}
+
+impl<S: tokio_stream::Stream + Unpin> tokio_stream::Stream for LatchedRequestStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<S::Item>> {
+        if let Some(latch) = self.latch.as_mut() {
+            if latch.as_mut().poll(context).is_pending() {
+                return Poll::Pending;
+            }
+            self.latch = None;
+        }
+        Pin::new(&mut self.requests).poll_next(context)
+    }
+}
+
 /// Resets a poll stream when dropped, unless a clean half-close was explicitly allowed.
 pub(super) struct PollStreamResetGuard {
     reset: InvocationCancellation,

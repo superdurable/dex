@@ -476,7 +476,9 @@ one batch at a time, when a task takes the last idle one. Every 30 seconds it
 half-closes half of the idle surplus above the window's peak busy count plus 25%
 headroom. An adaptive Worker clamps `max_concurrent_tasks` to the Server cap with a
 WARN log. It treats `RESOURCE_EXHAUSTED` for a growth stream, or for a reconnect after
-readiness, as a soft limit: no permanent error, and at most one retry per window. It
+readiness, as a soft limit: no permanent error and no immediate retry. It retries when
+one of its own registered streams ends, or at the next shrink window. While growth
+batches keep being rejected, it sends at most one growth batch per window. It
 counts handlers that still run after their stream ended against its capacity, so it
 never registers a stream for a busy slot. `Worker::pull_slot_stream_state()` returns a
 snapshot of the streams. The state machine is specified in

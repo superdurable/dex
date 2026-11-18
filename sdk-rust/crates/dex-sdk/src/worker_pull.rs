@@ -569,7 +569,16 @@ impl PullStream {
             self.channel.clone(),
             stream_reset,
         ));
-        let opening = client.poll_worker_task(ReceiverStream::new(receiver));
+        let register_send_latch = self
+            .shared
+            .slot_settings
+            .register_send_latch
+            .as_ref()
+            .map(|latch| latch());
+        let opening = client.poll_worker_task(poll_transport::LatchedRequestStream::new(
+            register_send_latch,
+            ReceiverStream::new(receiver),
+        ));
         tokio::pin!(opening);
         let opening = tokio::select! {
             result = &mut opening => result,

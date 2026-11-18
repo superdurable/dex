@@ -32,6 +32,8 @@ pub(crate) type RegisterSendHook =
 pub(crate) struct PullSlotSettings {
     pub(crate) shrink_window: Duration,
     pub(crate) before_register_send: Option<RegisterSendHook>,
+    /// A test latch that holds the Register in the request body after the stream opens.
+    pub(crate) register_send_latch: Option<RegisterSendHook>,
 }
 
 impl Default for PullSlotSettings {
@@ -39,6 +41,7 @@ impl Default for PullSlotSettings {
         Self {
             shrink_window: DEFAULT_SHRINK_WINDOW,
             before_register_send: None,
+            register_send_latch: None,
         }
     }
 }
@@ -51,6 +54,10 @@ impl std::fmt::Debug for PullSlotSettings {
             .field(
                 "has_before_register_send",
                 &self.before_register_send.is_some(),
+            )
+            .field(
+                "has_register_send_latch",
+                &self.register_send_latch.is_some(),
             )
             .finish()
     }
@@ -292,10 +299,7 @@ impl SlotMachine<'_> {
         self.recompute_capacity();
     }
 
-    /// Releases capacity above a lowered cap; RPC-only surplus goes first.
-    ///
-    /// An attempt whose Register has not left yet is revoked first, because it costs the Server
-    /// nothing.
+    /// Releases capacity above a lowered cap: RPC-only first, unsent attempts before idle streams.
     pub(super) fn close_surplus(&mut self) {
         for slot_kind in [PollWorkerSlotKind::RpcOnly, PollWorkerSlotKind::StepAndRpc] {
             while self.is_slot_kind_over_quota(slot_kind) {

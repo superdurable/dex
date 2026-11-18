@@ -1310,11 +1310,132 @@ fn adaptive_slot_streams_cap_drop_between_admission_and_send() {
     run.require_no_permanent_registration_error();
 }
 
-/// One Register is blocked before it reaches the server. Cap updates and handlers on the other
-/// streams must still progress, and Stop must still finish.
+/// Holds the first Register in the Worker's own transport and counts latch futures still alive.
+struct RegisterSendLatch {
+    remaining_blocks: AtomicUsize,
+    blocked: AtomicUsize,
+    live: AtomicUsize,
+    released: watch::Sender<bool>,
+}
+
+/// Counts one live latch future until it completes or its reset stream drops it.
+struct LiveLatchGuard(Arc<RegisterSendLatch>);
+
+impl Drop for LiveLatchGuard {
+    fn drop(&mut self) {
+        self.0.live.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl RegisterSendLatch {
+    async fn hold(self: Arc<Self>) {
+        let is_blocking = self
+            .remaining_blocks
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok();
+        if !is_blocking {
+            return;
+        }
+        self.live.fetch_add(1, Ordering::AcqRel);
+        let _guard = LiveLatchGuard(Arc::clone(&self));
+        self.blocked.fetch_add(1, Ordering::AcqRel);
+        let mut released = self.released.subscribe();
+        wait_until_true(&mut released).await;
+    }
+}
+
+/// The client transport holds one Register before the proxy receives it, like a blocked send.
+/// Cap updates and handlers on the other streams still progress, and Stop still finishes.
 #[test]
 #[ignore = "requires DEX_SERVER_ZD_BINARY"]
 fn adaptive_slot_streams_blocked_register_send() {
+    let runtime = test_runtime();
+    let server = AdaptiveSlotTestServer::start(ServerLimits::cap(4));
+    let proxy = PullSlotProxy::start(&runtime, &server.address);
+    let latch = Arc::new(RegisterSendLatch {
+        remaining_blocks: AtomicUsize::new(1),
+        blocked: AtomicUsize::new(0),
+        live: AtomicUsize::new(0),
+        released: watch::channel(false).0,
+    });
+    let handlers = AdaptiveSlotHandlers::new(false);
+    let app_worker_id = app_worker_id("adaptive-latched-send");
+    let hook_latch = Arc::clone(&latch);
+    let mut run = AdaptiveSlotWorkerRun::start(
+        &runtime,
+        &proxy.address,
+        &handlers,
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(8)
+            .min_open_slots(3)
+            .stop_drain_timeout(SECOND)
+            .app_worker_id(&app_worker_id)
+            .shrink_window_for_test(Duration::from_secs(3600))
+            .register_send_latch_for_test(move || Arc::clone(&hook_latch).hold()),
+    );
+
+    // The first Step-and-RPC Register never leaves the Worker; the others register and report cap 4.
+    assert!(eventually(20 * SECOND, || latch
+        .blocked
+        .load(Ordering::Acquire)
+        == 1));
+    require_slot_state(
+        &run,
+        "a cap update on another stream",
+        20 * SECOND,
+        |state| state.total_capacity == 4 && state.idle >= 1 && state.registering == 1,
+    );
+    let client = server.new_client(&run.registry);
+    let flow_ids = start_flows(&client, &handlers, MODE_QUICK, 2);
+    require_flows_completed(&client, &flow_ids);
+    // The proxy holds every Register it received, so the latched one never reached it.
+    let origin = Instant::now() - Duration::from_secs(3600);
+    let state = run.state();
+    assert_eq!(1, state.registering, "{state:?}");
+    assert_eq!(
+        state.open - 1,
+        step_events(&proxy.registers_since(&app_worker_id, origin)).len(),
+        "the latched Register reached the proxy\n{}",
+        proxy.describe(&app_worker_id)
+    );
+    assert_eq!(1, latch.live.load(Ordering::Acquire));
+
+    // Stop finishes within its drain timeout although one Register never leaves by itself.
+    let stop_started_at = Instant::now();
+    run.stop(15 * SECOND)
+        .expect("Start returns after Stop with a latched Register");
+    let stop_duration = stop_started_at.elapsed();
+    assert!(
+        stop_duration < 2 * SECOND,
+        "Stop took {stop_duration:?} with a 1 s drain timeout"
+    );
+    assert!(
+        eventually(5 * SECOND, || latch.live.load(Ordering::Acquire) == 0),
+        "the reset stream kept its latched Register"
+    );
+    latch.released.send_replace(true);
+    assert!(
+        never(2 * SECOND, || !proxy
+            .registers_since(&app_worker_id, stop_started_at)
+            .is_empty()),
+        "a Register reached the proxy after Stop\n{}",
+        proxy.describe(&app_worker_id)
+    );
+    let state = run.state();
+    assert_eq!(
+        (0, 0, 0),
+        (state.open, state.registering, state.rpc_only_open),
+        "{state:?}"
+    );
+}
+
+/// One Register reaches the proxy, which holds it before the server; the Worker awaits the
+/// answer. Cap updates and handlers on the other streams still progress, and Stop still finishes.
+#[test]
+#[ignore = "requires DEX_SERVER_ZD_BINARY"]
+fn adaptive_slot_streams_register_sent_awaiting_answer() {
     let runtime = test_runtime();
     let server = AdaptiveSlotTestServer::start(ServerLimits::cap(4));
     let proxy = PullSlotProxy::start(&runtime, &server.address);
