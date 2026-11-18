@@ -1313,14 +1313,29 @@ async fn pipeline_commits_a_head_put_slower_than_ten_seconds_within_a_longer_dea
         ..Default::default()
     };
     let (pipeline, mut committed) =
-        CommitPipeline::start(store, Arc::new(FixedClock), stream(), 1, 1, config).unwrap();
-    let ticket = pipeline
+        CommitPipeline::start(store.clone(), Arc::new(FixedClock), stream(), 1, 1, config).unwrap();
+    let mut ticket_result = pipeline
         .propose(2, Bytes::from_static(b"slow"), true)
         .await
-        .unwrap();
+        .unwrap()
+        .committed;
+    // The write deadline starts before the PUT, so the clock moves only once the PUT waits.
+    while store.put_count.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
     tokio::time::advance(Duration::from_secs(15)).await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        matches!(
+            ticket_result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "the 15 s PUT must still be in flight"
+    );
     release.notify_one();
-    assert_eq!(ticket.committed.await.unwrap(), Ok(1));
+    assert_eq!(ticket_result.await.unwrap(), Ok(1));
     assert_eq!(committed.recv().await.unwrap().seq, 1);
 }
 
