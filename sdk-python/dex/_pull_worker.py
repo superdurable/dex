@@ -453,6 +453,8 @@ class PullStream:
         # The current attempt in the slot stream state machine; None for a stream it does not track.
         self.slot: _PullSlotAttempt | None = None
         self._should_retry_unauthenticated = False
+        # Whether this poll registered; the registration count may already have dropped for an orphaned handler.
+        self._has_registered_in_poll = False
 
     def on_done(self, completed: asyncio.Task[None]) -> None:
         self.runtime._stream_done(self, completed)
@@ -467,6 +469,7 @@ class PullStream:
                 return
             attempt = self.slot
             self.is_draining = False
+            self._has_registered_in_poll = False
             was_registered = False
             is_revoked = False
             is_soft_rejection = False
@@ -486,7 +489,7 @@ class PullStream:
                     "Worker task stream failed", extra={"queue": self.queue}
                 )
             finally:
-                if self._is_registered:
+                if self._has_registered_in_poll:
                     has_retried_unauthenticated = False
                 if not is_revoked:
                     is_soft_rejection = self._record_stream_result(
@@ -606,6 +609,7 @@ class PullStream:
         self._is_final_output_unconfirmed = False
         self._has_send_failure = False
         self._stream_metadata = None
+        self._has_registered_in_poll = False
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
         else:
@@ -687,6 +691,7 @@ class PullStream:
                         self.drain()
                         continue
                     self._is_registered = True
+                    self._has_registered_in_poll = True
                     self.runtime.registration.record_registered_stream(self.queue)
                     slot_streams.record_slot_registered(
                         self, frame.registered.max_concurrent_tasks_per_app_worker
@@ -715,6 +720,11 @@ class PullStream:
             if self.handler_task is not None:
                 # The handler may outlive its stream, such as a sync handler; it then holds its slot as orphaned.
                 self.runtime._slot_streams.record_slot_stream_ended(self)
+                if self._is_registered:
+                    self._is_registered = False
+                    self.runtime.registration.record_stream_result(
+                        self.queue, True, None
+                    )
             async with self._send_lock:
                 self._stop_keepalive()
             retirement.cancel()
