@@ -1702,6 +1702,138 @@ body:has(.v1-page) {
   box-shadow: var(--graph-stack-layers), var(--graph-node-shadow-hover);
 }
 
+/* A range of Rounds reads as a deck: two fainter cards up and right of the top card. */
+.v1-page .react-flow__node.node-round-group.node-round-range,
+.v1-page .react-flow__node.node-round-group.node-round-range:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The stacked cards' shadows reach past the node box. */
+.v1-page .react-flow__node.node-round-range .graph-node-body {
+  overflow: visible;
+}
+
+.v1-page .react-flow__node.node-round-range:focus-visible {
+  outline: none;
+}
+
+.v1-page .react-flow__node.node-round-range:focus-visible .graph-round-deck-card {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+.v1-page .graph-round-deck {
+  --graph-deck-offset-x: 16px;
+  --graph-deck-offset-y: 12px;
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--graph-deck-offset-y) var(--graph-deck-offset-x);
+}
+
+.v1-page .graph-round-deck-layer {
+  position: absolute;
+  top: var(--graph-deck-offset-y);
+  left: var(--graph-deck-offset-x);
+  width: calc(100% - 2 * var(--graph-deck-offset-x));
+  height: calc(100% - 2 * var(--graph-deck-offset-y));
+  border-radius: var(--graph-node-radius);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--graph-node-shadow);
+}
+
+.v1-page .graph-round-deck-layer-far {
+  opacity: 0.55;
+  transform: translate(var(--graph-deck-offset-x), calc(-1 * var(--graph-deck-offset-y)));
+}
+
+.v1-page .graph-round-deck-layer-near {
+  opacity: 0.8;
+  transform: translate(calc(var(--graph-deck-offset-x) / 2), calc(var(--graph-deck-offset-y) / -2));
+}
+
+.v1-page .graph-round-group.graph-round-deck-card {
+  position: relative;
+  border-top: 3px solid var(--tone-accent);
+  border-radius: var(--graph-node-radius);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--graph-node-shadow);
+  transition: box-shadow 180ms ease;
+}
+
+.v1-page .graph-round-group.graph-round-deck-card.has-failed {
+  border-top-color: var(--tone-fail);
+}
+
+/* The deck does not clip, so long facts shorten and the button stays whole. */
+.v1-page .graph-round-deck-card .graph-round-facts > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v1-page .react-flow__node.node-round-range:hover .graph-round-deck-card {
+  box-shadow: var(--graph-node-shadow-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v1-page .react-flow__node.step-flow-node.node-round-range:hover {
+    translate: none;
+  }
+}
+
+.v1-page .graph-round-deck-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.v1-page .graph-round-deck-count {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--tone-accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.v1-page .graph-round-deck-count b {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 26px;
+}
+
+.v1-page .graph-round-deck-count small,
+.v1-page .graph-round-deck-span {
+  color: var(--ui-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.v1-page .graph-round-deck-span {
+  overflow: hidden;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .graph-round-deck-title {
+  overflow: hidden;
+  color: var(--tone-accent-ink);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .v1-page .graph-round-group {
   display: flex;
   height: 100%;

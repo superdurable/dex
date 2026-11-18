@@ -95,9 +95,20 @@ interface StepNodeData extends Record<string, unknown> {
   frameKeys?: string[];
   hasSubFlowChildren?: boolean;
   direction: GraphDirection;
+  /** Where topology edges meet, when not the whole node box. */
+  handleBox?: HandleBox;
+}
+
+interface HandleBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 const foldedGroupDimensions = { width: 280, withSequenceHeight: 136, height: 112 };
+/** Room the two stacked cards of a Round range take up and right; matches --graph-deck-offset-x and -y. */
+const roundRangeDeckOffset = { x: 16, y: 12 };
 const elisionGapDimensions = { width: 140, height: 44 };
 /** The canvas keeps this much room above the highest Round frame heading. */
 const frameTopClearance = 12;
@@ -496,8 +507,61 @@ function stepCountLabel(count: number): string {
   return `${count.toLocaleString('en-US')} Step${count === 1 ? '' : 's'}`;
 }
 
-/** A folded Round: its title, Step count, status bar, Step sequence and duration. */
+/** The accessible name of a folded Round range, such as "39 Rounds, Rounds 1–39, 78 Steps". */
+export function roundRangeAccessibleName(round: StepRoundGroup): string {
+  const facts = [
+    `${round.roundCount.toLocaleString('en-US')} Rounds`,
+    roundSpanLabel(round, 'Rounds '),
+    stepCountLabel(round.stepCount),
+  ];
+  return (round.roundRangeLabel ? [round.title, ...facts] : facts).join(', ');
+}
+
+function roundSpanLabel(round: StepRoundGroup, prefix: string): string {
+  return `${prefix}${round.firstRoundNumber.toLocaleString('en-US')}–${round.lastRoundNumber.toLocaleString('en-US')}`;
+}
+
+/** A folded Round, or a deck of cards for a range of Rounds. */
 export function RoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
+  return round.kind === 'range'
+    ? <RoundRangeDeckLabel onOpen={onOpen} round={round} />
+    : <SingleRoundGroupLabel onOpen={onOpen} round={round} />;
+}
+
+/** A folded range of Rounds: the Round count as headline over two stacked cards. */
+function RoundRangeDeckLabel({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
+  const isOneStepType = round.roundRangeLabel !== '';
+  return (
+    <div className="graph-round-deck">
+      <span aria-hidden="true" className="graph-round-deck-layer graph-round-deck-layer-far" />
+      <span aria-hidden="true" className="graph-round-deck-layer graph-round-deck-layer-near" />
+      <div className={`graph-round-group graph-round-deck-card${round.failedCount > 0 ? ' has-failed' : ''}`}>
+        {isOneStepType ? (
+          <div className="graph-round-deck-heading">
+            <b className="graph-round-deck-title" title={round.title}>{round.title}</b>
+          </div>
+        ) : (
+          <div className="graph-round-deck-heading">
+            <span className="graph-round-deck-count">
+              <b>×{round.roundCount.toLocaleString('en-US')}</b>
+              <small>Rounds</small>
+            </span>
+            <span className="graph-round-deck-span">
+              {roundSpanLabel(round, '')} · {stepCountLabel(round.stepCount)}
+            </span>
+          </div>
+        )}
+        {round.sequence.length > 0 && (
+          <p className="graph-round-sequence" title={round.sequence.join(' → ')}>{round.sequence.join(' → ')}</p>
+        )}
+        <RoundGroupFacts onOpen={onOpen} round={round} />
+      </div>
+    </div>
+  );
+}
+
+/** A folded Round: its title, Step count, status bar, Step sequence and duration. */
+function SingleRoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
   const completedShare = round.stepCount > 0 ? (round.completedCount / round.stepCount) * 100 : 0;
   const failedShare = round.stepCount > 0 ? (round.failedCount / round.stepCount) * 100 : 0;
   return (
@@ -518,22 +582,29 @@ export function RoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOp
       {round.sequence.length > 0 && (
         <p className="graph-round-sequence" title={round.sequence.join(' → ')}>{round.sequence.join(' → ')}</p>
       )}
-      <div className="graph-round-facts">
-        {round.roundRangeLabel && <span>{round.roundRangeLabel}</span>}
-        {round.duration && <span>{round.duration}</span>}
-        {round.failedCount > 0 && <span className="graph-round-failed">{round.failedCount.toLocaleString('en-US')} failed</span>}
-        <button
-          className="graph-round-action nodrag nopan"
-          onClick={(clickEvent) => {
-            clickEvent.stopPropagation();
-            onOpen(round.key);
-          }}
-          type="button"
-        >
-          <ChevronRight aria-hidden="true" size={13} strokeWidth={2.5} />
-          {showsRounds(round) ? 'Show Rounds' : 'Show Steps'}
-        </button>
-      </div>
+      <RoundGroupFacts onOpen={onOpen} round={round} />
+    </div>
+  );
+}
+
+/** The bottom line of a folded node: Round span, duration, failures and the open button. */
+function RoundGroupFacts({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
+  return (
+    <div className="graph-round-facts">
+      {round.roundRangeLabel && <span title={round.roundRangeLabel}>{round.roundRangeLabel}</span>}
+      {round.duration && <span title={round.duration}>{round.duration}</span>}
+      {round.failedCount > 0 && <span className="graph-round-failed">{round.failedCount.toLocaleString('en-US')} failed</span>}
+      <button
+        className="graph-round-action nodrag nopan"
+        onClick={(clickEvent) => {
+          clickEvent.stopPropagation();
+          onOpen(round.key);
+        }}
+        type="button"
+      >
+        <ChevronRight aria-hidden="true" size={13} strokeWidth={2.5} />
+        {showsRounds(round) ? 'Show Rounds' : 'Show Steps'}
+      </button>
     </div>
   );
 }
@@ -580,15 +651,26 @@ function handleKind(data: StepNodeData): StepGraphNode['kind'] | 'frame' {
 function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
   const kind = handleKind(data);
   const positions = handlePositions(data.direction);
+  const topologyStyle = (position: Position) => (data.handleBox ? handleStyleOnBox(data.handleBox, position) : undefined);
   if (kind === 'frame') return <div className="graph-node-root">{data.label}</div>;
   return (
     <div className="graph-node-root">
       {kind === 'step' && (
-        <Handle id="topology" position={positions.topologyIn} type="target" />
+        <Handle
+          id="topology"
+          position={positions.topologyIn}
+          style={topologyStyle(positions.topologyIn)}
+          type="target"
+        />
       )}
       <div className="graph-node-body">{data.label}</div>
       {(kind === 'source' || kind === 'step') && (
-        <Handle id="topology" position={positions.topologyOut} type="source" />
+        <Handle
+          id="topology"
+          position={positions.topologyOut}
+          style={topologyStyle(positions.topologyOut)}
+          type="source"
+        />
       )}
       {kind === 'step' && data.hasSubFlowChildren === true && (
         <Handle
@@ -636,19 +718,43 @@ export function graphNodeDimensions(node: StepGraphNode): { height: number; widt
 function foldedItemDimensions(item: FoldedGraphItem): { height: number; width: number } {
   if (item.display === 'node') return graphNodeDimensions(item.node);
   if (item.display === 'more') return elisionGapDimensions;
-  return {
+  const card = {
     width: foldedGroupDimensions.width,
     height: item.round.sequence.length > 0 ? foldedGroupDimensions.withSequenceHeight : foldedGroupDimensions.height,
   };
+  if (item.round.kind !== 'range') return card;
+  // Equal room on the opposite sides keeps the top card centered, so edges stay straight.
+  return { width: card.width + 2 * roundRangeDeckOffset.x, height: card.height + 2 * roundRangeDeckOffset.y };
+}
+
+/** The top card of a Round range deck inside its node box, where its edges meet. */
+function roundRangeCardBox(dimensions: { height: number; width: number }): HandleBox {
+  return {
+    x: roundRangeDeckOffset.x,
+    y: roundRangeDeckOffset.y,
+    width: dimensions.width - 2 * roundRangeDeckOffset.x,
+    height: dimensions.height - 2 * roundRangeDeckOffset.y,
+  };
+}
+
+/** Centers a Handle on the middle of the box side its position names. */
+function handleStyleOnBox(box: HandleBox, position: Position): React.CSSProperties {
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const point = {
+    [Position.Left]: { x: box.x, y: center.y },
+    [Position.Right]: { x: box.x + box.width, y: center.y },
+    [Position.Top]: { x: center.x, y: box.y },
+    [Position.Bottom]: { x: center.x, y: box.y + box.height },
+  }[position];
+  return { left: point.x, top: point.y, right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' };
 }
 
 function nodeHandles(
   kind: StepGraphNode['kind'],
-  dimensions: { height: number; width: number },
+  box: HandleBox,
   hasSubFlowChildren: boolean,
   direction: GraphDirection,
 ): Node['handles'] {
-  const box = { x: 0, y: 0, width: dimensions.width, height: dimensions.height };
   const positions = handlePositions(direction);
   if (kind === 'subflow') {
     return [{ ...box, id: 'subflow', type: 'target', position: positions.subFlowIn }];
@@ -892,20 +998,31 @@ export function ExecutionGraph({
     const raw: Array<Node<StepNodeData>> = folded.items.map((item) => {
       const dimensions = foldedItemDimensions(item);
       if (item.display !== 'node') {
+        const handleBox = item.display === 'group' && item.round.kind === 'range'
+          ? roundRangeCardBox(dimensions)
+          : undefined;
         return {
           id: item.id,
           type: 'graph',
           position: { x: 0, y: 0 },
           className: item.display === 'group'
-            ? `step-flow-node node-round-group${item.round.failedCount > 0 ? ' node-round-group-failed' : ''}`
+            ? [
+              'step-flow-node node-round-group',
+              item.round.kind === 'range' ? 'node-round-range' : '',
+              item.round.failedCount > 0 ? 'node-round-group-failed' : '',
+            ].filter(Boolean).join(' ')
             : 'step-flow-node node-round-more',
+          ariaLabel: item.display === 'group' && item.round.kind === 'range'
+            ? roundRangeAccessibleName(item.round)
+            : undefined,
           width: dimensions.width,
           height: dimensions.height,
           style: dimensions,
-          handles: nodeHandles('step', dimensions, false, direction),
+          handles: nodeHandles('step', handleBox ?? { x: 0, y: 0, ...dimensions }, false, direction),
           data: {
             direction,
             display: item.display,
+            handleBox,
             frameKeys: item.frameKeys,
             round: item.display === 'group' ? item.round : undefined,
             label: item.display === 'group' ? (
@@ -935,7 +1052,7 @@ export function ExecutionGraph({
         width: dimensions.width,
         height: dimensions.height,
         style: dimensions,
-        handles: nodeHandles(node.kind, dimensions, subFlowParentIDs.has(node.id), direction),
+        handles: nodeHandles(node.kind, { x: 0, y: 0, ...dimensions }, subFlowParentIDs.has(node.id), direction),
         data: {
           direction,
           display: 'node',
