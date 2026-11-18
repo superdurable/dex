@@ -150,6 +150,7 @@ Dex Cloud checks the fields below at import, in commit checks, and when Preview 
 | `healthPath` | string | yes | Starts with exactly one `/`, such as `/api/health`. It holds no `?`, `#`, carriage return, or line feed. |
 | `workerSlots` | integer | no | 1 to 64. How many Steps and RPCs the Worker runs at once. The default is 4. |
 | `environment` | list | no | The environment variables the application reads. At most 128 entries. See [`application.environment`](#application-environment). |
+| `requiredOneOf` | list | no | Requirements that one of several groups of environment variables meets. At most 8 entries. See [`application.requiredOneOf`](#application-required-one-of). |
 
 ### `application.environment` {#application-environment}
 
@@ -181,6 +182,34 @@ application:
       secret: true
     - name: REGION
       enum: [eu, us]
+~~~
+
+### `application.requiredOneOf` {#application-required-one-of}
+
+Each entry declares one requirement that any one of several groups of environment variables meets, such as a model API key or the settings of a custom endpoint. Use it when the application needs any one of several alternatives.
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `label` | string | no | 1 to 64 characters without control characters. Unique in the list. **Setup** shows it. |
+| `groups` | list of lists of strings | yes | 2 to 4 groups. Each group holds 1 to 8 names. |
+
+Each name in a group is declared in [`application.environment`](#application-environment) with `required: false`, which is the default. A name declared `required: true` is an error, because the requirement decides when the variable is needed. A name appears once in its requirement. Two requirements may share a name.
+
+The requirement is met when every variable of one group is set to a value its declaration accepts. Give each member `minLength: 1` so that an empty value does not meet a group. Dex Cloud shows an unmet requirement as a gap in **Setup**, with the code `ENVIRONMENT_ONE_OF_REQUIRED`. The gap blocks Publish and Preview start, like a missing required value.
+
+~~~yaml
+application:
+  port: 8080
+  healthPath: /api/health
+  environment:
+    - {name: ANTHROPIC_API_KEY, secret: true, minLength: 1}
+    - {name: OPENAI_BASE_URL, minLength: 1}
+    - {name: OPENAI_API_KEY, secret: true, minLength: 1}
+  requiredOneOf:
+    - label: Model
+      groups:
+        - [ANTHROPIC_API_KEY]
+        - [OPENAI_BASE_URL, OPENAI_API_KEY]
 ~~~
 
 ### `flowDefinitions` {#flow-definitions}
@@ -297,6 +326,7 @@ enum: ["yes", "no"]
 | One committed `.json` Flow graph | 8 MiB |
 | One other Flow source | 32 MiB |
 | `application.environment` entries | 128 |
+| `application.requiredOneOf` entries | 8 |
 | `.dex/template.json` | 64 KiB |
 | Root `Makefile` | 4 MiB |
 | `package.json` and `package-lock.json` of `node-ts-v1`; `web/package.json` of `go-react-v1` | 4 MiB each |
