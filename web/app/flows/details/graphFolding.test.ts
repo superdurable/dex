@@ -116,9 +116,50 @@ const agentSession = chain([
   ['AwaitUserMessage', 'Waiting'],
 ]);
 
+// A real long agent run's Step types, without "Step"; "!" marks a failed tool call.
+const longAgentRunSequence = `
+  ReceiveRequest AgentDecision CheckIncidents AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision
+  GetPayment AgentDecision GetSubscription AgentDecision GetPayment AgentDecision GetUsage AgentDecision CheckIncidents
+  AgentDecision CheckIncidents AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision CheckIncidents
+  AgentDecision GetUsage AgentDecision GetPayment AgentDecision CheckIncidents AgentDecision GetSubscription AgentDecision
+  CheckIdentity! AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision GetSupportHistory AgentDecision
+  GetPayment AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision CheckIncidents AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetUsage AgentDecision
+  GetPayment AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision CheckIdentity AgentDecision
+  GetPayment AgentDecision GetSupportHistory AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision
+  GetSubscription AgentDecision GetSupportHistory AgentDecision GetPayment! AgentDecision GetUsage AgentDecision
+  CheckIncidents AgentDecision GetUsage AgentDecision GetPayment AgentDecision GetPayment AgentDecision GetSubscription
+  AgentDecision GetSupportHistory AgentDecision GetSubscription AgentDecision CheckIdentity AgentDecision GetUsage
+  AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetUsage AgentDecision GetUsage AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision GetPayment
+  AgentDecision GetSupportHistory AgentDecision GetUsage AgentDecision CheckIdentity AgentDecision GetSubscription
+  AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision CheckIdentity!
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision CheckIdentity AgentDecision GetSupportHistory
+  AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetUsage
+  AgentDecision GetUsage AgentDecision CheckIncidents AgentDecision GetSubscription AgentDecision CheckIncidents
+  AgentDecision GetUsage AgentDecision GetSubscription AgentDecision GetUsage AgentDecision GetPayment AgentDecision
+  CheckIncidents AgentDecision GetUsage AgentDecision CheckIncidents! AgentDecision GetSupportHistory AgentDecision
+  GetSupportHistory AgentDecision GetUsage AgentDecision GetSupportHistory AgentDecision GetUsage AgentDecision GetUsage
+  AgentDecision GetUsage AgentDecision CheckIncidents AgentDecision GetSupportHistory AgentDecision GetPayment
+  AgentDecision GetSubscription AgentDecision CheckIncidents AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetSupportHistory! AgentDecision GetPayment
+  AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision GetUsage
+  AgentDecision CheckIdentity AgentDecision GetPayment AgentDecision CheckIdentity AgentDecision GetSubscription
+  AgentDecision CheckIdentity AgentDecision CheckIncidents AgentDecision Guardrail AuditIntent IssueRefund
+  PrepareCustomerMessage SendCustomerMessage CloseCase`;
+
+const longAgentRunSteps: ChainStep[] = longAgentRunSequence.trim().split(/\s+/).map((name) => (
+  name.endsWith('!') ? [`${name.slice(0, -1)}Step`, 'Failed'] : [`${name}Step`]
+));
+const longAgentRun = chain(longAgentRunSteps);
+
 describe('Round anchor', () => {
-  it('anchors on the repeated Step type with the fewest executions, so each agent turn is a Round', () => {
+  it('anchors on the Step type whose Rounds are most uniform, so each agent turn is a Round', () => {
     const folded = foldStepGraph(agentSession.nodes, agentSession.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('AwaitUserMessage');
     expect(shown(folded.items)).toEqual(['__start__', 'StartAgentSession-1', 'RunModel-1', '[Rounds 1–3]', 'AwaitUserMessage-4']);
     const [range, latest] = folded.rounds;
     expect(range).toMatchObject({
@@ -137,7 +178,48 @@ describe('Round anchor', () => {
     ]);
   });
 
-  it('breaks a tie of execution counts toward the earliest Step type', () => {
+  it('anchors a long agent run on its decision Step, though some tools run fewer times', () => {
+    const executionCounts = new Map<string, number>();
+    for (const [stepType] of longAgentRunSteps) executionCounts.set(stepType, (executionCounts.get(stepType) ?? 0) + 1);
+    expect(Object.fromEntries(executionCounts)).toMatchObject({
+      AgentDecisionStep: 127, GetSubscriptionStep: 13, CheckIdentityStep: 19, GetPaymentStep: 21,
+      GetUsageStep: 28, GetSupportHistoryStep: 26, CheckIncidentsStep: 19,
+    });
+    expect(longAgentRunSteps.filter(([, status]) => status === 'Failed')).toHaveLength(5);
+
+    const folded = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('AgentDecisionStep');
+    const finished = folded.rounds.filter((round) => !round.parentKey && !round.isLatest);
+    expect(finished.reduce((total, round) => total + round.roundCount, 0)).toBe(126);
+    for (const round of finished) {
+      expect(round.stepCount).toBe(round.roundCount * 2);
+      expect(round.sequence).toEqual(['AgentDecisionStep', expect.stringMatching(/^(?!AgentDecisionStep)\w+Step$/)]);
+    }
+    expect(finished.filter((round) => round.failedCount > 0).map((round) => [round.roundCount, round.isOpen]))
+      .toEqual(Array.from({ length: 5 }, () => [1, true]));
+    expect(folded.rounds.at(-1)).toMatchObject({ isLatest: true, stepCount: 7, sequence: expect.arrayContaining(['AgentDecisionStep']) });
+  });
+
+  it('prefers a uniform anchor over a less frequent one with uneven Rounds', () => {
+    // Retry's finished Rounds are 2 and 5 Steps long; Fetch's are mostly 1.
+    const graph = chain([
+      ['Fetch'], ['Retry'], ['Fetch'], ['Retry'],
+      ...repeat(4, [['Fetch']]), ['Retry'],
+      ...repeat(5, [['Fetch']]),
+    ]);
+    expect(foldStepGraph(graph.nodes, graph.edges, defaultOptions).anchorStepType).toBe('Fetch');
+  });
+
+  it('lets only Step types with 3 finished Rounds compete, so a tool seen twice never wins', () => {
+    const graph = chain([...repeat(3, [['Plan'], ['Fetch']]), ...repeat(3, [['Plan'], ['Store']]), ['Plan']]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('Plan');
+    expect(folded.rounds.filter((round) => !round.isLatest).reduce((total, round) => total + round.roundCount, 0)).toBe(6);
+  });
+
+  it('breaks a tie of uniformity toward fewer executions, then the earliest Step type', () => {
+    const cron = buildStepGraph(cronScheduleHistory(5, () => 'wait-first'));
+    expect(foldStepGraph(cron.nodes, cron.edges, defaultOptions).anchorStepType).toBe('runCronSchedule');
     const graph = chain(repeat(2, [['A'], ['B']]));
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
     expect(folded.rounds.map((round) => round.title)).toEqual(['Round 1', 'Round 2']);
@@ -218,6 +300,54 @@ function cronScheduleHistory(roundCount: number, siblingOrderOf: (round: number)
 }
 
 const cronSiblingOrders: CronSiblingOrder[] = ['run-first', 'wait-first', 'wait-first', 'run-after-next-decision', 'run-first'];
+
+describe('Similar Round grouping', () => {
+  const similar: StepGraphFoldingOptions = { ...defaultOptions, roundGrouping: 'similar' };
+
+  it('merges a long agent run into ranges of one shape, with failed Rounds and the latest one apart', () => {
+    const exact = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, defaultOptions);
+    const folded = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, similar);
+    expect(folded.anchorStepType).toBe('AgentDecisionStep');
+    const topLevel = folded.rounds.filter((round) => !round.parentKey);
+    expect(topLevel.length).toBeLessThan(exact.rounds.filter((round) => !round.parentKey).length / 5);
+    expect(topLevel.map((round) => (round.failedCount > 0 ? 'failed' : round.kind))).toEqual([
+      'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'round',
+    ]);
+    expect(topLevel.reduce((total, round) => total + round.roundCount, 0)).toBe(127);
+    // The live run's failed Rounds, which pin the fixture's order.
+    expect(topLevel.filter((round) => round.failedCount > 0).map((round) => round.firstRoundNumber)).toEqual([17, 44, 71, 98, 115]);
+    const [first] = topLevel;
+    expect(first).toMatchObject({ firstRoundNumber: 1, sequence: ['AgentDecisionStep', '6 Step types'] });
+    expect(first.sequenceTitle).toMatch(/^AgentDecisionStep → \(CheckIncidentsStep, GetSupportHistoryStep, CheckIdentityStep, /);
+    expect(topLevel.at(-1)).toMatchObject({ isLatest: true, stepCount: 7 });
+  });
+
+  it('keeps Rounds whose Step decisions or run lengths differ apart', () => {
+    // Every Round has three Steps, so Plan anchors.
+    const graph = decidedChainGraph([
+      ['Plan', goTo('Fetch')], ['Fetch', goTo('Store')], ['Store', goTo('Plan')],
+      ['Plan', goTo('Store')], ['Store', goTo('Fetch')], ['Fetch', goTo('Plan')],
+      ['Plan', goTo('Fetch')], ['Fetch', goTo('Fetch')], ['Fetch', goTo('Plan')],
+      ['Plan', goTo('Store')], ['Store', goTo('Fetch')], ['Fetch', goTo('Plan', ['Store'])],
+      ['Plan', gracefulComplete],
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, similar);
+    expect(folded.anchorStepType).toBe('Plan');
+    expect(folded.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3', 'Round 4', 'Round 5']);
+    expect(folded.rounds[0]).toMatchObject({
+      sequence: ['Plan', '2 Step types', '2 Step types'],
+      sequenceTitle: 'Plan → (Fetch, Store) → (Store, Fetch)',
+    });
+  });
+
+  it('leaves Exact grouping as it was', () => {
+    const graph = chain([...repeat(3, [['Plan'], ['Fetch']]), ...repeat(3, [['Plan'], ['Store']]), ['Plan', 'Waiting']]);
+    expect(foldStepGraph(graph.nodes, graph.edges, defaultOptions).rounds.map((round) => round.title))
+      .toEqual(['Rounds 1–3', 'Rounds 4–6', 'Round 7']);
+    expect(foldStepGraph(graph.nodes, graph.edges, similar).rounds.map((round) => round.title))
+      .toEqual(['Rounds 1–6', 'Round 7']);
+  });
+});
 
 describe('Spawn order', () => {
   it('folds a Cron schedule into one range however its spawned Steps race', () => {
@@ -311,6 +441,7 @@ describe('Round ranges', () => {
       ['Checkpoint'],
     ]);
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('Checkpoint');
     expect(shown(folded.items)).toEqual(['__start__', 'SyncBatch-1', '[Rounds 1–30]', 'Checkpoint-31']);
     expect(folded.rounds[0]).toMatchObject({ stepCount: 300, sequence: ['Checkpoint', 'SyncBatch ×9'], roundRangeLabel: '' });
   });
@@ -397,7 +528,7 @@ describe('Round ranges', () => {
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
     expect(shown(folded.items)).toEqual(['__start__', 'SyncBatch-9 ×9', '[Rounds 1–3]', 'Checkpoint-4']);
 
-    const live = chain([['Sync'], ['Sync', 'Waiting'], ['Sync'], ['Check'], ['Sync'], ['Check']]);
+    const live = chain([['Sync'], ['Sync', 'Waiting'], ['Sync'], ...repeat(3, [['Check'], ['Sync']]), ['Check']]);
     const liveFolded = foldStepGraph(live.nodes, live.edges, defaultOptions);
     expect(shown(liveFolded.items).slice(0, 4)).toEqual(['__start__', 'Sync-1', 'Sync-2', 'Sync-3']);
   });
@@ -415,20 +546,33 @@ describe('Round ranges', () => {
   });
 });
 
+/** The anchor after each Step arrives, each fold preferring the one before, as Live updates do. */
+function growingAnchors(steps: ChainStep[]): string[] {
+  let preferredAnchorStepType = '';
+  return steps.map((_, index) => {
+    const graph = chain(steps.slice(0, index + 1));
+    const { anchorStepType } = foldStepGraph(graph.nodes, graph.edges, { ...defaultOptions, preferredAnchorStepType });
+    if (anchorStepType) preferredAnchorStepType = anchorStepType;
+    return anchorStepType;
+  });
+}
+
 describe('Folding as events arrive', () => {
   it('keeps an opened Round and the selected Step in view when the Round joins a range', () => {
-    const before = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['B']]);
-    const openIntents = withStepExecutionOpened(chooseGroups(before, [['round:A-1', true]]), 'B-1');
-    const after = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['B'], ['A']]);
+    const before = chain(repeat(4, [['A'], ['B'], ['B']]));
+    const openIntents = withStepExecutionOpened(chooseGroups(before, [['rounds:A-1', true], ['round:A-1', true]]), 'B-1');
+    const after = chain([...repeat(4, [['A'], ['B'], ['B']]), ['A']]);
     const folded = foldStepGraph(after.nodes, after.edges, { openIntents, selectedStepExecutionID: 'B-1' });
     expect(folded.rounds.map((round) => [round.key, round.isOpen])).toEqual([
       ['rounds:A-1', true],
       ['round:A-1', true],
       ['round:A-2', false],
-      ['round:A-3', true],
+      ['round:A-3', false],
+      ['round:A-4', false],
+      ['round:A-5', true],
     ]);
     // Selecting B-1 also opened its ×2 run.
-    expect(shown(folded.items)).toEqual(['__start__', 'A-1', 'B-1', 'B-2', '[Round 2]', 'A-3']);
+    expect(shown(folded.items)).toEqual(['__start__', 'A-1', 'B-1', 'B-2', '[Round 2]', '[Round 3]', '[Round 4]', 'A-5']);
     expect(folded.stepRuns.map((stepRun) => [stepRun.key, stepRun.isOpen])).toEqual([['run:B-1', true]]);
   });
 
@@ -442,13 +586,49 @@ describe('Folding as events arrive', () => {
     expect(kept.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3']);
   });
 
+  it('moves a kept anchor to a more uniform one as a Checkpoint loop grows, then keeps it', () => {
+    const steps: ChainStep[] = [['SyncBatch'], ...repeat(20, [['Checkpoint'], ...repeat(19, [['SyncBatch']])]), ['Checkpoint']];
+    const anchors = growingAnchors(steps);
+    // Checkpoint takes over once it has 3 finished Rounds, all 20 Steps long.
+    expect(anchors.slice(0, 3)).toEqual(['', '', 'SyncBatch']);
+    const switchedAt = anchors.indexOf('Checkpoint');
+    expect(steps.slice(0, switchedAt + 1).filter(([stepType]) => stepType === 'Checkpoint')).toHaveLength(4);
+    expect(anchors.slice(switchedAt).every((anchor) => anchor === 'Checkpoint')).toBe(true);
+  });
+
+  it('keeps one anchor while tools that ran twice look perfectly uniform', () => {
+    const steps: ChainStep[] = 'Plan Fetch Plan Store Store Plan Fetch Store Plan Store Store Plan Store Fetch'
+      .split(' ').map((stepType) => [stepType]);
+    expect(growingAnchors(steps)).toEqual(['', '', ...Array.from({ length: 12 }, () => 'Plan')]);
+  });
+
+  it('keeps the agent decision anchor at every point of a long agent run', () => {
+    const anchors = growingAnchors(longAgentRunSteps);
+    const firstAnchored = anchors.findIndex(Boolean);
+    expect(anchors.slice(firstAnchored).every((anchor) => anchor === 'AgentDecisionStep')).toBe(true);
+  });
+
+  it('keeps a preferred anchor unless another Step type is clearly more uniform', () => {
+    const preferB = { ...defaultOptions, preferredAnchorStepType: 'B' };
+    const graph = chain(repeat(4, [['A'], ['B']]));
+    expect(foldStepGraph(graph.nodes, graph.edges, defaultOptions).anchorStepType).toBe('A');
+    expect(foldStepGraph(graph.nodes, graph.edges, preferB).anchorStepType).toBe('B');
+    // A is 2/3 uniform and B 1/2: A has more than half B's uneven share.
+    const slightlyBetter = chain([['A'], ['B'], ['B'], ['B'], ['A'], ['B'], ['A'], ['B'], ['A']]);
+    expect(foldStepGraph(slightlyBetter.nodes, slightlyBetter.edges, preferB).anchorStepType).toBe('B');
+    // Every A Round has 3 Steps; B's alternate between 1 and 2.
+    const clearlyBetter = chain([...repeat(3, [['A'], ['B'], ['B']]), ['A']]);
+    expect(foldStepGraph(clearlyBetter.nodes, clearlyBetter.edges, preferB).anchorStepType).toBe('A');
+  });
+
   it('never anchors Rounds on planned Steps and still shows them', () => {
     const graph = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['A'], ['B']]);
     const planned = [0, 1].map((index): StepGraphNode => ({
       id: `__planned:99:${index}`, label: 'C', kind: 'step', status: 'Pending', stepType: 'C', isPlanned: true, fromStepExecutionId: 'B-4',
     }));
     const folded = foldStepGraph([...graph.nodes, ...planned], graph.edges, defaultOptions);
-    expect(folded.anchorStepType).toBe('A');
+    // B's finished Rounds are 1, 2, 2 Steps long; A's are 3, 2.
+    expect(folded.anchorStepType).toBe('B');
     expect(folded.items.map((item) => item.id)).toEqual(expect.arrayContaining(['__planned:99:0', '__planned:99:1']));
   });
 
@@ -499,6 +679,12 @@ function checkpointRound(last: unknown): DecidedStep[] {
   ];
 }
 
+/** Four Checkpoints with one SyncBatch between each, so Checkpoint anchors the Rounds. */
+const checkpointTail: DecidedStep[] = [
+  ...repeat(3, [['Checkpoint', goTo('SyncBatch')], ['SyncBatch', goTo('Checkpoint')]] as DecidedStep[]),
+  ['Checkpoint', gracefulComplete],
+];
+
 describe('×N runs by Step decision', () => {
   it('folds only executions that return the same Step decision', () => {
     const graph = decidedChainGraph([...repeat(3, checkpointRound(goTo('Checkpoint'))), ...checkpointRound(gracefulComplete)]);
@@ -514,7 +700,7 @@ describe('×N runs by Step decision', () => {
   });
 
   it('keeps one ×9 node per Round when every execution decides GoTo', () => {
-    const graph = decidedChainGraph([...repeat(2, checkpointRound(goTo('Checkpoint'))), ['Checkpoint', gracefulComplete]]);
+    const graph = decidedChainGraph([...repeat(3, checkpointRound(goTo('Checkpoint'))), ['Checkpoint', gracefulComplete]]);
     const folded = foldWithChoices(graph, [['rounds:Checkpoint-1', true], ['round:Checkpoint-1', true]]);
     expect(shown(folded.items)).toContain('SyncBatch-9 ×9');
   });
@@ -525,8 +711,7 @@ describe('×N runs by Step decision', () => {
       ['SyncBatch', goTo('SyncBatch')],
       ['SyncBatch', goTo('SyncBatch', ['Poll'])],
       ['SyncBatch', goTo('Checkpoint')],
-      ['Checkpoint', goTo('Checkpoint')],
-      ['Checkpoint', gracefulComplete],
+      ...checkpointTail,
     ]);
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
     expect(shown(folded.items).slice(0, 4)).toEqual(['__start__', 'SyncBatch-2 ×2', 'SyncBatch-3', 'SyncBatch-4']);
@@ -562,9 +747,9 @@ describe('Opened ×N runs', () => {
   const tenSyncBatches = decidedChainGraph([
     ...Array.from({ length: 6 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
     ['SyncBatch', 'failed'],
-    ...Array.from({ length: 3 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
-    ['Checkpoint', goTo('Checkpoint')],
-    ['Checkpoint', gracefulComplete],
+    ...Array.from({ length: 2 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
+    ['SyncBatch', goTo('Checkpoint')],
+    ...checkpointTail,
   ]);
 
   it('shows the first, failed, selected and last executions inside a frame, and folds again with Hide', () => {
@@ -594,13 +779,13 @@ describe('Opened ×N runs', () => {
   it('stays open as new executions join the run', () => {
     const before = decidedChainGraph([
       ['SyncBatch', goTo('SyncBatch')], ['SyncBatch', goTo('SyncBatch')], ['SyncBatch', goTo('Checkpoint')],
-      ['Checkpoint', goTo('Checkpoint')], ['Checkpoint', gracefulComplete],
+      ...checkpointTail,
     ]);
     const [stepRun] = foldStepGraph(before.nodes, before.edges, defaultOptions).stepRuns;
     const openIntents = withStepRunOpenChoice(noGroupOpenIntents, stepRun, true);
     const after = decidedChainGraph([
       ...Array.from({ length: 4 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]), ['SyncBatch', goTo('Checkpoint')],
-      ['Checkpoint', goTo('Checkpoint')], ['Checkpoint', gracefulComplete],
+      ...checkpointTail,
     ]);
     const folded = foldStepGraph(after.nodes, after.edges, { openIntents, selectedStepExecutionID: '' });
     expect(folded.stepRuns[0]).toMatchObject({ key: 'run:SyncBatch-1', stepCount: 5, isOpen: true });

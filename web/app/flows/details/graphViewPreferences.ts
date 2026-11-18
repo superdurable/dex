@@ -13,6 +13,8 @@ export const graphViewStorageKeys = {
   isFolded: 'dex.run.graph-folded',
   isFoldedIntroDismissed: 'dex.run.graph-folded-intro-dismissed',
   isMiniMapHidden: 'dex.run.graph-minimap-hidden',
+  /** True for Similar Round grouping; false or missing for Exact. */
+  isSimilarRoundGrouping: 'dex.run.graph-similar-rounds',
 } as const;
 
 /** Reads a remembered choice; blocked or missing storage gives the fallback. */

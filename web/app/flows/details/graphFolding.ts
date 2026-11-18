@@ -43,6 +43,8 @@ export interface StepRoundGroup {
   failedCount: number;
   /** Step types in execution order, consecutive repeats as "CallTool ×2"; empty when the title names them. */
   sequence: string[];
+  /** The whole sequence for a tooltip; a varying position lists its Step types. */
+  sequenceTitle: string;
   duration: string;
   isLatest: boolean;
   /** Holds a waiting, running or pending Step, so it is never folded. */
@@ -145,10 +147,15 @@ export function withStepExecutionOpened(
   };
 }
 
+/** Exact merges Rounds with the same Steps; Similar also merges Rounds with the same shape. */
+export type RoundGrouping = 'exact' | 'similar';
+
 export interface StepGraphFoldingOptions {
   openIntents: GroupOpenIntents;
+  /** Which consecutive finished Rounds merge into a range; defaults to exact. */
+  roundGrouping?: RoundGrouping;
   selectedStepExecutionID: string;
-  /** The Step type that anchored Rounds before; kept while it still repeats, so groups stay stable. */
+  /** The Step type that anchored Rounds before; kept unless a well-sampled one is clearly more uniform. */
   preferredAnchorStepType?: string;
   /** The loaded history; its Step and RPC decisions order the Steps each one started. */
   historyEvents?: FlowHistoryEvent[];
@@ -159,6 +166,8 @@ interface RoundDraft {
   key: string;
   steps: StepGraphNode[];
   signature: string;
+  /** The signature without Step types: each run's decision and length. */
+  shapeSignature: string;
   isLive: boolean;
   hasFailed: boolean;
   isLatest: boolean;
@@ -173,7 +182,7 @@ interface FoldingContext {
   stepRuns: FoldedStepRun[];
 }
 
-/** Folds repeated Rounds; each starts at the repeated Step type with the fewest executions. */
+/** Folds repeated Rounds; each starts at the repeated Step type whose Rounds are most uniform in length. */
 export function foldStepGraph(
   nodes: StepGraphNode[],
   edges: StepGraphEdge[],
@@ -193,7 +202,7 @@ export function foldStepGraph(
   };
   // Steps before the first Round fold their repeats as inside a Round.
   addStepRuns(context, steps.slice(0, steps.indexOf(drafts[0].steps[0])), []);
-  for (const unit of mergeIdenticalRounds(drafts)) {
+  for (const unit of mergeRounds(drafts, options.roundGrouping ?? 'exact')) {
     if (unit.length === 1) addRound(context, unit[0], []);
     else addRange(context, unit);
   }
@@ -346,19 +355,76 @@ export function isLiveStep(node: StepGraphNode): boolean {
     || node.status === 'Active' || node.status === 'Waiting' || node.status === 'Pending';
 }
 
-/** The least-repeated executed Step type, ties to the earliest; a still-repeating preferred type wins. */
+/** How evenly one repeated Step type splits the executed Steps into Rounds. */
+interface RoundAnchorCandidate {
+  stepType: string;
+  /** Executed Step indexes where this type runs; the first is its first execution. */
+  positions: number[];
+  /** Finished Rounds whose Step count equals the most common one. */
+  uniformRoundCount: number;
+  /** Rounds between consecutive executions; the prefix and the open latest Round are left out. */
+  finishedRoundCount: number;
+}
+
+/** A Step type competes as an anchor only with this many finished Rounds, unless none has them. */
+const minimumAnchorFinishedRounds = 3;
+
+/** The repeated Step type with the most uniform finished Rounds; ties to fewer executions, then the earliest. */
 function roundAnchorStepType(steps: StepGraphNode[], preferredStepType: string): string {
-  const counts = new Map<string, number>();
-  for (const step of steps) {
-    if (!step.isPlanned) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
+  const candidates = roundAnchorCandidates(steps.filter((step) => !step.isPlanned));
+  if (candidates.length === 0) return '';
+  const qualified = candidates.filter((candidate) => candidate.finishedRoundCount >= minimumAnchorFinishedRounds);
+  const preferred = candidates.find((candidate) => candidate.stepType === preferredStepType);
+  if (qualified.length === 0) return preferred?.stepType ?? bestRoundAnchor(candidates).stepType;
+  const best = bestRoundAnchor(qualified);
+  if (preferred && !isClearlyMoreUniform(best, preferred)) return preferred.stepType;
+  return best.stepType;
+}
+
+/** Strictly more uniform, with at most half the kept anchor's uneven-Round share, so close anchors never flip. */
+function isClearlyMoreUniform(challenger: RoundAnchorCandidate, kept: RoundAnchorCandidate): boolean {
+  const challengerUneven = challenger.finishedRoundCount - challenger.uniformRoundCount;
+  const keptUneven = kept.finishedRoundCount - kept.uniformRoundCount;
+  return compareUniformity(challenger, kept) > 0
+    && 2 * challengerUneven * kept.finishedRoundCount <= keptUneven * challenger.finishedRoundCount;
+}
+
+function bestRoundAnchor(candidates: RoundAnchorCandidate[]): RoundAnchorCandidate {
+  return candidates.reduce((leader, candidate) => (isBetterRoundAnchor(candidate, leader) ? candidate : leader));
+}
+
+/** Every Step type that ran at least twice, in order of first execution, with its Round length uniformity. */
+function roundAnchorCandidates(executedSteps: StepGraphNode[]): RoundAnchorCandidate[] {
+  const positionsByStepType = new Map<string, number[]>();
+  executedSteps.forEach((step, index) => appendToList(positionsByStepType, stepTypeOf(step), index));
+  const candidates: RoundAnchorCandidate[] = [];
+  for (const [stepType, positions] of positionsByStepType) {
+    if (positions.length < 2) continue;
+    const roundCountsByLength = new Map<number, number>();
+    for (let index = 1; index < positions.length; index += 1) {
+      const length = positions[index] - positions[index - 1];
+      roundCountsByLength.set(length, (roundCountsByLength.get(length) ?? 0) + 1);
+    }
+    candidates.push({
+      stepType,
+      positions,
+      uniformRoundCount: Math.max(...roundCountsByLength.values()),
+      finishedRoundCount: positions.length - 1,
+    });
   }
-  if ((counts.get(preferredStepType) ?? 0) > 1) return preferredStepType;
-  let anchorType = '';
-  for (const step of steps) {
-    const count = step.isPlanned ? 0 : counts.get(stepTypeOf(step)) ?? 0;
-    if (count > 1 && (!anchorType || count < (counts.get(anchorType) ?? 0))) anchorType = stepTypeOf(step);
-  }
-  return anchorType;
+  return candidates;
+}
+
+function isBetterRoundAnchor(candidate: RoundAnchorCandidate, leader: RoundAnchorCandidate): boolean {
+  const uniformity = compareUniformity(candidate, leader);
+  if (uniformity !== 0) return uniformity > 0;
+  if (candidate.positions.length !== leader.positions.length) return candidate.positions.length < leader.positions.length;
+  return candidate.positions[0] < leader.positions[0];
+}
+
+/** Compares the uniform shares of finished Rounds exactly, without floating-point division. */
+function compareUniformity(left: RoundAnchorCandidate, right: RoundAnchorCandidate): number {
+  return left.uniformRoundCount * right.finishedRoundCount - right.uniformRoundCount * left.finishedRoundCount;
 }
 
 /** Splits Steps into Rounds at each executed anchor Step; earlier Steps stay outside every Round. */
@@ -374,21 +440,23 @@ function roundDrafts(steps: StepGraphNode[], anchorType: string): RoundDraft[] {
     key: `round:${roundSteps[0].id}`,
     steps: roundSteps,
     signature: roundSignature(roundSteps),
+    shapeSignature: roundShapeSignature(roundSteps),
     isLive: roundSteps.some(isLiveStep),
     hasFailed: roundSteps.some((step) => step.status === 'Failed'),
     isLatest: index === groups.length - 1,
   }));
 }
 
-/** Groups consecutive settled Rounds with the same Step sequence; open-by-default Rounds stand alone. */
-function mergeIdenticalRounds(drafts: RoundDraft[]): RoundDraft[][] {
+/** Groups consecutive settled Rounds with the same Steps, or the same shape; open-by-default Rounds stand alone. */
+function mergeRounds(drafts: RoundDraft[], grouping: RoundGrouping): RoundDraft[][] {
   const units: RoundDraft[][] = [];
   const isMergeable = (draft: RoundDraft) => !draft.isLive && !draft.hasFailed && !draft.isLatest;
+  const signatureOf = (draft: RoundDraft) => (grouping === 'similar' ? draft.shapeSignature : draft.signature);
   for (const draft of drafts) {
     const previous = units.at(-1);
     const previousDraft = previous?.at(-1);
     if (previous && previousDraft && isMergeable(draft) && isMergeable(previousDraft)
-      && previousDraft.signature === draft.signature) {
+      && signatureOf(previousDraft) === signatureOf(draft)) {
       previous.push(draft);
     } else {
       units.push([draft]);
@@ -570,6 +638,7 @@ function roundGroup(draft: RoundDraft, intents: GroupOpenIntents, parentKey: str
     roundRangeLabel: '',
     hasSingleStepRounds: draft.steps.length === 1,
     sequence: truncatedSequence(stepSequence(draft.steps)),
+    sequenceTitle: stepSequence(draft.steps).join(' → '),
     isLatest: draft.isLatest,
     isLive: draft.isLive,
     isOpen,
@@ -586,6 +655,7 @@ function rangeGroup(drafts: RoundDraft[], intents: GroupOpenIntents): StepRoundG
   const isOpen = chosenOpenState(intents.ranges, steps) === true || chosenOpenState(intents.rounds, steps) === true;
   const isOneStepType = new Set(first.steps.map(stepTypeOf)).size === 1;
   const rangeLabel = `Rounds ${first.number}–${last.number}`;
+  const positions = rangeSequencePositions(drafts);
   return {
     ...stepTotals(steps),
     key,
@@ -596,7 +666,8 @@ function rangeGroup(drafts: RoundDraft[], intents: GroupOpenIntents): StepRoundG
     title: isOneStepType ? `${stepTypeOf(first.steps[0])} ×${steps.length.toLocaleString('en-US')}` : rangeLabel,
     roundRangeLabel: isOneStepType ? rangeLabel : '',
     hasSingleStepRounds: first.steps.length === 1,
-    sequence: isOneStepType ? [] : truncatedSequence(stepSequence(first.steps)),
+    sequence: isOneStepType ? [] : truncatedSequence(positions.map((position) => position.label)),
+    sequenceTitle: isOneStepType ? '' : positions.map((position) => position.title).join(' → '),
     isLatest: false,
     isLive: false,
     isOpen,
@@ -615,6 +686,27 @@ function stepTotals(steps: StepGraphNode[]) {
   };
 }
 
+interface RangeSequencePosition {
+  /** "AgentDecisionStep", or "6 Step types" where the Rounds differ. */
+  label: string;
+  /** The label, with the differing Step types listed. */
+  title: string;
+}
+
+/** Each run position of a range's Rounds, which share one shape; differing Step types are summarized. */
+function rangeSequencePositions(drafts: RoundDraft[]): RangeSequencePosition[] {
+  const runsByDraft = drafts.map((draft) => consecutiveRuns(draft.steps, () => true));
+  return runsByDraft[0].map(({ steps: run }, index) => {
+    const stepTypes = [...new Set(runsByDraft.map((runs) => stepTypeOf(runs[index].steps[0])))];
+    const repeatSuffix = run.length > 1 ? ` ×${run.length}` : '';
+    if (stepTypes.length === 1) return { label: `${stepTypes[0]}${repeatSuffix}`, title: `${stepTypes[0]}${repeatSuffix}` };
+    return {
+      label: `${stepTypes.length} Step types${repeatSuffix}`,
+      title: `(${stepTypes.join(', ')})${repeatSuffix}`,
+    };
+  });
+}
+
 function stepSequence(steps: StepGraphNode[]): string[] {
   return consecutiveRuns(steps, () => true)
     .map(({ steps: run }) => (run.length > 1 ? `${stepTypeOf(run[0])} ×${run.length}` : stepTypeOf(run[0])));
@@ -624,6 +716,13 @@ function stepSequence(steps: StepGraphNode[]): string[] {
 function roundSignature(steps: StepGraphNode[]): string {
   return consecutiveRuns(steps, () => true)
     .map(({ steps: run, decisionIdentity }) => `${stepTypeOf(run[0])}[${decisionIdentity ?? ''}] ×${run.length}`)
+    .join(' → ');
+}
+
+/** The Round signature without Step types, so Rounds of one shape match under Similar. */
+function roundShapeSignature(steps: StepGraphNode[]): string {
+  return consecutiveRuns(steps, () => true)
+    .map(({ steps: run, decisionIdentity }) => `[${decisionIdentity ?? ''}] ×${run.length}`)
     .join(' → ');
 }
 

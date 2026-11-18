@@ -168,7 +168,7 @@ describe('Execution graph viewport', () => {
   });
 });
 
-/** Rounds of Check then k Sync Steps; each Round differs, so none merge into a range. */
+/** Rounds of Check then a Step type used only in Round k; each Round differs, so none merge into a range. */
 function growingRoundsHistory(roundCount: number): FlowHistoryEvent[] {
   const events: FlowHistoryEvent[] = [{
     eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: {}, runAttempt: 1,
@@ -180,10 +180,9 @@ function growingRoundsHistory(roundCount: number): FlowHistoryEvent[] {
     events.push(stepEvent(events.length + 1, 'StepExecuteCompleted', context));
     previous = stepExecutionId;
   };
-  let syncIndex = 0;
   for (let round = 1; round <= roundCount; round += 1) {
     addStep('Check', round);
-    for (let sync = 0; sync < round; sync += 1) addStep('Sync', (syncIndex += 1));
+    addStep(`Sync${round}`, 1);
   }
   return events;
 }
