@@ -443,7 +443,8 @@ rules, the routing details, and the rollback steps.
 
 ## Capacity and shutdown
 
-A Worker opens one stream for each task slot. Dex sends a task only to a free
+Each task slot of a Worker is served by one stream. A Worker can keep every
+slot's stream open, or open streams only as load needs them. Dex sends a task only to a free
 slot, so a Worker never has to decline work for lack of capacity. A Step that no Worker takes
 waits durably in Dex until a Worker takes it. An RPC fails when no Worker takes it in time.
 Stop Workers gracefully during a deployment, so running tasks can finish.

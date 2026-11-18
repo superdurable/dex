@@ -4,7 +4,7 @@ Worker pull mode lets a Worker request dispatches from Dex instead of exposing a
 
 ## Routing and delivery
 
-Matching first tries the app Worker ID that served the Flow's previous call. After the sticky wait, it falls back to the Flow type queue for the remainder of the dispatch wait. Each stream handles one task at a time. Workers replenish idle streams while tasks run and keep those idle streams even at maximum task capacity. A Worker that receives an assignment while full replies with `Reject{NO_CAPACITY}`. Matching excludes that stream with exponential backoff starting at 300 ms and capped at 2 seconds, then tries another eligible stream within the same dispatch budget.
+Matching first tries the app Worker ID that served the Flow's previous call. After the sticky wait, it falls back to the Flow type queue for the remainder of the dispatch wait. Each stream handles one task at a time. Since #1253, each task slot is one reserved-slot stream, and the server hands a task only to an idle stream, so a Worker never declines a task for capacity. A fixed Worker keeps every slot's stream open. An adaptive Worker varies its open streams with load; see [adaptive-worker-slot-streams.md](adaptive-worker-slot-streams.md).
 
 If a stream ends before its first output frame, Matching may assign the task again while time remains. This makes delivery at least once. After an output frame, a disconnect ends that dispatch attempt rather than replaying partial output. Worker SDKs reconnect failed streams with backoff starting at 100 ms plus jitter. A server-directed reconnect lets an active task finish before that stream reconnects.
 
@@ -16,7 +16,7 @@ When no Worker is available by the end of the dispatch wait, the interpreter ret
 
 ## Capacity and lifecycle
 
-For `F` registered Flow types, a Worker may retain up to `(1 + F) * (idleStreamsPerQueue + maxConcurrentTasks)` streams. The first queue is its app Worker ID queue. Registration is bounded by `matching.maxConcurrentTasksCap` per app Worker ID on each owner and `matching.maxStreams` per Matching instance. Queue-name length, Flow-type count, and Flow-type length have separate registration limits.
+A Worker holds one stream per open slot, up to `maxConcurrentTasks`. Each stream serves its app Worker ID queue and every registered Flow type. Registration is bounded by `matching.maxConcurrentTasksCap` per app Worker ID on each owner and `matching.maxStreams` per Matching instance. Queue-name length, Flow-type count, and Flow-type length have separate registration limits.
 
 Pull Worker Stop closes idle streams and waits for in-flight handlers for `stopDrainTimeout`, 30 seconds by default. At the deadline, it requests cancellation and waits for handlers to return. Server shutdown closes the interpreter worker first, then Matching, then membership, then API serving. This prevents new dispatches from entering a Matching owner that is already closing.
 

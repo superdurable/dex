@@ -60,7 +60,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 ## Capacity
 
-- A Worker opens one long-lived stream per task slot. Its maximum concurrent task count is its slot count.
+- Each task slot is served by one long-lived stream. Its maximum concurrent task count is its slot count. A fixed Worker keeps every slot's stream open. An adaptive Worker, which sets a floor below its slot count, opens streams only as load needs them.
 - Dex sends a task only to a free slot, so a Worker never declines work for capacity. A Step that finds every Step slot busy waits in the task queue.
 - A Worker reserves RPC-only slots so RPCs still run while Steps fill the rest. Size the slot count for both Step concurrency and RPC demand: to keep eight Steps running with one reserved slot, use nine slots. Raise the reserve for Workers whose Steps hold slots for minutes.
 - A freed slot goes to waiting RPCs before waiting Steps.
@@ -73,7 +73,7 @@ Size each Worker with this checklist. Defaults, caps, and metric names are in th
 - Set the slot count explicitly for every production Worker, especially in containers and schedulers. The Server Workers reference lists the SDK defaults.
 - I/O-bound handlers (model calls, HTTP, databases) need many slots, within the downstream rate limits.
 - CPU-bound handlers need about one slot per allocated CPU. To grow throughput, add Worker processes with more CPU capacity; extra processes on the same saturated CPUs add nothing. Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
-- Idle slots still hold Server streams. Size slots for the expected load, not for the cap.
+- A fixed Worker holds a Server stream for every slot, idle or busy, so size slots for the expected load, not for the cap. An adaptive Worker holds about its floor while idle and grows under load. Choose adaptive for bursty, I/O-bound load. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#adaptive-slot-streams).
 - Scale Workers on the oldest age of queued Steps. A rising age with a low Server CPU means too few slots or Workers.
 - The Server is limited by CPU. Move to a larger node when its CPU saturates.
 - Past one node, split clusters by Flow type or tenant.

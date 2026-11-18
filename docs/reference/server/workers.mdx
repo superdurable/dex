@@ -247,7 +247,7 @@ older server, because that server provides protocol version 4.
 
 The concurrent task limit sets the number of task slots. The default is the
 CPU count; see [Choose the slot count](#choose-slot-count). A fixed Worker, the default, opens one long-lived stream for each slot.
-An adaptive Go Worker opens streams between a floor and the task limit; see
+An adaptive Worker opens streams between a floor and the task limit; see
 [Adaptive slot streams](#adaptive-slot-streams). Each stream
 serves the Worker's app Worker ID queue and every Flow type it registers, inside
 the Worker's task queue. A stream runs one task at a time and is ready for a
@@ -271,13 +271,15 @@ limit when a Worker registers:
   that names both values. A task that Dex already sent to that Worker returns to
   Dex without consuming an attempt. If a later reconnect reports a lower limit,
   the Worker only logs a warning, and Dex rejects its surplus streams.
-- **Fixed Go Worker with the task limit unset.** Since 1.45.7, the Worker
-  clamps its CPU-count default to the limit at the first registration, with a
-  warning. A later lower limit behaves as for an explicit task limit.
-- **Adaptive Go Worker.** Since 1.45.7, the Worker clamps its task limit to the
-  limit at the first registration, with a warning. A later lower limit lowers
-  its capacity: it half-closes surplus streams and opens none above the new
-  limit. See [Adaptive slot streams](#adaptive-slot-streams).
+- **Fixed Worker with the task limit unset.** The Worker opens one stream
+  first, then clamps its CPU-count default to the limit at the first
+  registration, with a warning. A later lower limit behaves as for an explicit
+  task limit. See [Adaptive slot streams](#adaptive-slot-streams) for the
+  SDK versions.
+- **Adaptive Worker.** The Worker clamps its task limit, explicit or default, to
+  the limit at the first registration, with a warning. A later lower limit
+  lowers its capacity: it half-closes surplus streams and opens none above the
+  new limit. See [Adaptive slot streams](#adaptive-slot-streams).
 
 **matching.maxStreams**
 limits the node to 100,000 registered streams by default, so count the slots of
@@ -344,8 +346,9 @@ for RPCs, which matches the default.
 
 ### Choose the slot count {#choose-slot-count}
 
-Each task slot of a fixed Worker is one stream that runs one Step or RPC handler
-at a time. An adaptive Go Worker opens a slot's stream only when it needs it; see
+Each task slot is one stream that runs one Step or RPC handler at a time. A
+fixed Worker keeps every slot's stream open. An adaptive Worker opens a slot's
+stream only when it needs it; see
 [Adaptive slot streams](#adaptive-slot-streams). The
 slot count of a Worker is the most handlers it runs at once. Steps beyond the
 free slots of all Workers wait in the durable task queue.
@@ -364,7 +367,8 @@ the handlers wait on:
 - **I/O-bound handlers** spend their time on model calls, HTTP requests, or
   database queries. Set the limit well above the CPU count, up to
   **matching.maxConcurrentTasksCap**. A waiting handler uses almost no CPU, so
-  more slots raise throughput.
+  more slots raise throughput. When the load is bursty, make the Worker
+  adaptive: a high limit then costs the server little while the Worker is idle.
 - **CPU-bound handlers** keep a CPU busy. Use about one slot per allocated CPU.
   To grow throughput, add Worker processes with more CPU capacity, because
   extra processes on the same saturated CPUs add nothing. Python runs sync
@@ -375,33 +379,34 @@ the handlers wait on:
   Workers.
 - **Idle slots cost the server.** Each slot of a fixed Worker holds one
   registered stream and its keepalives, busy or not. Size the limit for the load
-  you expect, not for the cap. An idle adaptive Go Worker holds only its floor;
-  see [Adaptive slot streams](#adaptive-slot-streams).
+  you expect, not for the cap. An idle adaptive Worker holds only about its
+  floor; see [Adaptive slot streams](#adaptive-slot-streams).
 - **Containers and schedulers** such as Ray can show a process the CPU count of
   the whole host instead of its allocation. Set the limit explicitly there.
 - **Rolling deploys** run old and new Workers at the same time. Budget
   **matching.maxStreams** for the sum of the slots of both generations of fixed
-  Workers. Adaptive Go Workers need their real concurrency plus their floors.
+  Workers. Adaptive Workers need their real concurrency plus their floors,
+  because an idle adaptive Worker holds roughly its floor.
 - **Reserved RPC slots** come out of the task limit. To run eight Steps at once
   with one reserved slot, set the limit to nine.
 
 ### Adaptive slot streams {#adaptive-slot-streams}
 
-Since 1.45.7 (Go, TypeScript). Since 1.45.4 (Java). A Go, TypeScript, or Java Worker can vary its open slot streams with load. Set
-**PullWorkerOptions.MinOpenSlots** (**minOpenSlots** in TypeScript and Java) below **MaxConcurrentTasks** to make it
-adaptive; for Java, see [Java Workers](/reference/java/workers#capacity-and-shutdown). The task limit is then the most streams the Worker opens, and
-**MinOpenSlots** is the fewest. Both count the reserved RPC slots. With
-**MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
-behaves as the sections above describe.
+A Worker can vary its open slot streams with load. Set the floor option below
+the task limit to make the Worker adaptive. The task limit is then the most
+streams the Worker opens, and the floor is the fewest. Both count the reserved
+RPC slots. With the floor unset, or equal to the task limit, the Worker is
+fixed and behaves as the sections above describe. Fixed is the default.
 
-Since 1.45.4 (Rust). A Rust Worker is adaptive the same way, with
-**PullWorkerOptions::min_open_slots** below **max_concurrent_tasks**. See
-[Rust Workers](/reference/rust/workers#capacity-and-shutdown).
+| SDK | Floor option | Snapshot accessor | Since |
+| --- | --- | --- | --- |
+| [Go](/reference/go/workers#capacity-and-shutdown) | **PullWorkerOptions.MinOpenSlots** | **Worker.PullSlotStreamState()** | 1.45.7 |
+| [TypeScript](/reference/typescript/workers#capacity-and-shutdown) | **PullWorkerOptions.minOpenSlots** | **pullSlotStreamState()** | 1.45.7 |
+| [Python](/reference/python/workers#capacity-and-shutdown) | **PullWorkerOptions.min_open_slots** | **pull_slot_stream_state()** | 1.45.5 |
+| [Java](/reference/java/workers#capacity-and-shutdown) | **PullWorkerOptions.minOpenSlots** | **Worker.getPullSlotStreamState()** | 1.45.4 |
+| [Rust](/reference/rust/workers#capacity-and-shutdown) | **PullWorkerOptions::min_open_slots** | **Worker::pull_slot_stream_state()** | 1.45.4 |
 
-Since 1.45.5 (Python). A Python Worker is adaptive the same way, with
-**PullWorkerOptions.min_open_slots** below **max_concurrent_tasks**. See
-[Python Workers](/reference/python/workers#capacity-and-shutdown). Workers of
-the other SDKs keep fixed slots.
+The snapshot returns the open, busy, and idle streams and the capacities.
 
 An adaptive Worker works as follows:
 
@@ -419,8 +424,10 @@ An adaptive Worker works as follows:
   above the cap still fails to start.
 - It treats a rejection at **matching.maxStreams** or at the cap as a soft limit
   when the rejected stream is a growth stream or a reconnect after readiness.
-  It keeps its readiness, records no registration error, and retries at most
-  once per 30 seconds.
+  It keeps its readiness and records no registration error. It retries the
+  stream when another registered stream of the same Worker ends, or at the next
+  30-second window. While growth rejections persist, it grows at most one batch
+  per window.
 - It lowers its capacity when a reconnect reports a lower cap. It half-closes
   the surplus streams, RPC-only streams first, and opens no stream above the new
   cap.
@@ -428,12 +435,16 @@ An adaptive Worker works as follows:
   server restart it holds no stream while handlers that ignore cancellation
   still run.
 
-An idle adaptive Worker holds only its floor, so budget **matching.maxStreams**
-for the real concurrency plus each Worker's floor. A fixed Go Worker with the
-task limit unset also changes in 1.45.7. It opens one stream first, learns the
-cap from its registration, and clamps its CPU-count default to the cap with a
-warning. **Worker.PullSlotStreamState()** returns the open, busy, and idle
-streams and the capacities. See [Go Workers](/reference/go/workers#capacity-and-shutdown).
+An idle adaptive Worker holds roughly its floor, so budget
+**matching.maxStreams** for the real concurrency plus each Worker's floor.
+
+A fixed Worker with the task limit unset also changes in the same SDK version.
+It opens one stream first, learns the cap from its registration, and clamps its
+CPU-count default to the cap with a warning.
+
+TypeScript differs in one point. Since 1.45.7, **start** resolves after one
+stream of each slot kind has registered, as in the other SDKs, instead of after
+the first stream of any kind.
 
 ### Find the bottleneck {#find-bottleneck}
 
