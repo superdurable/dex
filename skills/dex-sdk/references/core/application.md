@@ -60,11 +60,11 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 ## Capacity
 
-- Each task slot is served by one long-lived stream. Its maximum concurrent task count is its slot count. A fixed Worker keeps every slot's stream open. An adaptive Worker, which sets a floor below its slot count, opens streams only as load needs them.
+- Each open slot is served by one stream. Its maximum concurrent task count is its slot count. A fixed Worker keeps every slot's stream open. An adaptive Worker, which sets a floor below its slot count, opens streams only as load needs them.
 - Dex sends a task only to a free slot, so a Worker never declines work for capacity. A Step that finds every Step slot busy waits in the task queue.
 - A Worker reserves RPC-only slots so RPCs still run while Steps fill the rest. Size the slot count for both Step concurrency and RPC demand: to keep eight Steps running with one reserved slot, use nine slots. Raise the reserve for Workers whose Steps hold slots for minutes.
 - A freed slot goes to waiting RPCs before waiting Steps.
-- The Server caps slots per Worker and streams per node. A Worker whose slot count exceeds the per-Worker cap fails to start. Plan both caps for rolling overlap.
+- The Server caps slots per Worker and streams per node. When the slot count exceeds the per-Worker cap, a fixed Worker with an explicit slot count fails to start. A fixed Worker with the slot count unset, and an adaptive Worker, clamp the slot count to the cap and log a warning. Plan both caps for rolling overlap.
 - Scale Workers on the Server's task queue depth and oldest-age metrics. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#step-task-queue).
 - Long-running tasks keep their stream alive with periodic pings. Set load balancer and proxy idle timeouts above the Server's ping interval, with margin, and preserve bidirectional HTTP/2 streaming.
 

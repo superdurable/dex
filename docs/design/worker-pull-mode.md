@@ -1,6 +1,6 @@
 # Worker pull mode and Stream routing
 
-Worker pull mode lets a Worker request dispatches from Dex instead of exposing a WorkerService address. Matching assigns each request to an available Worker for its Flow type. The Go, Python, TypeScript, and Rust SDKs implement pull polling. Each pull Worker registers streams for its app Worker ID queue and every Flow type in its Registry. Client defaults, StartFlow overrides, and SubFlow overrides select pull dispatch with a pull WorkerTarget.
+Worker pull mode lets a Worker request dispatches from Dex instead of exposing a WorkerService address. Matching assigns each request to an available Worker for its Flow type. The Go, Python, Java, TypeScript, and Rust SDKs implement pull polling. Each pull Worker registers streams for its app Worker ID queue and every Flow type in its Registry. Client defaults, StartFlow overrides, and SubFlow overrides select pull dispatch with a pull WorkerTarget.
 
 ## Routing and delivery
 

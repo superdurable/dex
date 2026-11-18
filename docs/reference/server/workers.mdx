@@ -311,12 +311,15 @@ When a slot frees up, Dex gives it to waiting RPCs before waiting Steps.
 
 Since SDK 1.15.0, Workers reserve capacity for RPCs, so synchronous RPC calls
 stay responsive while Steps run for a long time. Set the reserved RPC slots
-option of your SDK. When it is unset, the reserve is one if the resolved task
-limit is at least two, and zero otherwise. So with the CPU-count default, Steps
-get one fewer slot than before SDK 1.15.0. Set the reserve to zero to opt out.
-With a task limit of one and no explicit reserve, the Worker logs one warning
-at start: RPCs may wait behind long-running Steps. The warning recommends a
-limit of at least two or an explicit reserve.
+option of your SDK. When it is unset, the reserve is one if both the resolved
+task limit and the floor of an [adaptive Worker](#adaptive-slot-streams) are at
+least two, and zero otherwise. A fixed Worker's floor equals its task limit. So
+with the CPU-count default, Steps get one fewer slot than before SDK 1.15.0.
+Set the reserve to zero to opt out. With no explicit reserve, the Worker logs
+one warning at start when the reserve resolves to zero: RPCs may wait behind
+long-running Steps. The warning appears with a task limit of one, and with a
+task limit of at least two and a floor of one. It recommends a larger limit or
+floor, or an explicit reserve.
 
 The reserve must be zero or more, and less than the concurrent task limit after
 the CPU-count default is resolved. Invalid values fail Worker construction.
