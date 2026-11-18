@@ -87,11 +87,75 @@ final class PullWorker {
     private int busyTasks;
     private boolean hasCheckedRegistrationLimit;
     private String registrationLimitFailure;
+    // The resolved slot configuration; the first acknowledgement may clamp it (D4, F6).
+    private int maxConcurrentTasks;
+    private int reservedRpcTasks;
+    private int minOpenSlots;
+    private final int configuredMaxConcurrentTasks;
+    private final boolean isAdaptive;
+    private final PullSlotSettings slotSettings;
+    // Monitor-guarded slot state: C, R_eff, L, L_eff, E, and G, with G at most E.
+    private int totalCapacity;
+    private int rpcOnlySlots;
+    private int stepFloor;
+    private int effectiveFloor;
+    private int effectiveCeiling;
+    private int growthTarget;
+    private final int[] stepPhaseCounts = new int[SlotPhase.values().length];
+    private final int[] rpcOnlyPhaseCounts = new int[SlotPhase.values().length];
+    private int orphanedStepHandlers;
+    private int orphanedRpcOnlyHandlers;
+    private boolean isGrowthTargetClamped;
+    private boolean hasGrownThisWindow;
+    // The retry latch that a soft rejection sets.
+    private boolean isReopenDeferred;
+    private boolean hasBatchRejection;
+    private int peakBusy;
+    private long nextIdleSequence;
+    private ScheduledFuture<?> shrinkWindowTimer;
+    private long shrinkWindowGeneration;
+    private long streamsGrown;
+    private long streamsShrunk;
+    private long growRejectedAtCap;
+    private long shrinkRaceDrops;
+    // Collects the explicit fixed-mode startup streams, which open in one monitor section; null otherwise.
+    private List<PullStream> startupBatch;
 
     private static final class SlotRegistration {
         private int registeredStreams;
         private boolean hasRegistered;
         private Throwable lastPermanentError;
+    }
+
+    // The phase of one attempt; an untracked attempt counts in no total.
+    private enum SlotPhase {
+        UNTRACKED,
+        REGISTERING,
+        IDLE,
+        BUSY,
+        // A stream draining after the Server's Reconnect; it takes no task.
+        RECONNECTING
+    }
+
+    // One registration attempt of a slot stream; the PullWorker monitor guards it.
+    private static final class SlotAttempt {
+        private SlotPhase phase = SlotPhase.UNTRACKED;
+        private long idleSequence;
+        private final boolean isGrowth;
+        private final boolean isOpenedAfterReadiness;
+        private boolean hasEnded;
+        private boolean hasReceivedRegistered;
+        // Set just before the Register is queued; until then closeSurplusSlotStreams may revoke the attempt.
+        private boolean isRegisterSent;
+        private boolean isOrphaned;
+        private boolean isClosedOnPurpose;
+        private boolean isSoftRejected;
+        private boolean isReopenGranted;
+
+        private SlotAttempt(final boolean isGrowth, final boolean isOpenedAfterReadiness) {
+            this.isGrowth = isGrowth;
+            this.isOpenedAfterReadiness = isOpenedAfterReadiness;
+        }
     }
     private boolean isStopping;
     private boolean hasLoggedUnsupported;
@@ -153,6 +217,16 @@ final class PullWorker {
         for (PollWorkerSlotKind slotKind : slotKinds) {
             slotRegistrations.put(slotKind, new SlotRegistration());
         }
+        this.maxConcurrentTasks = options.getMaxConcurrentTasks();
+        this.configuredMaxConcurrentTasks = options.getMaxConcurrentTasks();
+        this.reservedRpcTasks = options.getReservedRpcTasks();
+        this.minOpenSlots = options.getMinOpenSlots();
+        this.isAdaptive = options.getMinOpenSlots() < options.getMaxConcurrentTasks();
+        this.slotSettings = options.getSlotSettings();
+        this.totalCapacity = maxConcurrentTasks;
+        this.rpcOnlySlots = reservedRpcTasks;
+        this.stepFloor = minOpenSlots - reservedRpcTasks;
+        recomputeSlotCapacity();
     }
 
     private PollWorkerTaskRejectReason unknownTaskReason(final PollWorkerTask task) {
@@ -250,11 +324,14 @@ final class PullWorker {
         if (options.shouldWarnRpcCapacity()) {
             LOGGER.warning("RPCs may wait behind long-running Steps; use maxConcurrentTasks >= 2 or set reservedRpcTasks explicitly");
         }
+        if (options.shouldWarnFloorRpcCapacity()) {
+            LOGGER.warning("RPCs may wait behind long-running Steps; minOpenSlots 1 reserves no RPC slot, so use minOpenSlots >= 2 to reserve one");
+        }
         boolean interrupted = false;
         final String limitFailure;
         final PullRegistrationError streamError;
         synchronized (this) {
-            reconcile();
+            startSlotStreams();
             while ((!isStopping || !streams.isEmpty() || busyTasks > 0)
                     && permanentStreamError == null && registrationLimitFailure == null) {
                 try {
@@ -351,13 +428,21 @@ final class PullWorker {
         notifyAll();
     }
 
-    private void recordStreamResult(final PullStream stream, final Throwable failure) {
+    // A soft rejection (F5) is not recorded as a permanent error.
+    private void recordStreamResult(final PullStream stream, final Throwable failure, final boolean isSoftRejection) {
         final SlotRegistration registration = slotRegistrations.get(stream.slotKind);
+        if (registration == null) {
+            // The first acknowledgement removed this slot kind, so it reports no registration state.
+            stream.isRegistered = false;
+            notifyAll();
+            return;
+        }
         if (stream.isRegistered) {
             stream.isRegistered = false;
             registration.registeredStreams--;
         }
-        if (!stream.shouldRetryRejectedTokenImmediately && isPermanentStreamError(stream, failure)) {
+        if (!isSoftRejection && !stream.shouldRetryRejectedTokenImmediately
+                && isPermanentStreamError(stream, failure)) {
             registration.lastPermanentError = failure;
             final PullRegistrationError rejection =
                     new PullRegistrationError(stream.slotKind.name(), taskQueue, failure);
@@ -394,6 +479,7 @@ final class PullWorker {
                 finalOutputFlushDeadlineNanos = stopDeadlineNanos + FINAL_OUTPUT_FLUSH_GRACE.toNanos();
             }
             final long deadline = stopDeadlineNanos;
+            stopShrinkWindow();
             notifyAll();
             for (PullStream stream : new ArrayList<PullStream>(streams)) {
                 stream.isDraining = true;
@@ -447,21 +533,565 @@ final class PullWorker {
         }
     }
 
-    private void reconcile() {
+    synchronized PullSlotStreamState slotStreamState() {
+        return new PullSlotStreamState(isAdaptive, stepSlotOpen(),
+                stepPhaseCounts[SlotPhase.REGISTERING.ordinal()], stepPhaseCounts[SlotPhase.BUSY.ordinal()],
+                stepPhaseCounts[SlotPhase.IDLE.ordinal()], orphanedStepHandlers, orphanedRpcOnlyHandlers,
+                effectiveFloor, effectiveCeiling, growthTarget, totalCapacity, rpcOnlySlotOpen(), rpcOnlySlots,
+                streamsGrown, streamsShrunk, growRejectedAtCap, shrinkRaceDrops);
+    }
+
+    // Opens the startup streams and starts the shrink window of an adaptive Worker.
+    private void startSlotStreams() {
         if (isStopping) {
             return;
         }
-        if (streams.isEmpty()) {
-            for (int slot = 0; slot < options.getMaxConcurrentTasks(); slot++) {
-                final PollWorkerSlotKind slotKind = slot < options.getReservedRpcTasks()
-                        ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
-                        : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC;
-                streams.add(new PullStream(slotKind));
-            }
-            for (PullStream stream : new ArrayList<PullStream>(streams)) {
-                stream.open();
+        restartShrinkWindow();
+        if (isAdaptive || !options.isMaxConcurrentTasksExplicit()) {
+            maybeReopenSlotStreams(null);
+            return;
+        }
+        // As before adaptive streams, every Register is enqueued before this monitor section ends.
+        final List<PullStream> batch = new ArrayList<PullStream>();
+        startupBatch = batch;
+        maybeReopenSlotStreams(null);
+        startupBatch = null;
+        // The old startup order: every RPC_ONLY stream, then every STEP_AND_RPC stream.
+        for (PollWorkerSlotKind slotKind : new PollWorkerSlotKind[] {
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY,
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC}) {
+            for (PullStream stream : batch) {
+                if (stream.slotKind == slotKind) {
+                    stream.connect();
+                }
             }
         }
+    }
+
+    // Applies D4 and F6 at the first acknowledgement; it returns a start failure, or null.
+    private String resolveSlotCeilingAtFirstAcknowledgement(final long limit) {
+        final boolean hasLimit = limit != 0;
+        if (!isAdaptive && options.isMaxConcurrentTasksExplicit()) {
+            if (hasLimit && maxConcurrentTasks > limit) {
+                return "maxConcurrentTasks " + maxConcurrentTasks
+                        + " exceeds Server setting matching.maxConcurrentTasksCap " + limit
+                        + "; lower maxConcurrentTasks or raise the Server setting";
+            }
+            return null;
+        }
+        int ceiling = configuredMaxConcurrentTasks;
+        if (hasLimit && ceiling > limit) {
+            ceiling = (int) limit;
+            LOGGER.warning("clamped maxConcurrentTasks " + configuredMaxConcurrentTasks
+                    + " to the Server matching.maxConcurrentTasksCap " + limit
+                    + " (explicit maxConcurrentTasks: " + options.isMaxConcurrentTasksExplicit() + ")");
+        }
+        final int resolvedMinOpenSlots = options.isMinOpenSlotsExplicit() ? minOpenSlots : ceiling;
+        final int resolvedReservedRpcTasks = options.isReservedRpcTasksExplicit() ? reservedRpcTasks
+                : PullWorkerOptions.defaultReservedRpcTasks(ceiling, resolvedMinOpenSlots);
+        if (resolvedReservedRpcTasks >= ceiling) {
+            return "reservedRpcTasks " + resolvedReservedRpcTasks + " must be less than the slot ceiling " + ceiling
+                    + ", which is maxConcurrentTasks " + configuredMaxConcurrentTasks
+                    + " limited by Server matching.maxConcurrentTasksCap " + limit;
+        }
+        if (resolvedMinOpenSlots > ceiling) {
+            return "minOpenSlots " + resolvedMinOpenSlots + " exceeds the slot ceiling " + ceiling
+                    + ", which is maxConcurrentTasks " + configuredMaxConcurrentTasks
+                    + " limited by Server matching.maxConcurrentTasksCap " + limit;
+        }
+        maxConcurrentTasks = ceiling;
+        minOpenSlots = resolvedMinOpenSlots;
+        reservedRpcTasks = resolvedReservedRpcTasks;
+        stepFloor = resolvedMinOpenSlots - resolvedReservedRpcTasks;
+        totalCapacity = ceiling;
+        if (resolvedReservedRpcTasks == 0) {
+            slotKinds.remove(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY);
+            slotRegistrations.remove(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY);
+        }
+        return null;
+    }
+
+    // The registered event of the state machine.
+    private void recordSlotRegistered(final PullStream stream, final long limit) {
+        stream.slot.hasReceivedRegistered = true;
+        if (stream.slot.phase == SlotPhase.REGISTERING) {
+            setSlotPhase(stream, SlotPhase.IDLE);
+        }
+        if (isAdaptive) {
+            totalCapacity = limit != 0 && limit < maxConcurrentTasks ? (int) limit : maxConcurrentTasks;
+        }
+        int nextRpcOnlySlots = reservedRpcTasks;
+        if (nextRpcOnlySlots + 1 > totalCapacity) {
+            nextRpcOnlySlots = Math.max(0, totalCapacity - 1);
+        }
+        if (nextRpcOnlySlots < rpcOnlySlots) {
+            LOGGER.warning("Server matching.maxConcurrentTasksCap " + limit + " leaves " + nextRpcOnlySlots
+                    + " RPC-only slots, fewer than reservedRpcTasks " + reservedRpcTasks);
+        }
+        rpcOnlySlots = nextRpcOnlySlots;
+        closeSurplusSlotStreams();
+        recomputeSlotCapacity();
+        maybeReopenSlotStreams(null);
+        if (stepPhaseCounts[SlotPhase.REGISTERING.ordinal()] == 0) {
+            settleGrowthBatch();
+        }
+    }
+
+    // The task_frame event.
+    private void recordSlotTaskStarted(final PullStream stream) {
+        if (stream.slot.phase == SlotPhase.UNTRACKED) {
+            return;
+        }
+        setSlotPhase(stream, SlotPhase.BUSY);
+        if (stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+            return;
+        }
+        peakBusy = Math.max(peakBusy, stepPhaseCounts[SlotPhase.BUSY.ordinal()]);
+        maybeGrowSlotStreams();
+    }
+
+    // Counts a task dropped on a stream that the Worker chose to close.
+    private void recordSlotTaskDropped(final PullStream stream) {
+        if (stream.slot.isClosedOnPurpose && !isStopping) {
+            shrinkRaceDrops++;
+        }
+    }
+
+    // Keeps a stream that the Server asked to reconnect out of the idle set.
+    private void recordSlotReconnectRequested(final PullStream stream) {
+        if (stream.slot.phase == SlotPhase.IDLE) {
+            setSlotPhase(stream, SlotPhase.RECONNECTING);
+        }
+    }
+
+    // final_frame_sent, or orphaned_handler_returned after the stream ended.
+    // It reports whether the stream must half-close because it is surplus.
+    private boolean recordSlotTaskCompleted(final PullStream stream, final boolean isDraining) {
+        if (stream.slot.isOrphaned) {
+            stream.slot.isOrphaned = false;
+            if (stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+                orphanedRpcOnlyHandlers--;
+            } else {
+                orphanedStepHandlers--;
+            }
+            recomputeSlotCapacity();
+            maybeReopenSlotStreams(reopenCandidate(stream));
+            return false;
+        }
+        if (stream.slot.phase != SlotPhase.BUSY) {
+            return false;
+        }
+        if (isDraining) {
+            setSlotPhase(stream, SlotPhase.RECONNECTING);
+            return false;
+        }
+        setSlotPhase(stream, SlotPhase.IDLE);
+        final boolean isSurplus = stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
+                ? rpcOnlySlotUsage() > rpcOnlySlots
+                : stepSlotUsage() > Math.max(0, totalCapacity - rpcOnlySlots);
+        if (!isSurplus) {
+            return false;
+        }
+        halfCloseSlotStream(stream, false);
+        streamsShrunk++;
+        recomputeSlotCapacity();
+        maybeReopenSlotStreams(null);
+        return true;
+    }
+
+    // F5: adaptive only; an unregistered growth stream or post-readiness reconnect.
+    private boolean isSoftSlotRejection(final PullStream stream, final Throwable failure) {
+        if (!isAdaptive || failure == null || stream.slot.hasReceivedRegistered
+                || Status.fromThrowable(failure).getCode() != Status.Code.RESOURCE_EXHAUSTED) {
+            return false;
+        }
+        if (stream.slot.phase != SlotPhase.REGISTERING) {
+            return false;
+        }
+        return stream.slot.isGrowth || stream.slot.isOpenedAfterReadiness;
+    }
+
+    // The soft registration_rejected event.
+    private void recordSlotRegistrationRejected(final PullStream stream) {
+        stream.slot.isSoftRejected = true;
+        setSlotPhase(stream, SlotPhase.UNTRACKED);
+        if (stream.slot.isGrowth) {
+            hasBatchRejection = true;
+        }
+        growRejectedAtCap++;
+        isReopenDeferred = true;
+        recomputeSlotCapacity();
+        if (stepPhaseCounts[SlotPhase.REGISTERING.ordinal()] == 0) {
+            settleGrowthBatch();
+        }
+    }
+
+    // stream_ended; every end of an attempt passes here once.
+    private void recordSlotStreamEnded(final PullStream stream) {
+        if (stream.slot.hasEnded) {
+            return;
+        }
+        stream.slot.hasEnded = true;
+        if (stream.slot.phase != SlotPhase.UNTRACKED) {
+            if (stream.slot.phase == SlotPhase.BUSY) {
+                stream.slot.isOrphaned = true;
+                if (stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+                    orphanedRpcOnlyHandlers++;
+                } else {
+                    orphanedStepHandlers++;
+                }
+            }
+            setSlotPhase(stream, SlotPhase.UNTRACKED);
+        }
+        if (stream.slot.hasReceivedRegistered) {
+            isReopenDeferred = false;
+        }
+        recomputeSlotCapacity();
+        maybeReopenSlotStreams(stream.slot.isOrphaned ? null : reopenCandidate(stream));
+        maybeGrowSlotStreams();
+        if (stepPhaseCounts[SlotPhase.REGISTERING.ordinal()] == 0) {
+            settleGrowthBatch();
+        }
+    }
+
+    // Ends an attempt whose runner exits before the attempt ends.
+    private void abandonSlotAttempt(final PullStream stream) {
+        if (stream.slot.phase == SlotPhase.UNTRACKED || stream.slot.hasEnded) {
+            return;
+        }
+        stream.slot.isClosedOnPurpose = true;
+        recordSlotStreamEnded(stream);
+    }
+
+    // Runs the every-W step of the state machine for one window generation.
+    private void expireShrinkWindow(final long generation) {
+        synchronized (this) {
+            if (isStopping || generation != shrinkWindowGeneration) {
+                return;
+            }
+            restartShrinkWindow();
+            isGrowthTargetClamped = false;
+            hasGrownThisWindow = false;
+            isReopenDeferred = false;
+            recomputeSlotCapacity();
+            maybeReopenSlotStreams(null);
+            shrinkSlotStreams();
+            peakBusy = stepPhaseCounts[SlotPhase.BUSY.ordinal()];
+            maybeGrowSlotStreams();
+            notifyAll();
+        }
+    }
+
+    // Closes half the idle surplus above the window's peak plus headroom.
+    private void shrinkSlotStreams() {
+        final int windowPeakBusy = peakBusy;
+        final int headroom = Math.max(1, (windowPeakBusy + 3) / 4);
+        final int target = Math.min(effectiveCeiling, Math.max(effectiveFloor, windowPeakBusy + headroom));
+        final int open = stepSlotOpen();
+        if (open <= target) {
+            return;
+        }
+        final List<PullStream> idleStreams = idleStepStreamsNewestFirst();
+        // The last idle stream stays open, and the floor stays open.
+        final int closeCount = Math.min((open - target + 1) / 2,
+                Math.min(idleStreams.size() - 1, open - effectiveFloor));
+        if (closeCount <= 0) {
+            return;
+        }
+        for (PullStream stream : idleStreams.subList(0, closeCount)) {
+            halfCloseSlotStream(stream, true);
+        }
+        streamsShrunk += closeCount;
+        LOGGER.fine("shrink pull slot streams from " + open + " to " + (open - closeCount)
+                + " (peakBusy " + windowPeakBusy + ")");
+        recomputeSlotCapacity();
+    }
+
+    // Releases capacity above a lowered cap, RPC-only first; unsent attempts are revoked first.
+    private void closeSurplusSlotStreams() {
+        for (PollWorkerSlotKind slotKind : new PollWorkerSlotKind[] {
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY,
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC}) {
+            while (isSlotKindOverQuota(slotKind)) {
+                final PullStream pending = unsentSlotAttempt(slotKind);
+                if (pending != null) {
+                    revokeSlotAttempt(pending);
+                    continue;
+                }
+                final PullStream stream = newestIdleStream(slotKind);
+                if (stream == null) {
+                    break;
+                }
+                halfCloseSlotStream(stream, true);
+                streamsShrunk++;
+            }
+        }
+    }
+
+    // Runs after each backoff and right before the Register; the Server enforces any later cap drop.
+    private boolean admitSlotRegistration(final PullStream stream) {
+        if (isStopping || registrationLimitFailure != null || stream.slot.phase != SlotPhase.REGISTERING
+                || stream.slot.hasEnded) {
+            return false;
+        }
+        if (!isSlotAttemptOverCapacity(stream)) {
+            return true;
+        }
+        revokeSlotAttempt(stream);
+        recomputeSlotCapacity();
+        maybeReopenSlotStreams(null);
+        if (stepPhaseCounts[SlotPhase.REGISTERING.ordinal()] == 0) {
+            settleGrowthBatch();
+        }
+        return false;
+    }
+
+    // Checks one registering attempt, which the totals already count.
+    private boolean isSlotAttemptOverCapacity(final PullStream stream) {
+        if (stepSlotUsage() + rpcOnlySlotUsage() > totalCapacity) {
+            return true;
+        }
+        if (stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+            return rpcOnlySlotUsage() > rpcOnlySlots;
+        }
+        // F5 gives the first Step-and-RPC stream any free slot, so only later ones need the Step quota.
+        return stepSlotOpen() > 1 && stepSlotUsage() > effectiveCeiling;
+    }
+
+    // Surplus after a lowered cap: RPC-only above R_eff, Step-and-RPC above C - R_eff.
+    private boolean isSlotKindOverQuota(final PollWorkerSlotKind slotKind) {
+        if (slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
+            return rpcOnlySlotUsage() > rpcOnlySlots;
+        }
+        return stepSlotUsage() > Math.max(0, totalCapacity - rpcOnlySlots);
+    }
+
+    // Takes back an attempt whose Register has not been queued; its runner then exits.
+    private void revokeSlotAttempt(final PullStream stream) {
+        stream.slot.isClosedOnPurpose = true;
+        stream.slot.hasEnded = true;
+        setSlotPhase(stream, SlotPhase.UNTRACKED);
+    }
+
+    // Runs when no stream registers; a rejected batch clamps G until the window ends.
+    private void settleGrowthBatch() {
+        if (hasBatchRejection) {
+            hasBatchRejection = false;
+            growthTarget = Math.min(effectiveCeiling, stepSlotUsage());
+            isGrowthTargetClamped = true;
+            LOGGER.info("the Server rejected pull slot stream growth at its stream limit; holding growth"
+                    + " until the next shrink window (growthTarget " + growthTarget
+                    + ", effectiveCeiling " + effectiveCeiling + ")");
+        }
+        maybeGrowSlotStreams();
+    }
+
+    // Doubles the open streams when a hand-out took the last idle one.
+    private void maybeGrowSlotStreams() {
+        if (!isAdaptive || isStopping || registrationLimitFailure != null || isReopenDeferred) {
+            return;
+        }
+        if (isGrowthTargetClamped && hasGrownThisWindow) {
+            return;
+        }
+        final int open = stepSlotOpen();
+        final int usage = stepSlotUsage();
+        if (stepPhaseCounts[SlotPhase.IDLE.ordinal()] != 0 || stepPhaseCounts[SlotPhase.REGISTERING.ordinal()] != 0
+                || usage >= growthTarget) {
+            return;
+        }
+        final int count = Math.min(growthTarget - usage, Math.max(1, open));
+        LOGGER.fine("grow pull slot streams from " + open + " to " + (open + count) + " (no idle stream)");
+        for (int index = 0; index < count; index++) {
+            openSlotStream(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC, true, null);
+        }
+        streamsGrown += count;
+        hasGrownThisWindow = true;
+        restartShrinkWindow();
+    }
+
+    // Opens streams within free capacity in F5 order, reusing a parked runner for its backoff.
+    private void maybeReopenSlotStreams(final PullStream parked) {
+        if (isStopping || registrationLimitFailure != null || isReopenDeferred) {
+            return;
+        }
+        int stepOpen = stepSlotOpen();
+        int free = Math.max(0, totalCapacity - (stepSlotUsage() + rpcOnlySlotUsage()));
+        if (stepOpen == 0 && free > 0) {
+            openSlotStream(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC, false, parked);
+            stepOpen++;
+            free--;
+        }
+        if (isCapProbePending()) {
+            return;
+        }
+        if (hasCheckedRegistrationLimit || !isAdaptive) {
+            final int rpcOnlyCount = Math.min(free, Math.max(0, rpcOnlySlots - rpcOnlySlotUsage()));
+            for (int index = 0; index < rpcOnlyCount; index++) {
+                openSlotStream(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY, false, parked);
+            }
+            free -= rpcOnlyCount;
+        }
+        final int stepCount = Math.min(free,
+                Math.max(0, Math.min(effectiveFloor, effectiveCeiling - orphanedStepHandlers) - stepOpen));
+        for (int index = 0; index < stepCount; index++) {
+            openSlotStream(PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC, false, parked);
+        }
+    }
+
+    // Grants a new attempt to parked, or starts a runner that connects from the timer thread.
+    private void openSlotStream(final PollWorkerSlotKind slotKind, final boolean isGrowth, final PullStream parked) {
+        final SlotAttempt attempt = new SlotAttempt(isGrowth, hasRegisteredRequiredSlotKinds);
+        if (!isGrowth && parked != null && parked.slotKind == slotKind && !parked.slot.isReopenGranted) {
+            attempt.isReopenGranted = true;
+            parked.slot = attempt;
+            setSlotPhase(parked, SlotPhase.REGISTERING);
+            return;
+        }
+        final PullStream stream = new PullStream(slotKind, attempt);
+        setSlotPhase(stream, SlotPhase.REGISTERING);
+        streams.add(stream);
+        if (startupBatch != null) {
+            startupBatch.add(stream);
+            return;
+        }
+        stream.scheduleConnect(0L);
+    }
+
+    // Takes an idle stream out of the totals and marks it closing; its later end changes no count.
+    private void halfCloseSlotStream(final PullStream stream, final boolean shouldHalfCloseNow) {
+        setSlotPhase(stream, SlotPhase.UNTRACKED);
+        stream.slot.isClosedOnPurpose = true;
+        stream.isDraining = true;
+        if (shouldHalfCloseNow) {
+            stream.halfClose();
+        }
+    }
+
+    // Starts a new shrink window; an older window's timer then does nothing.
+    private void restartShrinkWindow() {
+        if (!isAdaptive || isStopping || slotSettings.getShrinkWindow().isZero()
+                || slotSettings.getShrinkWindow().isNegative()) {
+            return;
+        }
+        shrinkWindowGeneration++;
+        final long generation = shrinkWindowGeneration;
+        if (shrinkWindowTimer != null) {
+            shrinkWindowTimer.cancel(false);
+        }
+        try {
+            shrinkWindowTimer = scheduler.schedule(() -> expireShrinkWindow(generation),
+                    slotSettings.getShrinkWindow().toNanos(), TimeUnit.NANOSECONDS);
+        } catch (RejectedExecutionException rejected) {
+            LOGGER.log(Level.WARNING, "cannot schedule the pull slot shrink window", rejected);
+        }
+    }
+
+    // Stops the shrink window timer at stop.
+    private void stopShrinkWindow() {
+        shrinkWindowGeneration++;
+        if (shrinkWindowTimer != null) {
+            shrinkWindowTimer.cancel(false);
+            shrinkWindowTimer = null;
+        }
+    }
+
+    // Moves an attempt between phases and keeps the per-phase totals.
+    private void setSlotPhase(final PullStream stream, final SlotPhase phase) {
+        final int[] counts = stream.slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
+                ? rpcOnlyPhaseCounts : stepPhaseCounts;
+        if (stream.slot.phase != SlotPhase.UNTRACKED) {
+            counts[stream.slot.phase.ordinal()]--;
+        }
+        stream.slot.phase = phase;
+        if (phase != SlotPhase.UNTRACKED) {
+            counts[phase.ordinal()]++;
+        }
+        if (phase == SlotPhase.IDLE) {
+            nextIdleSequence++;
+            stream.slot.idleSequence = nextIdleSequence;
+        }
+    }
+
+    // Derives E, L_eff, and G; RPC-only overflow takes Step capacity.
+    private void recomputeSlotCapacity() {
+        final int rpcOnlyReserve = Math.max(rpcOnlySlots, rpcOnlySlotUsage());
+        effectiveCeiling = Math.max(0, totalCapacity - rpcOnlyReserve);
+        effectiveFloor = Math.max(0, Math.min(stepFloor, effectiveCeiling));
+        growthTarget = isGrowthTargetClamped ? Math.min(growthTarget, effectiveCeiling) : effectiveCeiling;
+    }
+
+    // Returns stream when its runner may serve the next attempt of its kind.
+    private PullStream reopenCandidate(final PullStream stream) {
+        if (stream.slot.isClosedOnPurpose || stream.slot.isSoftRejected || stream.slot.isReopenGranted) {
+            return null;
+        }
+        return stream;
+    }
+
+    // Lists idle Step-and-RPC streams, the most recently idle first.
+    private List<PullStream> idleStepStreamsNewestFirst() {
+        final List<PullStream> idleStreams = new ArrayList<PullStream>();
+        for (PullStream stream : streams) {
+            if (stream.slotKind != PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
+                    && stream.slot.phase == SlotPhase.IDLE) {
+                idleStreams.add(stream);
+            }
+        }
+        Collections.sort(idleStreams, (left, right) -> Long.compare(right.slot.idleSequence, left.slot.idleSequence));
+        return idleStreams;
+    }
+
+    // Returns a registering attempt of the kind whose Register has not been queued, or null.
+    private PullStream unsentSlotAttempt(final PollWorkerSlotKind slotKind) {
+        for (PullStream stream : streams) {
+            if (stream.slotKind == slotKind && stream.slot.phase == SlotPhase.REGISTERING
+                    && !stream.slot.isRegisterSent) {
+                return stream;
+            }
+        }
+        return null;
+    }
+
+    private PullStream newestIdleStream(final PollWorkerSlotKind slotKind) {
+        PullStream newest = null;
+        for (PullStream stream : streams) {
+            if (stream.slotKind == slotKind && stream.slot.phase == SlotPhase.IDLE
+                    && (newest == null || stream.slot.idleSequence > newest.slot.idleSequence)) {
+                newest = stream;
+            }
+        }
+        return newest;
+    }
+
+    // Reports F4: a fixed Worker with an unset ceiling opens one stream until the first acknowledgement.
+    private boolean isCapProbePending() {
+        return !isAdaptive && !options.isMaxConcurrentTasksExplicit() && !hasCheckedRegistrationLimit;
+    }
+
+    // Returns S.
+    private int stepSlotOpen() {
+        return openCount(stepPhaseCounts);
+    }
+
+    // Returns S + H.
+    private int stepSlotUsage() {
+        return stepSlotOpen() + orphanedStepHandlers;
+    }
+
+    // Returns Sr.
+    private int rpcOnlySlotOpen() {
+        return openCount(rpcOnlyPhaseCounts);
+    }
+
+    // Returns Sr + Hr.
+    private int rpcOnlySlotUsage() {
+        return rpcOnlySlotOpen() + orphanedRpcOnlyHandlers;
+    }
+
+    private static int openCount(final int[] counts) {
+        return counts[SlotPhase.REGISTERING.ordinal()] + counts[SlotPhase.IDLE.ordinal()]
+                + counts[SlotPhase.BUSY.ordinal()] + counts[SlotPhase.RECONNECTING.ordinal()];
     }
 
     private long retryDelay(final long backoff) {
@@ -494,12 +1124,73 @@ final class PullWorker {
         private boolean isRegistered;
         private boolean hasRetriedRejectedToken;
         private boolean shouldRetryRejectedTokenImmediately;
+        private boolean wasSoftRejected;
+        private boolean hasExited;
+        // The current attempt in the slot stream state machine; the PullWorker monitor guards it.
+        private SlotAttempt slot;
 
-        private PullStream(final PollWorkerSlotKind slotKind) {
+        // A new runner has no call yet, so it starts closed until its first connect.
+        private PullStream(final PollWorkerSlotKind slotKind, final SlotAttempt slot) {
             this.slotKind = slotKind;
+            this.slot = slot;
+            this.isClosed = true;
+        }
+
+        private void scheduleConnect(final long delayMillis) {
+            try {
+                scheduler.schedule(this::connect, delayMillis, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException rejected) {
+                // The timer stops only after stop began, so the runner has nothing left to open.
+                LOGGER.log(Level.FINE, "pull slot stream connect after stop", rejected);
+                exit();
+            }
+        }
+
+        // Admits the attempt after its backoff, then opens the call; the test hook runs between them.
+        private void connect() {
+            synchronized (PullWorker.this) {
+                if (!admitSlotRegistration(this)) {
+                    exit();
+                    return;
+                }
+                final PullSlotSettings.RegisterSendHook hook = slotSettings.getBeforeRegisterSendForTest();
+                if (hook == null) {
+                    open();
+                    return;
+                }
+                try {
+                    streamWriters.execute(() -> {
+                        hook.beforeRegisterSend(slotKind);
+                        synchronized (PullWorker.this) {
+                            open();
+                        }
+                    });
+                } catch (RejectedExecutionException rejected) {
+                    LOGGER.log(Level.FINE, "pull slot stream connect after stop", rejected);
+                    exit();
+                }
+            }
+        }
+
+        // Ends this runner; only the reopen rule starts another one.
+        private void exit() {
+            if (hasExited) {
+                return;
+            }
+            hasExited = true;
+            cancelTask(Status.Code.CANCELLED);
+            abandonSlotAttempt(this);
+            streams.remove(this);
+            maybeReopenSlotStreams(null);
+            PullWorker.this.notifyAll();
         }
 
         private void open() {
+            // The cap that another stream reported may have changed since this attempt was admitted.
+            if (!admitSlotRegistration(this)) {
+                exit();
+                return;
+            }
             final int generation = ++openGeneration;
             final AtomicReference<String> openedToken = new AtomicReference<String>();
             callToken = openedToken;
@@ -539,6 +1230,13 @@ final class PullWorker {
                 // Cancelling this context is grpc-java's thread-safe reset; it sends RST_STREAM.
                 opened.callContext.run(() -> GrpcCredential.withTokenCapture(openedToken).run(() ->
                         opened.requests = taskService.pollWorkerTask(observer)));
+                final PullSlotSettings.RequestObserverWrapper wrapper =
+                        slotSettings.getRequestObserverWrapperForTest();
+                if (wrapper != null) {
+                    opened.requests = wrapper.wrap(opened.requests, opened.callContext, slotKind);
+                }
+                // The writer thread sends the Register outside this monitor; from here on it is not revocable.
+                slot.isRegisterSent = true;
                 send(PollWorkerTaskRequest.newBuilder()
                         .setRegister(PollWorkerTaskRegister.newBuilder()
                                 .setSupportsReservedSlotDispatch(true)
@@ -585,7 +1283,8 @@ final class PullWorker {
                         recordRegisteredStream(this);
                         backoffMillis = 100L;
                         hasRetriedRejectedToken = false;
-                        reconcile();
+                        recordSlotRegistered(this, Integer.toUnsignedLong(
+                                response.getRegistered().getMaxConcurrentTasksPerAppWorker()));
                     } else {
                         reset("Worker task stream did not register");
                     }
@@ -607,10 +1306,11 @@ final class PullWorker {
                             .setPong(PollWorkerTaskPong.getDefaultInstance()).build());
                 } else if (response.hasReconnect()) {
                     isDraining = true;
+                    recordSlotReconnectRequested(this);
                     if (!isBusy) {
                         halfClose();
                     } else {
-                        reconcile();
+                        maybeReopenSlotStreams(null);
                     }
                 }
             }
@@ -623,19 +1323,20 @@ final class PullWorker {
                             + taskQueue + "\"; it may not support named task queues")
                     .asRuntimeException();
             shouldRetryRejectedTokenImmediately = false;
-            recordStreamResult(this, taskQueueMismatch);
+            recordStreamResult(this, taskQueueMismatch, false);
             // Half-close so Dex returns tasks sent after Registered without consuming an attempt.
             halfClose();
         }
 
         // Checks the Server's per-Worker slot limit on the first registration after start only.
+        // Changed in 1.45.4: an unset fixed ceiling and any adaptive ceiling are clamped instead (D4, F6).
         private boolean isRegistrationWithinServerLimit(final PollWorkerTaskResponse response) {
             final long serverLimit = Integer.toUnsignedLong(response.getRegistered()
                     .getMaxConcurrentTasksPerAppWorker());
-            final boolean isWithinLimit = serverLimit == 0 || serverLimit >= options.getMaxConcurrentTasks();
+            final boolean isWithinLimit = serverLimit == 0 || serverLimit >= maxConcurrentTasks;
             if (hasCheckedRegistrationLimit) {
-                if (!isWithinLimit) {
-                    LOGGER.warning("maxConcurrentTasks " + options.getMaxConcurrentTasks()
+                if (!isWithinLimit && !isAdaptive) {
+                    LOGGER.warning("maxConcurrentTasks " + maxConcurrentTasks
                             + " exceeds the Server setting matching.maxConcurrentTasksCap " + serverLimit
                             + " reported on reconnect; the Worker keeps running and the Server may reject"
                             + " extra slot streams");
@@ -643,16 +1344,18 @@ final class PullWorker {
                 return true;
             }
             hasCheckedRegistrationLimit = true;
-            if (!isWithinLimit) {
-                registrationLimitFailure = "maxConcurrentTasks " + options.getMaxConcurrentTasks()
-                        + " exceeds Server setting matching.maxConcurrentTasksCap " + serverLimit
-                        + "; lower maxConcurrentTasks or raise the Server setting";
+            final String failure = resolveSlotCeilingAtFirstAcknowledgement(serverLimit);
+            if (failure != null) {
+                registrationLimitFailure = failure;
+                stopShrinkWindow();
+                return false;
             }
-            return isWithinLimit;
+            return true;
         }
 
         private void startTask(final PollWorkerTask task) {
             if (isStopping || isDraining || isHalfClosed || registrationLimitFailure != null) {
+                recordSlotTaskDropped(this);
                 return;
             }
             if (isBusy && isFinalFrameSent && pendingTask == null) {
@@ -699,7 +1402,7 @@ final class PullWorker {
                 finishTask();
                 return;
             }
-            reconcile();
+            recordSlotTaskStarted(this);
         }
 
         // Returns Long.MAX_VALUE without a deadline; throws for an unrepresentable deadline.
@@ -962,12 +1665,14 @@ final class PullWorker {
             isBusy = false;
             isFinalFrameSent = false;
             busyTasks--;
+            // The slot leaves BUSY before any reset below, so the stream's end never counts a returned handler.
+            final boolean isSurplus = recordSlotTaskCompleted(this, isDraining && !isClosed);
             if (isClosed) {
                 retry(closeFailure);
             } else if (!hasSentFinalOutput) {
                 // A clean half-close would tell Dex the task never ran.
                 reset("Worker task ended without a final output");
-            } else if (isDraining || isStopping) {
+            } else if (isDraining || isStopping || isSurplus) {
                 halfClose();
             } else if (pendingTask != null) {
                 final PollWorkerTask nextTask = pendingTask;
@@ -1006,8 +1711,7 @@ final class PullWorker {
             stopKeepalive();
             if (isClosed) {
                 if (!isBusy && isStopping) {
-                    streams.remove(this);
-                    PullWorker.this.notifyAll();
+                    exit();
                 }
                 return;
             }
@@ -1076,9 +1780,15 @@ final class PullWorker {
                 isClosed = true;
                 // The call has ended; cancelling releases its context and drops unsent frames.
                 cancelConnection(failure == null ? Status.CANCELLED.asRuntimeException() : failure);
+                final boolean isSoftRejection = !isStopping && isSoftSlotRejection(this, failure);
                 if (taskQueueMismatch == null) {
-                    recordStreamResult(this, failure);
+                    recordStreamResult(this, failure, isSoftRejection);
                 }
+                if (isSoftRejection) {
+                    recordSlotRegistrationRejected(this);
+                }
+                wasSoftRejected = isSoftRejection;
+                recordSlotStreamEnded(this);
                 closeFailure = failure;
                 if (closeTimer != null) {
                     closeTimer.cancel(false);
@@ -1093,12 +1803,18 @@ final class PullWorker {
 
         private void retry(final Throwable failure) {
             if (isStopping) {
-                streams.remove(this);
-                PullWorker.this.notifyAll();
+                exit();
                 return;
             }
             if (registrationLimitFailure != null) {
                 PullWorker.this.notifyAll();
+                return;
+            }
+            if (wasSoftRejected) {
+                // A soft rejection waits for another registered stream to end or for the next shrink window.
+                LOGGER.log(Level.FINE, "Worker task stream reached the Server stream limit for slot kind "
+                        + slotKind, failure);
+                exit();
                 return;
             }
             final Status.Code code = failure == null ? Status.Code.OK
@@ -1125,13 +1841,13 @@ final class PullWorker {
             } else if (!isPermanent) {
                 backoffMillis = Math.min(backoffMillis * 2, 5000L);
             }
-            scheduler.schedule(() -> {
-                synchronized (PullWorker.this) {
-                    if (!isStopping && registrationLimitFailure == null) {
-                        open();
-                    }
-                }
-            }, delay, TimeUnit.MILLISECONDS);
+            // Only the reopen rule continues this runner; a stream closed on purpose never reopens.
+            if (!slot.isReopenGranted) {
+                exit();
+                return;
+            }
+            slot.isReopenGranted = false;
+            scheduleConnect(delay);
             PullWorker.this.notifyAll();
         }
     }

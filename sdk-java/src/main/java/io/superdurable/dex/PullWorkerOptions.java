@@ -24,6 +24,11 @@ import java.time.Duration;
  * streams. Other streams accept both Step and RPC tasks. Capacity no longer causes task declines.
  * Server protocol 4, provided by server-zd 0.1.17 or newer, is required.
  *
+ * <p>Changed in 1.45.4: with {@link Builder#minOpenSlots(int)} below maxConcurrentTasks the Worker
+ * is adaptive. It keeps between minOpenSlots and maxConcurrentTasks slot streams open, so idle
+ * Workers hold fewer Server streams. With minOpenSlots unset or equal to maxConcurrentTasks the
+ * Worker is fixed and keeps every slot open as before.
+ *
  * <pre>{@code
  * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
  *         .maxConcurrentTasks(8)
@@ -35,26 +40,52 @@ import java.time.Duration;
 public final class PullWorkerOptions {
     private final int maxConcurrentTasks;
     private final int reservedRpcTasks;
+    private final int minOpenSlots;
+    private final boolean isMaxConcurrentTasksExplicit;
+    private final boolean isReservedRpcTasksExplicit;
+    private final boolean isMinOpenSlotsExplicit;
     private final boolean shouldWarnRpcCapacity;
+    private final boolean shouldWarnFloorRpcCapacity;
     private final String appWorkerID;
     private final String taskQueue;
     private final Duration stopDrainTimeout;
     private final boolean stopOnPermanentStreamRejection;
+    private final PullSlotSettings slotSettings;
 
     private PullWorkerOptions(final Builder builder) {
         this.stopOnPermanentStreamRejection = builder.stopOnPermanentStreamRejection;
+        this.isMaxConcurrentTasksExplicit = builder.maxConcurrentTasks != 0;
+        this.isReservedRpcTasksExplicit = builder.reservedRpcTasks != null;
+        this.isMinOpenSlotsExplicit = builder.minOpenSlots != 0;
         this.maxConcurrentTasks = builder.maxConcurrentTasks == 0
                 ? Runtime.getRuntime().availableProcessors() : builder.maxConcurrentTasks;
+        this.minOpenSlots = builder.minOpenSlots == 0 ? maxConcurrentTasks : builder.minOpenSlots;
+        if (minOpenSlots > maxConcurrentTasks) {
+            throw new IllegalArgumentException("minOpenSlots " + minOpenSlots
+                    + " must not exceed maxConcurrentTasks " + maxConcurrentTasks);
+        }
         this.shouldWarnRpcCapacity = builder.reservedRpcTasks == null && maxConcurrentTasks == 1;
+        this.shouldWarnFloorRpcCapacity = builder.reservedRpcTasks == null && maxConcurrentTasks >= 2
+                && minOpenSlots == 1;
         this.reservedRpcTasks = builder.reservedRpcTasks == null
-                ? (maxConcurrentTasks >= 2 ? 1 : 0) : builder.reservedRpcTasks;
+                ? defaultReservedRpcTasks(maxConcurrentTasks, minOpenSlots) : builder.reservedRpcTasks;
         if (reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
             throw new IllegalArgumentException("reservedRpcTasks must be nonnegative and less than maxConcurrentTasks");
+        }
+        if (reservedRpcTasks + 1 > minOpenSlots) {
+            throw new IllegalArgumentException("minOpenSlots " + minOpenSlots + " must be at least reservedRpcTasks "
+                    + reservedRpcTasks + " plus one Step-and-RPC slot");
         }
         this.appWorkerID = builder.appWorkerID;
         this.taskQueue = builder.taskQueue;
         this.stopDrainTimeout = builder.stopDrainTimeout.isZero()
                 ? Duration.ofSeconds(30) : builder.stopDrainTimeout;
+        this.slotSettings = builder.slotSettings;
+    }
+
+    // Keeps one RPC-only slot when the ceiling and the floor both leave room for it.
+    static int defaultReservedRpcTasks(final int maxConcurrentTasks, final int minOpenSlots) {
+        return maxConcurrentTasks >= 2 && minOpenSlots >= 2 ? 1 : 0;
     }
 
     /**
@@ -74,8 +105,32 @@ public final class PullWorkerOptions {
         return shouldWarnRpcCapacity;
     }
 
+    boolean shouldWarnFloorRpcCapacity() {
+        return shouldWarnFloorRpcCapacity;
+    }
+
     int getReservedRpcTasks() {
         return reservedRpcTasks;
+    }
+
+    int getMinOpenSlots() {
+        return minOpenSlots;
+    }
+
+    boolean isMaxConcurrentTasksExplicit() {
+        return isMaxConcurrentTasksExplicit;
+    }
+
+    boolean isReservedRpcTasksExplicit() {
+        return isReservedRpcTasksExplicit;
+    }
+
+    boolean isMinOpenSlotsExplicit() {
+        return isMinOpenSlotsExplicit;
+    }
+
+    PullSlotSettings getSlotSettings() {
+        return slotSettings;
     }
 
     String getAppWorkerID() {
@@ -102,11 +157,13 @@ public final class PullWorkerOptions {
      */
     public static final class Builder {
         private int maxConcurrentTasks;
+        private int minOpenSlots;
         private Integer reservedRpcTasks;
         private String appWorkerID = "";
         private String taskQueue = "";
         private Duration stopDrainTimeout = Duration.ZERO;
         private boolean stopOnPermanentStreamRejection;
+        private PullSlotSettings slotSettings = PullSlotSettings.defaults();
 
         private Builder() {
         }
@@ -114,8 +171,9 @@ public final class PullWorkerOptions {
         /**
          * Sets the number of long-lived execution-slot streams for Step and RPC tasks.
          *
-         * <p>This also sizes the Worker's handler pool. Worker start fails when this exceeds
-         * the Server's per-Worker limit, matching.maxConcurrentTasksCap. Every received task
+         * <p>This also sizes the Worker's handler pool. Worker start fails when a fixed Worker with
+         * an explicit maxConcurrentTasks exceeds the Server's per-Worker limit,
+         * matching.maxConcurrentTasksCap. Every received task
          * executes without a capacity rejection. The server limit defaults to 256. Lower this
          * option or raise the server limit before starting the Worker; this failure is not retried
          * in the background. Budget server matching.maxStreams for the sum of Worker slots,
@@ -123,6 +181,26 @@ public final class PullWorkerOptions {
          *
          * <p>Changed in 1.35.0: this value is also the exact stream count, and exceeding the
          * server cap fails startup.
+         *
+         * <p>Changed in 1.45.4: this value is the ceiling of the slot streams, including the
+         * reserved RPC-only slots. A fixed Worker, whose {@link #minOpenSlots(int)} is unset or
+         * equal to this value, keeps this many streams open. An adaptive Worker, whose
+         * minOpenSlots is below this value, opens streams up to it only while every open
+         * Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
+         * warning that names both values, instead of failing start:
+         *
+         * <ul>
+         *   <li>a fixed Worker with this value unset, whose CPU-count default exceeds the cap;</li>
+         *   <li>an adaptive Worker, with this value set or unset.</li>
+         * </ul>
+         *
+         * <p>A fixed Worker with this value unset therefore opens one stream first, learns the cap
+         * from its registration, and then opens the others. That adds one round trip to start. A
+         * fixed Worker with an explicit value above the cap still fails start and opens all its
+         * streams at once. After a clamp, the reservedRpcTasks and minOpenSlots defaults come from
+         * the clamped value. In an adaptive Worker, a lower cap reported on a reconnect lowers its
+         * capacity: it half-closes the surplus streams, RPC-only streams first, and keeps running.
+         * A fixed Worker keeps the earlier behavior for a lower cap on a reconnect.
          *
          * @param value a nonnegative count; zero uses the available CPU count
          * @return this builder
@@ -133,6 +211,77 @@ public final class PullWorkerOptions {
                 throw new IllegalArgumentException("maxConcurrentTasks must not be negative");
             }
             this.maxConcurrentTasks = value;
+            return this;
+        }
+
+        /**
+         * Sets the fewest slot streams the Worker keeps open, which makes it adaptive when below
+         * maxConcurrentTasks.
+         *
+         * <p>This value uses the same unit as {@link #maxConcurrentTasks(int)}, so it counts the
+         * reserved RPC-only slots too. Zero, the default, uses the resolved maxConcurrentTasks:
+         * every slot keeps a stream, the Worker is fixed, and it behaves as earlier releases did.
+         *
+         * <p>A value below maxConcurrentTasks makes the Worker adaptive. Use it when idle Workers
+         * should hold fewer Server streams, such as a large fleet or a high maxConcurrentTasks. An
+         * adaptive Worker:
+         *
+         * <ul>
+         *   <li>starts with minOpenSlots minus reservedRpcTasks Step-and-RPC streams, and opens the
+         *       RPC-only streams after the first registration;</li>
+         *   <li>doubles its Step-and-RPC streams, one batch at a time, when a task takes the last
+         *       idle one, up to maxConcurrentTasks;</li>
+         *   <li>every 30 seconds half-closes half of the idle streams above the window's peak busy
+         *       count plus 25% headroom, never below the floor and never its last idle stream;</li>
+         *   <li>keeps the RPC-only streams at reservedRpcTasks.</li>
+         * </ul>
+         *
+         * <p>A burst larger than the open streams waits a few registration round trips while the
+         * Worker grows. A task that reaches a stream while it closes returns to the Server without
+         * spending a Step retry, and the Server dispatches it again. When the Server rejects a
+         * stream at its stream limit with RESOURCE_EXHAUSTED, an adaptive Worker treats the
+         * rejection of a growth stream, or of a reconnect after readiness, as a soft limit. It
+         * records no {@link PullRegistrationError} for it. After a soft rejection the Worker waits
+         * for another of its registered streams to end, or for the next 30-second shrink window,
+         * before it opens a stream again. While rejections continue, it grows by at most one batch
+         * per window. Use {@link Worker#getPullSlotStreamState()} to observe the streams.
+         *
+         * <p>{@link #build()} throws unless
+         * {@code reservedRpcTasks + 1 <= minOpenSlots <= maxConcurrentTasks}, using the resolved
+         * values. When reservedRpcTasks is unset, its default reserves one slot only when both
+         * maxConcurrentTasks and minOpenSlots are at least two. With minOpenSlots of one and no
+         * explicit reserve, start logs a warning that RPCs may wait behind Steps. Worker start fails
+         * at the first registration when the Server cap lowers maxConcurrentTasks below
+         * minOpenSlots, or to reservedRpcTasks or less. That error names the values and the cap.
+         *
+         * <pre>{@code
+         * // Between 8 and 64 slot streams, one of them reserved for RPCs.
+         * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
+         *         .maxConcurrentTasks(64)
+         *         .minOpenSlots(8)
+         *         .build();
+         * Worker worker = new Worker(registry, blobCache,
+         *         WorkerOptions.newBuilder().pull(pull).build());
+         * new Thread(worker::start).start();
+         * }</pre>
+         *
+         * @param value a nonnegative count; zero uses the resolved maxConcurrentTasks
+         * @return this builder
+         * @throws IllegalArgumentException if value is negative; build throws if the resolved value
+         *     exceeds maxConcurrentTasks or is not above reservedRpcTasks
+         * @since 1.45.4
+         */
+        public Builder minOpenSlots(final int value) {
+            if (value < 0) {
+                throw new IllegalArgumentException("minOpenSlots must not be negative");
+            }
+            this.minOpenSlots = value;
+            return this;
+        }
+
+        // Sets the shrink window and test hooks; only tests in this package call it.
+        Builder slotSettingsForTest(final PullSlotSettings value) {
+            this.slotSettings = value;
             return this;
         }
 
@@ -149,6 +298,9 @@ public final class PullWorkerOptions {
          *
          * <p>Changed in 1.35.0: the reserve uses RPC-only streams instead of declining Steps
          * after delivery.
+         *
+         * <p>Changed in 1.45.4: unset also reserves zero when {@link #minOpenSlots(int)} is one,
+         * and start then warns that RPCs may wait behind Steps.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -173,7 +325,7 @@ public final class PullWorkerOptions {
          * @param value a nonnegative legacy count
          * @return this builder
          * @throws IllegalArgumentException if value is negative
-         * @deprecated execution slots determine the stream count
+         * @deprecated maxConcurrentTasks and minOpenSlots determine the stream count
          */
         @Deprecated
         public Builder idleStreamsPerQueue(final int value) {

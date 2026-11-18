@@ -387,9 +387,9 @@ the handlers wait on:
 
 ### Adaptive slot streams {#adaptive-slot-streams}
 
-Since 1.45.7 (Go, TypeScript). A Go or TypeScript Worker can vary its open slot streams with load. Set
-**PullWorkerOptions.MinOpenSlots** (**minOpenSlots** in TypeScript) below **MaxConcurrentTasks** to make it
-adaptive. The task limit is then the most streams the Worker opens, and
+Since 1.45.7 (Go, TypeScript). Since 1.45.4 (Java). A Go, TypeScript, or Java Worker can vary its open slot streams with load. Set
+**PullWorkerOptions.MinOpenSlots** (**minOpenSlots** in TypeScript and Java) below **MaxConcurrentTasks** to make it
+adaptive; for Java, see [Java Workers](/reference/java/workers#capacity-and-shutdown). The task limit is then the most streams the Worker opens, and
 **MinOpenSlots** is the fewest. Both count the reserved RPC slots. With
 **MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
 behaves as the sections above describe.
