@@ -47,8 +47,10 @@ Two limits bound the work of a cluster:
 
 Set the slot count of each Worker yourself. I/O-bound handlers need many slots.
 CPU-bound handlers need about one slot per allocated CPU. To grow throughput,
-add Worker processes with more CPU capacity. Idle slots still hold server streams, so size them for the
-load you expect.
+add Worker processes with more CPU capacity. A fixed Worker holds a server stream for every idle slot, so size
+its slots for the load you expect. An adaptive Worker holds about its floor
+while idle and grows under load, so idle slots need not cost the server. See
+[Adaptive slot streams](/reference/server/workers#adaptive-slot-streams).
 
 Scale Workers on the age of the oldest queued Step. Scale the server node when
 its CPU is near saturation. Past one node, run separate clusters.

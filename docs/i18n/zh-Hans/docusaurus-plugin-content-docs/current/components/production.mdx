@@ -42,7 +42,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 - Worker 的任务槽（task slot）决定同时运行多少个 Step。超出空闲槽的 Step 在持久队列中等待。
 - 服务器节点的 CPU 决定集群提交工作的速度。
 
-请为每个 Worker 显式设置槽数。I/O 密集的 handler 需要很多槽。CPU 密集的 handler 每个已分配的 CPU 约配一个槽。要提高吞吐量，就增加带有更多 CPU 容量的 Worker 进程。空闲的槽仍然占用服务器的 stream，所以按预期负载来设置。
+请为每个 Worker 显式设置槽数。I/O 密集的 handler 需要很多槽。CPU 密集的 handler 每个已分配的 CPU 约配一个槽。要提高吞吐量，就增加带有更多 CPU 容量的 Worker 进程。固定（fixed）Worker 的每个空闲槽都占用服务器的一个 stream，所以按预期负载来设置槽数。自适应（adaptive）Worker 空闲时只占用约其下限（floor）数量的 stream，负载上升时再增加，这样空闲的槽不必占用服务器资源。参见 [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams)（英文）。
 
 根据最旧排队 Step 的等待时间来扩展 Worker。服务器节点的 CPU 接近饱和时，扩大节点。超出一个节点后，运行多个独立的集群。
 
