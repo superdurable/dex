@@ -104,6 +104,7 @@ from dex.pull_registration import (
     PullQueueRegistrationState,
     PullRegistrationError,
     PullRegistrationState,
+    PullSlotStreamState,
 )
 from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.runtime_errors import (
@@ -298,6 +299,7 @@ __all__ = [
     "PullRegistrationError",
     "PullRegistrationState",
     "PullQueueRegistrationState",
+    "PullSlotStreamState",
     "WaitForAttributeOptions",
     "WaitForStepCompletionOptions",
     "dead_end",

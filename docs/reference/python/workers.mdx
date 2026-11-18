@@ -92,12 +92,23 @@ Example: [examples/python/dex_examples/production/pull_workers.py](https://githu
 | Setting | Python name |
 | --- | --- |
 | Concurrent tasks | **max_concurrent_tasks** |
+| Fewest open slot streams | **min_open_slots** |
 | Reserved RPC slots | **reserved_rpc_tasks** |
 | Stop drain timeout | **stop_drain_timeout** |
 | Shutdown | **stop** |
+| Slot stream snapshot | **pull_slot_stream_state()** |
 
 The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
 has no effect.
+
+Since 1.45.5, **min_open_slots** below **max_concurrent_tasks** makes the Worker
+adaptive, and **pull_slot_stream_state()** on **Worker** and **AsyncWorker**
+returns a **PullSlotStreamState** snapshot of its slot streams. For example, a
+task limit of 64 with **min_open_slots** of 8 keeps between 8 and 64 slot
+streams, one of them reserved for RPCs. A synchronous handler that outlives its
+stream, such as during a server restart, keeps its slot until it returns. See
+[Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
+[API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots).
 
 ## Named task queues {#named-task-queues}
 

@@ -93,6 +93,14 @@ class PullRegistrationState:
     re-registration. When the first registration reports a Server per-Worker
     limit below ``max_concurrent_tasks``, ``is_ready`` stays false permanently.
 
+    .. versionchanged:: 1.45.5
+       That permanent failure applies to an explicit ``max_concurrent_tasks``
+       of a fixed Worker. An unset ``max_concurrent_tasks``, or any value of an
+       adaptive Worker, is clamped to the limit instead. When the clamp leaves
+       no room for an RPC-only slot, ``queues`` lists only ``STEP_AND_RPC``
+       and readiness no longer waits for ``RPC_ONLY``. See
+       ``PullWorkerOptions.min_open_slots``.
+
     Attributes:
         is_ready: Whether STEP_AND_RPC and, when reserved, RPC_ONLY registered
             once, the first registration passed the Server per-Worker limit
@@ -107,6 +115,104 @@ class PullRegistrationState:
 
     is_ready: bool = False
     queues: tuple[PullQueueRegistrationState, ...] = ()
+
+
+@dataclass(frozen=True)
+class PullSlotStreamState:
+    """Describe a pull Worker's slot streams in an immutable snapshot.
+
+    Obtain it with ``worker.pull_slot_stream_state()``, including concurrently
+    with ``start``, ``stop``, and running handlers. It is an independent copy;
+    changing the Worker later does not change it. Every count is a number of
+    slot streams or handlers, in the same unit as
+    ``PullWorkerOptions.max_concurrent_tasks``.
+
+    ``open``, ``registering``, ``busy``, and ``idle`` count Step-and-RPC streams
+    only, the streams that accept both Steps and RPCs. ``rpc_only_open`` counts
+    the reserved RPC-only streams. While every stream is registered and no
+    handler outlives its stream, an adaptive Worker, whose
+    ``PullWorkerOptions.min_open_slots`` is below ``max_concurrent_tasks``,
+    keeps ``open`` between ``floor`` and ``effective_ceiling``, and a fixed
+    Worker keeps ``open`` equal to ``effective_ceiling``. Reconnects, orphaned
+    handlers, and a lowered Server cap move ``open`` outside that range until
+    the Worker converges again.
+
+    ``open`` of zero with ``orphaned_handlers`` above zero means that the Worker
+    holds no live Step-and-RPC stream and waits for running handlers to return,
+    for example after a Server restart. ``pull_registration_state`` does not
+    report that gap, because readiness stays latched across reconnects.
+
+    Attributes:
+        is_adaptive: Whether the Worker varies its open Step-and-RPC streams,
+            which is when ``min_open_slots`` is below ``max_concurrent_tasks``.
+        open: Step-and-RPC streams that are registered or registering and not
+            closing.
+        registering: Step-and-RPC streams that wait for the Server's
+            acknowledgement, including a reconnect that waits for its backoff.
+        busy: Step-and-RPC streams that run a task.
+        idle: Registered Step-and-RPC streams that wait for a task.
+        orphaned_handlers: Step-and-RPC handlers that still run after their
+            stream ended. Each one keeps its slot, so the Worker registers no
+            stream for it until it returns. A synchronous handler on the thread
+            pool is never interrupted, so it counts here until it returns.
+        orphaned_rpc_only_handlers: RPC-only handlers that still run after their
+            stream ended.
+        floor: Step-and-RPC streams the Worker keeps open at rest:
+            ``min_open_slots`` minus the reserved RPC slots, limited by
+            ``effective_ceiling``.
+        effective_ceiling: The most Step-and-RPC streams and orphaned handlers
+            the Worker may hold: ``total_capacity`` minus the RPC-only slots, or
+            minus the RPC-only streams and handlers when they exceed them.
+        growth_target: The Step-and-RPC stream count that growth may reach. It
+            equals ``effective_ceiling``, or less for the rest of a shrink
+            window after the Server rejected a growth stream at its stream
+            limit.
+        total_capacity: The Worker's slot count: ``max_concurrent_tasks``,
+            limited by the per-Worker cap that the Server reported in its last
+            acknowledgement.
+        rpc_only_open: RPC-only streams that are registered or registering and
+            not closing.
+        rpc_only_slots: RPC-only streams the Worker keeps: ``reserved_rpc_tasks``,
+            or fewer when the Server cap leaves no room for them next to one
+            Step-and-RPC stream.
+        streams_grown: Step-and-RPC streams opened by growth since the Worker
+            started.
+        streams_shrunk: Streams that the Worker half-closed because it had more
+            than it needed.
+        grow_rejected_at_cap: Registrations that the Server rejected with
+            RESOURCE_EXHAUSTED and that the adaptive Worker treated as a soft
+            limit instead of a permanent rejection.
+        shrink_race_drops: Tasks that arrived on a stream after the Worker
+            decided to close it. The Server returns each one as not delivered
+            and dispatches it again without spending a retry.
+
+    Examples:
+        >>> state = worker.pull_slot_stream_state()
+        >>> print(
+        ...     f"open={state.open} busy={state.busy} idle={state.idle} "
+        ...     f"orphaned={state.orphaned_handlers} capacity={state.total_capacity}"
+        ... )
+
+    .. versionadded:: 1.45.5
+    """
+
+    is_adaptive: bool = False
+    open: int = 0
+    registering: int = 0
+    busy: int = 0
+    idle: int = 0
+    orphaned_handlers: int = 0
+    orphaned_rpc_only_handlers: int = 0
+    floor: int = 0
+    effective_ceiling: int = 0
+    growth_target: int = 0
+    total_capacity: int = 0
+    rpc_only_open: int = 0
+    rpc_only_slots: int = 0
+    streams_grown: int = 0
+    streams_shrunk: int = 0
+    grow_rejected_at_cap: int = 0
+    shrink_race_drops: int = 0
 
 
 class _PullRegistration:
@@ -127,6 +233,8 @@ class _PullRegistration:
 
     def record_registered_stream(self, queue: str) -> None:
         with self._lock:
+            if queue not in self._counts:
+                return
             self._counts[queue] += 1
             self._registered.add(queue)
             self._errors.pop(queue, None)
@@ -137,6 +245,8 @@ class _PullRegistration:
         self, queue: str, was_registered: bool, error: BaseException | None
     ) -> PullRegistrationError | None:
         with self._lock:
+            if queue not in self._counts:
+                return None
             if was_registered:
                 self._counts[queue] -= 1
             rejection = None
@@ -148,6 +258,25 @@ class _PullRegistration:
                         self._initial_error = rejection
             self._notify()
             return rejection
+
+    def remove_slot_kind(self, queue: str) -> None:
+        # The first acknowledgement may clamp the RPC-only reserve to zero.
+        with self._lock:
+            if queue not in self._queues:
+                return
+            self._queues = tuple(name for name in self._queues if name != queue)
+            self._counts.pop(queue, None)
+            self._registered.discard(queue)
+            self._errors.pop(queue, None)
+            self._has_registered_all = self._has_registered_all or (
+                len(self._registered) == len(self._queues)
+            )
+            self._notify()
+
+    @property
+    def has_registered_all(self) -> bool:
+        with self._lock:
+            return self._has_registered_all
 
     def record_fatal_error(self, error: BaseException) -> None:
         with self._lock:
