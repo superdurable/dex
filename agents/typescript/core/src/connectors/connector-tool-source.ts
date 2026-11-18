@@ -11,7 +11,6 @@ import {
   RetryError,
   createCall,
   defaultConnectorStepExecuteRetryPolicy,
-  deriveCallID,
   runMutation,
   runQuery,
   throwDexRetry,
@@ -45,14 +44,7 @@ import {
   connectorManifestMinimumMaxSends,
   isConnectorMaxSends,
 } from "./connector-max-sends.js";
-import {
-  ConnectorStepContext,
-  hasReadCheckpoint,
-  isFenceMarker,
-  priorSendCountOf,
-  readFenceEvidence,
-  readPreviousCheckpoint,
-} from "./connector-step-context.js";
+import { ConnectorStepContext } from "./connector-step-context.js";
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
@@ -77,6 +69,7 @@ export const connectorResultTruncatedNote = "[Dex] truncated, {total_bytes} byte
  * Error text of a single-attempt write whose fence proved no send before the connector's Retry; the same text as
  * the Python core.
  * @since 0.4.0
+ * @deprecated Since 0.6.15, no call records it. A connector Retry always goes to the tool Step's retry policy.
  */
 export const connectorNotSentRetryLater = "not sent; the provider asked to retry later";
 
@@ -97,14 +90,16 @@ export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>
  * - `succeeded`: a required branch, such as `sent` or `refunded`. The model reads the result value.
  * - `rejected`: a branch the manifest lists as `rejected` under `agent.branches`, such as `providerRejected`.
  *   Nothing took effect. The record is `failed` with an error the model reads, and the session continues.
- * - `failed`: an optional branch of a Query that `agent.branches` does not list, including `defect`.
- * - `outcome_unknown`: `uncertain`, a Mutation's `defect`, any optional branch of a Mutation whose single-dispatch
- *   fence cannot prove that nothing was sent, a branch listed as `unknown`, or an optional branch of a Mutation
- *   that `agent.branches` does not list. The write may have taken effect.
+ * - `failed`: an optional branch that `agent.branches` does not list, including `defect`, of a Query or a Mutation.
+ * - `outcome_unknown`: `uncertain`, or a branch listed as `unknown`. The write may have taken effect.
  *
  * Changed in 0.5.0: a Mutation's `defect` is always `outcome_unknown`, because the Connector SDK can select it
  * after the provider was called. A Query's `defect` follows `agent.branches`. A fenced Mutation whose fence cannot
  * prove that nothing was sent is `outcome_unknown` on any optional branch.
+ *
+ * Changed in 0.6.15: the outcome comes only from the branch the connector returns. A Mutation's `defect` and its
+ * unlisted optional branches are `failed`, and the single-dispatch fence no longer decides an outcome. A connector
+ * selects `uncertain` or asks to retry when a send may have happened.
  * @since 0.4.0
  */
 export type ConnectorBranchOutcome = "succeeded" | "rejected" | "failed" | "outcome_unknown";
@@ -264,40 +259,30 @@ export interface ConnectorTool {
 /**
  * Returns what a connector tool call records for one selected branch.
  *
- * The rules apply in this order. The manifest listing comes after the checks that can only tighten an outcome to
- * `outcome_unknown`:
+ * The outcome comes only from the branch the connector returns. The connector reconciles a send whose outcome is
+ * unknown. It selects `uncertain`, or asks to retry, whenever a send may have happened. The rules apply in this
+ * order, for a Query and a Mutation alike:
  *
  * 1. `uncertain` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required. It means
  *    the write may have happened, so a listing of it as `rejected` is a manifest error.
- * 2. A Mutation's `defect` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required.
- *    The Connector SDK selects `defect` for some attempts that already called the provider, such as an invalid
- *    attempt or an undeclared branch, and a host cannot tell those apart.
- * 3. A required branch other than `defect` is `succeeded`.
- * 4. On a Mutation, any other branch is `outcome_unknown` when `mayHaveDispatched` is set: its single-dispatch
- *    fence cannot prove that no request reached the provider.
- * 5. A branch that `agent.branches` lists as `rejected` is `rejected`.
- * 6. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
- * 7. Any other optional branch of a Mutation is `outcome_unknown`.
- * 8. Any other branch of a Query, including `defect`, is `failed`.
- *
- * The rule fails closed: an optional branch of a Mutation that the manifest does not classify is
- * `outcome_unknown`, because the write may have happened.
+ * 2. A required branch other than `defect` is `succeeded`.
+ * 3. A branch that `agent.branches` lists as `rejected` is `rejected`.
+ * 4. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
+ * 5. Any other branch, including `defect`, is `failed`.
  *
  * Changed in 0.5.0: added `mayHaveDispatched`. `agent.branches` no longer decides a Mutation's `defect`, which is
  * `outcome_unknown` instead of `failed`. A Query's `defect` follows `agent.branches`.
  *
+ * Changed in 0.6.15: a Mutation's `defect` and its optional branches that `agent.branches` does not list are
+ * `failed` instead of `outcome_unknown`. A Mutation's `defect` follows `agent.branches`, as a Query's does.
+ * `mayHaveDispatched` is ignored.
+ *
  * @example
  * ```ts
- * classifyConnectorBranch({ kind: "mutation", branch: "defect", requiredBranches: new Set(["refunded"]),
- *   agentBranches: { defect: "rejected" } }); // "outcome_unknown"
+ * classifyConnectorBranch({ kind: "mutation", branch: "providerRejected", requiredBranches: new Set(["refunded"]),
+ *   agentBranches: {} }); // "failed"
  * ```
- * @param options - The operation kind, the selected branch, the required branches, `agent.branches`, and
- * `mayHaveDispatched`: whether the attempt's single-dispatch fence checkpoints leave open that the request reached
- * the provider, because this attempt claimed a send and no canResend followed, a marker's `sendCount` counts a send
- * of an earlier attempt, or the earlier attempt's checkpoint is missing, not a fence marker, malformed, foreign, or
- * does not allow this attempt a send.
- * {@link ConnectorToolSource} computes it. It defaults to `false`
- * and applies only to a Mutation.
+ * @param options - The operation kind, the selected branch, the required branches, and `agent.branches`.
  * @returns The outcome to record.
  * @since 0.4.0
  */
@@ -306,23 +291,25 @@ export function classifyConnectorBranch(options: {
   readonly branch: string;
   readonly requiredBranches: ReadonlySet<string>;
   readonly agentBranches: Readonly<Record<string, string>>;
+  /**
+   * Ignored.
+   * @deprecated Since 0.6.15, ignored. The single-dispatch fence is internal to the connector, which reports a
+   * possible send through `uncertain` or a Retry. Omit it.
+   */
   readonly mayHaveDispatched?: boolean;
 }): ConnectorBranchOutcome {
-  const { kind, branch, requiredBranches, agentBranches } = options;
-  if (branch === uncertainBranch || (kind === "mutation" && branch === defectBranch)) {
+  const { branch, requiredBranches, agentBranches } = options;
+  if (branch === uncertainBranch) {
     return "outcome_unknown";
   }
   if (branch !== defectBranch && requiredBranches.has(branch)) {
     return "succeeded";
   }
-  if (kind === "mutation" && options.mayHaveDispatched === true) {
-    return "outcome_unknown";
-  }
   const listed = Object.hasOwn(agentBranches, branch) ? agentBranches[branch] : undefined;
   if (listed === "rejected") {
     return "rejected";
   }
-  if (listed === "unknown" || kind === "mutation") {
+  if (listed === "unknown") {
     return "outcome_unknown";
   }
   return "failed";
@@ -501,12 +488,14 @@ export function connectorTool<Input, Output>(
  * The selected branch maps as {@link classifyConnectorBranch} describes. A connector retry throws through the
  * Step, so the tool Step's retry policy applies. For a bounded resend, the next attempt's fence lets the
  * connector read back and resend while the call's sends stay below its cap. A read-back that confirms an earlier
- * send succeeds. At the cap, an unconfirmed write selects `uncertain`, so the call records `outcome_unknown`, as it
- * does when the attempts run out. Any other single-attempt write that asks to retry ends `outcome_unknown`,
- * unless its single-dispatch fence saved a `notSent` or `canResend` marker in this attempt: that proves the
- * provider did not process the request, so the call records `failed` with {@link connectorNotSentRetryLater}.
- * Either way it stops the later writes. A result longer than `maxResultBytes` reaches the model truncated, with
- * {@link connectorResultTruncatedNote}, and the record's `truncatedOutputBytes` holds the full size.
+ * send succeeds. At the cap, an unconfirmed write selects `uncertain`, so the call records `outcome_unknown`. When
+ * the attempts run out, a Query records `failed` and a Mutation records `outcome_unknown`. A single-attempt write
+ * that asks to retry therefore records `outcome_unknown` and stops the later writes. A result longer than
+ * `maxResultBytes` reaches the model truncated, with {@link connectorResultTruncatedNote}, and the record's
+ * `truncatedOutputBytes` holds the full size.
+ *
+ * Changed in 0.6.15: a single-attempt write whose connector asks to retry records `outcome_unknown`, also when its
+ * fence proved that nothing was sent. Arguments this Worker refuses always record `failed`.
  *
  * Install `@superdurable/connectors-sdk` next to this package; it is an optional peer dependency.
  *
@@ -666,11 +655,9 @@ export class ConnectorToolSource implements ToolSource {
    * Checks, decodes, and runs one call, then maps the selected branch.
    * @param call - The approved call, with the tool Step's live context.
    * @returns The result value as JSON text, bounded by `maxResultBytes`.
-   * @throws {ToolExecutionError} When the arguments break the schema or do not decode, the operation selected a
-   * `rejected` or failed branch, or a single-attempt write asked to retry after its fence recorded `notSent` or
-   * `canResend` in this attempt, which proves the provider did not process it ({@link connectorNotSentRetryLater}).
-   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch, or this Worker refuses the
-   * arguments while an earlier attempt's checkpoint records a possible send of this call.
+   * @throws {ToolExecutionError} When the arguments break the schema or do not decode, or the operation selected a
+   * `rejected` or failed branch.
+   * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch.
    * @throws {RangeError} When this source no longer has the tool, so the effect decides the outcome.
    * @throws Any other error, such as a connector retry for the tool Step's retry policy.
    */
@@ -680,18 +667,10 @@ export class ConnectorToolSource implements ToolSource {
     if (tool === undefined) {
       throw new RangeError(`connector tool ${record.toolName} is not configured on this Worker`);
     }
-    // An argument this Worker refuses fails the call only when no earlier attempt may have sent it.
-    const refuseArguments = (detail: string): Error =>
-      hasEarlierSendCheckpoint(call, tool) ? new ToolOutcomeUnknownError(detail) : new ToolExecutionError(detail);
-    let toolArguments: Readonly<Record<string, unknown>>;
-    try {
-      toolArguments = parseToolArguments(tool.name, record.arguments);
-    } catch (error: unknown) {
-      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
-    }
+    const toolArguments = parseToolArguments(tool.name, record.arguments);
     const problem = findConnectorInputViolation(toolArguments, tool.inputSchema);
     if (problem !== undefined) {
-      throw refuseArguments(`invalid arguments for ${tool.name}: ${problem}`);
+      throw new ToolExecutionError(`invalid arguments for ${tool.name}: ${problem}`);
     }
     if (call.context === undefined) {
       throw new Error("a connector tool call needs the tool Step's context");
@@ -717,22 +696,15 @@ export class ConnectorToolSource implements ToolSource {
       result = await tool.invoke(connectorCall, toolArguments);
     } catch (error: unknown) {
       if (error instanceof RetryError) {
-        const isBoundedResend = callMaxSends !== undefined && callMaxSends >= 2;
-        if (tool.effect === "non_idempotent_write" && !isBoundedResend && isProvenNotSent(connectorCall, stepContext)) {
-          // One attempt only, so a Retry would record outcome_unknown though nothing was sent.
-          throw new ToolExecutionError(notSentDetail(tool, error.failure));
-        }
         throwDexRetry(error);
       }
-      // The input validator refused the arguments before the operation ran.
-      throw error instanceof ToolExecutionError ? refuseArguments(error.message) : error;
+      throw error;
     }
     const outcome = classifyConnectorBranch({
       kind: tool.kind,
       branch: result.branch,
       requiredBranches: tool.requiredBranches,
       agentBranches: tool.agentBranches,
-      mayHaveDispatched: mayHaveDispatched(connectorCall, stepContext),
     });
     if (outcome === "succeeded") {
       return boundConnectorResult(encodeResultValue(result.value), tool.maxResultBytes ?? this.maxResultBytes);
@@ -851,112 +823,6 @@ function parseToolArguments(toolName: string, toolArguments: string): Readonly<R
     throw new ToolExecutionError(`invalid arguments for ${toolName}: expected a JSON object`);
   }
   return values;
-}
-
-/** Reports whether fence events leave open that the request was sent, as sdkgo does. */
-export function mayHaveDispatched(call: Call, context: ConnectorStepContext): boolean {
-  return observeFence(call, context).mayHaveDispatched;
-}
-
-/** Reports whether this attempt's fence recorded proof that the write was not sent. */
-export function isProvenNotSent(call: Call, context: ConnectorStepContext): boolean {
-  return observeFence(call, context).isProvenNotSent;
-}
-
-interface FenceObservation {
-  readonly mayHaveDispatched: boolean;
-  readonly isProvenNotSent: boolean;
-}
-
-function observeFence(call: Call, context: ConnectorStepContext): FenceObservation {
-  const evidence = readFenceEvidence(context, call.id);
-  const isClaimed = evidence?.isClaimed ?? false;
-  const hasNotSentProof = evidence?.hasNotSentProof ?? false;
-  // A bounded resend's markers count earlier sends that may still have taken effect.
-  const hasPriorSend = evidence?.hasPriorSend ?? false;
-  const isPriorDispatchPossible = hasReadCheckpoint(context)
-    ? isPriorDispatchPossibleFor(call, context)
-    : hasPriorSendMarker(call, context);
-  const isDispatchPossible = isClaimed || hasPriorSend || isPriorDispatchPossible;
-  return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
-}
-
-/**
- * Reports whether the checkpoint an earlier attempt saved is this call's fence marker for a possible send: a claim,
- * or a send count above zero. It needs no ConnectorStepContext, so a check that fails before the operation runs can
- * still see it.
- */
-function hasEarlierSendCheckpoint(call: DeferredToolExecution, tool: ConnectorTool): boolean {
-  const checkpoint = call.heartbeatCheckpoint;
-  if (call.context === undefined || checkpoint === undefined) {
-    return false;
-  }
-  let previous: unknown;
-  try {
-    previous = JSON.parse(checkpoint);
-  } catch {
-    return false;
-  }
-  const callId = deriveCallID(call.context.flowId, call.context.stepExecutionId, {
-    connectorId: tool.connectorId,
-    operationId: tool.operationId,
-  });
-  return (
-    isFenceMarker(previous) &&
-    previous["callId"] === callId &&
-    (previous["state"] === "claimed" || priorSendCountOf(previous) > 0)
-  );
-}
-
-/**
- * Reports whether the earlier attempt's checkpoint is this call's fence marker for a possible send, which holds even
- * when the operation returned before it read the checkpoint.
- */
-function hasPriorSendMarker(call: Call, context: ConnectorStepContext): boolean {
-  const previousCheckpoint = readPreviousCheckpoint(context);
-  if (previousCheckpoint === undefined) {
-    return false;
-  }
-  let previous: unknown;
-  try {
-    previous = JSON.parse(previousCheckpoint);
-  } catch {
-    return false;
-  }
-  return (
-    isFenceMarker(previous) &&
-    previous["callId"] === call.id &&
-    (previous["state"] === "claimed" || priorSendCountOf(previous) > 0)
-  );
-}
-
-/** Reports whether the earlier attempt's checkpoint denies this attempt a send. */
-function isPriorDispatchPossibleFor(call: Call, context: ConnectorStepContext): boolean {
-  const previousCheckpoint = readPreviousCheckpoint(context);
-  if (previousCheckpoint === undefined) {
-    // A lost checkpoint after attempt one may hide an earlier send.
-    return context.attempt > 1;
-  }
-  let previous: unknown;
-  try {
-    previous = JSON.parse(previousCheckpoint);
-  } catch {
-    return true;
-  }
-  // Not a marker or malformed: the fence fails closed, and so does this.
-  const isSendAllowed =
-    isFenceMarker(previous) &&
-    previous["callId"] === call.id &&
-    previous["attempt"] === context.attempt - 1 &&
-    (previous["state"] === "notSent" || previous["state"] === "canResend") &&
-    (previous["providerId"] === undefined || previous["providerId"] === "") &&
-    priorSendCountOf(previous) === 0;
-  return !isSendAllowed;
-}
-
-function notSentDetail(tool: ConnectorTool, failure: Failure | undefined): string {
-  const detail = `${tool.connectorId} ${tool.operationId} ${connectorNotSentRetryLater}`;
-  return failure === undefined ? detail : `${detail}: ${failure.kind}: ${failure.message}`;
 }
 
 function branchDetail(tool: ConnectorTool, branch: string, failure: Failure | undefined): string {

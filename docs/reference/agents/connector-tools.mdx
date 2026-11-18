@@ -198,19 +198,19 @@ Connector Step does. The credentials stay with the Worker.
 
 ## Outcomes {#outcomes}
 
-The operation ends in one of its branches, and the branch decides the tool call's record. In the manifest, a Connector author marks the branches where nothing took effect as **rejected**, and the branches where the write may have taken effect as **unknown**. Dex uses the first row that matches. Every row above the rejected row, except the success row, records `outcome_unknown`, so doubt never becomes a safe failure:
+The operation ends in one of its branches, and the branch decides the tool call's record. In the manifest, a Connector author marks the branches where nothing took effect as **rejected**, and the branches where the write may have taken effect as **unknown**. Dex uses the first row that matches, for a Query and a Mutation alike:
 
 | Branch | Record | The model sees |
 | --- | --- | --- |
 | **uncertain** | `outcome_unknown` | That the outcome is unknown |
-| A Mutation's **defect** | `outcome_unknown` | That the outcome is unknown |
 | A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
-| Any other Mutation branch, when its single-dispatch fence cannot prove that nothing was sent | `outcome_unknown` | That the outcome is unknown |
 | A branch marked **rejected**, such as `providerRejected` | **failed** | The branch and the provider's message |
-| A branch marked **unknown**, or a Mutation branch that is not listed | `outcome_unknown` | That the outcome is unknown |
-| A Query branch that is not listed, including **defect** | **failed** | The branch and the message |
+| A branch marked **unknown** | `outcome_unknown` | That the outcome is unknown |
+| Any other branch, including **defect** | **failed** | The branch and the message |
 
-A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection. The fence also counts the sends of earlier attempts. When an earlier attempt may have sent the write, a later branch marked **rejected** still records `outcome_unknown`, also when that attempt returned before its fence read the earlier record. The same holds when a later Worker refuses the call's arguments, such as after a deploy that changed the input schema: a call whose earlier attempt may have sent the write records `outcome_unknown`, and only a call without such an attempt records **failed**.
+Dex classifies a call only from what the Connector returns. The Connector decides whether a send may have happened. When it may have, the Connector reads the write back or resends within its limit, and otherwise selects **uncertain** or asks to retry. This also covers a rejection after a possible earlier send. Arguments a Worker refuses before the operation runs, such as after a deploy that changed the input schema, record **failed** on every attempt.
+
+Changed in 0.6.15: Dex classifies a call from its branch alone and ignores the Connector's single-dispatch fence records. A Mutation's **defect** and a Mutation branch that is not listed record **failed** instead of `outcome_unknown`. A branch marked **rejected** records **failed** also after an earlier attempt, and so do arguments a later Worker refuses.
 
 Changed in 0.6.12: a send that an earlier attempt's fence record counts, or a claim the current attempt never read, keeps a later branch `outcome_unknown`, and so do arguments a later Worker refuses after such a send. The TypeScript core also reads the send count that a fence with a send cap writes; with a Connector SDK newer than its declared range, the TypeScript core in 0.6.11 did not treat such a claim as a possible send.
 
@@ -227,9 +227,11 @@ A Worker crash during a Connector write sends the write at most once, except for
 | --- | --- | --- | --- |
 | The Worker died before the request was sent | Dex retries with the same key. The write happens once, and the call records **succeeded**. | Dex retries. The lookup finds no write, but nothing proves that the request was never sent, so the retry sends nothing. The call records `outcome_unknown`. | The call records `outcome_unknown`. Nothing was sent. |
 | The Worker died after the provider accepted the write | Dex retries with the same key. The provider drops the repeat, and the call records **succeeded**. One write. | Dex retries. If the lookup finds the write, the call records **succeeded**. If not, it records `outcome_unknown`. One write either way. | The call records `outcome_unknown`. One write. |
-| The provider asked to retry later, such as for a rate limit | Dex retries. The write happens once. | Dex retries. The write happens once. | The call records **failed**, with "not sent; the provider asked to retry later", if the Connector recorded that the request never left the Worker or that the provider refused it without acting. Otherwise it records `outcome_unknown`. |
+| The provider asked to retry later, such as for a rate limit | Dex retries. The write happens once. | Dex retries. The write happens once. | The call records `outcome_unknown`. It has no attempt left to retry. |
 
-A single-attempt write records **failed** only when the Connector's record proves that nothing was sent, because a request to retry later alone proves nothing. The model can then call it again without anyone checking the provider. The later writes of that response are still skipped.
+A request to retry always goes to the tool Step's retry policy. When the retries run out, a Query records **failed** and a Mutation records `outcome_unknown`. The later writes of that response are skipped.
+
+Changed in 0.6.15: a single-attempt write whose Connector asks to retry records `outcome_unknown`, also when the Connector recorded that nothing was sent. It used to record **failed** with "not sent; the provider asked to retry later".
 
 A Mutation with bounded resends treats a crash after a send as a send whose outcome is unknown. Its retry reads back first when the operation supports it, and sends again only while the call's sends stay below its cap. So a crash can make a duplicate, up to the cap. See [Bounded resends](#bounded-resends).
 

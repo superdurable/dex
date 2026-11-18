@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,7 +30,6 @@ from dex_connectors.sdk import (
     RetryError,
     derive_call_id,
 )
-from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
 
 from dex_agents import (
     AgentEventWriter,
@@ -57,9 +56,7 @@ from dex_agents.connectors import (
 )
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
 from dex_agents.connectors._source import (
-    _is_proven_not_sent,
     _lower_camel_to_snake,
-    _may_have_dispatched,
     bounded_resend_attempts,
     connector_send_cap,
 )
@@ -128,36 +125,6 @@ def test_operation_ids_become_snake_case_as_the_conformance_suite_says(
     case: dict[str, Any],
 ) -> None:
     assert _lower_camel_to_snake(case["operationId"]) == case["snakeName"]
-
-
-@pytest.mark.parametrize(
-    "case", CONFORMANCE["fenceObservationCases"], ids=lambda case: str(case["name"])
-)
-def test_fence_events_are_observed_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
-    operation = OperationRef("fake-ledger", "postNote")
-    call_id = str(derive_call_id("session-1", "CallTool-3", operation))
-    other_call_id = str(derive_call_id("session-1", "CallTool-4", operation))
-
-    def bind(value: str) -> str:
-        return value.replace("<callId>", call_id).replace("<otherCallId>", other_call_id)
-
-    previous = case["previousCheckpoint"]
-    call = _fenced_call(
-        case["attempt"], None if previous is None else bind(previous), _ToolStepHeartbeats()
-    )
-    context = cast(ConnectorStepContext, call.context)
-    if case["readsCheckpoint"]:
-        context.has_last_heartbeat_value()
-    for saved in case["savedHeartbeats"]:
-        bound = json.loads(bind(json.dumps(saved)))
-        try:
-            value: object = Marker.from_wire(bound)
-        except ValueError:
-            value = bound
-        # The fence's markers, or the operation's own value, as heartbeat() observes them.
-        context._observe_saved_heartbeat_value(value)
-    assert _may_have_dispatched(call) is case["mayHaveDispatched"]
-    assert _is_proven_not_sent(call) is case["isProvenNotSent"]
 
 
 @pytest.mark.parametrize("case", CONFORMANCE["sendCapCases"], ids=lambda case: case["name"])
@@ -277,19 +244,12 @@ async def _run_send_attempt(
 @pytest.mark.parametrize(
     "case", CONFORMANCE["argumentRefusalCases"]["cases"], ids=lambda case: case["name"]
 )
-async def test_refused_arguments_stay_unknown_after_an_earlier_send(
+async def test_refused_arguments_fail_on_every_attempt(
     case: dict[str, Any], tmp_path: Path
 ) -> None:
-    operation = OperationRef("fake-ledger", "sendMessage")
-    call_id = str(derive_call_id("session-1", "CallSingleAttemptTool-5", operation))
-    other_call_id = str(derive_call_id("session-1", "CallSingleAttemptTool-6", operation))
     ledger = FakeLedgerProvider(tmp_path)
     heartbeats = _ToolStepHeartbeats()
-    previous = case["previousCheckpoint"]
-    if previous is not None:
-        heartbeats.checkpoint = previous.replace("<callId>", call_id).replace(
-            "<otherCallId>", other_call_id
-        )
+    heartbeats.checkpoint = case["previousCheckpoint"]
     deferred = SimpleNamespace(
         arguments=case["arguments"], tool_source_reference='{"tool": "send", "maxSends": 3}'
     )
@@ -771,164 +731,48 @@ async def test_an_operation_reads_the_flow_start_and_first_attempt_times(
     assert json.loads(result.output) == {"accountId": "acct-1", "amount": 5}
 
 
-async def test_every_fence_method_keeps_its_marker_through_the_session_checkpoint() -> None:
+@dataclass(frozen=True)
+class _OpaqueProgress:
+    """A heartbeat value the step context stores without knowing its shape."""
+
+    stage: str
+    count: int
+
+
+async def test_a_heartbeat_value_persists_across_attempts_as_opaque_text() -> None:
     first = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
-    assert (await fence.decide()).kind is DecisionKind.SEND_ALLOWED
-
-    async def send(deadline: datetime) -> str:
-        # A bare background heartbeat now repeats the claim instead of clearing it.
-        await first.record()
-        return "note-1"
-
-    assert await fence.dispatch(send) == "note-1"
-    await fence.record_provider_id("note-1")
-    assert first.checkpoint is not None
-    assert all(value is not None for value in first.recorded)
+    context = cast(ConnectorStepContext, _fenced_call(1, None, first).context)
+    assert not context.has_last_heartbeat_value()
+    assert context.get_last_heartbeat_value(_OpaqueProgress) is None
+    await context.heartbeat(_OpaqueProgress("sent", 2))
+    saved = first.checkpoint
+    assert saved is not None
+    # A bare background heartbeat repeats the saved text instead of clearing it.
+    await context.heartbeat()
+    assert first.recorded == [saved, saved]
 
     second = _ToolStepHeartbeats()
-    retry = Fence(_fenced_call(2, first.checkpoint, second), timedelta(seconds=30))
-    decision = await retry.decide()
-    assert decision.kind is DecisionKind.READ_BACK_REQUIRED
-    assert decision.marker is not None and decision.marker.provider_id == "note-1"
+    retry = cast(ConnectorStepContext, _fenced_call(2, saved, second).context)
+    assert retry.has_last_heartbeat_value()
+    assert retry.get_last_heartbeat_value(str) == saved
+    assert retry.get_last_heartbeat_value(_OpaqueProgress) == _OpaqueProgress("sent", 2)
+
+    # A later value replaces the checkpoint, and the next attempt reads the latest text.
+    await retry.heartbeat(_OpaqueProgress("read back", 3))
+    assert second.checkpoint is not None and second.checkpoint != saved
+    third = cast(ConnectorStepContext, _fenced_call(3, second.checkpoint, second).context)
+    assert third.get_last_heartbeat_value(_OpaqueProgress) == _OpaqueProgress("read back", 3)
 
 
-async def test_a_marker_proving_no_send_lets_the_next_attempt_send() -> None:
-    first = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
-    await fence.decide()
-    await fence.record_not_sent()
-    retry = Fence(_fenced_call(2, first.checkpoint, _ToolStepHeartbeats()), timedelta(seconds=30))
-    decision = await retry.decide()
-    assert decision.kind is DecisionKind.SEND_ALLOWED
-    assert decision.marker is not None and decision.marker.state is State.NOT_SENT
-
-    resent = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, resent), timedelta(seconds=30))
-    await fence.decide()
-
-    async def rejected_send(deadline: datetime) -> None:
-        return None
-
-    await fence.dispatch(rejected_send)
-    await fence.record_can_resend()
-    decision = await Fence(
-        _fenced_call(2, resent.checkpoint, _ToolStepHeartbeats()), timedelta(seconds=30)
-    ).decide()
-    assert decision.kind is DecisionKind.SEND_ALLOWED
-
-
-async def test_a_checkpoint_that_is_not_a_marker_fails_closed() -> None:
-    fence = Fence(_fenced_call(2, '"a task handle"', _ToolStepHeartbeats()), timedelta(seconds=30))
-    assert (await fence.decide()).kind is DecisionKind.FAIL_CLOSED
-
-
-async def test_only_a_saved_not_sent_or_can_resend_marker_of_this_attempt_proves_no_send() -> None:
-    no_marker = _fenced_call(1, None, _ToolStepHeartbeats())
-    assert not _is_proven_not_sent(no_marker)
-
-    not_sent = _fenced_call(1, None, _ToolStepHeartbeats())
-    fence = Fence(not_sent, timedelta(seconds=30))
-    await fence.decide()
-    await fence.record_not_sent()
-    assert _is_proven_not_sent(not_sent)
-
-    claimed = _fenced_call(1, None, _ToolStepHeartbeats())
-    fence = Fence(claimed, timedelta(seconds=30))
-    await fence.decide()
-
-    async def send(deadline: datetime) -> str:
-        return "note-1"
-
-    await fence.dispatch(send)
-    assert not _is_proven_not_sent(claimed)
-    await fence.record_can_resend()
-    assert _is_proven_not_sent(claimed)
-
-    accepted = _fenced_call(1, None, _ToolStepHeartbeats())
-    fence = Fence(accepted, timedelta(seconds=30))
-    await fence.decide()
-    await fence.dispatch(send)
-    await fence.record_provider_id("note-1")
-    assert not _is_proven_not_sent(accepted)
-
-    # A marker an earlier attempt saved is history, not proof about this attempt.
-    retry_heartbeats = _ToolStepHeartbeats()
-    first = _ToolStepHeartbeats()
-    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
-    await fence.decide()
-    await fence.record_not_sent()
-    assert not _is_proven_not_sent(_fenced_call(2, first.checkpoint, retry_heartbeats))
-
-
-async def test_only_fence_checkpoints_proving_no_send_keep_the_manifest_listing() -> None:
-    async def send(deadline: datetime) -> str:
-        return "note-1"
-
-    async def refused_send(deadline: datetime) -> None:
-        return None
-
-    unfenced = _fenced_call(2, None, _ToolStepHeartbeats())
-    assert not _may_have_dispatched(unfenced)
-
-    not_sent = _ToolStepHeartbeats()
-    call = _fenced_call(1, None, not_sent)
-    fence = Fence(call, timedelta(seconds=30))
-    await fence.decide()
-    assert not _may_have_dispatched(call)
-    await fence.record_not_sent()
-    assert not _may_have_dispatched(call)
-
-    claimed = _ToolStepHeartbeats()
-    call = _fenced_call(1, None, claimed)
-    fence = Fence(call, timedelta(seconds=30))
-    await fence.decide()
-    await fence.dispatch(send)
-    assert _may_have_dispatched(call)
-    await fence.record_provider_id("note-1")
-    assert _may_have_dispatched(call)
-
-    can_resend = _ToolStepHeartbeats()
-    call = _fenced_call(1, None, can_resend)
-    fence = Fence(call, timedelta(seconds=30))
-    await fence.decide()
-    await fence.dispatch(refused_send)
-    await fence.record_can_resend()
-    assert not _may_have_dispatched(call)
-
-    foreign = not_sent.checkpoint
-    assert foreign is not None
-    foreign = foreign.replace(str(call.id), "f" * len(str(call.id)))
-    previous_checkpoints = {
-        "a notSent marker of the attempt before": (not_sent.checkpoint, False),
-        "a canResend marker of the attempt before": (can_resend.checkpoint, False),
-        "a claim": (claimed.checkpoint, True),
-        "a marker of another call": (foreign, True),
-        "a malformed marker": ('{"callId": 7, "state": "notSent"}', True),
-        "a checkpoint that is not a marker": ('"a task handle"', True),
-        "no checkpoint": (None, True),
-    }
-    for label, (previous, expected) in previous_checkpoints.items():
-        retry = _fenced_call(2, previous, _ToolStepHeartbeats())
-        await Fence(retry, timedelta(seconds=30)).decide()
-        assert _may_have_dispatched(retry) is expected, label
-    stale = _fenced_call(3, not_sent.checkpoint, _ToolStepHeartbeats())
-    await Fence(stale, timedelta(seconds=30)).decide()
-    assert _may_have_dispatched(stale)
-
-
-class _FailingSaves(_ToolStepHeartbeats):
-    async def save(self, checkpoint: str) -> None:
-        raise RuntimeError("the heartbeat did not reach Dex")
-
-
-async def test_a_marker_that_failed_to_save_proves_nothing() -> None:
-    call = _fenced_call(1, None, _FailingSaves())
-    fence = Fence(call, timedelta(seconds=30))
-    await fence.decide()
+async def test_a_step_that_cannot_save_checkpoints_refuses_a_heartbeat_value() -> None:
+    context = ConnectorStepContext(
+        cast(AsyncContext, _LiveContext(1)),
+        previous_checkpoint=None,
+        heartbeat=_ToolStepHeartbeats().record,
+        save_checkpoint=None,
+    )
     with pytest.raises(RuntimeError):
-        await fence.record_not_sent()
-    assert not _is_proven_not_sent(call)
+        await context.heartbeat(_OpaqueProgress("sent", 1))
 
 
 def test_the_call_id_depends_only_on_the_flow_step_execution_and_operation() -> None:

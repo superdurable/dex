@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { connectorNotSentRetryLater, connectorResultTruncatedNote } from "../../src/connectors/index.js";
+import { connectorResultTruncatedNote } from "../../src/connectors/index.js";
 import {
   outcomeUnknownToolResult,
   toolCallNotRunErrorPrefix,
@@ -178,12 +178,14 @@ describe("connector tools on a Dex engine", () => {
     assert.equal(records[2]?.skipped, false);
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
 
-    // An unlisted optional branch of a Mutation and uncertain both fail closed.
-    await sessions.sendUserMessage(sessionId, calls([["create_payout", { accountId: "a-1", amount: 5, memo: "invalid" }]], "unknown"));
-    const [unknown] = await heldRecords(harness, sessionId, "unknown", 1);
-    assert.equal(unknown?.status, "outcome_unknown");
-    assert.equal(unknown?.error, "fake-ledger createPayout returned invalidResponse: PROVIDER_REJECTION: bad body");
-    assert.deepEqual(await answerLines(sessionId, 2), [`create_payout: ${outcomeUnknownToolResult}`]);
+    // An unlisted optional branch of a Mutation fails; only uncertain is unknown.
+    await sessions.sendUserMessage(sessionId, calls([["create_payout", { accountId: "a-1", amount: 5, memo: "invalid" }]], "unlisted"));
+    const [unlisted] = await heldRecords(harness, sessionId, "unlisted", 1);
+    assert.equal(unlisted?.status, "failed");
+    assert.equal(unlisted?.error, "fake-ledger createPayout returned invalidResponse: PROVIDER_REJECTION: bad body");
+    assert.deepEqual(await answerLines(sessionId, 2), [
+      `create_payout: ${failed}fake-ledger createPayout returned invalidResponse: PROVIDER_REJECTION: bad body`,
+    ]);
     assert.equal(harness.ledger.writes("createPayout").length, 1);
 
     await sessions.sendUserMessage(sessionId, calls([["create_payout", { accountId: "a-1", amount: 5, memo: "uncertain" }]]));
@@ -191,7 +193,7 @@ describe("connector tools on a Dex engine", () => {
     assert.equal((await sessions.readAgentState(sessionId))?.lastTurnError, null);
   });
 
-  test("an unlisted Mutation defect is unknown and a Query defect fails", async () => {
+  test("an unlisted defect fails for a Query and a Mutation", async () => {
     const harness = newHarness();
     await harness.startWorker();
     const sessionId = `connector-${randomUUID()}`;
@@ -208,70 +210,52 @@ describe("connector tools on a Dex engine", () => {
     const records = await heldRecords(harness, sessionId, "defects", 2);
     assert.equal(records[0]?.status, "failed");
     assert.equal(records[0]?.error, "fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch");
-    // The defect follows the provider call, so the payout may exist and must not run again.
-    assert.equal(records[1]?.status, "outcome_unknown");
+    // The core trusts the branch: a connector reports a possible send as uncertain or Retry.
+    assert.equal(records[1]?.status, "failed");
     assert.equal(
       records[1]?.error,
       "fake-ledger createPayout returned defect: LOCAL_DEFECT: mutation returned an unknown branch",
     );
     assert.deepEqual(await answerLines(sessionId, 1), [
       `get_balance: ${failed}fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch`,
-      `create_payout: ${outcomeUnknownToolResult}`,
+      `create_payout: ${failed}fake-ledger createPayout returned defect: LOCAL_DEFECT: mutation returned an unknown branch`,
     ]);
     assert.equal(harness.ledger.sends("createPayout").length, 1);
     assert.equal(harness.ledger.writes("createPayout").length, 1);
     assert.equal((await sessions.readAgentState(sessionId))?.lastTurnError, null);
   });
 
-  test("a fenced write listed rejected after its claim is unknown", async () => {
+  test("a write whose connector retries after a send is never sent again", async () => {
     const harness = newHarness();
     await harness.startWorker();
-    const sessionId = `connector-${randomUUID()}`;
-    await sessions.startSession(
-      sessionId,
-      calls([["post_note", { accountId: "a-1", text: "reject-after-send" }]], "claimed"),
-    );
-    const [record] = await heldRecords(harness, sessionId, "claimed", 1);
-    // The manifest lists providerRejected as rejected, but the fence claimed the send.
-    assert.equal(record?.status, "outcome_unknown");
-    assert.equal(record?.error, "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send");
-    assert.deepEqual(await answerLines(sessionId, 1), [`post_note: ${outcomeUnknownToolResult}`]);
-    assert.equal(harness.ledger.writes("postNote").length, 1);
-  });
-
-  test("a fenced write that overwrites its claim then is listed rejected stays unknown", async () => {
-    const harness = newHarness();
-    await harness.startWorker();
-    const [, lines] = await runTurn([["post_note", { accountId: "a-1", text: "overwrite-after-send reject-after-send" }]]);
-    // The operation's own checkpoint replaced the claim; the claim still counts.
-    assert.deepEqual(lines, [`post_note: ${outcomeUnknownToolResult}`]);
-    assert.equal(harness.ledger.writes("postNote").length, 1);
-  });
-
-  test("a fenced write that overwrites its claim then retries is never sent again", async () => {
-    const harness = newHarness();
-    await harness.startWorker();
-    const words = "overwrite-after-send retry-after-send";
+    const words = "retry-after-send";
     let [, lines] = await runTurn([["post_note", { accountId: "a-1", text: words }]]);
-    // A single attempt: the overwrite proves nothing, so the call is not retry-later.
+    // A single attempt: a Retry goes to the Step, whose one attempt then fails.
     assert.deepEqual(lines, [`post_note: ${outcomeUnknownToolResult}`]);
     assert.equal(harness.ledger.sends("postNote").length, 1);
 
     [, lines] = await runTurn([["post_note_retried", { accountId: "a-1", text: words }]]);
-    // In CallTool, attempt 2 reads the overwrite, fails closed, and does not send.
-    assert.deepEqual(lines, [`post_note_retried: ${outcomeUnknownToolResult}`]);
+    // In CallTool, attempt 2's fence reads the claim, and the connector reads the note back.
+    assert.deepEqual(lines, ['post_note_retried: {"noteId":"postNote-2"}']);
     assert.equal(harness.ledger.sends("postNote").length, 2);
   });
 
-  test("a retry whose fence fails closed stays unknown", async () => {
+  test("a retried Query maps its later branch, and exhausted retries fail", async () => {
+    await newHarness().startWorker();
+    const [, lines] = await runTurn([
+      ["get_balance", { accountId: "retry-then-garbled" }],
+      ["get_balance", { accountId: "retry-always" }],
+    ]);
+    assert.equal(lines[0], `get_balance: ${failed}fake-ledger getBalance returned invalidResponse: PROVIDER_REJECTION: bad body`);
+    assert.ok(lines[1]?.startsWith(`get_balance: ${failed}`), lines[1]);
+  });
+
+  test("a retry-safe write whose retries run out is unknown", async () => {
     const harness = newHarness();
     await harness.startWorker();
-    const [, lines] = await runTurn([
-      ["post_note_retried", { accountId: "a-1", text: "own-checkpoint-once reject-when-fail-closed" }],
-    ]);
-    // Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
-    assert.deepEqual(lines, [`post_note_retried: ${outcomeUnknownToolResult}`]);
-    assert.deepEqual(harness.ledger.sends("postNote"), []);
+    const [, lines] = await runTurn([["create_payout", { accountId: "a-1", amount: 5, memo: "retry-always" }]]);
+    assert.deepEqual(lines, [`create_payout: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(harness.ledger.writes("createPayout"), []);
   });
 
   async function runHeldWrite(harness: Harness, toolName: string, text: string): Promise<[AgentToolCallRecord, string[]]> {
@@ -442,7 +426,7 @@ describe("connector tools on a Dex engine", () => {
     assert.deepEqual(harness.ledger.writes("postNote"), []);
   });
 
-  test("a write proven unsent still skips the later writes", async () => {
+  test("a single-attempt write that asks to retry is unknown and skips the later writes", async () => {
     const harness = newHarness();
     await harness.startWorker();
     const [, lines] = await runTurn([
@@ -450,7 +434,7 @@ describe("connector tools on a Dex engine", () => {
       ["create_payout", { accountId: "a-1", amount: 5 }],
     ]);
     assert.deepEqual(lines, [
-      `post_note: ${failed}fake-ledger postNote ${connectorNotSentRetryLater}: RATE_LIMIT: rate limited`,
+      `post_note: ${outcomeUnknownToolResult}`,
       `create_payout: ${failed}${skippedError}`,
     ]);
     assert.deepEqual(harness.ledger.writes(), []);
@@ -662,7 +646,7 @@ describe("connector tools on a Dex engine", () => {
       });
     }
 
-    test("a bounded write sent before a kill stays unknown when the next Worker refuses its arguments", async () => {
+    test("a bounded write sent before a kill fails when the next Worker refuses its arguments", async () => {
       const harness = newHarness();
       const worker = await harness.startWorker();
       const sessionId = `connector-kill-${randomUUID()}`;
@@ -675,10 +659,11 @@ describe("connector tools on a Dex engine", () => {
       // A later deploy requires channel, so this Worker refuses the stored arguments.
       await harness.startWorker({ [connectorAgentStrictSendSchemaVariable]: "1" });
       const [record] = await heldRecords(harness, sessionId, "held", 1);
-      // The first attempt's claim stands, so the refusal cannot prove that nothing was sent.
-      assert.equal(record?.status, "outcome_unknown");
+      // Arguments this Worker refuses fail the call; the core does not read the earlier claim.
+      assert.equal(record?.status, "failed");
       assert.match(record?.error ?? "", /^invalid arguments for send_message: /);
-      assert.deepEqual(await answerLines(sessionId, 1), [`send_message: ${outcomeUnknownToolResult}`]);
+      const [answer] = await answerLines(sessionId, 1);
+      assert.ok(answer?.startsWith(`send_message: ${failed}`), answer);
       assert.equal(harness.ledger.writes("sendMessage").length, 1);
     });
 
@@ -733,16 +718,14 @@ describe("connector tools on a Dex engine", () => {
       });
     }
 
-    // rate-limit-once: the fence recorded notSent before the claim, so the request never left the process.
+    // rate-limit-once: the fence recorded notSent before the claim; the core does not read it.
     // rate-limit-after-send: the provider refused the sent note without acting, and the fence recorded canResend.
     for (const words of ["rate-limit-once", "rate-limit-after-send"]) {
-      test(`a single-attempt write proven unsent by "${words}" fails with a retry-later error`, async () => {
+      test(`a single-attempt write that asks to retry after "${words}" is unknown`, async () => {
         const harness = newHarness();
         const answer = await writeWithKill(harness, "post_note", { accountId: "a-1", text: words }, undefined);
-        assert.equal(
-          answer,
-          `${failed}fake-ledger postNote ${connectorNotSentRetryLater}: RATE_LIMIT: rate limited`,
-        );
+        // A Retry goes to the Step retry, and a single-attempt Step has none left.
+        assert.equal(answer, outcomeUnknownToolResult);
         assert.deepEqual(harness.ledger.writes("postNote"), []);
         assert.equal(harness.ledger.sends("rate-limited").length, 1);
       });
