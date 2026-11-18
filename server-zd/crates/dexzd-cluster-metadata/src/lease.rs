@@ -32,11 +32,6 @@ const RELEASE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const RENEWAL_RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
 /// Longest wait between renewal attempts.
 const RENEWAL_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(2);
-/// Floor of one renewal attempt, which otherwise gets one sixth of the lease duration.
-/// It keeps a slow but successful write from being cut off and retried in a loop.
-const RENEWAL_ATTEMPT_TIMEOUT_FLOOR: Duration = Duration::from_secs(1);
-/// Cap of one renewal attempt.
-const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
 /// A renewal must complete this long before the deadline, so the watchdog never races its arming.
 const RENEWAL_COMPLETION_MARGIN: Duration = Duration::from_millis(100);
 
@@ -183,6 +178,7 @@ struct LeaseOwner {
     lease: NodeLease,
     etag: String,
     duration: Duration,
+    renewal_attempt_timeout: Duration,
     last_request_sent: Instant,
     current_valid_until: Instant,
     status: watch::Sender<LeaseStatus>,
@@ -261,6 +257,15 @@ pub(super) async fn acquire_lease_inner(
             detail: "takeover grace exceeds i64 microseconds".to_owned(),
         }
     })?;
+    if config
+        .renewal_attempt_timeout
+        .is_some_and(|timeout| timeout.is_zero())
+    {
+        return Err(MetadataError::InvalidConfig {
+            field: "lease renewal attempt timeout",
+            detail: "the renewal attempt timeout must be positive when set".to_owned(),
+        });
+    }
     if config.held_lease_poll_limit.is_zero() {
         return Err(MetadataError::InvalidConfig {
             field: "held lease poll limit",
@@ -457,6 +462,7 @@ pub(super) async fn acquire_lease_inner(
                 lease,
                 etag,
                 duration: config.duration,
+                renewal_attempt_timeout: config.effective_renewal_attempt_timeout(),
                 last_request_sent: sent_at,
                 current_valid_until: valid_until,
                 status,
@@ -703,8 +709,7 @@ impl LeaseOwner {
     /// Returns `Ok` after a confirmed renewal, and [`MetadataError::LeaseLost`] or the storage
     /// error that lost the lease otherwise.
     async fn renew_before_deadline(&mut self) -> Result<(), MetadataError> {
-        let attempt_timeout =
-            (self.duration / 6).clamp(RENEWAL_ATTEMPT_TIMEOUT_FLOOR, RENEWAL_ATTEMPT_TIMEOUT_LIMIT);
+        let attempt_timeout = self.renewal_attempt_timeout;
         let mut retry_backoff = RENEWAL_RETRY_INITIAL_BACKOFF;
         let mut attempt_number: u32 = 0;
         loop {

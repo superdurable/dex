@@ -41,6 +41,11 @@ pub struct LeaseConfig {
     /// the lease; the lease is read again after the wait. It only reduces contention: the
     /// conditional lease write alone decides which process acquires.
     pub acquisition_delay: Option<Arc<dyn LeaseAcquisitionDelay>>,
+    /// Defaults to `None`, which cuts off each renewal attempt after one sixth of `duration`,
+    /// from 1 s to 5 s. When set, it must be positive, and each attempt is cut off after it. In
+    /// both cases an attempt runs to its cutoff only while a retry still fits after it; the last
+    /// attempt may use the remaining validity.
+    pub renewal_attempt_timeout: Option<Duration>,
 }
 
 impl Default for LeaseConfig {
@@ -52,11 +57,28 @@ impl Default for LeaseConfig {
             should_take_over_held_lease: false,
             held_lease_poll_limit: Duration::from_secs(1),
             acquisition_delay: None,
+            renewal_attempt_timeout: None,
         }
     }
 }
 
+/// Floor of one renewal attempt, which otherwise gets one sixth of the lease duration.
+/// It keeps a slow but successful write from being cut off and retried in a loop.
+const RENEWAL_ATTEMPT_TIMEOUT_FLOOR: Duration = Duration::from_secs(1);
+/// Cap of one renewal attempt.
+const RENEWAL_ATTEMPT_TIMEOUT_LIMIT: Duration = Duration::from_secs(5);
+
 impl LeaseConfig {
+    /// Returns the cutoff of one renewal attempt while a retry still fits after it.
+    ///
+    /// Returns `renewal_attempt_timeout` when set, and otherwise one sixth of `duration`
+    /// clamped to the range from 1 s to 5 s.
+    pub fn effective_renewal_attempt_timeout(&self) -> Duration {
+        self.renewal_attempt_timeout.unwrap_or_else(|| {
+            (self.duration / 6).clamp(RENEWAL_ATTEMPT_TIMEOUT_FLOOR, RENEWAL_ATTEMPT_TIMEOUT_LIMIT)
+        })
+    }
+
     /// Returns whether `lease` is released or expired past the takeover grace at `now_unix_micros`.
     pub fn is_available_at(&self, lease: &NodeLease, now_unix_micros: i64) -> bool {
         let grace_micros = i64::try_from(self.takeover_grace.as_micros()).unwrap_or(i64::MAX);

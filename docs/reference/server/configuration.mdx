@@ -403,7 +403,7 @@ needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 | Object storage | Embedded, in the data directory. | Embedded, in the data directory. | An external S3 or S3-compatible bucket. |
 | Nodes | One. | One. | One active process, with optional hot standbys. |
 | Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
-| Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
+| Lease duration | 90 seconds, with 20-second renewal attempts. Changed in 0.1.35: 30 seconds. | 30 seconds. | 10 seconds. |
 | Default **snapshot.logDeletionDelay** | 1 hour. | 1 hour. | 24 hours. |
 | Default **history.windowEvents** | 5000 | 5000 | 50000 |
 | Default partition count | 32 | 32 | 1024 |

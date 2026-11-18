@@ -25,6 +25,10 @@ const SINGLE_NODE_DEFAULT_LISTEN: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8801);
 /// A single node has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
 const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
+/// Renewal starts at 30 s, so a busy development host may stall renewals for about a minute.
+const DEV_LEASE_DURATION: Duration = Duration::from_secs(90);
+/// Lets a slow local renewal write finish; two attempts still fit before validity ends.
+const DEV_RENEWAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Cuts SearchFlows fan-out for one node; default applier lanes shrink only above 32 CPUs.
 pub(crate) const SINGLE_NODE_PARTITION_COUNT: u32 = 32;
 /// No standby catches up from the log, and superseded objects share the RocksDB disk.
@@ -68,6 +72,23 @@ impl SingleNodeProfile {
         match self {
             Self::Dev => DEV_ATTEMPT_DRAIN_TIMEOUT,
             Self::Local => LifecycleConfig::default().attempt_drain_timeout,
+        }
+    }
+
+    /// Returns `lease.duration` for when the overrides do not set it.
+    fn default_lease_duration(self) -> Duration {
+        match self {
+            Self::Dev => DEV_LEASE_DURATION,
+            Self::Local => SINGLE_NODE_LEASE_DURATION,
+        }
+    }
+
+    /// Returns `lease.renewalAttemptTimeout` for when the overrides set neither it nor
+    /// `lease.duration`; `None` keeps the timeout derived from the lease duration.
+    fn default_renewal_attempt_timeout(self) -> Option<Duration> {
+        match self {
+            Self::Dev => Some(DEV_RENEWAL_ATTEMPT_TIMEOUT),
+            Self::Local => None,
         }
     }
 }
@@ -214,6 +235,10 @@ impl Config {
             has_yaml_key(override_document.as_ref(), &["attributeStore"]);
         let has_lease_duration_override =
             has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
+        let has_renewal_attempt_timeout_override = has_yaml_key(
+            override_document.as_ref(),
+            &["lease", "renewalAttemptTimeout"],
+        );
         let has_listen_override = has_yaml_key(override_document.as_ref(), &["api", "listen"]);
         let has_partition_count_override =
             has_yaml_key(override_document.as_ref(), &["cluster", "partitionCount"]);
@@ -287,7 +312,12 @@ impl Config {
         configuration.dev.application_s3 = application_s3_config(options)?;
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_lease_duration_override {
-            configuration.lease.duration = SINGLE_NODE_LEASE_DURATION;
+            configuration.lease.duration = profile.default_lease_duration();
+            // A timeout sized for the profile lease could fail validation against an override.
+            if !has_renewal_attempt_timeout_override {
+                configuration.lease.renewal_attempt_timeout =
+                    profile.default_renewal_attempt_timeout();
+            }
         }
         if !has_log_deletion_delay_override {
             configuration.snapshot.log_deletion_delay = SINGLE_NODE_LOG_DELETION_DELAY;

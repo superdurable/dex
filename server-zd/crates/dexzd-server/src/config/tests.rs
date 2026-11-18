@@ -1043,7 +1043,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
 }
 
 #[test]
-fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration() {
+fn dev_defaults_to_a_ninety_second_lease_and_twenty_second_renewal_attempts_unless_overridden() {
     let temporary = tempfile::tempdir().expect("test directory");
     let dev_options = |config: Option<PathBuf>| DevCommandOptions {
         data_dir: temporary.path().join("data"),
@@ -1055,15 +1055,33 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
         application_s3_listen: None,
         application_s3_bucket: None,
     };
+    // load_dev validates the result, so the dev lease settings pass the server's checks.
     let without_overrides =
         Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
-    assert_eq!(without_overrides.lease.duration, Duration::from_secs(30));
+    assert_eq!(without_overrides.lease.duration, Duration::from_secs(90));
+    assert_eq!(
+        without_overrides.lease.renewal_attempt_timeout,
+        Some(Duration::from_secs(20))
+    );
+    let engine_lease = ComponentConfigs::from_config(&without_overrides, true)
+        .expect("dev component configuration")
+        .engine_node
+        .lease;
+    assert_eq!(engine_lease.duration, Duration::from_secs(90));
+    assert_eq!(
+        engine_lease.effective_renewal_attempt_timeout(),
+        Duration::from_secs(20)
+    );
 
     let other_lease_key_path = temporary.path().join("fail-if-held.yaml");
     fs::write(&other_lease_key_path, "lease:\n  failIfHeld: true\n").expect("write test config");
     let with_other_lease_key = Config::load_dev(&dev_options(Some(other_lease_key_path)))
         .expect("dev configuration with another lease key");
-    assert_eq!(with_other_lease_key.lease.duration, Duration::from_secs(30));
+    assert_eq!(with_other_lease_key.lease.duration, Duration::from_secs(90));
+    assert_eq!(
+        with_other_lease_key.lease.renewal_attempt_timeout,
+        Some(Duration::from_secs(20))
+    );
     assert!(with_other_lease_key.lease.fail_if_held);
 
     let explicit_duration_path = temporary.path().join("lease-duration.yaml");
@@ -1074,9 +1092,66 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
         with_explicit_duration.lease.duration,
         Duration::from_secs(10)
     );
+    assert_eq!(with_explicit_duration.lease.renewal_attempt_timeout, None);
+
+    let explicit_timeout_path = temporary.path().join("renewal-attempt-timeout.yaml");
+    fs::write(
+        &explicit_timeout_path,
+        "lease:\n  renewalAttemptTimeout: 10s\n",
+    )
+    .expect("write test config");
+    let with_explicit_timeout = Config::load_dev(&dev_options(Some(explicit_timeout_path)))
+        .expect("dev configuration with an explicit renewal attempt timeout");
+    assert_eq!(
+        with_explicit_timeout.lease.duration,
+        Duration::from_secs(90)
+    );
+    assert_eq!(
+        with_explicit_timeout.lease.renewal_attempt_timeout,
+        Some(Duration::from_secs(10))
+    );
 
     let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
     assert_eq!(serve.lease.duration, Duration::from_secs(10));
+    assert_eq!(serve.lease.renewal_attempt_timeout, None);
+}
+
+#[test]
+fn renewal_attempt_timeout_must_be_positive_and_at_most_a_third_of_the_lease() {
+    let with_lease = |duration_seconds: u64, timeout: Duration| {
+        let mut configuration = valid_config();
+        configuration.lease.duration = Duration::from_secs(duration_seconds);
+        configuration.lease.renewal_attempt_timeout = Some(timeout);
+        configuration
+    };
+    with_lease(30, Duration::from_secs(10))
+        .validate()
+        .expect("a timeout of one third of the lease is valid");
+    let parsed = Config::parse_yaml("lease:\n  renewalAttemptTimeout: 1500ms\n")
+        .expect("the lease section parses");
+    assert_eq!(
+        parsed.lease.renewal_attempt_timeout,
+        Some(Duration::from_millis(1500))
+    );
+    for (duration_seconds, timeout) in [
+        (30, Duration::ZERO),
+        (30, Duration::from_secs(11)),
+        (10, Duration::from_secs(5)),
+    ] {
+        let error = with_lease(duration_seconds, timeout)
+            .validate()
+            .expect_err("invalid renewal attempt timeout");
+        assert!(
+            matches!(
+                error,
+                ConfigError::Invalid {
+                    field: "lease.renewalAttemptTimeout",
+                    ..
+                }
+            ),
+            "{duration_seconds}s lease, {timeout:?} timeout: {error}"
+        );
+    }
 }
 
 #[test]
@@ -1182,7 +1257,7 @@ fn single_node_options(data_dir: PathBuf, config: Option<PathBuf>) -> DevCommand
 }
 
 #[test]
-fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
+fn local_differs_from_dev_only_in_the_serve_attempt_drain_and_the_lease_defaults() {
     let temporary = tempfile::tempdir().expect("test directory");
     let options = single_node_options(temporary.path().join("data"), None);
     let local = Config::load_local(&options).expect("local defaults without YAML");
@@ -1194,7 +1269,9 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
     assert_eq!(local.lifecycle, LifecycleConfig::default());
     assert_eq!(dev.lifecycle.attempt_drain_timeout, Duration::from_secs(2));
     assert_eq!(local.lease.duration, Duration::from_secs(30));
+    assert_eq!(local.lease.renewal_attempt_timeout, None);
     assert!(!local.lease.fail_if_held);
+    assert_eq!(dev.lease.duration, Duration::from_secs(90));
     assert_eq!(local.dev.durability_mode, DevDurabilityMode::Strict);
     assert_eq!(local.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(local.standby.mode, StandbyMode::Cold);
@@ -1212,6 +1289,7 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
     assert_eq!(local.metrics.level, MetricsLevel::Advanced);
     let dev_with_serve_drain = Config {
         lifecycle: local.lifecycle.clone(),
+        lease: local.lease.clone(),
         ..dev
     };
     assert_eq!(

@@ -19,7 +19,7 @@ use super::harness::{ServeProcess, free_loopback_address};
 use super::{SHUTDOWN_BUDGET, run_greeting_flow, start_greeting_worker};
 
 const FLOW_ID: &str = "dev-restart-flow";
-/// Well under the 30-second dev lease, so a restart that waits for its expiry fails.
+/// Well under the 90-second dev lease, so a restart that waits for its expiry fails.
 const RESTART_SERVING_BUDGET: Duration = Duration::from_secs(10);
 const INTRUDER_EXIT_BUDGET: Duration = Duration::from_secs(10);
 
@@ -28,7 +28,7 @@ async fn a_sigkilled_dev_restarts_without_waiting_for_its_lease() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let data_directory = directory.path().join("data");
     let config_path = directory.path().join("dev.yaml");
-    // No lease key, so dev uses its 30-second default; relaxed object writes do not survive SIGKILL.
+    // No lease key, so dev uses its 90-second default; relaxed object writes do not survive SIGKILL.
     fs::write(
         &config_path,
         "cluster:\n  partitionCount: 16\ndev:\n  durabilityMode: strict\n",

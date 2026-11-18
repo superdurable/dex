@@ -382,6 +382,13 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            self.lease
+                .renewal_attempt_timeout
+                .is_none_or(|timeout| !timeout.is_zero() && timeout <= self.lease.duration / 3),
+            "lease.renewalAttemptTimeout",
+            "must be positive and at most one third of lease.duration when set",
+        )?;
+        ensure(
             self.snapshot.log_threshold_bytes > 0,
             "snapshot.logThresholdBytes",
             "must be positive",
