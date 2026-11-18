@@ -27,11 +27,36 @@ overrides.
 lets the Flow handle the cancellation. You can instead terminate it
 immediately, or fail it with a reason.
 
+StopFlow can also complete a Flow, with an optional output that becomes a Flow
+result. Since 0.1.34.
+
+- **Graceful complete** works like the **GracefulComplete** Step decision.
+  Active Steps keep running, and their decisions still apply. The Flow
+  completes when no Step is active, or at once when none is. A Step can stop
+  its own Flow this way and then return. Since 0.1.34, it also wakes Steps that
+  wait on the
+  [graceful completion condition](/reference/server/0.1.35/step-and-flow-close#graceful-completion-condition).
+- **Force complete** works like the **ForceComplete** Step decision. The server
+  cancels every active Step and completes the Flow. Like the Step decision,
+  the close waits for pending Attribute Sync writes and transactional RPCs.
+
+The output appears in the Flow results with an empty Step type and Step
+execution ID. Outputs that Steps already returned through graceful completion
+stay in the results. A later stop of any type still applies while a graceful
+completion waits, and another graceful completion adds its output. The complete
+stop types ignore the stop reason. The server rejects an output with any other
+stop type as **INVALID_ARGUMENT**. While a Flow closes, it rejects the complete
+stop types as described in
+[Requests during Flow close](#requests-during-flow-close). Servers before 0.1.34
+reject the complete stop types as **INVALID_ARGUMENT**.
+
 ## Invoke an RPC {#invoke-an-rpc}
 
 **InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
 returns its result. A query-only RPC can also read a closed Flow run that the
 server still retains. An RPC that commits effects needs an active Flow run.
+To retry an RPC without applying it twice, reuse its request ID, as described
+in [RPC request IDs](/reference/server/0.1.35/runtime-data#rpc-request-ids).
 
 ## Requests during Flow close {#requests-during-flow-close}
 
@@ -41,7 +66,8 @@ While a Flow closes, the server rejects these new requests with gRPC
 - transactional or locking RPCs;
 - **WaitForStepCompletion** and **WaitForAttributeMatch**;
 - Channel message deletion;
-- Channel publication by a client (**PublishToChannel**).
+- Channel publication by a client (**PublishToChannel**);
+- **StopFlow** with a complete stop type. Since 0.1.34.
 
 A rejected publication stores no message. A closing Flow starts no Step, so no
 Step could consume the message. Changed in 0.1.26: before, the server accepted
@@ -66,7 +92,7 @@ a singleton Attribute, or one AttributeMap instance. To read one value, pass one
 read.
 
 See
-[Read Attributes from outside a Flow](/reference/server/0.1.30/runtime-data#read-attributes-from-outside-a-flow)
+[Read Attributes from outside a Flow](/reference/server/0.1.35/runtime-data#read-attributes-from-outside-a-flow)
 for the read semantics: one commit, the current or latest Flow run, no Worker,
 committed state only, no locks, and large and hard-delete values.
 
@@ -311,7 +337,7 @@ Stream long-polls.
   call waits again from the current state.
 - Each Flow allows 1,000 concurrent waits by default. The server setting is
   **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a
-  resource-exhausted error. See [Limits](/reference/server/0.1.30/configuration#limits).
+  resource-exhausted error. See [Limits](/reference/server/0.1.35/configuration#limits).
 - A waiting call holds one slot until it returns, times out, is cancelled, or
   the caller disconnects.
 - The server caps how long each transport attempt waits. When an attempt hits
@@ -358,7 +384,7 @@ reach it through their generated FlowService client.
 **SearchFlows** returns one page of Flow runs that match a search query. It
 excludes the server's internal Flow runs. To get the next page, pass the
 returned page token with the same query. See
-[Search backends](/reference/server/0.1.30/search) for the query backends.
+[Search backends](/reference/server/0.1.35/search) for the query backends.
 
 ## Skip a Timer {#skip-a-timer}
 
@@ -378,7 +404,7 @@ for the merge rules and the fields.
 <a id="trigger-continue-as-new"></a>
 
 **TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
-[change log](/reference/server/0.1.30/changelog#v0-1-26).
+[change log](/reference/server/0.1.35/changelog#v0-1-26).
 
 ## Flow definitions {#flow-definitions}
 
@@ -425,7 +451,7 @@ and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
   longer than 1024 bytes. The check is conservative: a non-empty prefix counts
   as its length plus one byte with every object store, so a key of exactly
   1024 bytes may be rejected;
-- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/0.1.30/configuration#flow-definitions);
+- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/0.1.35/configuration#flow-definitions);
 - content that is not a JSON object, nests objects and arrays more than 128
   levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
   **flow.name** different from the Flow type;
@@ -455,14 +481,14 @@ would not fit, the call fails with **RESOURCE_EXHAUSTED** and the
 The server keeps each document in its own object under
 **PREFIX/registry/flow-definitions/**, so the documents use no server memory
 between calls. See
-[Object storage layout](/reference/server/0.1.30/object-storage#flow-definitions).
+[Object storage layout](/reference/server/0.1.35/object-storage#flow-definitions).
 There is no delete operation yet. A failure to read or write object storage
 returns **UNAVAILABLE**. A stored object that does not decode, names another
 Flow type, or has a digest that does not match its content fails Upload and
 Get for that Flow type with **INTERNAL**. A stored object larger than
 **api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
 **RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
-sub-status. In [request metrics](/reference/server/0.1.30/metrics),
+sub-status. In [request metrics](/reference/server/0.1.35/metrics),
 uploads count as **flow_write**, and lists and gets as **flow_read**.
 
 ## Time travel {#time-travel}
@@ -471,9 +497,29 @@ Time travel creates a new attempt of a Flow run from a point in its history.
 The FlowService call is **ResetFlow**; the docs call it Time Travel. The Flow
 run keeps its Run ID. It restores the run's state at the target point: its
 Attributes, its Channel messages, and the Steps that were waiting or ready. The point must be inside the
-[recent history window](/reference/server/0.1.30/configuration#history-window);
+[recent history window](/reference/server/0.1.35/configuration#history-window);
 otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+**reset_type** selects the target point: the beginning, a history event time, a
+Step type, a Step execution, or an event ID. Since 0.1.33,
+**FLOW_RESET_TYPE_EVENT_ID** takes **event_id**, the **event_id** of an event
+that **GetHistoryEvents** returns. The target is the first point at or after
+that event where time travel can stop, as for a history event time. Time travel
+stops only after events that change Flow progress, never inside a Step attempt.
+The event must belong to the history of the selected **run_attempt**, which
+includes the attempts it started from, and must be inside the window. An event
+of an abandoned attempt, or one the window pruned, fails with
+**FAILED_PRECONDITION**. An **event_id** of zero or less fails with
+**INVALID_ARGUMENT**.
+
+The Flow timeout restarts at the time travel, as if the run started then. When
+the restored state still waits for the timeout, the new attempt times out after
+the run's full Flow timeout, counted from the time travel. When the timeout had
+already fired at the target point, the restored state keeps that outcome, such
+as a running timeout handler. Changed in 0.1.33: before, the restored timeout
+kept the original deadline from the run's start, so it could fire right after
+the time travel.
 
 By default, the window keeps about the newest 50,000 history events of each
 run on **serve**, and 5,000 on **dev**. The server key is
@@ -487,5 +533,203 @@ those writes. A long Flow run with large values can exceed the replay budget
 even when the target state is small. The request then fails with
 **RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
 **true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
-[**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.30/configuration#history-checkpoints)
+[**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.35/configuration#history-checkpoints)
 and restart the node before you retry.
+
+### SubFlows across a time travel {#sub-flows-across-a-time-travel}
+
+Since 0.1.33. A time travel can restore a Step whose `WaitFor` waits on SubFlow
+conditions. The `sub_flow_reset_policy` field of `ResetFlowRequest` decides
+what happens to each such condition. Each condition names the child Flow that
+its Step started.
+
+The policy can attach the condition to its child. When the child run has ended,
+its result completes the condition. This holds even when the parent has not
+received that result yet: the time travel reads the result from the child run.
+When the child run still runs, the condition keeps waiting for it. A child
+cannot be attached when the parent has no result and the child run no longer
+exists, for example because it was purged after its retention.
+When the child Flows a time travel reads keep changing while it computes,
+`ResetFlow` fails with `ABORTED`, and the caller may retry the same request.
+
+The values are:
+
+- `SUB_FLOW_RESET_POLICY_UNSPECIFIED`: the default. For `ResetFlow` it means
+  `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART`.
+- `SUB_FLOW_RESET_POLICY_ALWAYS_RESTART`: restarts every child, whether it
+  ended or still runs.
+- `SUB_FLOW_RESET_POLICY_ALWAYS_FAIL`: fails every condition, whether its
+  child ended or still runs.
+- `SUB_FLOW_RESET_POLICY_ALWAYS_REJECT`: rejects the time travel when any
+  restored Step waits on a SubFlow condition.
+- `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART`: attaches each condition, and
+  restarts a child that cannot be attached.
+- `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_FAIL`: attaches each condition, and fails
+  a condition whose child cannot be attached.
+- `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_REJECT`: attaches each condition, and
+  rejects the time travel when a child cannot be attached.
+
+A restart starts the child again with the start it received: its Flow type,
+starting Step, input, and options. The child keeps its Flow ID. A child run
+that still runs is terminated first. The restored condition then accepts only
+the restarted run's result, so a late result of the earlier run is ignored. The
+time travel reads the original start from the child run. When that run no
+longer exists, or its start wrote hard-delete Attributes, the child cannot be
+restarted and the time travel is rejected. Under `ResetFlow`, a child that cannot
+be attached is always gone, so `SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART`
+rejects it.
+
+A failure terminates the child run when it may still run. The condition then
+completes with a `FAILED` child result whose error type is
+`FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED`. The Step's `Execute` receives it like any
+failed child.
+
+A restart or a failure needs the child's start to have reached the child. While
+the start is still on its way, the time travel is rejected, so no child starts
+after its condition was abandoned. Retry the time travel a moment later. An
+attaching policy keeps waiting for such a child instead.
+
+A rejection returns `FAILED_PRECONDITION` and changes nothing. Its message
+names each Step execution and child Flow ID that caused it. An unknown policy
+value fails with `INVALID_ARGUMENT`.
+
+Changed in 0.1.33: a restored condition whose child run no longer exists used to
+wait forever. The default policy now rejects the time travel with
+`FAILED_PRECONDITION` instead. A condition whose child still runs keeps
+waiting for it, as before. A condition whose child ended still completes with
+that child's result. When the parent had not received the result yet, the
+condition now completes at the time travel instead of when the result arrives.
+
+## Clone fork {#clone-fork}
+
+Since 0.1.33. **CloneForkFlow** creates a new Flow whose first run starts from a
+copy of another Flow run's state at one point. The call only reads the source
+run, so the source never changes; a running source keeps running. A typical use is an agent session that branches into a new
+session while the old session continues. The call requires Server protocol
+version 6.
+
+**source_flow_id** and **source_run_id** name the source run. An empty
+**source_run_id** selects the latest run. **flow_id** is the new Flow ID. It
+must differ from **source_flow_id**; to return a Flow to an earlier point, use
+time travel. **request_id** is required.
+
+### Point selection {#clone-fork-points}
+
+**point_type** selects the copied point. The default,
+**FLOW_CLONE_FORK_POINT_TYPE_CURRENT**, copies the latest committed state of the
+source run's current run attempt. The other types select a point as the time
+travel types of the same name do: **BEGINNING**, **HISTORY_EVENT_TIME**,
+**STEP_TYPE**, **STEP_EXECUTION_ID** with **step_method**, and **EVENT_ID**.
+For them, **run_attempt** selects the attempt whose history holds the point, and
+the point must be inside the source run's
+[history window](/reference/server/0.1.35/configuration#history-window). The
+beginning is always available.
+
+The source run may be closed. The state at the point must be **RUNNING**,
+without a pending close or a requested graceful completion. Otherwise the call
+fails with **FAILED_PRECONDITION**; select an earlier point.
+
+### What the new run copies {#clone-fork-copies}
+
+The new run copies the state at the point:
+
+- its Attributes, except hard-delete Attributes;
+- its pending Channel messages, Step executions, Step counters, and waits;
+- the Step timers, which keep their fire times;
+- every value that this state holds, including values that history offload
+  moved to object storage.
+
+Hard-delete Attributes are the exception to the point: the new run gets the
+source run's current hard-delete Attributes, as a time travel keeps them. It
+receives each current value, including a value written after the point, and
+lacks each hard-delete Attribute that is unset now, even one set at the point.
+The new run stores these values in objects of its own.
+
+The new run keeps every copied value for its whole life. A time travel of the
+new run to its beginning therefore returns to the copied point. Steps that were
+running at the point are dispatched again with the same attempt number,
+snapshot, and locks, and their retry total duration restarts.
+
+The new run starts at run attempt 1, with the source run's Flow type and
+FlowConfig. Its history starts with one **FlowStartedOrContinued** event. The
+event's **clone_fork_source** names the source run, its run attempt, and the
+last source event that the point includes. The response returns the same
+source fields.
+
+The new run leaves out the source run's history, Stream messages, outbox
+messages, and the request IDs that deduplicate RPCs and Channel publications. It
+has no parent Flow and no sticky Worker. The source run's input after the point,
+such as RPCs, Channel publications, and Attribute writes, is not applied. The
+one exception is hard-delete Attributes, which take their current values as
+described above.
+
+**attributes** are written after the copy, in the same change that creates the
+run. **flow_config_override** changes the copied FlowConfig, as a StartFlow
+override changes the server default. An empty **worker_target.task_queue** keeps
+the source run's task queue. Set a task queue of its own when Workers choose
+their Flows by task queue, such as the task queue of an agent session.
+Otherwise the source's Workers also run the new run's Steps. Limits and other
+run settings come from the server configuration, as for StartFlow.
+
+### Flow timeout {#clone-fork-flow-timeout}
+
+The Flow timeout restarts at the clone fork. **flow_timeout_seconds** sets its
+duration. Zero keeps the source run's duration, and a source run without a Flow
+timeout gives a new run without one. When the source run's timeout had already
+fired at the point, the new run keeps that outcome, such as a running timeout
+handler. A positive **flow_timeout_seconds** then fails with
+**FAILED_PRECONDITION**.
+
+### ID reuse and retries {#clone-fork-id-reuse}
+
+**id_reuse_policy** and **flow_already_started_options** decide on the new Flow
+ID as they do for StartFlow, in the same change that creates the run. A
+conflict fails with **ALREADY_EXISTS** and the **FLOW_ALREADY_STARTED**
+sub-status. **ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING** terminates a running
+latest run with the reason
+"terminated by CloneForkFlow with ALLOW_TERMINATE_IF_RUNNING".
+
+A request whose **request_id** started the latest run of **flow_id** is a
+retry. The server copies nothing again, and **flow_already_started_options**
+decides whether the retry returns that run or fails with **ALREADY_EXISTS**.
+
+### SubFlows across a clone fork {#sub-flows-across-a-clone-fork}
+
+**sub_flow_reset_policy** decides what happens to each SubFlow condition that a
+copied Step waits on. It takes the values of
+[SubFlows across a time travel](#sub-flows-across-a-time-travel), and its
+default is also **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**. The source run's
+children report only to the source run, so the policies act as follows:
+
+- A child that ended attaches. Its result completes the copied condition, read
+  from the source run or from the child run.
+- A child that still runs cannot be attached, and neither can a child whose
+  start has not reached it yet. The policy's second action applies.
+- A restart starts a new child whose Flow ID derives from the new Flow ID, with
+  the start that the source run's child received. While that start is still on
+  its way to the source run's child, a restart is rejected. Retry a moment
+  later.
+- A failure completes the condition with a **FAILED** child result whose error
+  type is **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. It terminates no child, and
+  it applies at once, even while the child's start is on its way.
+- A rejection fails the call with **FAILED_PRECONDITION** and names each Step
+  execution and child Flow ID.
+
+The source run's children never change.
+
+### Errors and limits {#clone-fork-errors}
+
+| Status | When |
+| --- | --- |
+| **NOT_FOUND** | The source Flow or run does not exist, or is being purged. |
+| **INVALID_ARGUMENT** | **flow_id** equals **source_flow_id**, a required field is empty, or a field does not fit the point type. |
+| **FAILED_PRECONDITION** | The point is outside the history window or does not exist, its state is not RUNNING, the SubFlow reset policy rejects a copied wait, a copied value is no longer stored, or the timeout rule above rejects the request. |
+| **ALREADY_EXISTS** | The ID reuse policy rejects the new run. |
+| **RESOURCE_EXHAUSTED** | The copied state exceeds [**limits.maxFlowStateBytes**](/reference/server/0.1.35/configuration#flow-state-budget), the computation needs more than [**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.35/configuration#history-checkpoints), or the new Flow's partition already holds 64 clone forks in progress or 4 GiB of their staged copies. |
+| **ABORTED** | The staged copy expired or was replaced several times in a row, or the child Flows the call reads kept changing while it computed. Retry with the same **request_id**. |
+
+The server stages the copy on the new Flow's partition in chunks of about
+8 MiB before it creates the run. A staging that no chunk extends for 10 minutes
+expires. The stagings in progress on one partition hold at most 4 GiB, about 64
+copies at the default **limits.maxFlowStateBytes** of 64 MiB. The cap is fixed,
+so a larger **limits.maxFlowStateBytes** leaves room for fewer copies at once.

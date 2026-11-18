@@ -57,19 +57,28 @@ S3-compatible store, set it to an HTTP or HTTPS URL. Set
 - **s3** (default): Amazon S3 or an S3-compatible store.
 - **db9**, since 0.1.24: db9, a PostgreSQL-compatible database. The server then
   depends on that database instead of object storage. See
-  [db9 provider](/reference/server/0.1.30/object-storage#db9).
+  [db9 provider](/reference/server/0.1.35/object-storage#db9).
 - **aliyunOSS**, since 0.1.27: an Aliyun OSS bucket. See
-  [Aliyun OSS provider](/reference/server/0.1.30/object-storage#aliyun-oss).
+  [Aliyun OSS provider](/reference/server/0.1.35/object-storage#aliyun-oss).
+- **tencentCOS**, since 0.1.31: a Tencent COS bucket. See
+  [Tencent COS provider](/reference/server/0.1.35/object-storage#tencent-cos).
 - **azureBlob** or **googleCloudStorage**, since 0.1.28: Azure Blob Storage or
   Google Cloud Storage through its native API. See
   [Azure Blob Storage and Google Cloud Storage](#azure-gcs).
+
+Since 0.1.31, **objectStore.versionDiscovery** selects how **aliyunOSS** finds
+the newest version of a replaced object: **list**, the default, or **head**.
+**tencentCOS** always uses **head** and rejects **list**. Other providers keep
+no versions and reject the key. Set **head** only on an empty prefix; startup
+checks this on a best-effort basis. A prefix never returns to **list**. See
+[Finding the newest version](/reference/server/0.1.35/object-storage#version-discovery).
 
 A prefix cannot switch providers on existing data.
 
 This configuration runs a single replica, so it sets **lease.duration** to 60
 seconds. No standby can take over a single replica, and the longer lease makes
 fewer lease requests to object storage. With hot standbys, keep the 10-second
-default. [Lease, hot standby, and step down](/reference/server/0.1.30/high-availability#lease)
+default. [Lease, hot standby, and step down](/reference/server/0.1.35/high-availability#lease)
 explains the trade-off.
 
 A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
@@ -114,8 +123,8 @@ objectStore:
 
 Leave **objectStore.endpoint** empty and **objectStore.forcePathStyle** false.
 The server connects to the cloud's public endpoint. **objectStore.region** and
-**commit.multipartThresholdBytes** apply only to the **s3** and **aliyunOSS**
-providers. **dev** and **local**
+**commit.multipartThresholdBytes** apply only to the **s3**, **aliyunOSS**, and
+**tencentCOS** providers. **dev** and **local**
 reject both providers.
 
 ### Credentials {#azure-gcs-credentials}
@@ -202,8 +211,9 @@ on a new, empty prefix.
 
 **objectStore.hardDeleteStore** takes **provider** and **azureAccount** too,
 with the same rules. Its **provider** can be **s3**, **aliyunOSS**,
-**azureBlob**, or **googleCloudStorage**, but not **db9**. Without one, it uses
-**aliyunOSS** when the primary store does, and **s3** otherwise. With
+**tencentCOS** (since 0.1.31), **azureBlob**, or **googleCloudStorage**, but not
+**db9**. Without one, it uses **aliyunOSS** or **tencentCOS** when the primary
+store does, and **s3** otherwise. With
 **environment** credentials, it reads
 **DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY** or
 **DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH**.
@@ -333,7 +343,7 @@ process per data directory.
 On SIGTERM, **local** waits for running Step attempts for up to
 **lifecycle.attemptDrainTimeout**, 30 seconds by default. It then stops as
 described in
-[Graceful shutdown](/reference/server/0.1.30/kubernetes#graceful-shutdown). Give a
+[Graceful shutdown](/reference/server/0.1.35/kubernetes#graceful-shutdown). Give a
 service manager at least 45 seconds to stop it.
 
 [Streams](#streams) use the **memory** backend by default, as in **serve**.
@@ -342,10 +352,10 @@ Stream messages are lost when the process stops or restarts.
 **local** listens on **127.0.0.1:8801** by default, so only the same host can
 reach it. To serve clients and Workers on other hosts, pass
 **--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
-no [authentication](/reference/server/0.1.30/authentication) unless the overrides
+no [authentication](/reference/server/0.1.35/authentication) unless the overrides
 configure authenticators. When it listens on a non-loopback address without
 authenticators, it logs a warning at startup. Configure authentication before
-you expose it. To turn on [metrics](/reference/server/0.1.30/metrics), set
+you expose it. To turn on [metrics](/reference/server/0.1.35/metrics), set
 **metrics.listen** in the overrides.
 
 ### Disk use {#single-node-local-disk}
@@ -381,7 +391,7 @@ To restore, stop **local**, replace the data directory with the copy, and
 start **local** again. Writes acknowledged after the backup are lost.
 
 The general rules in
-[Backup and restore](/reference/server/0.1.30/object-storage#backup-and-restore) apply
+[Backup and restore](/reference/server/0.1.35/object-storage#backup-and-restore) apply
 too. With a PostgreSQL or ParadeDB search backend, the restored data directory
 needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 
@@ -393,7 +403,7 @@ needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 | Object storage | Embedded, in the data directory. | Embedded, in the data directory. | An external S3 or S3-compatible bucket. |
 | Nodes | One. | One. | One active process, with optional hot standbys. |
 | Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
-| Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
+| Lease duration | 90 seconds, with 20-second renewal attempts. Changed in 0.1.35: 30 seconds. | 30 seconds. | 10 seconds. |
 | Default **snapshot.logDeletionDelay** | 1 hour. | 1 hour. | 24 hours. |
 | Default **history.windowEvents** | 5000 | 5000 | 50000 |
 | Default partition count | 32 | 32 | 1024 |
@@ -474,7 +484,7 @@ is an invalid Worker response: the Step attempt fails and is retried under the
 Step's retry policy.
 
 History reads, such as **dexcli flow history --all**, return only the retained
-events. [Time travel](/reference/server/0.1.30/runtime-client#time-travel) can target only
+events. [Time travel](/reference/server/0.1.35/runtime-client#time-travel) can target only
 a point inside the window. Time travel to the beginning is always available.
 
 Each history page also reports the range of event IDs that the window removed.
@@ -683,7 +693,7 @@ logs an error, and increments
 
 Uploads never delay commands. While object storage fails them, they retry with
 backoff, sealed segments stay on local disk, and the upload backlog metrics
-grow; see [Metrics](/reference/server/0.1.30/metrics). A permanent rejection, such as
+grow; see [Metrics](/reference/server/0.1.35/metrics). A permanent rejection, such as
 denied access, is retried once a minute instead. Retention postpones the
 deletion of a closed Flow run until its sealed segments are uploaded.
 
@@ -802,10 +812,12 @@ oldest request IDs.
 
 Dex Server deduplicates an RPC that reuses a request ID it still keeps: the
 newest 1,000 request IDs per run, set by **limits.maxRequestIdsPerRun**. A
-retry with an older request ID runs as a new request. SDKs send a new request
-ID on each call and reuse one only when they resend a request that never ran,
-such as after an authentication refresh. Calling an RPC again from your code
-therefore runs it again.
+retry with an older request ID runs as a new request. By default, SDKs send a
+new request ID on each call and reuse one only when they resend a request that
+never ran, such as after an authentication refresh. Calling an RPC again from
+your code therefore runs it again, unless your code passes the same request ID
+on each call. [RPC request IDs](/reference/server/0.1.35/runtime-data#rpc-request-ids)
+describes which repeats run the handler again and which RPCs keep no request ID.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -852,7 +864,7 @@ Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the b
 | **metrics.level** | **advanced** | Since 0.1.29. Which metric families the endpoint exports: **basic**, **advanced**, or **verbose**. Each level includes every family of the levels below it. It applies only while **metrics.listen** is set. |
 
 The endpoint has no authentication, so never expose it publicly. See
-[Metrics and alerts](/reference/server/0.1.30/metrics#metrics-levels) for what each
+[Metrics and alerts](/reference/server/0.1.35/metrics#metrics-levels) for what each
 level exports.
 
 Changed in 0.1.29: the default **advanced** level no longer exports the
@@ -887,7 +899,7 @@ must be positive) is the largest Flow Definition Graph document that
 **UploadFlowDefinitions** stores. A larger document fails with
 **INVALID_ARGUMENT**. One upload request must also fit in
 **api.grpcMaxMessageBytes**. See
-[Flow definitions](/reference/server/0.1.30/runtime-client#flow-definitions).
+[Flow definitions](/reference/server/0.1.35/runtime-client#flow-definitions).
 
 ~~~yaml
 flowDefinitions:
@@ -908,13 +920,63 @@ load. Each key takes effect when the node starts.
 | **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
 | **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
 | **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
+| **commit.maxInFlight** | 4 | Most log batches that the node writes to object storage at once. Must be positive. Since 0.1.31, **objectStore.provider: tencentCOS** also limits it to 32. A Tencent COS listing can miss the newest log batches for a few seconds, so recovery after a restart or failover checks the next 32 seqs past the last batch it knows of, and repeats from each batch it finds, until 32 seqs in a row are absent. |
 | **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
-| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
+| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. Since 0.1.31, **objectStore.provider: tencentCOS** also limits it to 1 GiB, because each snapshot file is one object of at most 5 GiB. |
 | **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, from 2 to 1024 | Most RocksDB flushes and compactions that run at once. RocksDB starts one thread for each job. An explicit value must be from 1 to 1024. |
 | **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
 
 The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at
 startup.
+
+### Size a server node {#size-a-server-node}
+
+CPU limits one node. Pick the node size from the throughput you need, then check
+its memory against the components below. One active node is the capacity of a
+cluster; past it, see
+[Grow past one node](/intro/limits#grow-past-one-node).
+
+The [benchmark](/intro/performance) used Step handlers that do almost no work.
+Real applications usually reach the Worker limits first; see
+[Choose the slot count](/reference/server/0.1.35/workers#choose-slot-count).
+
+Choose CPU capacity from the throughput you need and your own load test. These
+two measured examples show what the benchmark reached.
+
+| Measurement | Node | Settings and result |
+| --- | --- | --- |
+| Measured: small node | 2 vCPU | The defaults. The benchmark peaked near 1,800 SYNC Steps per second. Peak RSS stayed at or below 0.41 GiB at every point. |
+| Measured: larger node, tuned | 16 vCPU | The defaults plus the changes below. The benchmark peaked near 8,400 SYNC Steps per second. Peak RSS reached 4.7 GiB in the S2 C=12,288 final trials. |
+
+The 16-vCPU benchmark changed these settings from their defaults:
+
+| Key | Benchmark value | Default |
+| --- | --- | --- |
+| **localStorage.blockCacheBytes** | 8589934592 (8 GiB) | 268435456 (256 MiB) |
+| **localStorage.writeBufferBytes** | 134217728 (128 MiB) | 67108864 (64 MiB) |
+| **commit.maxUnappliedBytes** | 268435456 (256 MiB) | 67108864 (64 MiB) |
+| **limits.maxInFlightRpcsPerNode** | 4096 | 1000 |
+
+The memory of a node is the sum of these components:
+
+- **localStorage.blockCacheBytes**, the RocksDB block cache.
+- Memtables, up to 12 times **localStorage.writeBufferBytes**.
+- **commit.maxUnappliedBytes**, the accepted commands that the node has not
+  applied yet.
+- **history.uploadMaxInFlightBytes**, the in-flight history uploads, and the
+  segment headers that the node keeps in memory.
+- **history.timeTravelReplayMemoryBytes** for each time travel that runs.
+- Per-connection and per-stream buffers, which grow with Workers and Clients.
+
+**history.readCacheMaxBytes** is a disk cache and adds no memory beyond the
+page cache of the operating system. Leave headroom for the page cache and for
+the process beyond the sum.
+
+The benchmark has not measured these yet:
+
+- memory for each stored Flow;
+- 4-vCPU and 8-vCPU nodes;
+- Workers in languages other than Go.
 
 ## Streams {#streams}
 

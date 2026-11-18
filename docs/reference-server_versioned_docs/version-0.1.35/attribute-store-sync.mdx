@@ -36,7 +36,7 @@ Attribute to that store's tables.
 - Dex drops entries that are still pending **syncRetryPolicy.totalDuration**
   after they were first marked. See
   [Retries and dropped entries](#attribute-store-retries).
-- After [time travel](/reference/server/0.1.30/runtime-client#time-travel), server-zd
+- After [time travel](/reference/server/0.1.35/runtime-client#time-travel), server-zd
   rewrites every row that the Flow run synced, with the state after the time
   travel.
 - Each database needs a [fencing table](#attribute-store-fencing-table).
@@ -55,7 +55,7 @@ Attribute to that store's tables.
   WaitForAttribute, DeleteChannelMessage, and PublishToChannel calls made
   during the wait fail with FAILED_PRECONDITION and sub-status FLOW_CLOSING.
   See
-  [Requests during Flow close](/reference/server/0.1.30/runtime-client#requests-during-flow-close).
+  [Requests during Flow close](/reference/server/0.1.35/runtime-client#requests-during-flow-close).
   Changed in 0.1.26: before, PublishToChannel was accepted.
 - A natural close also waits for every transactional or locking RPC that Dex
   accepted before the close, even without an Attribute Store. Such an RPC still
@@ -70,7 +70,7 @@ Attribute to that store's tables.
   the close. A later **SetAttributes** on that Flow run returns NOT_FOUND, with
   one exception from server-zd v0.1.5: it succeeds when every write erases a
   currently stored
-  [hard-delete Attribute](/reference/server/0.1.30/runtime-data#hard-delete-attributes)
+  [hard-delete Attribute](/reference/server/0.1.35/runtime-data#hard-delete-attributes)
   with null. This exception applies only before the Flow run is purged. It
   deletes the stored objects without reopening the Flow run, and the Flow
   history records the erase after the close. Write what a Flow needs before you
@@ -157,7 +157,7 @@ The database still needs its tables and the
 
 Every write transaction raises a fencing token row in this table to the node's
 epoch. So a node that lost its
-[lease](/reference/server/0.1.30/high-availability#lease) cannot overwrite newer
+[lease](/reference/server/0.1.35/high-availability#lease) cannot overwrite newer
 values.
 
 Each database needs this table, named by **fencingTableName**. One table serves
@@ -248,7 +248,7 @@ A dropped entry leaves the row's value uncertain. To repair it:
 
 Since 0.1.29, a family is exported at the **metrics.level** in its Level
 column and at every higher level. See
-[Metrics levels](/reference/server/0.1.30/metrics#metrics-levels).
+[Metrics levels](/reference/server/0.1.35/metrics#metrics-levels).
 
 | Metric | Meaning | Level |
 | --- | --- | --- |

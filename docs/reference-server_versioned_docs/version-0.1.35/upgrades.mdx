@@ -55,7 +55,7 @@ been on, do not run an earlier release on that data directory, even after you
 turn offload off: the server must read the history it removed from local disk
 from object storage. To keep the previous behavior, set
 **history.offloadEnabled: false** before the first start with 0.1.22. See
-[History offload](/reference/server/0.1.30/configuration#history-offload).
+[History offload](/reference/server/0.1.35/configuration#history-offload).
 
 Changed in 0.1.23: the server deletes a Step's state row in the same command
 that ends the Step, when the Step completes or when a cancellation ends it
@@ -91,7 +91,7 @@ partition recorded at the upgrade:
   receives commands again. A closed Flow run never migrates and keeps its local
   history until its retention ends.
 
-See [History offload](/reference/server/0.1.30/configuration#history-offload).
+See [History offload](/reference/server/0.1.35/configuration#history-offload).
 
 After the first start with 0.1.23, do not run an earlier release on that storage
 prefix or data directory: the server must read the history that new Flow runs
@@ -99,6 +99,34 @@ removed from local disk from object storage. Roll forward, or restore a backup
 taken before the upgrade into a new prefix. The upgrade also changes how the
 server applies commands. Stop the standby and the active process, and upgrade
 both binaries. Then start the active process first and the standby after it.
+
+server-zd 0.1.30 and later provide protocol version 5, which adds named task
+queues. Workers and Clients that use no named task queue keep working on
+older servers. Before you roll back from 0.1.30 or later, stop every Flow that
+uses a named task queue, as
+[Roll back the server](/reference/server/0.1.35/workers#named-task-queue-rollback)
+describes.
+
+server-zd 0.1.33 and later provide protocol version 6, which adds
+CloneForkFlow, the event ID point of ResetFlow, and SubFlow reset policies.
+After 0.1.33 writes to a storage prefix, keep running 0.1.33 or later on it. A
+0.1.32 server on that prefix fails on what 0.1.33 wrote:
+
+- After a CloneForkFlow call, it halts the partition at the first
+  CloneForkFlow record.
+- After a Time Travel that used a SubFlow reset policy to terminate a SubFlow,
+  it cannot deliver that termination.
+- After a Time Travel or a CloneForkFlow call wrote the new run fields, it
+  drops those fields when it rewrites the run.
+
+Roll forward, or restore a backup taken before the upgrade into a new prefix.
+
+server-zd 0.1.34 and later provide protocol version 7, which adds the
+[graceful completion wait condition](/reference/server/0.1.35/step-and-flow-close#graceful-completion-condition).
+An older server drops that condition from the waits it reads. After a rollback,
+a Step that waits only on it stays waiting through a graceful completion
+request. Before you roll back from 0.1.34 or later, stop the Flows whose Steps
+wait on it.
 
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
@@ -118,4 +146,4 @@ also lists clients released after this server. The
 [compatibility matrix](/reference#compatibility-matrix) compares every
 supported server-zd release.
 
-<ServerZdCompatibility version="0.1.30" />
+<ServerZdCompatibility version="0.1.35" />

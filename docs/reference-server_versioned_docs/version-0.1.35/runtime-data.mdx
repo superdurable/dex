@@ -38,7 +38,7 @@ After a Flow starts, applications write Attributes through Flow RPCs. A Client
 can also use **WaitForAttributeMatch** to wait until a singleton Attribute or
 one AttributeMap instance satisfies a scalar comparison. The call returns the
 matched current value. See
-[Wait for an Attribute match](/reference/server/0.1.30/runtime-client#wait-for-an-attribute-match).
+[Wait for an Attribute match](/reference/server/0.1.35/runtime-client#wait-for-an-attribute-match).
 
 ### Read Attributes from outside a Flow {#read-attributes-from-outside-a-flow}
 
@@ -68,7 +68,7 @@ The read has these semantics:
 
 An RPC remains the right choice when the read needs Flow-side validation,
 authorization, a derived view, or Attribute locks. See
-[Client requests: Read Attributes](/reference/server/0.1.30/runtime-client#read-attributes)
+[Client requests: Read Attributes](/reference/server/0.1.35/runtime-client#read-attributes)
 for the example, the unset value in each SDK, and the errors.
 
 ### Indexes {#attribute-indexes}
@@ -96,7 +96,7 @@ Flow need different slots. Reuse a slot across Flow types only with the same
 index type; its business meaning can differ. Dex system indexes keep their
 reserved names. Slots are limited and cannot be freed, so keep a list of
 which slot each Flow type uses; see
-[PostgreSQL search](/reference/server/0.1.30/search#postgresql-search) for the limits.
+[PostgreSQL search](/reference/server/0.1.35/search#postgresql-search) for the limits.
 
 | Index type | Application index keys |
 | --- | --- |
@@ -439,7 +439,7 @@ Plan for these consequences:
 
 A value remains stored until it is deleted, or until Dex removes the Flow after
 its retention period. Object storage backups and bucket versioning outside Dex
-can keep copies. See [Object storage](/reference/server/0.1.30/object-storage).
+can keep copies. See [Object storage](/reference/server/0.1.35/object-storage).
 
 #### Erase after the Flow run closes {#hard-delete-after-close}
 
@@ -1419,6 +1419,66 @@ RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trig
 </SdkSnippet>
 </SdkTabs>
 
+### RPC request IDs {#rpc-request-ids}
+
+Every RPC invocation carries a request ID. Dex Server records the reply of a
+successful RPC that it commits under that request ID. A repeat that Dex Server
+checks against a recorded request ID returns the recorded output. It applies
+the RPC's Flow changes, such as Attribute writes, Channel publications, and
+next Steps, no second time. Whether Dex Server checks a repeat depends on the
+RPC and on what the repeated attempt returns.
+
+By default, SDKs send a new request ID on each call, so calling an RPC again
+from your code runs it again. To make a retried call idempotent, pass the same
+request ID on every attempt, where the SDK accepts one. The TypeScript SDK
+takes it as **requestId** of **RPCInvokeOptions**. Use an ID that names the
+logical call, such as the ID of an event that is delivered at least once.
+
+How Dex Server answers a repeat depends on the RPC:
+
+| RPC | Repeat with a recorded request ID |
+| --- | --- |
+| Transactional or locking | Answered from the recorded reply before a Worker runs the handler. Concurrent calls with the same request ID share one handler execution and its result. |
+| Any other RPC | The handler runs again on a Worker, and its calls to external systems repeat. When this attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply. When this attempt changes no Flow state and records no event, Dex Server returns its new output without checking the request ID, and records nothing. |
+
+An RPC that is neither transactional nor locking can therefore return a new
+output to a repeat. For example, a handler that marks an event processed
+returns a different output once the mark exists. Use a transactional RPC when
+callers need the exact recorded reply.
+
+These rules also apply:
+
+- Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
+  timeout, locks, and loads. A different request under a kept request ID fails
+  with INVALID_ARGUMENT and the detail "request ID ... was already used for a
+  different request". The RPC applies none of its changes. An attempt of an
+  RPC that is neither transactional nor locking skips this check when it
+  changes no Flow state and records no event.
+- Each run keeps its newest request IDs, as many as
+  [**limits.maxRequestIdsPerRun**](/reference/server/0.1.35/configuration#limits).
+  RPC request IDs share this window with the run's other request IDs, such as
+  those of Client Attribute writes. A repeat with an older request ID runs as
+  a new request. A new run of the same Flow ID starts with no request IDs.
+- A failed RPC records nothing. A retry after a Worker error or an
+  [RPC timeout](#rpc-timeout) of the Worker handler runs the handler again.
+- A client-side deadline or cancellation leaves the outcome unknown. The server
+  may still commit the RPC. A retry with the same request ID applies the Flow
+  changes at most once. For a transactional or locking RPC, the retry joins
+  the invocation still in flight, or returns the recorded reply after it
+  commits. Any other RPC runs its handler again.
+- UNAVAILABLE after the server's commit budget also leaves the outcome
+  unknown. A retry with the same request ID can run the handler again, and
+  still applies the Flow changes at most once.
+- After the Flow run closes, a transactional or locking RPC with a recorded
+  request ID returns its recorded reply while the server retains the run. With
+  a new request ID it fails with NOT_FOUND and FLOW_NOT_EXISTS, as described in
+  [Retention](/reference/server/0.1.35/configuration#retention).
+- On a run over its [Flow state budget](/reference/server/0.1.35/configuration#flow-state-budget),
+  an RPC that changes no Flow state keeps no request ID.
+- A request ID must be non-empty. Dex Server sets no other length or character
+  limit. Each kept request ID counts toward the run's Flow state budget, so
+  keep request IDs short.
+
 ## Channels {#channels}
 
 ### Wait conditions {#channel-conditions}
@@ -1524,7 +1584,7 @@ Deleting a message that is no longer pending depends on the caller:
 Pending messages are queue state, not Flow history. After a Step consumes a
 message, the message disappears from the Channel, even though the publication
 and consumption stay visible in recent
-[Flow history](/reference/server/0.1.30/configuration#history-window). The message
+[Flow history](/reference/server/0.1.35/configuration#history-window). The message
 comes back only when the Step is canceled before its **Execute** commits. See
 [Canceled Steps return consumed messages](#canceled-step-messages).
 
@@ -1573,7 +1633,7 @@ because Dex uses that character between the map name and instance key.
 ## Streams {#streams}
 
 Server settings for Streams, with their defaults, are in
-[Streams](/reference/server/0.1.30/configuration#streams).
+[Streams](/reference/server/0.1.35/configuration#streams).
 
 ### Write semantics {#stream-write-semantics}
 
@@ -1753,7 +1813,7 @@ Stream, and the memory of all Streams on a server. A Client write past the
 server-wide total fails with **RESOURCE_EXHAUSTED**, and background trimming
 then removes the oldest messages of the largest Streams until the message fits.
 Retry the write after a short delay. See
-[Streams](/reference/server/0.1.30/configuration#streams) for each limit and its
+[Streams](/reference/server/0.1.35/configuration#streams) for each limit and its
 default.
 
 ### Best-effort storage {#stream-storage}
