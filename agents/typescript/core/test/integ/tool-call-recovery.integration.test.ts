@@ -7,16 +7,20 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import { StepAttemptProgress, type RecoveryErrorInfo } from "@superdurable/dex";
 
-import { recoveredToolCall } from "../../src/agent-session-steps.js";
+import { recoveredToolCall, toolExecutionErrorStatus } from "../../src/agent-session-steps.js";
 import {
   toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   type AgentToolCallRecord,
+  type ToolEffect,
 } from "../../src/agent-session-values.js";
+import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
 
 const approvedCall: AgentToolCallRecord = {
   toolCallId: "call-1",
@@ -99,4 +103,30 @@ describe("the record a tool Step's failure route writes", () => {
     assert.equal(recorded.status, "outcome_unknown");
     assert.equal(recorded.error, "worker lost");
   });
+});
+
+interface ToolExecutionErrorCase {
+  readonly name: string;
+  readonly effect: ToolEffect;
+  readonly toolSourceReference: string | null;
+  readonly attempt: number;
+  readonly status: "failed" | "outcome_unknown";
+}
+
+const toolExecutionErrorCases = (
+  JSON.parse(readFileSync(join(conformanceSuiteDirectory, "tool_execution_errors.json"), "utf8")) as {
+    readonly cases: readonly ToolExecutionErrorCase[];
+  }
+).cases;
+
+describe("the status a ToolExecutionError records", () => {
+  for (const testCase of toolExecutionErrorCases) {
+    test(testCase.name, () => {
+      const toolCall = {
+        effect: testCase.effect,
+        ...(testCase.toolSourceReference === null ? {} : { toolSourceReference: testCase.toolSourceReference }),
+      };
+      assert.equal(toolExecutionErrorStatus(toolCall, testCase.attempt), testCase.status);
+    });
+  }
 });

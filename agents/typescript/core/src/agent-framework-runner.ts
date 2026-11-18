@@ -841,6 +841,14 @@ export class ToolOutcomeUnknownError extends Error {
  * `failed` for a `read` tool and `outcome_unknown` for a write; `CallSingleAttemptTool` records
  * `outcome_unknown` at once, because the write may have taken effect.
  *
+ * On a later attempt of a call that is not a `read`, this error records `outcome_unknown` instead, with the same
+ * message. That attempt follows an earlier one that reached a Worker and ended without a result, such as a Worker
+ * that stopped while the tool ran, so the earlier attempt may have taken effect. This covers a refusal before the
+ * tool runs, such as an unknown tool after a deploy renamed it or arguments that a changed schema rejects. A call
+ * that a tool source built keeps `failed`, because the source classifies its own errors.
+ *
+ * Changed in 0.6.15: a later attempt of a call that is not a `read` records `outcome_unknown`, not `failed`.
+ *
  * @example
  * ```ts
  * if (response.status === 404) {
@@ -957,7 +965,8 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * @returns The tool output text; {@link ToolInputRequested} when the tool needs an answer from the
    * user before it takes any effect; or {@link ToolTaskStarted} when the tool started remote work that
    * {@link pollToolTask} polls.
-   * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`.
+   * @throws {ToolExecutionError} For a failure the model should see; the call is recorded as `failed`, or as
+   * `outcome_unknown` on a later attempt of a call that is not a `read`. See {@link ToolExecutionError}.
    * @throws Any other error for an unexpected failure; after the last attempt the record becomes
    * `failed` for a `read` tool and `outcome_unknown` for a write. See {@link ToolExecutionError}.
    */

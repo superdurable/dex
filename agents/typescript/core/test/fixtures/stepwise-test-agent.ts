@@ -39,7 +39,18 @@ export interface StepwiseTestAgentOptions {
   readonly sessionToolPolicies?: Readonly<Record<string, ToolPolicy>>;
   /** Whether the agent sets {@link decideBuiltinLoopTestTurnContinuation} as its `decideTurnContinuation`. */
   readonly hasTurnContinuationHook?: boolean;
+  /** How this deploy changed `issue_refund`; omitted keeps the original tool. */
+  readonly refundToolDeploy?: RefundToolDeploy;
 }
+
+/**
+ * A deploy of `issue_refund`: `renamed` registers it as `refund_payment`, and `schema_changed` requires
+ * `refund_order_id` instead of `order_id`.
+ */
+export type RefundToolDeploy = "renamed" | "schema_changed";
+
+/** Set to a {@link RefundToolDeploy}, a Stepwise test Worker child serves that deploy of `issue_refund`. */
+export const refundToolDeployVariable = "STEPWISE_AGENT_REFUND_TOOL_DEPLOY";
 
 /** Set to `1`, a built-in loop test Worker child serves the agent with its `decideTurnContinuation` hook. */
 export const builtinLoopTurnContinuationHookVariable = "BUILTIN_LOOP_AGENT_TURN_CONTINUATION_HOOK";
@@ -64,6 +75,7 @@ export function decideBuiltinLoopTestTurnContinuation(context: TurnContinuationC
  * identically. Tools record every run in `<tool>.log` as `<flowId> <toolCallId> attempt <n> key <key>`.
  * `lookup_order` waits at the `lookup` FileGate for an order ID that starts with `gated`, and
  * `charge_card`, a write that needs no approval, always waits at the `charge_card` FileGate.
+ * `issue_refund`, an `idempotent_write`, always waits at the `issue_refund` FileGate.
  */
 export function createStepwiseTestAgentFlow(
   markerDirectory: string,
@@ -122,6 +134,28 @@ export function createStepwiseTestAgentFlow(
             gate.markReached();
             await gate.waitForRelease(context.cancellationSignal);
             return "card charged";
+          },
+        }),
+        functionTool<Record<string, string>>({
+          name: options.refundToolDeploy === "renamed" ? "refund_payment" : "issue_refund",
+          description: "Refund an order's payment, once per idempotency key.",
+          parameters:
+            options.refundToolDeploy === "schema_changed"
+              ? {
+                  type: "object",
+                  properties: { refund_order_id: { type: "string", description: "The order ID." } },
+                  required: ["refund_order_id"],
+                  additionalProperties: false,
+                }
+              : orderParameters,
+          effect: "idempotent_write",
+          requiresApproval: false,
+          execute: async (_args, context) => {
+            recordRun("issue_refund", context);
+            const gate = new FileGate(markerDirectory, "issue_refund");
+            gate.markReached();
+            await gate.waitForRelease(context.cancellationSignal);
+            return "refund issued";
           },
         }),
       ],

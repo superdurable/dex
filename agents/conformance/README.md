@@ -12,9 +12,9 @@ with the M2 additions in
 [agents-m2-stepwise.md](../../docs/design/plan/agents-m2-stepwise.md).
 
 The files are generated from the Python core and checked against the
-TypeScript core, except `connector_tools.json`, `mcp_dex_conventions.json`,
+TypeScript core, except `connector_tools.json`, `tool_execution_errors.json`, `mcp_dex_conventions.json`,
 `images.json`, and `approval_display.json`, which are hand-written and read by
-both cores' connector tool, MCP tool, image, and approval display tests, and `cli_config.json`,
+both cores' connector tool, tool Step, MCP tool, image, and approval display tests, and `cli_config.json`,
 `cli_init.json`, `cli_session_flow_types.json`, `cli_session_list.json`, and `cli_session_lease.json`, which are hand-written for the CLI cores in
 [`../cli`](../cli), and `terminal_ui/`, which is hand-written for the CLI
 cores and `dexcli agents-tui`, and `claude_transcript_parity.json`, whose
@@ -31,6 +31,7 @@ entries the TypeScript adapter's test writes. A core passes when it passes all f
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
 | [`session_graph_trigger_bindings.json`](session_graph_trigger_bindings.json) | Connector Trigger bindings of a session graph: each binding spec, the `v2.connectorTriggerBindings` entry each core must render from the test Connector package in [`session_graph_trigger_bindings/`](session_graph_trigger_bindings), and the hash of a graph with both; `file_cases` add Trigger factory selection and the bindings-file inputs both cores must accept or refuse with the same error. dexcli's Flow analyzer test derives the same entries from code. Hand-written, not generated |
 | [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping (a case that sets the deprecated `mayHaveDispatched` shows that it is ignored), send caps (the `agent.repeatOnUnknown` and `agent.maxSends` values and operation definitions that let a Mutation resend, where a `limited` definition without `maxSends` declares 3), a bounded resend call's attempts, bounded resend scenarios (one call's attempts across deploys that change or drop the manifest's cap, with the writes they make), argument refusals (arguments a Worker refuses record `failed` on every attempt, whatever opaque checkpoint text an earlier attempt saved), default tool names (operation ID to snake case, as connectorctl `lowerCamelToSnake` names Python Step factories), result text, and truncation. Hand-written, not generated |
+| [`tool_execution_errors.json`](tool_execution_errors.json) | The status a tool Step records for `ToolExecutionError`, by effect, attempt, and whether a tool source built the call: a later attempt of a call that is not a `read` and that no tool source built records `outcome_unknown`, because an earlier attempt may have run its tool; every other case records `failed`. Hand-written, not generated |
 | [`mcp_dex_conventions.json`](mcp_dex_conventions.json) | Dex MCP conventions: the `_meta` keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or a JSON-RPC error's outcome key is recorded, with the exact text. Hand-written, not generated |
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, the media store, remote MCP servers and their header variables, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI cores; see [`../cli/README.md`](../cli/README.md) |
 | [`cli_init.json`](cli_init.json) | How `init` merges its answers into an existing, valid configuration file: the fields it replaces, the sections it keeps whole, `connectors.enabled`, `system_prompt_file`, and the shell allow list. Hand-written for the CLI cores |

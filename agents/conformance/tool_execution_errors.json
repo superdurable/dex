@@ -1,0 +1,68 @@
+{
+  "description": "The status a tool Step records when an attempt of CallTool or CallSingleAttemptTool ends with ToolExecutionError, from the record's effect, whether a tool source built the call (toolSourceReference is not null), and the attempt number. A first attempt, a read, and a tool source's call record failed. A later attempt of any other call records outcome_unknown, because an earlier attempt reached a Worker and ended without a final record, so its tool may have taken effect: a refusal on the retry, such as an unknown tool after a rename or arguments that a changed schema rejects, says nothing about that attempt. A tool source classifies its own errors; see argumentRefusalCases in connector_tools.json. Hand-written; see README.md.",
+  "cases": [
+    {
+      "name": "a read on its first attempt",
+      "effect": "read",
+      "toolSourceReference": null,
+      "attempt": 1,
+      "status": "failed"
+    },
+    {
+      "name": "a read on a retry",
+      "effect": "read",
+      "toolSourceReference": null,
+      "attempt": 2,
+      "status": "failed"
+    },
+    {
+      "name": "an idempotent write on its first attempt",
+      "effect": "idempotent_write",
+      "toolSourceReference": null,
+      "attempt": 1,
+      "status": "failed"
+    },
+    {
+      "name": "an idempotent write on its second attempt",
+      "effect": "idempotent_write",
+      "toolSourceReference": null,
+      "attempt": 2,
+      "status": "outcome_unknown"
+    },
+    {
+      "name": "an idempotent write on its last attempt",
+      "effect": "idempotent_write",
+      "toolSourceReference": null,
+      "attempt": 3,
+      "status": "outcome_unknown"
+    },
+    {
+      "name": "a non-idempotent write on its only attempt",
+      "effect": "non_idempotent_write",
+      "toolSourceReference": null,
+      "attempt": 1,
+      "status": "failed"
+    },
+    {
+      "name": "an unclassified call on a later attempt",
+      "effect": "unclassified",
+      "toolSourceReference": null,
+      "attempt": 2,
+      "status": "outcome_unknown"
+    },
+    {
+      "name": "a tool source's idempotent write on a retry",
+      "effect": "idempotent_write",
+      "toolSourceReference": "{\"source\": \"ledger\", \"reference\": null}",
+      "attempt": 2,
+      "status": "failed"
+    },
+    {
+      "name": "a tool source's non-idempotent write on a bounded resend",
+      "effect": "non_idempotent_write",
+      "toolSourceReference": "{\"source\": \"ledger\", \"reference\": null}",
+      "attempt": 2,
+      "status": "failed"
+    }
+  ]
+}

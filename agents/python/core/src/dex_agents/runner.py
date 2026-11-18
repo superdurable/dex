@@ -1098,6 +1098,19 @@ class ToolExecutionError(Exception):
     and ``OUTCOME_UNKNOWN`` for a write, because the write may have taken
     effect.
 
+    On a later attempt of a call that is not a ``READ``, this error records
+    ``OUTCOME_UNKNOWN`` instead, with the same message. That attempt follows
+    an earlier one that reached a Worker and ended without a result, such as a
+    Worker that stopped while the tool ran, so the earlier attempt may have
+    taken effect. This covers a refusal before the tool runs, such as an
+    unknown tool after a deploy renamed it or arguments that a changed schema
+    rejects. A call that a tool source built keeps ``FAILED``, because the
+    source classifies its own errors.
+
+    .. versionchanged:: 0.6.15
+        A later attempt of a call that is not a ``READ`` records
+        ``OUTCOME_UNKNOWN``, not ``FAILED``.
+
     Example:
         >>> raise ToolExecutionError("order 42 is already shipped")
     """

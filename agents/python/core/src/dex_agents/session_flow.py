@@ -2583,9 +2583,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 try:
                     result = await self._runner.execute_deferred_tool_call(execution)
                 except ToolExecutionError as error:
-                    failed = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
-                    tool_call_span.record_finished(failed)
-                    return _finish_tool_call(context, failed, events)
+                    refused = replace(
+                        tool_call,
+                        status=_tool_execution_error_status(tool_call, context.attempt),
+                        error=str(error),
+                    )
+                    tool_call_span.record_finished(refused)
+                    return _finish_tool_call(context, refused, events)
                 except ToolOutcomeUnknownError as error:
                     unknown = replace(
                         tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=str(error)
@@ -3909,6 +3913,34 @@ def _record_unscheduled_tool_call(
     """Record a queued call final; ResumeTurn never waited for it, so no result is published."""
     AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
     events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
+
+
+def _tool_execution_error_status(tool_call: AgentToolCall, attempt: int) -> ToolCallStatus:
+    """Return the status a ``ToolExecutionError`` from a tool Step's attempt records.
+
+    A first attempt, a ``READ``, and a call that a tool source built record
+    ``FAILED``. A later attempt of any other call records ``OUTCOME_UNKNOWN``:
+    an attempt number above 1 means an earlier attempt reached a Worker and
+    ended without a final record, so its tool may have taken effect. A refusal
+    on the retry, such as an unknown tool or arguments that a new schema
+    rejects, says nothing about that earlier attempt. A tool source classifies
+    its own errors, so its calls keep ``FAILED``.
+
+    Args:
+        tool_call: The record the attempt ran.
+        attempt: The tool Step's one-based attempt number.
+
+    Returns:
+        ``OUTCOME_UNKNOWN`` when an earlier attempt may have run a write,
+        otherwise ``FAILED``.
+    """
+    if (
+        attempt > 1
+        and tool_call.effect is not ToolEffect.READ
+        and tool_call.tool_source_reference is None
+    ):
+        return ToolCallStatus.OUTCOME_UNKNOWN
+    return ToolCallStatus.FAILED
 
 
 def _cancelled_tool_call(
