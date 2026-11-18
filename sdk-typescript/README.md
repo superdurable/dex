@@ -368,18 +368,37 @@ it false; re-registration clears that slot kind's error. Closing does not reset 
 
 Set `pull.stopOnPermanentStreamRejection: true` to drain and stop on such a permanent rejection
 before or after readiness. It defaults to false, retaining indefinite retries. `worker.run()`
-rejects with `PullRegistrationError` after draining. `start()` waits for the first successful
-registration and verifies the reported Server limit. If the Server permanently rejects every
-stream before any registers, `start()` rejects with `PullRegistrationError` whatever this option says.
+rejects with `PullRegistrationError` after draining. `start()` waits until one stream of each
+slot kind has registered (since 1.45.7; earlier releases waited for the first stream of any kind)
+and verifies the reported Server limit. If the Server permanently rejects every stream of a slot
+kind before any of that kind registers, `start()` rejects with `PullRegistrationError` whatever this option says.
 If the limit check fails, the Worker half-closes its streams so Dex returns any task it already
 sent without consuming an attempt. Always call `close()`, which remains safe after `run()` returns.
 
-The Worker keeps exactly `maxConcurrentTasks` long-lived poll streams, one per
+A fixed Worker, the default, keeps exactly `maxConcurrentTasks` long-lived poll streams, one per
 execution slot. Each registers an empty queue, its app Worker ID, every Flow type,
 and support for reserved-slot dispatch. A slot is ready while idle and busy while
 its handler runs. `maxConcurrentTasks` defaults to the logical CPU count. Startup
-fails if it exceeds the limit reported by the Server, naming the configured value
-and `matching.maxConcurrentTasksCap`. `idleStreamsPerQueue` is deprecated, still
+fails if an explicit value exceeds the limit reported by the Server, naming the configured value
+and `matching.maxConcurrentTasksCap`. Since 1.45.7 a fixed Worker with `maxConcurrentTasks`
+unset opens one stream first, learns the cap from its acknowledgement, and clamps its CPU-count
+default to the cap with a warning before it opens the other streams.
+
+`minOpenSlots` (since 1.45.7) below `maxConcurrentTasks` makes the Worker adaptive. It keeps
+between `minOpenSlots` and `maxConcurrentTasks` slot streams open; both counts include
+`reservedRpcTasks`. It doubles its Step-and-RPC streams, one batch at a time, when a task takes
+the last idle one. Every 30 seconds it half-closes half of the idle surplus above the window's
+peak busy count plus 25% headroom. An adaptive Worker clamps `maxConcurrentTasks` to the Server
+cap with a warning. It treats `RESOURCE_EXHAUSTED` for a growth stream, or for a reconnect after
+readiness, as a soft limit: no permanent error, and at most one retry per window. It counts
+handlers that still run after their stream ended against its capacity, so it never registers a
+stream for a busy slot. `worker.pullSlotStreamState()` returns a snapshot of the streams, and
+`NODE_DEBUG=dex` logs each grow and shrink. The state machine is specified in
+`docs/design/adaptive-worker-slot-streams.md` and lives in `src/pull-slot-streams.ts`; the
+real-server tests in `test/integ/pull-worker-adaptive.integration.test.ts` start their own
+`dex-server-zd` from `DEX_SERVER_ZD_BINARY`.
+
+`idleStreamsPerQueue` is deprecated, still
 accepted, and has no effect. `queues` in readiness snapshots now contains slot kinds:
 `STEP_AND_RPC`, followed by `RPC_ONLY` when a reservation is configured.
 

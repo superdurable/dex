@@ -1229,7 +1229,7 @@ export interface WorkerOptions {
  * ```
  */
 export interface PullWorkerOptions {
-  /** Stops and drains the Worker when a permanent rejection leaves a slot kind without registered streams. Defaults to false, retrying indefinitely. Worker.run rejects with PullRegistrationError after draining; Worker.start waits for the first successful registration and the Server concurrency-limit check. */
+  /** Stops and drains the Worker when a permanent rejection leaves a slot kind without registered streams. Defaults to false, retrying indefinitely. Worker.run rejects with PullRegistrationError after draining; Worker.start waits for the successful registration of each slot kind and the Server concurrency-limit check. In an adaptive Worker, a soft rejection at the Server stream limit never triggers this option; see `minOpenSlots`. */
   readonly stopOnPermanentStreamRejection?: boolean;
   /**
    * Number of execution slots, each represented by one long-lived poll stream.
@@ -1237,8 +1237,71 @@ export interface PullWorkerOptions {
    * Worker.start fails if this exceeds the Server per-Worker limit, matching.maxConcurrentTasksCap.
    * Requires a nonnegative safe integer; construction throws RangeError otherwise.
    * Changed in SDK v1.35.0: this is also the exact stream count, and exceeding the cap fails startup.
+   *
+   * Changed in 1.45.7: this is the ceiling of the slot streams, including the RPC-only slots.
+   * A fixed Worker, whose `minOpenSlots` is unset or equal to this value, keeps this many streams
+   * open. An adaptive Worker, whose `minOpenSlots` is below it, opens streams up to it only while
+   * every open Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
+   * warning that names both values, instead of failing `Worker.start`:
+   * - a fixed Worker with this option unset, whose CPU-count default exceeds the cap;
+   * - an adaptive Worker, with this option set or unset.
+   *
+   * A fixed Worker with this option unset therefore opens one stream first, learns the cap from its
+   * acknowledgement, and then opens the others. That adds one round trip to `Worker.start`. A fixed
+   * Worker with an explicit value above the cap still fails `Worker.start`, and it opens all its
+   * streams at once. After a clamp, the `reservedRpcTasks` and `minOpenSlots` defaults come from the
+   * clamped value. In an adaptive Worker, a lower cap reported on a reconnect lowers its capacity:
+   * it half-closes the surplus streams, RPC-only streams first, and keeps running. A fixed Worker
+   * keeps the earlier behavior.
    */
   readonly maxConcurrentTasks?: number;
+  /**
+   * Fewest slot streams the Worker keeps open.
+   *
+   * It uses the same unit as `maxConcurrentTasks`, so it counts the reserved RPC-only slots too.
+   * Zero or omission, the default, uses the resolved `maxConcurrentTasks`: every slot keeps a
+   * stream, the Worker is fixed, and it behaves as earlier releases did. Negative values and
+   * non-integers are invalid.
+   *
+   * A value below `maxConcurrentTasks` makes the Worker adaptive. Use it when idle Workers should
+   * hold fewer Server streams, such as in a large fleet or with a high `maxConcurrentTasks`.
+   * An adaptive Worker:
+   * - starts with `minOpenSlots - reservedRpcTasks` Step-and-RPC streams, and opens the RPC-only
+   *   streams after the first registration;
+   * - doubles its Step-and-RPC streams, one batch at a time, when a task takes the last idle one,
+   *   up to `maxConcurrentTasks`;
+   * - every 30 seconds half-closes half of the idle streams above the window's peak busy count
+   *   plus 25% headroom, never below the floor and never its last idle stream;
+   * - keeps the RPC-only streams at `reservedRpcTasks`.
+   *
+   * A burst larger than the open streams waits a few registration round trips while the Worker
+   * grows. A task that reaches a stream while it closes returns to the Server without spending a
+   * Step retry, and the Server dispatches it again. When the Server rejects a stream at its stream
+   * limit (`RESOURCE_EXHAUSTED`), an adaptive Worker treats the rejection of a growth stream, or of
+   * a reconnect after readiness, as a soft limit: it records no {@link PullRegistrationError} and
+   * retries at most once per 30 seconds. Use `Worker.pullSlotStreamState` to observe the streams.
+   *
+   * The Worker constructor throws `RangeError` unless
+   * `reservedRpcTasks + 1 <= minOpenSlots <= maxConcurrentTasks`, using the resolved values. When
+   * `reservedRpcTasks` is unset, its default reserves one slot only when both `maxConcurrentTasks`
+   * and `minOpenSlots` are at least two. `Worker.start` fails at the first registration when the
+   * Server cap lowers `maxConcurrentTasks` below `minOpenSlots`, or to `reservedRpcTasks` or less;
+   * the error names the values and the cap.
+   *
+   * @example
+   * ```ts
+   * // Between 8 and 64 slot streams, one of them reserved for RPCs.
+   * const worker = new Worker(registry, cache, { pull: { maxConcurrentTasks: 64, minOpenSlots: 8 } });
+   * await worker.start();
+   * try {
+   *   console.log(worker.pullSlotStreamState().open); // 7 Step-and-RPC streams at rest
+   * } finally {
+   *   await worker.close();
+   * }
+   * ```
+   * @since 1.45.7
+   */
+  readonly minOpenSlots?: number;
   /**
    * Number of long-lived slots that accept only RPCs.
    * Unset reserves one slot when maxConcurrentTasks resolves to at least two, otherwise zero.
@@ -1254,13 +1317,16 @@ export interface PullWorkerOptions {
    * Changed in SDK v1.35.0: reserved slots open RPC_ONLY streams that take only RPCs,
    * and Steps are no longer declined for capacity. Earlier versions declined Step tasks
    * once busy handlers reached maxConcurrentTasks minus this reserve.
+   * Changed in 1.45.7: unset also reserves zero when `minOpenSlots` is 1, and start then warns
+   * once that RPCs may wait behind Steps. The value must also leave one Step-and-RPC slot within
+   * `minOpenSlots`.
    */
   readonly reservedRpcTasks?: number;
   /**
    * Legacy per-queue idle stream option; zero or omission formerly used one.
    * Still accepts nonnegative integers; invalid values throw RangeError.
    * Changed in SDK v1.35.0: retained for source compatibility with no effect.
-   * @deprecated Has no effect. Each maxConcurrentTasks slot has one long-lived stream.
+   * @deprecated Has no effect. `maxConcurrentTasks` and `minOpenSlots` determine the number of slot streams.
    */
   readonly idleStreamsPerQueue?: number;
   /** Process-unique Worker ID; defaults to host identity plus eight random base32 characters. Use a new ID after every restart. Values contain 1-63 ASCII letters, digits, dots, underscores, or hyphens and cannot equal a registered Flow type. */

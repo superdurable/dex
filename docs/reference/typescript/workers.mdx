@@ -126,7 +126,7 @@ so Dex returns tasks already sent to it without spending an attempt. The
 rejection's gRPC code is **FAILED_PRECONDITION**:
 
 - **waitPullRegistered** rejects with a **PullRegistrationError**, and so does
-  **start** when every stream is rejected before any registers. With
+  **start** when every stream of a slot kind is rejected before any of that kind registers. With
   **stopOnPermanentStreamRejection**, **run** rejects with it after draining.
 - In **pullRegistrationState**, the slot kind's **lastPermanentError** holds the
   gRPC error, and **isReady** is false while no stream of that slot kind is
@@ -139,12 +139,26 @@ rejection's gRPC code is **FAILED_PRECONDITION**:
 | Setting | TypeScript name |
 | --- | --- |
 | Concurrent tasks | **maxConcurrentTasks** |
+| Fewest open slot streams | **minOpenSlots** |
 | Reserved RPC slots | **reservedRpcTasks** |
 | Stop drain timeout | **stopDrainTimeoutMs** |
 | Shutdown | **close** |
+| Slot stream snapshot | **pullSlotStreamState()** |
 
 The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
 has no effect.
+
+Since 1.45.7, **minOpenSlots** below **maxConcurrentTasks** makes the Worker
+adaptive, and **pullSlotStreamState()** returns a snapshot of its slot streams.
+For example, a task limit of 64 with **minOpenSlots** of 8 keeps between 8 and
+64 slot streams, one of them reserved for RPCs.
+See [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams).
+
+Changed in 1.45.7: **start** resolves after one stream of each slot kind has
+registered, as in the other SDKs, instead of after the first stream of any
+kind. A fixed Worker with **maxConcurrentTasks** unset opens one stream first,
+learns **matching.maxConcurrentTasksCap** from its registration, and clamps its
+CPU-count default to the cap with a warning before it opens the other streams.
 
 ## Reserved RPC capacity
 

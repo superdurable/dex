@@ -11,6 +11,7 @@ import { constants as http2Constants, type Http2Stream } from "node:http2";
 import { createRequire } from "node:module";
 import { availableParallelism, hostname } from "node:os";
 import { Duplex } from "node:stream";
+import { debuglog } from "node:util";
 
 import { BinaryReader, WireType } from "@bufbuild/protobuf/wire";
 import {
@@ -43,6 +44,14 @@ import { workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
 import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
+import {
+  PullSlotStreams,
+  defaultReservedRpcTasks,
+  type PullSlotAttempt,
+  type PullSlotStream,
+  type PullSlotStreamHost,
+  type PullSlotStreamState,
+} from "./pull-slot-streams.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { validatePullWorkerTaskQueue } from "./task-queue.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
@@ -56,6 +65,8 @@ class UndecodableTaskFrame {
 }
 
 const grpcJsVersion = readGrpcJsVersion();
+// NODE_DEBUG=dex prints slot stream decisions.
+const debugLog = debuglog("dex");
 
 interface ActiveTask {
   readonly id: string;
@@ -64,9 +75,11 @@ interface ActiveTask {
   readonly deadlineCancellation: DeadlineCancellation | undefined;
 }
 
-interface PollStream {
+interface PollStream extends PullSlotStream {
   readonly queue: string;
   readonly slotKind: PollWorkerSlotKind;
+  // The current attempt in the slot stream state machine.
+  slot: PullSlotAttempt;
   stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse> | undefined;
   task: ActiveTask | undefined;
   retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -77,7 +90,8 @@ interface PollStream {
   resolveHalfClose: (() => void) | undefined;
   isRegistered: boolean;
   hasRecordedResult: boolean;
-  hasPermanentRejectionBeforeStart: boolean;
+  // The permanent rejection of this runner before readiness, cleared when it registers.
+  permanentRejectionBeforeStart: ServiceError | undefined;
   isDisconnected: boolean;
   isHalfClosed: boolean;
   isFinalFrameSent: boolean;
@@ -91,7 +105,7 @@ interface PollStream {
   taskQueueMismatch: ServiceError | undefined;
 }
 
-export class PullWorker {
+export class PullWorker implements PullSlotStreamHost {
   public readonly appWorkerID: string;
   public readonly taskQueue: string;
   public readonly registration: PullRegistration;
@@ -99,10 +113,11 @@ export class PullWorker {
   private readonly hasRefreshableCredential: boolean;
   private readonly flowTypes: readonly string[];
   private readonly registeredFlows: ReadonlyMap<string, RegisteredFlow>;
-  private readonly maxConcurrentTasks: number;
-  private readonly reservedRpcTasks: number;
+  private readonly slots: PullSlotStreams;
+  private readonly shouldWarnRpcCapacity: boolean;
+  private readonly shouldWarnFloorRpcCapacity: boolean;
   private hasWarnedRpcCapacity = false;
-  private hasRegisteredSlot = false;
+  private isReconcileScheduled = false;
   private startupError: Error | undefined;
   private readonly startupWaiters = new Set<{ resolve: () => void; reject: (failure: Error) => void }>();
   private readonly stopDrainTimeoutMs: number;
@@ -121,11 +136,26 @@ export class PullWorker {
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
   ) {
-    this.maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
-    this.reservedRpcTasks = options.reservedRpcTasks ?? (this.maxConcurrentTasks >= 2 ? 1 : 0);
-    if (!Number.isInteger(this.reservedRpcTasks) || this.reservedRpcTasks < 0 || this.reservedRpcTasks >= this.maxConcurrentTasks) {
+    const maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
+    const minOpenSlots = positiveOption(options.minOpenSlots, maxConcurrentTasks, "minOpenSlots");
+    if (minOpenSlots > maxConcurrentTasks) {
+      throw new RangeError(`minOpenSlots ${minOpenSlots} must not exceed maxConcurrentTasks ${maxConcurrentTasks}`);
+    }
+    const reservedRpcTasks = options.reservedRpcTasks ?? defaultReservedRpcTasks(maxConcurrentTasks, minOpenSlots);
+    if (!Number.isInteger(reservedRpcTasks) || reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
       throw new RangeError("reservedRpcTasks must be a nonnegative integer less than maxConcurrentTasks");
     }
+    if (reservedRpcTasks + 1 > minOpenSlots) {
+      throw new RangeError(`minOpenSlots ${minOpenSlots} must be at least reservedRpcTasks ${reservedRpcTasks} plus one Step-and-RPC slot`);
+    }
+    this.shouldWarnRpcCapacity = options.reservedRpcTasks === undefined && maxConcurrentTasks === 1;
+    this.shouldWarnFloorRpcCapacity = options.reservedRpcTasks === undefined && maxConcurrentTasks >= 2 && minOpenSlots === 1;
+    this.slots = new PullSlotStreams({
+      maxConcurrentTasks, minOpenSlots, reservedRpcTasks,
+      isMaxConcurrentTasksExplicit: options.maxConcurrentTasks !== undefined && options.maxConcurrentTasks !== 0,
+      isMinOpenSlotsExplicit: options.minOpenSlots !== undefined && options.minOpenSlots !== 0,
+      isReservedRpcTasksExplicit: options.reservedRpcTasks !== undefined,
+    }, this);
     positiveOption(options.idleStreamsPerQueue, 1, "idleStreamsPerQueue");
     this.stopDrainTimeoutMs = options.stopDrainTimeoutMs === undefined || options.stopDrainTimeoutMs === 0
       ? 30_000 : options.stopDrainTimeoutMs;
@@ -147,7 +177,7 @@ export class PullWorker {
     this.taskQueue = options.taskQueue ?? "";
     validatePullWorkerTaskQueue(this.taskQueue);
     this.registration = new PullRegistration(
-      this.reservedRpcTasks > 0 ? ["STEP_AND_RPC", "RPC_ONLY"] : ["STEP_AND_RPC"],
+      reservedRpcTasks > 0 ? ["STEP_AND_RPC", "RPC_ONLY"] : ["STEP_AND_RPC"],
       this.taskQueue,
     );
     this.client = createWorkerTaskClient(channel, credential);
@@ -158,19 +188,71 @@ export class PullWorker {
     return 0;
   }
 
+  /** The configured reserved RPC slot count, resolved at the first acknowledgement. */
+  public get reservedRpcTasks(): number {
+    return this.slots.reservedRpcTasks;
+  }
+
   public start(): void {
-    if (this.maxConcurrentTasks === 1 && this.options.reservedRpcTasks === undefined && !this.hasWarnedRpcCapacity) {
+    if (!this.hasWarnedRpcCapacity) {
       this.hasWarnedRpcCapacity = true;
-      console.warn("RPCs may wait behind long-running Steps; use maxConcurrentTasks >= 2 or set reservedRpcTasks explicitly");
+      if (this.shouldWarnRpcCapacity) {
+        console.warn("RPCs may wait behind long-running Steps; use maxConcurrentTasks >= 2 or set reservedRpcTasks explicitly");
+      }
+      if (this.shouldWarnFloorRpcCapacity) {
+        console.warn("RPCs may wait behind long-running Steps; minOpenSlots 1 reserves no RPC slot, so use minOpenSlots >= 2 to reserve one");
+      }
+      this.slots.start();
     }
-    this.reconcile();
+  }
+
+  /** Returns an independent snapshot of the slot streams. */
+  public slotStreamState(): PullSlotStreamState {
+    return this.slots.snapshot();
+  }
+
+  public isWorkerStopping(): boolean {
+    return this.isStopping;
+  }
+
+  public hasRegisteredAllSlotKinds(): boolean {
+    return this.registration.hasRegisteredAllSlotKinds;
+  }
+
+  public listSlotStreams(): Iterable<PullSlotStream> {
+    return this.streams;
+  }
+
+  public openSlotRunner(slotKind: PollWorkerSlotKind, attempt: PullSlotAttempt): PullSlotStream {
+    const isRpcOnly = slotKind === PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY;
+    const poll: PollStream = {
+      queue: isRpcOnly ? "RPC_ONLY" : "STEP_AND_RPC", slotKind, slot: attempt,
+      stream: undefined, task: undefined, retryTimer: undefined,
+      halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, halfClosedAtMs: 0, resolveHalfClose: undefined,
+      // A runner holds no call until it opens one, so stop has nothing to close for it.
+      isRegistered: false, hasRecordedResult: true, permanentRejectionBeforeStart: undefined, isDisconnected: true,
+      isHalfClosed: false, isFinalFrameSent: false, hasUnconfirmedFinalOutput: false, http2Streams: [], isDraining: false,
+      isReconnectRequested: false, hasRetriedRejectedToken: false,
+      backoffMs: 100, failure: undefined, taskQueueMismatch: undefined,
+    };
+    this.streams.add(poll);
+    // The runner starts after the state machine finishes its current event, as a Go runner would.
+    queueMicrotask(() => this.runSlotAttempt(poll));
+    return poll;
+  }
+
+  public halfCloseSlotStream(stream: PullSlotStream, shouldCloseNow: boolean): void {
+    const poll = stream as PollStream;
+    poll.isDraining = true;
+    if (shouldCloseNow) this.halfCloseStream(poll);
   }
 
   public async close(): Promise<void> {
     const stopDeadlineMs = this.stopDeadlineMs ??= Date.now() + this.stopDrainTimeoutMs;
     this.isStopping = true;
+    this.slots.stop();
     this.registration.stopped();
-    if (!this.hasRegisteredSlot && this.startupError === undefined) {
+    if (!this.registration.hasRegisteredAllSlotKinds && this.startupError === undefined) {
       const failure = this.registration.permanentError ?? new Error("pull Worker stopped before registration");
       for (const waiter of this.startupWaiters) waiter.reject(failure);
       this.startupWaiters.clear();
@@ -215,31 +297,54 @@ export class PullWorker {
     this.client.close();
   }
 
+  // D13: start resolves once every slot kind has registered, as in the other SDKs.
   public waitStarted(): Promise<void> {
     if (this.startupError !== undefined) return Promise.reject(this.startupError);
-    if (this.hasRegisteredSlot) return Promise.resolve();
+    if (this.registration.hasRegisteredAllSlotKinds) return Promise.resolve();
     if (this.isStopping) return Promise.reject(this.registration.permanentError ?? new Error("pull Worker stopped before registration"));
     return new Promise((resolve, reject) => this.startupWaiters.add({ resolve, reject }));
   }
 
-  private reconcile(): void {
-    if (this.isStopping || this.streams.size > 0) return;
-    for (let slotNumber = 0; slotNumber < this.maxConcurrentTasks; slotNumber++) {
-      const isRpcOnly = slotNumber >= this.maxConcurrentTasks - this.reservedRpcTasks;
-      const poll: PollStream = {
-        queue: isRpcOnly ? "RPC_ONLY" : "STEP_AND_RPC",
-        slotKind: isRpcOnly ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
-          : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
-        stream: undefined, task: undefined, retryTimer: undefined,
-        halfCloseTimer: undefined, keepaliveTimer: undefined, halfClosePromise: undefined, halfClosedAtMs: 0, resolveHalfClose: undefined,
-        isRegistered: false, hasRecordedResult: false, hasPermanentRejectionBeforeStart: false, isDisconnected: false,
-        isHalfClosed: false, isFinalFrameSent: false, hasUnconfirmedFinalOutput: false, http2Streams: [], isDraining: false,
-        isReconnectRequested: false, hasRetriedRejectedToken: false,
-        backoffMs: 100, failure: undefined, taskQueueMismatch: undefined,
-      };
-      this.streams.add(poll);
-      this.openStream(poll);
+  private resolveStartupIfReady(): void {
+    if (!this.registration.hasRegisteredAllSlotKinds) return;
+    for (const waiter of this.startupWaiters) waiter.resolve();
+    this.startupWaiters.clear();
+  }
+
+  // Coalesces wake-ups like Go's wake channel; reconcile re-runs the reopen rule.
+  private signal(): void {
+    if (this.isReconcileScheduled) return;
+    this.isReconcileScheduled = true;
+    queueMicrotask(() => {
+      this.isReconcileScheduled = false;
+      this.slots.reconcile();
+    });
+  }
+
+  // One attempt of a runner: admission after any backoff, then the call and its Register.
+  private runSlotAttempt(poll: PollStream): void {
+    if (this.isStopping || !this.slots.admitRegistration(poll)) {
+      this.exitRunner(poll);
+      return;
     }
+    this.openStream(poll);
+  }
+
+  // A runner without a reopen grant leaves the Worker; a stream closed on purpose never reopens.
+  private exitRunner(poll: PollStream): void {
+    if (poll.retryTimer !== undefined) {
+      clearTimeout(poll.retryTimer);
+      poll.retryTimer = undefined;
+    }
+    this.slots.abandonAttempt(poll);
+    this.streams.delete(poll);
+    this.signal();
+  }
+
+  private takeReopenGrant(poll: PollStream): boolean {
+    const isGranted = poll.slot.isReopenGranted;
+    poll.slot.isReopenGranted = false;
+    return isGranted;
   }
 
   private openStream(poll: PollStream): void {
@@ -279,6 +384,31 @@ export class PullWorker {
     stream.on("end", () => {
       if (poll.stream === stream) this.onStreamClosed(poll);
     });
+    const beforeRegisterSend = this.slots.settings.beforeRegisterSendForTest;
+    if (beforeRegisterSend === undefined) {
+      this.sendSlotRegistration(poll, stream);
+      return;
+    }
+    beforeRegisterSend(poll).then(
+      () => this.sendSlotRegistration(poll, stream),
+      (failure: unknown) => {
+        console.error("Worker task registration test hook failed", failure);
+        this.sendSlotRegistration(poll, stream);
+      },
+    );
+  }
+
+  // Re-checks admission, marks the attempt as sending, and writes the Register in one synchronous block.
+  private sendSlotRegistration(poll: PollStream, stream: ClientDuplexStream<PollWorkerTaskRequest, PollWorkerTaskResponse>): void {
+    if (poll.stream !== stream || poll.isDisconnected) return;
+    if (!this.slots.admitRegistrationForSend(poll)) {
+      // No frame left, so the Server holds nothing for this stream.
+      poll.stream = undefined;
+      poll.isDisconnected = true;
+      stream.cancel();
+      this.exitRunner(poll);
+      return;
+    }
     try {
       this.send(poll, { frame: { $case: "register", value: {
         queue: "",
@@ -297,7 +427,10 @@ export class PullWorker {
   }
 
   private handleFrame(poll: PollStream, response: PollWorkerTaskResponse): void {
-    if (poll.isDisconnected || this.isStopping && poll.task === undefined) return;
+    if (poll.isDisconnected || this.isStopping && poll.task === undefined) {
+      if (response.frame?.$case === "task") this.slots.recordTaskDropped(poll);
+      return;
+    }
     const frame = response.frame;
     if (!poll.isRegistered) {
       if (frame?.$case === "reconnect") {
@@ -310,29 +443,31 @@ export class PullWorker {
           return;
         }
         const limit = frame.value.maxConcurrentTasksPerAppWorker;
-        const isOverLimit = limit !== 0 && limit < this.maxConcurrentTasks;
-        if (!this.hasRegisteredSlot) {
-          if (isOverLimit) {
-            this.failStartup(new Error(`maxConcurrentTasks ${this.maxConcurrentTasks} exceeds Server matching.maxConcurrentTasksCap ${limit}`));
+        const isOverLimit = limit !== 0 && limit < this.slots.maxConcurrentTasks;
+        if (!this.slots.hasCheckedRegistrationLimit) {
+          const failure = this.slots.resolveCeilingAtFirstAcknowledgement(limit);
+          if (failure !== undefined) {
+            this.failStartup(failure);
             return;
           }
-          this.hasRegisteredSlot = true;
-          for (const waiter of this.startupWaiters) waiter.resolve();
-          this.startupWaiters.clear();
-        } else if (isOverLimit) {
+          if (this.slots.reservedRpcTasks === 0) this.registration.removeSlotKind("RPC_ONLY");
+        } else if (isOverLimit && !this.slots.isAdaptive) {
           // Only startup fails; a running Worker keeps its slots and lets Dex reject extra streams.
-          console.warn(`maxConcurrentTasks ${this.maxConcurrentTasks} exceeds Server matching.maxConcurrentTasksCap ${limit} after reconnect`);
+          console.warn(`maxConcurrentTasks ${this.slots.maxConcurrentTasks} exceeds Server matching.maxConcurrentTasksCap ${limit} after reconnect`);
         }
         poll.isRegistered = true;
-        poll.hasPermanentRejectionBeforeStart = false;
+        poll.permanentRejectionBeforeStart = undefined;
         this.registration.registered(poll.queue);
         poll.backoffMs = 100;
         poll.hasRetriedRejectedToken = false;
-        this.reconcile();
+        this.resolveStartupIfReady();
+        this.rejectStartupIfSlotKindRejected();
+        this.slots.recordRegistered(poll, limit);
+        this.signal();
       } else {
         console.error("Worker task stream did not register");
         this.closeStream(poll);
-        this.scheduleReconnect(poll);
+        this.afterStreamEnded(poll);
       }
       return;
     }
@@ -357,11 +492,9 @@ export class PullWorker {
       case "reconnect":
         poll.isDraining = true;
         poll.isReconnectRequested = true;
-        if (poll.task === undefined) {
-          this.halfCloseStream(poll);
-        } else {
-          this.reconcile();
-        }
+        this.slots.recordReconnectRequested(poll);
+        if (poll.task === undefined) this.halfCloseStream(poll);
+        this.signal();
         break;
       default:
         break;
@@ -382,7 +515,10 @@ export class PullWorker {
   }
 
   private startTask(poll: PollStream, task: PollWorkerTask): void {
-    if (this.isStopping || poll.isDisconnected || poll.isHalfClosed || poll.isDraining) return;
+    if (this.isStopping || poll.isDisconnected || poll.isHalfClosed || poll.isDraining) {
+      this.slots.recordTaskDropped(poll);
+      return;
+    }
     const runningTask = poll.task;
     if (runningTask !== undefined) {
       if (poll.isFinalFrameSent) {
@@ -426,7 +562,8 @@ export class PullWorker {
     poll.task = { id: task.taskId, controller, completion, deadlineCancellation };
     this.activeTasks.add(completion);
     this.busyTaskCount++;
-    this.reconcile();
+    this.slots.recordTaskStarted(poll);
+    this.signal();
   }
 
   private unknownTaskReason(task: PollWorkerTask): PollWorkerTaskRejectReason | undefined {
@@ -517,12 +654,14 @@ export class PullWorker {
     poll.isFinalFrameSent = false;
     this.activeTasks.delete(task.completion);
     this.busyTaskCount--;
+    // A surplus stream is marked draining, so it half-closes below instead of staying idle.
+    this.slots.recordTaskCompleted(poll, poll.isDraining);
     if (poll.isDisconnected) {
-      if (!this.isStopping) this.scheduleReconnect(poll);
+      this.afterStreamEnded(poll);
     } else if (this.isStopping || poll.isDraining) {
       this.halfCloseStream(poll);
     }
-    this.reconcile();
+    this.signal();
   }
 
   private sendTaskFrame(poll: PollStream, frame: PollWorkerTaskFrame): void {
@@ -566,7 +705,7 @@ export class PullWorker {
     const failure = new Error(`cannot find the HTTP/2 stream below @grpc/grpc-js ${grpcJsVersion}; `
       + "this SDK supports @grpc/grpc-js ~1.14.4 and refuses the slot because it could not reset it safely");
     console.error("Worker task stream reset hook unavailable", failure);
-    if (this.hasRegisteredSlot) {
+    if (this.slots.hasCheckedRegistrationLimit) {
       // The slot is idle and unregistered, so a clean half-close cannot drop a started task.
       this.halfCloseStream(poll);
     } else {
@@ -582,8 +721,7 @@ export class PullWorker {
     poll.isDisconnected = true;
     this.resetStream(poll);
     poll.task?.controller.abort();
-    if (this.isStopping) return;
-    if (poll.task === undefined) this.scheduleReconnect(poll);
+    this.afterStreamEnded(poll);
   }
 
   private onStreamClosed(poll: PollStream): void {
@@ -597,7 +735,7 @@ export class PullWorker {
     poll.isDisconnected = true;
     // grpc-js may answer a Server-ended call with a clean end; Dex already treats its assignment as disconnected.
     poll.task?.controller.abort();
-    if (!this.isStopping && poll.task === undefined) this.scheduleReconnect(poll);
+    this.afterStreamEnded(poll);
   }
 
   private halfCloseStream(poll: PollStream): void {
@@ -642,16 +780,27 @@ export class PullWorker {
     poll.resolveHalfClose = undefined;
     poll.halfClosePromise = undefined;
     poll.stream = undefined;
-    if (!this.isStopping) this.scheduleReconnect(poll);
+    this.afterStreamEnded(poll);
   }
 
-  private scheduleReconnect(poll: PollStream): void {
-    if (this.isStopping || poll.retryTimer !== undefined) return;
+  // Continues a runner after its stream ended and its handler returned; only a reopen grant reopens it.
+  private afterStreamEnded(poll: PollStream): void {
+    if (this.isStopping || poll.retryTimer !== undefined || poll.task !== undefined) return;
+    if (poll.slot.isSoftRejected) {
+      // A soft rejection waits for another registered stream to end or for the next shrink window.
+      debugLog("Worker task stream reached the Server stream limit queue=%s", poll.queue);
+      this.exitRunner(poll);
+      return;
+    }
     if (poll.isReconnectRequested) poll.backoffMs = 100;
     const failure = poll.failure;
     if (failure?.code === status.UNAUTHENTICATED && this.hasRefreshableCredential && !poll.hasRetriedRejectedToken) {
+      if (!this.takeReopenGrant(poll)) {
+        this.exitRunner(poll);
+        return;
+      }
       poll.hasRetriedRejectedToken = true;
-      queueMicrotask(() => this.openStream(poll));
+      queueMicrotask(() => this.runSlotAttempt(poll));
       return;
     }
     let delayMs: number;
@@ -676,48 +825,65 @@ export class PullWorker {
       delayMs = poll.backoffMs + Math.floor(Math.random() * poll.backoffMs / 2);
       poll.backoffMs = Math.min(poll.backoffMs * 2, 5_000);
     }
+    if (!this.takeReopenGrant(poll)) {
+      this.exitRunner(poll);
+      return;
+    }
     poll.retryTimer = setTimeout(() => {
       poll.retryTimer = undefined;
       poll.hasRetriedRejectedToken = false;
-      this.openStream(poll);
+      this.runSlotAttempt(poll);
     }, delayMs);
   }
 
+  // Ends the stream's attempt once; a soft rejection (F5) is not recorded as a permanent error.
   private recordStreamResult(poll: PollStream): void {
     if (poll.hasRecordedResult) return;
     poll.hasRecordedResult = true;
     const failure = poll.taskQueueMismatch ?? poll.failure;
-    const isPermanent = failure !== undefined && (failure === poll.taskQueueMismatch || [
+    const isSoftRejection = !this.isStopping && failure !== undefined && failure !== poll.taskQueueMismatch
+      && this.slots.isSoftRejection(poll, failure.code);
+    const isPermanent = !isSoftRejection && failure !== undefined && (failure === poll.taskQueueMismatch || [
       status.INVALID_ARGUMENT, status.RESOURCE_EXHAUSTED, status.UNIMPLEMENTED,
       status.PERMISSION_DENIED, status.UNAUTHENTICATED,
     ].includes(failure.code) && !(failure.code === status.UNAUTHENTICATED
       && this.hasRefreshableCredential && !poll.hasRetriedRejectedToken));
     const isRejected = this.registration.ended(poll.queue, poll.isRegistered, isPermanent ? failure : undefined);
     poll.isRegistered = false;
-    if (isPermanent && !this.hasRegisteredSlot) {
-      poll.hasPermanentRejectionBeforeStart = true;
-      this.rejectStartupIfEveryStreamRejected(failure);
+    if (isSoftRejection) this.slots.recordRegistrationRejected(poll);
+    if (isPermanent && !this.registration.hasRegisteredAllSlotKinds) {
+      poll.permanentRejectionBeforeStart = failure;
+      this.rejectStartupIfSlotKindRejected();
     }
     if (isRejected && this.options.stopOnPermanentStreamRejection === true && !this.isStopping) {
       queueMicrotask(this.onPermanentRejection);
     }
+    this.slots.recordStreamEnded(poll);
   }
 
-  private rejectStartupIfEveryStreamRejected(lastFailure: ServiceError): void {
-    if (this.startupWaiters.size === 0) return;
-    for (const poll of this.streams) {
-      if (!poll.hasPermanentRejectionBeforeStart) return;
+  // Start fails when every stream of a slot kind was rejected, once no first acknowledgement can fail it instead.
+  private rejectStartupIfSlotKindRejected(): void {
+    if (this.startupWaiters.size === 0 || this.registration.hasRegisteredAllSlotKinds) return;
+    const streams = [...this.streams];
+    const isEveryStreamRejected = streams.every((poll) => poll.permanentRejectionBeforeStart !== undefined);
+    if (!isEveryStreamRejected && !this.slots.hasCheckedRegistrationLimit) return;
+    for (const queue of ["STEP_AND_RPC", "RPC_ONLY"]) {
+      const rejections = streams.filter((poll) => poll.queue === queue).map((poll) => poll.permanentRejectionBeforeStart);
+      const lastRejection = rejections[rejections.length - 1];
+      if (lastRejection === undefined || rejections.some((rejection) => rejection === undefined)) continue;
+      const failure = this.registration.permanentError
+        ?? new PullRegistrationError(queue, lastRejection, this.taskQueue);
+      for (const waiter of this.startupWaiters) waiter.reject(failure);
+      this.startupWaiters.clear();
+      return;
     }
-    const failure = this.registration.permanentError
-      ?? new PullRegistrationError("STEP_AND_RPC", lastFailure, this.taskQueue);
-    for (const waiter of this.startupWaiters) waiter.reject(failure);
-    this.startupWaiters.clear();
   }
 
   private failStartup(failure: Error): void {
     this.startupError = failure;
     this.stopDeadlineMs ??= Date.now() + this.stopDrainTimeoutMs;
     this.isStopping = true;
+    this.slots.stop();
     this.registration.stopped(failure);
     for (const waiter of this.startupWaiters) waiter.reject(failure);
     this.startupWaiters.clear();
