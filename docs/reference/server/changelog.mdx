@@ -8,6 +8,18 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.35 {#v0-1-35}
+
+Released 2026-11-18 as [server-zd/v0.1.35](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.35).
+
+### Added
+
+- **lease.renewalAttemptTimeout** sets how long one node lease renewal attempt may run while a retry still fits. Unset, the default, it stays one sixth of **lease.duration**, from 1 to 5 seconds. It must be positive and at most one third of **lease.duration**. [Reference](/reference/server/high-availability#lease)
+
+### Fixed
+
+- **dex-server-zd dev** keeps its node lease through slower renewal writes on a busy machine. Its **lease.duration** now defaults to 90 seconds instead of 30, and **lease.renewalAttemptTimeout** to 20 seconds. A renewal write may take up to 20 seconds, and a cut-off write is retried once within the about 60 seconds before the lease ends. A log write still stops the node when object storage does not accept it within 10 seconds. An override file that sets **lease.duration** keeps that value and the derived renewal attempt timeout. **dex-server-zd local** and **serve** keep their lease defaults. [Reference](/reference/server/high-availability#lease)
+
 ## 0.1.34 {#v0-1-34}
 
 Released 2026-11-16 as [server-zd/v0.1.34](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.34).
