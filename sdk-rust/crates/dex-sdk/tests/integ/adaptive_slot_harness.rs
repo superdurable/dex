@@ -1014,6 +1014,8 @@ impl Service<http::Request<Body>> for FlowServicePassthrough {
 /// Holds node slots under another app Worker ID and retakes any freed slot at once.
 pub(crate) struct PullSlotCompetitor {
     held: Arc<Mutex<HashMap<u64, watch::Sender<bool>>>>,
+    /// When each held stream ended by itself, not through close_one_stream or stop.
+    lost: Arc<Mutex<Vec<Instant>>>,
     stop: watch::Sender<bool>,
     loops: Vec<JoinHandle<()>>,
     runtime: Arc<Runtime>,
@@ -1033,6 +1035,7 @@ impl PullSlotCompetitor {
                 .connect_lazy()
         };
         let held = Arc::new(Mutex::new(HashMap::new()));
+        let lost = Arc::new(Mutex::new(Vec::new()));
         let (stop, stopped) = watch::channel(false);
         let next_id = Arc::new(Mutex::new(0_u64));
         let loops = (0..loops)
@@ -1040,6 +1043,7 @@ impl PullSlotCompetitor {
                 let competitor_loop = CompetitorLoop {
                     client: WorkerTaskServiceClient::new(channel.clone()),
                     held: Arc::clone(&held),
+                    lost: Arc::clone(&lost),
                     next_id: Arc::clone(&next_id),
                     app_worker_id: app_worker_id.to_string(),
                     stopped: stopped.clone(),
@@ -1049,6 +1053,7 @@ impl PullSlotCompetitor {
             .collect();
         Self {
             held,
+            lost,
             stop,
             loops,
             runtime: Arc::clone(runtime),
@@ -1057,6 +1062,17 @@ impl PullSlotCompetitor {
 
     pub(crate) fn held_streams(&self) -> usize {
         self.held.lock().expect("competitor lock").len()
+    }
+
+    /// Returns when held streams ended by themselves at or after `since`.
+    pub(crate) fn losses_since(&self, since: Instant) -> Vec<Instant> {
+        self.lost
+            .lock()
+            .expect("competitor loss lock")
+            .iter()
+            .filter(|lost_at| **lost_at >= since)
+            .copied()
+            .collect()
     }
 
     /// Ends one held stream; its loop re-registers into the freed slot at once.
@@ -1087,6 +1103,7 @@ impl Drop for PullSlotCompetitor {
 struct CompetitorLoop {
     client: WorkerTaskServiceClient<Channel>,
     held: Arc<Mutex<HashMap<u64, watch::Sender<bool>>>>,
+    lost: Arc<Mutex<Vec<Instant>>>,
     next_id: Arc<Mutex<u64>>,
     app_worker_id: String,
     stopped: watch::Receiver<bool>,
@@ -1095,7 +1112,12 @@ struct CompetitorLoop {
 impl CompetitorLoop {
     async fn run(mut self) {
         while !*self.stopped.borrow() {
+            let losses = self.lost.lock().expect("competitor loss lock").len();
             self.register_and_hold().await;
+            if self.lost.lock().expect("competitor loss lock").len() > losses {
+                // A stream that ended by itself left a free slot: retake it without a pause.
+                continue;
+            }
             tokio::select! {
                 () = tokio::time::sleep(Duration::from_millis(1)) => {}
                 _ = wait_until_true(&mut self.stopped) => return,
@@ -1143,25 +1165,32 @@ impl CompetitorLoop {
             .lock()
             .expect("competitor lock")
             .insert(held_id, close);
-        loop {
+        let is_lost = loop {
             tokio::select! {
                 response = responses.message() => {
                     match response {
                         Ok(Some(PollWorkerTaskResponse { frame: Some(ResponseFrame::Ping(_)) })) => {
                             let pong = PollWorkerTaskRequest { frame: Some(RequestFrame::Pong(PollWorkerTaskPong {})) };
                             if sender.send(pong).await.is_err() {
-                                break;
+                                break true;
                             }
                         }
                         Ok(Some(_)) => {}
-                        Ok(None) | Err(_) => break,
+                        Ok(None) | Err(_) => break true,
                     }
                 }
-                _ = wait_until_true(&mut closed) => break,
-                _ = wait_until_true(&mut self.stopped) => break,
+                _ = wait_until_true(&mut closed) => break false,
+                _ = wait_until_true(&mut self.stopped) => break false,
             }
-        }
+        };
         self.held.lock().expect("competitor lock").remove(&held_id);
+        if is_lost {
+            // The loop re-registers at once; the test still learns that the slot was free.
+            self.lost
+                .lock()
+                .expect("competitor loss lock")
+                .push(Instant::now());
+        }
     }
 }
 

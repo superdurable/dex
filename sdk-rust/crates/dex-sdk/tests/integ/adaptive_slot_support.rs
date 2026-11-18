@@ -156,7 +156,7 @@ impl AdaptiveSlotWorkerRun {
     }
 
     /// Panics when the Worker lost readiness, recorded a permanent error, or Start returned.
-    pub(crate) fn require_no_permanent_registration_error(&mut self) {
+    pub(crate) fn require_no_permanent_registration_error(&self) {
         let registration = self.worker.pull_registration_state();
         assert!(registration.is_ready, "readiness dropped: {registration:?}");
         for queue in &registration.queues {
@@ -170,7 +170,6 @@ impl AdaptiveSlotWorkerRun {
         if self.result.is_none()
             && let Ok(result) = self.started.try_recv()
         {
-            self.result = Some(result.clone());
             panic!("Start returned during a soft rejection: {result:?}");
         }
     }

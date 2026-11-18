@@ -205,7 +205,7 @@ fn adaptive_slot_streams_soft_rejection_at_node_limit() {
     let handlers = AdaptiveSlotHandlers::new(false);
     let app_worker_id = app_worker_id("adaptive-limit");
     let window = 2 * SECOND;
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
@@ -281,7 +281,7 @@ fn adaptive_slot_streams_floor_retry_latch() {
     let handlers = AdaptiveSlotHandlers::new(false);
     let app_worker_id = app_worker_id("adaptive-latch");
     let window = SECOND;
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
@@ -308,57 +308,103 @@ fn adaptive_slot_streams_floor_retry_latch() {
     require_slot_state(&run, "the reset stream ended", 5 * SECOND, |state| {
         state.open - state.registering == 1
     });
+    // The checks of the full node hold while the competitor holds every slot but the Worker's.
+    // A competitor stream that ends by itself frees a slot that the Worker may fill legitimately.
+    let has_filled_lost_slot = || {
+        let state = run.state();
+        state.open - state.registering == 2 && !competitor.losses_since(since).is_empty()
+    };
+    let describe = || {
+        format!(
+            "{:?} competitor_held={} competitor_losses={:?}\n{}",
+            run.state(),
+            competitor.held_streams(),
+            competitor.losses_since(since),
+            proxy.describe(&app_worker_id)
+        )
+    };
     // One reconnect after the reset, then one retry per window: wait for three window retries.
     let violation = Mutex::new(String::new());
     assert!(
         eventually(6 * window, || {
+            if has_filled_lost_slot() {
+                return true;
+            }
             let state = run.state();
             if state.open - state.registering > 1 || !run.worker.pull_registration_state().is_ready
             {
                 *violation.lock().expect("violation lock") = format!(
-                    "a stream registered at the node limit, or readiness dropped: {state:?}"
+                    "a stream registered at the node limit, or readiness dropped: {}",
+                    describe()
                 );
                 return true;
             }
             step_events(&proxy.registers_since(&app_worker_id, since)).len() >= 4
         }),
-        "the Worker did not retry at each window\n{}",
-        proxy.describe(&app_worker_id)
+        "the Worker did not retry at each window: {}",
+        describe()
     );
     assert_eq!("", *violation.lock().expect("violation lock"));
-    let registers = step_events(&proxy.registers_since(&app_worker_id, since));
-    for pair in registers[1..].windows(2) {
-        assert!(
-            pair[1].at.duration_since(pair[0].at) >= window * 8 / 10,
-            "a Register followed a rejected stream's end at once\n{}",
-            proxy.describe(&app_worker_id)
-        );
-    }
-    assert_eq!(1, proxy.registered_streams(&app_worker_id, STEP_AND_RPC));
-    assert!(run.state().grow_rejected_at_cap >= 2);
+    // The latch holds in every case: one Register per window, none at a rejected stream's own end.
+    let require_one_register_per_window = || {
+        let registers = step_events(&proxy.registers_since(&app_worker_id, since));
+        for pair in registers.get(1..).unwrap_or_default().windows(2) {
+            assert!(
+                pair[1].at.duration_since(pair[0].at) >= window * 8 / 10,
+                "a Register followed a rejected stream's end at once: {}",
+                describe()
+            );
+        }
+    };
+    require_one_register_per_window();
+    assert!(run.state().grow_rejected_at_cap >= 1, "{}", describe());
     run.require_no_permanent_registration_error();
 
-    // A competitor stream that ends does not clear this Worker's latch.
-    let before_close = step_events(&proxy.registers_since(&app_worker_id, since));
-    let last_register_before_close = before_close.last().expect("a Register").at;
-    let competitor_closed_at = Instant::now();
-    competitor.close_one_stream();
-    assert!(
-        eventually(3 * window, || !step_events(
-            &proxy.registers_since(&app_worker_id, competitor_closed_at)
-        )
-        .is_empty()),
-        "the Worker stopped retrying at the window: {:?} competitor={}\n{}",
-        run.state(),
-        competitor.held_streams(),
-        proxy.describe(&app_worker_id)
-    );
-    let next_register =
-        step_events(&proxy.registers_since(&app_worker_id, competitor_closed_at))[0].at;
-    assert!(
-        next_register.duration_since(last_register_before_close) >= window * 8 / 10,
-        "the competitor's close triggered a Register"
-    );
+    if !has_filled_lost_slot() {
+        assert_eq!(
+            1,
+            proxy.registered_streams(&app_worker_id, STEP_AND_RPC),
+            "{}",
+            describe()
+        );
+        assert!(run.state().grow_rejected_at_cap >= 2, "{}", describe());
+
+        // A competitor stream that ends does not clear this Worker's latch.
+        let before_close = step_events(&proxy.registers_since(&app_worker_id, since));
+        let last_register_before_close = before_close.last().expect("a Register").at;
+        let competitor_closed_at = Instant::now();
+        competitor.close_one_stream();
+        assert!(
+            eventually(3 * window, || has_filled_lost_slot()
+                || !step_events(
+                    &proxy.registers_since(&app_worker_id, competitor_closed_at)
+                )
+                .is_empty()),
+            "the Worker stopped retrying at the window: {}",
+            describe()
+        );
+        if let Some(next_register) =
+            step_events(&proxy.registers_since(&app_worker_id, competitor_closed_at)).first()
+        {
+            assert!(
+                next_register.at.duration_since(last_register_before_close) >= window * 8 / 10,
+                "the competitor's close triggered a Register: {}",
+                describe()
+            );
+        }
+        require_one_register_per_window();
+    }
+    if has_filled_lost_slot() {
+        // The Worker took a slot that a competitor stream gave up by itself; that fill is a real registration.
+        assert!(
+            eventually(5 * SECOND, || proxy
+                .registered_streams(&app_worker_id, STEP_AND_RPC)
+                == 2),
+            "{}",
+            describe()
+        );
+        run.require_no_permanent_registration_error();
+    }
 
     // When the competitor leaves, the floor comes back within one window.
     competitor.stop();
@@ -631,7 +677,7 @@ fn adaptive_slot_streams_cap_drop_to_one() {
     let proxy = PullSlotProxy::start(&runtime, &server.address);
     let handlers = AdaptiveSlotHandlers::new(true);
     let app_worker_id = app_worker_id("adaptive-drop");
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
@@ -957,7 +1003,7 @@ fn adaptive_slot_streams_failover_during_growth_batch() {
     let proxy = PullSlotProxy::start(&runtime, &server.address);
     let handlers = AdaptiveSlotHandlers::new(false);
     let app_worker_id = app_worker_id("adaptive-growth-failover");
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
@@ -1021,7 +1067,7 @@ fn adaptive_slot_streams_failover_during_shrink_half_close() {
     let proxy = PullSlotProxy::start(&runtime, &server.address);
     let handlers = AdaptiveSlotHandlers::new(false);
     let app_worker_id = app_worker_id("adaptive-shrink-failover");
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
@@ -1167,7 +1213,7 @@ fn adaptive_slot_streams_grant_revoked_after_cap_drop() {
     let mut server = AdaptiveSlotTestServer::start(ServerLimits::cap(8));
     let proxy = PullSlotProxy::start(&runtime, &server.address);
     let app_worker_id = app_worker_id("adaptive-revoke");
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &AdaptiveSlotHandlers::new(false),
@@ -1254,7 +1300,7 @@ fn adaptive_slot_streams_cap_drop_between_admission_and_send() {
     });
     let app_worker_id = app_worker_id("adaptive-barrier");
     let hook_barrier = Arc::clone(&barrier);
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &AdaptiveSlotHandlers::new(false),
@@ -1490,7 +1536,7 @@ fn adaptive_slot_streams_cap_drop_without_orphans() {
         let proxy = PullSlotProxy::start(&runtime, &server.address);
         let handlers = AdaptiveSlotHandlers::new(false);
         let app_worker_id = app_worker_id("adaptive-drop-above");
-        let mut run = AdaptiveSlotWorkerRun::start(
+        let run = AdaptiveSlotWorkerRun::start(
             &runtime,
             &proxy.address,
             &handlers,
@@ -1548,7 +1594,7 @@ fn adaptive_slot_streams_cap_drop_without_orphans() {
     let proxy = PullSlotProxy::start(&runtime, &server.address);
     let handlers = AdaptiveSlotHandlers::new(false);
     let app_worker_id = app_worker_id("adaptive-drop-below");
-    let mut run = AdaptiveSlotWorkerRun::start(
+    let run = AdaptiveSlotWorkerRun::start(
         &runtime,
         &proxy.address,
         &handlers,
