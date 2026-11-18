@@ -348,7 +348,10 @@ fn adaptive_slot_streams_floor_retry_latch() {
             &proxy.registers_since(&app_worker_id, competitor_closed_at)
         )
         .is_empty()),
-        "the Worker stopped retrying at the window"
+        "the Worker stopped retrying at the window: {:?} competitor={}\n{}",
+        run.state(),
+        competitor.held_streams(),
+        proxy.describe(&app_worker_id)
     );
     let next_register =
         step_events(&proxy.registers_since(&app_worker_id, competitor_closed_at))[0].at;
