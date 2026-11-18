@@ -185,6 +185,48 @@ describe('Execution graph Execute decision', () => {
     expect(line.getAttribute('title')).toBe('→ ResumeTurn\n→ CallTool\n→ Audit');
   });
 
+  it('describes the whole decision to the focused Execute button', () => {
+    render(<StepNodeLabel node={nodeWithDecision({
+      nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }, { stepType: 'Audit' }],
+      cancelStepTypes: ['Poll'],
+      closeDecision: { closeDecisionType: 2 },
+    })} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: /^Execute/ });
+    execute.focus();
+    expect(document.activeElement).toBe(execute);
+    const description = document.getElementById(execute.getAttribute('aria-describedby') ?? '');
+    expect(description?.textContent).toBe('→ ResumeTurn; → CallTool; → Audit; Cancel Poll (entire Flow); Graceful complete');
+    expect(screen.getByRole('button', {
+      description: '→ ResumeTurn; → CallTool; → Audit; Cancel Poll (entire Flow); Graceful complete',
+    })).toBe(execute);
+    expect(screen.getByRole('button', { name: 'Execute Graceful complete' })).toBe(execute);
+  });
+
+  it('shows next Steps and lists the cancellation in the description when there is no close decision', () => {
+    render(<StepNodeLabel node={nodeWithDecision({
+      nextSteps: [{ stepType: 'Notify' }],
+      cancelSiblingStepTypes: ['Retry'],
+    })} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute Next Steps Notify' });
+    expect(execute.className).toContain('graph-method-decision-next-steps');
+    expect(screen.getByRole('button', { description: '→ Notify; Cancel Retry (same parent execution)' })).toBe(execute);
+  });
+
+  it('keeps the current status of a Step with WaitFor only and no Execute event yet', () => {
+    const node: StepGraphNode = {
+      id: 'AwaitApproval-1',
+      label: 'AwaitApproval',
+      kind: 'step',
+      status: 'Waiting',
+      waitFor: { eventId: 2, eventTime: null, type: 'StepWaitForCompleted', payload: {} },
+      active: { phase: 'Waiting' } as StepGraphNode['active'],
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute Not started' });
+    expect(execute.getAttribute('aria-describedby')).toBeNull();
+    expect(execute.querySelector('.graph-execute-decision')).toBeNull();
+  });
+
   it('keeps the failure status for a failed Execute', () => {
     const node: StepGraphNode = {
       ...completedNode,

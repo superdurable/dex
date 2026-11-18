@@ -72,6 +72,20 @@ describe('executeDecisionSummary', () => {
     ].join('\n'));
   });
 
+  it('shows next Steps before cancellations when there is no close decision', () => {
+    const summary = executeDecisionSummary(executeCompleted({
+      nextSteps: [{ stepType: 'Notify' }],
+      cancelStepTypes: ['Poll'],
+      closeDecision: { closeDecisionType: 'CLOSE_DECISION_TYPE_UNSPECIFIED' },
+    }));
+    expect(summary).toEqual({
+      kind: 'next-steps',
+      label: 'Notify',
+      hiddenCount: 0,
+      fullText: '→ Notify\nCancel Poll (entire Flow)',
+    });
+  });
+
   it('names cancellations when the decision only cancels', () => {
     const summary = executeDecisionSummary(executeCompleted({ cancelStepTypes: ['Poll'], cancelSiblingStepTypes: ['Retry'] }));
     expect(summary).toMatchObject({ kind: 'cancel', label: 'Cancel Poll, Retry' });
@@ -80,6 +94,9 @@ describe('executeDecisionSummary', () => {
   it('has no summary for an empty decision, an unspecified close type, or a failed Execute', () => {
     expect(executeDecisionSummary(executeCompleted({}))).toBeUndefined();
     expect(executeDecisionSummary(executeCompleted({ closeDecision: { closeDecisionType: 0 } }))).toBeUndefined();
+    expect(executeDecisionSummary(executeCompleted({
+      closeDecision: { closeDecisionType: 'CLOSE_DECISION_TYPE_UNSPECIFIED' },
+    }))).toBeUndefined();
     expect(executeDecisionSummary({ eventId: 3, eventTime: null, type: 'StepExecuteCompleted', payload: {} })).toBeUndefined();
     expect(executeDecisionSummary({
       eventId: 3,

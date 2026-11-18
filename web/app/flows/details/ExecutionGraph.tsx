@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
@@ -308,8 +308,10 @@ function MethodSection({
   isSelected?: boolean;
 }) {
   const decisionClass = decision ? ` graph-method-decision graph-method-decision-${decision.kind}` : '';
+  const decisionDescriptionID = useId();
   return (
     <button
+      aria-describedby={decision ? decisionDescriptionID : undefined}
       aria-pressed={event ? isSelected : undefined}
       className={`graph-method graph-method-${name.toLowerCase()} graph-method-${status.toLowerCase().replace(' ', '-')}${decisionClass}${isSelected ? ' is-selected' : ''} nodrag nopan`}
       disabled={!event}
@@ -323,6 +325,8 @@ function MethodSection({
       {decision
         ? <ExecuteDecisionLine decision={decision} />
         : <strong><StatusIcon status={status} size={13} />{status}</strong>}
+      {/* Hidden text stays out of the button name but still serves as its description. */}
+      {decision && <span hidden id={decisionDescriptionID}>{decision.fullText.split('\n').join('; ')}</span>}
       {children}
     </button>
   );
