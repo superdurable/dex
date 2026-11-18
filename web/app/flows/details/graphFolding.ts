@@ -148,7 +148,7 @@ export function withStepExecutionOpened(
 export interface StepGraphFoldingOptions {
   openIntents: GroupOpenIntents;
   selectedStepExecutionID: string;
-  /** The Step type that anchored Rounds before; kept while it still repeats, so groups stay stable. */
+  /** The Step type that anchored Rounds before; kept while it repeats and is no less uniform, so groups stay stable. */
   preferredAnchorStepType?: string;
   /** The loaded history; its Step and RPC decisions order the Steps each one started. */
   historyEvents?: FlowHistoryEvent[];
@@ -173,7 +173,7 @@ interface FoldingContext {
   stepRuns: FoldedStepRun[];
 }
 
-/** Folds repeated Rounds; each starts at the repeated Step type with the fewest executions. */
+/** Folds repeated Rounds; each starts at the repeated Step type whose Rounds are most uniform in length. */
 export function foldStepGraph(
   nodes: StepGraphNode[],
   edges: StepGraphEdge[],
@@ -346,19 +346,59 @@ export function isLiveStep(node: StepGraphNode): boolean {
     || node.status === 'Active' || node.status === 'Waiting' || node.status === 'Pending';
 }
 
-/** The least-repeated executed Step type, ties to the earliest; a still-repeating preferred type wins. */
+/** How evenly one repeated Step type splits the executed Steps into Rounds. */
+interface RoundAnchorCandidate {
+  stepType: string;
+  /** Executed Step indexes where this type runs; the first is its first execution. */
+  positions: number[];
+  /** Finished Rounds whose Step count equals the most common one. */
+  uniformRoundCount: number;
+  /** Rounds between consecutive executions; the prefix and the open latest Round are left out. */
+  finishedRoundCount: number;
+}
+
+/** The repeated Step type with the most uniform finished Rounds; ties to fewer executions, then the earliest. */
 function roundAnchorStepType(steps: StepGraphNode[], preferredStepType: string): string {
-  const counts = new Map<string, number>();
-  for (const step of steps) {
-    if (!step.isPlanned) counts.set(stepTypeOf(step), (counts.get(stepTypeOf(step)) ?? 0) + 1);
+  const candidates = roundAnchorCandidates(steps.filter((step) => !step.isPlanned));
+  if (candidates.length === 0) return '';
+  const best = candidates.reduce((leader, candidate) => (isBetterRoundAnchor(candidate, leader) ? candidate : leader));
+  const preferred = candidates.find((candidate) => candidate.stepType === preferredStepType);
+  if (preferred && compareUniformity(preferred, best) >= 0) return preferred.stepType;
+  return best.stepType;
+}
+
+/** Every Step type that ran at least twice, in order of first execution, with its Round length uniformity. */
+function roundAnchorCandidates(executedSteps: StepGraphNode[]): RoundAnchorCandidate[] {
+  const positionsByStepType = new Map<string, number[]>();
+  executedSteps.forEach((step, index) => appendToList(positionsByStepType, stepTypeOf(step), index));
+  const candidates: RoundAnchorCandidate[] = [];
+  for (const [stepType, positions] of positionsByStepType) {
+    if (positions.length < 2) continue;
+    const roundCountsByLength = new Map<number, number>();
+    for (let index = 1; index < positions.length; index += 1) {
+      const length = positions[index] - positions[index - 1];
+      roundCountsByLength.set(length, (roundCountsByLength.get(length) ?? 0) + 1);
+    }
+    candidates.push({
+      stepType,
+      positions,
+      uniformRoundCount: Math.max(...roundCountsByLength.values()),
+      finishedRoundCount: positions.length - 1,
+    });
   }
-  if ((counts.get(preferredStepType) ?? 0) > 1) return preferredStepType;
-  let anchorType = '';
-  for (const step of steps) {
-    const count = step.isPlanned ? 0 : counts.get(stepTypeOf(step)) ?? 0;
-    if (count > 1 && (!anchorType || count < (counts.get(anchorType) ?? 0))) anchorType = stepTypeOf(step);
-  }
-  return anchorType;
+  return candidates;
+}
+
+function isBetterRoundAnchor(candidate: RoundAnchorCandidate, leader: RoundAnchorCandidate): boolean {
+  const uniformity = compareUniformity(candidate, leader);
+  if (uniformity !== 0) return uniformity > 0;
+  if (candidate.positions.length !== leader.positions.length) return candidate.positions.length < leader.positions.length;
+  return candidate.positions[0] < leader.positions[0];
+}
+
+/** Compares the uniform shares of finished Rounds exactly, without floating-point division. */
+function compareUniformity(left: RoundAnchorCandidate, right: RoundAnchorCandidate): number {
+  return left.uniformRoundCount * right.finishedRoundCount - right.uniformRoundCount * left.finishedRoundCount;
 }
 
 /** Splits Steps into Rounds at each executed anchor Step; earlier Steps stay outside every Round. */

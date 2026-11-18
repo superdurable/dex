@@ -116,9 +116,50 @@ const agentSession = chain([
   ['AwaitUserMessage', 'Waiting'],
 ]);
 
+// Step types of a real long agent run in execution order, "Step" left off; "!" marks a failed tool call.
+const longAgentRunSequence = `
+  ReceiveRequest AgentDecision CheckIncidents AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision
+  GetPayment AgentDecision GetSubscription AgentDecision GetPayment AgentDecision GetUsage AgentDecision CheckIncidents
+  AgentDecision CheckIncidents AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision CheckIncidents
+  AgentDecision GetUsage AgentDecision GetPayment AgentDecision CheckIncidents AgentDecision GetSubscription AgentDecision
+  CheckIdentity! AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision GetSupportHistory AgentDecision
+  GetPayment AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision CheckIncidents AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetUsage AgentDecision
+  GetPayment AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision CheckIdentity AgentDecision
+  GetPayment AgentDecision GetSupportHistory AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision
+  GetSubscription AgentDecision GetSupportHistory AgentDecision GetPayment! AgentDecision GetUsage AgentDecision
+  CheckIncidents AgentDecision GetUsage AgentDecision GetPayment AgentDecision GetPayment AgentDecision GetSubscription
+  AgentDecision GetSupportHistory AgentDecision GetSubscription AgentDecision CheckIdentity AgentDecision GetUsage
+  AgentDecision CheckIdentity AgentDecision GetUsage AgentDecision GetUsage AgentDecision GetUsage AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision GetUsage AgentDecision GetPayment
+  AgentDecision GetSupportHistory AgentDecision GetUsage AgentDecision CheckIdentity AgentDecision GetSubscription
+  AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision CheckIdentity!
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision GetUsage
+  AgentDecision GetSupportHistory AgentDecision CheckIncidents AgentDecision CheckIdentity AgentDecision GetSupportHistory
+  AgentDecision GetSubscription AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetUsage
+  AgentDecision GetUsage AgentDecision CheckIncidents AgentDecision GetSubscription AgentDecision CheckIncidents
+  AgentDecision GetUsage AgentDecision GetSubscription AgentDecision GetUsage AgentDecision GetPayment AgentDecision
+  CheckIncidents AgentDecision GetUsage AgentDecision CheckIncidents! AgentDecision GetSupportHistory AgentDecision
+  GetSupportHistory AgentDecision GetUsage AgentDecision GetSupportHistory AgentDecision GetUsage AgentDecision GetUsage
+  AgentDecision GetUsage AgentDecision CheckIncidents AgentDecision GetSupportHistory AgentDecision GetPayment
+  AgentDecision GetSubscription AgentDecision CheckIncidents AgentDecision GetPayment AgentDecision CheckIdentity
+  AgentDecision GetSupportHistory AgentDecision CheckIdentity AgentDecision GetSupportHistory! AgentDecision GetPayment
+  AgentDecision GetSupportHistory AgentDecision GetPayment AgentDecision GetSupportHistory AgentDecision GetUsage
+  AgentDecision CheckIdentity AgentDecision GetPayment AgentDecision CheckIdentity AgentDecision GetSubscription
+  AgentDecision CheckIdentity AgentDecision CheckIncidents AgentDecision Guardrail AuditIntent IssueRefund
+  PrepareCustomerMessage SendCustomerMessage CloseCase`;
+
+const longAgentRunSteps: ChainStep[] = longAgentRunSequence.trim().split(/\s+/).map((name) => (
+  name.endsWith('!') ? [`${name.slice(0, -1)}Step`, 'Failed'] : [`${name}Step`]
+));
+const longAgentRun = chain(longAgentRunSteps);
+
 describe('Round anchor', () => {
-  it('anchors on the repeated Step type with the fewest executions, so each agent turn is a Round', () => {
+  it('anchors on the Step type whose Rounds are most uniform, so each agent turn is a Round', () => {
     const folded = foldStepGraph(agentSession.nodes, agentSession.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('AwaitUserMessage');
     expect(shown(folded.items)).toEqual(['__start__', 'StartAgentSession-1', 'RunModel-1', '[Rounds 1–3]', 'AwaitUserMessage-4']);
     const [range, latest] = folded.rounds;
     expect(range).toMatchObject({
@@ -137,7 +178,41 @@ describe('Round anchor', () => {
     ]);
   });
 
-  it('breaks a tie of execution counts toward the earliest Step type', () => {
+  it('anchors a long agent run on its decision Step, though some tools run fewer times', () => {
+    const executionCounts = new Map<string, number>();
+    for (const [stepType] of longAgentRunSteps) executionCounts.set(stepType, (executionCounts.get(stepType) ?? 0) + 1);
+    expect(Object.fromEntries(executionCounts)).toMatchObject({
+      AgentDecisionStep: 127, GetSubscriptionStep: 13, CheckIdentityStep: 19, GetPaymentStep: 21,
+      GetUsageStep: 28, GetSupportHistoryStep: 26, CheckIncidentsStep: 19,
+    });
+    expect(longAgentRunSteps.filter(([, status]) => status === 'Failed')).toHaveLength(5);
+
+    const folded = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('AgentDecisionStep');
+    const finished = folded.rounds.filter((round) => !round.parentKey && !round.isLatest);
+    expect(finished.reduce((total, round) => total + round.roundCount, 0)).toBe(126);
+    for (const round of finished) {
+      expect(round.stepCount).toBe(round.roundCount * 2);
+      expect(round.sequence).toEqual(['AgentDecisionStep', expect.stringMatching(/^(?!AgentDecisionStep)\w+Step$/)]);
+    }
+    expect(finished.filter((round) => round.failedCount > 0).map((round) => [round.roundCount, round.isOpen]))
+      .toEqual(Array.from({ length: 5 }, () => [1, true]));
+    expect(folded.rounds.at(-1)).toMatchObject({ isLatest: true, stepCount: 7, sequence: expect.arrayContaining(['AgentDecisionStep']) });
+  });
+
+  it('prefers a uniform anchor over a less frequent one with uneven Rounds', () => {
+    // Retry's finished Rounds are 2 and 5 Steps long; Fetch's are mostly 1.
+    const graph = chain([
+      ['Fetch'], ['Retry'], ['Fetch'], ['Retry'],
+      ...repeat(4, [['Fetch']]), ['Retry'],
+      ...repeat(5, [['Fetch']]),
+    ]);
+    expect(foldStepGraph(graph.nodes, graph.edges, defaultOptions).anchorStepType).toBe('Fetch');
+  });
+
+  it('breaks a tie of uniformity toward fewer executions, then the earliest Step type', () => {
+    const cron = buildStepGraph(cronScheduleHistory(5, () => 'wait-first'));
+    expect(foldStepGraph(cron.nodes, cron.edges, defaultOptions).anchorStepType).toBe('runCronSchedule');
     const graph = chain(repeat(2, [['A'], ['B']]));
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
     expect(folded.rounds.map((round) => round.title)).toEqual(['Round 1', 'Round 2']);
@@ -311,6 +386,7 @@ describe('Round ranges', () => {
       ['Checkpoint'],
     ]);
     const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('Checkpoint');
     expect(shown(folded.items)).toEqual(['__start__', 'SyncBatch-1', '[Rounds 1–30]', 'Checkpoint-31']);
     expect(folded.rounds[0]).toMatchObject({ stepCount: 300, sequence: ['Checkpoint', 'SyncBatch ×9'], roundRangeLabel: '' });
   });
@@ -415,6 +491,17 @@ describe('Round ranges', () => {
   });
 });
 
+/** The anchor after each Step arrives, each fold preferring the one before, as Live updates do. */
+function growingAnchors(steps: ChainStep[]): string[] {
+  let preferredAnchorStepType = '';
+  return steps.map((_, index) => {
+    const graph = chain(steps.slice(0, index + 1));
+    const { anchorStepType } = foldStepGraph(graph.nodes, graph.edges, { ...defaultOptions, preferredAnchorStepType });
+    if (anchorStepType) preferredAnchorStepType = anchorStepType;
+    return anchorStepType;
+  });
+}
+
 describe('Folding as events arrive', () => {
   it('keeps an opened Round and the selected Step in view when the Round joins a range', () => {
     const before = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['B']]);
@@ -442,13 +529,41 @@ describe('Folding as events arrive', () => {
     expect(kept.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3']);
   });
 
+  it('moves a kept anchor to a more uniform one as a Checkpoint loop grows, then keeps it', () => {
+    const steps: ChainStep[] = [['SyncBatch'], ...repeat(20, [['Checkpoint'], ...repeat(19, [['SyncBatch']])]), ['Checkpoint']];
+    const anchors = growingAnchors(steps);
+    // SyncBatch repeats first; the second Checkpoint finishes a 20-Step Round, more uniform than 18 of 19.
+    expect(anchors.slice(0, 3)).toEqual(['', '', 'SyncBatch']);
+    const switchedAt = anchors.indexOf('Checkpoint');
+    expect(steps.slice(0, switchedAt + 1).filter(([stepType]) => stepType === 'Checkpoint')).toHaveLength(2);
+    expect(anchors.slice(switchedAt).every((anchor) => anchor === 'Checkpoint')).toBe(true);
+  });
+
+  it('keeps the agent decision anchor at every point of a long agent run', () => {
+    const anchors = growingAnchors(longAgentRunSteps);
+    const firstAnchored = anchors.findIndex(Boolean);
+    expect(anchors.slice(firstAnchored).every((anchor) => anchor === 'AgentDecisionStep')).toBe(true);
+  });
+
+  it('keeps a preferred anchor when another Step type is as uniform', () => {
+    const graph = chain(repeat(4, [['A'], ['B']]));
+    expect(foldStepGraph(graph.nodes, graph.edges, defaultOptions).anchorStepType).toBe('A');
+    const kept = foldStepGraph(graph.nodes, graph.edges, { ...defaultOptions, preferredAnchorStepType: 'B' });
+    expect(kept.anchorStepType).toBe('B');
+    // B's finished Rounds are 1, 1, 2, 2 Steps long; A's are 4, 2, 2.
+    const lessUniform = chain([['A'], ['B'], ['B'], ['B'], ['A'], ['B'], ['A'], ['B'], ['A']]);
+    const replaced = foldStepGraph(lessUniform.nodes, lessUniform.edges, { ...defaultOptions, preferredAnchorStepType: 'B' });
+    expect(replaced.anchorStepType).toBe('A');
+  });
+
   it('never anchors Rounds on planned Steps and still shows them', () => {
     const graph = chain([['A'], ['B'], ['B'], ['A'], ['B'], ['A'], ['B']]);
     const planned = [0, 1].map((index): StepGraphNode => ({
       id: `__planned:99:${index}`, label: 'C', kind: 'step', status: 'Pending', stepType: 'C', isPlanned: true, fromStepExecutionId: 'B-4',
     }));
     const folded = foldStepGraph([...graph.nodes, ...planned], graph.edges, defaultOptions);
-    expect(folded.anchorStepType).toBe('A');
+    // B's finished Rounds are 1, 2, 2 Steps long; A's are 3, 2.
+    expect(folded.anchorStepType).toBe('B');
     expect(folded.items.map((item) => item.id)).toEqual(expect.arrayContaining(['__planned:99:0', '__planned:99:1']));
   });
 
