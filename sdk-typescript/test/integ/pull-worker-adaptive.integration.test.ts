@@ -680,6 +680,8 @@ test("adaptive Worker keeps working and closes while one Register is blocked", {
   assert.ok(hasClosed, "close did not finish while a Register was blocked");
   assert.ok(Date.now() - closeStartedAtMs < 10_000, `close took ${Date.now() - closeStartedAtMs} ms`);
   assert.equal(await run.awaitRunResult(10_000), undefined);
+  // Close resets the held stream; it must not linger and register after a later release.
+  await eventually(() => proxy.heldStepRegisters() === 0, 5_000, () => `close left the held stream open:\n${proxy.describe(appWorkerID)}`);
 });
 
 // Design Test 7 for a cap above and below the floor.
