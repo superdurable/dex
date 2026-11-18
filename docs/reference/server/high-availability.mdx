@@ -14,9 +14,13 @@ The node holds a lease object in object storage. **lease.duration** defaults to
 **dex-server-zd dev** defaults **lease.duration** to 90 seconds and
 **lease.renewalAttemptTimeout** to 20 seconds, unless its override file sets
 **lease.duration**. A dev node has no standby, so the longer lease costs no
-failover time. It lets the node survive host stalls and slow local storage
-writes of about a minute, as on a busy development machine. Changed in 0.1.35:
-the dev defaults were a 30-second lease and the derived renewal attempt timeout.
+failover time. Renewal starts 30 seconds after the last one and has about 60
+seconds before the lease ends. A renewal write may take up to 20 seconds. A
+write cut off after 20 seconds is retried once, and that retry may use the
+rest of the 60 seconds. A renewal that takes longer still stops the node. Log
+writes keep their own 10-second limit, described below, so a longer stall can
+still stop a dev node. Changed in 0.1.35: the dev defaults were a 30-second
+lease and the derived renewal attempt timeout.
 
 A dev node holds an exclusive lock on **dev.lock** in its data directory, so a
 second dev process on that directory fails to start. While a dev node holds the
