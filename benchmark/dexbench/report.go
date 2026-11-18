@@ -162,6 +162,10 @@ func settingsLabel(result Result) string {
 	for _, key := range keys {
 		pairs = append(pairs, strings.TrimPrefix(key, "DEXBENCH_ZD_")+"="+result.Config.ServerTunables[key])
 	}
+	// A floor below the per-Worker slots runs adaptive slot streams, so it is a different point.
+	if result.Config.MinOpenSlots > 0 {
+		pairs = append(pairs, fmt.Sprintf("min-open-slots=%d", result.Config.MinOpenSlots))
+	}
 	if len(pairs) == 0 {
 		return "default"
 	}
@@ -235,6 +239,9 @@ func notes(result Result) string {
 	}
 	if result.Config.Connections > 1 {
 		parts = append(parts, fmt.Sprintf("%d connections", result.Config.Connections))
+	}
+	if streams := result.WorkerSlotStreams; streams != nil {
+		parts = append(parts, fmt.Sprintf("%d slot streams at end (%d busy)", streams.Open+streams.RPCOnlyOpen, streams.Busy))
 	}
 	return strings.Join(parts, "; ")
 }

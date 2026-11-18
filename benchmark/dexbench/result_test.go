@@ -43,6 +43,34 @@ func TestReportSortsAndSumsErrors(t *testing.T) {
 	}
 }
 
+func TestReportSeparatesAdaptiveSlotPoints(t *testing.T) {
+	results := []Result{
+		{Config: Config{Scenario: "sequential-steps", Target: "zd", Concurrency: 64}, Successes: 5, ThroughputUnit: "steps"},
+		{Config: Config{Scenario: "sequential-steps", Target: "zd", Concurrency: 64, MinOpenSlots: 4}, Successes: 6, ThroughputUnit: "steps",
+			WorkerSlotStreams: &WorkerSlotStreams{Open: 12, Busy: 10, Idle: 2}},
+	}
+	got := RenderReport(results)
+	for _, expected := range []string{"| 64 | default |", "| 64 | min-open-slots=4 |", "12 slot streams at end (10 busy)"} {
+		if !strings.Contains(got, expected) {
+			t.Errorf("report is missing %q: %s", expected, got)
+		}
+	}
+}
+
+func TestValidateMinOpenSlots(t *testing.T) {
+	for _, test := range []struct {
+		minOpenSlots, workerPool, connections int
+		isValid                               bool
+	}{
+		{0, 64, 1, true}, {4, 64, 1, true}, {64, 64, 1, true}, {33, 64, 2, false}, {-1, 64, 1, false}, {65, 64, 1, false},
+	} {
+		err := ValidateMinOpenSlots(test.minOpenSlots, test.workerPool, test.connections)
+		if (err == nil) != test.isValid {
+			t.Errorf("ValidateMinOpenSlots(%d, %d, %d) = %v", test.minOpenSlots, test.workerPool, test.connections, err)
+		}
+	}
+}
+
 func TestReportShowsHostCPUPutRateAndInvalidLoadHost(t *testing.T) {
 	result := Result{
 		Config:            Config{Scenario: "sequential-steps", Target: "zd", Concurrency: 64, ServerTunables: map[string]string{"DEXBENCH_ZD_MAX_IN_FLIGHT": "8"}},

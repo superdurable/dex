@@ -35,8 +35,10 @@ type Config struct {
 	WarmupSeconds   float64 `json:"warmup_seconds"`
 	Concurrency     int     `json:"concurrency"`
 	WorkerPool      int     `json:"worker_pool"`
-	Connections     int     `json:"connections,omitempty"`
-	Trial           int     `json:"trial,omitempty"`
+	// MinOpenSlots is each pull Worker's PullWorkerOptions.MinOpenSlots; 0 keeps fixed slots, and a lower value than the per-Worker slots makes it adaptive.
+	MinOpenSlots int `json:"min_open_slots"`
+	Connections  int `json:"connections,omitempty"`
+	Trial        int `json:"trial,omitempty"`
 	// ServerTunables are the server settings this point overrides, as environment names and values.
 	ServerTunables map[string]string `json:"server_tunables,omitempty"`
 	Steps          int               `json:"steps"`
@@ -103,6 +105,16 @@ type Result struct {
 	MeasurementStartedAt  time.Time           `json:"measurement_started_at"`
 	MeasurementEndedAt    time.Time           `json:"measurement_ended_at"`
 	ObjectStore           *ObjectStoreMetrics `json:"object_store,omitempty"`
+	// WorkerSlotStreams sums the pull Workers' slot streams at the end of measurement.
+	WorkerSlotStreams *WorkerSlotStreams `json:"worker_slot_streams,omitempty"`
+}
+
+// WorkerSlotStreams sums PullSlotStreamState over the benchmark's pull Workers.
+type WorkerSlotStreams struct {
+	Open        int `json:"open"`
+	Busy        int `json:"busy"`
+	Idle        int `json:"idle"`
+	RPCOnlyOpen int `json:"rpc_only_open"`
 }
 
 type latencyCollector struct {

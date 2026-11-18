@@ -286,6 +286,7 @@ It takes about 1 hour 45 minutes.
 | `DEXBENCH_SCENARIOS` | all six | Comma-separated scenario or variant names |
 | `DEXBENCH_STEPS` | `10` | Unused; S2 and S3 run long-lived Flows |
 | `DEXBENCH_WORKERS` | `0` | Pull Worker task slots; `0` uses the concurrency |
+| `DEXBENCH_MIN_OPEN_SLOTS` | `0` | `-min-open-slots`: `MinOpenSlots` of each pull Worker; `0` keeps fixed slots, a value below the per-Worker slots runs the same scenarios with adaptive slot streams |
 | `DEXBENCH_CONNECTIONS` | `1` | Client and Worker pairs, each with its own gRPC connections |
 | `DEXBENCH_OUT` | new temporary directory | Result directory |
 | `DEXBENCH_DEXCLI_BINARY` | `dexcli` on `PATH` | The `dexcli` to run |
