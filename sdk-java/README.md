@@ -348,8 +348,10 @@ streams, one batch at a time, when a task takes the last idle one. Every 30
 seconds it half-closes half of the idle surplus above the window's peak busy
 count plus 25% headroom. An adaptive Worker clamps `maxConcurrentTasks` to the
 Server cap with a warning. It treats `RESOURCE_EXHAUSTED` for a growth stream,
-or for a reconnect after readiness, as a soft limit: no permanent error, and at
-most one retry per window. It counts handlers that still run after their stream
+or for a reconnect after readiness, as a soft limit with no permanent error.
+After a soft rejection it waits for another of its registered streams to end, or
+for the next shrink window, before it opens a stream again; while rejections
+continue it grows by at most one batch per window. It counts handlers that still run after their stream
 ended against its capacity, so it never registers a stream for a busy slot.
 `Worker.getPullSlotStreamState()` returns a snapshot of the streams. The state
 machine is specified in `docs/design/adaptive-worker-slot-streams.md`; the

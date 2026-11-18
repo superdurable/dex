@@ -94,9 +94,8 @@ final class PullWorker {
     private final int configuredMaxConcurrentTasks;
     private final boolean isAdaptive;
     private final PullSlotSettings slotSettings;
-    // The slot stream state machine of docs/design/adaptive-worker-slot-streams.md; the monitor guards it.
-    // totalCapacity is C, rpcOnlySlots is R_eff, stepFloor is L, effectiveFloor is L_eff,
-    // effectiveCeiling is E, and growthTarget is G, never above effectiveCeiling.
+    // Slot state machine of the adaptive slot streams design; the monitor guards it.
+    // Fields map to C, R_eff, L, L_eff, E, and G, with G never above E.
     private int totalCapacity;
     private int rpcOnlySlots;
     private int stepFloor;
@@ -120,6 +119,10 @@ final class PullWorker {
     private long streamsShrunk;
     private long growRejectedAtCap;
     private long shrinkRaceDrops;
+    // Unwritten startup Registers and the responses that wait for them.
+    private boolean isOpeningStartupBatch;
+    private int startupRegistersPending;
+    private final List<DeferredResponse> deferredStartupResponses = new ArrayList<DeferredResponse>();
 
     private static final class SlotRegistration {
         private int registeredStreams;
@@ -547,7 +550,10 @@ final class PullWorker {
             return;
         }
         restartShrinkWindow();
+        // A fixed Worker with an explicit ceiling writes every startup Register before it reads an acknowledgement.
+        isOpeningStartupBatch = !isAdaptive && options.isMaxConcurrentTasksExplicit();
         maybeReopenSlotStreams(null);
+        isOpeningStartupBatch = false;
     }
 
     // Applies D4 and F6 at the first acknowledgement; it returns a start failure, or null.
@@ -681,8 +687,7 @@ final class PullWorker {
         return true;
     }
 
-    // Applies F5: only an adaptive Worker softens RESOURCE_EXHAUSTED, and only for a growth stream
-    // or a reconnect after initial readiness that never registered.
+    // F5: adaptive only; an unregistered growth stream or post-readiness reconnect.
     private boolean isSoftSlotRejection(final PullStream stream, final Throwable failure) {
         if (!isAdaptive || failure == null || stream.slot.hasReceivedRegistered
                 || Status.fromThrowable(failure).getCode() != Status.Code.RESOURCE_EXHAUSTED) {
@@ -790,8 +795,7 @@ final class PullWorker {
         recomputeSlotCapacity();
     }
 
-    // Releases capacity above a lowered cap; RPC-only surplus goes first. An attempt whose Register
-    // has not been queued yet is revoked first, because it costs the Server nothing.
+    // Releases capacity above a lowered cap, RPC-only first; unsent attempts are revoked first.
     private void closeSurplusSlotStreams() {
         for (PollWorkerSlotKind slotKind : new PollWorkerSlotKind[] {
                 PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY,
@@ -812,9 +816,7 @@ final class PullWorker {
         }
     }
 
-    // Checks an attempt before its Register is queued. It runs after each backoff and again right
-    // before the Register, because a lower cap may arrive in between. A cap drop after the second
-    // check reaches the Server, which enforces the cap; an adaptive Worker treats that rejection as soft.
+    // Runs after each backoff and right before the Register; the Server enforces any later cap drop.
     private boolean admitSlotRegistration(final PullStream stream) {
         if (isStopping || registrationLimitFailure != null || stream.slot.phase != SlotPhase.REGISTERING
                 || stream.slot.hasEnded) {
@@ -844,7 +846,7 @@ final class PullWorker {
         return stepSlotOpen() > 1 && stepSlotUsage() > effectiveCeiling;
     }
 
-    // Reports surplus of a kind after a lowered cap: RPC-only above R_eff, or Step-and-RPC above C - R_eff.
+    // Surplus after a lowered cap: RPC-only above R_eff, Step-and-RPC above C - R_eff.
     private boolean isSlotKindOverQuota(final PollWorkerSlotKind slotKind) {
         if (slotKind == PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY) {
             return rpcOnlySlotUsage() > rpcOnlySlots;
@@ -896,8 +898,7 @@ final class PullWorker {
         restartShrinkWindow();
     }
 
-    // Opens streams within free capacity in F5 order. A parked runner of the same kind is reused,
-    // so it keeps its reconnect backoff.
+    // Opens streams within free capacity in F5 order, reusing a parked runner for its backoff.
     private void maybeReopenSlotStreams(final PullStream parked) {
         if (isStopping || registrationLimitFailure != null || isReopenDeferred) {
             return;
@@ -926,8 +927,7 @@ final class PullWorker {
         }
     }
 
-    // Counts a new attempt as registering and grants it to parked when possible. A new runner
-    // connects from the timer thread, so no caller opens a call inside its own event.
+    // Grants a new attempt to parked, or starts a runner that connects from the timer thread.
     private void openSlotStream(final PollWorkerSlotKind slotKind, final boolean isGrowth, final PullStream parked) {
         final SlotAttempt attempt = new SlotAttempt(isGrowth, hasRegisteredRequiredSlotKinds);
         if (!isGrowth && parked != null && parked.slotKind == slotKind && !parked.slot.isReopenGranted) {
@@ -939,7 +939,30 @@ final class PullWorker {
         final PullStream stream = new PullStream(slotKind, attempt);
         setSlotPhase(stream, SlotPhase.REGISTERING);
         streams.add(stream);
+        if (isOpeningStartupBatch) {
+            stream.isStartupRegisterPending = true;
+            startupRegistersPending++;
+        }
         stream.scheduleConnect(0L);
+    }
+
+    // Ends one startup Register; the last one delivers the responses that waited (design Test 16).
+    private void completeStartupRegister(final PullStream stream) {
+        if (!stream.isStartupRegisterPending) {
+            return;
+        }
+        stream.isStartupRegisterPending = false;
+        startupRegistersPending--;
+        if (startupRegistersPending > 0) {
+            return;
+        }
+        final List<DeferredResponse> deferred = new ArrayList<DeferredResponse>(deferredStartupResponses);
+        deferredStartupResponses.clear();
+        for (DeferredResponse response : deferred) {
+            if (response.generation == response.stream.openGeneration) {
+                response.stream.onNext(response.response);
+            }
+        }
     }
 
     // Takes an idle stream out of the totals and marks it closing; its later end changes no count.
@@ -1110,6 +1133,8 @@ final class PullWorker {
         private boolean shouldRetryRejectedTokenImmediately;
         private boolean wasSoftRejected;
         private boolean hasExited;
+        // Set while this stream's startup Register is unwritten; acknowledgements wait for every such stream.
+        private boolean isStartupRegisterPending;
         // The current attempt in the slot stream state machine; the PullWorker monitor guards it.
         private SlotAttempt slot;
 
@@ -1165,6 +1190,7 @@ final class PullWorker {
             cancelTask(Status.Code.CANCELLED);
             abandonSlotAttempt(this);
             streams.remove(this);
+            completeStartupRegister(this);
             maybeReopenSlotStreams(null);
             PullWorker.this.notifyAll();
         }
@@ -1195,7 +1221,13 @@ final class PullWorker {
                             @Override
                             public void onNext(final PollWorkerTaskResponse response) {
                                 synchronized (PullWorker.this) {
-                                    if (generation == openGeneration) {
+                                    if (generation != openGeneration) {
+                                        return;
+                                    }
+                                    if (startupRegistersPending > 0) {
+                                        deferredStartupResponses.add(
+                                                new DeferredResponse(PullStream.this, generation, response));
+                                    } else {
                                         PullStream.this.onNext(response);
                                     }
                                 }
@@ -1601,6 +1633,11 @@ final class PullWorker {
                     } else {
                         requireSerializable(write.request);
                         target.requests.onNext(write.request);
+                        if (write.request.hasRegister()) {
+                            synchronized (PullWorker.this) {
+                                completeStartupRegister(this);
+                            }
+                        }
                     }
                 } catch (RuntimeException failure) {
                     synchronized (PullWorker.this) {
@@ -1773,6 +1810,7 @@ final class PullWorker {
                 }
                 wasSoftRejected = isSoftRejection;
                 recordSlotStreamEnded(this);
+                completeStartupRegister(this);
                 closeFailure = failure;
                 if (closeTimer != null) {
                     closeTimer.cancel(false);
@@ -1846,6 +1884,20 @@ final class PullWorker {
 
         private PullConnection(final Context.CancellableContext callContext) {
             this.callContext = callContext;
+        }
+    }
+
+    // A response that arrived during the startup batch, for the call generation that received it.
+    private static final class DeferredResponse {
+        private final PullStream stream;
+        private final int generation;
+        private final PollWorkerTaskResponse response;
+
+        private DeferredResponse(final PullStream stream, final int generation,
+                final PollWorkerTaskResponse response) {
+            this.stream = stream;
+            this.generation = generation;
+            this.response = response;
         }
     }
 

@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,6 +65,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("adaptive-slots")
 final class PullWorkerAdaptiveSlotStreamsTest {
     private static final Duration ONE_HOUR = Duration.ofHours(1);
+    // Blocking calls need their own threads; the common pool can be smaller than an RPC burst.
+    private static final ExecutorService ASYNC_CALLS = Executors.newCachedThreadPool(runnable -> {
+        final Thread thread = new Thread(runnable, "dex-java-adaptive-slot-call");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final Deque<AutoCloseable> cleanups = new ArrayDeque<AutoCloseable>();
 
     @AfterEach
@@ -133,7 +141,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         assertEquals(16, state.getTotalCapacity());
         assertEquals(1, state.getRpcOnlySlots());
 
-        // Test 3: a burst of N long Steps with L < N <= E grows to at least N and at most min(E, 2N).
+        // Test 3: a burst of N long Steps grows S into [N, min(E, 2N)].
         final Client client = newClient(server, run);
         final PullWorkerAdaptiveSlotFlow flow = run.flow;
         final List<String> flowIDs = new ArrayList<String>(
@@ -144,7 +152,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                 current -> current.getBusy() == 5 && current.getRegistering() == 0);
         assertTrue(state.getOpen() >= 5 && state.getOpen() <= 10, state::toString);
 
-        // Test 9: growth up to E keeps the RPC-only stream at R, and an RPC runs while every Step slot is busy.
+        // Test 9: RPC-only streams stay at R, and an RPC runs with every Step slot busy.
         flowIDs.addAll(startFlows(client, flow, PullWorkerAdaptiveSlotHandlers.MODE_BLOCK, 10));
         entries.addAll(handlers.awaitEntries(10));
         requireSlotState(run, "fifteen busy Steps", current -> current.getBusy() == 15 && current.getOpen() == 15
@@ -152,12 +160,12 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireRegisteredStreams(proxy, appWorkerID, 15, 1);
         assertEquals(1, run.worker.getPullSlotStreamState().getRpcOnlyOpen());
         final PullWorkerAdaptiveSlotFlow stub = client.newRpcStub(PullWorkerAdaptiveSlotFlow.class, flowIDs.get(0));
-        assertEquals("ok", CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::getSlotStatus))
+        assertEquals("ok", CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::getSlotStatus), ASYNC_CALLS)
                 .get(5, TimeUnit.SECONDS));
         handlers.release.countDown();
         requireFlowsCompleted(client, flowIDs);
 
-        // Tests 4 and 5: streams return to the floor while short Steps keep arriving, and no Step spends a retry.
+        // Tests 4 and 5: back to the floor under a trickle, and no Step spends a retry.
         final AtomicBoolean isTrickling = new AtomicBoolean(true);
         final CompletableFuture<List<String>> trickle = CompletableFuture.supplyAsync(() -> {
             final List<String> trickleIDs = new ArrayList<String>();
@@ -171,7 +179,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                 }
             }
             return trickleIDs;
-        });
+        }, ASYNC_CALLS);
         eventually("streams back at the floor", Duration.ofSeconds(windowsToFloor(15, 2) + 5L),
                 () -> run.worker.getPullSlotStreamState().getOpen() == 2,
                 () -> run.worker.getPullSlotStreamState().toString());
@@ -185,8 +193,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         assertTrue(state.getStreamsGrown() >= 13, state::toString);
         assertTrue(state.getStreamsShrunk() >= 13, state::toString);
 
-        // Test 11 and invariant 5: the count stays at the floor, and no stream closed on purpose
-        // reopens, for longer than two maximum reconnect backoffs (2 x 7.5 s).
+        // Test 11: no closed stream reopens for over two maximum backoffs (2 x 7.5 s).
         requireRegisteredStreams(proxy, appWorkerID, 2, 1);
         final long since = System.nanoTime();
         never("streams rose above the floor at rest, or a stream closed on purpose registered again",
@@ -210,7 +217,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final int rpcCount = 6;
         final List<CompletableFuture<String>> rpcs = new ArrayList<CompletableFuture<String>>();
         for (int index = 0; index < rpcCount; index++) {
-            rpcs.add(CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::blockUntilReleased)));
+            rpcs.add(CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::blockUntilReleased), ASYNC_CALLS));
         }
         handlers.awaitEntries(rpcCount);
         // E = 7 and R = 1: S + R >= min(N, E + R) and S <= min(E, 2N).
@@ -243,7 +250,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final List<String> flowIDs = startFlows(client, run.flow,
                 PullWorkerAdaptiveSlotHandlers.MODE_BLOCK, 10);
 
-        // 14 + 3 streams leave room for 3: growth reaches S = 5 and a partly rejected batch clamps G to S + H.
+        // Room for 3 more: S reaches 5, and the partly rejected batch clamps G to S + H.
         final PullSlotStreamState state = requireSlotState(run, "growth clamped at the node limit",
                 current -> current.getOpen() == 5 && current.getBusy() == 5 && current.getRegistering() == 0
                         && current.getGrowthTarget() == 5 && current.getGrowRejectedAtCap() > 0);
@@ -502,7 +509,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                 startFlows(restartedClient, flow, PullWorkerAdaptiveSlotHandlers.MODE_QUICK, 2));
         final PullWorkerAdaptiveSlotParkedFlow stub =
                 restartedClient.newRpcStub(PullWorkerAdaptiveSlotParkedFlow.class, parkedID);
-        assertEquals("ok", CompletableFuture.supplyAsync(() -> restartedClient.invokeRPC(stub::getSlotStatus))
+        assertEquals("ok", CompletableFuture.supplyAsync(() -> restartedClient.invokeRPC(stub::getSlotStatus), ASYNC_CALLS)
                 .get(10, TimeUnit.SECONDS));
     }
 
@@ -595,7 +602,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                 current -> current.getOrphanedHandlers() == 3 && current.getOrphanedRpcOnlyHandlers() == 1);
         final long releasedAt = System.nanoTime();
         scenario.handlers.releaseStubborn(scenario.flowIDs.get(0));
-        // The first acknowledgement reveals cap 2 while usage is 4: the Worker registers nothing more until usage drops below 2.
+        // The first acknowledgement reveals cap 2 at usage 4; nothing registers until usage drops below 2.
         eventually("the first acknowledgement after the restart", Duration.ofSeconds(10),
                 () -> scenario.proxy.acknowledgementsSince(appWorkerID, releasedAt).size() == 1);
         final long acknowledgedAt = scenario.proxy.acknowledgementsSince(appWorkerID, releasedAt).get(0).atNanos;
@@ -759,8 +766,80 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireRegisteredStreams(proxy, appWorkerID, 3, 1);
     }
 
-    // Checks F5 for an attempt granted under the old cap: when another stream reports a lower cap
-    // during its backoff, it sends no Register above that cap.
+    // Test 16 ungated: no acknowledgement is processed before the held last startup Register is written.
+    @Test
+    void fixedStartupWritesEveryRegisterBeforeProcessingAnAcknowledgement() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("startup-order", AdaptiveSlotTestServer.Limits.defaults());
+        final PullSlotProxy proxy = startProxy(server);
+        final String appWorkerID = newAppWorkerID("fixed-startup-order");
+        final java.util.concurrent.atomic.AtomicReference<Worker> worker =
+                new java.util.concurrent.atomic.AtomicReference<Worker>();
+        final java.util.concurrent.atomic.AtomicReference<String> violation =
+                new java.util.concurrent.atomic.AtomicReference<String>();
+        final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> {
+            try {
+                eventually("acknowledgements of the first three Registers", Duration.ofSeconds(20),
+                        () -> proxy.acknowledgementsSince(appWorkerID, Long.MIN_VALUE).size() >= 3
+                                && worker.get() != null);
+                never("an acknowledgement was processed before the last startup Register",
+                        Duration.ofMillis(500), () -> {
+                            final PullSlotStreamState state = worker.get().getPullSlotStreamState();
+                            return state.getIdle() != 0 || state.getRegistering() != 3 || state.getRpcOnlyOpen() != 1;
+                        });
+            } catch (Throwable failure) {
+                violation.set(String.valueOf(failure));
+            }
+        });
+        final WorkerRun run = track(startWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                pull(appWorkerID).maxConcurrentTasks(4), new PullSlotSettings(ONE_HOUR, null, lastRegister)));
+        worker.set(run.worker);
+        run.waitRegistered(Duration.ofMinutes(1));
+        eventually("the held Register was written", Duration.ofSeconds(30), () -> lastRegister.writes.get() == 4);
+        assertNull(violation.get());
+        requireRegisteredStreams(proxy, appWorkerID, 3, 1);
+        requireSlotState(run, "every startup stream idle",
+                current -> current.getIdle() == 3 && current.getRpcOnlyOpen() == 1 && current.getRegistering() == 0);
+    }
+
+    // Stop during the startup batch: acknowledgements still wait, and stop cancels the blocked Register.
+    @Test
+    void stopDuringFixedStartupBatch() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("startup-stop", AdaptiveSlotTestServer.Limits.defaults());
+        final PullSlotProxy proxy = startProxy(server);
+        final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
+        final String appWorkerID = newAppWorkerID("fixed-startup-stop");
+        final CountDownLatch blocked = new CountDownLatch(1);
+        final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> {
+            blocked.countDown();
+            // Blocks like a stalled transport until stop cancels the call.
+            while (!callContext.isCancelled()) {
+                try {
+                    TimeUnit.MILLISECONDS.sleep(10L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        });
+        final WorkerRun run = track(startWorker(proxy.address(), handlers,
+                pull(appWorkerID).maxConcurrentTasks(4).stopDrainTimeout(Duration.ofSeconds(1)),
+                new PullSlotSettings(ONE_HOUR, null, lastRegister)));
+        assertTrue(blocked.await(30, TimeUnit.SECONDS), "the last startup Register never started its write");
+        eventually("acknowledgements of the first three Registers", Duration.ofSeconds(20),
+                () -> proxy.acknowledgementsSince(appWorkerID, Long.MIN_VALUE).size() >= 3);
+        assertEquals(0, run.worker.getPullSlotStreamState().getIdle());
+        assertFalse(run.worker.getPullRegistrationState().isReady());
+        final long stopStartedAt = System.nanoTime();
+        CompletableFuture.runAsync(run.worker::stop, ASYNC_CALLS).get(15, TimeUnit.SECONDS);
+        assertTrue(System.nanoTime() - stopStartedAt < TimeUnit.SECONDS.toNanos(10));
+        assertNull(run.awaitStartResult(Duration.ofSeconds(10)));
+        eventually("every server stream ended", Duration.ofSeconds(20),
+                () -> proxy.registeredStreams(appWorkerID, STEP_AND_RPC) == 0
+                        && proxy.registeredStreams(appWorkerID, RPC_ONLY) == 0, () -> proxy.describe(appWorkerID));
+        assertTrue(handlers.drainEntries().isEmpty(), "a handler ran during a stopped startup");
+    }
+
+    // F5: a reconnect granted under the old cap sends no Register above a cap learned meanwhile.
     @Test
     void grantIsRevokedAfterCapDrop() throws Exception {
         final AdaptiveSlotTestServer server = startServer("revoke", AdaptiveSlotTestServer.Limits.cap(8));
@@ -792,7 +871,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireNoPermanentRegistrationError(run);
     }
 
-    // Admission is re-checked before the Register; a cap drop after it gets a Server rejection, soft in adaptive mode.
+    // Admission is re-checked before the Register; a later cap drop meets a soft Server rejection.
     @Test
     void capDropBetweenAdmissionAndSend() throws Exception {
         final AdaptiveSlotTestServer server = startServer("barrier", AdaptiveSlotTestServer.Limits.cap(8));
@@ -818,9 +897,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                 current -> current.getTotalCapacity() == 2);
         final long capKnownAt = System.nanoTime();
         barrier.release();
-        // The two held attempts are re-checked after cap 2 is known: one is revoked and sends nothing.
-        // A Register that passed its re-check just before the cap became known may still meet the cap once;
-        // that rejection is soft, and the latch retries it at the next window.
+        // One held attempt is revoked; a Register re-checked just before may meet the cap once, softly.
         never("a revoked attempt sent a Register, or Registers exceeded the new cap", Duration.ofSeconds(3), () -> {
             final int rejections = proxy.rejectionsSince(appWorkerID, capKnownAt).size();
             return rejections > 1 || stepRegisters(proxy.registersSince(appWorkerID, capKnownAt)).size() > 1 + rejections
@@ -837,8 +914,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireNoPermanentRegistrationError(run);
     }
 
-    // Blocks one Register's transport write. Cap updates and handlers on the other streams must still
-    // progress, and stop must still finish.
+    // A blocked Register write stalls neither the other streams nor stop.
     @Test
     void blockedRegisterSendDoesNotBlockOtherStreamsOrStop() throws Exception {
         final AdaptiveSlotTestServer server = startServer("blocked-send", AdaptiveSlotTestServer.Limits.cap(4));
@@ -861,7 +937,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
 
         // Stop finishes within its drain timeout although one write never returns by itself.
         final long stopStartedAt = System.nanoTime();
-        final CompletableFuture<Void> stopped = CompletableFuture.runAsync(run.worker::stop);
+        final CompletableFuture<Void> stopped = CompletableFuture.runAsync(run.worker::stop, ASYNC_CALLS);
         stopped.get(15, TimeUnit.SECONDS);
         assertTrue(System.nanoTime() - stopStartedAt < TimeUnit.SECONDS.toNanos(10));
         assertNull(run.awaitStartResult(Duration.ofSeconds(10)));
@@ -941,7 +1017,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final List<String> flowIDs = startFlowsConcurrently(client, run.flow,
                 PullWorkerAdaptiveSlotHandlers.MODE_BLOCK, 20);
         handlers.awaitEntries(4);
-        final CompletableFuture<Void> stopped = CompletableFuture.runAsync(run.worker::stop);
+        final CompletableFuture<Void> stopped = CompletableFuture.runAsync(run.worker::stop, ASYNC_CALLS);
         eventually("the Worker is stopping", Duration.ofSeconds(10), () -> isStopping(run.worker));
         // Busy handlers finish during the drain; tasks that never started return without spending a retry.
         handlers.release.countDown();
@@ -1010,7 +1086,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         client.startFlow(run.parked, parkedID, null);
         final PullWorkerAdaptiveSlotParkedFlow stub =
                 client.newRpcStub(PullWorkerAdaptiveSlotParkedFlow.class, parkedID);
-        assertEquals("ok", CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::getSlotStatus))
+        assertEquals("ok", CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::getSlotStatus), ASYNC_CALLS)
                 .get(30, TimeUnit.SECONDS));
     }
 
@@ -1067,7 +1143,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final PullWorkerAdaptiveSlotParkedFlow stub =
                 client.newRpcStub(PullWorkerAdaptiveSlotParkedFlow.class, parkedID);
         final CompletableFuture<String> rpcResult =
-                CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::blockUntilReleased));
+                CompletableFuture.supplyAsync(() -> client.invokeRPC(stub::blockUntilReleased), ASYNC_CALLS);
         final PullWorkerAdaptiveSlotHandlers.Entry entry = flow.handlers().awaitEntries(1).get(0);
         assertEquals("rpc", entry.kind);
         return new OccupiedSlots(flowIDs, rpcResult);
@@ -1115,6 +1191,47 @@ final class PullWorkerAdaptiveSlotStreamsTest {
 
         private void release() {
             released.countDown();
+        }
+    }
+
+    // Runs onHeld on the writer thread before the nth Register write, outside the Worker monitor.
+    private static final class NthRegisterWriteHook implements PullSlotSettings.RequestObserverWrapper {
+        private final int nth;
+        private final java.util.function.Consumer<Context.CancellableContext> onHeld;
+        private final AtomicInteger registers = new AtomicInteger();
+        private final AtomicInteger writes = new AtomicInteger();
+
+        private NthRegisterWriteHook(final int nth,
+                final java.util.function.Consumer<Context.CancellableContext> onHeld) {
+            this.nth = nth;
+            this.onHeld = onHeld;
+        }
+
+        @Override
+        public StreamObserver<PollWorkerTaskRequest> wrap(final StreamObserver<PollWorkerTaskRequest> requests,
+                final Context.CancellableContext callContext) {
+            return new StreamObserver<PollWorkerTaskRequest>() {
+                @Override
+                public void onNext(final PollWorkerTaskRequest request) {
+                    if (request.hasRegister() && registers.incrementAndGet() == nth) {
+                        onHeld.accept(callContext);
+                    }
+                    requests.onNext(request);
+                    if (request.hasRegister()) {
+                        writes.incrementAndGet();
+                    }
+                }
+
+                @Override
+                public void onError(final Throwable failure) {
+                    requests.onError(failure);
+                }
+
+                @Override
+                public void onCompleted() {
+                    requests.onCompleted();
+                }
+            };
         }
     }
 

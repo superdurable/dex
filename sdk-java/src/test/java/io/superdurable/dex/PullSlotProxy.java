@@ -245,8 +245,7 @@ final class PullSlotProxy implements AutoCloseable {
         return copied;
     }
 
-    // Forces the reconnect order of design Test 17: a STEP_AND_RPC Register waits, the RPC_ONLY stream
-    // registers, and the waiting Register reaches the server before the Worker sees that acknowledgement.
+    // Test 17 order: held Step-and-RPC Registers reach the server before the Worker sees the RPC-only ack.
     synchronized void holdStepRegistersUntilRpcOnlyAcknowledged() {
         stepRegisterGate = new StepRegisterGate(true);
     }

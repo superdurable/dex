@@ -171,8 +171,9 @@ public final class PullWorkerOptions {
         /**
          * Sets the number of long-lived execution-slot streams for Step and RPC tasks.
          *
-         * <p>This also sizes the Worker's handler pool. Worker start fails when this exceeds
-         * the Server's per-Worker limit, matching.maxConcurrentTasksCap. Every received task
+         * <p>This also sizes the Worker's handler pool. Worker start fails when a fixed Worker with
+         * an explicit maxConcurrentTasks exceeds the Server's per-Worker limit,
+         * matching.maxConcurrentTasksCap. Every received task
          * executes without a capacity rejection. The server limit defaults to 256. Lower this
          * option or raise the server limit before starting the Worker; this failure is not retried
          * in the background. Budget server matching.maxStreams for the sum of Worker slots,
@@ -240,8 +241,10 @@ public final class PullWorkerOptions {
          * spending a Step retry, and the Server dispatches it again. When the Server rejects a
          * stream at its stream limit with RESOURCE_EXHAUSTED, an adaptive Worker treats the
          * rejection of a growth stream, or of a reconnect after readiness, as a soft limit. It
-         * records no {@link PullRegistrationError} for it and retries at most once per 30 seconds.
-         * Use {@link Worker#getPullSlotStreamState()} to observe the streams.
+         * records no {@link PullRegistrationError} for it. After a soft rejection the Worker waits
+         * for another of its registered streams to end, or for the next 30-second shrink window,
+         * before it opens a stream again. While rejections continue, it grows by at most one batch
+         * per window. Use {@link Worker#getPullSlotStreamState()} to observe the streams.
          *
          * <p>{@link #build()} throws unless
          * {@code reservedRpcTasks + 1 <= minOpenSlots <= maxConcurrentTasks}, using the resolved
