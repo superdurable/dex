@@ -201,6 +201,7 @@ func run(args []string) error {
 	flags.Float64Var(&config.TimeoutSeconds, "timeout", 30, "timeout seconds per operation")
 	flags.StringVar(&concurrencyValues, "concurrency", "1,8,32,128", "comma-separated concurrent client counts")
 	flags.IntVar(&config.WorkerPool, "workers", 0, "pull Worker task pool size; defaults to concurrency")
+	flags.IntVar(&config.MinOpenSlots, "min-open-slots", 0, "PullWorkerOptions.MinOpenSlots of each pull Worker; 0 keeps fixed slots, a value below the per-Worker slots runs adaptive slot streams")
 	flags.IntVar(&config.Steps, "steps", 10, "unused: sequential-steps runs a long-lived chain per client; kept so existing scripts still parse")
 	flags.IntVar(&config.Connections, "connections", 1, "Client and Worker pairs, each with its own gRPC connections; clients are spread round-robin")
 	flags.IntVar(&config.Trial, "trial", 0, "trial number of a repeated point; 0 when not repeated")
@@ -234,6 +235,20 @@ func run(args []string) error {
 	}
 	if config.Connections < 1 {
 		return fmt.Errorf("connections must be positive")
+	}
+	// Every point is checked before the first one runs, so a bad floor fails at once.
+	for _, requestedConcurrency := range strings.Split(concurrencyValues, ",") {
+		concurrency, err := strconv.Atoi(strings.TrimSpace(requestedConcurrency))
+		if err != nil || concurrency < 1 {
+			return fmt.Errorf("invalid concurrency %q", requestedConcurrency)
+		}
+		workerPool := config.WorkerPool
+		if workerPool == 0 {
+			workerPool = concurrency
+		}
+		if err := benchmark.ValidateMinOpenSlots(config.MinOpenSlots, workerPool, config.Connections); err != nil {
+			return fmt.Errorf("concurrency %d: %w", concurrency, err)
+		}
 	}
 	tunables, err := parseServerTunables(serverTunables)
 	if err != nil {

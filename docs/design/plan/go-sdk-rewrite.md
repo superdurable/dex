@@ -654,7 +654,7 @@ only a warning. `Client.UploadFlowDefinitions` uploads documents from scripts.
 credential to every FlowService call. A Dex server with authentication enabled
 requires it on every public API call.
 
-`WorkerOptions.Pull` tunes `MaxConcurrentTasks`, `IdleStreamsPerQueue`, optional
+`WorkerOptions.Pull` tunes `MaxConcurrentTasks`, `MinOpenSlots`, `IdleStreamsPerQueue`, optional
 `AppWorkerID`, `StopDrainTimeout`, and the one `TaskQueue` the Worker serves. Workers connect outbound through
 `FlowServiceAddress`, using the same `Credential`. The SDK keeps one task per
 stream and polls the sticky Worker ID queue plus each registered Flow type
@@ -3270,3 +3270,17 @@ strictly below that limit. WaitFor and Execute admission uses the total busy
 handler count and the limit minus the reserve. RPC admission uses the full limit.
 Both checks share the admission lock. Declines use the existing NO_CAPACITY frame
 and preserve idle streams and readiness. Unknown-name rejection remains first.
+
+## Pull Worker adaptive slot streams contract
+
+Since 1.45.7, `PullWorkerOptions.MinOpenSlots` is the floor of the slot streams,
+in the unit of `MaxConcurrentTasks`. Zero uses the resolved ceiling, which keeps
+the Worker fixed. NewWorker requires `ReservedRPCTasks + 1 <= MinOpenSlots <=
+MaxConcurrentTasks`; a nil reserve defaults to one only when both values are at
+least two. A floor below the ceiling makes the Worker adaptive. The state
+machine of `docs/design/adaptive-worker-slot-streams.md` lives in
+`sdk-go/dex/worker_pull_slots.go`. Every slot stream runner keeps its reconnect
+loop, but the reopen rule must grant each next attempt, so a stream closed on
+purpose or rejected softly never reopens by itself. `Worker.PullSlotStreamState()`
+returns the snapshot. Only tests change the 30 second shrink window, through the
+unexported `newWorker` constructor.

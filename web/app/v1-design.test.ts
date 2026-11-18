@@ -36,6 +36,29 @@ describe('Execution graph event panel layout', () => {
   });
 });
 
+describe('Execution graph Execute decision layout', () => {
+  const ruleBody = (selector: string) => {
+    const start = designCss.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    return designCss.slice(start, designCss.indexOf('}', start));
+  };
+
+  it('truncates the kind name and keeps the cancel suffix whole', () => {
+    const cancelSuffix = ruleBody('.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-cancel');
+    expect(cancelSuffix).toContain('flex: none');
+    expect(cancelSuffix).not.toContain('min-width: 0');
+    const kindName = ruleBody('.v1-page .graph-method-execute .graph-execute-decision-text,\n.v1-page .graph-method-execute .graph-execute-decision-channel-names');
+    expect(kindName).toContain('min-width: 0');
+    expect(kindName).toContain('text-overflow: ellipsis');
+  });
+
+  it('bounds the decision beside WaitFor conditions and keeps only the cancel icon and count there', () => {
+    expect(ruleBody('.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-lines')).toContain('max-width: 132px');
+    expect(ruleBody('.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-cancel .graph-execute-decision-text'))
+      .toContain('position: absolute');
+  });
+});
+
 describe('motion', () => {
   const reducedMotionBlocks = [...frameCss.matchAll(/@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)]
     .map((match) => match[1]);
