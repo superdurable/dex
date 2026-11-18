@@ -324,7 +324,8 @@ function stringSet(value: unknown): Set<string> {
   return new Set(value.filter((entry): entry is string => typeof entry === 'string'));
 }
 
-function stepDecision(event: FlowHistoryEvent): Record<string, unknown> | undefined {
+/** The Step decision an Execute or RPC event returned, or undefined when it has none. */
+export function stepDecision(event: FlowHistoryEvent): Record<string, unknown> | undefined {
   const container = event.type === 'StepExecuteCompleted'
     ? event.payload.output
     : event.type === 'RpcExecutionCompleted' ? event.payload : undefined;

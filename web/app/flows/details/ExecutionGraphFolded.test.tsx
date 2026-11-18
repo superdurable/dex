@@ -135,7 +135,50 @@ function shownNodeIDs(): string[] {
 const loopEvents = sequentialStepHistory(40);
 const foldedRangeID = '__group:rounds:Step-1';
 
+/** A settled chain of Step executions, each returning the given Step decision. */
+function decidedChainHistory(steps: Array<[stepType: string, stepDecision: unknown]>): FlowHistoryEvent[] {
+  const events: FlowHistoryEvent[] = [{
+    eventId: 1,
+    eventTime: '2026-10-24T17:00:00Z',
+    type: 'FlowStartedOrContinued',
+    payload: { initialStart: { startStepType: steps[0][0] } },
+  }];
+  const counts = new Map<string, number>();
+  let fromStepExecutionId = '__start__';
+  for (const [stepType, stepDecision] of steps) {
+    const count = (counts.get(stepType) ?? 0) + 1;
+    counts.set(stepType, count);
+    const context = { stepExecutionId: `${stepType}-${count}`, fromStepExecutionId, stepType };
+    events.push({
+      eventId: events.length + 1,
+      eventTime: '2026-10-24T17:00:01Z',
+      type: 'StepExecuteCompleted',
+      payload: { context, output: { stepDecision } },
+    });
+    fromStepExecutionId = context.stepExecutionId;
+  }
+  return events;
+}
+
 describe('Folded Graph', () => {
+  it('shows the Step decision of the execution a ×N node shows', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const toSync = { nextSteps: [{ stepType: 'SyncBatch' }] };
+    const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }] };
+    render(graph(decidedChainHistory([
+      ...Array.from({ length: 8 }, () => ['SyncBatch', toSync] as [string, unknown]),
+      ['SyncBatch', toCheckpoint],
+      ['Checkpoint', toSync],
+      ['SyncBatch', toCheckpoint],
+      ['Checkpoint', toSync],
+      ['SyncBatch', toCheckpoint],
+      ['Checkpoint', { closeDecision: { closeDecisionType: 2 } }],
+    ])));
+    const repeated = screen.getByText('×9').closest('.graph-step-label')!;
+    expect(repeated.querySelector('.graph-execute-decision-text')?.textContent).toBe('Checkpoint');
+  });
+
+
   it('is off by default and draws one node per Step execution', () => {
     render(graph(loopEvents));
     expect(screen.getByRole('button', { name: 'Folded' }).getAttribute('aria-pressed')).toBe('false');

@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
@@ -25,19 +25,25 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import {
+  ArrowRight,
   Ban,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   CircleCheck,
   CircleDashed,
   CircleDot,
+  CircleSlash2,
   CircleX,
   Clock,
+  Flag,
   FoldHorizontal,
   Hourglass,
+  Inbox,
   Map as MapIcon,
   Maximize,
   Minus,
+  OctagonX,
   Play,
   Repeat2,
   X,
@@ -58,6 +64,11 @@ import {
   type FoldedStepGraph,
   type StepRoundGroup,
 } from './graphFolding';
+import {
+  executeDecisionSummary,
+  type ExecuteDecisionKind,
+  type ExecuteDecisionSummary,
+} from './executeDecisionSummary';
 import {
   defaultGraphZoom,
   fittingGraphZoom,
@@ -268,10 +279,21 @@ function executeStatus(node: StepGraphNode): MethodStatus {
   return 'Not started';
 }
 
+const executeDecisionIcons: Record<ExecuteDecisionKind, LucideIcon> = {
+  'next-steps': ArrowRight,
+  'dead-end': CircleSlash2,
+  'graceful-complete': Flag,
+  'force-complete': CheckCheck,
+  'force-fail': OctagonX,
+  'complete-when-channels-empty': Inbox,
+  cancel: Ban,
+};
+
 function MethodSection({
   name,
   status,
   event,
+  decision,
   children,
   onSelect,
   isSelected = false,
@@ -279,14 +301,19 @@ function MethodSection({
   name: string;
   status: MethodStatus;
   event?: FlowHistoryEvent;
+  /** The Step decision a completed Execute returned; it replaces the status line. */
+  decision?: ExecuteDecisionSummary;
   children?: React.ReactNode;
   onSelect: (event: FlowHistoryEvent) => void;
   isSelected?: boolean;
 }) {
+  const decisionClass = decision ? ` graph-method-decision graph-method-decision-${decision.kind}` : '';
+  const decisionDescriptionID = useId();
   return (
     <button
+      aria-describedby={decision ? decisionDescriptionID : undefined}
       aria-pressed={event ? isSelected : undefined}
-      className={`graph-method graph-method-${name.toLowerCase()} graph-method-${status.toLowerCase().replace(' ', '-')}${isSelected ? ' is-selected' : ''} nodrag nopan`}
+      className={`graph-method graph-method-${name.toLowerCase()} graph-method-${status.toLowerCase().replace(' ', '-')}${decisionClass}${isSelected ? ' is-selected' : ''} nodrag nopan`}
       disabled={!event}
       type="button"
       onClick={(clickEvent) => {
@@ -295,9 +322,25 @@ function MethodSection({
       }}
     >
       <span>{name}</span>
-      <strong><StatusIcon status={status} size={13} />{status}</strong>
+      {decision
+        ? <ExecuteDecisionLine decision={decision} />
+        : <strong><StatusIcon status={status} size={13} />{status}</strong>}
+      {/* Hidden text stays out of the button name but still serves as its description. */}
+      {decision && <span hidden id={decisionDescriptionID}>{decision.fullText.split('\n').join('; ')}</span>}
       {children}
     </button>
+  );
+}
+
+function ExecuteDecisionLine({ decision }: { decision: ExecuteDecisionSummary }) {
+  const Icon = executeDecisionIcons[decision.kind];
+  return (
+    <strong className="graph-execute-decision" title={decision.fullText}>
+      <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
+      {decision.kind === 'next-steps' && <span className="sr-only">Next Steps </span>}
+      <span className="graph-execute-decision-text">{decision.label}</span>
+      {decision.hiddenCount > 0 && <span className="graph-execute-decision-more">+{decision.hiddenCount}</span>}
+    </strong>
   );
 }
 
@@ -322,6 +365,8 @@ export function StepNodeLabel({
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
   const shownChannels = visibleChannelNames(channels);
   const showWaitFor = showsWaitFor(node);
+  const executeMethodStatus = executeStatus(node);
+  const decision = executeMethodStatus === 'Completed' ? executeDecisionSummary(node.execute) : undefined;
   return (
     <div className={`graph-step-label${showWaitFor ? '' : ' graph-step-label--execute-only'}`}>
       <div className="graph-step-heading">
@@ -386,7 +431,8 @@ export function StepNodeLabel({
         )}
         <MethodSection
           name="Execute"
-          status={executeStatus(node)}
+          status={executeMethodStatus}
+          decision={decision}
           event={node.execute ?? node.pendingExecute}
           isSelected={selectedEventId !== null && (node.execute ?? node.pendingExecute)?.eventId === selectedEventId}
           onSelect={onSelect}
