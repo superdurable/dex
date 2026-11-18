@@ -358,14 +358,14 @@ func NewWorker(
 	cache *blobcache.Cache,
 	options WorkerOptions,
 ) (*Worker, error) {
-	return newWorker(registry, cache, options, defaultPullSlotTimings())
+	return newWorker(registry, cache, options, defaultPullSlotSettings())
 }
 
 func newWorker(
 	registry *Registry,
 	cache *blobcache.Cache,
 	options WorkerOptions,
-	slotTimings pullSlotTimings,
+	slotSettings pullSlotSettings,
 ) (*Worker, error) {
 	if registry == nil {
 		panic("dex.NewWorker requires Registry")
@@ -418,7 +418,7 @@ func newWorker(
 	if options.Pull != nil {
 		pullOptions = *options.Pull
 	}
-	pull, err := newPullWorker(registry, service, flowConn, pullOptions, currentGoSDKVersion(), slotTimings)
+	pull, err := newPullWorker(registry, service, flowConn, pullOptions, currentGoSDKVersion(), slotSettings)
 	if err != nil {
 		if closeErr := flowConn.Close(); closeErr != nil {
 			logger.Error("close Worker FlowService connection", "error", closeErr)

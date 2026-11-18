@@ -91,6 +91,9 @@ type pullSlotProxyGate struct {
 	release             chan struct{}
 	isReleasedByRPCOnly bool
 	held                []*pullSlotProxyStream
+	// stepHeld closes when the first STEP_AND_RPC Register waits; an RPC_ONLY Register waits for it.
+	stepHeld      chan struct{}
+	isStepHeldSet bool
 }
 
 type pullSlotProxyStream struct {
@@ -351,6 +354,10 @@ func (proxy *pullSlotProxy) forwardPollWorkerTask(ctx context.Context, cancel co
 	gate := proxy.stepRegisterGate
 	if isStep && gate != nil {
 		gate.held = append(gate.held, stream)
+		if !gate.isStepHeldSet {
+			gate.isStepHeldSet = true
+			close(gate.stepHeld)
+		}
 	}
 	shouldFail := isStep && proxy.failStepRegisters && proxy.passStepRegisters == 0
 	if isStep && proxy.failStepRegisters && proxy.passStepRegisters > 0 {
@@ -367,6 +374,15 @@ func (proxy *pullSlotProxy) forwardPollWorkerTask(ctx context.Context, cancel co
 		stream.stage.Store("gated")
 		select {
 		case <-gate.release:
+		case <-ctx.Done():
+			return status.FromContextError(ctx.Err()).Err()
+		}
+	}
+	// The RPC_ONLY stream registers only once a STEP_AND_RPC Register waits, so that Register meets a full cap.
+	if !isStep && gate != nil && gate.isReleasedByRPCOnly {
+		stream.stage.Store("waiting for a held Step-and-RPC Register")
+		select {
+		case <-gate.stepHeld:
 		case <-ctx.Done():
 			return status.FromContextError(ctx.Err()).Err()
 		}
@@ -458,16 +474,18 @@ func (stream *pullSlotProxyStream) markUpstreamAnswered() {
 	stream.answerOnce.Do(func() { close(stream.upstreamAnswered) })
 }
 
-// holdStepRegistersUntilRPCOnlyAcknowledged forces the reconnect order of design Test 17.
+// holdStepRegistersUntilRPCOnlyAcknowledged forces the reconnect order of design Test 17: a STEP_AND_RPC
+// Register waits, the RPC_ONLY stream registers, and the waiting Register reaches the server before the
+// Worker sees that acknowledgement.
 func (proxy *pullSlotProxy) holdStepRegistersUntilRPCOnlyAcknowledged() {
 	proxy.mu.Lock()
 	defer proxy.mu.Unlock()
-	proxy.stepRegisterGate = &pullSlotProxyGate{release: make(chan struct{}), isReleasedByRPCOnly: true}
+	proxy.stepRegisterGate = &pullSlotProxyGate{release: make(chan struct{}), isReleasedByRPCOnly: true, stepHeld: make(chan struct{})}
 }
 
 // holdStepRegisters holds STEP_AND_RPC Registers until release is called.
 func (proxy *pullSlotProxy) holdStepRegisters() (release func()) {
-	gate := &pullSlotProxyGate{release: make(chan struct{})}
+	gate := &pullSlotProxyGate{release: make(chan struct{}), stepHeld: make(chan struct{})}
 	proxy.mu.Lock()
 	proxy.stepRegisterGate = gate
 	proxy.mu.Unlock()

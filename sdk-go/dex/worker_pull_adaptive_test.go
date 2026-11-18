@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +85,15 @@ const (
 	adaptiveSlotModeQuick    = "quick"
 	stubbornRPCKey           = "rpc"
 )
+
+// registerSendBarrier holds armed slot streams after their admission and before their Register's Send.
+type registerSendBarrier struct {
+	isArmed     atomic.Bool
+	held        atomic.Int32
+	passes      chan struct{}
+	released    chan struct{}
+	releaseOnce sync.Once
+}
 
 // adaptiveSlotWorkerRun owns a started Worker and its Start result.
 type adaptiveSlotWorkerRun struct {
@@ -643,7 +653,10 @@ func TestWorkerPullAdaptiveOrphanedHandlersAcrossRestartWithRealServer(t *testin
 		defer cancel()
 		require.NoError(t, run.worker.WaitPullRegistered(ctx))
 		client := server.newClient(t, run.worker.registry)
-		flowIDs := startAdaptiveSlotFlows(t, ctx, client, &adaptiveSlotFlow{handlers: handlers}, adaptiveSlotModeBlock, 4)
+		flow := &adaptiveSlotFlow{handlers: handlers}
+		flowIDs := startAdaptiveSlotFlows(t, ctx, client, flow, adaptiveSlotModeBlock, 3)
+		// One handler ignores cancellation, so it outlives its stream in the crash.
+		stubbornIDs := startAdaptiveSlotFlows(t, ctx, client, flow, adaptiveSlotModeStubborn, 1)
 		requireSlotState(t, run.worker, "four busy Steps", func(state PullSlotStreamState) bool { return state.Busy == 4 && state.Registering == 0 })
 		heldHalfCloses, releaseHalfCloses := proxy.holdHalfCloses()
 		close(handlers.release)
@@ -653,21 +666,34 @@ func TestWorkerPullAdaptiveOrphanedHandlersAcrossRestartWithRealServer(t *testin
 		case <-time.After(20 * time.Second):
 			t.Fatal("the Worker never shrank")
 		}
-		// The server still holds the half-closing stream when it crashes.
+		require.Equal(t, 1, run.worker.PullSlotStreamState().Busy)
+		// The server still holds the half-closing stream when it crashes, and the stubborn handler still runs.
 		sampler := startSlotUsageSampler(t, run.worker)
 		server.kill()
+		requireSlotStateWithin(t, run.worker, "the stubborn handler orphaned", 10*time.Second, func(state PullSlotStreamState) bool {
+			return state.OrphanedHandlers == 1 && state.Busy == 0
+		})
 		server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
 		// Registers that reached the dead server were retries of the same runners, so count from the switch.
 		switchedAt := time.Now()
 		proxy.setUpstream(server.address)
 		releaseHalfCloses()
 		requireRegisteredStreams(t, proxy, appWorkerID, 2, 1)
-		require.Never(t, func() bool {
+		isShrunkStreamReopened := func() bool {
 			return len(stepRegisters(proxy.registersSince(appWorkerID, switchedAt))) > 2 || proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) > 2
-		}, 3*time.Second, 20*time.Millisecond, "a stream closed by shrink reopened after the failover")
-		requireSlotState(t, run.worker, "the floor after the failover", func(state PullSlotStreamState) bool {
-			return state.Open == 2 && state.RPCOnlyOpen == 1 && state.Registering == 0
+		}
+		require.Never(t, isShrunkStreamReopened, 3*time.Second, 20*time.Millisecond, "a stream closed by shrink reopened after the failover")
+		state := run.worker.PullSlotStreamState()
+		require.Equal(t, 1, state.OrphanedHandlers, "the orphaned handler left the capacity count early: %+v", state)
+		require.Equal(t, 2, state.Open)
+		// The returning handler frees a slot, but the floor is already open, so nothing reopens.
+		handlers.releaseStubborn(stubbornIDs...)
+		requireSlotState(t, run.worker, "the orphaned handler returned", func(state PullSlotStreamState) bool {
+			return state.OrphanedHandlers == 0 && state.Open == 2 && state.RPCOnlyOpen == 1 && state.Registering == 0
 		})
+		require.Never(t, isShrunkStreamReopened, 2*time.Second, 20*time.Millisecond, "a stream reopened when the orphaned handler returned")
+		restartedClient := server.newClient(t, run.worker.registry)
+		requireAdaptiveSlotFlowsCompleted(t, ctx, restartedClient, stubbornIDs)
 		sampler.requireWithinCapacity(t)
 		requireNoPermanentRegistrationError(t, run)
 	})
@@ -759,6 +785,46 @@ func TestWorkerPullAdaptiveGrantRevokedAfterCapDropWithRealServer(t *testing.T) 
 		return state.Open == 2 && state.Registering == 0
 	})
 	requireRegisteredStreams(t, proxy, appWorkerID, 2, 0)
+	requireNoPermanentRegistrationError(t, run)
+}
+
+// TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer holds streams between their admission
+// and their Register's Send while another stream reports a lower cap; no Register may then exceed that cap.
+func TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer(t *testing.T) {
+	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+	proxy := startPullSlotProxy(t, server.address)
+	barrier := &registerSendBarrier{passes: make(chan struct{}, 4), released: make(chan struct{})}
+	appWorkerID := "adaptive-barrier-" + uuid.NewString()[:8]
+	run := startAdaptiveSlotWorkerWithSettings(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{
+		MaxConcurrentTasks: 8, MinOpenSlots: 3, ReservedRPCTasks: ptr.Any(0), AppWorkerID: appWorkerID,
+	}, pullSlotSettings{shrinkWindow: time.Hour, beforeRegisterSendForTest: barrier.hold})
+	t.Cleanup(barrier.release)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, run.worker.WaitPullRegistered(ctx))
+	requireRegisteredStreams(t, proxy, appWorkerID, 3, 0)
+
+	// Every floor stream breaks; each runner is admitted under the old cap of 8 and waits before its Send.
+	barrier.isArmed.Store(true)
+	server.kill()
+	require.Eventually(t, func() bool { return barrier.held.Load() == 3 }, 30*time.Second, 10*time.Millisecond, "the runners did not reach the Send barrier")
+	server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 2})
+	proxy.setUpstream(server.address)
+	// One runner sends, registers, and reports cap 2 while the other two stay admitted but unsent.
+	barrier.passes <- struct{}{}
+	requireSlotStateWithin(t, run.worker, "the lower cap is known", 30*time.Second, func(state PullSlotStreamState) bool {
+		return state.TotalCapacity == 2
+	})
+	capKnownAt := time.Now()
+	barrier.release()
+	require.Never(t, func() bool {
+		return len(stepRegisters(proxy.registersSince(appWorkerID, capKnownAt))) > 1 || len(proxy.rejectionsSince(appWorkerID, capKnownAt)) != 0 ||
+			proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) > 2
+	}, 3*time.Second, 10*time.Millisecond, "a Register admitted under the old cap was sent above the new cap")
+	requireRegisteredStreams(t, proxy, appWorkerID, 2, 0)
+	requireSlotState(t, run.worker, "two streams at cap 2", func(state PullSlotStreamState) bool {
+		return state.Open == 2 && state.Registering == 0
+	})
 	requireNoPermanentRegistrationError(t, run)
 }
 
@@ -1102,6 +1168,24 @@ func (sampler *slotUsageSampler) stopSampling() []PullSlotStreamState {
 	return sampler.violations
 }
 
+// hold waits for a pass token, for release, or for the stream's end.
+func (barrier *registerSendBarrier) hold(stream *pullStream) {
+	if !barrier.isArmed.Load() {
+		return
+	}
+	barrier.held.Add(1)
+	defer barrier.held.Add(-1)
+	select {
+	case <-barrier.passes:
+	case <-barrier.released:
+	case <-stream.ctx.Done():
+	}
+}
+
+func (barrier *registerSendBarrier) release() {
+	barrier.releaseOnce.Do(func() { close(barrier.released) })
+}
+
 func newAdaptiveSlotHandlers() *adaptiveSlotHandlers {
 	return &adaptiveSlotHandlers{
 		entered: make(chan adaptiveSlotEntry, 1024), release: make(chan struct{}),
@@ -1215,23 +1299,30 @@ func (adaptiveSlotParkedStep) Execute(Context, None) (*StepDecision, error) {
 func startAdaptiveSlotWorker(t *testing.T, address string, handlers *adaptiveSlotHandlers, pull PullWorkerOptions, shrinkWindow time.Duration, logger Logger) *adaptiveSlotWorkerRun {
 	t.Helper()
 	flows := []Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}}
-	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, flows, pull, shrinkWindow, logger)
+	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, flows, pull, pullSlotSettings{shrinkWindow: shrinkWindow}, logger)
+}
+
+// startAdaptiveSlotWorkerWithSettings starts a Worker with both test Flows and test-only slot settings.
+func startAdaptiveSlotWorkerWithSettings(t *testing.T, address string, handlers *adaptiveSlotHandlers, pull PullWorkerOptions, settings pullSlotSettings) *adaptiveSlotWorkerRun {
+	t.Helper()
+	flows := []Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}}
+	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, flows, pull, settings, nil)
 }
 
 // startAdaptiveSlotParkedOnlyWorker serves only the parked Flow, so it never takes the other Flow's Steps.
 func startAdaptiveSlotParkedOnlyWorker(t *testing.T, address string, handlers *adaptiveSlotHandlers, pull PullWorkerOptions) *adaptiveSlotWorkerRun {
 	t.Helper()
-	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, []Flow{&adaptiveSlotParkedFlow{handlers: handlers}}, pull, time.Hour, nil)
+	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, []Flow{&adaptiveSlotParkedFlow{handlers: handlers}}, pull, pullSlotSettings{shrinkWindow: time.Hour}, nil)
 }
 
-func startAdaptiveSlotWorkerWithFlows(t *testing.T, address string, handlers *adaptiveSlotHandlers, flows []Flow, pull PullWorkerOptions, shrinkWindow time.Duration, logger Logger) *adaptiveSlotWorkerRun {
+func startAdaptiveSlotWorkerWithFlows(t *testing.T, address string, handlers *adaptiveSlotHandlers, flows []Flow, pull PullWorkerOptions, settings pullSlotSettings, logger Logger) *adaptiveSlotWorkerRun {
 	t.Helper()
 	registry, err := NewRegistry(flows)
 	require.NoError(t, err)
 	cache, err := blobcache.New(&blobcache.Config{Dir: t.TempDir(), MaxBytes: 1 << 20})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cache.Close()) })
-	worker, err := newWorker(registry, cache, WorkerOptions{FlowServiceAddress: address, Pull: &pull, Logger: logger}, pullSlotTimings{shrinkWindow: shrinkWindow})
+	worker, err := newWorker(registry, cache, WorkerOptions{FlowServiceAddress: address, Pull: &pull, Logger: logger}, settings)
 	require.NoError(t, err)
 	run := &adaptiveSlotWorkerRun{worker: worker, started: make(chan error, 1)}
 	go func() { run.started <- worker.Start() }()

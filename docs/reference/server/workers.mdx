@@ -262,14 +262,24 @@ slots, the stop drain timeout, and the shutdown method. See
 and [Rust](/reference/rust/workers).
 
 The stream count of a fixed Worker equals the task limit and does not change
-with load. An adaptive Go Worker clamps its task limit to the cap instead of
-failing; see [Adaptive slot streams](#adaptive-slot-streams). The task limit must
-fit within **matching.maxConcurrentTasksCap**, which defaults to 256 streams per
-app Worker ID. Dex reports this limit when a Worker registers. If the first
-registration reports a limit below the task limit, the Worker fails to start,
-with an error that names both values. A task that Dex already sent to that
-Worker returns to Dex without consuming an attempt. If a later reconnect
-reports a lower limit, the Worker only logs a warning. **matching.maxStreams**
+with load. The streams of one app Worker ID must fit within
+**matching.maxConcurrentTasksCap**, which defaults to 256. Dex reports this
+limit when a Worker registers:
+
+- **Fixed Worker with an explicit task limit.** If the first registration
+  reports a limit below the task limit, the Worker fails to start, with an error
+  that names both values. A task that Dex already sent to that Worker returns to
+  Dex without consuming an attempt. If a later reconnect reports a lower limit,
+  the Worker only logs a warning, and Dex rejects its surplus streams.
+- **Fixed Go Worker with the task limit unset.** Since 1.45.7, the Worker
+  clamps its CPU-count default to the limit at the first registration, with a
+  warning. A later lower limit behaves as for an explicit task limit.
+- **Adaptive Go Worker.** Since 1.45.7, the Worker clamps its task limit to the
+  limit at the first registration, with a warning. A later lower limit lowers
+  its capacity: it half-closes surplus streams and opens none above the new
+  limit. See [Adaptive slot streams](#adaptive-slot-streams).
+
+**matching.maxStreams**
 limits the node to 100,000 registered streams by default, so count the slots of
 all fixed Workers against it, and the real concurrency plus the floor of each
 adaptive Worker. **matching.maxQueueLength**, **matching.maxFlowTypes**,

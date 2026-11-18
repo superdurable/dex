@@ -44,7 +44,7 @@ type pullWorker struct {
 	isReservedRPCTasksExplicit     bool
 	isMinOpenSlotsExplicit         bool
 	isAdaptive                     bool
-	slotTimings                    pullSlotTimings
+	slotSettings                   pullSlotSettings
 	slots                          pullSlotStreams
 	shouldWarnRPCCapacity          bool
 	shouldWarnFloorRPCCapacity     bool
@@ -116,7 +116,7 @@ const busyPullStreamKeepaliveInterval = 20 * time.Second
 // defaultFinalOutputFlushTimeout bounds how long an expired drain waits for a queued final output to reach the Server.
 const defaultFinalOutputFlushTimeout = 5 * time.Second
 
-func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string, slotTimings pullSlotTimings) (*pullWorker, error) {
+func newPullWorker(registry *Registry, service *workerService, conn *grpc.ClientConn, options PullWorkerOptions, sdkVersion string, slotSettings pullSlotSettings) (*pullWorker, error) {
 	maxConcurrentTasks := options.MaxConcurrentTasks
 	if maxConcurrentTasks < 0 {
 		return nil, fmt.Errorf("dex: MaxConcurrentTasks must not be negative")
@@ -192,7 +192,7 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		maxConcurrentTasks:             maxConcurrentTasks, reservedRPCTasks: reservedRPCTasks, minOpenSlots: minOpenSlots,
 		configuredMaxConcurrentTasks: maxConcurrentTasks, isMaxConcurrentTasksExplicit: options.MaxConcurrentTasks != 0,
 		isReservedRPCTasksExplicit: options.ReservedRPCTasks != nil, isMinOpenSlotsExplicit: options.MinOpenSlots != 0,
-		isAdaptive: minOpenSlots < maxConcurrentTasks, slotTimings: slotTimings,
+		isAdaptive: minOpenSlots < maxConcurrentTasks, slotSettings: slotSettings,
 		shouldWarnRPCCapacity:      options.ReservedRPCTasks == nil && maxConcurrentTasks == 1,
 		shouldWarnFloorRPCCapacity: options.ReservedRPCTasks == nil && maxConcurrentTasks >= 2 && minOpenSlots == 1,
 		stopDrainTimeout:           stopDrainTimeout, finalOutputFlushTimeout: defaultFinalOutputFlushTimeout, sdkVersion: sdkVersion,
@@ -490,6 +490,10 @@ func (stream *pullStream) run() {
 		}
 		observer := &rejectedTokenObserver{}
 		wasRegistered, err := stream.poll(observer)
+		if errors.Is(err, errSlotAttemptRevoked) {
+			// The revocation already ended the attempt and re-ran the reopen rule.
+			return
+		}
 		if wasRegistered {
 			hasReconnectedWithFreshToken = false
 		}
@@ -618,7 +622,15 @@ func (stream *pullStream) poll(observer *rejectedTokenObserver) (wasRegistered b
 		SupportsReservedSlotDispatch: true, SlotKind: stream.slotKind, AppWorkerId: stream.worker.appWorkerID, FlowTypes: stream.worker.flowTypes, SdkName: "go", SdkVersion: stream.worker.sdkVersion,
 		TaskQueue: stream.worker.taskQueue,
 	}}}
-	if err := stream.send(register); err != nil {
+	if beforeRegisterSend := stream.worker.slotSettings.beforeRegisterSendForTest; beforeRegisterSend != nil {
+		beforeRegisterSend(stream)
+	}
+	if err := stream.worker.sendSlotRegistration(stream, register); err != nil {
+		if errors.Is(err, errSlotAttemptRevoked) {
+			// No frame left, so the Server holds nothing for this stream; the deferred cancel ends it.
+			stream.closeSend()
+			return false, err
+		}
 		return false, awaitPullStreamStatus(pollCtx, responses, receiveErrors, err)
 	}
 	stream.mu.Lock()

@@ -10,6 +10,7 @@ package dex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -125,9 +126,11 @@ type pullSlotStreams struct {
 	shrinkRaceDrops        uint64
 }
 
-// pullSlotTimings holds the slot stream timings; only tests change them.
-type pullSlotTimings struct {
+// pullSlotSettings holds the slot stream timings and test hooks; only tests change them.
+type pullSlotSettings struct {
 	shrinkWindow time.Duration
+	// beforeRegisterSendForTest, when set, runs after a slot stream opens and before its Register is checked and sent.
+	beforeRegisterSendForTest func(stream *pullStream)
 }
 
 // pullSlotAttempt is one registration attempt of a slot stream; worker.mu guards it.
@@ -138,7 +141,7 @@ type pullSlotAttempt struct {
 	isOpenedAfterReadiness bool
 	hasEnded               bool
 	hasReceivedRegistered  bool
-	// isRegisterSent is set when the attempt passes its last capacity check; it may then reach the Server.
+	// isRegisterSent is set under worker.mu together with the Register's Send; until then close_surplus may revoke the attempt.
 	isRegisterSent    bool
 	isOrphaned        bool
 	isClosedOnPurpose bool
@@ -162,8 +165,8 @@ const (
 // defaultPullShrinkWindow is W, the shrink window of decision D6.
 const defaultPullShrinkWindow = 30 * time.Second
 
-func defaultPullSlotTimings() pullSlotTimings {
-	return pullSlotTimings{shrinkWindow: defaultPullShrinkWindow}
+func defaultPullSlotSettings() pullSlotSettings {
+	return pullSlotSettings{shrinkWindow: defaultPullShrinkWindow}
 }
 
 // defaultReservedRPCTasks keeps one RPC-only slot when the ceiling and the floor both leave room for it.
@@ -470,16 +473,37 @@ func (worker *pullWorker) closeSurplusSlotStreamsLocked() {
 	}
 }
 
-// admitSlotRegistration is the last check before a Register leaves. An attempt granted before the
-// Worker learned a lower cap is revoked when it no longer fits, so no Register exceeds a known cap (F5).
+// errSlotAttemptRevoked ends a poll whose attempt lost its slot before its Register left.
+var errSlotAttemptRevoked = errors.New("dex: slot stream attempt revoked before its Register")
+
+// admitSlotRegistration checks an attempt before its runner opens a stream. sendSlotRegistration
+// checks it again at the Send, because a lower cap may arrive in between.
 func (worker *pullWorker) admitSlotRegistration(stream *pullStream) bool {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
+	return worker.admitSlotRegistrationLocked(stream)
+}
+
+// sendSlotRegistration sends the Register under worker.mu, so no cap update falls between the last
+// capacity check and the Send (F5). The first frame of a new stream fits its flow-control window, so
+// the Send does not wait for the network. It returns errSlotAttemptRevoked when the attempt no longer fits.
+func (worker *pullWorker) sendSlotRegistration(stream *pullStream, register *dexpb.PollWorkerTaskRequest) error {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	if !worker.admitSlotRegistrationLocked(stream) {
+		return errSlotAttemptRevoked
+	}
+	stream.slot.isRegisterSent = true
+	return stream.send(register)
+}
+
+// admitSlotRegistrationLocked revokes an attempt granted before the Worker learned a lower cap when it
+// no longer fits, so no Register exceeds a known cap (F5).
+func (worker *pullWorker) admitSlotRegistrationLocked(stream *pullStream) bool {
 	if worker.isStopping || stream.slot.phase != pullSlotPhaseRegistering || stream.slot.hasEnded {
 		return false
 	}
 	if !worker.isSlotAttemptOverCapacityLocked(stream) {
-		stream.slot.isRegisterSent = true
 		return true
 	}
 	worker.revokeSlotAttemptLocked(stream)
@@ -616,7 +640,7 @@ func (worker *pullWorker) halfCloseSlotStreamLocked(stream *pullStream, shouldCl
 
 // restartShrinkWindowLocked starts a new shrink window; an older window's timer then does nothing.
 func (worker *pullWorker) restartShrinkWindowLocked() {
-	if !worker.isAdaptive || worker.slotTimings.shrinkWindow <= 0 {
+	if !worker.isAdaptive || worker.slotSettings.shrinkWindow <= 0 {
 		return
 	}
 	worker.slots.shrinkWindowGeneration++
@@ -624,7 +648,7 @@ func (worker *pullWorker) restartShrinkWindowLocked() {
 	if worker.slots.shrinkWindowTimer != nil {
 		worker.slots.shrinkWindowTimer.Stop()
 	}
-	worker.slots.shrinkWindowTimer = time.AfterFunc(worker.slotTimings.shrinkWindow, func() { worker.expireShrinkWindow(generation) })
+	worker.slots.shrinkWindowTimer = time.AfterFunc(worker.slotSettings.shrinkWindow, func() { worker.expireShrinkWindow(generation) })
 }
 
 // stopShrinkWindowLocked stops the shrink window timer at Stop.
