@@ -154,8 +154,10 @@ type PullWorkerOptions struct {
 	// A task that reaches a stream while it closes returns to the Server without spending a Step retry,
 	// and the Server dispatches it again. When the Server rejects a stream at its stream limit
 	// (RESOURCE_EXHAUSTED), an adaptive Worker treats the rejection of a growth stream, or of a
-	// reconnect after readiness, as a soft limit: it records no PullRegistrationError and retries at
-	// most once per 30 seconds. Use Worker.PullSlotStreamState to observe the streams.
+	// reconnect after readiness, as a soft limit: it records no PullRegistrationError. A
+	// soft-rejected stream retries when another registered stream of the Worker ends, or at the
+	// next 30-second window. While growth rejections persist, the Worker grows at most one batch per
+	// window. Use Worker.PullSlotStreamState to observe the streams.
 	//
 	// NewWorker returns an error unless ReservedRPCTasks + 1 <= MinOpenSlots <= MaxConcurrentTasks,
 	// using the resolved values. When ReservedRPCTasks is nil, its default reserves one slot only when
