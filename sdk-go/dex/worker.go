@@ -95,6 +95,10 @@ type WorkerOptions struct {
 // Budget server matching.maxStreams for all Worker slots, including rolling-deployment overlap.
 // Each stream runs one task at a time. Negative task limits or drain timeouts and an invalid
 // AppWorkerID cause NewWorker to return an error.
+// Changed in 1.45.7: with MinOpenSlots below MaxConcurrentTasks the Worker is adaptive. It keeps
+// between MinOpenSlots and MaxConcurrentTasks slot streams open, so idle Workers hold fewer Server
+// streams, and MaxConcurrentTasks becomes the ceiling of the stream count above. With MinOpenSlots
+// unset or equal to MaxConcurrentTasks the Worker is fixed and keeps every slot open as before.
 //
 //	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 //		Pull: &dex.PullWorkerOptions{MaxConcurrentTasks: 8},
@@ -115,7 +119,61 @@ type PullWorkerOptions struct {
 	// The server cap defaults to 256. Raise it before starting a Worker that needs more slots.
 	// Changed in SDK v1.35.0: exceeding the first registration's cap fails startup without background retry.
 	// A smaller cap on reconnect logs a warning and lets the Server reject surplus streams; the Worker keeps running.
+	//
+	// Changed in 1.45.7: MaxConcurrentTasks is the ceiling of the slot streams, including RPC-only slots.
+	// A fixed Worker, whose MinOpenSlots is unset or equal to it, keeps this many streams open.
+	// An adaptive Worker, whose MinOpenSlots is below it, opens streams up to it only while every open
+	// Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a WARN log that
+	// names both values, instead of failing Start:
+	//   - a fixed Worker with MaxConcurrentTasks unset, whose runtime.NumCPU default exceeds the cap;
+	//   - an adaptive Worker, with MaxConcurrentTasks set or unset.
+	//
+	// A fixed Worker with MaxConcurrentTasks unset therefore opens one stream first, learns the cap from
+	// its acknowledgement, and then opens the others. That adds one round trip to Start. A fixed Worker
+	// with an explicit value above the cap still fails Start, and opens all its streams at once.
+	// After a clamp, the ReservedRPCTasks and MinOpenSlots defaults come from the clamped value.
+	// In an adaptive Worker, a lower cap reported on a reconnect lowers its capacity: it half-closes the
+	// surplus streams, RPC-only streams first, and keeps running. A fixed Worker keeps the earlier behavior.
 	MaxConcurrentTasks int
+	// MinOpenSlots sets the fewest slot streams the Worker keeps open. It uses the same unit as
+	// MaxConcurrentTasks, so it counts the reserved RPC-only slots too. Zero, the default, uses the
+	// resolved MaxConcurrentTasks: every slot keeps a stream, the Worker is fixed, and it behaves as
+	// earlier releases did. Negative values are invalid.
+	//
+	// A value below MaxConcurrentTasks makes the Worker adaptive. Use it when idle Workers should hold
+	// fewer Server streams, such as a large fleet or a high MaxConcurrentTasks. An adaptive Worker:
+	//   - starts with MinOpenSlots - ReservedRPCTasks Step-and-RPC streams, and opens the RPC-only
+	//     streams after the first registration;
+	//   - doubles its Step-and-RPC streams, one batch at a time, when a task takes the last idle one,
+	//     up to MaxConcurrentTasks;
+	//   - every 30 seconds half-closes half of the idle streams above the window's peak busy count
+	//     plus 25% headroom, never below the floor and never its last idle stream;
+	//   - keeps the RPC-only streams at ReservedRPCTasks.
+	//
+	// A burst larger than the open streams waits a few registration round trips while the Worker grows.
+	// A task that reaches a stream while it closes returns to the Server without spending a Step retry,
+	// and the Server dispatches it again. When the Server rejects a stream at its stream limit
+	// (RESOURCE_EXHAUSTED), an adaptive Worker treats the rejection of a growth stream, or of a
+	// reconnect after readiness, as a soft limit: it records no PullRegistrationError and retries at
+	// most once per 30 seconds. Use Worker.PullSlotStreamState to observe the streams.
+	//
+	// NewWorker returns an error unless ReservedRPCTasks + 1 <= MinOpenSlots <= MaxConcurrentTasks,
+	// using the resolved values. When ReservedRPCTasks is nil, its default reserves one slot only when
+	// both MaxConcurrentTasks and MinOpenSlots are at least two. Start fails at the first registration
+	// when the Server cap lowers MaxConcurrentTasks below MinOpenSlots or to ReservedRPCTasks or less;
+	// the error names the values and the cap.
+	//
+	//	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	//		// Between 8 and 64 slot streams, one of them reserved for RPCs.
+	//		Pull: &dex.PullWorkerOptions{MaxConcurrentTasks: 64, MinOpenSlots: 8},
+	//	})
+	//	if err != nil {
+	//		return err
+	//	}
+	//	defer worker.Stop(context.Background())
+	//
+	// Since 1.45.7.
+	MinOpenSlots int
 	// ReservedRPCTasks sets the number of execution slot streams that accept only RPCs.
 	// Nil reserves one when resolved MaxConcurrentTasks is at least two, otherwise zero.
 	// Set ptr.Any(0) to opt out. With one slot and nil reserve, Start warns that RPCs may wait behind Steps.
@@ -125,12 +183,13 @@ type PullWorkerOptions struct {
 	// A reserve provides capacity, not a latency guarantee: RPC-only slots can themselves be busy.
 	// NewWorker returns an error unless 0 <= reserve < resolved MaxConcurrentTasks.
 	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)} creates six shared and two RPC-only slots.
+	// Changed in 1.45.7: nil also reserves zero when MinOpenSlots is 1, and Start then warns that RPCs may wait behind Steps.
 	ReservedRPCTasks *int
 	// IdleStreamsPerQueue is accepted for source compatibility and has no effect. Default: zero.
 	//
 	// Changed in SDK v1.35.0: this option no longer changes stream counts.
 	//
-	// Deprecated: MaxConcurrentTasks determines the fixed number of slot streams.
+	// Deprecated: MaxConcurrentTasks and MinOpenSlots determine the number of slot streams.
 	IdleStreamsPerQueue int
 	// AppWorkerID overrides the generated process identity. Empty generates identity plus eight base32 characters.
 	// Set a new value after each process restart. It must not equal a registered Flow type.
@@ -299,6 +358,15 @@ func NewWorker(
 	cache *blobcache.Cache,
 	options WorkerOptions,
 ) (*Worker, error) {
+	return newWorker(registry, cache, options, defaultPullSlotTimings())
+}
+
+func newWorker(
+	registry *Registry,
+	cache *blobcache.Cache,
+	options WorkerOptions,
+	slotTimings pullSlotTimings,
+) (*Worker, error) {
 	if registry == nil {
 		panic("dex.NewWorker requires Registry")
 	}
@@ -350,7 +418,7 @@ func NewWorker(
 	if options.Pull != nil {
 		pullOptions = *options.Pull
 	}
-	pull, err := newPullWorker(registry, service, flowConn, pullOptions, currentGoSDKVersion())
+	pull, err := newPullWorker(registry, service, flowConn, pullOptions, currentGoSDKVersion(), slotTimings)
 	if err != nil {
 		if closeErr := flowConn.Close(); closeErr != nil {
 			logger.Error("close Worker FlowService connection", "error", closeErr)
@@ -443,6 +511,9 @@ func validatePlaintextTarget(address string) error {
 // Start fails without retry if MaxConcurrentTasks exceeds the limit reported by the first
 // registration after Start. A lower limit reported on a later reconnect only logs a warning;
 // the Server rejects any surplus stream, and the Worker keeps running.
+// Changed in 1.45.7: that failure applies to an explicit MaxConcurrentTasks of a fixed Worker.
+// An unset MaxConcurrentTasks, or any value of an adaptive Worker, is clamped to the limit instead;
+// see PullWorkerOptions.MaxConcurrentTasks and PullWorkerOptions.MinOpenSlots.
 // It returns nil after a normal Stop, or an error for synchronization, polling,
 // or invalid lifecycle state failures. Call Start on a dedicated goroutine when
 // the application must continue doing other work.
@@ -638,6 +709,27 @@ func (worker *Worker) PullReservedRPCDeclines() uint64 {
 // See WaitPullRegistered for a complete HTTP probe and startup gating example.
 func (worker *Worker) PullRegistrationState() PullRegistrationState {
 	return worker.pull.registrationState()
+}
+
+// PullSlotStreamState returns an independent snapshot of the Worker's slot streams.
+//
+// Use it to observe how many Server streams the Worker holds and how many of them are busy,
+// for example in a debug endpoint or a periodic log line. It is most useful for an adaptive
+// Worker, whose PullWorkerOptions.MinOpenSlots is below MaxConcurrentTasks and whose stream
+// count varies with load. It is safe to call concurrently before, during, or after Start and
+// Stop, and it does not block on the network. Readiness is separate: use PullRegistrationState
+// or WaitPullRegistered for probes. Before Start the counts are zero, and the capacities come
+// from the options; the first registration may lower them to the Server cap.
+//
+//	mux.HandleFunc("GET /debug/dex-slots", func(w http.ResponseWriter, r *http.Request) {
+//		state := worker.PullSlotStreamState()
+//		fmt.Fprintf(w, "open=%d busy=%d idle=%d rpcOnly=%d orphaned=%d capacity=%d\n",
+//			state.Open, state.Busy, state.Idle, state.RPCOnlyOpen, state.OrphanedHandlers, state.TotalCapacity)
+//	})
+//
+// See PullSlotStreamState for the meaning of each field. Since 1.45.7.
+func (worker *Worker) PullSlotStreamState() PullSlotStreamState {
+	return worker.pull.slotStreamState()
 }
 
 // Stop stops starting tasks and drains handlers until ctx or StopDrainTimeout expires.
