@@ -274,37 +274,27 @@ class PullWorkerRuntime:
         self.queues = (STEP_AND_RPC_QUEUE,)
         self.registration.remove_slot_kind(RPC_ONLY_QUEUE)
 
-    def accept_registration(self, registered: pb.PollWorkerTaskRegistered) -> bool:
-        """Check one Registered acknowledgement before its stream counts as ready.
+    def accept_registration(
+        self,
+        registered: pb.PollWorkerTaskRegistered,
+        stream: PullStream | None = None,
+    ) -> bool:
+        """Check one Registered acknowledgement and record its stream as registered.
+
+        With ``stream``, an accepted acknowledgement also records the stream in
+        the registration state and the slot state machine, under one slot lock
+        section with the first acknowledgement's cap resolution.
 
         Returns:
-            True when the stream may be recorded as registered and run tasks.
+            True when the stream is recorded as registered and may run tasks.
             False after a permanent Worker error, including a failed first
             registration limit check; the caller must drain the stream.
         """
         if self._permanent_error is not None:
             return False
-        server_limit = registered.max_concurrent_tasks_per_app_worker
-        is_first_acknowledgement, failure = (
-            self._slot_streams.resolve_slot_ceiling_at_first_acknowledgement(
-                server_limit
-            )
+        failure = self._slot_streams.record_slot_registered(
+            stream, registered.max_concurrent_tasks_per_app_worker
         )
-        if not is_first_acknowledgement:
-            if (
-                0 < server_limit < self.max_concurrent_tasks
-                and not self._slot_streams.is_adaptive
-            ):
-                # The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
-                _LOGGER.warning(
-                    "Server lowered matching.maxConcurrentTasksCap below "
-                    "max_concurrent_tasks after start; extra streams may be rejected",
-                    extra={
-                        "max_concurrent_tasks": self.max_concurrent_tasks,
-                        "max_concurrent_tasks_per_app_worker": server_limit,
-                    },
-                )
-            return True
         if failure is None:
             return True
         self._permanent_error = RuntimeError(failure)
@@ -453,8 +443,9 @@ class PullStream:
         # The current attempt in the slot stream state machine; None for a stream it does not track.
         self.slot: _PullSlotAttempt | None = None
         self._should_retry_unauthenticated = False
-        # Whether this poll registered; the registration count may already have dropped for an orphaned handler.
+        # Whether this poll registered; an orphaned handler's stream already dropped its registration count.
         self._has_registered_in_poll = False
+        self._has_stop_canceled_call = False
 
     def on_done(self, completed: asyncio.Task[None]) -> None:
         self.runtime._stream_done(self, completed)
@@ -484,6 +475,17 @@ class PullStream:
                 error = failure
             except TaskQueueRegistrationMismatchError as failure:
                 task_queue_mismatch = failure
+            except asyncio.InvalidStateError:
+                if self.runtime.is_stopping and self._has_stop_canceled_call:
+                    # Stop canceled this call, so a write that it interrupted ends normally.
+                    _LOGGER.debug(
+                        "Worker task stream write ended by stop",
+                        extra={"queue": self.queue},
+                    )
+                else:
+                    _LOGGER.exception(
+                        "Worker task stream failed", extra={"queue": self.queue}
+                    )
             except Exception:
                 _LOGGER.exception(
                     "Worker task stream failed", extra={"queue": self.queue}
@@ -610,6 +612,7 @@ class PullStream:
         self._has_send_failure = False
         self._stream_metadata = None
         self._has_registered_in_poll = False
+        self._has_stop_canceled_call = False
         if self.runtime._credential_runner is None:
             self._call = self.stub.PollWorkerTask()
         else:
@@ -686,16 +689,12 @@ class PullStream:
                             self.runtime.task_queue, frame.registered.task_queue
                         )
                     was_registered = True
-                    if not self.runtime.accept_registration(frame.registered):
+                    if not self.runtime.accept_registration(frame.registered, self):
                         # Half-close, not reset, so an already sent task returns unused.
                         self.drain()
                         continue
                     self._is_registered = True
                     self._has_registered_in_poll = True
-                    self.runtime.registration.record_registered_stream(self.queue)
-                    slot_streams.record_slot_registered(
-                        self, frame.registered.max_concurrent_tasks_per_app_worker
-                    )
                     self.runtime.signal()
                     continue
                 if kind == "task":
@@ -1094,6 +1093,7 @@ class PullStream:
     def close(self) -> None:
         self._is_connection_closed = True
         if self._call is not None:
+            self._has_stop_canceled_call = self.runtime.is_stopping
             self._call.cancel()
 
 

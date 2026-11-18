@@ -163,9 +163,12 @@ class PullWorkerOptions:
             Server dispatches it again. When the Server rejects a stream at its
             stream limit (RESOURCE_EXHAUSTED), an adaptive Worker treats the
             rejection of a growth stream, or of a reconnect after readiness, as
-            a soft limit. It records no ``PullRegistrationError`` and retries at
-            most once per 30 seconds. Use ``Worker.pull_slot_stream_state`` to
-            observe the streams.
+            a soft limit. It records no ``PullRegistrationError``. After a soft
+            rejection, the Worker waits until another of its registered streams
+            ends or the next 30-second shrink window starts, and then retries. A
+            growth batch that keeps being rejected grows at most once per
+            window. Use ``Worker.pull_slot_stream_state`` to observe the
+            streams.
 
             A handler that keeps running after its stream ends, such as a
             synchronous handler during a Server restart, keeps its slot. The

@@ -54,6 +54,7 @@ from .adaptive_slot_harness import (
     RegisterSendBarrier,
     ServerLimits,
     SlotUsageSampler,
+    SnapshotInvariantSampler,
     eventually,
     never,
     new_client,
@@ -319,7 +320,13 @@ def parked_of(run: AdaptiveSlotWorkerRun) -> AdaptiveSlotParkedFlow:
 
 
 def test_adaptive_grow_shrink(harness: AdaptiveSlotHarness) -> None:
-    """Design Tests 2, 3, 4, 5, 9, and 11."""
+    """Design Tests 2, 3, 4, 5, 9, and 11.
+
+    A burst of N long Steps with L < N <= E grows to at least N and at most
+    min(E, 2N). After load stops, streams return to the floor while short Steps
+    keep arriving, and no stream closed on purpose reopens for longer than two
+    maximum reconnect backoffs (2 x 7.5 s).
+    """
     server = harness.server()
     proxy = harness.proxy(server.address)
     handlers = AdaptiveSlotHandlers()
@@ -345,7 +352,7 @@ def test_adaptive_grow_shrink(harness: AdaptiveSlotHarness) -> None:
         1,
     )
 
-    # Test 3: a burst of N long Steps with L < N <= E grows to at least N and at most min(E, 2N).
+    # Test 3: a burst of N long Steps grows open streams to [N, min(E, 2N)].
     client = harness.client(server.address, run)
     flow = flow_of(run)
     flow_ids = start_flows(client, flow, MODE_BLOCK, 5)
@@ -358,7 +365,7 @@ def test_adaptive_grow_shrink(harness: AdaptiveSlotHarness) -> None:
     state = run.state()
     assert 5 <= state.open <= 10
 
-    # Test 9: growth up to E keeps the RPC-only stream at R, and an RPC runs while every Step slot is busy.
+    # Test 9: RPC-only streams stay at R, and an RPC runs with every Step slot busy.
     flow_ids += start_flows(client, flow, MODE_BLOCK, 10)
     entries += handlers.await_entries(10)
     require_slot_state(
@@ -372,7 +379,7 @@ def test_adaptive_grow_shrink(harness: AdaptiveSlotHarness) -> None:
     handlers.release.set()
     require_flows_completed(client, flow_ids)
 
-    # Tests 4 and 5: streams return to the floor while short Steps keep arriving, and no Step spends a retry.
+    # Tests 4 and 5: back to the floor under a trickle, with no retry spent.
     trickle_ids: list[str] = []
     stop_trickle = threading.Event()
 
@@ -402,8 +409,7 @@ def test_adaptive_grow_shrink(harness: AdaptiveSlotHarness) -> None:
     assert state.streams_shrunk >= 13
     print(f"shrink race drops: {state.shrink_race_drops}")
 
-    # Test 11 and invariant 5: the count stays at the floor, and no stream closed on purpose
-    # reopens, for longer than two maximum reconnect backoffs (2 x 7.5 s).
+    # Test 11 and invariant 5: no shrunk stream reopens within two maximum backoffs.
     require_registered_streams(proxy, worker_id, 2, 1)
     since = time.monotonic()
     never(
@@ -439,7 +445,7 @@ def test_adaptive_rpc_burst(harness: AdaptiveSlotHarness) -> None:
         for _ in range(rpc_count)
     ]
     handlers.await_entries(rpc_count)
-    # E = 7 and R = 1: S + R >= min(N, E + R) and S <= min(E, 2N).
+    # With E = 7 and R = 1: S + R >= min(N, E + R), S <= min(E, 2N).
     state = run.state()
     assert state.open + state.rpc_only_open >= rpc_count
     assert state.open <= 7
@@ -452,7 +458,12 @@ def test_adaptive_rpc_burst(harness: AdaptiveSlotHarness) -> None:
 
 
 def test_adaptive_soft_rejection_at_node_limit(harness: AdaptiveSlotHarness) -> None:
-    """Design Tests 6 and 18."""
+    """Design Tests 6 and 18.
+
+    The fixed filler holds 14 streams and the adaptive floor 3, which leaves
+    room for 3 more. Growth reaches S = 5, and the partly rejected batch clamps
+    G to S + H.
+    """
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=20, max_streams=20))
     proxy = harness.proxy(server.address)
     fixed_handlers = AdaptiveSlotHandlers()
@@ -482,7 +493,7 @@ def test_adaptive_soft_rejection_at_node_limit(harness: AdaptiveSlotHarness) -> 
     client = harness.client(server.address, run)
     flow_ids = start_flows(client, flow_of(run), MODE_BLOCK, 10)
 
-    # 14 + 3 streams leave room for 3: growth reaches S = 5 and a partly rejected batch clamps G to S + H.
+    # Room for 3 more: growth stops at S = 5, and the rejected batch clamps G.
     require_slot_state(
         run,
         "growth clamped at the node limit",
@@ -700,6 +711,57 @@ def test_cap_of_one_adaptive_floor_of_one(
     assert logs.has_warning("clamped max_concurrent_tasks", "1")
     for register in proxy.registers_since(worker_id, 0.0):
         assert register.slot_kind == STEP_AND_RPC
+
+
+@pytest.mark.parametrize(
+    "pull",
+    [
+        PullWorkerOptions(max_concurrent_tasks=18, min_open_slots=1),
+        PullWorkerOptions(),
+    ],
+    ids=["adaptive", "fixed-unset-ceiling"],
+)
+def test_cap_of_one_first_acknowledgement_snapshot_is_consistent(
+    harness: AdaptiveSlotHarness, pull: PullWorkerOptions
+) -> None:
+    """A snapshot read during the first acknowledgement's clamp never mixes old and new capacities.
+
+    Another thread reads the snapshot in a tight loop across the cap-1 first
+    acknowledgement. Every sample must satisfy
+    E == max(0, C - max(R_eff, Sr + Hr)) and 0 <= G <= E. The fixed case
+    also drops its default RPC-only reserve from 1 to 0 at the clamp.
+    """
+    server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
+    proxy = harness.proxy(server.address)
+    release_acknowledgements = proxy.hold_acknowledgements()
+    worker_id = app_id("snapshot-consistency")
+    run = harness.worker(
+        proxy.address,
+        AdaptiveSlotHandlers(),
+        PullWorkerOptions(
+            max_concurrent_tasks=pull.max_concurrent_tasks,
+            min_open_slots=pull.min_open_slots,
+            app_worker_id=worker_id,
+        ),
+        _HOUR,
+    )
+    sampler = SnapshotInvariantSampler(run)
+    try:
+        eventually(lambda: len(proxy.registers_since(worker_id, 0.0)) >= 1, 10)
+        release_acknowledgements()
+        run.wait_registered()
+        require_slot_state(
+            run,
+            "one Step-and-RPC stream at cap 1",
+            lambda state: state.total_capacity == 1
+            and state.open == 1
+            and state.registering == 0,
+        )
+    finally:
+        violations = sampler.stop_sampling()
+    assert not violations, f"inconsistent snapshots: {violations}"
+    assert 1 in sampler.capacities
+    print(f"snapshot samples: {sampler.sample_count}")
 
 
 @pytest.mark.parametrize("mode", ["fixed", "adaptive"])
@@ -1004,7 +1066,11 @@ def test_orphaned_handlers_same_cap(harness: AdaptiveSlotHarness) -> None:
 def test_orphaned_handlers_cap_lowered_below_orphans(
     harness: AdaptiveSlotHarness,
 ) -> None:
-    """Design Test 15 with a restart that lowers the cap below the orphaned handler count."""
+    """Design Test 15 with a restart that lowers the cap below the orphaned handler count.
+
+    The first acknowledgement reveals cap 2 while usage is 4, so the Worker
+    registers nothing more until usage drops below 2.
+    """
     scenario = OrphanedHandlerScenario(harness)
     server, proxy, run = scenario.server, scenario.proxy, scenario.run
     handlers, worker_id, flow_ids = (
@@ -1024,7 +1090,7 @@ def test_orphaned_handlers_cap_lowered_below_orphans(
     )
     released_at = time.monotonic()
     handlers.release_stubborn(flow_ids[0])
-    # The first acknowledgement reveals cap 2 while usage is 4: the Worker registers nothing more until usage drops below 2.
+    # The first acknowledgement reveals cap 2 with usage 4; no Register until usage drops.
     eventually(
         lambda: len(proxy.acknowledgements_since(worker_id, released_at)) == 1, 10
     )
@@ -1326,7 +1392,13 @@ def test_adaptive_grant_revoked_after_cap_drop(harness: AdaptiveSlotHarness) -> 
 def test_adaptive_cap_drop_between_admission_and_send(
     harness: AdaptiveSlotHarness,
 ) -> None:
-    """Admission is re-checked before the write; a later cap drop gets a soft Server rejection."""
+    """Admission is re-checked before the write; a later cap drop gets a soft Server rejection.
+
+    The two held attempts are re-checked after cap 2 is known, and one is
+    revoked without sending anything. A Register that passed its re-check just
+    before the cap became known may still meet the cap once. That rejection is
+    soft, and the retry latch retries it at the next window.
+    """
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=8))
     proxy = harness.proxy(server.address)
     barrier = RegisterSendBarrier()
@@ -1369,9 +1441,7 @@ def test_adaptive_cap_drop_between_admission_and_send(
         cap_known_at = time.monotonic()
         barrier.release()
 
-        # The two held attempts are re-checked after cap 2 is known: one is revoked and sends nothing.
-        # A Register that passed its re-check just before the cap became known may still meet the cap once;
-        # that rejection is soft, and the latch retries it at the next window.
+        # The held attempts are re-checked under cap 2; one is revoked and sends nothing.
         def is_over_cap() -> bool:
             rejections = len(proxy.rejections_since(worker_id, cap_known_at))
             return (
@@ -1407,6 +1477,7 @@ def test_adaptive_blocked_register_send(harness: AdaptiveSlotHarness) -> None:
     """One blocked Register write must not stop cap updates, other handlers, or stop."""
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=4))
     handlers = AdaptiveSlotHandlers()
+    logs = harness.logs()
     real_stub_class = dex_pb2_grpc.WorkerTaskServiceStub
     stubs: list[BlockingRegisterStub] = []
 
@@ -1458,6 +1529,10 @@ def test_adaptive_blocked_register_send(harness: AdaptiveSlotHarness) -> None:
             ), "stop did not finish while a Register write was blocked"
             assert time.monotonic() - stop_started_at < 10
             assert run.await_start_result(10) is None
+            # A write that stop canceled is a normal shutdown, not a stream failure.
+            assert (
+                logs.count_records(logging.ERROR, "Worker task stream failed") == 0
+            ), "stop logged its canceled Register write as a failure"
         finally:
             for stub in stubs:
                 stub.release_all()
@@ -1486,7 +1561,7 @@ def test_adaptive_cap_drop_above_floor(harness: AdaptiveSlotHarness) -> None:
     restarted_at = time.monotonic()
     server.restart(ServerLimits(max_concurrent_tasks_cap=4))
     proxy.set_upstream(server.address)
-    # C = 4 and R = 1 leave E = 3; the retried Steps grow the Worker back to E.
+    # C = 4 and R = 1 leave E = 3; retried Steps grow back to E.
     require_slot_state(
         run,
         "growth up to the lower cap",
@@ -1535,7 +1610,7 @@ def test_adaptive_cap_drop_below_floor(harness: AdaptiveSlotHarness) -> None:
     restarted_at = time.monotonic()
     server.restart(ServerLimits(max_concurrent_tasks_cap=3))
     proxy.set_upstream(server.address)
-    # C = 3 and R = 1 leave E = 2, so the floor of 4 becomes L_eff = 2.
+    # C = 3 and R = 1 leave E = 2, so L_eff = 2.
     require_slot_state(
         run,
         "the floor limited by the lower cap",

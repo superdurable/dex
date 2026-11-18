@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import grpc
+import grpc.aio
 from google.protobuf.empty_pb2 import Empty
 
 from dex import (
@@ -249,13 +250,15 @@ class _ProxyGate:
     step_held: asyncio.Event = field(default_factory=asyncio.Event)
 
 
-class _ProxyHandler(grpc.GenericRpcHandler):
+# The grpc stubs differ across Python versions, so the proxy types its gRPC objects as Any.
+_GenericRpcHandler: Any = grpc.GenericRpcHandler
+
+
+class _ProxyHandler(_GenericRpcHandler):  # type: ignore[misc]
     def __init__(self, proxy: PullSlotProxy) -> None:
         self._proxy = proxy
 
-    def service(
-        self, handler_call_details: grpc.HandlerCallDetails
-    ) -> grpc.RpcMethodHandler[Any, Any] | None:
+    def service(self, handler_call_details: Any) -> Any:
         method = cast(str, getattr(handler_call_details, "method"))
         metadata = tuple(getattr(handler_call_details, "invocation_metadata") or ())
 
@@ -344,7 +347,7 @@ class PullSlotProxy:
     async def _forward_other(
         self, method: str, context: Any, metadata: tuple[Any, ...]
     ) -> None:
-        upstream = self._upstream
+        upstream: Any = self._upstream
         if upstream is None:
             await context.abort(grpc.StatusCode.UNAVAILABLE, "proxy has no upstream")
             return
@@ -408,7 +411,7 @@ class PullSlotProxy:
             if not is_step and gate is not None and gate.is_released_by_rpc_only:
                 stream.stage = "waiting for a held Step-and-RPC Register"
                 await gate.step_held.wait()
-            upstream = self._upstream
+            upstream: Any = self._upstream
             if upstream is None:
                 raise RuntimeError("proxy has no upstream")
             stream.stage = "opening upstream"
@@ -959,9 +962,12 @@ class CapturedLogs(logging.Handler):
         return self.count_warnings(*fragments) > 0
 
     def count_warnings(self, *fragments: str) -> int:
+        return self.count_records(logging.WARNING, *fragments)
+
+    def count_records(self, level: int, *fragments: str) -> int:
         with self._lock_records:
             return sum(
-                record.levelno == logging.WARNING
+                record.levelno == level
                 and all(fragment in record.getMessage() for fragment in fragments)
                 for record in self.records
             )
@@ -1100,6 +1106,44 @@ class SlotUsageSampler:
     def require_within_capacity(self) -> None:
         violations = self.stop_sampling()
         assert not violations, f"slot usage exceeded the capacity: {violations}"
+
+
+class SnapshotInvariantSampler:
+    """Read snapshots in a tight loop from another thread and record inconsistent ones.
+
+    Each snapshot must satisfy E == max(0, C - max(R_eff, Sr + Hr)) and
+    0 <= G <= E, the capacity relations that one lock section keeps together.
+    """
+
+    def __init__(self, run: AdaptiveSlotWorkerRun) -> None:
+        self._run = run
+        self._stop = threading.Event()
+        self.violations: list[PullSlotStreamState] = []
+        self.capacities: set[int] = set()
+        self.sample_count = 0
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+        self._thread.start()
+
+    def _sample(self) -> None:
+        while not self._stop.is_set():
+            state = self._run.state()
+            self.sample_count += 1
+            self.capacities.add(state.total_capacity)
+            rpc_only_usage = state.rpc_only_open + state.orphaned_rpc_only_handlers
+            expected_ceiling = max(
+                0, state.total_capacity - max(state.rpc_only_slots, rpc_only_usage)
+            )
+            is_consistent = (
+                state.effective_ceiling == expected_ceiling
+                and 0 <= state.growth_target <= state.effective_ceiling
+            )
+            if not is_consistent and len(self.violations) < 8:
+                self.violations.append(state)
+
+    def stop_sampling(self) -> list[PullSlotStreamState]:
+        self._stop.set()
+        self._thread.join(timeout=10)
+        return self.violations
 
 
 class RegisterSendBarrier:

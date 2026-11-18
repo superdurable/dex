@@ -158,20 +158,42 @@ class PullSlotStreams:
                 return
             self._maybe_reopen_slot_streams_locked(None)
 
-    def resolve_slot_ceiling_at_first_acknowledgement(
-        self, limit: int
-    ) -> tuple[bool, str | None]:
-        """Apply D4 and F6 to the first acknowledgement.
+    def record_slot_registered(
+        self, stream: PullStream | None, limit: int
+    ) -> str | None:
+        """The registered event of the state machine, for either stream kind.
+
+        One lock section resolves the first acknowledgement's ceiling (D4, F6),
+        records the stream's registration, updates R_eff, closes surplus, and
+        recomputes the capacities, so a snapshot never sees half of it.
 
         Returns:
-            Whether this was the first acknowledgement, and a start failure
-            message, or None when the Worker may keep running.
+            A start failure message when the first acknowledgement's cap leaves
+            no valid configuration; the stream is then not recorded as
+            registered. None otherwise.
         """
         with self.lock:
-            if self.has_checked_registration_limit:
-                return False, None
-            self.has_checked_registration_limit = True
-            return True, self._resolve_slot_ceiling_locked(limit)
+            if not self.has_checked_registration_limit:
+                self.has_checked_registration_limit = True
+                failure = self._resolve_slot_ceiling_locked(limit)
+                if failure is not None:
+                    return failure
+            elif 0 < limit < self.max_concurrent_tasks and not self.is_adaptive:
+                # The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
+                _LOGGER.warning(
+                    "Server lowered matching.maxConcurrentTasksCap below "
+                    "max_concurrent_tasks after start; extra streams may be rejected",
+                    extra={
+                        "max_concurrent_tasks": self.max_concurrent_tasks,
+                        "max_concurrent_tasks_per_app_worker": limit,
+                    },
+                )
+            if stream is None:
+                self._recompute_slot_capacity_locked()
+                return None
+            self._runtime.registration.record_registered_stream(stream.queue)
+            self._record_slot_registered_locked(stream, limit)
+            return None
 
     def _resolve_slot_ceiling_locked(self, limit: int) -> str | None:
         has_limit = limit != 0
@@ -227,42 +249,43 @@ class PullSlotStreams:
             self._runtime._remove_rpc_only_slot_kind()
         return None
 
-    def record_slot_registered(self, stream: PullStream, limit: int) -> None:
-        """The registered event of the state machine, for either stream kind."""
-        with self.lock:
-            attempt = stream.slot
-            if attempt is None:
-                return
+    def _record_slot_registered_locked(self, stream: PullStream, limit: int) -> None:
+        attempt = stream.slot
+        if attempt is not None:
             attempt.has_received_registered = True
             if attempt.phase == _SlotPhase.REGISTERING:
                 self._set_slot_phase_locked(stream, _SlotPhase.IDLE)
-            if self.is_adaptive:
-                capacity = self.max_concurrent_tasks
-                if limit != 0 and limit < capacity:
-                    capacity = limit
-                self._total_capacity = capacity
-            rpc_only_slots = self.reserved_rpc_tasks
-            if rpc_only_slots + 1 > self._total_capacity:
-                rpc_only_slots = max(0, self._total_capacity - 1)
-            if rpc_only_slots < self._rpc_only_slots:
-                _LOGGER.warning(
-                    "Server matching.maxConcurrentTasksCap=%d leaves %d RPC-only slots, "
-                    "fewer than reserved_rpc_tasks=%d",
-                    limit,
-                    rpc_only_slots,
-                    self.reserved_rpc_tasks,
-                    extra={
-                        "reserved_rpc_tasks": self.reserved_rpc_tasks,
-                        "rpc_only_slots": rpc_only_slots,
-                        "max_concurrent_tasks_per_app_worker": limit,
-                    },
-                )
-            self._rpc_only_slots = rpc_only_slots
-            self._close_surplus_slot_streams_locked()
+        if self.is_adaptive:
+            capacity = self.max_concurrent_tasks
+            if limit != 0 and limit < capacity:
+                capacity = limit
+            self._total_capacity = capacity
+        rpc_only_slots = self.reserved_rpc_tasks
+        if rpc_only_slots + 1 > self._total_capacity:
+            rpc_only_slots = max(0, self._total_capacity - 1)
+        if rpc_only_slots < self._rpc_only_slots:
+            _LOGGER.warning(
+                "Server matching.maxConcurrentTasksCap=%d leaves %d RPC-only slots, "
+                "fewer than reserved_rpc_tasks=%d",
+                limit,
+                rpc_only_slots,
+                self.reserved_rpc_tasks,
+                extra={
+                    "reserved_rpc_tasks": self.reserved_rpc_tasks,
+                    "rpc_only_slots": rpc_only_slots,
+                    "max_concurrent_tasks_per_app_worker": limit,
+                },
+            )
+        self._rpc_only_slots = rpc_only_slots
+        if attempt is None:
+            # An untracked stream opens nothing; only the capacities change.
             self._recompute_slot_capacity_locked()
-            self._maybe_reopen_slot_streams_locked(None)
-            if self._step_phase_counts[_SlotPhase.REGISTERING] == 0:
-                self._settle_growth_batch_locked()
+            return
+        self._close_surplus_slot_streams_locked()
+        self._recompute_slot_capacity_locked()
+        self._maybe_reopen_slot_streams_locked(None)
+        if self._step_phase_counts[_SlotPhase.REGISTERING] == 0:
+            self._settle_growth_batch_locked()
 
     def record_slot_task_started(self, stream: PullStream) -> None:
         """The task_frame event."""
@@ -518,9 +541,7 @@ class PullSlotStreams:
         self._recompute_slot_capacity_locked()
 
     def _close_surplus_slot_streams_locked(self) -> None:
-        # Release capacity above a lowered cap; RPC-only surplus goes first. An
-        # attempt whose Register has not left yet is revoked first, because it
-        # costs the Server nothing.
+        # RPC-only surplus goes first; an unsent attempt is revoked before an idle stream half-closes.
         for slot_kind in (
             pb.POLL_WORKER_SLOT_KIND_RPC_ONLY,
             pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
@@ -590,8 +611,7 @@ class PullSlotStreams:
     def _is_soft_slot_rejection_locked(
         self, attempt: _PullSlotAttempt, code: grpc.StatusCode | None
     ) -> bool:
-        # F5: only an adaptive Worker softens RESOURCE_EXHAUSTED, and only for a
-        # growth stream or a reconnect after readiness that never registered.
+        # F5: adaptive only, for an unregistered growth stream or post-readiness reconnect.
         if (
             not self.is_adaptive
             or code is not grpc.StatusCode.RESOURCE_EXHAUSTED
@@ -699,8 +719,7 @@ class PullSlotStreams:
         self._restart_shrink_window_locked()
 
     def _maybe_reopen_slot_streams_locked(self, parked: PullStream | None) -> None:
-        # Open streams within free capacity in F5 order. A parked runner of the
-        # same kind is reused, so it keeps its reconnect backoff.
+        # F5 order within free capacity; reusing a parked runner keeps its reconnect backoff.
         if self._runtime.is_stopping or self._is_reopen_deferred:
             return
         step_open = self._step_slot_open_locked()
