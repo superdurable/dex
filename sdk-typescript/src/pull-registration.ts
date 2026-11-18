@@ -92,6 +92,18 @@ export class PullRegistration {
     }]));
   }
 
+  /** Whether every required slot kind has registered once; it stays latched across reconnects. */
+  public get hasRegisteredAllSlotKinds(): boolean {
+    return this.hasRegisteredAllQueues;
+  }
+
+  // The first acknowledgement can clamp the reserved RPC slots to zero, which drops RPC_ONLY from readiness.
+  public removeSlotKind(queue: string): void {
+    if (!this.queues.delete(queue)) return;
+    this.hasRegisteredAllQueues ||= [...this.queues.values()].every((entry) => entry.hasRegistered);
+    this.notify();
+  }
+
   public registered(queue: string): void {
     const registration = this.queues.get(queue)!;
     registration.hasRegistered = true;

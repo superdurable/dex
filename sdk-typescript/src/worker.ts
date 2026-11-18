@@ -34,14 +34,16 @@ import { PullWorker } from "./pull-worker.js";
 
 export { PullRegistrationError } from "./pull-registration.js";
 export type { PullRegistrationState, PullQueueRegistrationState, WaitPullRegisteredOptions } from "./pull-registration.js";
+export type { PullSlotStreamState } from "./pull-slot-streams.js";
 import { PullRegistrationError, type PullRegistrationState, type WaitPullRegisteredOptions } from "./pull-registration.js";
+import type { PullSlotStreamState } from "./pull-slot-streams.js";
 
 type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" | "closed";
 
 /**
  * Hosts registered Step and RPC handlers through outbound pull streams.
  *
- * A Worker is one-shot. Call `start` to register the first slot or `run` to await
+ * A Worker is one-shot. Call `start` to register a slot of each kind or `run` to await
  * shutdown, then call `close`. Concurrent handlers must synchronize shared state.
  * `close` stops new tasks, half-closes idle streams, and lets busy handlers send final output before half-closing.
  * It drains for `stopDrainTimeoutMs`, then resets streams whose handler has not written final output,
@@ -120,18 +122,24 @@ export class Worker {
 
   /**
    * Negotiates the Server protocol, synchronizes indexes, and starts polling.
-   * The promise resolves after the first slot registers and its Server concurrency limit is checked; call exactly once.
-   * Await waitPullRegistered separately to gate readiness on both configured slot kinds.
-   * @returns A promise resolved after protocol negotiation, index synchronization, and the first registration.
+   * The promise resolves after one stream of each configured slot kind registers and the Server concurrency
+   * limit is checked; call exactly once.
+   * @returns A promise resolved after protocol negotiation, index synchronization, and the registration of each slot kind.
    * @throws {Error} The Server is incompatible, unreachable (the gRPC error is the cause), or startup fails.
-   * @throws {Error} maxConcurrentTasks exceeds matching.maxConcurrentTasksCap; the Worker half-closes its streams.
-   * @throws {PullRegistrationError} The Server permanently rejects every stream before any registers.
+   * @throws {Error} An explicit maxConcurrentTasks of a fixed Worker exceeds matching.maxConcurrentTasksCap, or the
+   * cap leaves the clamped ceiling at or below reservedRpcTasks or below minOpenSlots; the Worker half-closes its streams.
+   * @throws {PullRegistrationError} The Server permanently rejects every stream of a slot kind before any of that kind registers.
    * Changed in 1.45.0: uploads the configured Flow definitions before opening task streams, within
    * `attributeIndexSyncTimeoutMs` in total. An upload failure is logged and does not fail start;
    * `close` cancels an upload in flight.
    * Changed in 1.45.2: with a non-empty `pull.taskQueue`, start fails before opening task streams
    * when the Server protocol is older than 5. It rejects with {@link PullRegistrationError} when
    * the Server confirms every stream for a different task queue.
+   * Changed in 1.45.7: start resolves after one stream of each slot kind has registered, as in the other
+   * SDKs, instead of after the first stream of any kind, so it now resolves when `waitPullRegistered` does.
+   * A fixed Worker with `maxConcurrentTasks` unset opens one stream first and clamps its CPU-count default to
+   * the Server cap with a warning, and an adaptive Worker clamps any `maxConcurrentTasks` above the cap;
+   * see `PullWorkerOptions.maxConcurrentTasks` and `PullWorkerOptions.minOpenSlots`.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
@@ -235,6 +243,35 @@ export class Worker {
    */
   public pullRegistrationState(): PullRegistrationState {
     return this.pullWorker.registration.snapshot();
+  }
+
+  /**
+   * Returns an independent snapshot of the Worker's slot streams.
+   *
+   * Use it to observe how many Server streams the Worker holds and how many of them are busy, for
+   * example in a debug endpoint or a periodic log line. It is most useful for an adaptive Worker,
+   * whose `PullWorkerOptions.minOpenSlots` is below `maxConcurrentTasks` and whose stream count
+   * varies with load. It is safe to call at any time, before, during, or after `start` and
+   * `close`, and it never waits on the network. Readiness is separate: use
+   * `pullRegistrationState` or `waitPullRegistered` for probes.
+   *
+   * Before `start` the counts are zero and the capacities come from the options. The first
+   * registration may lower them to the Server's `matching.maxConcurrentTasksCap`. See
+   * {@link PullSlotStreamState} for the meaning of each field.
+   *
+   * @returns A new snapshot object; changing it does not change the Worker.
+   * @example
+   * ```ts
+   * const server = createServer((_request, response) => {
+   *   const state = worker.pullSlotStreamState();
+   *   response.end(`open=${state.open} busy=${state.busy} idle=${state.idle} rpcOnly=${state.rpcOnlyOpen} `
+   *     + `orphaned=${state.orphanedHandlers} capacity=${state.totalCapacity}\n`);
+   * });
+   * ```
+   * @since 1.45.7
+   */
+  public pullSlotStreamState(): PullSlotStreamState {
+    return this.pullWorker.slotStreamState();
   }
 
   private uploadFlowDefinitions(

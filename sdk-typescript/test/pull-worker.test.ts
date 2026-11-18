@@ -149,12 +149,17 @@ test("reserved execution slots register all Flow types, reuse streams, and never
         assert.equal(registration.frame.value.appWorkerId, worker.appWorkerID);
         assert.equal(registration.frame.value.supportsReservedSlotDispatch, true);
         assert.deepEqual(registration.frame.value.flowTypes, ["TestFlow", "OtherFlow"]);
-        assert.equal(registration.frame.value.slotKind, slotNumber >= 3 - reservedRpcTasks
-          ? PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY
-          : PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC);
         stream.call.write(registered(true));
         streams.push(stream);
       }
+      // Changed in 1.45.7: slot kinds are counted by kind, and the first stream is always Step-and-RPC.
+      const slotKinds = await Promise.all(streams.map(async (stream) => {
+        const registration = await stream.frame("register");
+        return registration.frame?.$case === "register" ? registration.frame.value.slotKind : undefined;
+      }));
+      assert.equal(slotKinds[0], PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC);
+      assert.equal(slotKinds.filter((slotKind) => slotKind === PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY).length, reservedRpcTasks);
+      assert.equal(slotKinds.filter((slotKind) => slotKind === PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC).length, 3 - reservedRpcTasks);
       await worker.registration.wait({ timeoutMs: 5_000 });
       for (const [slotNumber, stream] of streams.entries()) stream.call.write(rpcTask(`busy-${slotNumber}`));
       await until(() => harness.invocationCount === 3);
@@ -1376,14 +1381,18 @@ test("registration waits for both slot kinds and survives reconnects and Stop", 
   });
   try {
     const waiting = worker.waitPullRegistered({ timeoutMs: 5_000 });
-    const starting = worker.start();
+    let hasStarted = false;
+    const starting = worker.start().then(() => { hasStarted = true; });
     const first = await harness.nextStream();
     const second = await harness.nextStream();
     first.call.write(registered(false));
-    await starting;
     await until(() => worker.pullRegistrationState().queues.some((queue) => queue.hasRegisteredStream));
     assert.equal(worker.pullRegistrationState().isReady, false);
+    // Changed in 1.45.7 (D13): start resolves only after every slot kind has registered.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(hasStarted, false);
     second.call.write(registered(false));
+    await starting;
     await waiting;
     const snapshot = worker.pullRegistrationState();
     assert.equal(snapshot.isReady, true);
