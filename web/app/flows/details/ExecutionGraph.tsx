@@ -549,6 +549,42 @@ function roundSpanLabel(round: StepRoundGroup, prefix: string): string {
   return `${prefix}${round.firstRoundNumber.toLocaleString('en-US')}–${round.lastRoundNumber.toLocaleString('en-US')}`;
 }
 
+const roundGroupingChoices = [
+  { isSimilar: false, label: 'Exact', description: 'Merge Rounds with the same Steps' },
+  { isSimilar: true, label: 'Similar', description: 'Merge Rounds with the same shape' },
+] as const;
+
+/** Exact or Similar: which consecutive Rounds merge into one range; arrow keys move between them. */
+export function RoundGroupingControl({ isSimilar, onChange }: { isSimilar: boolean; onChange: (isSimilar: boolean) => void }) {
+  const choose = (next: boolean, target: HTMLElement) => {
+    onChange(next);
+    const buttons = target.parentElement?.querySelectorAll('button');
+    buttons?.[next ? 1 : 0]?.focus();
+  };
+  return (
+    <div aria-label="Round grouping" className="graph-round-grouping" role="group">
+      {roundGroupingChoices.map((choice) => (
+        <button
+          aria-description={choice.description}
+          aria-pressed={choice.isSimilar === isSimilar}
+          key={choice.label}
+          onClick={() => onChange(choice.isSimilar)}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key === 'ArrowLeft') choose(false, keyEvent.currentTarget);
+            else if (keyEvent.key === 'ArrowRight') choose(true, keyEvent.currentTarget);
+            else return;
+            keyEvent.preventDefault();
+          }}
+          title={choice.description}
+          type="button"
+        >
+          {choice.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** A folded Round, or a deck of cards for a range of Rounds. */
 export function RoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
   return round.kind === 'range'
@@ -580,7 +616,7 @@ function RoundRangeDeckLabel({ round, onOpen }: { round: StepRoundGroup; onOpen:
           </div>
         )}
         {round.sequence.length > 0 && (
-          <p className="graph-round-sequence" title={round.sequence.join(' → ')}>{round.sequence.join(' → ')}</p>
+          <p className="graph-round-sequence" title={round.sequenceTitle}>{round.sequence.join(' → ')}</p>
         )}
         <RoundGroupFacts onOpen={onOpen} round={round} />
       </div>
@@ -608,7 +644,7 @@ function SingleRoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpe
         <span className="graph-round-bar-failed" style={{ width: `${failedShare}%` }} />
       </div>
       {round.sequence.length > 0 && (
-        <p className="graph-round-sequence" title={round.sequence.join(' → ')}>{round.sequence.join(' → ')}</p>
+        <p className="graph-round-sequence" title={round.sequenceTitle}>{round.sequence.join(' → ')}</p>
       )}
       <RoundGroupFacts onOpen={onOpen} round={round} />
     </div>
@@ -986,6 +1022,10 @@ export function ExecutionGraph({
   const isLeftToRight = direction === 'lr';
   const [isMiniMapHidden, setIsMiniMapHidden] = useStoredGraphFlag(graphViewStorageKeys.isMiniMapHidden, false);
   const [isFolded, setIsFolded] = useStoredGraphFlag(graphViewStorageKeys.isFolded, false);
+  const [isSimilarRoundGrouping, setIsSimilarRoundGrouping] = useStoredGraphFlag(
+    graphViewStorageKeys.isSimilarRoundGrouping,
+    false,
+  );
   const [isFoldedIntroDismissed, setIsFoldedIntroDismissed] = useStoredGraphFlag(
     graphViewStorageKeys.isFoldedIntroDismissed,
     false,
@@ -1008,12 +1048,13 @@ export function ExecutionGraph({
     () => (isFolded
       ? foldStepGraph(graph.nodes, graph.edges, {
         openIntents,
+        roundGrouping: isSimilarRoundGrouping ? 'similar' : 'exact',
         selectedStepExecutionID,
         preferredAnchorStepType: preferredAnchorStepType.current.stepType,
         historyEvents: events,
       })
       : unfoldedStepGraph(graph.nodes, graph.edges)),
-    [events, graph.edges, graph.nodes, isFolded, openIntents, selectedStepExecutionID],
+    [events, graph.edges, graph.nodes, isFolded, isSimilarRoundGrouping, openIntents, selectedStepExecutionID],
   );
   useEffect(() => {
     if (folded.anchorStepType) preferredAnchorStepType.current = { flowId, stepType: folded.anchorStepType };
@@ -1364,6 +1405,9 @@ export function ExecutionGraph({
             <FoldHorizontal aria-hidden="true" size={14} strokeWidth={2.25} />
             Folded
           </button>
+          {isFolded && (
+            <RoundGroupingControl isSimilar={isSimilarRoundGrouping} onChange={setIsSimilarRoundGrouping} />
+          )}
           {isFolded && folded.rounds.length === 0 && (
             <span className="graph-fold-note">No Step type repeats, so nothing folds.</span>
           )}

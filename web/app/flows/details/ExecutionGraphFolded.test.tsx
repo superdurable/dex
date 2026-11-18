@@ -195,6 +195,16 @@ const twoStepTypeRoundsHistory = decidedChainHistory([
   ['Check', { closeDecision: { closeDecisionType: 2 } }],
 ]);
 
+// Ten Plan → tool Rounds with three tools, so Plan anchors; Similar merges them all.
+const toolRoundsHistory = decidedChainHistory([
+  ...['LookUpOrder', 'LookUpOrder', 'LookUpPayment', 'LookUpOrder', 'LookUpUsage',
+    'LookUpPayment', 'LookUpPayment', 'LookUpUsage', 'LookUpOrder', 'LookUpUsage'].flatMap((tool) => [
+    ['Plan', { nextSteps: [{ stepType: tool }] }],
+    [tool, { nextSteps: [{ stepType: 'Plan' }] }],
+  ] as Array<[string, unknown]>),
+  ['Plan', { closeDecision: { closeDecisionType: 2 } }],
+]);
+
 const toSyncBatch = { nextSteps: [{ stepType: 'SyncBatch' }] };
 const gracefulComplete = { closeDecision: { closeDecisionType: 2 } };
 
@@ -407,6 +417,47 @@ describe('Folded Graph', () => {
     expect(shownNodeIDs()).toContain(foldedRangeID);
     rerender(graph(loopEvents, execute10));
     await waitFor(() => expect(shownNodeIDs()).toContain('Step-10'));
+  });
+
+  it('shows Exact and Similar only while Folded is on, Exact by default', () => {
+    render(graph(toolRoundsHistory));
+    expect(screen.queryByRole('group', { name: 'Round grouping' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Folded' }));
+    const exact = screen.getByRole('button', { name: 'Exact' });
+    const similar = screen.getByRole('button', { name: 'Similar' });
+    expect([exact.getAttribute('aria-pressed'), similar.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+    expect(exact.getAttribute('title')).toBe('Merge Rounds with the same Steps');
+    expect(similar.getAttribute('aria-description')).toBe('Merge Rounds with the same shape');
+    expect(screen.queryByRole('group', { name: /^10 Rounds/ })).toBeNull();
+  });
+
+  it('merges Rounds of the same shape with Similar and remembers the choice', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const { unmount } = render(graph(toolRoundsHistory));
+    fireEvent.click(screen.getByRole('button', { name: 'Similar' }));
+    expect(storedValues.get(graphViewStorageKeys.isSimilarRoundGrouping)).toBe('true');
+    const range = screen.getByRole('group', { name: '10 Rounds, Rounds 1–10, 20 Steps' });
+    expect(range.querySelector('.graph-round-deck-count')?.textContent).toBe('×10Rounds');
+    const sequence = range.querySelector('.graph-round-sequence');
+    expect(sequence?.textContent).toBe('Plan → 3 Step types');
+    expect(sequence?.getAttribute('title')).toBe('Plan → (LookUpOrder, LookUpPayment, LookUpUsage)');
+    unmount();
+
+    render(graph(toolRoundsHistory));
+    expect(screen.getByRole('button', { name: 'Similar' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Similar' }), { key: 'ArrowLeft' });
+    expect(screen.getByRole('button', { name: 'Exact' }).getAttribute('aria-pressed')).toBe('true');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Exact' }));
+    expect(storedValues.get(graphViewStorageKeys.isSimilarRoundGrouping)).toBe('false');
+  });
+
+  it('falls back to Exact when storage is blocked and still switches', () => {
+    stubStorage({ isBlocked: true });
+    render(graph(toolRoundsHistory));
+    fireEvent.click(screen.getByRole('button', { name: 'Folded' }));
+    expect(screen.getByRole('button', { name: 'Exact' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Similar' }));
+    expect(screen.getByRole('group', { name: '10 Rounds, Rounds 1–10, 20 Steps' })).toBeTruthy();
   });
 
   it('draws a range of Rounds as a deck headed by the Round count', () => {

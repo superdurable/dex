@@ -294,6 +294,56 @@ function cronScheduleHistory(roundCount: number, siblingOrderOf: (round: number)
 
 const cronSiblingOrders: CronSiblingOrder[] = ['run-first', 'wait-first', 'wait-first', 'run-after-next-decision', 'run-first'];
 
+describe('Similar Round grouping', () => {
+  const similar: StepGraphFoldingOptions = { ...defaultOptions, roundGrouping: 'similar' };
+
+  it('merges a long agent run into ranges of one shape, with failed Rounds and the latest one apart', () => {
+    const exact = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, defaultOptions);
+    const folded = foldStepGraph(longAgentRun.nodes, longAgentRun.edges, similar);
+    expect(folded.anchorStepType).toBe('AgentDecisionStep');
+    const topLevel = folded.rounds.filter((round) => !round.parentKey);
+    expect(topLevel.length).toBeLessThan(exact.rounds.filter((round) => !round.parentKey).length / 5);
+    expect(topLevel.map((round) => (round.failedCount > 0 ? 'failed' : round.kind))).toEqual([
+      'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'failed', 'range', 'round',
+    ]);
+    expect(topLevel.reduce((total, round) => total + round.roundCount, 0)).toBe(127);
+    // The live run's failed Rounds, which pin the fixture's order.
+    expect(topLevel.filter((round) => round.failedCount > 0).map((round) => round.firstRoundNumber)).toEqual([17, 44, 71, 98, 115]);
+    const [first] = topLevel;
+    expect(first).toMatchObject({ firstRoundNumber: 1, sequence: ['AgentDecisionStep', '6 Step types'] });
+    expect(first.sequenceTitle).toMatch(/^AgentDecisionStep → \(CheckIncidentsStep, GetSupportHistoryStep, CheckIdentityStep, /);
+    expect(topLevel.at(-1)).toMatchObject({ isLatest: true, stepCount: 7 });
+  });
+
+  it('keeps Rounds whose Step decisions or run lengths differ apart', () => {
+    // Every Round has three Steps, so Plan anchors.
+    const graph = decidedChainGraph([
+      ['Plan', goTo('Fetch')], ['Fetch', goTo('Store')], ['Store', goTo('Plan')],
+      ['Plan', goTo('Store')], ['Store', goTo('Fetch')], ['Fetch', goTo('Plan')],
+      ['Plan', goTo('Fetch')], ['Fetch', goTo('Fetch')], ['Fetch', goTo('Plan')],
+      ['Plan', goTo('Store')], ['Store', goTo('Fetch')], ['Fetch', goTo('Plan', ['Store'])],
+      ['Plan', gracefulComplete],
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, similar);
+    expect(folded.anchorStepType).toBe('Plan');
+    expect(folded.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3', 'Round 4', 'Round 5']);
+    expect(folded.rounds[0]).toMatchObject({
+      sequence: ['Plan', '2 Step types', '2 Step types'],
+      sequenceTitle: 'Plan → (Fetch, Store) → (Store, Fetch)',
+    });
+  });
+
+  it('leaves Exact grouping as it was', () => {
+    const graph = chain([...repeat(3, [['Plan'], ['Fetch']]), ...repeat(3, [['Plan'], ['Store']]), ['Plan', 'Waiting']]);
+    // Fetch is as uniform as Plan and runs less, so Plan comes from an earlier fold.
+    const keptPlan = { preferredAnchorStepType: 'Plan' };
+    expect(foldStepGraph(graph.nodes, graph.edges, { ...defaultOptions, ...keptPlan }).rounds.map((round) => round.title))
+      .toEqual(['Rounds 1–3', 'Rounds 4–6', 'Round 7']);
+    expect(foldStepGraph(graph.nodes, graph.edges, { ...similar, ...keptPlan }).rounds.map((round) => round.title))
+      .toEqual(['Rounds 1–6', 'Round 7']);
+  });
+});
+
 describe('Spawn order', () => {
   it('folds a Cron schedule into one range however its spawned Steps race', () => {
     const graph = buildStepGraph(cronScheduleHistory(40, (round) => cronSiblingOrders[round % cronSiblingOrders.length]));
