@@ -54,9 +54,9 @@ final class PullSlotSettings {
         void beforeRegisterSend(PollWorkerSlotKind slotKind);
     }
 
-    // Wraps a poll call's request observer; callContext is the call that a reset cancels.
+    // Wraps a poll call's request observer just before its Register is enqueued; a reset cancels callContext.
     interface RequestObserverWrapper {
-        StreamObserver<PollWorkerTaskRequest> wrap(
-                StreamObserver<PollWorkerTaskRequest> requests, Context.CancellableContext callContext);
+        StreamObserver<PollWorkerTaskRequest> wrap(StreamObserver<PollWorkerTaskRequest> requests,
+                Context.CancellableContext callContext, PollWorkerSlotKind slotKind);
     }
 }

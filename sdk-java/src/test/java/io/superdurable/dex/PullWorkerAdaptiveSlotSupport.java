@@ -231,6 +231,14 @@ final class PullWorkerAdaptiveSlotSupport {
         WorkerRun(final String address, final PullWorkerAdaptiveSlotHandlers handlers,
                 final PullWorkerAdaptiveSlotFlow flow, final PullWorkerAdaptiveSlotParkedFlow parked,
                 final PullWorkerOptions.Builder pull, final PullSlotSettings settings) {
+            this(address, handlers, flow, parked, pull, settings, worker -> { });
+        }
+
+        // beforeStart receives the Worker before its start thread runs.
+        WorkerRun(final String address, final PullWorkerAdaptiveSlotHandlers handlers,
+                final PullWorkerAdaptiveSlotFlow flow, final PullWorkerAdaptiveSlotParkedFlow parked,
+                final PullWorkerOptions.Builder pull, final PullSlotSettings settings,
+                final java.util.function.Consumer<Worker> beforeStart) {
             this.handlers = handlers;
             this.flow = flow;
             this.parked = parked;
@@ -242,6 +250,7 @@ final class PullWorkerAdaptiveSlotSupport {
             this.registry = new Registry(flows);
             this.worker = new Worker(registry, new AdaptiveSlotTestBlobCache(), WorkerOptions.newBuilder()
                     .serverAddress(address).pull(pull.slotSettingsForTest(settings).build()).build());
+            beforeStart.accept(worker);
             this.thread = new Thread(() -> {
                 try {
                     worker.start();

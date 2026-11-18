@@ -773,18 +773,22 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final PullSlotProxy proxy = startProxy(server);
         final String appWorkerID = newAppWorkerID("fixed-startup-order");
         final RegisterEnqueueRecorder enqueues = new RegisterEnqueueRecorder();
-        final WorkerRun run = track(startWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(appWorkerID).maxConcurrentTasks(4), new PullSlotSettings(ONE_HOUR, null, enqueues)));
-        enqueues.worker.set(run.worker);
+        final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
+        final WorkerRun run = track(new WorkerRun(proxy.address(), handlers, new PullWorkerAdaptiveSlotFlow(handlers),
+                new PullWorkerAdaptiveSlotParkedFlow(handlers), pull(appWorkerID).maxConcurrentTasks(4),
+                new PullSlotSettings(ONE_HOUR, null, enqueues), enqueues.worker::set));
         run.waitRegistered(Duration.ofMinutes(1));
         requireRegisteredStreams(proxy, appWorkerID, 3, 1);
         final List<RegisterEnqueueRecorder.Enqueue> recorded = enqueues.recorded();
         assertEquals(4, recorded.size(), recorded::toString);
+        // As before adaptive streams: every RPC_ONLY stream first, then every STEP_AND_RPC stream.
+        assertEquals(RPC_ONLY, recorded.get(0).slotKind, recorded::toString);
+        for (RegisterEnqueueRecorder.Enqueue enqueue : recorded.subList(1, recorded.size())) {
+            assertEquals(STEP_AND_RPC, enqueue.slotKind, recorded::toString);
+        }
         for (RegisterEnqueueRecorder.Enqueue enqueue : recorded) {
-            // The Worker monitor is held at the enqueue, so these counts are exact.
             assertEquals(0, enqueue.processedAcknowledgements, () -> "an acknowledgement was processed first: " + recorded);
             assertEquals(recorded.get(0).threadName, enqueue.threadName, recorded::toString);
-            assertTrue(enqueue.atNanos - proxy.firstAcknowledgementAtNanos() < 0, recorded::toString);
         }
     }
 
@@ -1217,30 +1221,32 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         private final List<Enqueue> enqueues = new ArrayList<Enqueue>();
 
         private static final class Enqueue {
-            private final long atNanos = System.nanoTime();
             private final String threadName = Thread.currentThread().getName();
+            private final PollWorkerSlotKind slotKind;
             private final int processedAcknowledgements;
 
-            private Enqueue(final int processedAcknowledgements) {
+            private Enqueue(final PollWorkerSlotKind slotKind, final int processedAcknowledgements) {
+                this.slotKind = slotKind;
                 this.processedAcknowledgements = processedAcknowledgements;
             }
 
             @Override
             public String toString() {
-                return threadName + "@" + atNanos + " processed=" + processedAcknowledgements;
+                return slotKind + " on " + threadName + " processed=" + processedAcknowledgements;
             }
         }
 
         @Override
         public StreamObserver<PollWorkerTaskRequest> wrap(final StreamObserver<PollWorkerTaskRequest> requests,
-                final Context.CancellableContext callContext) {
-            final Worker current = worker.get();
-            // The calling thread holds the Worker monitor, so the snapshot cannot change meanwhile.
-            // -1 marks an enqueue before the test published the Worker, which fails the assertion.
-            final int processed = current == null ? -1 : current.getPullSlotStreamState().getIdle()
-                    + current.getPullSlotStreamState().getBusy();
+                final Context.CancellableContext callContext, final PollWorkerSlotKind slotKind) {
+            // The caller holds the Worker monitor, so this count of processed acknowledgements is exact.
+            final PullSlotStreamState state = worker.get().getPullSlotStreamState();
+            int processed = state.getIdle() + state.getBusy();
+            for (PullQueueRegistrationState queue : worker.get().getPullRegistrationState().getQueues()) {
+                processed += queue.hasRegisteredStream() ? 1 : 0;
+            }
             synchronized (this) {
-                enqueues.add(new Enqueue(processed));
+                enqueues.add(new Enqueue(slotKind, processed));
             }
             return requests;
         }
@@ -1265,7 +1271,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
 
         @Override
         public StreamObserver<PollWorkerTaskRequest> wrap(final StreamObserver<PollWorkerTaskRequest> requests,
-                final Context.CancellableContext callContext) {
+                final Context.CancellableContext callContext, final PollWorkerSlotKind slotKind) {
             return new StreamObserver<PollWorkerTaskRequest>() {
                 @Override
                 public void onNext(final PollWorkerTaskRequest request) {
@@ -1303,7 +1309,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
 
         @Override
         public StreamObserver<PollWorkerTaskRequest> wrap(final StreamObserver<PollWorkerTaskRequest> requests,
-                final Context.CancellableContext callContext) {
+                final Context.CancellableContext callContext, final PollWorkerSlotKind slotKind) {
             return new StreamObserver<PollWorkerTaskRequest>() {
                 @Override
                 public void onNext(final PollWorkerTaskRequest request) {

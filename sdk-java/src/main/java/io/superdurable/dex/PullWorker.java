@@ -556,8 +556,15 @@ final class PullWorker {
         startupBatch = batch;
         maybeReopenSlotStreams(null);
         startupBatch = null;
-        for (PullStream stream : batch) {
-            stream.connect();
+        // The old startup order: every RPC_ONLY stream, then every STEP_AND_RPC stream.
+        for (PollWorkerSlotKind slotKind : new PollWorkerSlotKind[] {
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY,
+                PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC}) {
+            for (PullStream stream : batch) {
+                if (stream.slotKind == slotKind) {
+                    stream.connect();
+                }
+            }
         }
     }
 
@@ -1226,7 +1233,7 @@ final class PullWorker {
                 final PullSlotSettings.RequestObserverWrapper wrapper =
                         slotSettings.getRequestObserverWrapperForTest();
                 if (wrapper != null) {
-                    opened.requests = wrapper.wrap(opened.requests, opened.callContext);
+                    opened.requests = wrapper.wrap(opened.requests, opened.callContext, slotKind);
                 }
                 // The writer thread sends the Register outside this monitor; from here on it is not revocable.
                 slot.isRegisterSent = true;
