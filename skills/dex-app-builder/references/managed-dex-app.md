@@ -70,7 +70,8 @@ Each link has the exact fields and limits.
   [S1](https://docs.superdurable.io/reference/dex-app/manifest#s1)
 - **S2, deployment manifest.** The root `dex-app.yaml` starts with
   `schemaVersion: dex.superdurable.io/dex-app/v1`. It declares
-  `application` (port and health path), one `flowDefinitions` entry per Flow
+  `application` (port, health path, and the environment variables the user
+  configures; see Alternative settings), one `flowDefinitions` entry per Flow
   source file, and `connectors`, which is `[]` when the application uses
   none. Each Flow source is a committed file outside `node_modules`. A field
   the reference does not list is an error.
@@ -132,6 +133,52 @@ authMethodId: ""
 enum: ["yes", "no"]
 version: "<release>"
 ```
+
+## Alternative settings
+
+Declare in `application.environment` every variable the user configures for
+the application, except the variables the platform sets, such as `PORT`. The
+[`application.environment`](https://docs.superdurable.io/reference/dex-app/manifest#application-environment)
+reference lists the names the platform reserves. Decide for each declared
+variable what the application needs:
+
+| The application needs | Declare |
+| --- | --- |
+| This variable in every deployment | The variable as required |
+| One of several alternative sets of variables, such as a model API key or a bring-your-own endpoint | Every variable of every set as optional, plus one `application.requiredOneOf` entry that lists the sets |
+| This variable only for an optional feature | The variable as optional, and no `requiredOneOf` |
+
+A `requiredOneOf` entry lists the alternative sets as `groups`, with an
+optional `label`. Each group is a list of variable names that must all be
+set. The entry is met when every variable of at least one group is set. In
+the code, read the groups in a fixed order and use the first one that is
+fully set.
+
+Anti-patterns:
+
+- Marking every variable of every alternative as required. That forces the
+  user to set all of them.
+- Marking none of them required and declaring no `requiredOneOf`. Nothing then
+  checks before publishing that the application has a usable credential, and
+  it fails at run time.
+
+```yaml
+application:
+  port: 8080
+  healthPath: /api/health
+  environment:
+    - {name: ANTHROPIC_API_KEY, secret: true, minLength: 1}
+    - {name: OPENAI_BASE_URL, minLength: 1}
+    - {name: OPENAI_API_KEY, secret: true, minLength: 1}
+  requiredOneOf:
+    - label: Model
+      groups:
+        - [ANTHROPIC_API_KEY]
+        - [OPENAI_BASE_URL, OPENAI_API_KEY]
+```
+
+The [`application.requiredOneOf`](https://docs.superdurable.io/reference/dex-app/manifest#application-required-one-of)
+reference has the field rules, the limits, and how an unmet entry is shown.
 
 ## Check before handoff
 

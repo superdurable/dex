@@ -137,7 +137,7 @@ Dex Cloud shows one of these messages instead of publishing.
 
 **Set up what Live needs first.**
 
-- **Cause.** Live's **Setup** has a gap: a required connection or value has none. Other items follow Preview. Secrets and the connections of endpoint-bound connectors never follow Preview, so Live needs its own.
+- **Cause.** Live's **Setup** has a gap: a required connection or value has none, or no group of an [`application.requiredOneOf`](/reference/dex-app/manifest#application-required-one-of) requirement is fully set. Other items follow Preview. Secrets and the connections of endpoint-bound connectors never follow Preview, so Live needs its own.
 - **Fix.** Set each gap in Live's **Setup**, secrets included. Then publish again.
 
 **Choose a Ready Dex Server for Live.**
