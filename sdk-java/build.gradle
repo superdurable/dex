@@ -157,7 +157,8 @@ tasks.named('jar') {
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform {
-        excludeTags 'dex-dev'
+        // adaptive-slots tests start their own dex-server-zd; localIntegrationTest runs them.
+        excludeTags 'dex-dev', 'adaptive-slots'
     }
 }
 
@@ -172,6 +173,7 @@ tasks.register('localIntegrationTest', Test) {
         includeTestsMatching 'io.superdurable.dex.WorkerDispatchIntegrationTest'
         includeTestsMatching 'io.superdurable.dex.ClientExceptionIntegrationTest'
         includeTestsMatching 'io.superdurable.dex.PullWorkerTest'
+        includeTestsMatching 'io.superdurable.dex.PullWorkerAdaptiveSlotStreamsTest'
         includeTestsMatching 'io.superdurable.dex.integ.StepCancellationWorkflowTest'
         includeTestsMatching 'io.superdurable.dex.CredentialTest'
         includeTestsMatching 'io.superdurable.dex.FlowDefinitionUploadDeadlineTest'
