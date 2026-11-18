@@ -195,11 +195,19 @@ export function overviewBucketSelectionIndex(
   bucket: OverviewBucket,
   statuses: readonly EventStatus[],
   retried: readonly boolean[],
+  /** Each event's filter visibility; a bar with shown events picks only among them. */
+  shownFlags?: readonly boolean[],
 ): number {
   if (bucket.count === 0) return -1;
-  let bestIndex = bucket.firstEventIndex;
-  let bestRank = selectionStatusRanks.normal;
+  let hasShownEvent = !shownFlags;
+  for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex && !hasShownEvent; index += 1) {
+    hasShownEvent = shownFlags?.[index] ?? true;
+  }
+  const isCandidate = (index: number) => !shownFlags || !hasShownEvent || shownFlags[index];
+  let bestIndex = -1;
+  let bestRank = selectionStatusRanks.normal + 1;
   for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex && bestRank > 0; index += 1) {
+    if (!isCandidate(index)) continue;
     const status = statuses[index] ?? 'normal';
     const rank = status !== 'failed' && retried[index] ? selectionStatusRanks.retried : selectionStatusRanks[status];
     if (rank < bestRank) {
@@ -208,6 +216,27 @@ export function overviewBucketSelectionIndex(
     }
   }
   return bestIndex;
+}
+
+/** Returns the page index of a lane index; laneToPage lists each lane event's page index, past the end is pageCount. */
+export function laneIndexToPageIndex(laneToPage: readonly number[], pageCount: number, laneIndex: number): number {
+  const whole = Math.floor(Math.max(0, laneIndex));
+  if (whole >= laneToPage.length) return pageCount;
+  return laneToPage[whole] + (Math.max(0, laneIndex) - whole);
+}
+
+/** Maps a fractional page index to a fractional lane index; hidden events collapse onto the next lane slot. */
+export function pageIndexToLaneIndex(laneToPage: readonly number[], pageIndex: number): number {
+  const whole = Math.floor(Math.max(0, pageIndex));
+  let low = 0;
+  let high = laneToPage.length;
+  // The count of lane events before page event `whole`.
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (laneToPage[middle] < whole) low = middle + 1;
+    else high = middle;
+  }
+  return laneToPage[low] === whole ? low + (Math.max(0, pageIndex) - whole) : low;
 }
 
 /** Maps a fractional event index, such as the view's first slot, to its x ratio in [0, 1]. */
@@ -257,31 +286,49 @@ export function brushPixelSpan(
   return { left, right };
 }
 
-/** The widest slot: a short page spreads its events up to this width. */
-export const LANE_SLOT_MAX_WIDTH = 120;
-/** Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll. */
-export const LANE_SLOT_MIN_WIDTH = 36;
+/** How the lane draws event labels: Dense slants them, Tidy wraps them straight in columns. */
+export type TimelineLabelMode = 'dense' | 'tidy';
 
-/** Returns the lane's width per event: the whole page when it fits, from 120 px down to 36 px each, else 36 px. */
-export function timelineSlotWidth(eventCount: number, availableWidth: number): number {
+/** Slot widths per label mode: short pages spread up to max; long pages pack to min and scroll. */
+export const laneSlotWidths: Record<TimelineLabelMode, { min: number; max: number }> = {
+  // Narrowest slot: 30° labels stay 18 px apart, as 36 * sin(30°) = 18; more events scroll.
+  dense: { min: 36, max: 120 },
+  // A 64 px label column still fits about 9 characters per line.
+  tidy: { min: 64, max: 160 },
+};
+
+/**
+ * Returns the lane's width per event in a label mode: the whole page when it fits, between the mode's
+ * min and max. pageMinimumWidth raises the min, up to the max, such as to fit the page's longest word.
+ */
+export function timelineSlotWidth(
+  eventCount: number,
+  availableWidth: number,
+  labelMode: TimelineLabelMode,
+  pageMinimumWidth = 0,
+): number {
+  const { min: modeMinimum, max } = laneSlotWidths[labelMode];
+  const min = Math.min(max, Math.max(modeMinimum, pageMinimumWidth));
   const fitWidth = Math.floor(availableWidth / Math.max(1, eventCount));
-  return Math.max(LANE_SLOT_MIN_WIDTH, Math.min(LANE_SLOT_MAX_WIDTH, fitWidth));
+  return Math.max(min, Math.min(max, fitWidth));
 }
 
 /**
- * Returns the overview axis of a page that fits the lane: each event sits under its own dot, so the
- * lane and the overview share one x mapping. Positions are ratios of the plot, which starts plotInset
- * pixels into the strip and is plotWidth pixels wide.
+ * Returns the overview axis that draws each event under its own dot, so the lane and the overview
+ * share one x mapping. Positions are ratios of the plot, which starts plotInset pixels into the strip
+ * and is plotWidth pixels wide. windowStart shifts the mapping with the lane; events out of view clamp
+ * to the ends.
  */
 export function laneOverviewAxis(
   events: readonly FlowHistoryEvent[],
   slotWidth: number,
   plotInset: number,
   plotWidth: number,
+  windowStart = 0,
 ): OverviewAxis {
   const times = monotonicEventTimes(events);
   const positions = events.map((_, index) => (
-    Math.min(1, Math.max(0, ((index + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
+    Math.min(1, Math.max(0, ((index - windowStart + 0.5) * slotWidth - plotInset) / Math.max(1, plotWidth)))
   ));
   return {
     kind: 'index',

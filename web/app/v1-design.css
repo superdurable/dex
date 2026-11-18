@@ -3444,6 +3444,167 @@ html:has(.v1-page .stream-scroll--entries) {
   position: relative;
 }
 
+/* Now: back to the newest event of an open run, in the Live chip's colors. */
+.v1-page .htl-end-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-accent-ink);
+  background: color-mix(in srgb, var(--tone-accent) 14%, var(--ui-surface));
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  transition: background-color 150ms ease, transform 100ms ease;
+}
+
+.v1-page .htl-end-jump:hover {
+  background: color-mix(in srgb, var(--tone-accent) 22%, var(--ui-surface));
+}
+
+.v1-page .htl-end-jump:active {
+  transform: scale(0.97);
+}
+
+/* Dense and Tidy, a pill beside Legend with the same height and chip color. */
+.htl-mode-tabs {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.v1-page .htl-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+
+.v1-page .htl-mode-tab:hover {
+  color: var(--ui-ink);
+}
+
+.v1-page .htl-mode-tab:active {
+  transform: scale(0.97);
+}
+
+.v1-page .htl-mode-tab[aria-pressed='true'] {
+  color: var(--tone-accent-ink);
+  background: color-mix(in srgb, var(--tone-accent) 18%, var(--ui-surface));
+}
+
+.v1-page .htl-mode-tab:focus-visible {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+
+/* A small note under the head row, shown once; its caret points up to the mode tabs beside Legend. */
+.htl-mode-intro {
+  position: relative;
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  margin: 8px 0 10px auto;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px 8px 12px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: color-mix(in srgb, var(--tone-accent) 10%, var(--ui-surface));
+  font-size: 12px;
+  line-height: 17px;
+  animation: htl-mode-intro-in 180ms ease-out;
+}
+
+.htl-mode-intro::after {
+  position: absolute;
+  top: -5px;
+  right: 120px;
+  width: 10px;
+  height: 10px;
+  content: '';
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.htl-mode-intro ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 4px;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.htl-mode-intro strong {
+  color: var(--tone-accent-ink);
+  font-weight: 600;
+}
+
+.v1-page .htl-mode-intro-dismiss {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-mode-intro-dismiss:hover {
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+}
+
+@keyframes htl-mode-intro-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes htl-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.htl-strip {
+  transition: height 180ms ease;
+}
+
+.htl-strip .htl-label {
+  animation: htl-label-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .htl-strip,
+  .htl-mode-tab,
+  .htl-mode-intro-dismiss,
+  .htl-end-jump {
+    transition: none;
+  }
+
+  .htl-strip .htl-label,
+  .htl-mode-intro {
+    animation: none;
+  }
+}
+
 .htl-overview-axis {
   display: flex;
   gap: 12px;
@@ -3682,15 +3843,442 @@ html:has(.v1-page .stream-scroll--entries) {
   background: var(--tone-fail);
 }
 
-/* Each event's own label slants up from its dot, like angled parking, so long names fit side by side. */
+/* The Filter button matches the Legend chip; an active filter takes the accent color. */
+.htl-filter {
+  position: relative;
+}
+
+.v1-page .htl-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-3);
+  background: var(--ui-chip);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+
+.v1-page .htl-filter-button:hover,
+.v1-page .htl-filter-button[aria-expanded='true'] {
+  color: var(--ui-ink);
+}
+
+.v1-page .htl-filter-button:active {
+  transform: scale(0.97);
+}
+
+.v1-page .htl-filter-button.is-active {
+  color: var(--tone-accent-ink);
+  background: color-mix(in srgb, var(--tone-accent) 16%, transparent);
+}
+
+.v1-page .htl-filter-button:focus-visible,
+.v1-page .htl-filter-row:focus-visible,
+.v1-page .htl-filter-actions button:focus-visible,
+.v1-page .htl-filter-show-all:focus-visible {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+
+.htl-filter-badge {
+  display: inline-grid;
+  min-width: 14px;
+  height: 14px;
+  margin-right: -4px;
+  padding: 0 4px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  animation: htl-filter-pop-in 180ms cubic-bezier(0.2, 0, 0, 1.4);
+}
+
+/* Always mounted, so closing fades out too; visibility keeps a closed popover out of reach. */
+.htl-filter-popover {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 300px;
+  max-height: min(540px, 70vh);
+  overflow: auto;
+  padding: 10px 6px;
+  border-radius: var(--ui-radius-item);
+  color: var(--ui-ink-2);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 16%), 0 0 0 1px color-mix(in srgb, var(--ui-ink) 6%, transparent);
+  font-family: var(--ui-font-sans);
+  font-size: var(--ui-text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: normal;
+  opacity: 0;
+  overscroll-behavior: contain;
+  transform: translateY(-4px);
+  transform-origin: top right;
+  visibility: hidden;
+  transition: opacity 150ms ease-out, transform 150ms ease-out, visibility 0s linear 150ms;
+}
+
+.htl-filter-popover[data-open='true'] {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.htl-filter-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 4px 8px;
+}
+
+.htl-filter-heading {
+  color: var(--ui-ink);
+  font-weight: 600;
+}
+
+.htl-filter-noun {
+  color: var(--ui-ink-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.htl-filter-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.v1-page .htl-filter-actions button {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tone-accent-ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background-color 150ms ease;
+}
+
+.v1-page .htl-filter-actions button:hover {
+  background: color-mix(in srgb, var(--tone-accent) 12%, transparent);
+}
+
+.htl-filter-kinds,
+.htl-filter-names ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 1px;
+  list-style: none;
+}
+
+.v1-page .htl-filter-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-filter-row:hover {
+  background: color-mix(in srgb, var(--ui-ink) 6%, transparent);
+}
+
+.v1-page .htl-filter-row[aria-checked='false'] {
+  color: var(--ui-ink-3);
+}
+
+.htl-filter-kinds > li.is-absent .htl-filter-row {
+  color: var(--ui-ink-3);
+}
+
+.htl-filter-kinds > li.is-absent .htl-legend-mark {
+  opacity: 0.5;
+}
+
+.htl-filter-row-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.htl-filter-row-count {
+  color: var(--ui-ink-3);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+}
+
+.htl-filter-check {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  place-items: center;
+  border-radius: 4px;
+  color: transparent;
+  background: color-mix(in srgb, var(--ui-ink) 12%, transparent);
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms cubic-bezier(0.2, 0, 0, 1.4);
+}
+
+.htl-filter-check[data-checked='true'],
+.htl-filter-check[data-checked='mixed'] {
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+}
+
+.htl-filter-row:active .htl-filter-check {
+  transform: scale(0.85);
+}
+
+/* The type row: its checkbox, then a count and chevron that open the type's names. */
+.htl-filter-kind-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.htl-filter-kind-row > .htl-filter-row {
+  min-width: 0;
+  flex: 1;
+}
+
+.v1-page .htl-filter-expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-filter-expand:hover {
+  color: var(--ui-ink);
+  background: color-mix(in srgb, var(--ui-ink) 6%, transparent);
+}
+
+.v1-page .htl-filter-expand:focus-visible {
+  outline: 2px solid var(--tone-accent);
+  outline-offset: 1px;
+}
+
+/* Counts outside the expand button leave the chevron's room, so every count lines up. */
+.htl-filter-row .htl-filter-row-count {
+  margin-right: 15px;
+}
+
+.htl-filter-chevron {
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.htl-filter-expand[aria-expanded='true'] .htl-filter-chevron {
+  transform: rotate(90deg);
+}
+
+/* Names sit under their type, indented past the check mark; the grid row animates the height. */
+.htl-filter-names {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-left: 22px;
+  opacity: 0;
+  transition: grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms ease;
+}
+
+.htl-filter-names[data-expanded='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.htl-filter-names-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.htl-filter-names-inner > ul {
+  padding-bottom: 8px;
+}
+
+.htl-filter-names .htl-filter-section-head {
+  padding-top: 2px;
+}
+
+.v1-page .htl-filter-name-row {
+  padding: 3px 8px;
+}
+
+.htl-filter-scope {
+  margin: 8px 8px 0;
+  color: var(--ui-ink-3);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.htl-filter-scope strong {
+  color: var(--ui-ink-2);
+  font-family: var(--ui-font-mono);
+  font-weight: 600;
+}
+
+/* The head says how many events the filter hides, with a one-click reset. */
+.htl-filter-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tone-accent-ink);
+  font-weight: 600;
+  animation: htl-filter-note-in 180ms ease-out;
+}
+
+.v1-page .htl-filter-show-all {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-accent-ink);
+  background: color-mix(in srgb, var(--tone-accent) 16%, transparent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.v1-page .htl-filter-show-all:hover {
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+}
+
+.htl-filter-empty {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  transform: translate(-50%, -50%);
+  animation: htl-filter-fade-in 180ms ease-out;
+}
+
+/* A selected event the filter hides still shows, faded, so the selection never vanishes. */
+.htl-event.is-filtered-out .htl-dot,
+.htl-event.is-filtered-out .htl-label {
+  opacity: 0.55;
+}
+
+/* Only during a filter change, so scrolling and dragging never lag behind the pointer. */
+.htl-strip.is-filter-changing .htl-event,
+.htl-strip.is-filter-changing .htl-axis-label {
+  transition: left 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.htl-strip .htl-event.is-entering .htl-dot {
+  animation: htl-filter-event-in 220ms ease-out;
+}
+
+.htl-bar {
+  transition: opacity 200ms ease;
+}
+
+.htl-bar.has-hidden {
+  opacity: calc(0.22 + 0.78 * var(--htl-bar-shown-share, 1));
+}
+
+.htl-overview-tooltip-hidden {
+  color: var(--tone-accent-ink);
+}
+
+@keyframes htl-filter-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes htl-filter-note-in {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+}
+
+/* The dot centers itself with translateX, so its entrance keeps that transform. */
+@keyframes htl-filter-event-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.6);
+  }
+}
+
+@keyframes htl-filter-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v1-page .htl-filter-button,
+  .v1-page .htl-filter-row,
+  .v1-page .htl-filter-actions button,
+  .v1-page .htl-filter-show-all,
+  .htl-filter-check,
+  .v1-page .htl-filter-expand,
+  .htl-filter-chevron,
+  .htl-filter-names,
+  .htl-filter-popover,
+  .htl-bar,
+  .htl-strip.is-filter-changing .htl-event,
+  .htl-strip.is-filter-changing .htl-axis-label {
+    transition: none;
+  }
+
+  .htl-filter-badge,
+  .htl-filter-note,
+  .htl-filter-empty,
+  .htl-strip .htl-event.is-entering .htl-dot {
+    animation: none;
+  }
+}
+
 .htl-event {
   top: 0;
 }
 
-.htl-event .htl-label {
+/* Dense: each event's own label slants up from its dot, like angled parking, so long names fit side by side. */
+.htl-strip.is-dense .htl-label {
   position: absolute;
   bottom: 30px;
   left: calc(50% - 4px);
+  /* An explicit width keeps the slot's width out of the label's shrink-to-fit width. */
+  width: max-content;
   max-width: var(--htl-label-max-width, 280px);
   overflow: hidden;
   color: var(--ui-ink-2);
@@ -3702,6 +4290,26 @@ html:has(.v1-page .stream-scroll--entries) {
   transform: rotate(var(--htl-label-angle, -30deg));
   transform-origin: left bottom;
   white-space: nowrap;
+}
+
+/* Tidy: each event's label wraps inside its own column, centered over its dot; every label ends on one baseline. */
+.htl-strip.is-tidy .htl-label {
+  position: absolute;
+  right: 4px;
+  bottom: 30px;
+  left: 4px;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ui-ink-2);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--htl-label-lines, 3);
+  line-clamp: var(--htl-label-lines, 3);
 }
 
 .htl-event:hover .htl-label,
@@ -3725,6 +4333,34 @@ html:has(.v1-page .stream-scroll--entries) {
 
 .htl-event.jump-highlighted .htl-dot {
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+}
+
+/* Where the lane is on a page wider than it; drag the thumb or press beside it. */
+.htl-track {
+  position: relative;
+  height: 6px;
+  margin: 2px 0 4px;
+  border-radius: 3px;
+  background: var(--ui-well);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.htl-track-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 16px;
+  border-radius: 3px;
+  background: var(--ui-ink-3);
+}
+
+.htl-track:hover .htl-track-thumb {
+  background: var(--ui-ink-2);
+}
+
+.htl-in-view {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Event numbers every tenth event, and at the selection, below the baseline. */
@@ -4000,6 +4636,201 @@ html:has(.v1-page .stream-scroll--entries) {
   }
 }
 
+
+/* Input and Output share the width; Context is a narrow column of short values. */
+@container event-panel (min-width: 1180px) {
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 300px);
+    gap: 0;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > * {
+    padding: 0 24px;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > :first-child {
+    padding-left: 0;
+  }
+
+  .v1-page .run-sidebar .semantic-event:has(> .semantic-section-context) > * + * {
+    border-left: 1px solid var(--ui-hairline);
+  }
+
+  .v1-page .run-sidebar .semantic-event > .semantic-section-context {
+    align-self: stretch;
+    padding-right: 0;
+  }
+}
+
+/* Section names are small labels, so field names and values carry the panel. */
+.v1-page .run-sidebar .semantic-section > h4 {
+  margin-bottom: 10px;
+  color: var(--ui-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-subsection h5 {
+  margin: 14px 0 6px;
+  color: var(--ui-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* One label width for every Context group, so values start on one line. */
+.v1-page .run-sidebar .semantic-section-context .semantic-fields.semantic-fields-inline {
+  grid-template-columns: 9.5em minmax(0, 1fr);
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-fields-inline dd {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .run-sidebar .semantic-section-context .semantic-fields-inline dt {
+  color: var(--ui-ink-3);
+}
+
+/* Each value sits under its name; objects are pretty-printed and capped. */
+.event-values {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.event-value {
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.event-value + .event-value {
+  border-top: 1px dashed var(--ui-hairline);
+}
+
+.event-value-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.event-value-name {
+  flex: 0 0 auto;
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A short value wraps beside its name, so a narrow column still shows all of it. */
+.event-value-inline {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--ui-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.event-value-none {
+  color: var(--ui-ink-3);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.event-value-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ui-ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.event-value-tools {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  gap: 2px;
+}
+
+.v1-page .event-value-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-ink-3);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.v1-page .event-value-tool:hover {
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+}
+
+.v1-page .event-value-tool svg {
+  width: 12px;
+  height: 12px;
+}
+
+.v1-page .event-value-code {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: var(--ui-well);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.v1-page .event-value-code.is-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Seven lines show; a fade says more follows, and Expand shows the rest. */
+.v1-page .event-value-code.is-capped {
+  max-height: calc(7 * 1.5em + 16px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+
+.channel-record-range {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ui-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.v1-page .run-sidebar .channel-record > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* --------------------------------------------------------- experimental */
 

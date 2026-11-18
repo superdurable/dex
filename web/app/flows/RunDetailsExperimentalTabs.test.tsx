@@ -540,6 +540,34 @@ describe('Run page experimental tabs', () => {
     expect(screen.getByRole('tab', { name: /^Conversation/ }).getAttribute('aria-selected')).toBe('true');
   });
 
+  it('opens an agent session on the tab chosen last on another run', async () => {
+    window.localStorage.setItem('dex.run.selected-tab', JSON.stringify({ flowId: 'other-flow', tab: 'timeline' }));
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+    });
+    renderRun();
+    await screen.findByText('Running');
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^Conversation/ })).toBeTruthy());
+    await settle();
+    expect(screen.getByRole('tab', { name: 'Events' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByTestId('session-view')).toBeNull();
+  });
+
+  it('opens the tab chosen last on another run, and a ?view= link still wins', async () => {
+    window.localStorage.setItem('dex.run.selected-tab', JSON.stringify({ flowId: 'other-flow', tab: 'overview' }));
+    stubDexWeb({ flowType: 'RefundFlow', definitions: [] });
+    renderRun();
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'State' }).getAttribute('aria-selected')).toBe('true'));
+    cleanup();
+
+    renderRun('/v1/flows/run-flow/run-1?view=stream');
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Streams' }).getAttribute('aria-selected')).toBe('true'));
+  });
+
   it('explains Conversation and Actions without the operator API', async () => {
     const graph = sessionGraph();
     stubDexWeb({ flowType: graph.flow.name, definitions: [definitionEntry('session', graph.flow.name, graph)] });

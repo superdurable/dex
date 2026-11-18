@@ -1,0 +1,336 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+// @vitest-environment jsdom
+
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FlowHistoryEvent } from '@/lib/types';
+import { HorizontalTimeline } from './HorizontalTimeline';
+import { timelineLabelModeIntroStorageKey, timelineLabelModeStorageKey } from './timelineLabelModeStorage';
+import { timelineEventFilterStorageKey } from './timelineEventFilter';
+
+function memoryStorage(entries: Record<string, string> = {}): Storage {
+  const values = new Map(Object.entries(entries));
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => { values.delete(key); },
+    setItem: (key: string, value: string) => { values.set(key, String(value)); },
+  };
+}
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', memoryStorage({ [timelineLabelModeIntroStorageKey]: 'true' }));
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+function step(eventId: number, type: FlowHistoryEvent['type'], stepType: string): FlowHistoryEvent {
+  return {
+    eventId,
+    eventTime: `2026-11-17T10:00:0${eventId}Z`,
+    type,
+    payload: { context: { stepType, stepExecutionId: `${stepType}-${eventId}` } },
+  };
+}
+
+function rpc(eventId: number, rpcName: string): FlowHistoryEvent {
+  return { eventId, eventTime: `2026-11-17T10:00:0${eventId}Z`, type: 'RpcExecutionCompleted', payload: { rpcName } };
+}
+
+const pageEvents: FlowHistoryEvent[] = [
+  { eventId: 1, eventTime: '2026-11-17T10:00:01Z', type: 'FlowStartedOrContinued', payload: {} },
+  step(2, 'StepWaitForCompleted', 'Charge'),
+  step(3, 'StepExecuteCompleted', 'Charge'),
+  rpc(4, 'getStatus'),
+  step(5, 'StepExecuteCompleted', 'Refund'),
+  rpc(6, 'cancelOrder'),
+  rpc(7, 'getStatus'),
+  step(8, 'StepExecuteCompleted', 'Charge'),
+];
+
+function Harness({
+  flowType = 'OrderFlow',
+  initialEventId,
+  events = pageEvents,
+}: {
+  flowType?: string;
+  initialEventId?: number;
+  events?: FlowHistoryEvent[];
+}) {
+  const [selected, setSelected] = useState<FlowHistoryEvent | null>(
+    events.find((event) => event.eventId === initialEventId) ?? null,
+  );
+  return <HorizontalTimeline events={events} flowType={flowType} onSelectEvent={setSelected} selectedEvent={selected} />;
+}
+
+/** A realistic page: event IDs from 1 to count, RPC where isRpc says so and Execute otherwise. */
+function realisticPage(count: number, isRpc: (eventId: number) => boolean): FlowHistoryEvent[] {
+  return Array.from({ length: count }, (_, index) => {
+    const eventId = index + 1;
+    const event = isRpc(eventId) ? rpc(eventId, 'getStatus') : step(eventId, 'StepExecuteCompleted', 'Charge');
+    return { ...event, eventTime: '2026-11-17T10:00:00Z' };
+  });
+}
+
+function storeFilterHidingRpc() {
+  vi.stubGlobal('localStorage', memoryStorage({
+    [timelineLabelModeIntroStorageKey]: 'true',
+    [timelineEventFilterStorageKey('OrderFlow')]: JSON.stringify({ hiddenKinds: ['rpc'], nameSelections: {} }),
+  }));
+}
+
+function option(eventId: number): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[role="option"][data-event-id="${eventId}"]`);
+}
+
+function laneEventIds(): number[] {
+  return [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => Number(option.dataset.eventId));
+}
+
+function filterButton(): HTMLElement {
+  return screen.getByRole('button', { name: /^Filter/ });
+}
+
+function filterDialog(): HTMLElement {
+  return screen.getByRole('dialog', { name: 'Filter Timeline events', hidden: true });
+}
+
+function openFilter() {
+  fireEvent.click(filterButton());
+  return within(filterDialog());
+}
+
+describe('Timeline event filter', () => {
+  it('starts with everything shown and a quiet Filter button', () => {
+    render(<Harness />);
+    expect(filterButton().className).not.toContain('is-active');
+    expect(filterButton().getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText(/events hidden on this page/)).toBeNull();
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('hides a type, shows the active state and hidden count, and resets with Show all', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    expect(filterDialog().getAttribute('data-open')).toBe('true');
+    fireEvent.click(dialog.getByRole('checkbox', { name: /^RPC/ }));
+
+    expect(laneEventIds()).toEqual([1, 2, 3, 5, 8]);
+    expect(filterButton().className).toContain('is-active');
+    expect(filterButton().getAttribute('aria-label')).toBe('Filter, 1 event type filtered');
+    expect(filterButton().textContent).toBe('Filter1');
+    expect(screen.getByText('3 of 8 events hidden on this page')).toBeTruthy();
+    expect(document.querySelectorAll('.htl-bar.has-hidden').length).toBe(3);
+    expect(window.localStorage.getItem(timelineEventFilterStorageKey('OrderFlow'))).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(filterButton().className).not.toContain('is-active');
+    expect(screen.queryByText(/events hidden on this page/)).toBeNull();
+    expect(window.localStorage.getItem(timelineEventFilterStorageKey('OrderFlow'))).toBeNull();
+  });
+
+  it('keeps name lists collapsed until the chevron or count opens them', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    const expandExecute = dialog.getByRole('button', { name: 'Show Execute Step types' });
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('false');
+    const executeNames = document.getElementById(expandExecute.getAttribute('aria-controls')!)!;
+    expect(executeNames.getAttribute('data-expanded')).toBe('false');
+    expect(executeNames.hasAttribute('inert')).toBe(true);
+    expect(expandExecute.textContent).toBe('3');
+
+    fireEvent.click(expandExecute);
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('true');
+    expect(expandExecute.getAttribute('aria-label')).toBe('Hide Execute Step types');
+    expect(executeNames.getAttribute('data-expanded')).toBe('true');
+    expect(executeNames.hasAttribute('inert')).toBe(false);
+    // The type checkbox still toggles the whole type, not the list.
+    fireEvent.click(dialog.getByRole('checkbox', { name: /^Execute/ }));
+    expect(laneEventIds()).toEqual([1, 2, 4, 6, 7]);
+    expect(expandExecute.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens the name list of a partly selected type by itself', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('OrderFlow')]: JSON.stringify({
+        hiddenKinds: [],
+        nameSelections: { rpc: { mode: 'except', names: ['cancelOrder'] } },
+      }),
+    }));
+    render(<Harness />);
+    const dialog = openFilter();
+    expect(dialog.getByRole('button', { name: 'Hide RPC names' }).getAttribute('aria-expanded')).toBe('true');
+    expect(dialog.getByRole('button', { name: 'Show Execute Step types' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(dialog.getByRole('button', { name: 'Hide RPC names' }));
+    expect(dialog.getByRole('button', { name: 'Show RPC names' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('clears all Step types of Execute and then shows only the one picked', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('button', { name: 'Show Execute Step types' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Clear all Execute Step types' }));
+    expect(laneEventIds()).toEqual([1, 2, 4, 6, 7]);
+    expect(dialog.getByRole('checkbox', { name: /^Execute/ }).getAttribute('aria-checked')).toBe('false');
+
+    const executeNames = dialog.getByRole('list', { name: 'Execute Step types' });
+    fireEvent.click(within(executeNames).getByRole('checkbox', { name: /^Refund/ }));
+    expect(laneEventIds()).toEqual([1, 2, 4, 5, 6, 7]);
+    expect(dialog.getByRole('checkbox', { name: /^Execute/ }).getAttribute('aria-checked')).toBe('mixed');
+  });
+
+  it('clears all types and says no events match, with Show all', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('button', { name: 'Clear all' }));
+    expect(laneEventIds()).toEqual([]);
+    expect(filterButton().getAttribute('aria-label')).toBe('Filter, 9 event types filtered');
+    expect(screen.getByText('No events on this page match the filter.')).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Show all' })[0]);
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('keeps a selected event that the filter hides in the lane, faded', () => {
+    render(<Harness initialEventId={6} />);
+    const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('checkbox', { name: /^RPC/ }));
+    expect(laneEventIds()).toEqual([1, 2, 3, 5, 6, 8]);
+    const selected = document.querySelector<HTMLElement>('[role="option"][data-event-id="6"]');
+    expect(selected?.className).toContain('is-filtered-out');
+    expect(selected?.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('2 of 8 events hidden on this page')).toBeTruthy();
+  });
+
+  it('reads the saved filter of its Flow type and falls back when it is corrupt', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineEventFilterStorageKey('OrderFlow')]: JSON.stringify({ hiddenKinds: ['rpc'], nameSelections: {} }),
+      [timelineEventFilterStorageKey('BrokenFlow')]: '{oops',
+    }));
+    const { rerender } = render(<Harness flowType="OrderFlow" />);
+    expect(laneEventIds()).toEqual([1, 2, 3, 5, 8]);
+
+    rerender(<Harness flowType="RefundFlow" />);
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rerender(<Harness flowType="BrokenFlow" />);
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(filterButton().className).not.toContain('is-active');
+  });
+
+  it('offers Select all and Clear all for a type with a single name', () => {
+    render(<Harness />);
+    const dialog = openFilter();
+    fireEvent.click(dialog.getByRole('button', { name: 'Show WaitFor Step types' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Clear all WaitFor Step types' }));
+    expect(laneEventIds()).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    fireEvent.click(dialog.getByRole('button', { name: 'Select all WaitFor Step types' }));
+    expect(laneEventIds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('closes the popover on a press outside it', () => {
+    render(<Harness />);
+    openFilter();
+    expect(filterButton().getAttribute('aria-expanded')).toBe('true');
+    fireEvent.pointerDown(document.body);
+    expect(filterButton().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('closes the popover with Escape', () => {
+    render(<Harness />);
+    openFilter();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(filterButton().getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.htl-filter-popover')?.getAttribute('data-open')).toBe('false');
+  });
+});
+
+describe('Timeline event filter on a long page', () => {
+  it('keeps an older selection in view when Live adds events after hidden newest ones', () => {
+    storeFilterHidingRpc();
+    const firstPage = realisticPage(1000, (eventId) => eventId > 900);
+    const { rerender } = render(<Harness events={firstPage} initialEventId={1000} />);
+    expect(option(1000)?.className).toContain('is-filtered-out');
+
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(900)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(1000)).toBeNull();
+
+    // Live adds 40 Execute events after the hidden RPCs.
+    const nextPage = realisticPage(1040, (eventId) => eventId > 900 && eventId <= 1000);
+    rerender(<Harness events={nextPage} initialEventId={1000} />);
+    expect(option(900)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(1040)).toBeNull();
+  });
+
+  it('keeps the Tidy slot width from the whole page when the filter hides its longest word', () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      [timelineLabelModeIntroStorageKey]: 'true',
+      [timelineLabelModeStorageKey]: 'tidy',
+    }));
+    const page = realisticPage(200, () => false).map((event) => (
+      event.eventId === 150 ? { ...rpc(150, 'reconcileEverythingNow'), eventTime: event.eventTime } : event
+    ));
+    render(<Harness events={page} />);
+    const slotWidth = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }).style.getPropertyValue('--htl-slot-width');
+    const unfilteredWidth = slotWidth();
+    expect(Number.parseFloat(unfilteredWidth)).toBeGreaterThan(64);
+
+    fireEvent.click(openFilter().getByRole('checkbox', { name: /^RPC/ }));
+    expect(laneEventIds()).not.toContain(150);
+    expect(slotWidth()).toBe(unfilteredWidth);
+  });
+
+  it('moves the selection with J, K, and the arrow keys past hidden events', () => {
+    storeFilterHidingRpc();
+    render(<Harness events={realisticPage(120, (eventId) => eventId % 2 === 0)} initialEventId={101} />);
+    fireEvent.keyDown(document.body, { key: 'k' });
+    expect(option(103)?.getAttribute('aria-selected')).toBe('true');
+
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    fireEvent.keyDown(strip, { key: 'ArrowLeft' });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(option(99)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    expect(laneEventIds().every((eventId) => eventId % 2 === 1)).toBe(true);
+  });
+
+  it('selects a hidden event from an overview bar whose events are all hidden, and keeps it faded in the lane', () => {
+    storeFilterHidingRpc();
+    render(<Harness events={realisticPage(120, (eventId) => eventId > 60)} />);
+    // jsdom has no PointerEvent, so give pointer events the mouse event fields they carry.
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    expect(document.querySelectorAll('.htl-bar.has-hidden').length).toBe(60);
+
+    // Each of the 120 events has its own bar; this one is event #101, an RPC the filter hides.
+    const clientX = 10 + (100.5 / 120) * 1180;
+    fireEvent.pointerDown(overview, { button: 0, clientX, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX, pointerId: 1 });
+    expect(option(101)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(101)?.className).toContain('is-filtered-out');
+    expect(screen.getByText('59 of 120 events hidden on this page')).toBeTruthy();
+  });
+});

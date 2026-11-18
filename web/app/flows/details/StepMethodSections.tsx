@@ -9,7 +9,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { InlineValue, isShortFlatValue, LongValue } from '@/app/components/StructuredValue';
+import { EventValueBlock, InlineValue, isShortFlatValue, LongValue } from '@/app/components/StructuredValue';
 import { AttributeRows, ChannelRows, messageChannelGroups } from './CompactStateLists';
 import {
   isBlobReferenceValue,
@@ -35,7 +35,7 @@ import {
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate, formatTimeBesideReference, type TimezonePreference } from '@/lib/format';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
 import { generatedSubFlowID } from '@/lib/subflows';
@@ -46,7 +46,8 @@ export type Data = Record<string, unknown>;
 
 /** Long Attribute values in event details preview about one line before Show all. */
 const eventValuePreviewCharacters = 64;
-export type Field = [label: string, value: unknown, wide?: boolean];
+/** A label and value; hoverTitle replaces the value's own text as its tooltip. */
+export type Field = [label: string, value: unknown, wide?: boolean, hoverTitle?: string];
 
 export function asData(value: unknown): Data {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
@@ -98,9 +99,9 @@ export function displayValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function DetailSection({ title, children }: { title?: string; children: ReactNode }) {
+export function DetailSection({ title, children, className }: { title?: string; children: ReactNode; className?: string }) {
   return (
-    <section className="semantic-section">
+    <section className={className ? `semantic-section ${className}` : 'semantic-section'}>
       {title && <h4>{title}</h4>}
       {children}
     </section>
@@ -129,10 +130,10 @@ export function Fields({
   ].filter(Boolean).join(' ');
   return (
     <dl className={classes}>
-      {visible.map(([label, value, wide]) => (
+      {visible.map(([label, value, wide, hoverTitle]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
-          <dd title={displayValue(value) === '—' ? undefined : displayValue(value)}>{displayValue(value)}</dd>
+          <dd title={hoverTitle ?? (displayValue(value) === '—' ? undefined : displayValue(value))}>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -173,7 +174,7 @@ export function ValueBlock({
 export function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?: string }) {
   const entries = asDataArray(values);
   if (entries.length === 0) return emptyLabel ? <p className="muted">{emptyLabel}</p> : null;
-  return <AttributeRows attributes={entries} characterLimit={eventValuePreviewCharacters} expandValues={false} />;
+  return <AttributeRows attributes={entries} characterLimit={eventValuePreviewCharacters} expandValues={false} isBlockLayout />;
 }
 
 /** Lists event Channel messages grouped by Channel, each with its decoded value and short message ID. */
@@ -359,12 +360,11 @@ function WaitingConditionContent({
         <div className="semantic-records">
           {channels.map((channel, index) => (
             <div className="semantic-record channel-record" key={`${String(channel.channelName)}-${index}`}>
-              <strong><ChannelIcon />{displayValue(channel.channelName)}</strong>
-              <Fields values={[
-                ['Condition ID', channel.conditionId],
-                ['At least', channel.atLeast],
-                ['At most', channel.atMost],
-              ]} />
+              <strong>
+                <ChannelIcon />{displayValue(channel.channelName)}
+                <span className="channel-record-range">{channelCountRange(channel.atLeast, channel.atMost)}</span>
+              </strong>
+              <Fields values={[['Condition ID', channel.conditionId]]} />
             </div>
           ))}
         </div>
@@ -406,6 +406,27 @@ function WaitingConditionContent({
       )}
     </>
   );
+}
+
+/** A Channel condition bound as the server reads it: omitted stays undefined, and a negative count is 0. */
+function channelConditionBound(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, count) : undefined;
+}
+
+/**
+ * Reads a Channel condition's counts as words, such as "exactly 1", "1 or more", or "2 to 5".
+ * Both bounds omitted means exactly one message; only an omitted upper bound means no limit.
+ */
+export function channelCountRange(atLeast: unknown, atMost: unknown): string {
+  const least = channelConditionBound(atLeast);
+  const most = channelConditionBound(atMost);
+  if (least === undefined && most === undefined) return 'exactly 1';
+  const lower = least ?? 0;
+  if (most === undefined) return `${lower} or more`;
+  if (most === lower) return `exactly ${lower}`;
+  return `${lower} to ${most}`;
 }
 
 function waitingConditionCompletionRule(condition: Data, conditionCount: number): string {
@@ -932,7 +953,7 @@ export function StepMethodInputSection({
         </div>
       ) : hasInput ? (
         <>
-          <ValueBlock label="Step input" value={input.stepInput} />
+          <div className="event-values"><EventValueBlock name="Step input" value={input.stepInput} /></div>
           {!isWaitFor && (hasData(asData(input.conditionResults)) || subFlowConditions.length > 0) && (
             <div className="semantic-subsection">
               <h5>Condition results</h5>
@@ -1015,9 +1036,9 @@ export function StepMethodContextSection({
   if (isGrouped) {
     const groups: [string, Field[]][] = [
       ['Timing', [
-        ['Scheduled', isPresent(context.scheduledTime) ? formatDate(String(context.scheduledTime), timezone) : undefined],
-        ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined],
-        ['Duration', protobufDuration(context.duration)],
+        contextTimeField('Scheduled', context.scheduledTime, event.eventTime, timezone),
+        contextTimeField('Started', context.startedTime, event.eventTime, timezone),
+        ['Took', protobufDuration(context.duration)],
       ]],
       ['Attempt', [
         ['Execution ID', context.stepExecutionId],
@@ -1035,7 +1056,7 @@ export function StepMethodContextSection({
         {groups.map(([title, values]) => (values.some(([, value]) => isPresent(value)) || (title === 'Attempt' && hasData(lastFailure))) && (
           <div className="semantic-subsection" key={title}>
             <h5>{title}</h5>
-            <Fields compact values={values} />
+            <Fields inline values={values} />
             {title === 'Attempt' && hasData(lastFailure) && (
               <div className="semantic-subsection">
                 <h5>Last failure</h5>
@@ -1070,6 +1091,13 @@ export function StepMethodContextSection({
   );
 }
 
+/** A Context time with milliseconds, dated when its day differs from the event's; hover shows the full timestamp. */
+function contextTimeField(label: string, value: unknown, eventTime: string | null, timezone: TimezonePreference): Field {
+  if (!isPresent(value)) return [label, undefined];
+  const time = String(value);
+  return [label, formatTimeBesideReference(time, eventTime, timezone), false, formatDate(time, timezone)];
+}
+
 export function StepMethodDetails({
   event,
   history,
@@ -1083,7 +1111,7 @@ export function StepMethodDetails({
     <>
       <StepMethodInputSection event={event} history={history} parentFlowId={parentFlowId} />
       <StepMethodOutputSection event={event} history={history} parentFlowId={parentFlowId} />
-      <DetailSection title="Context">
+      <DetailSection className="semantic-section-context" title="Context">
         <StepMethodContextSection event={event} history={history} parentFlowId={parentFlowId} wrapSection={false} isGrouped />
       </DetailSection>
     </>

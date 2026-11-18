@@ -18,7 +18,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate, isSameCalendarDay, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
@@ -26,21 +26,7 @@ import {
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import {
-  ChevronRight,
-  Flag,
-  FlagOff,
-  GitFork,
-  Hourglass,
-  Play,
-  RotateCcw,
-  Send,
-  Tag,
-  Trash2,
-  X,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
+import { ChevronRight, RotateCcw, X } from 'lucide-react';
 import { flowStatusLabel } from '@/lib/semantic';
 import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { useTimezonePreference } from '../../providers';
@@ -55,32 +41,146 @@ import {
   timelineSlotWidth,
   eventIndexToRatio,
   hasRetriedFailure,
+  laneIndexToPageIndex,
   minimumPositionGap,
   overviewBucketSelectionIndex,
+  pageIndexToLaneIndex,
   ratioToEventIndex,
   type EventStatus,
   type OverviewAxis,
   type OverviewBucket,
+  type TimelineLabelMode,
 } from './timelineOverview';
+import { persistTimelineLabelMode, storedTimelineLabelMode } from './timelineLabelModeStorage';
+import { TimelineLabelModeIntro, TimelineLabelModeTabs, useTimelineLabelModeIntro } from './TimelineLabelModeTabs';
+import { eventKindOf, eventKinds, namesIn, timelineEventKindOrder } from './timelineEventKinds';
+import {
+  allTimelineEventsFilter,
+  compileTimelineEventFilter,
+  filteredKindCount,
+  isCompiledTimelineEventShown,
+  persistTimelineEventFilter,
+  storedTimelineEventFilter,
+  timelineEventFilterOptions,
+  timelinePageKindCounts,
+  type TimelineEventFilter,
+} from './timelineEventFilter';
+import { TimelineEventFilterMenu } from './TimelineEventFilterMenu';
 
 const arcBandHeight = 28;
 const axisBandHeight = 18;
 const dotBandHeight = 30;
-/** Each event's label slants up at this angle, like angled parking, so long names fit side by side. */
-const labelAngleDegrees = 30;
-const labelMaxWidth = 280;
-const labelAngle = (labelAngleDegrees * Math.PI) / 180;
-/** About the width of one label character at the label font, for sizing the band before layout. */
-const labelCharacterWidth = 7;
+/** Dense: each event's label slants up at this angle, like angled parking, so long names fit side by side. */
+const denseLabelAngleDegrees = 30;
+const denseLabelMaxWidth = 280;
+const denseLabelAngle = (denseLabelAngleDegrees * Math.PI) / 180;
+/** About the width of one Dense label character, for sizing the band before layout. */
+const denseLabelCharacterWidth = 7;
 
 /**
- * Returns the strip height for the longest label on the page: its estimated width, at most
- * labelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
+ * Returns the Dense strip height for the longest label on the page: its estimated width, at most
+ * denseLabelMaxWidth, rises at the label angle. The whole page sets it, so scrolling never changes it.
  */
-export function timelineStripHeight(subjects: readonly string[]): number {
+export function denseStripHeight(subjects: readonly string[]): number {
   const longest = subjects.reduce((max, subject) => Math.max(max, labelWidthUnits(subject)), 0);
-  const labelWidth = Math.min(labelMaxWidth, longest * labelCharacterWidth + 8);
-  return Math.ceil(labelWidth * Math.sin(labelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+  const labelWidth = Math.min(denseLabelMaxWidth, longest * denseLabelCharacterWidth + 8);
+  return Math.ceil(labelWidth * Math.sin(denseLabelAngle)) + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/** Tidy: each label wraps inside its event's column, centered over the dot, up to this many lines. */
+const labelMaxLines = 3;
+const labelLineHeight = 15;
+/** The label column is this much narrower than the slot, so neighbors never touch. */
+const labelColumnGap = 6;
+/** About the width of one Tidy label character at the label font, for sizing the band before layout. */
+const labelCharacterWidth = 6.6;
+
+/** Returns how many lines a label takes in a column, estimated word by word, at most labelMaxLines. */
+export function labelLineCount(label: string, columnWidth: number): number {
+  const lineUnits = Math.max(1, Math.floor(columnWidth / labelCharacterWidth));
+  let lines = 1;
+  let used = 0;
+  for (const word of label.split(' ').filter(Boolean)) {
+    let units = labelWidthUnits(word);
+    if (used > 0 && used + 1 + units <= lineUnits) {
+      used += 1 + units;
+      continue;
+    }
+    if (used > 0) lines += 1;
+    // A word wider than the column breaks inside itself across lines.
+    while (units > lineUnits) {
+      lines += 1;
+      units -= lineUnits;
+    }
+    used = units;
+  }
+  return Math.min(labelMaxLines, lines);
+}
+
+/**
+ * Returns the Tidy strip height for the page's tallest wrapped label, from one to labelMaxLines lines.
+ * The whole page sets it, so scrolling never changes it.
+ */
+export function tidyStripHeight(labels: readonly string[], slotWidth: number): number {
+  const columnWidth = slotWidth - labelColumnGap;
+  const lines = labels.reduce((max, label) => Math.max(max, labelLineCount(label, columnWidth)), 1);
+  return lines * labelLineHeight + 12 + dotBandHeight + axisBandHeight + arcBandHeight;
+}
+
+/**
+ * Returns the Tidy slot width that keeps the page's longest word on one line, without a soft hyphen.
+ * Words with wide characters wrap anywhere, so they never widen the slot.
+ */
+export function tidyWordSlotWidth(labels: readonly string[]): number {
+  let longestUnits = 0;
+  for (const label of labels) {
+    for (const word of label.split(/\s+/)) {
+      if (word && !hasWideCharacter(word)) longestUnits = Math.max(longestUnits, labelWidthUnits(word));
+    }
+  }
+  return Math.ceil(longestUnits * labelCharacterWidth) + labelColumnGap;
+}
+
+/** True when the word holds an East Asian wide character, which wraps between any two characters. */
+function hasWideCharacter(word: string): boolean {
+  return labelWidthUnits(word) !== [...word].length;
+}
+
+/**
+ * Returns the label with soft hyphens in each word wider than its column, splitting it into even parts,
+ * so the word breaks with a hyphen and never leaves one or two letters alone on a line.
+ */
+export function labelWithBreakHints(label: string, columnWidth: number): string {
+  const lineUnits = Math.max(1, Math.floor(columnWidth / labelCharacterWidth));
+  return label.split(' ').map((word) => {
+    const characters = [...word];
+    if (characters.length <= lineUnits || hasWideCharacter(word)) return word;
+    const partCount = Math.ceil(characters.length / lineUnits);
+    const partLength = Math.ceil(characters.length / partCount);
+    const parts: string[] = [];
+    for (let start = 0; start < characters.length; start += partLength) parts.push(characters.slice(start, start + partLength).join(''));
+    return parts.join('\u00AD');
+  }).join(' ');
+}
+
+/** Splits an identifier into words: snake_case, kebab-case, camelCase and PascalCase, keeping acronyms. */
+function identifierWords(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Returns an event subject as words for the lane, such as "Send User Message" for send_user_message
+ * or SendUserMessage. Text that already has spaces stays as it is. The exact name stays in the tooltip.
+ */
+export function timelineLabelText(subject: string): string {
+  return subject.split(', ').map((part) => {
+    if (/\s/.test(part) || !/[_-]|[a-z][A-Z]|[A-Z]{2}[a-z]/.test(part)) return part;
+    return identifierWords(part).map((word) => word[0].toUpperCase() + word.slice(1)).join(' ');
+  }).join(', ');
 }
 
 /** East Asian wide and fullwidth ranges, which take about two label characters each. */
@@ -109,15 +209,23 @@ export function labelWidthUnits(subject: string): number {
   return units;
 }
 
-/** The strip geometry: slanted labels on top, then dots, event numbers, and link arcs. */
+/** The strip geometry: labels on top, then dots, event numbers, and link arcs. */
 export const horizontalTimelineLayout = {
-  labelAngleDegrees,
-  labelMaxWidth,
-  /** Room at the right edge for the slanted labels of the newest events. */
-  labelRunWidth: Math.ceil(labelMaxWidth * Math.cos(labelAngle)) + 10,
-  /** Room at the right edge for the run's end note, when the strip shows one. */
-  endNoteRunWidth: 240,
+  denseLabelAngleDegrees,
+  denseLabelMaxWidth,
+  labelMaxLines,
+  /** Room at the right edge: Dense labels of the newest events slant past their dots. */
+  labelRunWidth: {
+    dense: Math.ceil(denseLabelMaxWidth * Math.cos(denseLabelAngle)) + 10,
+    tidy: 0,
+  } satisfies Record<TimelineLabelMode, number>,
 };
+
+/** Returns the room at the right edge for the run's end note: its estimated width, at most 240 px. */
+export function endNoteRunWidth(endNoteLabel: string): number {
+  // The note starts 18 px past the newest dot; its mark and padding take about 28 px.
+  return Math.min(240, 18 + 28 + Math.ceil(labelWidthUnits(endNoteLabel) * 7));
+}
 const overscanSlots = 6;
 
 const fallbackStripWidth = 1200;
@@ -139,35 +247,6 @@ const overviewPlotInset = 10;
 /** On a short page each event gets its own bar; time spacing must leave neighbors this many pixels apart. */
 const overviewFewEventMinGap = 10;
 const overviewFewEventMaxBarWidth = 20;
-
-type EventKind = 'waitfor' | 'execute' | 'channel-publish' | 'channel-delete' | 'flow-start' | 'flow-close'
-  | 'rpc' | 'attributes' | 'fork';
-
-type KindFamily = 'step' | 'input' | 'lifecycle';
-
-/** Each event kind's icon, legend name, and family; the family sets a quiet icon tint. */
-const eventKinds: Record<EventKind, { icon: LucideIcon; name: string; family: KindFamily }> = {
-  waitfor: { icon: Hourglass, name: 'WaitFor', family: 'step' },
-  execute: { icon: Play, name: 'Execute', family: 'step' },
-  'channel-publish': { icon: Send, name: 'Channel published', family: 'input' },
-  'channel-delete': { icon: Trash2, name: 'Channel message deleted', family: 'input' },
-  rpc: { icon: Zap, name: 'RPC', family: 'input' },
-  attributes: { icon: Tag, name: 'Attributes updated', family: 'input' },
-  'flow-start': { icon: Flag, name: 'Flow started', family: 'lifecycle' },
-  'flow-close': { icon: FlagOff, name: 'Flow closed', family: 'lifecycle' },
-  fork: { icon: GitFork, name: 'Time Travel fork', family: 'lifecycle' },
-};
-
-function eventKindOf(event: FlowHistoryEvent): EventKind {
-  if (event.type.startsWith('StepWaitFor')) return 'waitfor';
-  if (event.type.startsWith('StepExecute')) return 'execute';
-  if (event.type === 'ChannelExternalPublish') return 'channel-publish';
-  if (event.type === 'ChannelExternalDelete') return 'channel-delete';
-  if (event.type === 'FlowStartedOrContinued') return 'flow-start';
-  if (event.type === 'FlowClosed') return 'flow-close';
-  if (event.type === 'TimeTravelFork') return 'fork';
-  return event.payload.isSetAttributeApi === true ? 'attributes' : 'rpc';
-}
 
 const statusNames: Record<Exclude<EventStatus, 'normal'>, string> = {
   waiting: 'Waiting',
@@ -262,14 +341,6 @@ function eventStates(chronological: FlowHistoryEvent[], hasNewer: boolean): Map<
   return states;
 }
 
-function namesIn(values: unknown, field: string): string[] {
-  const list = Array.isArray(values) ? values : [];
-  return [...new Set(list.flatMap((value) => {
-    const name = value && typeof value === 'object' ? (value as Record<string, unknown>)[field] : undefined;
-    return typeof name === 'string' && name ? [name] : [];
-  }))];
-}
-
 /** The axis names every tenth event, so the subject labels need no numbers. */
 const axisEventInterval = 10;
 
@@ -307,7 +378,7 @@ function EventKindLegend() {
       <summary>Legend</summary>
     <div className="htl-legend">
       <ul aria-label="Event kinds">
-        {(['waitfor', 'execute', 'channel-publish', 'channel-delete', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork'] as EventKind[]).map((kind) => {
+        {timelineEventKindOrder.map((kind) => {
           const Icon = eventKinds[kind].icon;
           return (
             <li key={kind}>
@@ -349,12 +420,6 @@ function retriedSpoken(event: FlowHistoryEvent, status: EventStatus): string {
   return Number.isFinite(finalAttempt) && finalAttempt > 1
     ? `succeeded on attempt ${finalAttempt}`
     : 'succeeded after a failed attempt';
-}
-
-/** Reports whether two instants fall on the same calendar day in the viewer's timezone. */
-export function isSameCalendarDay(startMs: number, endMs: number, timezone: TimezonePreference): boolean {
-  if (timezone === 'UTC') return new Date(startMs).toISOString().slice(0, 10) === new Date(endMs).toISOString().slice(0, 10);
-  return new Date(startMs).toDateString() === new Date(endMs).toDateString();
 }
 
 const clockFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -425,7 +490,8 @@ function overviewBucketLines(
   bucketCount: number,
   events: readonly FlowHistoryEvent[],
   timezone: TimezonePreference,
-): { range: string; detail: string; problems: { tone: Exclude<EventStatus, 'normal'>; text: string }[] } {
+  hiddenCount = 0,
+): { range: string; detail: string; hidden: string; problems: { tone: Exclude<EventStatus, 'normal'>; text: string }[] } {
   const firstId = events[bucket.firstEventIndex].eventId;
   const lastId = events[bucket.lastEventIndex].eventId;
   const ids = firstId === lastId ? `#${firstId}` : `#${firstId} – #${lastId}`;
@@ -441,7 +507,9 @@ function overviewBucketLines(
   }
   if (bucket.waiting) problems.push({ tone: 'waiting', text: `${bucket.waiting} waiting` });
   if (bucket.canceled) problems.push({ tone: 'canceled', text: `${bucket.canceled} canceled` });
-  return { range, detail, problems };
+  let hidden = '';
+  if (hiddenCount > 0) hidden = bucket.count === 1 ? 'Hidden by the filter' : `${hiddenCount} hidden by the filter`;
+  return { range, detail, hidden, problems };
 }
 
 /** One bar's stacked segments from the top: failures, waits, cancels, then normal events. */
@@ -463,7 +531,7 @@ function overviewBarSegments(bucket: OverviewBucket, maxCount: number): { tone: 
   return remaining > 0 && normalCount > 0 ? [...segments, { tone: 'normal', height: remaining }] : segments;
 }
 
-/** Shows a Timeline page left to right with slanted labels; only events in view render. */
+/** Shows a Timeline page left to right with Dense or Tidy labels; only events in view render. */
 export function HorizontalTimeline({
   events,
   selectedEvent,
@@ -476,6 +544,7 @@ export function HorizontalTimeline({
   endNote,
   onShowEndNoteEvent,
   onTimeTravelFromEvent,
+  flowType,
 }: {
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -491,25 +560,105 @@ export function HorizontalTimeline({
   onShowEndNoteEvent?: (eventId: number) => void;
   /** Opens time travel at an event; T calls it for the selected event. */
   onTimeTravelFromEvent?: (event: FlowHistoryEvent) => void;
+  /** The run's Flow type; the event filter is saved per Flow type. */
+  flowType?: string;
 }) {
-  const shownEndNote = endNote && !paging?.hasNewer ? endNote : null;
-  const labelRunWidth = shownEndNote ? horizontalTimelineLayout.endNoteRunWidth : horizontalTimelineLayout.labelRunWidth;
-  const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
-  const states = useMemo(() => eventStates(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
+  const [labelMode, setLabelMode] = useState<TimelineLabelMode>(storedTimelineLabelMode);
+  const { isIntroShown: isLabelModeIntroShown, dismissIntro: dismissLabelModeIntro } = useTimelineLabelModeIntro();
+  const labelModeIntroId = useId();
+  const changeLabelMode = useCallback((nextLabelMode: TimelineLabelMode) => {
+    // Choosing a mode shows the reader has found the tabs, so the intro is done.
+    if (isLabelModeIntroShown) dismissLabelModeIntro();
+    setLabelMode(nextLabelMode);
+    persistTimelineLabelMode(nextLabelMode);
+  }, [dismissLabelModeIntro, isLabelModeIntroShown]);
+  const [eventFilter, setEventFilter] = useState<TimelineEventFilter>(() => storedTimelineEventFilter(flowType));
+  const [eventFilterFlowType, setEventFilterFlowType] = useState(flowType);
+  if (eventFilterFlowType !== flowType) {
+    // Another Flow type has its own saved filter.
+    setEventFilterFlowType(flowType);
+    setEventFilter(storedTimelineEventFilter(flowType));
+  }
+  const [isFilterChanging, setIsFilterChanging] = useState(false);
+  const filterChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (filterChangeTimer.current) clearTimeout(filterChangeTimer.current);
+  }, []);
+  const changeEventFilter = useCallback((nextFilter: TimelineEventFilter) => {
+    setEventFilter(nextFilter);
+    persistTimelineEventFilter(flowType, nextFilter);
+    // Events glide to their new places only during a filter change, so scrolling never lags.
+    setIsFilterChanging(true);
+    if (filterChangeTimer.current) clearTimeout(filterChangeTimer.current);
+    filterChangeTimer.current = setTimeout(() => setIsFilterChanging(false), 320);
+  }, [flowType]);
+  const isTidy = labelMode === 'tidy';
+  // Only an open run has a "now" to note; a closed run's last event already says how it ended.
+  const shownEndNote = endNote?.isOpen && !paging?.hasNewer ? endNote : null;
+  const labelRunWidth = shownEndNote
+    ? Math.max(horizontalTimelineLayout.labelRunWidth[labelMode], endNoteRunWidth(shownEndNote.label))
+    : horizontalTimelineLayout.labelRunWidth[labelMode];
+  const pageEvents = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
+  const states = useMemo(() => eventStates(pageEvents, paging?.hasNewer ?? false), [pageEvents, paging?.hasNewer]);
+  const compiledEventFilter = useMemo(() => compileTimelineEventFilter(eventFilter), [eventFilter]);
+  const pageShownFlags = useMemo(
+    () => pageEvents.map((event) => isCompiledTimelineEventShown(compiledEventFilter, event)),
+    [compiledEventFilter, pageEvents],
+  );
+  const pageKindCounts = useMemo(() => timelinePageKindCounts(pageEvents), [pageEvents]);
+  const filterOptions = useMemo(
+    () => timelineEventFilterOptions(compiledEventFilter, pageKindCounts),
+    [compiledEventFilter, pageKindCounts],
+  );
+  const selectedEventId = selectedEvent?.eventId ?? null;
+  /** The lane: events the filter shows, plus the selected and the jumped-to event, which always show. */
+  const { laneEvents, laneToPage } = useMemo(() => {
+    const lane: FlowHistoryEvent[] = [];
+    const pageIndexes: number[] = [];
+    pageEvents.forEach((event, pageIndex) => {
+      if (!pageShownFlags[pageIndex] && event.eventId !== selectedEventId && event.eventId !== highlightedEventId) return;
+      lane.push(event);
+      pageIndexes.push(pageIndex);
+    });
+    return { laneEvents: lane, laneToPage: pageIndexes };
+  }, [highlightedEventId, pageEvents, pageShownFlags, selectedEventId]);
+  /** Lane event IDs at the last commit, so a filter change fades in only added events. */
+  const previousLaneEventIds = useRef<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    previousLaneEventIds.current = new Set(laneEvents.map((event) => event.eventId));
+  }, [laneEvents]);
+  const pageLaneFlags = useMemo(() => {
+    const flags = pageEvents.map(() => false);
+    for (const pageIndex of laneToPage) flags[pageIndex] = true;
+    return flags;
+  }, [laneToPage, pageEvents]);
+  const hiddenEventCount = pageEvents.length - laneEvents.length;
+  const isLaneFiltered = hiddenEventCount > 0;
   const indexByEventId = useMemo(
-    () => new Map(chronological.map((event, index) => [event.eventId, index])),
-    [chronological],
+    () => new Map(laneEvents.map((event, index) => [event.eventId, index])),
+    [laneEvents],
+  );
+  const pageIndexByEventId = useMemo(
+    () => new Map(pageEvents.map((event, index) => [event.eventId, index])),
+    [pageEvents],
   );
   const stripRef = useRef<HTMLDivElement>(null);
   const helpId = useId();
   const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
-  const slotWidth = timelineSlotWidth(chronological.length, stripWidth - labelRunWidth);
+  const pageSubjects = useMemo(() => pageEvents.map(eventSubject), [pageEvents]);
+  const pageLabels = useMemo(() => (isTidy ? pageSubjects.map(timelineLabelText) : pageSubjects), [isTidy, pageSubjects]);
+  const labels = useMemo(() => laneToPage.map((pageIndex) => pageLabels[pageIndex]), [laneToPage, pageLabels]);
+  // The whole page sets it, so scrolling never changes the slot width.
+  // Hidden events count too, so filtering never changes it either.
+  const pageMinimumSlotWidth = useMemo(() => (isTidy ? tidyWordSlotWidth(pageLabels) : 0), [isTidy, pageLabels]);
+  const slotWidth = timelineSlotWidth(laneEvents.length, stripWidth - labelRunWidth, labelMode, pageMinimumSlotWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
-  const maxStart = Math.max(0, chronological.length - visibleCount);
+  const maxStart = Math.max(0, laneEvents.length - visibleCount);
   // A page that fits draws each overview bar under its own dot; a longer page's overview is a minimap.
-  const isLaneOverview = maxStart === 0;
+  // Hidden events have no dot, so a filtered lane always gets the page-wide minimap.
+  const isLaneOverview = maxStart === 0 && !isLaneFiltered;
   const [windowStart, setWindowStart] = useState(maxStart);
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
@@ -521,25 +670,28 @@ export function HorizontalTimeline({
   const plotWidth = Math.max(1, stripWidth - 2 * overviewPlotInset);
   const histogramBucketCount = Math.max(1, Math.floor(plotWidth / overviewBucketWidth));
   // A page with fewer events than bars draws one wide bar per event instead of slivers.
-  const isFewEvents = isLaneOverview || chronological.length <= histogramBucketCount;
+  const isFewEvents = isLaneOverview || pageEvents.length <= histogramBucketCount;
   const overviewAxis = useMemo(
     () => (isLaneOverview
-      ? laneOverviewAxis(chronological, slotWidth, overviewPlotInset, plotWidth)
-      : buildOverviewAxis(chronological, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0)),
-    [chronological, histogramBucketCount, isFewEvents, isLaneOverview, plotWidth, slotWidth],
+      ? laneOverviewAxis(pageEvents, slotWidth, overviewPlotInset, plotWidth)
+      : buildOverviewAxis(pageEvents, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0)),
+    [pageEvents, histogramBucketCount, isFewEvents, isLaneOverview, plotWidth, slotWidth],
   );
   const bucketCount = isLaneOverview || (isFewEvents && overviewAxis.kind === 'index')
-    ? Math.max(1, chronological.length)
+    ? Math.max(1, pageEvents.length)
     : histogramBucketCount;
   /** Each event's own bar width on a short page: as wide as its neighbors allow, up to the cap. */
   const fewEventBarWidth = isFewEvents
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
-  const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
-  const stripHeight = useMemo(() => timelineStripHeight(chronological.map(eventSubject)), [chronological]);
+  const retriedFlags = useMemo(() => pageEvents.map(hasRetriedFailure), [pageEvents]);
+  const stripHeight = useMemo(
+    () => (isTidy ? tidyStripHeight(labels, slotWidth) : denseStripHeight(labels)),
+    [isTidy, labels, slotWidth],
+  );
   const statusList = useMemo(
-    () => chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
-    [chronological, states],
+    () => pageEvents.map((event) => states.get(event.eventId)?.status ?? 'normal'),
+    [pageEvents, states],
   );
   const overviewBuckets = useMemo(
     () => (isLaneOverview
@@ -547,6 +699,14 @@ export function HorizontalTimeline({
       : bucketOverviewEvents(overviewAxis, statusList, retriedFlags, bucketCount)),
     [bucketCount, isLaneOverview, overviewAxis, retriedFlags, statusList],
   );
+  /** How many events of each bar the lane leaves out, so the overview can dim them. */
+  const bucketHiddenCounts = useMemo(() => overviewBuckets.map((bucket) => {
+    if (!isLaneFiltered || bucket.count === 0) return 0;
+    let hidden = 0;
+    for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex; index += 1) if (!pageLaneFlags[index]) hidden += 1;
+    return hidden;
+  }), [isLaneFiltered, overviewBuckets, pageLaneFlags]);
+  const lanePageIndex = (laneIndex: number) => laneIndexToPageIndex(laneToPage, pageEvents.length, laneIndex);
 
   const clampStart = useCallback((start: number) => Math.min(maxStart, Math.max(0, start)), [maxStart]);
   const moveWindow = useCallback((start: number) => {
@@ -583,11 +743,11 @@ export function HorizontalTimeline({
     if (isAtNewestEnd.current) setWindowStart(maxStart);
     else setWindowStart((current) => Math.min(maxStart, Math.max(0, current)));
     // Runs when the page changes; selection changes recenter below.
-  }, [chronological, maxStart, highlightedEventId]);
+  }, [laneEvents, maxStart, highlightedEventId]);
 
   const windowStartRef = useRef(windowStart);
   windowStartRef.current = windowStart;
-  const hasEvents = chronological.length > 0;
+  const hasEvents = pageEvents.length > 0;
   // React wheel listeners are passive, so only a native listener can stop the page from scrolling.
   useEffect(() => {
     const strip = stripRef.current;
@@ -606,13 +766,15 @@ export function HorizontalTimeline({
   }, [moveWindow, hasEvents, slotWidth]);
 
   const selectedIndex = selectedEvent ? indexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
+  const selectedPageIndex = selectedEvent ? pageIndexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
   // Each click or key selection bumps this, so it reveals the event even when the index is unchanged.
   const [revealRequest, setRevealRequest] = useState(0);
   useEffect(() => {
     if (selectedIndex < 0 || isFollowingLatest) return;
-    // Selecting an older event stops Live from sliding the view toward newer events.
-    isAtNewestEnd.current = selectedIndex === chronological.length - 1;
     if (selectedIndex < windowStart || selectedIndex >= windowStart + visibleCount) centerOn(selectedIndex);
+    // Selecting an older event stops Live from sliding the view toward newer events.
+    // The page's newest event decides, since the lane's last event may be followed by hidden ones.
+    isAtNewestEnd.current = selectedPageIndex === pageEvents.length - 1;
     // Only a selection change recenters, so dragging the overview never snaps back.
   }, [selectedIndex, revealRequest]);
 
@@ -629,12 +791,14 @@ export function HorizontalTimeline({
   ));
   const linkedEventIds = new Set(selectedLinks.flatMap((link) => [link.fromEventId, link.toEventId]));
 
-  const selectIndex = useCallback((index: number) => {
-    const event = chronological[Math.min(chronological.length - 1, Math.max(0, index))];
-    if (!event) return;
+  const selectEvent = useCallback((event: FlowHistoryEvent) => {
     setRevealRequest((request) => request + 1);
     onSelectEvent(event);
-  }, [chronological, onSelectEvent]);
+  }, [onSelectEvent]);
+  const selectIndex = useCallback((index: number) => {
+    const event = laneEvents[Math.min(laneEvents.length - 1, Math.max(0, index))];
+    if (event) selectEvent(event);
+  }, [laneEvents, selectEvent]);
 
   /** J selects the older neighbour and K the newer one; T time travels from the selection. */
   const handlePageKey = (key: string): boolean => {
@@ -643,9 +807,9 @@ export function HorizontalTimeline({
       onTimeTravelFromEvent(selectedEvent);
       return true;
     }
-    const activeIndex = selectedIndex >= 0 ? selectedIndex : chronological.length - 1;
+    const activeIndex = selectedIndex >= 0 ? selectedIndex : laneEvents.length - 1;
     const target = key === 'j' ? activeIndex - 1 : activeIndex + 1;
-    if (target < 0 || target >= chronological.length) return false;
+    if (target < 0 || target >= laneEvents.length) return false;
     selectIndex(target);
     return true;
   };
@@ -665,14 +829,14 @@ export function HorizontalTimeline({
   }, []);
 
   const handleStripKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const activeIndex = selectedIndex >= 0 ? selectedIndex : Math.min(chronological.length - 1, Math.floor(windowStart) + visibleCount - 1);
+    const activeIndex = selectedIndex >= 0 ? selectedIndex : Math.min(laneEvents.length - 1, Math.floor(windowStart) + visibleCount - 1);
     let target: number;
     if (event.key === 'ArrowLeft') target = activeIndex - 1;
     else if (event.key === 'ArrowRight') target = activeIndex + 1;
     else if (event.key === 'PageUp') target = activeIndex - visibleCount;
     else if (event.key === 'PageDown') target = activeIndex + visibleCount;
     else if (event.key === 'Home') target = 0;
-    else if (event.key === 'End') target = chronological.length - 1;
+    else if (event.key === 'End') target = laneEvents.length - 1;
     else if (event.key === 'Enter' || event.key === ' ') target = activeIndex;
     else return;
     event.preventDefault();
@@ -686,7 +850,12 @@ export function HorizontalTimeline({
     return ((clientX - (rect?.left ?? 0)) / width) * stripWidth - overviewPlotInset;
   };
   const plotXToRatio = (plotXValue: number) => Math.min(1, Math.max(0, plotXValue / plotWidth));
-  const brushSpan = () => brushPixelSpan(overviewAxis, windowStart, visibleCount, plotWidth, overviewMinBrushWidth);
+  /** The brush covers the page events from the first lane event in view to the last one. */
+  const brushSpan = () => {
+    const pageStart = lanePageIndex(windowStart);
+    const pageEnd = Math.min(pageEvents.length, lanePageIndex(windowStart + visibleCount - 1) + 1);
+    return brushPixelSpan(overviewAxis, pageStart, pageEnd - pageStart, plotWidth, overviewMinBrushWidth);
+  };
   const isOverBrush = (plotXValue: number) => {
     const { left, right } = brushSpan();
     return plotXValue >= left - overviewBrushGripReach && plotXValue <= right + overviewBrushGripReach;
@@ -702,7 +871,7 @@ export function HorizontalTimeline({
       return overviewBuckets[bucketIndex]?.count ? bucketIndex : null;
     }
     // Edges sit halfway between neighbors, so the event whose span holds the pointer is the nearest one.
-    const nearest = Math.min(chronological.length - 1, Math.floor(ratioToEventIndex(overviewAxis, ratio)));
+    const nearest = Math.min(pageEvents.length - 1, Math.floor(ratioToEventIndex(overviewAxis, ratio)));
     const distance = Math.abs(overviewAxis.positions[nearest] - ratio) * plotWidth;
     if (distance > fewEventBarWidth / 2 + 3) return null;
     const bucketIndex = overviewBuckets.findIndex((bucket) => bucket.firstEventIndex <= nearest && bucket.lastEventIndex >= nearest);
@@ -718,15 +887,16 @@ export function HorizontalTimeline({
     const pointerX = pointerPlotX(event.clientX);
     const isGripPress = maxStart > 0 && isOverBrushGrip(pointerX);
     let start = windowStart;
-    if (!isOverBrush(pointerX)) {
-      start = clampStart(ratioToEventIndex(overviewAxis, plotXToRatio(pointerX)) - visibleCount / 2);
+    // A lane overview shows only what is in view, so a press selects; the track below moves the view.
+    if (!isLaneOverview && !isOverBrush(pointerX)) {
+      start = clampStart(pageIndexToLaneIndex(laneToPage, ratioToEventIndex(overviewAxis, plotXToRatio(pointerX))) - visibleCount / 2);
       moveWindow(start);
     }
     // The real window edge, not the widened brush edge, so a press never moves the view.
     brushDragOrigin.current = {
       windowStart: start,
       pointerX,
-      windowLeftX: eventIndexToRatio(overviewAxis, start) * plotWidth,
+      windowLeftX: eventIndexToRatio(overviewAxis, lanePageIndex(start)) * plotWidth,
       hasDragged: false,
       isGripPress,
     };
@@ -735,12 +905,13 @@ export function HorizontalTimeline({
   const handleMinimapPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointerX = pointerPlotX(event.clientX);
     if (isDraggingMinimap.current) {
+      if (isLaneOverview) return;
       const origin = brushDragOrigin.current;
       if (Math.abs(pointerX - origin.pointerX) > overviewClickSlop) origin.hasDragged = true;
       // Back at the press point, restore the exact start; the pixel round trip may differ by float noise.
       moveWindow(pointerX === origin.pointerX
         ? origin.windowStart
-        : ratioToEventIndex(overviewAxis, plotXToRatio(origin.windowLeftX + pointerX - origin.pointerX)));
+        : pageIndexToLaneIndex(laneToPage, ratioToEventIndex(overviewAxis, plotXToRatio(origin.windowLeftX + pointerX - origin.pointerX))));
       return;
     }
     const bucketIndex = bucketAtRatio(plotXToRatio(pointerX));
@@ -760,10 +931,12 @@ export function HorizontalTimeline({
     if (!isClick) return;
     const bucketIndex = bucketAtRatio(plotXToRatio(brushDragOrigin.current.pointerX));
     if (bucketIndex === null) return;
-    const eventIndex = overviewBucketSelectionIndex(overviewBuckets[bucketIndex], statusList, retriedFlags);
+    const eventIndex = overviewBucketSelectionIndex(overviewBuckets[bucketIndex], statusList, retriedFlags, pageLaneFlags);
     if (eventIndex < 0) return;
-    centerOn(eventIndex);
-    selectIndex(eventIndex);
+    const laneIndex = indexByEventId.get(pageEvents[eventIndex].eventId);
+    // A hidden event joins the lane once selected, and the selection effect reveals it.
+    if (laneIndex !== undefined) centerOn(laneIndex);
+    selectEvent(pageEvents[eventIndex]);
   };
 
   const handleMinimapKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -776,26 +949,33 @@ export function HorizontalTimeline({
     else if (event.key === 'End') next = maxStart;
     else if (event.key === 'Enter') {
       event.preventDefault();
-      selectIndex(Math.min(chronological.length - 1, Math.floor(windowStart + Math.min(visibleCount, chronological.length) / 2)));
+      selectIndex(Math.min(laneEvents.length - 1, Math.floor(windowStart + Math.min(visibleCount, laneEvents.length) / 2)));
       return;
     } else return;
     event.preventDefault();
     moveWindow(next);
   };
 
-  if (!chronological.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
+  if (!pageEvents.length) return <div className="card empty-state"><h3>No semantic events loaded</h3></div>;
 
   const firstRendered = Math.max(0, Math.floor(windowStart) - overscanSlots);
-  const lastRendered = Math.min(chronological.length - 1, Math.ceil(windowStart) + visibleCount + overscanSlots);
-  const renderedEvents = chronological.slice(firstRendered, lastRendered + 1);
-  const firstVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart))];
-  const lastVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart) + visibleCount - 1)];
+  const lastRendered = Math.min(laneEvents.length - 1, Math.ceil(windowStart) + visibleCount + overscanSlots);
+  const renderedEvents = laneEvents.slice(firstRendered, lastRendered + 1);
+  const firstVisible: FlowHistoryEvent | undefined = laneEvents[Math.min(laneEvents.length - 1, Math.round(windowStart))];
+  const lastVisible: FlowHistoryEvent | undefined = laneEvents[Math.min(laneEvents.length - 1, Math.round(windowStart) + visibleCount - 1)];
+  const visibleRangeText = firstVisible && lastVisible ? `Events #${firstVisible.eventId} to #${lastVisible.eventId}` : 'No events shown';
   const xOf = (index: number) => (index - windowStart) * slotWidth + slotWidth / 2;
-  const isEndInView = windowStart + visibleCount >= chronological.length - 0.5;
+  const isEndInView = windowStart + visibleCount >= laneEvents.length - 0.5;
+  const filteredKinds = filteredKindCount(filterOptions);
   const brushInPlot = brushSpan();
   const brush = { left: overviewPlotInset + brushInPlot.left, right: overviewPlotInset + brushInPlot.right };
+  const pageViewStart = lanePageIndex(windowStart);
+  const pageViewEnd = lanePageIndex(windowStart + visibleCount - 1) + 1;
   // The brush only appears when the page is wider than the strip; otherwise there is nothing to move.
-  const hasBrush = maxStart > 0;
+  const hasBrush = !isLaneOverview && maxStart > 0;
+  const isIndexInView = (index: number) => xOf(index) >= 0 && xOf(index) <= stripWidth;
+  // The lane overview draws only what is in view; the whole-page overview marks every event.
+  const isOverviewMarkShown = (index: number) => !isLaneOverview || isIndexInView(index);
   const barSlotWidth = plotWidth / bucketCount;
   const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
   /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
@@ -805,7 +985,7 @@ export function HorizontalTimeline({
   const plotX = (index: number) => overviewPlotInset + overviewAxis.positions[index] * plotWidth;
   const maxBucketCount = overviewBuckets.reduce((max, bucket) => Math.max(max, bucket.count), 0);
   const problemCount = overviewBuckets.reduce((sum, bucket) => sum + bucket.failed + bucket.retried, 0);
-  const [axisStartLabel, axisEndLabel] = overviewAxisEnds(overviewAxis, chronological, timezone);
+  const [axisStartLabel, axisEndLabel] = overviewAxisEnds(overviewAxis, pageEvents, timezone);
   const axisSpanLabel = [
     overviewAxis.startMs !== null && overviewAxis.endMs !== null && overviewAxis.endMs > overviewAxis.startMs
       ? formatElapsedDuration(overviewAxis.endMs - overviewAxis.startMs)
@@ -813,10 +993,18 @@ export function HorizontalTimeline({
     overviewAxis.kind === 'index' ? 'spaced by event order' : '',
   ].filter(Boolean).join(' · ');
   const hovered = hoveredBucket !== null && overviewBuckets[hoveredBucket]?.count
-    ? overviewBucketLines(overviewAxis, overviewBuckets[hoveredBucket], hoveredBucket, bucketCount, chronological, timezone)
+    ? overviewBucketLines(
+      overviewAxis,
+      overviewBuckets[hoveredBucket],
+      hoveredBucket,
+      bucketCount,
+      pageEvents,
+      timezone,
+      bucketHiddenCounts[hoveredBucket],
+    )
     : null;
   const hoveredSelectionIndex = hovered && hoveredBucket !== null
-    ? overviewBucketSelectionIndex(overviewBuckets[hoveredBucket], statusList, retriedFlags)
+    ? overviewBucketSelectionIndex(overviewBuckets[hoveredBucket], statusList, retriedFlags, pageLaneFlags)
     : -1;
   const hoveredCenterRatio = hoveredBucket === null || !overviewBuckets[hoveredBucket]?.count
     ? 0
@@ -824,7 +1012,7 @@ export function HorizontalTimeline({
 
   return (
     <div className="timeline-wrap htl">
-      {prunedEventIdRange !== undefined && chronological[0]?.eventId === 1 && (
+      {prunedEventIdRange !== undefined && pageEvents[0]?.eventId === 1 && (
         <div className="warning-banner timeline-pruned-banner" role="note">
           {prunedEventIdRange.firstEventId === prunedEventIdRange.lastEventId
             ? `Event #${prunedEventIdRange.firstEventId} was`
@@ -835,6 +1023,9 @@ export function HorizontalTimeline({
       <div className="htl-head">
         <span className="htl-head-range">{axisStartLabel} → {axisEndLabel}</span>
         <span className="htl-overview-summary">
+          {maxStart > 0 && firstVisible && lastVisible && (
+            <span className="htl-in-view">#{firstVisible.eventId}–#{lastVisible.eventId} in view · </span>
+          )}
           {axisSpanLabel}
           {problemCount > 0 && (
             <>
@@ -846,15 +1037,46 @@ export function HorizontalTimeline({
           )}
         </span>
         <span className="htl-head-tools">
+          <span aria-live="polite" className="htl-filter-note-region">
+            {hiddenEventCount > 0 && (
+              <span className="htl-filter-note">
+                {hiddenEventCount} of {pageEvents.length} events hidden on this page
+                <button className="htl-filter-show-all" onClick={() => changeEventFilter(allTimelineEventsFilter)} type="button">
+                  Show all
+                </button>
+              </span>
+            )}
+          </span>
           {shownEndNote && !isEndInView && (
-            <button className="pager-button htl-end-jump" onClick={() => moveWindow(maxStart)} title={shownEndNote.label} type="button">
-              {shownEndNote.isOpen ? 'Now' : 'End'}
-              <ChevronRight aria-hidden="true" size={14} strokeWidth={2.25} />
+            <button
+              aria-label="Go to the newest event"
+              className="htl-end-jump"
+              onClick={() => moveWindow(maxStart)}
+              title="Go to the newest event"
+              type="button"
+            >
+              <span aria-hidden="true" className="live-status-dot" />
+              Now
+              <ChevronRight aria-hidden="true" size={13} strokeWidth={2.25} />
             </button>
           )}
+          <TimelineLabelModeTabs
+            introId={isLabelModeIntroShown ? labelModeIntroId : undefined}
+            labelMode={labelMode}
+            onChangeLabelMode={changeLabelMode}
+          />
+          <TimelineEventFilterMenu
+            filter={eventFilter}
+            filteredKindCount={filteredKinds}
+            flowType={flowType}
+            onChangeFilter={changeEventFilter}
+            options={filterOptions}
+          />
           <EventKindLegend />
         </span>
       </div>
+
+      {isLabelModeIntroShown && <TimelineLabelModeIntro id={labelModeIntroId} onDismiss={dismissLabelModeIntro} />}
 
       <div
         aria-describedby={overviewHelpId}
@@ -862,7 +1084,7 @@ export function HorizontalTimeline({
         aria-valuemax={maxStart}
         aria-valuemin={0}
         aria-valuenow={Math.round(windowStart)}
-        aria-valuetext={`Events #${firstVisible.eventId} to #${lastVisible.eventId}`}
+        aria-valuetext={visibleRangeText}
         className={`htl-minimap${isPointerOverBrush ? ' is-over-brush' : ''}`}
         data-axis={overviewAxis.kind}
         onKeyDown={handleMinimapKeyDown}
@@ -887,13 +1109,14 @@ export function HorizontalTimeline({
             y2={overviewHeight - 0.5}
           />
           {overviewBuckets.flatMap((bucket, bucketIndex) => {
-            if (!bucket.count) return [];
+            if (!bucket.count || (isLaneOverview && !isIndexInView(bucket.firstEventIndex))) return [];
             const segments = overviewBarSegments(bucket, maxBucketCount);
             const centerX = barCenterX(bucket, bucketIndex);
             const x = centerX - barWidth / 2;
-            const isInView = bucket.lastEventIndex >= Math.floor(windowStart) && bucket.firstEventIndex < windowStart + visibleCount;
+            const isInView = bucket.lastEventIndex >= Math.floor(pageViewStart) && bucket.firstEventIndex < pageViewEnd;
             const hasFailure = bucket.failed + bucket.retried > 0;
             const bandWidth = Math.max(barSlotWidth, barWidth + 4);
+            const hiddenCount = bucketHiddenCounts[bucketIndex] ?? 0;
             let y = overviewHeight - segments.reduce((sum, segment) => sum + segment.height, 0);
             return [(
               <g
@@ -902,9 +1125,13 @@ export function HorizontalTimeline({
                   isInView && hasBrush ? 'is-in-view' : '',
                   hoveredBucket === bucketIndex ? 'is-hovered' : '',
                   hasFailure ? 'has-failure' : '',
+                  hiddenCount > 0 ? 'has-hidden' : '',
                 ].filter(Boolean).join(' ')}
                 data-count={bucket.count}
+                data-hidden={hiddenCount || undefined}
                 key={bucketIndex}
+                // A bar fades with the share of its events the filter hides.
+                style={hiddenCount > 0 ? { '--htl-bar-shown-share': (bucket.count - hiddenCount) / bucket.count } as CSSProperties : undefined}
               >
                 {hasFailure && (
                   <rect
@@ -944,14 +1171,15 @@ export function HorizontalTimeline({
           })}
           {[...linkedEventIds].flatMap((eventId) => {
             const index = indexByEventId.get(eventId);
-            if (index === undefined || index === selectedIndex) return [];
-            const x = plotX(index);
+            const pageIndex = pageIndexByEventId.get(eventId);
+            if (index === undefined || pageIndex === undefined || index === selectedIndex || !isOverviewMarkShown(index)) return [];
+            const x = plotX(pageIndex);
             return [<line className="htl-overview-linked" key={eventId} x1={x} x2={x} y1={overviewMarkerLaneHeight} y2={overviewHeight} />];
           })}
-          {selectedIndex >= 0 && (
+          {selectedIndex >= 0 && selectedPageIndex >= 0 && isOverviewMarkShown(selectedIndex) && (
             <g className="htl-overview-selection">
-              <line x1={plotX(selectedIndex)} x2={plotX(selectedIndex)} y1={overviewMarkerLaneHeight - 2} y2={overviewHeight} />
-              <circle cx={plotX(selectedIndex)} cy={overviewMarkerLaneHeight - 2} r={2.5} />
+              <line x1={plotX(selectedPageIndex)} x2={plotX(selectedPageIndex)} y1={overviewMarkerLaneHeight - 2} y2={overviewHeight} />
+              <circle cx={plotX(selectedPageIndex)} cy={overviewMarkerLaneHeight - 2} r={2.5} />
             </g>
           )}
           {hasBrush && (
@@ -987,8 +1215,9 @@ export function HorizontalTimeline({
             {hovered.problems.map((problem) => (
               <span className={`htl-overview-tooltip-problem htl-status-${problem.tone}`} key={problem.text}>{problem.text}</span>
             ))}
+            {hovered.hidden && <span className="htl-overview-tooltip-hidden">{hovered.hidden}</span>}
             {hoveredSelectionIndex >= 0 && !isPointerOverBrush && (
-              <span className="htl-overview-tooltip-hint">Click to select #{chronological[hoveredSelectionIndex].eventId}</span>
+              <span className="htl-overview-tooltip-hint">Click to select #{pageEvents[hoveredSelectionIndex].eventId}</span>
             )}
           </div>
         )}
@@ -1001,11 +1230,13 @@ export function HorizontalTimeline({
           : undefined}
         aria-describedby={helpId}
         aria-label="Timeline events, oldest on the left"
-        className="htl-strip"
+        className={`htl-strip is-${labelMode}${isFilterChanging ? ' is-filter-changing' : ''}`}
+        data-label-mode={labelMode}
         style={{
           '--htl-slot-width': `${slotWidth}px`,
-          '--htl-label-angle': `-${labelAngleDegrees}deg`,
-          '--htl-label-max-width': `${labelMaxWidth}px`,
+          '--htl-label-lines': isTidy ? labelMaxLines : undefined,
+          '--htl-label-angle': isTidy ? undefined : `-${denseLabelAngleDegrees}deg`,
+          '--htl-label-max-width': isTidy ? undefined : `${denseLabelMaxWidth}px`,
           height: `${stripHeight}px`,
         } as CSSProperties}
         onKeyDown={handleStripKeyDown}
@@ -1021,13 +1252,16 @@ export function HorizontalTimeline({
           const KindIcon = eventKinds[kind].icon;
           const subject = eventSubject(event);
           const isSelected = index === selectedIndex;
-          const isRetried = status !== 'failed' && retriedFlags[index];
+          const isRetried = status !== 'failed' && retriedFlags[laneToPage[index]];
+          const isFilteredOut = !pageShownFlags[laneToPage[index]];
           const classes = [
             'htl-event',
             `kind-${kind}`,
             isSelected ? 'selected' : '',
             linkedEventIds.has(event.eventId) && !isSelected ? 'linked' : '',
             highlightedEventId === event.eventId ? 'jump-highlighted' : '',
+            isFilteredOut ? 'is-filtered-out' : '',
+            isFilterChanging && !previousLaneEventIds.current.has(event.eventId) ? 'is-entering' : '',
           ].filter(Boolean).join(' ');
           return (
             <div
@@ -1036,19 +1270,26 @@ export function HorizontalTimeline({
                 subject !== eventTitle(event) ? subject : '',
                 state.spoken,
                 isRetried ? retriedSpoken(event, status) : '',
+                isFilteredOut ? 'hidden by the filter, shown because it is selected' : '',
                 `#${event.eventId}`,
               ].filter(Boolean).join(', ')}
               aria-selected={isSelected}
               className={classes}
               data-event-id={event.eventId}
               id={`htl-event-${event.eventId}`}
-              key={event.eventId}
+              // A mode switch remounts the labels, so they fade in at their new places.
+              key={`${labelMode}-${event.eventId}`}
               onClick={() => selectIndex(index)}
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
-              title={`${subject} · #${event.eventId}`}
+              title={`${subject} · #${event.eventId}${isFilteredOut ? ' · hidden by the filter, shown because it is selected' : ''}`}
             >
-              <span aria-hidden="true" className="htl-label">{subject}</span>
+              {/* An event whose dot scrolled past the left edge shows no label, so no label is cut. */}
+              {xOf(index) >= 0 && (
+                <span aria-hidden="true" className="htl-label">
+                  {isTidy ? labelWithBreakHints(labels[index], slotWidth - labelColumnGap) : labels[index]}
+                </span>
+              )}
               <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
                 <KindIcon size={13} strokeWidth={2.5} />
                 {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
@@ -1062,7 +1303,9 @@ export function HorizontalTimeline({
             const index = firstRendered + offset;
             const isSelected = index === selectedIndex;
             const isNextToSelection = selectedIndex >= 0 && Math.abs(index - selectedIndex) === 1;
-            if (!isSelected && (event.eventId % axisEventInterval !== 0 || isNextToSelection)) return [];
+            // A filtered lane skips event IDs, so it names every tenth lane slot instead.
+            const isOnInterval = (isLaneFiltered ? index : event.eventId) % axisEventInterval === 0;
+            if (!isSelected && (!isOnInterval || isNextToSelection)) return [];
             return [(
               <span
                 className={`htl-axis-label${isSelected ? ' selected' : ''}`}
@@ -1092,15 +1335,22 @@ export function HorizontalTimeline({
           })}
         </svg>
       </div>
-      {shownEndNote && isEndInView && (
+      {laneEvents.length === 0 && (
+        <div className="htl-filter-empty" role="note">
+          No events on this page match the filter.
+          <button className="htl-filter-show-all" onClick={() => changeEventFilter(allTimelineEventsFilter)} type="button">
+            Show all
+          </button>
+        </div>
+      )}
+      {shownEndNote && isEndInView && laneEvents.length > 0 && (
         <TimelineEndNoteButton
           endNote={shownEndNote}
-          left={xOf(chronological.length - 1) + 18}
+          left={xOf(laneEvents.length - 1) + 18}
           onShowEvent={onShowEndNoteEvent}
         />
       )}
       </div>
-
 
       <p className="sr-only" id={helpId}>
         Left and Right, or J and K, move the selection; Page Up and Page Down move by a screen. T time travels from the selected event. A sideways swipe or Shift with the wheel scrolls the lane.

@@ -9,6 +9,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CopyButton } from './CopyButton';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -166,6 +167,75 @@ export function LongValue({
         </button>
       )}
     </>
+  );
+}
+
+/** A value block shows this many lines before Expand. */
+const eventValueVisibleLines = 7;
+
+/** Returns a string that holds a JSON object or array as that value, so it pretty-prints; other values unchanged. */
+function parsedJSONText(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!(trimmed.startsWith('{') && trimmed.endsWith('}')) && !(trimmed.startsWith('[') && trimmed.endsWith(']'))) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+/** Names an object's size, such as "9 keys" or "3 items", for a value block's head. */
+function objectSizeLabel(decoded: object): string {
+  const count = Array.isArray(decoded) ? decoded.length : Object.keys(decoded).length;
+  if (Array.isArray(decoded)) return `${count} ${count === 1 ? 'item' : 'items'}`;
+  return `${count} ${count === 1 ? 'key' : 'keys'}`;
+}
+
+/** Shows one named value: short values beside the name, objects as capped JSON with Copy and Expand. */
+export function EventValueBlock({ name, value }: { name: string; value: unknown }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const decoded = parsedJSONText(isDexValue(value) ? decodedValue(value) : value);
+  const isEmpty = decoded === undefined || decoded === null || decoded === '';
+  const isObject = Boolean(decoded) && typeof decoded === 'object';
+  const isInline = isEmpty || (!isObject && displayValue(decoded).length <= inlineValueCharacters && !displayValue(decoded).includes('\n'))
+    || (isObject && isShortFlatValue(decoded));
+  const text = isEmpty
+    ? ''
+    : isObject
+      ? JSON.stringify(decoded, storedValueJSONReplacer, isInline ? undefined : 2) ?? ''
+      : displayValue(decoded);
+  const lineCount = text.split('\n').length;
+  const isCapped = !isInline && lineCount > eventValueVisibleLines;
+  return (
+    <div className="event-value">
+      <div className="event-value-head">
+        <strong className="event-value-name">{name}</strong>
+        {isInline && (isEmpty
+          ? <span className="event-value-none">none</span>
+          : <code className="event-value-inline" title={text}>{text}</code>)}
+        {!isInline && (
+          <span className="event-value-meta">
+            {isObject ? `${objectSizeLabel(decoded as object)} · ` : ''}{valueSizeLabel(text)}
+          </span>
+        )}
+        {!isEmpty && (
+          <span className="event-value-tools">
+            <CopyButton className="event-value-tool" label={`Copy ${name}`} value={text}>Copy</CopyButton>
+            {isCapped && (
+              <button aria-expanded={isExpanded} className="event-value-tool" onClick={() => setIsExpanded(!isExpanded)} type="button">
+                {isExpanded ? 'Collapse' : 'Expand'}
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+      {!isInline && (
+        <pre className={`event-value-code${isObject ? '' : ' is-text'}${isCapped && !isExpanded ? ' is-capped' : ''}`} title={isCapped && !isExpanded ? `${lineCount} lines` : undefined}>
+          {text}
+        </pre>
+      )}
+    </div>
   );
 }
 

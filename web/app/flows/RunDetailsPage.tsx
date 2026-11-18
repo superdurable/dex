@@ -225,17 +225,15 @@ function persistSidebarWidth(kind: SidebarKind, width: number) {
   }
 }
 
-/** The tab this browser last chose on this run, or null; another run opens on its default tab. */
-function storedRunTab(flowId: string): RunTab | null {
+/** The tab this browser last chose on any run, or null when it never chose one. */
+function storedRunTab(): RunTab | null {
   if (typeof window === 'undefined') return null;
   try {
     const stored = window.localStorage.getItem(runTabStorageKey) ?? '';
-    // An older Dex Web saved a bare tab for every run; it still applies until the next choice.
+    // An older Dex Web saved a bare tab; the Flow ID saved with it no longer matters.
     if (runTabs.has(stored as RunTab)) return stored as RunTab;
-    const parsed = JSON.parse(stored || 'null') as { flowId?: unknown; tab?: unknown } | null;
-    return parsed?.flowId === flowId && isRunTab(typeof parsed.tab === 'string' ? parsed.tab : null)
-      ? parsed.tab as RunTab
-      : null;
+    const parsed = JSON.parse(stored || 'null') as { tab?: unknown } | null;
+    return isRunTab(typeof parsed?.tab === 'string' ? parsed.tab : null) ? parsed?.tab as RunTab : null;
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
     return null;
@@ -281,7 +279,7 @@ export function RunDetailsPage({
     { runIdentity: string; value: Record<string, unknown> } | { runIdentity: string; error: string } | null
   >(null);
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
-  const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab(flowId)));
+  const [chosenTab, setTab] = useState<RunTab | null>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
   const [eventsTab, setEventsTab] = useState<RunTab>(storedEventsTab);
   const webCatalog = useOptionalWebCatalog();
   // A run page reads only its own Flow type's definitions.
@@ -330,7 +328,7 @@ export function RunDetailsPage({
   const isRememberedTabEmpty = !isRunTab(requestedView) && !isRunTabContentPending
     && ((chosenTab === 'session' && conversationUnavailableReason !== null)
       || (chosenTab === 'actions' && actionsUnavailableReason !== null));
-  // An agent session is read as its conversation, so it opens there unless another tab was chosen.
+  // The tab chosen last, on any run, wins; an agent session opens on its conversation only without one.
   const tab: RunTab = isRememberedTabEmpty ? eventsTab : chosenTab ?? (sessionSchema ? 'session' : eventsTab);
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
@@ -1306,6 +1304,7 @@ export function RunDetailsPage({
                     endNote={timelineEndNote}
                     onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
                     onTimeTravelFromEvent={openTimeTravel}
+                    flowType={summary?.flowType}
                   />
                   </div>
                 )}

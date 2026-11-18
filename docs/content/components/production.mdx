@@ -37,7 +37,24 @@ The [minimal configuration](#minimal-configuration) below covers authentication,
 
 As a starting point derived from the benchmark, a 2-vCPU node peaked near
 1,800 SYNC Steps per second and a 16-vCPU node near 8,400. Start small and
-watch CPU. Past one node, run separate clusters.
+watch CPU.
+
+Two limits bound the work of a cluster:
+
+- The task slots of your Workers bound how many Steps run at once. Steps beyond
+  the free slots wait in the durable queue.
+- The CPU of the server node bounds how fast the cluster commits work.
+
+Set the slot count of each Worker yourself. I/O-bound handlers need many slots.
+CPU-bound handlers need about one slot per allocated CPU. To grow throughput,
+add Worker processes with more CPU capacity. Idle slots still hold server streams, so size them for the
+load you expect.
+
+Scale Workers on the age of the oldest queued Step. Scale the server node when
+its CPU is near saturation. Past one node, run separate clusters.
+
+See [Choose the slot count](/reference/server/workers#choose-slot-count) and
+[Size a server node](/reference/server/configuration#size-a-server-node).
 
 ## Minimal configuration {#minimal-configuration}
 
