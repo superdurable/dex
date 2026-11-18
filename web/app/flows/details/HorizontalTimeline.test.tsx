@@ -912,11 +912,12 @@ describe('horizontal Timeline', () => {
     expect(timelineStrip().style.getPropertyValue('--htl-label-angle')).toBe('-30deg');
     expect(screen.getByRole('button', { name: 'Dense' }).getAttribute('aria-pressed')).toBe('true');
     expect(readFileSync('app/v1-design.css', 'utf8')).toContain('rotate(var(--htl-label-angle, -30deg))');
-    // The mode tabs sit in the head row just before Legend, so the lane keeps its full width.
+    // The mode tabs sit in the head row just before Filter and Legend, so the lane keeps its full width.
     const modeTabs = screen.getByRole('group', { name: 'Timeline labels' });
     expect(modeTabs.closest('.htl-head')).not.toBeNull();
     expect(modeTabs.closest('.htl-lane')).toBeNull();
-    expect(modeTabs.nextElementSibling?.classList.contains('htl-legend-fold')).toBe(true);
+    expect(modeTabs.nextElementSibling?.classList.contains('htl-filter')).toBe(true);
+    expect(modeTabs.nextElementSibling?.nextElementSibling?.classList.contains('htl-legend-fold')).toBe(true);
   });
 
   it.each(['dense', 'tidy'])('shows no cut label for an event scrolled past the left edge in %s mode', (labelMode) => {

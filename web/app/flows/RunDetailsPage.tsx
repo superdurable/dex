@@ -1304,6 +1304,7 @@ export function RunDetailsPage({
                     endNote={timelineEndNote}
                     onShowEndNoteEvent={(eventId) => void jumpToEvent(eventId)}
                     onTimeTravelFromEvent={openTimeTravel}
+                    flowType={summary?.flowType}
                   />
                   </div>
                 )}
