@@ -1729,15 +1729,15 @@ body:has(.v1-page) {
   position: relative;
   height: 100%;
   box-sizing: border-box;
-  padding: var(--graph-deck-offset-y) var(--graph-deck-offset-x) 0 0;
+  padding: var(--graph-deck-offset-y) var(--graph-deck-offset-x);
 }
 
 .v1-page .graph-round-deck-layer {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  width: calc(100% - var(--graph-deck-offset-x));
-  height: calc(100% - var(--graph-deck-offset-y));
+  top: var(--graph-deck-offset-y);
+  left: var(--graph-deck-offset-x);
+  width: calc(100% - 2 * var(--graph-deck-offset-x));
+  height: calc(100% - 2 * var(--graph-deck-offset-y));
   border-radius: var(--graph-node-radius);
   background: var(--ui-surface-raised);
   box-shadow: var(--graph-node-shadow);
@@ -1764,6 +1764,13 @@ body:has(.v1-page) {
 
 .v1-page .graph-round-group.graph-round-deck-card.has-failed {
   border-top-color: var(--tone-fail);
+}
+
+/* The deck does not clip, so long facts shorten and the button stays whole. */
+.v1-page .graph-round-deck-card .graph-round-facts > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .v1-page .react-flow__node.node-round-range:hover .graph-round-deck-card {

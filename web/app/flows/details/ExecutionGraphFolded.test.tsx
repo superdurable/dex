@@ -8,7 +8,8 @@
 
 // @vitest-environment jsdom
 
-import type { ReactNode } from 'react';
+import { readFileSync } from 'node:fs';
+import type { CSSProperties, ReactNode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +19,8 @@ import { graphViewStorageKeys } from './graphViewPreferences';
 
 interface FakeNode {
   id: string;
+  type?: string;
+  handles?: Array<{ type: string; position: string; x: number; y: number; width?: number; height?: number }>;
   position: { x: number; y: number };
   width?: number;
   height?: number;
@@ -53,22 +56,30 @@ const flow = vi.hoisted(() => {
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@xyflow/react')>();
   const { useEffect } = await import('react');
-  function ReactFlow({ nodes, onInit, children }: { nodes: FakeNode[]; onInit: (instance: unknown) => void; children: ReactNode }) {
+  function ReactFlow({ nodes, nodeTypes, onInit, children }: {
+    nodes: FakeNode[];
+    nodeTypes: Record<string, (props: { data: FakeNode['data'] }) => ReactNode>;
+    onInit: (instance: unknown) => void;
+    children: ReactNode;
+  }) {
     flow.state.nodes = nodes;
     useEffect(() => { onInit(flow.instance); }, [onInit]);
     return (
       <div>
-        {nodes.map((node) => (
-          <div
-            aria-label={node.ariaLabel}
-            className={`react-flow__node ${node.className ?? ''}`}
-            data-id={node.id}
-            key={node.id}
-            role={node.ariaLabel ? 'group' : undefined}
-          >
-            {node.data.label}
-          </div>
-        ))}
+        {nodes.map((node) => {
+          const NodeComponent = node.type ? nodeTypes[node.type] : undefined;
+          return (
+            <div
+              aria-label={node.ariaLabel}
+              className={`react-flow__node ${node.className ?? ''}`}
+              data-id={node.id}
+              key={node.id}
+              role={node.ariaLabel ? 'group' : undefined}
+            >
+              {NodeComponent ? <NodeComponent data={node.data} /> : node.data.label}
+            </div>
+          );
+        })}
         {children}
       </div>
     );
@@ -77,7 +88,9 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     ...actual,
     ReactFlow,
     Background: () => null,
-    Handle: () => null,
+    Handle: ({ position, style, type }: { position: string; style?: CSSProperties; type: string }) => (
+      <i className="test-handle" data-position={position} data-type={type} style={style} />
+    ),
     Controls: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     ControlButton: ({ children, onClick, title }: { children: ReactNode; onClick: () => void; title: string }) => (
       <button aria-label={title} onClick={onClick} type="button">{children}</button>
@@ -124,11 +137,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function graph(events: FlowHistoryEvent[], selectedEvent: FlowHistoryEvent | null = null) {
+function graph(events: FlowHistoryEvent[], selectedEvent: FlowHistoryEvent | null = null, direction: 'lr' | 'tb' = 'lr') {
   return (
     <MemoryRouter>
       <ExecutionGraph
-        direction="lr"
+        direction={direction}
         events={events}
         flowId="flow-1"
         onSelectEvent={vi.fn()}
@@ -171,6 +184,16 @@ function decidedChainHistory(steps: Array<[stepType: string, stepDecision: unkno
   }
   return events;
 }
+
+// Six Sync → Check Rounds: Folded merges Rounds 1–5 into one range and keeps Round 6 open.
+const twoStepTypeRoundsHistory = decidedChainHistory([
+  ...Array.from({ length: 5 }, () => [
+    ['Sync', { nextSteps: [{ stepType: 'Check' }] }],
+    ['Check', { nextSteps: [{ stepType: 'Sync' }] }],
+  ] as Array<[string, unknown]>).flat(),
+  ['Sync', { nextSteps: [{ stepType: 'Check' }] }],
+  ['Check', { closeDecision: { closeDecisionType: 2 } }],
+]);
 
 describe('Folded Graph', () => {
   it('shows the Step decision of the execution a ×N node shows', () => {
@@ -273,13 +296,7 @@ describe('Folded Graph', () => {
 
   it('draws a range of Rounds as a deck headed by the Round count', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
-    const toCheck = { nextSteps: [{ stepType: 'Check' }] };
-    const toSync = { nextSteps: [{ stepType: 'Sync' }] };
-    render(graph(decidedChainHistory([
-      ...Array.from({ length: 5 }, () => [['Sync', toCheck], ['Check', toSync]] as Array<[string, unknown]>).flat(),
-      ['Sync', toCheck],
-      ['Check', { closeDecision: { closeDecisionType: 2 } }],
-    ])));
+    render(graph(twoStepTypeRoundsHistory));
     const range = screen.getByRole('group', { name: '5 Rounds, Rounds 1–5, 10 Steps' });
     expect(range.classList.contains('node-round-range')).toBe(true);
     expect(range.querySelectorAll('.graph-round-deck-layer')).toHaveLength(2);
@@ -287,8 +304,8 @@ describe('Folded Graph', () => {
     expect(range.querySelector('.graph-round-deck-span')?.textContent).toBe('1–5 · 10 Steps');
     expect(range.querySelector('.graph-round-sequence')?.textContent).toBe('Sync → Check');
     const rangeNode = flow.state.nodes.find((node) => node.ariaLabel === '5 Rounds, Rounds 1–5, 10 Steps')!;
-    // The deck's back cards take room up and right of the 280 by 136 card.
-    expect({ width: rangeNode.width, height: rangeNode.height }).toEqual({ width: 296, height: 148 });
+    // The 280 by 136 card keeps 16 by 12 of room on each side: the back cards use the top right.
+    expect({ width: rangeNode.width, height: rangeNode.height }).toEqual({ width: 312, height: 160 });
 
     fireEvent.click(screen.getByRole('button', { name: /Show Rounds/ }));
     const singleRound = screen.getByText('Round 1').closest('.react-flow__node')!;
@@ -303,6 +320,48 @@ describe('Folded Graph', () => {
     const range = screen.getByRole('group', { name: 'Step ×19, 19 Rounds, Rounds 1–19, 19 Steps' });
     expect(range.querySelector('.graph-round-deck-title')?.textContent).toBe('Step ×19');
     expect(range.querySelector('.graph-round-facts')?.textContent).toContain('Rounds 1–19');
+    // A long span keeps its full text in the tooltip when the facts line shortens it.
+    expect(range.querySelector('.graph-round-facts span[title="Rounds 1–19"]')).not.toBeNull();
+  });
+
+  it('shortens long facts inside the deck card and keeps the open button whole', () => {
+    // The deck does not clip, so the facts line must fit by itself, as for "Rounds 10001–20000" and "123h 59m".
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const ruleBody = (selector: string) => {
+      const start = designCss.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return designCss.slice(start, designCss.indexOf('}', start));
+    };
+    const factText = ruleBody('.v1-page .graph-round-deck-card .graph-round-facts > span');
+    expect(factText).toContain('min-width: 0');
+    expect(factText).toContain('text-overflow: ellipsis');
+    expect(ruleBody('.v1-page .graph-round-action')).toContain('flex: none');
+    expect(ruleBody('.v1-page .graph-round-facts')).toContain('min-width: 0');
+  });
+
+  it.each([
+    // The 280 by 136 top card sits at (16, 12) in a 312 by 160 node; edges meet its side midpoints.
+    ['lr', { target: { left: 16, top: 80 }, source: { left: 296, top: 80 } }],
+    ['tb', { target: { left: 156, top: 12 }, source: { left: 156, top: 148 } }],
+  ] as const)('meets %s edges at the deck top card, not the stacked cards', (direction, expected) => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(twoStepTypeRoundsHistory, null, direction));
+    const range = screen.getByRole('group', { name: '5 Rounds, Rounds 1–5, 10 Steps' });
+    const handleAt = (type: string) => {
+      const handle = range.querySelector<HTMLElement>(`.test-handle[data-type="${type}"]`)!;
+      expect(handle.style.transform).toBe('translate(-50%, -50%)');
+      return { left: Number.parseFloat(handle.style.left), top: Number.parseFloat(handle.style.top) };
+    };
+    expect({ target: handleAt('target'), source: handleAt('source') }).toEqual(expected);
+
+    // Before React Flow measures the DOM Handles, edges use these boxes on the same side midpoints.
+    const rangeNode = flow.state.nodes.find((node) => node.ariaLabel === '5 Rounds, Rounds 1–5, 10 Steps')!;
+    expect(rangeNode.handles?.map(({ x, y, width, height }) => ({ x, y, width, height })))
+      .toEqual([{ x: 16, y: 12, width: 280, height: 136 }, { x: 16, y: 12, width: 280, height: 136 }]);
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Rounds/ }));
+    const singleRound = screen.getByText('Round 1').closest('.react-flow__node')!;
+    singleRound.querySelectorAll<HTMLElement>('.test-handle').forEach((handle) => expect(handle.style.left).toBe(''));
   });
 
   it('opens the folded group that holds the selected Step', async () => {

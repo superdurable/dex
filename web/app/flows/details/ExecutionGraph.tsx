@@ -95,6 +95,15 @@ interface StepNodeData extends Record<string, unknown> {
   frameKeys?: string[];
   hasSubFlowChildren?: boolean;
   direction: GraphDirection;
+  /** Where topology edges meet, when not the whole node box. */
+  handleBox?: HandleBox;
+}
+
+interface HandleBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 const foldedGroupDimensions = { width: 280, withSequenceHeight: 136, height: 112 };
@@ -582,8 +591,8 @@ function SingleRoundGroupLabel({ round, onOpen }: { round: StepRoundGroup; onOpe
 function RoundGroupFacts({ round, onOpen }: { round: StepRoundGroup; onOpen: (key: string) => void }) {
   return (
     <div className="graph-round-facts">
-      {round.roundRangeLabel && <span>{round.roundRangeLabel}</span>}
-      {round.duration && <span>{round.duration}</span>}
+      {round.roundRangeLabel && <span title={round.roundRangeLabel}>{round.roundRangeLabel}</span>}
+      {round.duration && <span title={round.duration}>{round.duration}</span>}
       {round.failedCount > 0 && <span className="graph-round-failed">{round.failedCount.toLocaleString('en-US')} failed</span>}
       <button
         className="graph-round-action nodrag nopan"
@@ -642,15 +651,26 @@ function handleKind(data: StepNodeData): StepGraphNode['kind'] | 'frame' {
 function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
   const kind = handleKind(data);
   const positions = handlePositions(data.direction);
+  const topologyStyle = (position: Position) => (data.handleBox ? handleStyleOnBox(data.handleBox, position) : undefined);
   if (kind === 'frame') return <div className="graph-node-root">{data.label}</div>;
   return (
     <div className="graph-node-root">
       {kind === 'step' && (
-        <Handle id="topology" position={positions.topologyIn} type="target" />
+        <Handle
+          id="topology"
+          position={positions.topologyIn}
+          style={topologyStyle(positions.topologyIn)}
+          type="target"
+        />
       )}
       <div className="graph-node-body">{data.label}</div>
       {(kind === 'source' || kind === 'step') && (
-        <Handle id="topology" position={positions.topologyOut} type="source" />
+        <Handle
+          id="topology"
+          position={positions.topologyOut}
+          style={topologyStyle(positions.topologyOut)}
+          type="source"
+        />
       )}
       {kind === 'step' && data.hasSubFlowChildren === true && (
         <Handle
@@ -703,16 +723,38 @@ function foldedItemDimensions(item: FoldedGraphItem): { height: number; width: n
     height: item.round.sequence.length > 0 ? foldedGroupDimensions.withSequenceHeight : foldedGroupDimensions.height,
   };
   if (item.round.kind !== 'range') return card;
-  return { width: card.width + roundRangeDeckOffset.x, height: card.height + roundRangeDeckOffset.y };
+  // Equal room on the opposite sides keeps the top card centered, so edges stay straight.
+  return { width: card.width + 2 * roundRangeDeckOffset.x, height: card.height + 2 * roundRangeDeckOffset.y };
+}
+
+/** The top card of a Round range deck inside its node box, where its edges meet. */
+function roundRangeCardBox(dimensions: { height: number; width: number }): HandleBox {
+  return {
+    x: roundRangeDeckOffset.x,
+    y: roundRangeDeckOffset.y,
+    width: dimensions.width - 2 * roundRangeDeckOffset.x,
+    height: dimensions.height - 2 * roundRangeDeckOffset.y,
+  };
+}
+
+/** Centers a Handle on the middle of the box side its position names. */
+function handleStyleOnBox(box: HandleBox, position: Position): React.CSSProperties {
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const point = {
+    [Position.Left]: { x: box.x, y: center.y },
+    [Position.Right]: { x: box.x + box.width, y: center.y },
+    [Position.Top]: { x: center.x, y: box.y },
+    [Position.Bottom]: { x: center.x, y: box.y + box.height },
+  }[position];
+  return { left: point.x, top: point.y, right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' };
 }
 
 function nodeHandles(
   kind: StepGraphNode['kind'],
-  dimensions: { height: number; width: number },
+  box: HandleBox,
   hasSubFlowChildren: boolean,
   direction: GraphDirection,
 ): Node['handles'] {
-  const box = { x: 0, y: 0, width: dimensions.width, height: dimensions.height };
   const positions = handlePositions(direction);
   if (kind === 'subflow') {
     return [{ ...box, id: 'subflow', type: 'target', position: positions.subFlowIn }];
@@ -956,6 +998,9 @@ export function ExecutionGraph({
     const raw: Array<Node<StepNodeData>> = folded.items.map((item) => {
       const dimensions = foldedItemDimensions(item);
       if (item.display !== 'node') {
+        const handleBox = item.display === 'group' && item.round.kind === 'range'
+          ? roundRangeCardBox(dimensions)
+          : undefined;
         return {
           id: item.id,
           type: 'graph',
@@ -973,10 +1018,11 @@ export function ExecutionGraph({
           width: dimensions.width,
           height: dimensions.height,
           style: dimensions,
-          handles: nodeHandles('step', dimensions, false, direction),
+          handles: nodeHandles('step', handleBox ?? { x: 0, y: 0, ...dimensions }, false, direction),
           data: {
             direction,
             display: item.display,
+            handleBox,
             frameKeys: item.frameKeys,
             round: item.display === 'group' ? item.round : undefined,
             label: item.display === 'group' ? (
@@ -1006,7 +1052,7 @@ export function ExecutionGraph({
         width: dimensions.width,
         height: dimensions.height,
         style: dimensions,
-        handles: nodeHandles(node.kind, dimensions, subFlowParentIDs.has(node.id), direction),
+        handles: nodeHandles(node.kind, { x: 0, y: 0, ...dimensions }, subFlowParentIDs.has(node.id), direction),
         data: {
           direction,
           display: 'node',
