@@ -20,3 +20,30 @@ End with a closing keyword, such as `Fixes #123`, only when the PR fully
 resolves that issue. The whole description follows the No Downstream Product
 Information rule. See
 `.github/pull_request_template.md`.
+
+## Screenshots
+
+A pull request that changes how Dex Web UI or the docs site looks includes at
+least one screenshot of its most important visible change. Put it in or right
+after `## Testing`. The screenshot shows no host names, Worker IDs,
+credentials, or downstream product information. Crop it to the changed area.
+Dex is public; see the No Downstream Product Information rule.
+
+Screenshots live on the orphan branch `pr-assets` of `superdurable/dex`, one
+folder per pull request: `pr-<number>/<name>.png`. The description references
+each one as
+`https://github.com/superdurable/dex/raw/pr-assets/pr-<number>/<name>.png`.
+See PR #2010 for an example.
+
+Add files with git plumbing, because local hooks block branches that do not
+start from origin/main:
+
+1. `git fetch origin`.
+2. `git hash-object -w <file>` for each screenshot.
+3. `git mktree` for the `pr-<number>` folder, then `git mktree` for the root.
+   Keep the existing root entries from `git ls-tree origin/pr-assets`.
+4. `git commit-tree <tree> -p origin/pr-assets -m "<message>"`.
+5. `git push origin "<sha>:refs/heads/pr-assets"`.
+
+In zsh, write the full SHA or use `${sha}` before the colon. `$sha:r` is a
+modifier and breaks the refspec.

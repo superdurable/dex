@@ -86,6 +86,12 @@ resolves that issue. The whole description follows the No Downstream Product
 Information rule. See
 `.cursor/rules/pull-requests.mdc` and `.github/pull_request_template.md`.
 
+A pull request that changes how Dex Web UI or the docs site looks includes at
+least one screenshot of its most important visible change. Put it in or right
+after `## Testing`. The screenshot shows no host names, Worker IDs,
+credentials, or downstream product information. Crop it to the changed area.
+Hosting steps are in `.cursor/rules/pull-requests.mdc`.
+
 ### Issue Labels
 
 Label every new issue when you open it:
