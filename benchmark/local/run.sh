@@ -79,8 +79,7 @@ is_slot_variant() {
   return 1
 }
 
-# supervise_server runs dexcli dev and restarts it on SIGHUP with the same data directory.
-# Its PID is the sampling root, so CPU and RSS sampling follows the server across a restart.
+# supervise_server restarts dexcli dev on SIGHUP; its stable PID is the sampling root.
 supervise_server() {
   local state_dir="$1" child="" restart_requested=0 status=0
   trap 'restart_requested=1; [[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null' HUP
@@ -124,9 +123,11 @@ start_server() {
 }
 
 run_step() {
-  local variant="$1" step_concurrency="$2" variant_args=()
+  local variant="$1" step_concurrency="$2" variant_args=() stderr_log=/dev/stderr
   wait_for_load
   if is_slot_variant "$variant"; then
+    # Every Worker stream logs its disconnects, so a restart of N streams writes N lines.
+    stderr_log="$output_dir/$variant-c$step_concurrency.dexbench.log"
     variant_args=(${slot_args[@]+"${slot_args[@]}"})
     if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
       variant_args+=(--restart-command "kill -HUP $current_pid")
@@ -138,7 +139,7 @@ run_step() {
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
     --workers "$workers" --connections "$connections" --steps "$steps" --scenarios "$variant" --mode quick \
     --out "$output_dir" --server-pid "$current_pid" --metrics-url http://127.0.0.1:9901/metrics \
-    ${variant_args[@]+"${variant_args[@]}"}
+    ${variant_args[@]+"${variant_args[@]}"} 2>>"$stderr_log"
 }
 
 IFS=, read -ra requested_concurrency <<< "$concurrency"

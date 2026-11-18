@@ -279,6 +279,7 @@ type SlotStreamRunner struct {
 	startsSkipped    atomic.Int64
 	errorsMutex      sync.Mutex
 	startErrors      map[string]int64
+	unmeasuredErrors map[string]int64
 	offeredRateBits  atomic.Uint64
 	phaseMutex       sync.Mutex
 	phaseName        string
@@ -309,12 +310,13 @@ func NewSlotStreamRunner(config Config) (*SlotStreamRunner, error) {
 		return nil, err
 	}
 	runner := &SlotStreamRunner{
-		config:      config,
-		settings:    settings,
-		recorder:    newSlotProbeRecorder(len(settings.workerSlots)),
-		runPrefix:   fmt.Sprintf("slots-%d", time.Now().UnixNano()),
-		startJobs:   make(chan time.Time, startQueueCapacity),
-		startErrors: map[string]int64{},
+		config:           config,
+		settings:         settings,
+		recorder:         newSlotProbeRecorder(len(settings.workerSlots)),
+		runPrefix:        fmt.Sprintf("slots-%d", time.Now().UnixNano()),
+		startJobs:        make(chan time.Time, startQueueCapacity),
+		startErrors:      map[string]int64{},
+		unmeasuredErrors: map[string]int64{},
 	}
 	if key := config.SlotStreams.PartitionHashKey; key != "" {
 		runner.flowIDGenerator, err = newPartitionFlowIDGenerator(key, config.SlotStreams.PartitionCount, config.SlotStreams.PinnedPartition)
@@ -404,9 +406,12 @@ func (runner *SlotStreamRunner) Run(ctx context.Context) (result Result, err err
 	result.MeasuredSeconds = elapsed.Seconds()
 	runner.fillResult(&result, elapsed)
 	if config.MetricsURL != "" {
-		metricsAfter, scrapeErr := runner.scrapeSlotMetricsOnce(ctx)
+		var metricsAfter slotServerMetrics
+		var scrapeErr error
 		if runner.metricsBeforeRestart != nil {
-			metricsAfter, scrapeErr = *runner.metricsBeforeRestart, nil
+			metricsAfter = *runner.metricsBeforeRestart
+		} else {
+			metricsAfter, scrapeErr = runner.scrapeSlotMetricsOnce(ctx)
 		}
 		if scrapeErr != nil {
 			runErr = errors.Join(runErr, fmt.Errorf("scrape metrics after run: %w", scrapeErr))
@@ -778,6 +783,12 @@ func (runner *SlotStreamRunner) startProbeFlow(scheduledAt time.Time) {
 	runner.successfulStarts.Add(1)
 }
 
+func (runner *SlotStreamRunner) recordUnmeasuredError(message string) {
+	runner.errorsMutex.Lock()
+	runner.unmeasuredErrors[message]++
+	runner.errorsMutex.Unlock()
+}
+
 // newFlowID returns a unique Flow ID, in the pinned partition when a partition hash key is set.
 func (runner *SlotStreamRunner) newFlowID() string {
 	runner.flowIDMutex.Lock()
@@ -824,8 +835,7 @@ func (runner *SlotStreamRunner) waitForDrain(ctx context.Context) error {
 	}
 }
 
-// waitForQueuedSteps waits until the server's task queue holds expected entries; it records the last count seen.
-// Without metrics it returns at once, after the sync-match allowance the caller already waited.
+// waitForQueuedSteps waits until the task queue holds expected entries; without metrics it returns at once.
 func (runner *SlotStreamRunner) waitForQueuedSteps(ctx context.Context, expected float64) error {
 	if runner.config.MetricsURL == "" {
 		return nil
@@ -852,7 +862,7 @@ func (runner *SlotStreamRunner) waitForQueuedSteps(ctx context.Context, expected
 func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Context) error {
 	options := runner.config.SlotStreams
 	expected := float64(runner.settings.totalSlots())
-	runner.restart = &StreamRestart{ExpectedStreams: expected, RootPIDChanged: true}
+	runner.restart = &StreamRestart{ExpectedStreams: expected}
 	commandStarted := time.Now()
 	output, err := exec.CommandContext(ctx, "bash", "-c", options.RestartCommand).CombinedOutput()
 	if err != nil {
@@ -939,7 +949,10 @@ func (runner *SlotStreamRunner) sampleSlotTimeSeries(ctx context.Context) {
 			scrapeContext, cancel := context.WithTimeout(ctx, 900*time.Millisecond)
 			metrics, err := scrapeSlotMetrics(scrapeContext, runner.config.MetricsURL)
 			cancel()
-			if err == nil {
+			if err != nil {
+				// Expected while a restart is in progress; the sample keeps IsServerMetricsAvailable false.
+				runner.recordUnmeasuredError("metrics scrape: " + err.Error())
+			} else {
 				sample.IsServerMetricsAvailable = true
 				sample.ServerWorkerStreams = metrics.workerStreams
 				sample.ServerTaskQueueEntries = metrics.taskQueueEntries
@@ -964,6 +977,9 @@ func (runner *SlotStreamRunner) fillResult(result *Result, elapsed time.Duration
 	runner.errorsMutex.Lock()
 	for message, count := range runner.startErrors {
 		result.Errors[message] += count
+	}
+	for message, count := range runner.unmeasuredErrors {
+		result.UnmeasuredErrors[message] += count
 	}
 	runner.errorsMutex.Unlock()
 	runner.samplesMutex.Lock()

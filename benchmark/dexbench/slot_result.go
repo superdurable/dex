@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// SlotStreamConfig holds the settings of the slot stream scenarios. It is nil for the other scenarios.
-// A zero value in a field marked "scenario default" takes the default of the point's scenario.
+// SlotStreamConfig holds the slot stream scenario settings; "scenario default" fields resolve zero per scenario.
 type SlotStreamConfig struct {
 	// SlotsPerWorker is the MaxConcurrentTasks of each pull Worker; scenario default.
 	SlotsPerWorker int `json:"slots_per_worker"`
@@ -137,8 +136,6 @@ type StreamRestart struct {
 	ReadySeconds        float64 `json:"ready_seconds"`
 	ReregisteredSeconds float64 `json:"reregistered_seconds"`
 	ExpectedStreams     float64 `json:"expected_streams"`
-	// RootPIDChanged notes that server samples after the restart may come from a new process.
-	RootPIDChanged bool `json:"root_pid_changed"`
 }
 
 // BacklogDrain describes how one Worker drained a queued backlog.
@@ -173,8 +170,7 @@ type SlotWorkerQueueRegistration struct {
 	LastPermanentError  string `json:"last_permanent_error,omitempty"`
 }
 
-// summarizeIdleStreamCost fills the resource fields of result's idle summary from result.Resources.
-// MergeServerSamples calls it again after it replaces the samples with server-host ones.
+// summarizeIdleStreamCost fills the idle resource fields from result.Resources; merging server samples reruns it.
 func summarizeIdleStreamCost(result *Result) {
 	if result.SlotStreams == nil || result.SlotStreams.Idle == nil {
 		return
@@ -207,7 +203,6 @@ func findSlotPhase(phases []SlotStreamPhase, name string) (SlotStreamPhase, bool
 }
 
 // meanResourcesInWindow returns mean RSS bytes, mean CPU %, and the count of samples whose interval midpoint lies in the window.
-// The midpoint keeps a sample that straddles a boundary by sampler jitter.
 func meanResourcesInWindow(samples []ResourceSample, start, end time.Time) (float64, float64, int) {
 	var rssTotal, cpuTotal float64
 	count := 0

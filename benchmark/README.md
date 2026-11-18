@@ -313,6 +313,11 @@ as the other scenarios. Its `slot_streams` object adds:
 - `worker_registrations`: the SDK registration snapshot of every Worker at the
   end.
 
+Both scripts write the `dexbench` log of a slot point to a file next to its
+JSON: `<variant>-c<C>.dexbench.log` from `run.sh`, and
+`<point id>.dexbench.log` from `run-remote.sh`. Each Worker stream logs its
+disconnects, so a restart of N streams writes N lines.
+
 `report.md` adds a summary line and a phase table for each slot point. The
 server needs `metrics.level: verbose` for `dexzd_worker_stream_events`; both
 scripts set it for slot variants. idle-slots needs `--metrics-url`.

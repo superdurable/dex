@@ -153,8 +153,7 @@ start_server() {
   launch_server_process
 }
 
-# restart_server restarts the running server with the same config, storage, and object storage prefix.
-# Collectors keep running: the sampler and the profile read the new PID from pid_path.
+# restart_server keeps config, storage, and collectors; collectors read the new PID from pid_path.
 restart_server() {
   is_running || fail "server is not running"
   stop_server_process

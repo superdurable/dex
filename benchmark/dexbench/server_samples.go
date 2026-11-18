@@ -32,8 +32,7 @@ func SampleServerProcess(ctx context.Context, processID int) ServerSamples {
 	return ServerSamples{Cores: runtime.NumCPU(), CPUMethod: resourceSamplingMethod(), Samples: <-output}
 }
 
-// SampleServerProcessFromPIDFile is SampleServerProcess with the root re-read from pidFile at every sample.
-// It keeps sampling the new process after the server restarts and rewrites the file.
+// SampleServerProcessFromPIDFile is SampleServerProcess that re-reads pidFile every sample, following restarts.
 func SampleServerProcessFromPIDFile(ctx context.Context, pidFile string) (ServerSamples, error) {
 	processID, err := readPIDFile(pidFile)
 	if err != nil {

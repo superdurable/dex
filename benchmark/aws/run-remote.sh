@@ -277,8 +277,10 @@ run_point() {
   if [[ "$profile" == 1 ]]; then
     profile_overrides="DEXBENCH_PROFILE_DELAY=${profile_delay_seconds:-$((warmup + duration / 3))}"
   fi
-  local variant_args=()
+  local variant_args=() stderr_log=/dev/stderr
   if is_slot_variant "$variant"; then
+    # Every Worker stream logs its disconnects, so a restart of N streams writes N lines.
+    stderr_log="$output_dir/$point_id.dexbench.log"
     variant_args=(${slot_args[@]+"${slot_args[@]}"})
     if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
       variant_args+=(--restart-command "$(remote_command_line "$(serve_command "$overrides" restart)")")
@@ -290,7 +292,7 @@ run_point() {
     --duration "$duration" --warmup "$warmup" --concurrency "$point_concurrency" --connections "$connections" \
     --workers "$workers" --steps "$steps" --scenarios "$variant" --mode aws --trial "$trial_flag" \
     --server-tunables "$(effective_tunables "$overrides")" --out "$point_dir" \
-    ${variant_args[@]+"${variant_args[@]}"} </dev/null || run_status=$?
+    ${variant_args[@]+"${variant_args[@]}"} </dev/null 2>>"$stderr_log" || run_status=$?
   remote "$(serve_command "$overrides" collect-stop "$collect_dir")" || collect_status=$?
   stop_remote_server
   fetch "$collect_dir" "$output_dir/$point_id.server" || collect_status=1

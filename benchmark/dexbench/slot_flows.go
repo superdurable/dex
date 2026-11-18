@@ -20,8 +20,7 @@ type slotProbeInput struct {
 	ScheduledAtUnixNano int64
 }
 
-// slotProbeFlow is a one-Step Flow whose Step holds its Worker slot for a fixed handler duration.
-// Each Worker registers its own instances, so the Step knows which Worker ran it.
+// slotProbeFlow is a one-Step Flow; per-Worker instances let the Step record which Worker ran it.
 type slotProbeFlow struct {
 	dex.FlowDefaults
 	flowType string
