@@ -195,25 +195,140 @@ const twoStepTypeRoundsHistory = decidedChainHistory([
   ['Check', { closeDecision: { closeDecisionType: 2 } }],
 ]);
 
+const toSyncBatch = { nextSteps: [{ stepType: 'SyncBatch' }] };
+const gracefulComplete = { closeDecision: { closeDecisionType: 2 } };
+
+/** SyncBatch executions deciding GoTo, then a two-Round Checkpoint tail; the first ones fold into ×N. */
+function syncBatchRunHistory(count: number): FlowHistoryEvent[] {
+  return decidedChainHistory([
+    ...Array.from({ length: count - 1 }, () => ['SyncBatch', toSyncBatch] as [string, unknown]),
+    ['SyncBatch', { nextSteps: [{ stepType: 'Checkpoint' }] }],
+    ['Checkpoint', { nextSteps: [{ stepType: 'Checkpoint' }] }],
+    ['Checkpoint', gracefulComplete],
+  ]);
+}
+
+function stepNodeElement(id: string): HTMLElement {
+  return document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)!;
+}
+
 describe('Folded Graph', () => {
-  it('shows the Step decision of the execution a ×N node shows', () => {
+  it('folds only executions that return the same Step decision', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
-    const toSync = { nextSteps: [{ stepType: 'SyncBatch' }] };
     const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }], cancelStepTypes: ['Poll'] };
     render(graph(decidedChainHistory([
-      ...Array.from({ length: 8 }, () => ['SyncBatch', toSync] as [string, unknown]),
+      ...Array.from({ length: 8 }, () => ['SyncBatch', toSyncBatch] as [string, unknown]),
       ['SyncBatch', toCheckpoint],
-      ['Checkpoint', toSync],
+      ['Checkpoint', toSyncBatch],
       ['SyncBatch', toCheckpoint],
-      ['Checkpoint', toSync],
+      ['Checkpoint', toSyncBatch],
       ['SyncBatch', toCheckpoint],
-      ['Checkpoint', { closeDecision: { closeDecisionType: 2 } }],
+      ['Checkpoint', gracefulComplete],
     ])));
-    const repeated = screen.getByText('×9').closest('.graph-step-label')!;
+    const repeated = screen.getByText('×8').closest('.graph-step-label')!;
     expect(repeated.querySelector('.graph-execute-decision-text')?.textContent).toBe('GoTo');
-    expect(repeated.querySelector('.graph-execute-decision-cancel')?.textContent).toBe('CancelSteps×1');
-    expect(repeated.querySelector('.graph-execute-decision-lines')?.getAttribute('title'))
+    expect(repeated.querySelector('.graph-execute-decision-cancel')).toBeNull();
+    // The ninth one also cancels Steps, so it stands alone.
+    const canceling = stepNodeElement('SyncBatch-9');
+    expect(canceling.querySelector('.graph-step-repeat')).toBeNull();
+    expect(canceling.querySelector('.graph-execute-decision-cancel')?.textContent).toBe('CancelSteps×1');
+    expect(canceling.querySelector('.graph-execute-decision-lines')?.getAttribute('title'))
       .toBe('GoTo → Checkpoint\nCancelSteps → Poll (entire Flow)');
+  });
+
+  it('opens a ×N run in place with its badge and folds it again with Hide', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const canvas = { width: 1200, height: 320 };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function width(this: HTMLElement) {
+      return this.classList.contains('graph-canvas') ? canvas.width : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function height(this: HTMLElement) {
+      return this.classList.contains('graph-canvas') ? canvas.height : 0;
+    });
+    render(graph(syncBatchRunHistory(4)));
+    const show = screen.getByRole('button', { name: 'Show 4 SyncBatch executions' });
+    expect(show.getAttribute('aria-expanded')).toBe('false');
+    expect(show.tabIndex).toBe(0);
+    flow.state.viewport = { x: 5000, y: -10000, zoom: 0.8 };
+    const callsBefore = flow.state.setViewportCalls.length;
+    fireEvent.click(show);
+    expect(shownNodeIDs()).toEqual(expect.arrayContaining([
+      '__frame:run:SyncBatch-1', 'SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3', 'SyncBatch-4',
+    ]));
+    // The opened run pans into view at the same zoom.
+    await waitFor(() => expect(flow.state.setViewportCalls.length).toBeGreaterThan(callsBefore));
+    expect(flow.state.setViewportCalls.at(-1)?.viewport.zoom).toBe(0.8);
+    const hide = screen.getByRole('button', { name: 'Hide 4 SyncBatch executions' });
+    expect(hide.getAttribute('aria-expanded')).toBe('true');
+    expect(hide.textContent).toBe('Hide');
+    fireEvent.click(hide);
+    expect(shownNodeIDs()).not.toContain('__frame:run:SyncBatch-1');
+    expect(screen.getByRole('button', { name: 'Show 4 SyncBatch executions' })).toBeTruthy();
+  });
+
+  it('elides the middle of a long opened run', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(syncBatchRunHistory(12)));
+    fireEvent.click(screen.getByRole('button', { name: 'Show 12 SyncBatch executions' }));
+    expect(shownNodeIDs()).toEqual(expect.arrayContaining(['SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3', 'SyncBatch-11', 'SyncBatch-12']));
+    expect(shownNodeIDs()).not.toContain('SyncBatch-6');
+    expect(screen.getByText('… 7 more')).toBeTruthy();
+  });
+
+  it('keeps an opened run open through a Live update', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const { rerender } = render(graph(syncBatchRunHistory(4)));
+    fireEvent.click(screen.getByRole('button', { name: 'Show 4 SyncBatch executions' }));
+    rerender(graph(syncBatchRunHistory(5)));
+    expect(shownNodeIDs()).toEqual(expect.arrayContaining(['__frame:run:SyncBatch-1', 'SyncBatch-1', 'SyncBatch-5']));
+    expect(screen.getByRole('button', { name: 'Hide 5 SyncBatch executions' })).toBeTruthy();
+  });
+
+  it('opens the ×N run that holds an event selected outside the Graph', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const events = syncBatchRunHistory(4);
+    const { rerender } = render(graph(events));
+    expect(shownNodeIDs()).not.toContain('SyncBatch-2');
+    const execute2 = events.find((event) => (event.payload.context as Record<string, unknown> | undefined)?.stepExecutionId === 'SyncBatch-2')!;
+    rerender(graph(events, execute2));
+    await waitFor(() => expect(shownNodeIDs()).toContain('__frame:run:SyncBatch-1'));
+    expect(shownNodeIDs()).toEqual(expect.arrayContaining(['SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3', 'SyncBatch-4']));
+  });
+
+  it('opens a ×N run when its execution is selected outside the Graph after a Graph selection', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const events = syncBatchRunHistory(4);
+    const executeOf = (id: string) => events.find((event) => (event.payload.context as Record<string, unknown> | undefined)?.stepExecutionId === id)!;
+    const { rerender } = render(graph(events));
+    fireEvent.click(stepNodeElement('SyncBatch-4').querySelector('.graph-method-execute')!);
+    rerender(graph(events, executeOf('SyncBatch-4')));
+    expect(shownNodeIDs()).not.toContain('__frame:run:SyncBatch-1');
+    rerender(graph(events, executeOf('Checkpoint-1')));
+    rerender(graph(events, executeOf('SyncBatch-4')));
+    await waitFor(() => expect(shownNodeIDs()).toContain('__frame:run:SyncBatch-1'));
+  });
+
+  it('moves focus between Show and Hide as a keyboard activation opens and folds the run', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(syncBatchRunHistory(4)));
+    const show = screen.getByRole('button', { name: 'Show 4 SyncBatch executions' });
+    show.focus();
+    // Enter and Space on a focused button dispatch a click.
+    fireEvent.click(show);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Hide 4 SyncBatch executions' })));
+    fireEvent.click(document.activeElement!);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show 4 SyncBatch executions' })));
+  });
+
+  it('keeps a ×N run folded when its shown execution is selected in the Graph', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const events = syncBatchRunHistory(4);
+    const { rerender } = render(graph(events));
+    const execute4 = events.find((event) => (event.payload.context as Record<string, unknown> | undefined)?.stepExecutionId === 'SyncBatch-4')!;
+    fireEvent.click(stepNodeElement('SyncBatch-4').querySelector('.graph-method-execute')!);
+    rerender(graph(events, execute4));
+    expect(shownNodeIDs()).not.toContain('__frame:run:SyncBatch-1');
+    expect(screen.getByRole('button', { name: 'Show 4 SyncBatch executions' })).toBeTruthy();
   });
 
 

@@ -1687,6 +1687,26 @@ body:has(.v1-page) {
   line-height: 18px;
 }
 
+.v1-page .react-flow__node.node-repeated:has(.graph-step-repeat-action) .graph-step-heading {
+  padding-right: 68px;
+}
+
+/* The ×N badge of a folded run opens the run. */
+.v1-page .graph-step-repeat-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 4px 1px 8px;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.v1-page .graph-step-repeat-action:hover {
+  background: color-mix(in srgb, var(--tone-accent) 24%, var(--ui-surface-raised));
+}
+
 /* A folded Round reads as a stack of cards. */
 .v1-page .react-flow__node.node-round-group {
   --graph-stack-layers:
@@ -1998,6 +2018,11 @@ body:has(.v1-page) {
 
 .v1-page .graph-round-frame-heading .graph-round-action {
   pointer-events: auto;
+}
+
+/* An opened run is often wider than the view, so Hide stays beside its title. */
+.v1-page .graph-step-run-frame .graph-round-frame-heading .graph-round-action {
+  margin-left: 0;
 }
 
 .v1-page .graph-round-frame-failed .graph-round-icon {
