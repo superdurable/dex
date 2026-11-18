@@ -167,6 +167,11 @@ class TestFlow implements Flow<Input> {
     return { output: { accepted: true } };
   }
 
+  @rpc({ outputCodec })
+  public describeAcceptance(_context: Context): RPCResult<Output> {
+    return { output: { accepted: true } };
+  }
+
   public handleTimeout(_context: AsyncContext): StepDecision {
     return { kind: "deadEnd" };
   }
@@ -521,6 +526,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       "by-tenant/tenant-a",
       "by-tenant/tenant-b",
     ]);
+    assert.deepEqual(await client.invokeRPC(flow.describeAcceptance, "flow-1"), { accepted: true });
+    assert.equal(requests.rpc?.rpcName, "describeAcceptance");
+    assert.equal(requests.rpc?.input?.kind?.$case, "nullValue");
     assert.deepEqual(requests.writeStream, {
       flowId: "flow-1",
       flowType: "TestFlow",

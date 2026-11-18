@@ -26,6 +26,7 @@ from dex.attribute import (
     _require_matching_hard_delete_on_null,
 )
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
+from dex.codec import Codec
 from dex.condition import (
     ChannelCondition,
     Condition,
@@ -301,7 +302,7 @@ class WorkerDispatcher:
         )
         arguments: list[object] = [context]
         if rpc.input_codec is not None:
-            arguments.append(self._values.decode(request.input, rpc.input_codec))
+            arguments.append(self._decode_rpc_input(request, rpc.input_codec))
         returned = rpc.method(*arguments)
         if isawaitable(returned):
             raise TypeError(
@@ -759,6 +760,17 @@ class WorkerDispatcher:
             pb.WorkerTarget(is_pull_mode=True, task_queue=options.task_queue)
         )
         return mapped
+
+    def _decode_rpc_input(
+        self,
+        request: pb.InvokeWorkerRPCRequest,
+        input_codec: Codec[Any],
+    ) -> object:
+        if not request.HasField("input"):
+            raise ValueMappingError(
+                "decode", f"RPC {request.rpc_name!r} request is missing its input"
+            )
+        return self._values.decode(request.input, input_codec)
 
     def _result_attribute_writes(
         self,

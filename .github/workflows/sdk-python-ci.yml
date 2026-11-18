@@ -8,6 +8,13 @@ on:
     - "sdk-rust/Cargo.toml"
     - "sdk-rust/crates/dex-blob-cache/**"
     - "sdk-rust/crates/dex-blob-cache-python/**"
+    # The integration suite drives a Python Worker with the TypeScript Client.
+    - "sdk-typescript/src/**"
+    - "sdk-typescript/scripts/**"
+    - "sdk-typescript/package.json"
+    - "sdk-typescript/package-lock.json"
+    - "sdk-typescript/tsconfig.json"
+    - "sdk-rust/crates/dex-blob-cache-node/**"
     # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
     - "cli/cmd/**"
     - "cli/internal/command/**"
@@ -186,7 +193,9 @@ jobs:
       with:
         node-version: 22
         cache: npm
-        cache-dependency-path: web/package-lock.json
+        cache-dependency-path: |
+          web/package-lock.json
+          sdk-typescript/package-lock.json
     - uses: actions/setup-go@v7
       with:
         go-version-file: cli/go.mod
