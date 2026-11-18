@@ -24,6 +24,8 @@ import { ScriptedOpenAIModel, billingAgentInstructions } from "./scripted-openai
 export const scriptedOpenAIAgentFlowType = "ScriptedOpenAIAgent";
 /** Environment variable naming the directory where scripted tools write marker files. */
 export const scriptedAgentMarkerDirectoryVariable = "SCRIPTED_AGENT_MARKER_DIRECTORY";
+/** Environment variable with comma-separated `old=new` tool names, as a deploy that renames tools changes them. */
+export const scriptedAgentRenamedToolsVariable = "SCRIPTED_AGENT_RENAMED_TOOLS";
 
 /** Application context the adapter creates for every model call and tool call. */
 interface ScriptedAgentContext {
@@ -38,6 +40,18 @@ export interface ScriptedOpenAIAgentFlowOptions {
   /** Gives both agents this model name, which a model provider resolves to the scripted model. */
   readonly requestedModelName?: string;
   readonly tracing?: AgentTracingOptions;
+  /** New names of top-level tools by their old names; each tool still logs under its old name. */
+  readonly renamedTools?: Readonly<Record<string, string>>;
+}
+
+/** Reads {@link scriptedAgentRenamedToolsVariable}'s `old=new,old2=new2` text. */
+export function readRenamedTools(text: string | undefined): Record<string, string> {
+  return Object.fromEntries(
+    (text ?? "")
+      .split(",")
+      .filter((pair) => pair !== "")
+      .map((pair) => pair.split("=", 2) as [string, string]),
+  );
 }
 
 /**
@@ -51,6 +65,8 @@ export function createScriptedOpenAIAgentFlow(
   markerDirectory: string,
   flowOptions: ScriptedOpenAIAgentFlowOptions = {},
 ): AgentSessionFlow {
+  const renamedTools = flowOptions.renamedTools ?? {};
+  const toolName = (name: string): string => renamedTools[name] ?? name;
   const invocationLog = (name: string): InvocationLog =>
     new InvocationLog(join(markerDirectory, `${name}.log`));
   // Logging comes first, so a tool that ran outside a Dex tool Step still leaves a trace.
@@ -75,7 +91,7 @@ export function createScriptedOpenAIAgentFlow(
   };
 
   const getWeather = tool({
-    name: "get_weather",
+    name: toolName("get_weather"),
     description: "Read the weather of a city.",
     parameters: z.object({ city: z.string() }),
     errorFunction: null,
@@ -85,7 +101,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const lookupA = tool({
-    name: "lookup_a",
+    name: toolName("lookup_a"),
     description: "Look up record a.",
     parameters: z.object({ key: z.string() }),
     errorFunction: null,
@@ -96,7 +112,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const lookupB = tool({
-    name: "lookup_b",
+    name: toolName("lookup_b"),
     description: "Look up record b.",
     parameters: z.object({ key: z.string() }),
     errorFunction: null,
@@ -107,7 +123,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const sendEmail = tool({
-    name: "send_email",
+    name: toolName("send_email"),
     description: "Send an email.",
     parameters: z.object({ to: z.string() }),
     errorFunction: null,
@@ -115,7 +131,7 @@ export function createScriptedOpenAIAgentFlow(
       `email sent for ${recordToolRun("send_email", runContext, details)}`,
   });
   const chargeCard = tool({
-    name: "charge_card",
+    name: toolName("charge_card"),
     description: "Charge the card on file.",
     parameters: z.object({ amountCents: z.number() }),
     errorFunction: null,
@@ -128,7 +144,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const refundOrder = tool({
-    name: "refund_order",
+    name: toolName("refund_order"),
     description: "Refund an order.",
     parameters: z.object({ orderId: z.string() }),
     errorFunction: null,
@@ -138,7 +154,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const deleteAccount = tool({
-    name: "delete_account",
+    name: toolName("delete_account"),
     description: "Delete an account.",
     parameters: z.object({ accountId: z.string() }),
     errorFunction: null,
@@ -148,7 +164,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const lookupInvoice = tool({
-    name: "lookup_invoice",
+    name: toolName("lookup_invoice"),
     description: "Look up an invoice.",
     parameters: z.object({ invoiceId: z.string() }),
     needsApproval: true,
@@ -160,7 +176,7 @@ export function createScriptedOpenAIAgentFlow(
   });
   // These two keep tool()'s default errorFunction, which hides their errors behind fixed text.
   const postUpdate = tool({
-    name: "post_update",
+    name: toolName("post_update"),
     description: "Post a status update.",
     parameters: z.object({ text: z.string() }),
     execute: (_input, runContext?: RunContext<ScriptedAgentContext>, details?) => {
@@ -169,7 +185,7 @@ export function createScriptedOpenAIAgentFlow(
     },
   });
   const readInventory = tool({
-    name: "read_inventory",
+    name: toolName("read_inventory"),
     description: "Read the inventory of a product.",
     parameters: z.object({ sku: z.string() }),
     execute: (_input, runContext?: RunContext<ScriptedAgentContext>, details?) => {
@@ -226,14 +242,14 @@ export function createScriptedOpenAIAgentFlow(
 
   return createOpenAIAgentsSessionFlow(startingAgent, flowOptions.flowType ?? scriptedOpenAIAgentFlowType, {
     toolPolicies: {
-      get_weather: { effect: "read" },
-      lookup_a: { effect: "read" },
-      lookup_b: { effect: "read" },
-      lookup_invoice: { effect: "read" },
-      read_inventory: { effect: "read" },
-      charge_card: { effect: "non_idempotent_write" },
-      post_update: { effect: "non_idempotent_write", requiresApproval: false },
-      refund_order: { effect: "idempotent_write" },
+      [toolName("get_weather")]: { effect: "read" },
+      [toolName("lookup_a")]: { effect: "read" },
+      [toolName("lookup_b")]: { effect: "read" },
+      [toolName("lookup_invoice")]: { effect: "read" },
+      [toolName("read_inventory")]: { effect: "read" },
+      [toolName("charge_card")]: { effect: "non_idempotent_write" },
+      [toolName("post_update")]: { effect: "non_idempotent_write", requiresApproval: false },
+      [toolName("refund_order")]: { effect: "idempotent_write" },
       "crm.update_contact": { effect: "idempotent_write" },
     },
     runConfig: {

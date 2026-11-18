@@ -244,6 +244,15 @@ flow = openai_agents_session_flow(
   result, or the `describe_tool_call_outcome` text for failed and unknown
   calls, instead of running. It rejects rejected calls with their rejection
   message. The copied tool never runs the real tool.
+- Renamed tools: the SDK cannot resume a `RunState` whose paused call names a
+  tool the agent no longer has, such as after a deploy renamed or removed it.
+  The runner then rebuilds the turn from the session's records instead: it
+  stores the turn's items so far, with a `function_call_output` from every
+  call's final record, and makes the model call from that history with the
+  new tool list. A call in flight when the Worker stopped keeps the record
+  that its tool Step wrote, such as `outcome_unknown` for a single-attempt
+  write, and never runs again. The rebuilt run gets the turn's remaining
+  `max_turns`, and its input guardrails run again.
 - One model call: a `RunModel` makes one model call. A handoff is not a
   function tool, so the SDK runs it and makes the next agent's model call in
   the same `RunModel`; that Step reports both calls.

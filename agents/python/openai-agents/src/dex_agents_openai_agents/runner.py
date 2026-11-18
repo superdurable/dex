@@ -398,12 +398,25 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         adds the next agent's model call. Text and reasoning-summary deltas go
         to ``turn.events``.
 
+        When a paused call names a function tool its agent no longer has, such
+        as after a deploy renamed or removed it, the SDK cannot resume the
+        ``RunState``. The runner then rebuilds the turn from the session's
+        records: it returns the turn's items so far, with every call's recorded
+        result, as ``new_messages``, and runs the model call from that history
+        with the agent's current tools. The rebuilt run gets the turn's
+        remaining ``max_turns``, and the agent's input guardrails run again.
+
+        .. versionchanged:: 0.6.15
+           A paused call of a renamed or removed tool rebuilds the turn instead
+           of failing it.
+
         Args:
             turn: Committed session state for this model call.
 
         Returns:
             ``ToolCallsRequested`` with ``RunState.to_json()`` and one call per
-            function tool call, in model order, when the model asked for tools.
+            function tool call, in model order, when the model asked for tools;
+            after a rebuild its ``new_messages`` hold the rebuilt items.
             Otherwise ``TurnCompleted`` with every input item the turn produced.
 
         Raises:
@@ -411,6 +424,9 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 graph, such as a nested agent tool or a local MCP server tool,
                 or a tool source listed a name that a tool of the graph or
                 another source's tool uses.
+            RuntimeError: If a paused call's tool is gone and the turn's items
+                cannot be rebuilt, for the reasons ``build_unfinished_turn_messages``
+                lists.
             Exception: Any SDK or model error fails the ``RunModel`` attempt.
         """
         source_tools = await self._tool_sources.list_source_tools(turn)
@@ -418,17 +434,24 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             turn=turn, source_tools=source_tools, shows_tool_images=self._media_store is not None
         )
         token = ACTIVE_TURN.set(active_turn)
+        rebuilt_items: list[dict[str, Any]] = []
+        max_turns = self._max_turns
         try:
             run_input: list[Any] | RunState[Any, Agent[Any]]
             if turn.framework_run_state is None:
                 run_input = _turn_input_items(turn)
             else:
                 run_input = await self._restore_run_state(active_turn, turn.framework_run_state)
+                if not all(map(self._graph.offers_interrupted_tool, run_input.get_interruptions())):
+                    rebuilt_items = self._rebuild_turn_items(turn)
+                    active_turn.paused_call_ids.clear()
+                    max_turns = _remaining_max_turns(self._max_turns, turn.framework_run_state)
+                    run_input = [*_turn_input_items(turn), *rebuilt_items]
             result = Runner.run_streamed(
                 self._graph.starting_agent,
                 run_input,
                 context=self._context,
-                max_turns=self._max_turns,
+                max_turns=max_turns,
                 hooks=self._hooks,
                 run_config=self._model_step_run_config(turn),
             )
@@ -440,10 +463,18 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         usage = _segment_usage(result.context_wrapper.usage, restored_usage)
         model_call_metadata = self._model_call_metadata(result, usage)
         if result.interruptions:
-            return self._request_tool_calls(active_turn, result, usage, model_call_metadata)
+            return self._request_tool_calls(
+                active_turn,
+                result,
+                usage,
+                model_call_metadata,
+                project_input_items(turn.messages, rebuilt_items, turn.recorded_tool_call),
+            )
         new_items = result.to_input_list()[len(ItemHelpers.input_to_new_input_list(result.input)) :]
         return TurnCompleted(
-            new_messages=project_input_items(turn.messages, new_items, turn.recorded_tool_call),
+            new_messages=project_input_items(
+                turn.messages, [*rebuilt_items, *new_items], turn.recorded_tool_call
+            ),
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
@@ -732,6 +763,18 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 state.approve(interruption)
         return state
 
+    def _rebuild_turn_items(self, turn: AgentTurnContext) -> list[dict[str, Any]]:
+        # A deploy renamed or removed a tool that a paused call names, so the SDK cannot resume it.
+        try:
+            return read_unfinished_turn_items(
+                turn, self._graph.starting_agent, self._pending_tool_output
+            )
+        except ValueError as error:
+            raise RuntimeError(
+                "the RunState names a tool the agent no longer has, and the turn's items "
+                f"cannot be rebuilt from its records: {error}"
+            ) from error
+
     def _model_call_metadata(
         self, result: RunResultStreaming, usage: AgentUsage
     ) -> ModelCallMetadata:
@@ -750,6 +793,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         result: RunResultStreaming,
         usage: AgentUsage,
         model_call_metadata: ModelCallMetadata,
+        new_messages: Sequence[FrameworkMessage],
     ) -> ToolCallsRequested:
         tool_calls: list[DeferredToolCall] = []
         for interruption in result.interruptions:
@@ -772,6 +816,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tool_calls=tool_calls,
             usage=usage,
             model_call_metadata=model_call_metadata,
+            new_messages=new_messages,
         )
 
     def _source_tool_call(
@@ -803,6 +848,14 @@ def _turn_input_items(turn: AgentTurnContext) -> list[Any]:
         note = build_context_summary_note(turn.context_summary)
         items.insert(0, build_user_input_item(note))
     return items
+
+
+def _remaining_max_turns(max_turns: int | None, framework_run_state: str) -> int | None:
+    # A rebuilt run starts its SDK turn count again, so it gets only the turns left.
+    if max_turns is None:
+        return None
+    current_turn = json.loads(framework_run_state).get("current_turn")
+    return max_turns - current_turn if isinstance(current_turn, int) else max_turns
 
 
 def _describe_for_summary(message: AgentMessage) -> str | None:

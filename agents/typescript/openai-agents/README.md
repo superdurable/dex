@@ -152,6 +152,16 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
   `describeToolCallOutcome`, instead of running again. It rejects every
   rejected call with its rejection message. The SDK then makes the next model
   call.
+- **Renamed tools.** The SDK cannot restore a `RunState` whose last model
+  response calls a function tool the agent no longer has, such as after a
+  deploy renamed or removed it. The runner then rebuilds the turn from the
+  session's records instead: it stores the turn's items so far, with a
+  `function_call_result` from every call's final record, and makes the model
+  call from that history with the new tool list. A call in flight when the
+  Worker stopped keeps the record that its tool Step wrote, such as
+  `outcome_unknown` for a single-attempt write, and never runs again. The
+  rebuilt run gets the turn's remaining `maxTurns`, and its input guardrails
+  run again.
 - **Handoffs.** A handoff is not a function tool. The SDK runs it and makes the
   next agent's model call in the same `RunModel` Step, so a `RunModel` that
   hands off makes two or more model calls; `AgentUsage.modelCalls` counts each.
