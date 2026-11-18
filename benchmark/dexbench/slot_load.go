@@ -23,15 +23,19 @@ type slotProbeRecorder struct {
 	workerStarted  []atomic.Int64
 	workerFinished []atomic.Int64
 	workerBusy     []atomic.Int64
-	// firstStartUnixNano and lastStartUnixNano bound the Step starts since the last resetStartBounds.
-	firstStartUnixNano atomic.Int64
-	lastStartUnixNano  atomic.Int64
-	// mutex guards the phase buckets, so a Step's count and latency always land in the same phase.
+	// mutex guards the phase buckets, so a Step's count, latency, and start bounds land in one phase.
 	mutex             sync.Mutex
 	intervalLatencies []time.Duration
-	currentPhase      int
-	phaseWorkerSteps  [][]int64
-	phaseLatencies    [][]time.Duration
+	phases            []slotPhaseBucket
+}
+
+// slotPhaseBucket holds the Step starts whose timestamps fall at or after startedAt and before the next bucket.
+type slotPhaseBucket struct {
+	startedAt   time.Time
+	workerSteps []int64
+	latencies   []time.Duration
+	firstStart  time.Time
+	lastStart   time.Time
 }
 
 func newSlotProbeRecorder(workers int) *slotProbeRecorder {
@@ -39,42 +43,60 @@ func newSlotProbeRecorder(workers int) *slotProbeRecorder {
 		workerStarted:  make([]atomic.Int64, workers),
 		workerFinished: make([]atomic.Int64, workers),
 		workerBusy:     make([]atomic.Int64, workers),
-		currentPhase:   -1,
 	}
 }
 
-// beginPhase opens a new phase bucket for later Step starts and returns its index.
-func (recorder *slotProbeRecorder) beginPhase() int {
+// beginPhase opens a phase bucket starting now and returns its index and start time.
+// Reading the time under the lock makes the boundary exact: a start stamped later locks after this.
+func (recorder *slotProbeRecorder) beginPhase() (int, time.Time) {
 	recorder.mutex.Lock()
 	defer recorder.mutex.Unlock()
-	recorder.phaseWorkerSteps = append(recorder.phaseWorkerSteps, make([]int64, len(recorder.workerStarted)))
-	recorder.phaseLatencies = append(recorder.phaseLatencies, nil)
-	recorder.currentPhase = len(recorder.phaseLatencies) - 1
-	return recorder.currentPhase
+	startedAt := time.Now()
+	recorder.phases = append(recorder.phases, slotPhaseBucket{startedAt: startedAt, workerSteps: make([]int64, len(recorder.workerStarted))})
+	return len(recorder.phases) - 1, startedAt
 }
 
-// phaseSteps returns a copy of the per-Worker Step starts and the latencies recorded in phase.
-func (recorder *slotProbeRecorder) phaseSteps(phase int) ([]int64, []time.Duration) {
+// phaseSteps returns a copy of a phase's per-Worker Step starts, its latencies, and its first and last start times.
+// The times are zero when the phase saw no Step start.
+func (recorder *slotProbeRecorder) phaseSteps(phase int) ([]int64, []time.Duration, time.Time, time.Time) {
 	recorder.mutex.Lock()
 	defer recorder.mutex.Unlock()
-	return append([]int64(nil), recorder.phaseWorkerSteps[phase]...), append([]time.Duration(nil), recorder.phaseLatencies[phase]...)
+	bucket := recorder.phases[phase]
+	return append([]int64(nil), bucket.workerSteps...), append([]time.Duration(nil), bucket.latencies...), bucket.firstStart, bucket.lastStart
 }
 
-// recordStart counts a Step start on worker and its delay from the planned start, in one phase bucket.
+// recordStart counts a Step start on worker and its delay from the planned start, in the phase of its timestamp.
 func (recorder *slotProbeRecorder) recordStart(worker int, plannedAt time.Time) {
 	now := time.Now()
 	recorder.workerStarted[worker].Add(1)
 	recorder.workerBusy[worker].Add(1)
-	recorder.firstStartUnixNano.CompareAndSwap(0, now.UnixNano())
-	recorder.lastStartUnixNano.Store(now.UnixNano())
 	latency := now.Sub(plannedAt)
 	recorder.mutex.Lock()
 	defer recorder.mutex.Unlock()
 	recorder.intervalLatencies = append(recorder.intervalLatencies, latency)
-	if recorder.currentPhase >= 0 {
-		recorder.phaseWorkerSteps[recorder.currentPhase][worker]++
-		recorder.phaseLatencies[recorder.currentPhase] = append(recorder.phaseLatencies[recorder.currentPhase], latency)
+	phase := slotPhaseAt(recorder.phases, now)
+	if phase < 0 {
+		return
 	}
+	bucket := &recorder.phases[phase]
+	bucket.workerSteps[worker]++
+	bucket.latencies = append(bucket.latencies, latency)
+	if bucket.firstStart.IsZero() || now.Before(bucket.firstStart) {
+		bucket.firstStart = now
+	}
+	if now.After(bucket.lastStart) {
+		bucket.lastStart = now
+	}
+}
+
+// slotPhaseAt returns the index of the last bucket that started at or before at, or -1 before the first.
+func slotPhaseAt(phases []slotPhaseBucket, at time.Time) int {
+	for index := len(phases) - 1; index >= 0; index-- {
+		if !at.Before(phases[index].startedAt) {
+			return index
+		}
+	}
+	return -1
 }
 
 func (recorder *slotProbeRecorder) recordFinish(worker int) {
@@ -88,11 +110,6 @@ func (recorder *slotProbeRecorder) takeIntervalLatencies() []time.Duration {
 	latencies := recorder.intervalLatencies
 	recorder.intervalLatencies = nil
 	return latencies
-}
-
-func (recorder *slotProbeRecorder) resetStartBounds() {
-	recorder.firstStartUnixNano.Store(0)
-	recorder.lastStartUnixNano.Store(0)
 }
 
 // totals returns the cumulative started and finished Steps and the handlers running now.
@@ -226,20 +243,27 @@ func sineWaveRate(elapsed, period time.Duration, low, high float64) float64 {
 	return low + (high-low)*(1+math.Sin(phase))/2
 }
 
-// isRestartedServer reports whether after comes from a different server process than before.
-// A failed scrape, a new process start time, or a reset counter each show a restart.
-func isRestartedServer(before slotServerMetrics, after slotServerMetrics, scrapeErr error) bool {
-	if scrapeErr != nil {
-		return true
-	}
-	if before.processStartTimeSeconds != 0 && after.processStartTimeSeconds != before.processStartTimeSeconds {
-		return true
-	}
-	return after.scheduleToStartCount < before.scheduleToStartCount || after.streamsClosed < before.streamsClosed
+// serverIdentity names one server process: the PID in a supervisor PID file, or its exported start time.
+type serverIdentity struct {
+	processID        int
+	startTimeSeconds float64
+}
+
+// isKnown reports whether the identity was actually read; an unknown identity never shows a restart.
+func (identity serverIdentity) isKnown() bool {
+	return identity.processID != 0 || identity.startTimeSeconds != 0
+}
+
+// isOtherProcessThan reports whether both identities were read and name different processes.
+func (identity serverIdentity) isOtherProcessThan(before serverIdentity) bool {
+	return identity.isKnown() && before.isKnown() && identity != before
 }
 
 // openLoopPlanStep is the resolution at which the rate is integrated over planned time.
 const openLoopPlanStep = time.Millisecond
+
+// minWavePeriod keeps a wave at 100 or more integration steps per period, so sampling stays within 1% of its integral.
+const minWavePeriod = 100 * openLoopPlanStep
 
 // openLoopSchedule integrates a rate over planned time, independent of when the scheduler wakes up.
 type openLoopSchedule struct {
@@ -247,13 +271,14 @@ type openLoopSchedule struct {
 	credit  float64
 }
 
-// advanceTo returns the planned offsets of every start due up to elapsed, using rate at each planned time.
+// advanceTo returns the planned offsets of every start due up to elapsed, sampling rate at each step's midpoint.
 // A late wake-up returns the starts it missed with their original planned offsets.
+// rate must return finite, nonnegative values; resolveSlotStreamSettings validates every rate input.
 func (schedule *openLoopSchedule) advanceTo(elapsed time.Duration, rate func(time.Duration) float64) []time.Duration {
 	var due []time.Duration
 	for schedule.planned < elapsed {
 		step := min(openLoopPlanStep, elapsed-schedule.planned)
-		schedule.credit += rate(schedule.planned) * step.Seconds()
+		schedule.credit += rate(schedule.planned+step/2) * step.Seconds()
 		schedule.planned += step
 		// The epsilon absorbs float drift, so 500 steps of 0.1 make 50 starts, not 49.
 		for schedule.credit >= 1-1e-9 {

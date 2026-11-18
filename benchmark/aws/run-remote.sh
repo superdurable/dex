@@ -284,6 +284,8 @@ run_point() {
     variant_args=(${slot_args[@]+"${slot_args[@]}"})
     if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
       variant_args+=(--restart-command "$(remote_command_line "$(serve_command "$overrides" restart)")")
+      # Over SSH, dexbench identifies the server by process_start_time_seconds; here it can read the PID file.
+      if [[ "$remote_mode" == local ]]; then variant_args+=(--server-pid-file "$server_state_dir/server.pid"); fi
     fi
   fi
   remote "$(serve_command "$overrides $profile_overrides" collect-start "$collect_dir")" || return 1

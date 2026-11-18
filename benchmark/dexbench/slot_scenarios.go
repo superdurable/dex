@@ -197,12 +197,41 @@ func resolveSlotStreamSettings(config *Config) (slotStreamSettings, error) {
 	if options.LoadWave != "square" && options.LoadWave != "sine" {
 		return slotStreamSettings{}, fmt.Errorf("load wave %q is not square or sine", options.LoadWave)
 	}
+	if err := validateSlotLoadInputs(scenario.kind, options); err != nil {
+		return slotStreamSettings{}, err
+	}
 	options.Workers = len(settings.workerSlots)
 	options.SlotsPerWorker = settings.workerSlots[0]
 	options.FlowTypes = settings.flowTypes
 	options.HandlerMilliseconds = float64(settings.handlerDuration) / float64(time.Millisecond)
 	options.StepDurability = durability
 	return settings, nil
+}
+
+// validateSlotLoadInputs rejects rate inputs that are not finite and nonnegative, and periodic waves shorter than minWavePeriod.
+// A NaN or infinite rate would never let the open-loop schedule finish a step.
+func validateSlotLoadInputs(kind slotScenarioKind, options *SlotStreamConfig) error {
+	values := map[string]float64{
+		"probe rate":        options.ProbeRatePerSecond,
+		"load low percent":  options.LoadLowPercent,
+		"load high percent": options.LoadHighPercent,
+	}
+	for index, percent := range options.LoadPercents {
+		values[fmt.Sprintf("load percent %d", index+1)] = percent
+	}
+	for name, value := range values {
+		if !isFiniteNonnegative(value) {
+			return fmt.Errorf("%s %v must be finite and nonnegative", name, value)
+		}
+	}
+	if kind == slotScenarioPeriodic && seconds(options.LoadPeriodSeconds) < minWavePeriod {
+		return fmt.Errorf("load period %.3fs is shorter than the minimum %v", options.LoadPeriodSeconds, minWavePeriod)
+	}
+	return nil
+}
+
+func isFiniteNonnegative(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
 
 func defaultSlotHandlerDuration(kind slotScenarioKind) time.Duration {
@@ -293,7 +322,7 @@ type SlotStreamRunner struct {
 	phasePlanned     int64
 	phases           []SlotStreamPhase
 	// phaseBuckets holds each phase's recorder bucket, parallel to phases.
-	phaseBuckets    []int
+	phaseBuckets    []slotPhaseBucketRef
 	samplesMutex    sync.Mutex
 	samples         []SlotStreamSample
 	baselineStreams float64
@@ -486,7 +515,7 @@ func (runner *SlotStreamRunner) runIdleSlots(ctx context.Context) error {
 		return fmt.Errorf("scrape metrics before restart: %w", err)
 	}
 	runner.metricsBeforeRestart = &metricsBeforeRestart
-	return runner.runPhase(slotPhaseRestart, func() error { return runner.restartServerAndWaitForStreams(ctx, metricsBeforeRestart) })
+	return runner.runPhase(slotPhaseRestart, func() error { return runner.restartServerAndWaitForStreams(ctx) })
 }
 
 // runBurst steps from zero load to each burst level of in-flight Steps per Worker.
@@ -558,9 +587,9 @@ func (runner *SlotStreamRunner) runBacklog(ctx context.Context) error {
 	queued := int64(runner.config.Concurrency)
 	runner.backlog = &BacklogDrain{QueuedSteps: queued}
 	if err := runner.runPhase(slotPhaseEnqueue, func() error {
-		plannedAt := time.Now()
+		// A backlog has no rate, so each Step is planned when it is queued.
 		for range queued {
-			runner.submitStart(plannedAt, plannedAt)
+			runner.submitStart(time.Now())
 		}
 		if err := runner.waitForStartsReturned(ctx); err != nil {
 			return err
@@ -572,8 +601,6 @@ func (runner *SlotStreamRunner) runBacklog(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	runner.recorder.resetStartBounds()
-	drainStarted := time.Now()
 	if err := runner.runPhase(slotPhaseDrain, func() error {
 		if err := runner.openWorkers(ctx); err != nil {
 			return err
@@ -582,17 +609,18 @@ func (runner *SlotStreamRunner) runBacklog(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	runner.backlog.DrainSeconds = time.Since(drainStarted).Seconds()
-	drainWorkerSteps, _ := runner.recorder.phaseSteps(runner.phaseBuckets[len(runner.phaseBuckets)-1])
+	drainBucket := runner.phaseBuckets[len(runner.phaseBuckets)-1]
+	drainPhase := runner.phases[len(runner.phases)-1]
+	runner.backlog.DrainSeconds = drainPhase.EndedAt.Sub(drainBucket.startedAt).Seconds()
+	drainWorkerSteps, _, firstStart, lastStart := runner.recorder.phaseSteps(drainBucket.index)
 	var drainSteps int64
 	for _, steps := range drainWorkerSteps {
 		drainSteps += steps
 	}
-	firstStart, lastStart := runner.recorder.firstStartUnixNano.Load(), runner.recorder.lastStartUnixNano.Load()
-	if firstStart != 0 {
-		runner.backlog.FirstStartSeconds = time.Unix(0, firstStart).Sub(drainStarted).Seconds()
+	if !firstStart.IsZero() {
+		runner.backlog.FirstStartSeconds = firstStart.Sub(drainBucket.startedAt).Seconds()
 		// The first start opens the span, so the rate counts the starts after it.
-		if span := time.Duration(lastStart - firstStart).Seconds(); span > 0 && drainSteps > 1 {
+		if span := lastStart.Sub(firstStart).Seconds(); span > 0 && drainSteps > 1 {
 			runner.backlog.StartsPerSecond = float64(drainSteps-1) / span
 		}
 	}
@@ -621,13 +649,20 @@ func (runner *SlotStreamRunner) beginPhase(name string) {
 	runner.phaseMutex.Lock()
 	defer runner.phaseMutex.Unlock()
 	runner.phaseName = name
-	runner.phaseStartedAt = time.Now()
 	runner.phasePlanned = runner.plannedStarts.Load()
-	runner.phaseBuckets = append(runner.phaseBuckets, runner.recorder.beginPhase())
+	index, startedAt := runner.recorder.beginPhase()
+	runner.phaseStartedAt = startedAt
+	runner.phaseBuckets = append(runner.phaseBuckets, slotPhaseBucketRef{index: index, startedAt: startedAt})
+}
+
+// slotPhaseBucketRef points from a phase to its recorder bucket and the bucket's exact start time.
+type slotPhaseBucketRef struct {
+	index     int
+	startedAt time.Time
 }
 
 // endPhase records the phase window; fillPhaseStepStats adds its Step counts and latencies at the end.
-// Starts until the next beginPhase still land in this phase's bucket.
+// A start belongs to the phase whose start time is the latest one not after its timestamp.
 func (runner *SlotStreamRunner) endPhase() {
 	runner.phaseMutex.Lock()
 	defer runner.phaseMutex.Unlock()
@@ -737,7 +772,7 @@ func (runner *SlotStreamRunner) applyOpenLoopLoad(ctx context.Context, duration 
 		elapsed := min(now.Sub(started), duration)
 		runner.offeredRateBits.Store(math.Float64bits(rate(elapsed)))
 		for _, plannedOffset := range schedule.advanceTo(elapsed, rate) {
-			runner.submitStart(started.Add(plannedOffset), now)
+			runner.submitStart(started.Add(plannedOffset))
 		}
 		if elapsed >= duration {
 			return nil
@@ -750,13 +785,14 @@ func (runner *SlotStreamRunner) applyOpenLoopLoad(ctx context.Context, duration 
 	}
 }
 
-// lateSubmissionThreshold is how far behind its plan a start may be queued before it counts as late.
-const lateSubmissionThreshold = 10 * time.Millisecond
+// lateSubmissionThreshold is four 5 ms scheduler ticks; one start queued later than this makes the point unusable.
+const lateSubmissionThreshold = 20 * time.Millisecond
 
 // submitStart queues one probe Flow start without blocking; a full queue counts the start as skipped.
-func (runner *SlotStreamRunner) submitStart(plannedAt, submittedAt time.Time) {
+// Its scheduler lag is measured at this enqueue, so a long catch-up shows in every start it delays.
+func (runner *SlotStreamRunner) submitStart(plannedAt time.Time) {
 	runner.plannedStarts.Add(1)
-	lag := submittedAt.Sub(plannedAt)
+	lag := time.Since(plannedAt)
 	if lag > lateSubmissionThreshold {
 		runner.lateSubmissions.Add(1)
 	}
@@ -879,15 +915,27 @@ func (runner *SlotStreamRunner) waitForQueuedSteps(ctx context.Context, expected
 }
 
 // restartServerAndWaitForStreams times readiness and the return of every stream, watching while the restart command runs.
-// before is the last scrape of the old server; a new process start time or a counter reset identifies the new one.
-func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Context, before slotServerMetrics) error {
+// Only a changed process identity counts as a restart; scrape errors and stream dips never do.
+func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Context) error {
 	options := runner.config.SlotStreams
 	expected := float64(runner.settings.totalSlots())
 	runner.restart = &StreamRestart{ExpectedStreams: expected}
+	before, err := runner.readServerIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	if !before.isKnown() {
+		return errors.New("a restart needs the server process identity: pass -server-pid-file, " +
+			"or run a Linux server with metrics.level verbose so it exports process_start_time_seconds")
+	}
 	commandStarted := time.Now()
+	deadline := commandStarted.Add(seconds(options.OpenTimeoutSeconds))
+	commandContext, cancelCommand := context.WithDeadline(ctx, deadline)
+	// Every return, including the deadline, stops a command that is still running.
+	defer cancelCommand()
 	commandResult := make(chan error, 1)
 	go func() {
-		output, err := exec.CommandContext(ctx, "bash", "-c", options.RestartCommand).CombinedOutput()
+		output, err := exec.CommandContext(commandContext, "bash", "-c", options.RestartCommand).CombinedOutput()
 		if err != nil {
 			err = fmt.Errorf("restart command: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -895,7 +943,6 @@ func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Conte
 	}()
 	var commandEnded time.Time
 	isRestartObserved, isReady := false, false
-	deadline := commandStarted.Add(seconds(options.OpenTimeoutSeconds))
 	for {
 		if commandEnded.IsZero() {
 			select {
@@ -908,10 +955,14 @@ func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Conte
 			default:
 			}
 		}
-		metrics, scrapeErr := runner.scrapeSlotMetricsOnce(ctx)
-		if isRestartedServer(before, metrics, scrapeErr) || metrics.workerStreams < expected {
-			isRestartObserved = true
+		if !isRestartObserved {
+			current, err := runner.readServerIdentity(ctx)
+			if err != nil {
+				return err
+			}
+			isRestartObserved = current.isOtherProcessThan(before)
 		}
+		metrics, scrapeErr := runner.scrapeSlotMetricsOnce(ctx)
 		if isRestartObserved && !isReady && isFlowServiceServing(runner.config.Address) {
 			isReady = true
 			runner.restart.ReadySeconds = time.Since(commandStarted).Seconds()
@@ -919,16 +970,12 @@ func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Conte
 		if isRestartObserved && isReady && scrapeErr == nil && metrics.workerStreams >= expected {
 			runner.restart.ReregisteredSeconds = time.Since(commandStarted).Seconds()
 			if commandEnded.IsZero() {
-				// The streams are back, so the command has started the new server; its result still matters.
-				if err := <-commandResult; err != nil {
-					return err
-				}
-				runner.restart.CommandSeconds = time.Since(commandStarted).Seconds()
+				return runner.waitForRestartCommand(commandContext, commandResult, commandStarted)
 			}
 			return nil
 		}
 		if !isRestartObserved && !commandEnded.IsZero() && time.Since(commandEnded) > restartDownTimeout {
-			return fmt.Errorf("no sign of a new server process %v after the restart command returned", restartDownTimeout)
+			return fmt.Errorf("the server process identity did not change %v after the restart command returned", restartDownTimeout)
 		}
 		if time.Now().After(deadline) {
 			return errorWithCause(fmt.Sprintf("server counted %.0f of %.0f streams %.0f seconds after the restart command (ready %v)",
@@ -938,6 +985,42 @@ func (runner *SlotStreamRunner) restartServerAndWaitForStreams(ctx context.Conte
 			return err
 		}
 	}
+}
+
+// waitForRestartCommand waits for a restart command whose server is already back, until commandContext ends.
+func (runner *SlotStreamRunner) waitForRestartCommand(commandContext context.Context, commandResult <-chan error, commandStarted time.Time) error {
+	select {
+	case err := <-commandResult:
+		if err != nil {
+			return err
+		}
+		runner.restart.CommandSeconds = time.Since(commandStarted).Seconds()
+		return nil
+	case <-commandContext.Done():
+		return fmt.Errorf("restart command did not return: %w", commandContext.Err())
+	}
+}
+
+// readServerIdentity returns the server process identity from the PID file, else from process_start_time_seconds.
+// It returns an unknown identity, not an error, while the PID file is being rewritten or the server cannot be scraped.
+func (runner *SlotStreamRunner) readServerIdentity(ctx context.Context) (serverIdentity, error) {
+	if pidFile := runner.config.SlotStreams.ServerPIDFile; pidFile != "" {
+		processID, err := readPIDFile(pidFile)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return serverIdentity{}, fmt.Errorf("server PID file: %w", err)
+			}
+			// A supervisor rewriting the file can leave it briefly empty.
+			return serverIdentity{}, nil
+		}
+		return serverIdentity{processID: processID}, nil
+	}
+	metrics, err := runner.scrapeSlotMetricsOnce(ctx)
+	if err != nil {
+		// A stopped or starting server cannot be scraped; that alone never proves a restart.
+		return serverIdentity{}, nil
+	}
+	return serverIdentity{startTimeSeconds: metrics.processStartTimeSeconds}, nil
 }
 
 // isFlowServiceServing dials a fresh connection, so gRPC reconnect backoff cannot delay the readiness time.
@@ -1038,7 +1121,7 @@ func (runner *SlotStreamRunner) fillResult(result *Result, elapsed time.Duration
 	phases := append([]SlotStreamPhase(nil), runner.phases...)
 	var allLatencies []time.Duration
 	for index := range phases {
-		counts, latencies := runner.recorder.phaseSteps(runner.phaseBuckets[index])
+		counts, latencies, _, _ := runner.recorder.phaseSteps(runner.phaseBuckets[index].index)
 		fillPhaseStepStats(&phases[index], counts, latencies)
 		fillPhaseSampleStats(&phases[index], samples)
 		allLatencies = append(allLatencies, latencies...)
@@ -1089,9 +1172,6 @@ func (runner *SlotStreamRunner) requestLoss(stepsStarted int64) SlotRequestLoss 
 	}
 }
 
-// maxUsableSchedulerLag is the scheduler lag above which the load generator, not the server, shaped the load.
-const maxUsableSchedulerLag = 100 * time.Millisecond
-
 // unusableReasons returns why a point's numbers cannot be trusted, or nil when every planned request was measured.
 // Lost requests have no latency, so the distribution of such a point is incomplete.
 func unusableReasons(loss SlotRequestLoss) []string {
@@ -1105,8 +1185,9 @@ func unusableReasons(loss SlotRequestLoss) []string {
 	if loss.StepsNotStarted > 0 {
 		reasons = append(reasons, fmt.Sprintf("%d started Flows never ran their Step", loss.StepsNotStarted))
 	}
-	if lag := time.Duration(loss.MaxSchedulerLagMs * float64(time.Millisecond)); lag > maxUsableSchedulerLag {
-		reasons = append(reasons, fmt.Sprintf("the scheduler fell %v behind its plan", lag.Round(time.Millisecond)))
+	if loss.LateSubmissions > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d starts were queued more than %v after their planned time (max %.1f ms), so the load generator shaped the load",
+			loss.LateSubmissions, lateSubmissionThreshold, loss.MaxSchedulerLagMs))
 	}
 	return reasons
 }

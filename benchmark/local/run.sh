@@ -33,6 +33,7 @@ output_dir="${DEXBENCH_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/dexbench-XXXXXX")}"
 run_dir="$(mktemp -d)"
 benchmark_binary="$repo_root/benchmark/bin/dexbench"
 current_pid=""
+current_state_dir=""
 
 cleanup() {
   if [[ -n "$current_pid" ]]; then
@@ -88,6 +89,8 @@ supervise_server() {
     nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
       --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >>"$state_dir/server.log" 2>&1 &
     child=$!
+    # dexbench sees a restart only when this PID changes; the old child has exited by now.
+    echo "$child" > "$state_dir/server-child.pid"
     # A trapped signal ends wait early, so keep waiting until the child is gone.
     while :; do
       wait "$child" && status=0 || status=$?
@@ -116,6 +119,7 @@ start_server() {
   } > "$state_dir/zd-quick.yaml"
   supervise_server "$state_dir" &
   current_pid=$!
+  current_state_dir="$state_dir"
   if ! "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 180s; then
     tail -50 "$state_dir/server.log" >&2
     return 1
@@ -130,7 +134,7 @@ run_step() {
     stderr_log="$output_dir/$variant-c$step_concurrency.dexbench.log"
     variant_args=(${slot_args[@]+"${slot_args[@]}"})
     if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
-      variant_args+=(--restart-command "kill -HUP $current_pid")
+      variant_args+=(--restart-command "kill -HUP $current_pid" --server-pid-file "$current_state_dir/server-child.pid")
     fi
   fi
   # The supervisor PID is the sampling root, so its children (dexcli, server-zd, s3local) are included.

@@ -42,6 +42,8 @@ type SlotStreamConfig struct {
 	LoadHighPercent   float64 `json:"load_high_percent,omitempty"`
 	// RestartCommand is run with bash -c to restart the server after the idle-slots probe; empty skips the restart.
 	RestartCommand string `json:"restart_command,omitempty"`
+	// ServerPIDFile holds the server PID that a restart changes; empty uses process_start_time_seconds instead.
+	ServerPIDFile string `json:"server_pid_file,omitempty"`
 	// PingIntervalSeconds is the server's matching.pingInterval, used only for the derived Ping rate.
 	PingIntervalSeconds float64 `json:"ping_interval_seconds,omitempty"`
 	// PartitionHashKey is the cluster's 32-hex-digit partition hash key. It is never written to results.

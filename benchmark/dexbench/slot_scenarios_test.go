@@ -22,7 +22,7 @@ import (
 func slotTestConfig(scenario string, concurrency int) Config {
 	return Config{Address: "127.0.0.1:8801", Scenario: scenario, Concurrency: concurrency, DurationSeconds: 1, TimeoutSeconds: 1,
 		MetricsURL:  "http://127.0.0.1:9901/metrics",
-		SlotStreams: &SlotStreamConfig{StartParallelism: 1, ClientConnections: 1, LoadWave: "square"}}
+		SlotStreams: &SlotStreamConfig{StartParallelism: 1, ClientConnections: 1, LoadWave: "square", LoadPeriodSeconds: 10}}
 }
 
 func TestSlotStreamVariantsExpandEveryScenario(t *testing.T) {
@@ -139,46 +139,103 @@ func TestOpenLoopScheduleIntegratesTheRateAcrossAWaveChange(t *testing.T) {
 	}
 }
 
-func TestRecorderTagsCountAndLatencyWithTheSamePhase(t *testing.T) {
+func TestRecorderTagsCountLatencyAndBoundsWithTheSamePhase(t *testing.T) {
 	recorder := newSlotProbeRecorder(2)
-	first := recorder.beginPhase()
+	first, _ := recorder.beginPhase()
 	recorder.recordStart(0, time.Now())
-	second := recorder.beginPhase()
+	second, secondStartedAt := recorder.beginPhase()
 	recorder.recordStart(1, time.Now())
 	recorder.recordStart(1, time.Now())
-	firstCounts, firstLatencies := recorder.phaseSteps(first)
-	secondCounts, secondLatencies := recorder.phaseSteps(second)
+	firstCounts, firstLatencies, _, _ := recorder.phaseSteps(first)
+	secondCounts, secondLatencies, firstStart, lastStart := recorder.phaseSteps(second)
 	if !reflect.DeepEqual(firstCounts, []int64{1, 0}) || len(firstLatencies) != 1 ||
 		!reflect.DeepEqual(secondCounts, []int64{0, 2}) || len(secondLatencies) != 2 {
 		t.Fatalf("phase buckets %v %v, %v %v", firstCounts, firstLatencies, secondCounts, secondLatencies)
 	}
+	if firstStart.Before(secondStartedAt) || lastStart.Before(firstStart) {
+		t.Fatalf("second phase bounds %v..%v, phase start %v", firstStart, lastStart, secondStartedAt)
+	}
 }
 
-func TestUnusableReasonsReportEveryLoss(t *testing.T) {
+func TestSlotPhaseAtUsesTheEventTimestamp(t *testing.T) {
+	start := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	phases := []slotPhaseBucket{{startedAt: start}, {startedAt: start.Add(time.Second)}}
+	for at, want := range map[time.Time]int{
+		start.Add(-time.Nanosecond):              -1,
+		start:                                    0,
+		start.Add(time.Second - time.Nanosecond): 0,
+		start.Add(time.Second):                   1,
+	} {
+		if got := slotPhaseAt(phases, at); got != want {
+			t.Fatalf("phase at %v = %d, want %d", at, got, want)
+		}
+	}
+}
+
+func TestUnusableReasonsReportEveryLossAndAnyLateSubmission(t *testing.T) {
 	if reasons := unusableReasons(SlotRequestLoss{Planned: 10, FlowsStarted: 10, StepsStarted: 10, MaxSchedulerLagMs: 5}); reasons != nil {
 		t.Fatalf("a complete point is unusable: %v", reasons)
 	}
-	reasons := unusableReasons(SlotRequestLoss{Planned: 10, Skipped: 1, StartFailed: 2, StepsNotStarted: 3, MaxSchedulerLagMs: 250})
+	if reasons := unusableReasons(SlotRequestLoss{Planned: 10, FlowsStarted: 10, StepsStarted: 10, LateSubmissions: 1, MaxSchedulerLagMs: 25}); len(reasons) != 1 {
+		t.Fatalf("one late submission gave %v", reasons)
+	}
+	reasons := unusableReasons(SlotRequestLoss{Planned: 10, Skipped: 1, StartFailed: 2, StepsNotStarted: 3, LateSubmissions: 4, MaxSchedulerLagMs: 250})
 	if len(reasons) != 4 {
 		t.Fatalf("reasons %v", reasons)
 	}
 }
 
-func TestIsRestartedServer(t *testing.T) {
-	before := slotServerMetrics{processStartTimeSeconds: 100, scheduleToStartCount: 50, streamsClosed: 3}
-	if isRestartedServer(before, before, nil) {
-		t.Fatal("the same process counted as restarted")
-	}
-	for _, after := range []slotServerMetrics{
-		{processStartTimeSeconds: 200, scheduleToStartCount: 50, streamsClosed: 3},
-		{processStartTimeSeconds: 100, scheduleToStartCount: 0, streamsClosed: 3},
+func TestServerIdentityNeedsTwoKnownDifferentProcesses(t *testing.T) {
+	old := serverIdentity{processID: 10}
+	for _, test := range []struct {
+		current     serverIdentity
+		isRestarted bool
+	}{
+		{serverIdentity{processID: 10}, false},
+		// An unreadable PID file or a failed scrape gives an unknown identity, never a restart.
+		{serverIdentity{}, false},
+		{serverIdentity{processID: 11}, true},
 	} {
-		if !isRestartedServer(before, after, nil) {
-			t.Fatalf("restart not seen in %+v", after)
+		if got := test.current.isOtherProcessThan(old); got != test.isRestarted {
+			t.Fatalf("%+v against %+v = %v", test.current, old, got)
 		}
 	}
-	if !isRestartedServer(before, slotServerMetrics{}, errors.New("connection refused")) {
-		t.Fatal("a failed scrape is not a restart sign")
+	if (serverIdentity{startTimeSeconds: 2}).isOtherProcessThan(serverIdentity{}) {
+		t.Fatal("an unknown old identity counted as a restart")
+	}
+	if !(serverIdentity{startTimeSeconds: 2}).isOtherProcessThan(serverIdentity{startTimeSeconds: 1}) {
+		t.Fatal("a new process start time was not a restart")
+	}
+}
+
+func TestSineWaveAtTheMinimumPeriodMatchesItsIntegral(t *testing.T) {
+	period, low, high := minWavePeriod, 0.0, 1000.0
+	wave := func(planned time.Duration) float64 { return sineWaveRate(planned, period, low, high) }
+	due := (&openLoopSchedule{}).advanceTo(period/4, wave)
+	quarter := period.Seconds() / 4
+	// The integral of low + (high-low)(1+sin)/2 over the first quarter period.
+	want := low*quarter + (high-low)/2*(quarter+period.Seconds()/(2*math.Pi))
+	if math.Abs(float64(len(due))-want) > 1 {
+		t.Fatalf("planned %d starts in the first quarter, integral %.2f", len(due), want)
+	}
+	full := (&openLoopSchedule{}).advanceTo(10*period, wave)
+	if wantFull := (low + high) / 2 * 10 * period.Seconds(); math.Abs(float64(len(full))-wantFull) > wantFull*0.01 {
+		t.Fatalf("planned %d starts over ten periods, integral %.1f", len(full), wantFull)
+	}
+}
+
+func TestResolveSlotStreamSettingsRejectsNonFiniteRatesAndShortPeriods(t *testing.T) {
+	for name, change := range map[string]func(*SlotStreamConfig){
+		"NaN probe rate":         func(options *SlotStreamConfig) { options.ProbeRatePerSecond = math.NaN() },
+		"infinite percent":       func(options *SlotStreamConfig) { options.LoadPercents = []float64{math.Inf(1)} },
+		"negative low":           func(options *SlotStreamConfig) { options.LoadLowPercent = -1 },
+		"two-millisecond period": func(options *SlotStreamConfig) { options.LoadPeriodSeconds = 0.002 },
+	} {
+		config := slotTestConfig("periodic", 99)
+		change(config.SlotStreams)
+		if _, err := resolveSlotStreamSettings(&config); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
 	}
 }
 

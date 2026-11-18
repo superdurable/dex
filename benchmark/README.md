@@ -229,14 +229,18 @@ They differ from S1 to S6 in three ways:
 - **Schedule-to-start latency.** The latency of a slot point runs from the
   planned start time of the Flow to the start of its Step's Execute. It
   includes the StartFlow call. The scheduler integrates the target rate over
-  planned time, at 1 ms resolution. A start keeps its planned time even when
-  the scheduler wakes late, so its lateness counts as latency. This avoids
-  coordinated omission.
+  planned time. It samples the rate at the midpoint of each 1 ms step. A start
+  keeps its planned time even when the scheduler wakes late, so its lateness
+  counts as latency. This avoids coordinated omission. A periodic wave needs a
+  period of at least 100 ms, so that sampling stays within 1% of the wave's
+  integral. Rates and percents must be finite and nonnegative.
 - **Request loss.** A planned start can be skipped because the start queue is
   full, fail in StartFlow, or never run its Step before the point ends. Such a
-  request has no latency. A point with any lost request, or a scheduler more
-  than 100 ms behind its plan, is marked unusable: `is_usable` is false and
-  `unusable_reasons` says why. `report.md` marks it too.
+  request has no latency. The scheduler wakes every 5 ms. A start queued more
+  than 20 ms (four ticks) after its planned time is late. The lag is measured
+  when the start is actually queued. A point with any lost request or any late
+  start is marked unusable: `is_usable` is false and `unusable_reasons` says
+  why. `report.md` marks it too.
 - **Concurrency is the size.** `--concurrency` sets the main size of each
   scenario, given in the table below.
 
@@ -295,6 +299,7 @@ both scripts. `dexbench run --help` lists them all.
 | `-baseline` | `5s` | idle-slots observation before any Worker opens |
 | `-probe-rate`, `-probe-duration` | `50`, `30s` | idle-slots probe load |
 | `-restart-command` | empty | idle-slots restart; the scripts set it |
+| `-server-pid-file` | empty | File with the server PID that a restart changes; empty uses `process_start_time_seconds` |
 | `-ping-interval` | `20s` | The server's `matching.pingInterval`, for the derived Ping rate |
 | `-idle-gap`, `-burst-levels` | `5s`, `8,32,96` | burst gap and levels in in-flight Steps per Worker |
 | `-load-percents` | `25,50,90,110` | fairness levels |
@@ -310,7 +315,7 @@ counts the lost ones by cause. Its `slot_streams` object adds:
 
 - `is_usable`, `unusable_reasons`, and `request_loss`: planned starts, skipped
   starts, StartFlow failures, Flows started, Steps started, Steps not started,
-  starts queued more than 10 ms late, and the largest scheduler lag.
+  starts queued more than 20 ms late, and the largest scheduler lag.
 - `phases`: per phase, the offered rate, Steps started, schedule-to-start
   percentiles, Steps and share per Worker, Jain's index, the server stream
   range, and the peak of busy handlers.
@@ -678,17 +683,22 @@ server PID from its PID file, so they follow the new process. `server.log`
 holds both runs.
 
 `dexbench` watches the server while the restart command runs, so readiness is
-not delayed by the command's own length. Any one of these signs means the new
-server process is up:
-- a failed scrape;
-- fewer streams than N;
-- a new `process_start_time_seconds`, which Linux servers export at the verbose
-  level;
-- a reset schedule-to-start or stream-close counter.
+not delayed by the command's own length. Only a change of the server process
+identity counts as a restart. A failed scrape or a dip in the stream count
+never does. The identity comes from one of two sources:
+- `-server-pid-file`, a file holding the server PID. `run.sh` passes the PID
+  file that its supervisor rewrites after the old `dexcli dev` exits.
+  `run-remote.sh` in `DEXBENCH_REMOTE=local` mode passes the `serve.sh` PID
+  file.
+- Otherwise `process_start_time_seconds`. Linux servers export it at the
+  verbose level, which `run-remote.sh` sets for slot points. Over SSH, this is
+  the source.
 
-Then `ready_seconds` is the first SERVING health check, and
+Without either source, the restart fails at once. After the identity changes,
+`ready_seconds` is the first SERVING health check, and
 `reregistered_seconds` is the first scrape with all N streams back. Both
-count from the start of the command.
+count from the start of the command. The command runs under the point's open
+timeout and is stopped when the restart phase ends.
 
 A large idle-slots point opens hundreds of Workers in the `dexbench` process.
 Check the load host CPU column in `report.md`; the probe load is light, so

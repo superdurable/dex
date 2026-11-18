@@ -11,6 +11,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ func registerSlotStreamFlags(flags *flag.FlagSet) *slotStreamFlags {
 	flags.Float64Var(&options.ProbeRatePerSecond, "probe-rate", 50, "idle-slots: probe Steps per second while the streams are open")
 	flags.DurationVar(&slot.probeDuration, "probe-duration", 30*time.Second, "idle-slots: length of the probe load")
 	flags.StringVar(&options.RestartCommand, "restart-command", "", "idle-slots: bash command that restarts the server after the probe; empty skips the restart")
+	flags.StringVar(&options.ServerPIDFile, "server-pid-file", "", "idle-slots: file holding the server PID that a restart changes; empty uses the server's process_start_time_seconds")
 	flags.DurationVar(&slot.pingInterval, "ping-interval", 20*time.Second, "idle-slots: the server's matching.pingInterval, for the derived Ping rate")
 	flags.DurationVar(&slot.idleGap, "idle-gap", 5*time.Second, "burst: zero-load gap before each level")
 	flags.StringVar(&slot.burstLevels, "burst-levels", "8,32,96", "burst: comma-separated in-flight Steps per Worker of each level")
@@ -80,6 +82,12 @@ func (slot *slotStreamFlags) slotStreamConfig() (*benchmark.SlotStreamConfig, er
 	if options.PingIntervalSeconds <= 0 {
 		return nil, fmt.Errorf("ping-interval must be positive")
 	}
+	for name, value := range map[string]float64{"probe-rate": options.ProbeRatePerSecond,
+		"load-low-percent": options.LoadLowPercent, "load-high-percent": options.LoadHighPercent} {
+		if !isFiniteNonnegative(value) {
+			return nil, fmt.Errorf("%s %v must be finite and nonnegative", name, value)
+		}
+	}
 	for _, value := range strings.Split(slot.burstLevels, ",") {
 		level, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || level < 1 {
@@ -89,10 +97,15 @@ func (slot *slotStreamFlags) slotStreamConfig() (*benchmark.SlotStreamConfig, er
 	}
 	for _, value := range strings.Split(slot.loadPercents, ",") {
 		percent, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil || percent <= 0 {
+		if err != nil || !isFiniteNonnegative(percent) || percent == 0 {
 			return nil, fmt.Errorf("invalid load percent %q", value)
 		}
 		options.LoadPercents = append(options.LoadPercents, percent)
 	}
 	return &options, nil
+}
+
+// isFiniteNonnegative rejects NaN and infinity, which strconv and the flag package both accept.
+func isFiniteNonnegative(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
