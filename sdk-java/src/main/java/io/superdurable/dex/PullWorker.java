@@ -94,8 +94,7 @@ final class PullWorker {
     private final int configuredMaxConcurrentTasks;
     private final boolean isAdaptive;
     private final PullSlotSettings slotSettings;
-    // Slot state machine of the adaptive slot streams design; the monitor guards it.
-    // Fields map to C, R_eff, L, L_eff, E, and G, with G never above E.
+    // Monitor-guarded slot state: C, R_eff, L, L_eff, E, and G, with G at most E.
     private int totalCapacity;
     private int rpcOnlySlots;
     private int stepFloor;
@@ -119,10 +118,8 @@ final class PullWorker {
     private long streamsShrunk;
     private long growRejectedAtCap;
     private long shrinkRaceDrops;
-    // Unwritten startup Registers and the responses that wait for them.
-    private boolean isOpeningStartupBatch;
-    private int startupRegistersPending;
-    private final List<DeferredResponse> deferredStartupResponses = new ArrayList<DeferredResponse>();
+    // Collects the explicit fixed-mode startup streams, which open in one monitor section; null otherwise.
+    private List<PullStream> startupBatch;
 
     private static final class SlotRegistration {
         private int registeredStreams;
@@ -550,10 +547,18 @@ final class PullWorker {
             return;
         }
         restartShrinkWindow();
-        // A fixed Worker with an explicit ceiling writes every startup Register before it reads an acknowledgement.
-        isOpeningStartupBatch = !isAdaptive && options.isMaxConcurrentTasksExplicit();
+        if (isAdaptive || !options.isMaxConcurrentTasksExplicit()) {
+            maybeReopenSlotStreams(null);
+            return;
+        }
+        // As before adaptive streams, every Register is enqueued before this monitor section ends.
+        final List<PullStream> batch = new ArrayList<PullStream>();
+        startupBatch = batch;
         maybeReopenSlotStreams(null);
-        isOpeningStartupBatch = false;
+        startupBatch = null;
+        for (PullStream stream : batch) {
+            stream.connect();
+        }
     }
 
     // Applies D4 and F6 at the first acknowledgement; it returns a start failure, or null.
@@ -939,30 +944,11 @@ final class PullWorker {
         final PullStream stream = new PullStream(slotKind, attempt);
         setSlotPhase(stream, SlotPhase.REGISTERING);
         streams.add(stream);
-        if (isOpeningStartupBatch) {
-            stream.isStartupRegisterPending = true;
-            startupRegistersPending++;
+        if (startupBatch != null) {
+            startupBatch.add(stream);
+            return;
         }
         stream.scheduleConnect(0L);
-    }
-
-    // Ends one startup Register; the last one delivers the responses that waited (design Test 16).
-    private void completeStartupRegister(final PullStream stream) {
-        if (!stream.isStartupRegisterPending) {
-            return;
-        }
-        stream.isStartupRegisterPending = false;
-        startupRegistersPending--;
-        if (startupRegistersPending > 0) {
-            return;
-        }
-        final List<DeferredResponse> deferred = new ArrayList<DeferredResponse>(deferredStartupResponses);
-        deferredStartupResponses.clear();
-        for (DeferredResponse response : deferred) {
-            if (response.generation == response.stream.openGeneration) {
-                response.stream.onNext(response.response);
-            }
-        }
     }
 
     // Takes an idle stream out of the totals and marks it closing; its later end changes no count.
@@ -1133,8 +1119,6 @@ final class PullWorker {
         private boolean shouldRetryRejectedTokenImmediately;
         private boolean wasSoftRejected;
         private boolean hasExited;
-        // Set while this stream's startup Register is unwritten; acknowledgements wait for every such stream.
-        private boolean isStartupRegisterPending;
         // The current attempt in the slot stream state machine; the PullWorker monitor guards it.
         private SlotAttempt slot;
 
@@ -1190,7 +1174,6 @@ final class PullWorker {
             cancelTask(Status.Code.CANCELLED);
             abandonSlotAttempt(this);
             streams.remove(this);
-            completeStartupRegister(this);
             maybeReopenSlotStreams(null);
             PullWorker.this.notifyAll();
         }
@@ -1221,13 +1204,7 @@ final class PullWorker {
                             @Override
                             public void onNext(final PollWorkerTaskResponse response) {
                                 synchronized (PullWorker.this) {
-                                    if (generation != openGeneration) {
-                                        return;
-                                    }
-                                    if (startupRegistersPending > 0) {
-                                        deferredStartupResponses.add(
-                                                new DeferredResponse(PullStream.this, generation, response));
-                                    } else {
+                                    if (generation == openGeneration) {
                                         PullStream.this.onNext(response);
                                     }
                                 }
@@ -1633,11 +1610,6 @@ final class PullWorker {
                     } else {
                         requireSerializable(write.request);
                         target.requests.onNext(write.request);
-                        if (write.request.hasRegister()) {
-                            synchronized (PullWorker.this) {
-                                completeStartupRegister(this);
-                            }
-                        }
                     }
                 } catch (RuntimeException failure) {
                     synchronized (PullWorker.this) {
@@ -1810,7 +1782,6 @@ final class PullWorker {
                 }
                 wasSoftRejected = isSoftRejection;
                 recordSlotStreamEnded(this);
-                completeStartupRegister(this);
                 closeFailure = failure;
                 if (closeTimer != null) {
                     closeTimer.cancel(false);
@@ -1884,20 +1855,6 @@ final class PullWorker {
 
         private PullConnection(final Context.CancellableContext callContext) {
             this.callContext = callContext;
-        }
-    }
-
-    // A response that arrived during the startup batch, for the call generation that received it.
-    private static final class DeferredResponse {
-        private final PullStream stream;
-        private final int generation;
-        private final PollWorkerTaskResponse response;
-
-        private DeferredResponse(final PullStream stream, final int generation,
-                final PollWorkerTaskResponse response) {
-            this.stream = stream;
-            this.generation = generation;
-            this.response = response;
         }
     }
 

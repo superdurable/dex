@@ -79,6 +79,7 @@ final class PullSlotProxy implements AutoCloseable {
     private final List<ProxyEvent> acknowledgements = new ArrayList<ProxyEvent>();
     private final List<ProxyEvent> rejections = new ArrayList<ProxyEvent>();
     private final List<ProxyEvent> workerResets = new ArrayList<ProxyEvent>();
+    private final List<ProxyEvent> pongs = new ArrayList<ProxyEvent>();
     private StepRegisterGate stepRegisterGate;
     private CountDownLatch acknowledgementGate;
     private boolean shouldFailStepRegisters;
@@ -372,6 +373,10 @@ final class PullSlotProxy implements AutoCloseable {
         return filter(workerResets, appWorkerID, sinceNanos);
     }
 
+    synchronized List<ProxyEvent> pongsSince(final String appWorkerID, final long sinceNanos) {
+        return filter(pongs, appWorkerID, sinceNanos);
+    }
+
     synchronized long firstAcknowledgementAtNanos() {
         return firstAcknowledgementAtNanos;
     }
@@ -473,6 +478,7 @@ final class PullSlotProxy implements AutoCloseable {
                         receiveRegister(message);
                         return;
                     }
+                    recordPong(message);
                     synchronized (callLock) {
                         if (upstreamCall != null) {
                             upstreamCall.sendMessage(message);
@@ -512,6 +518,20 @@ final class PullSlotProxy implements AutoCloseable {
                     markEnded();
                 }
             };
+        }
+
+        private void recordPong(final byte[] message) {
+            final boolean isPong;
+            try {
+                isPong = PollWorkerTaskRequest.parseFrom(message).hasPong();
+            } catch (InvalidProtocolBufferException malformed) {
+                throw new AssertionError("proxy: the Worker sent a malformed frame", malformed);
+            }
+            if (isPong) {
+                synchronized (PullSlotProxy.this) {
+                    pongs.add(new ProxyEvent(appWorkerID, slotKind));
+                }
+            }
         }
 
         private void receiveRegister(final byte[] message) {

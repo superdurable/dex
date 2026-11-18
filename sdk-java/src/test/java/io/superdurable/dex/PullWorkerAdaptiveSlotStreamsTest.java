@@ -766,42 +766,55 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireRegisteredStreams(proxy, appWorkerID, 3, 1);
     }
 
-    // Test 16 ungated: no acknowledgement is processed before the held last startup Register is written.
+    // Test 16 ungated: every startup Register is enqueued in one monitor section, before any acknowledgement.
     @Test
-    void fixedStartupWritesEveryRegisterBeforeProcessingAnAcknowledgement() throws Exception {
+    void fixedStartupEnqueuesEveryRegisterBeforeAnAcknowledgementIsProcessed() throws Exception {
         final AdaptiveSlotTestServer server = startServer("startup-order", AdaptiveSlotTestServer.Limits.defaults());
         final PullSlotProxy proxy = startProxy(server);
         final String appWorkerID = newAppWorkerID("fixed-startup-order");
-        final java.util.concurrent.atomic.AtomicReference<Worker> worker =
-                new java.util.concurrent.atomic.AtomicReference<Worker>();
-        final java.util.concurrent.atomic.AtomicReference<String> violation =
-                new java.util.concurrent.atomic.AtomicReference<String>();
-        final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> {
-            try {
-                eventually("acknowledgements of the first three Registers", Duration.ofSeconds(20),
-                        () -> proxy.acknowledgementsSince(appWorkerID, Long.MIN_VALUE).size() >= 3
-                                && worker.get() != null);
-                never("an acknowledgement was processed before the last startup Register",
-                        Duration.ofMillis(500), () -> {
-                            final PullSlotStreamState state = worker.get().getPullSlotStreamState();
-                            return state.getIdle() != 0 || state.getRegistering() != 3 || state.getRpcOnlyOpen() != 1;
-                        });
-            } catch (Throwable failure) {
-                violation.set(String.valueOf(failure));
-            }
-        });
+        final RegisterEnqueueRecorder enqueues = new RegisterEnqueueRecorder();
         final WorkerRun run = track(startWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(appWorkerID).maxConcurrentTasks(4), new PullSlotSettings(ONE_HOUR, null, lastRegister)));
-        worker.set(run.worker);
+                pull(appWorkerID).maxConcurrentTasks(4), new PullSlotSettings(ONE_HOUR, null, enqueues)));
+        enqueues.worker.set(run.worker);
         run.waitRegistered(Duration.ofMinutes(1));
-        eventually("the held Register was written", Duration.ofSeconds(30), () -> lastRegister.writes.get() == 4);
-        assertNull(violation.get());
         requireRegisteredStreams(proxy, appWorkerID, 3, 1);
-        requireSlotState(run, "every startup stream idle",
-                current -> current.getIdle() == 3 && current.getRpcOnlyOpen() == 1 && current.getRegistering() == 0);
+        final List<RegisterEnqueueRecorder.Enqueue> recorded = enqueues.recorded();
+        assertEquals(4, recorded.size(), recorded::toString);
+        for (RegisterEnqueueRecorder.Enqueue enqueue : recorded) {
+            // The Worker monitor is held at the enqueue, so these counts are exact.
+            assertEquals(0, enqueue.processedAcknowledgements, () -> "an acknowledgement was processed first: " + recorded);
+            assertEquals(recorded.get(0).threadName, enqueue.threadName, recorded::toString);
+            assertTrue(enqueue.atNanos - proxy.firstAcknowledgementAtNanos() < 0, recorded::toString);
+        }
     }
 
-    // Stop during the startup batch: acknowledgements still wait, and stop cancels the blocked Register.
+    // A blocked write of the last startup Register stalls no other stream: they register, run tasks, and answer Pings.
+    @Test
+    void fixedStartupBlockedRegisterWriteLeavesOtherStreamsServing() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("startup-blocked", AdaptiveSlotTestServer.Limits.defaults());
+        final PullSlotProxy proxy = startProxy(server);
+        final String appWorkerID = newAppWorkerID("fixed-startup-blocked");
+        final CountDownLatch release = new CountDownLatch(1);
+        cleanups.push(release::countDown);
+        final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> awaitCancelOrRelease(
+                callContext, release));
+        final WorkerRun run = track(startWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                pull(appWorkerID).maxConcurrentTasks(4).reservedRpcTasks(0),
+                new PullSlotSettings(ONE_HOUR, null, lastRegister)));
+        run.waitRegistered(Duration.ofMinutes(1));
+        requireRegisteredStreams(proxy, appWorkerID, 3, 0);
+        requireSlotState(run, "three idle streams and one blocked Register",
+                current -> current.getIdle() == 3 && current.getRegistering() == 1);
+        final Client client = newClient(server, run);
+        requireFlowsCompleted(client, startFlows(client, run.flow, PullWorkerAdaptiveSlotHandlers.MODE_QUICK, 2));
+        eventually("a Pong from a registered stream", Duration.ofSeconds(15),
+                () -> !proxy.pongsSince(appWorkerID, Long.MIN_VALUE).isEmpty());
+        assertEquals(3, lastRegister.writes.get(), "the blocked Register write returned on its own");
+        release.countDown();
+        requireRegisteredStreams(proxy, appWorkerID, 4, 0);
+    }
+
+    // Stop during the startup batch cancels the blocked Register write and ends every stream.
     @Test
     void stopDuringFixedStartupBatch() throws Exception {
         final AdaptiveSlotTestServer server = startServer("startup-stop", AdaptiveSlotTestServer.Limits.defaults());
@@ -811,24 +824,15 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final CountDownLatch blocked = new CountDownLatch(1);
         final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> {
             blocked.countDown();
-            // Blocks like a stalled transport until stop cancels the call.
-            while (!callContext.isCancelled()) {
-                try {
-                    TimeUnit.MILLISECONDS.sleep(10L);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
+            awaitCancelOrRelease(callContext, new CountDownLatch(1));
         });
         final WorkerRun run = track(startWorker(proxy.address(), handlers,
-                pull(appWorkerID).maxConcurrentTasks(4).stopDrainTimeout(Duration.ofSeconds(1)),
+                pull(appWorkerID).maxConcurrentTasks(4).reservedRpcTasks(0).stopDrainTimeout(Duration.ofSeconds(1)),
                 new PullSlotSettings(ONE_HOUR, null, lastRegister)));
         assertTrue(blocked.await(30, TimeUnit.SECONDS), "the last startup Register never started its write");
-        eventually("acknowledgements of the first three Registers", Duration.ofSeconds(20),
-                () -> proxy.acknowledgementsSince(appWorkerID, Long.MIN_VALUE).size() >= 3);
-        assertEquals(0, run.worker.getPullSlotStreamState().getIdle());
-        assertFalse(run.worker.getPullRegistrationState().isReady());
+        run.waitRegistered(Duration.ofMinutes(1));
+        requireSlotState(run, "three idle streams and one blocked Register",
+                current -> current.getIdle() == 3 && current.getRegistering() == 1);
         final long stopStartedAt = System.nanoTime();
         CompletableFuture.runAsync(run.worker::stop, ASYNC_CALLS).get(15, TimeUnit.SECONDS);
         assertTrue(System.nanoTime() - stopStartedAt < TimeUnit.SECONDS.toNanos(10));
@@ -1191,6 +1195,58 @@ final class PullWorkerAdaptiveSlotStreamsTest {
 
         private void release() {
             released.countDown();
+        }
+    }
+
+    // Blocks like a stalled transport until the call is cancelled or release opens.
+    private static void awaitCancelOrRelease(final Context.CancellableContext callContext,
+            final CountDownLatch release) {
+        try {
+            while (!callContext.isCancelled() && !release.await(10, TimeUnit.MILLISECONDS)) {
+                continue;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // Records each Register enqueue; the Worker wraps a call just before it enqueues its Register.
+    private static final class RegisterEnqueueRecorder implements PullSlotSettings.RequestObserverWrapper {
+        private final java.util.concurrent.atomic.AtomicReference<Worker> worker =
+                new java.util.concurrent.atomic.AtomicReference<Worker>();
+        private final List<Enqueue> enqueues = new ArrayList<Enqueue>();
+
+        private static final class Enqueue {
+            private final long atNanos = System.nanoTime();
+            private final String threadName = Thread.currentThread().getName();
+            private final int processedAcknowledgements;
+
+            private Enqueue(final int processedAcknowledgements) {
+                this.processedAcknowledgements = processedAcknowledgements;
+            }
+
+            @Override
+            public String toString() {
+                return threadName + "@" + atNanos + " processed=" + processedAcknowledgements;
+            }
+        }
+
+        @Override
+        public StreamObserver<PollWorkerTaskRequest> wrap(final StreamObserver<PollWorkerTaskRequest> requests,
+                final Context.CancellableContext callContext) {
+            final Worker current = worker.get();
+            // The calling thread holds the Worker monitor, so the snapshot cannot change meanwhile.
+            // -1 marks an enqueue before the test published the Worker, which fails the assertion.
+            final int processed = current == null ? -1 : current.getPullSlotStreamState().getIdle()
+                    + current.getPullSlotStreamState().getBusy();
+            synchronized (this) {
+                enqueues.add(new Enqueue(processed));
+            }
+            return requests;
+        }
+
+        synchronized List<Enqueue> recorded() {
+            return new ArrayList<Enqueue>(enqueues);
         }
     }
 
