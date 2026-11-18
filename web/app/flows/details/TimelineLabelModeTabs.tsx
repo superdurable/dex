@@ -15,8 +15,8 @@ import {
 } from './timelineLabelModeStorage';
 
 const labelModeChoices: { mode: TimelineLabelMode; label: string; icon: LucideIcon; intro: string }[] = [
-  { mode: 'dense', label: 'Dense', icon: Italic, intro: 'Slanted labels, so more events fit in view.' },
   { mode: 'tidy', label: 'Tidy', icon: WrapText, intro: 'Straight labels in columns, wrapped to three lines.' },
+  { mode: 'dense', label: 'Dense', icon: Italic, intro: 'Slanted labels, so more events fit in view.' },
 ];
 
 /** Whether the label mode intro shows, and how to dismiss it for good. */

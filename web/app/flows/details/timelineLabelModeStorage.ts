@@ -11,14 +11,14 @@ import type { TimelineLabelMode } from './timelineOverview';
 export const timelineLabelModeStorageKey = 'dex.run.timeline-label-mode';
 export const timelineLabelModeIntroStorageKey = 'dex.run.timeline-label-mode-intro-dismissed';
 
-/** The label mode this browser last chose for the Timeline; Dense when none is saved or storage fails. */
+/** The label mode this browser last chose for the Timeline; Tidy when none is saved or storage fails. */
 export function storedTimelineLabelMode(): TimelineLabelMode {
-  if (typeof window === 'undefined') return 'dense';
+  if (typeof window === 'undefined') return 'tidy';
   try {
-    return window.localStorage.getItem(timelineLabelModeStorageKey) === 'tidy' ? 'tidy' : 'dense';
+    return window.localStorage.getItem(timelineLabelModeStorageKey) === 'dense' ? 'dense' : 'tidy';
   } catch (storageError) {
     console.warn('Unable to read the Timeline label mode preference.', storageError);
-    return 'dense';
+    return 'tidy';
   }
 }
 

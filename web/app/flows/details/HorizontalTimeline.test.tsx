@@ -56,7 +56,11 @@ function memoryStorage(entries: Record<string, string> = {}): Storage {
 
 beforeEach(() => {
   // The intro is dismissed in most tests, so it never covers what they check.
-  vi.stubGlobal('localStorage', memoryStorage({ [timelineLabelModeIntroStorageKey]: 'true' }));
+  // Most layout tests measure Dense geometry, so they save Dense.
+  vi.stubGlobal('localStorage', memoryStorage({
+    [timelineLabelModeIntroStorageKey]: 'true',
+    [timelineLabelModeStorageKey]: 'dense',
+  }));
 });
 
 afterEach(() => {
@@ -1206,7 +1210,15 @@ describe('horizontal Timeline', () => {
   const labelTexts = () => [...document.querySelectorAll('.htl-event .htl-label')].map((label) => label.textContent);
   const timelineStrip = () => screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
 
-  it('opens in Dense mode and gives every event its own label slanted at 30 degrees', () => {
+  it('opens in Tidy mode when the browser has no saved choice', () => {
+    window.localStorage.removeItem(timelineLabelModeStorageKey);
+    render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    expect(screen.getByRole('button', { name: 'Tidy' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps a saved Dense choice and gives every event its own label slanted at 30 degrees', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'dense');
     render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
     expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'AwaitNextWindow']);
     expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
@@ -1242,6 +1254,7 @@ describe('horizontal Timeline', () => {
   });
 
   it('switches between Dense and Tidy from the mode tabs and remembers the choice', () => {
+    window.localStorage.setItem(timelineLabelModeStorageKey, 'dense');
     const { unmount } = render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
     fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
     expect(labelTexts()).toEqual(['Charge', 'Charge', 'Charge', 'Await Next Window']);
@@ -1286,17 +1299,17 @@ describe('horizontal Timeline', () => {
     expect(window.localStorage.getItem(timelineLabelModeIntroStorageKey)).toBe('true');
   });
 
-  it('opens in Dense mode without the intro when storage fails', () => {
+  it('opens in Tidy mode without the intro when storage fails', () => {
     const failingStorage = memoryStorage();
     failingStorage.getItem = () => { throw new Error('storage blocked'); };
     failingStorage.setItem = () => { throw new Error('storage blocked'); };
     vi.stubGlobal('localStorage', failingStorage);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     render(<HorizontalTimeline events={labelModeEvents} onSelectEvent={() => {}} selectedEvent={null} />);
-    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
-    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
     expect(timelineStrip().getAttribute('data-label-mode')).toBe('tidy');
+    expect(screen.queryByRole('note', { name: 'Timeline label modes' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Dense' }));
+    expect(timelineStrip().getAttribute('data-label-mode')).toBe('dense');
     warn.mockRestore();
   });
 
