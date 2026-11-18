@@ -3,6 +3,11 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.2.3 - 2026-11-18
+
+- Document that a task slot is served by one stream in both fixed and adaptive Workers. Add the sizing rule: a fixed Worker holds a Server stream for every slot, while an adaptive Worker holds about its floor while idle, so choose adaptive for bursty, I/O-bound load.
+- Add a Worker sizing checklist to the Application reference: set task slots explicitly, match slots to I/O-bound or CPU-bound work, scale on the oldest queued Step age, and split clusters past one node.
+
 ## 1.2.2 - 2026-11-17
 
 - `dex-sdk` operator recovery explains **Clone Fork**: what the new Flow copies from the source point, that the source is only read, a table for choosing Time Travel, Clone Fork, or **StartFlow**, and anti-patterns such as a fork that shares the source's task queue.
