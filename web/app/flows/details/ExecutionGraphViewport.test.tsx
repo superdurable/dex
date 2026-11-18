@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sequentialStepHistory } from '@/lib/historyTestServer';
+import { sequentialStepHistory, stepEvent } from '@/lib/historyTestServer';
 import type { FlowHistoryEvent } from '@/lib/types';
 
 interface FakeNode {
@@ -79,6 +79,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     ReactFlow,
     Background: () => null,
     MiniMap: () => null,
+    useViewport: () => flow.state.viewport,
+    useStore: (selector: (store: { width: number; height: number }) => number) => selector(canvasSize),
     Handle: () => null,
     Controls: ({ children }: { children: ReactNode }) => (
       <div>
@@ -163,5 +165,67 @@ describe('Execution graph viewport', () => {
     expect(fit.options?.duration).toBe(200);
     expect(fit.viewport.zoom).toBeLessThan(0.2);
     expect(flow.state.minZoom).toBeLessThanOrEqual(fit.viewport.zoom);
+  });
+});
+
+/** Rounds of Check then k Sync Steps; each Round differs, so none merge into a range. */
+function growingRoundsHistory(roundCount: number): FlowHistoryEvent[] {
+  const events: FlowHistoryEvent[] = [{
+    eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: {}, runAttempt: 1,
+  }];
+  let previous = '__start__';
+  const addStep = (stepType: string, index: number) => {
+    const stepExecutionId = `${stepType}-${index}`;
+    const context = { stepExecutionId, fromStepExecutionId: previous, stepType };
+    events.push(stepEvent(events.length + 1, 'StepExecuteCompleted', context));
+    previous = stepExecutionId;
+  };
+  let syncIndex = 0;
+  for (let round = 1; round <= roundCount; round += 1) {
+    addStep('Check', round);
+    for (let sync = 0; sync < round; sync += 1) addStep('Sync', (syncIndex += 1));
+  }
+  return events;
+}
+
+describe('Folded Graph initial view', () => {
+  beforeEach(() => {
+    const values = new Map([['dex.run.graph-folded', 'true']]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+  });
+
+  it('opens on the latest Round and the group before it when the folded graph is too wide', async () => {
+    const events = growingRoundsHistory(12);
+    render(renderGraph(events, events[0]));
+    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
+    const { viewport } = flow.state.setViewportCalls[0];
+    expect(viewport.x).toBeLessThan(0);
+    const frame = flow.state.nodes.find((node) => node.id === '__frame:round:Check-12')!;
+    const frameLeft = frame.position.x * viewport.zoom + viewport.x;
+    expect(frameLeft).toBeGreaterThan(0);
+    expect(frameLeft).toBeLessThan(canvasSize.width);
+    const previousGroup = flow.state.nodes.find((node) => node.id === '__group:round:Check-11')!;
+    expect(previousGroup.position.x * viewport.zoom + viewport.x).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps the newest-part framing when the selected Step is already in view', async () => {
+    const events = growingRoundsHistory(12);
+    render(renderGraph(events, events.at(-1)!));
+    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(flow.state.setCenterCalls).toHaveLength(0);
+  });
+
+  it('fits the whole folded graph when it fits at a readable zoom', async () => {
+    const events = sequentialStepHistory(81);
+    render(renderGraph(events, events[0]));
+    await waitFor(() => expect(flow.state.setViewportCalls).toHaveLength(1));
+    const { viewport } = flow.state.setViewportCalls[0];
+    expect(viewport.zoom).toBeGreaterThanOrEqual(0.6);
+    expect(viewport.x).toBeGreaterThanOrEqual(0);
   });
 });

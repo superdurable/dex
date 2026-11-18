@@ -1481,14 +1481,490 @@ body:has(.v1-page) {
   border-radius: var(--ui-radius-item);
 }
 
+/* Graph nodes separate by fill and soft shadow, not borders. */
+.v1-page .graph-view {
+  --graph-node-radius: 14px;
+  --graph-node-shadow: 0 1px 2px rgba(17, 17, 17, 0.06), 0 4px 14px rgba(17, 17, 17, 0.06);
+  --graph-node-shadow-hover: 0 2px 4px rgba(17, 17, 17, 0.08), 0 10px 24px rgba(17, 17, 17, 0.1);
+  --graph-folded-fill: color-mix(in srgb, var(--tone-accent) 60%, transparent);
+}
+
+[data-theme='dark'] .v1-page .graph-view {
+  --graph-node-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --graph-node-shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+
+.v1-page .graph-canvas .react-flow__node {
+  animation: graph-fade-in 220ms ease-out;
+}
+
 .v1-page .react-flow__node.step-flow-node {
-  border-color: var(--ui-hairline);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  border: 0;
+  border-radius: var(--graph-node-radius);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--graph-node-shadow);
+  transition: box-shadow 180ms ease, translate 180ms ease;
+}
+
+.v1-page .react-flow__node.step-flow-node .graph-node-body {
+  border-radius: var(--graph-node-radius);
+}
+
+.v1-page .react-flow__node.step-flow-node:not(.node-source, .node-round-more):hover {
+  box-shadow: var(--graph-node-shadow-hover);
+  translate: 0 -1px;
+}
+
+.v1-page .react-flow__node.node-failed {
+  background: color-mix(in srgb, var(--tone-fail-soft) 75%, var(--ui-surface-raised));
+}
+
+.v1-page .react-flow__node.node-canceled {
+  background: var(--ui-chip);
+}
+
+.v1-page .react-flow__node.node-subflow {
+  background: var(--ui-surface-raised);
+}
+
+.v1-page .react-flow__node.node-source {
+  background: color-mix(in srgb, var(--ui-chip) 70%, transparent);
+  box-shadow: none;
 }
 
 .v1-page .react-flow__node.step-flow-node.graph-node-current {
-  border-color: var(--tone-accent);
-  box-shadow: 0 0 0 2px var(--tone-accent);
+  box-shadow: 0 0 0 2px var(--tone-accent), var(--graph-node-shadow-hover);
+}
+
+.v1-page .graph-method {
+  border-radius: 10px;
+}
+
+.v1-page .graph-method-waitfor {
+  border-radius: 10px 0 0 10px;
+}
+
+.v1-page .react-flow__node.node-repeated .graph-step-heading {
+  padding-right: 56px;
+}
+
+.v1-page .graph-step-repeat {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+/* A folded Round reads as a stack of cards. */
+.v1-page .react-flow__node.node-round-group {
+  --graph-stack-layers:
+    5px 5px 0 -1px var(--graph-stack-near),
+    10px 10px 0 -2px var(--graph-stack-far);
+  --graph-stack-near: color-mix(in srgb, var(--ui-ink-3) 22%, var(--ui-surface-raised));
+  --graph-stack-far: color-mix(in srgb, var(--ui-ink-3) 12%, var(--ui-surface-raised));
+  cursor: pointer;
+  box-shadow: var(--graph-stack-layers), var(--graph-node-shadow);
+}
+
+.v1-page .react-flow__node.node-round-group:hover {
+  box-shadow: var(--graph-stack-layers), var(--graph-node-shadow-hover);
+}
+
+.v1-page .graph-round-group {
+  display: flex;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 10px;
+}
+
+.v1-page .graph-round-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.v1-page .graph-round-heading b {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .graph-round-icon {
+  flex: none;
+  color: var(--tone-accent);
+}
+
+.v1-page .graph-round-count {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 18px;
+}
+
+.v1-page .graph-round-group.has-failed .graph-round-count {
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+}
+
+.v1-page .graph-round-bar {
+  display: flex;
+  height: 6px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ui-chip);
+}
+
+.v1-page .graph-round-bar-completed {
+  background: color-mix(in srgb, var(--tone-accent) 80%, var(--ui-surface));
+}
+
+.v1-page .graph-round-bar-failed {
+  background: var(--tone-fail);
+}
+
+.v1-page .graph-round-sequence {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-ink-2);
+  font-size: 11.5px;
+  line-height: 16px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.v1-page .graph-round-facts {
+  display: flex;
+  min-width: 0;
+  margin-top: auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--ui-ink-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.v1-page .graph-round-failed {
+  color: var(--tone-fail-ink);
+  font-weight: 650;
+}
+
+.v1-page .graph-round-action {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px 3px 4px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tone-accent-ink);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.v1-page .graph-round-action:hover {
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .react-flow__node.node-round-more {
+  background: transparent;
+  box-shadow: none;
+}
+
+.v1-page .graph-round-more {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+/* An opened Round sits in a soft tinted frame behind its Steps. */
+.v1-page .react-flow__node.graph-round-frame {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--tone-accent) 7%, transparent);
+  cursor: default;
+}
+
+.v1-page .react-flow__node.graph-round-frame-failed {
+  background: color-mix(in srgb, var(--tone-fail) 7%, transparent);
+}
+
+.v1-page .graph-round-frame-heading {
+  display: flex;
+  height: 40px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  color: var(--ui-ink);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.v1-page .graph-round-frame-heading b {
+  font-weight: 650;
+}
+
+.v1-page .graph-round-frame-heading > span {
+  overflow: hidden;
+  color: var(--ui-ink-3);
+  text-overflow: ellipsis;
+}
+
+.v1-page .graph-round-frame-heading .graph-round-action {
+  pointer-events: auto;
+}
+
+.v1-page .graph-round-frame-failed .graph-round-icon {
+  color: var(--tone-fail-ink);
+}
+
+.v1-page .graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.v1-page .graph-fold-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.v1-page .graph-fold-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 9px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  font-weight: 650;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background 200ms ease, color 200ms ease, transform 120ms ease;
+}
+
+.v1-page .graph-fold-toggle:hover {
+  color: var(--ui-ink);
+  background: var(--ui-hover);
+}
+
+.v1-page .graph-fold-toggle:active {
+  transform: scale(0.97);
+}
+
+.v1-page .graph-fold-toggle[aria-pressed='true'] {
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+}
+
+.v1-page .graph-fold-toggle[aria-pressed='true']:hover {
+  background: var(--tone-accent-ink);
+}
+
+.v1-page .graph-fold-note {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .graph-fold-intro {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 640px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 11px;
+  border-radius: 10px;
+  color: var(--ui-ink-2);
+  background: var(--tone-accent-soft);
+  font-size: var(--ui-text-xs);
+  line-height: 1.35;
+  animation: graph-slide-in 240ms ease-out;
+  transition: opacity 200ms ease, translate 200ms ease;
+}
+
+.v1-page .graph-fold-intro b {
+  color: var(--tone-accent-ink);
+  font-weight: 650;
+}
+
+.v1-page .graph-fold-intro.is-leaving {
+  opacity: 0;
+  translate: -6px 0;
+}
+
+.v1-page .graph-fold-intro-dismiss,
+.v1-page .graph-minimap-hide {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--tone-accent-ink);
+  background: transparent;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.v1-page .graph-fold-intro-dismiss:hover {
+  background: color-mix(in srgb, var(--tone-accent) 16%, transparent);
+}
+
+.v1-page .legend-folded {
+  background: var(--graph-folded-fill);
+}
+
+/* The mini map stays in the canvas corner; its small button hides it to a map icon. */
+.v1-page .graph-minimap-shell {
+  position: absolute;
+  z-index: 5;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 5px 8px 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ui-surface-raised) 92%, transparent);
+  box-shadow: var(--graph-node-shadow-hover);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: graph-pop-in 200ms ease-out;
+}
+
+.v1-page .graph-minimap-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ui-ink-3);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.v1-page .graph-minimap-hide {
+  width: 20px;
+  height: 20px;
+  color: var(--ui-ink-2);
+}
+
+.v1-page .graph-minimap-hide:hover {
+  background: var(--ui-hover);
+}
+
+.v1-page .graph-overview {
+  position: relative;
+  width: 160px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--ui-chip);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.v1-page .graph-overview:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+.v1-page .graph-overview svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.v1-page .graph-overview-window {
+  position: absolute;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tone-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--tone-accent);
+  pointer-events: none;
+}
+
+.v1-page .graph-minimap-show {
+  position: absolute;
+  z-index: 5;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ui-ink-2);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--graph-node-shadow-hover);
+  cursor: pointer;
+  animation: graph-pop-in 200ms ease-out;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.v1-page .graph-minimap-show:hover {
+  color: var(--ui-ink);
+  background: var(--ui-hover);
+}
+
+@keyframes graph-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes graph-pop-in {
+  from { opacity: 0; scale: 0.96; }
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes graph-slide-in {
+  from { opacity: 0; translate: -6px 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v1-page .graph-view *,
+  .v1-page .graph-view *::before,
+  .v1-page .graph-view *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* The selected method uses an ink ring, so it never reads as a status color. */
