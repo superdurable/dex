@@ -79,8 +79,15 @@ export function readUnfinishedTurnItems(turn: AgentTurnContext, options: Unfinis
   );
   const { functionCalls, pendingCalls } = pairCallsWithResults(turn, items);
   const recordsById = new Map(turn.toolCalls.map((record) => [record.toolCallId, record]));
+  const storedCallIds = new Set(
+    turn.messages.filter((message) => message.turnId === turn.turnId).map((message) => message.toolCallId),
+  );
   for (const record of turn.toolCalls) {
     const functionCall = functionCalls.get(record.toolCallId);
+    if (functionCall === undefined && storedCallIds.has(record.toolCallId)) {
+      // A rebuilt turn stores its earlier calls, so its run state no longer holds them.
+      continue;
+    }
     if (functionCall === undefined) {
       throw new Error(`tool call ${record.toolCallId} of turn ${turn.turnId} is not in the run state`);
     }
@@ -88,9 +95,6 @@ export function readUnfinishedTurnItems(turn: AgentTurnContext, options: Unfinis
       throw new Error(`tool call ${record.toolCallId} of turn ${turn.turnId} is recorded for tool ${record.toolName}`);
     }
   }
-  const storedCallIds = new Set(
-    turn.messages.filter((message) => message.turnId === turn.turnId).map((message) => message.toolCallId),
-  );
   for (const callId of functionCalls.keys()) {
     if (storedCallIds.has(callId)) {
       throw new Error(`tool call ${callId} of turn ${turn.turnId} is already stored`);

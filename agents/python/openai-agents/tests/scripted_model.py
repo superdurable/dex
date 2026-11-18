@@ -18,7 +18,8 @@ the turn already produced. Commands:
 * Otherwise the command is rounds joined by `` then ``, one model response
   each. A round is ``call <tool> <json>`` or ``handoff <agent>`` requests joined
   by `` && ``, or ``fail``, which raises, or ``stall <gate>``, which streams
-  ``thinking before <gate>`` and waits at a ``FileGate`` before answering.
+  ``thinking before <gate>`` and waits at a ``FileGate`` before answering, or
+  ``await <gate>``, which waits at a ``FileGate`` before the next round's response.
   After the last request round the model answers ``<tool>: <output>`` for every
   tool call of the turn, joined by ``; ``.
 
@@ -72,6 +73,7 @@ def model_call_usage() -> Usage:
 class _ScriptedResponse:
     output: list[TResponseOutputItem]
     gate_name: str | None = None
+    waits_before_output: bool = False
 
 
 class CommandScriptedModel(Model):
@@ -143,6 +145,9 @@ class CommandScriptedModel(Model):
             prompt=prompt,
         )
         gate_name = response.gate_name
+        if gate_name is not None and response.waits_before_output:
+            await self._wait_at_gate(gate_name)
+            gate_name = None
         async for event in events:
             yield event
             if gate_name is not None and getattr(event, "type", None) == _TEXT_DELTA_EVENT_TYPE:
@@ -241,7 +246,12 @@ def _respond_to_command(command: str, turn: _Turn) -> _ScriptedResponse:
 
 def _respond_to_rounds(rounds: Sequence[str], turn: _Turn) -> _ScriptedResponse:
     completed_requests = 0
+    awaited_gate_name: str | None = None
     for round_index, round_text in enumerate(rounds):
+        if round_text.startswith("await "):
+            if len(turn.calls) == completed_requests:
+                awaited_gate_name = round_text.removeprefix("await ")
+            continue
         if round_text == "fail":
             if len(turn.calls) == completed_requests:
                 raise RuntimeError(SCRIPTED_MODEL_FAILURE)
@@ -256,10 +266,16 @@ def _respond_to_rounds(rounds: Sequence[str], turn: _Turn) -> _ScriptedResponse:
                 [
                     _request_output(request, turn.call_id(round_index, request_index))
                     for request_index, request in enumerate(requests)
-                ]
+                ],
+                gate_name=awaited_gate_name,
+                waits_before_output=True,
             )
         completed_requests += len(requests)
-    return _ScriptedResponse([turn.message(turn.summary(), len(rounds))])
+    return _ScriptedResponse(
+        [turn.message(turn.summary(), len(rounds))],
+        gate_name=awaited_gate_name,
+        waits_before_output=True,
+    )
 
 
 def _stall(gate_name: str, turn: _Turn, round_index: int) -> _ScriptedResponse:

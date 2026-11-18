@@ -10,11 +10,17 @@ import { runAgentWorkerProcess } from "@superdurable/dex-agents/testing";
 
 import {
   createScriptedOpenAIAgentFlow,
+  readRenamedTools,
   scriptedAgentMarkerDirectoryVariable,
+  scriptedAgentRenamedToolsVariable,
 } from "./scripted-openai-agent.js";
 
 const markerDirectory = process.env[scriptedAgentMarkerDirectoryVariable];
 if (markerDirectory === undefined || markerDirectory === "") {
   throw new Error(`${scriptedAgentMarkerDirectoryVariable} is not set`);
 }
-await runAgentWorkerProcess([createScriptedOpenAIAgentFlow(markerDirectory)]);
+await runAgentWorkerProcess([
+  createScriptedOpenAIAgentFlow(markerDirectory, {
+    renamedTools: readRenamedTools(process.env[scriptedAgentRenamedToolsVariable]),
+  }),
+]);

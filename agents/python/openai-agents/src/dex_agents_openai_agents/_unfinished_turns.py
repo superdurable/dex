@@ -98,7 +98,13 @@ def read_unfinished_turn_items(
         if input_item is not None:
             items.append(dict(input_item))
     function_calls, pending_calls = _pair_calls_with_results(turn, items)
+    stored_call_ids = {
+        message.tool_call_id for message in turn.messages if message.turn_id == turn.turn_id
+    }
     for tool_call_id, record in turn.tool_calls.items():
+        if tool_call_id in stored_call_ids and tool_call_id not in function_calls:
+            # A rebuilt turn stores its earlier calls, so its run state no longer holds them.
+            continue
         function_call = function_calls.get(tool_call_id)
         if function_call is None:
             raise ValueError(
@@ -109,9 +115,6 @@ def read_unfinished_turn_items(
                 f"tool call {tool_call_id} of turn {turn.turn_id} is recorded for tool "
                 f"{record.tool_name}"
             )
-    stored_call_ids = {
-        message.tool_call_id for message in turn.messages if message.turn_id == turn.turn_id
-    }
     if stored := sorted(function_calls.keys() & stored_call_ids):
         raise ValueError(f"tool calls {stored} of turn {turn.turn_id} are already stored")
     pending_outputs: list[dict[str, Any]] = []

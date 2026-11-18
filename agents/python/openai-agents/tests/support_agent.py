@@ -16,13 +16,16 @@ once across Worker processes.
 
 from __future__ import annotations
 
+import copy
 import os
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from agents import (
     Agent,
+    FunctionTool,
     RunConfig,
     RunContextWrapper,
     ToolGuardrailFunctionOutput,
@@ -44,6 +47,8 @@ from tests.scripted_model import CommandScriptedModel
 SUPPORT_AGENT_FLOW_TYPE = "SupportAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "OPENAI_AGENTS_TEST_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "OPENAI_AGENTS_TEST_INTERRUPT_DEADLINE_SECONDS"
+# Comma-separated ``old=new`` tool names, as a deploy that renames tools would change them.
+RENAMED_TOOLS_ENVIRONMENT_VARIABLE = "OPENAI_AGENTS_TEST_RENAMED_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
 TOOL_POLICIES = {
@@ -66,8 +71,19 @@ class Receipt(BaseModel):
 
 
 def build_support_agent_flow(
-    state_dir: Path, interrupt_deadline: timedelta | None = None
+    state_dir: Path,
+    interrupt_deadline: timedelta | None = None,
+    renamed_tools: Mapping[str, str] | None = None,
 ) -> AgentSessionFlow:
+    new_names = dict(renamed_tools or {})
+
+    def rename(tool: FunctionTool) -> FunctionTool:
+        if tool.name not in new_names:
+            return tool
+        renamed = copy.copy(tool)
+        renamed.name = new_names[tool.name]
+        return renamed
+
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
     idempotency_keys = InvocationLog(state_dir / IDEMPOTENCY_KEY_LOG_NAME)
     model = CommandScriptedModel(state_dir, invocations)
@@ -171,20 +187,18 @@ def build_support_agent_flow(
     researcher = Agent(
         name="Researcher", instructions="Research the question.", model=model, tools=[cite]
     )
-    billing = Agent(name="Billing", instructions="Handle billing.", model=model, tools=[refund])
+    billing = Agent(
+        name="Billing", instructions="Handle billing.", model=model, tools=[rename(refund)]
+    )
     assistant = Agent(
         name="Assistant",
         instructions="Help the user.",
         model=model,
         tools=[
-            lookup,
-            publish,
-            charge,
-            slow_write,
-            read_secret,
-            transfer,
-            pay,
-            run_sql,
+            *map(
+                rename,
+                [lookup, publish, charge, slow_write, read_secret, transfer, pay, run_sql],
+            ),
             researcher.as_tool(tool_name="ask_researcher", tool_description="Ask a researcher."),
         ],
         handoffs=[handoff(billing)],
@@ -192,7 +206,7 @@ def build_support_agent_flow(
     return openai_agents_session_flow(
         assistant,
         flow_type=SUPPORT_AGENT_FLOW_TYPE,
-        tool_policies=TOOL_POLICIES,
+        tool_policies={new_names.get(name, name): policy for name, policy in TOOL_POLICIES.items()},
         interrupt_deadline=interrupt_deadline,
         run_config=RunConfig(tracing_disabled=True),
     )
@@ -200,7 +214,9 @@ def build_support_agent_flow(
 
 def build_support_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
+    renamed_tools = os.environ.get(RENAMED_TOOLS_ENVIRONMENT_VARIABLE, "")
     return build_support_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
+        dict(pair.split("=", 1) for pair in renamed_tools.split(",") if pair),
     )

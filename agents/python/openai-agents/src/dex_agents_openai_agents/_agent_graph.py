@@ -195,6 +195,18 @@ class DeferrableAgentGraph:
             and bool(item.call_id)
         )
 
+    def offers_interrupted_tool(self, item: ToolApprovalItem) -> bool:
+        """Report whether the interrupted call's agent still has its tool, as a resume needs."""
+        if self.is_source_tool_interruption(item):
+            return True
+        owner_tool_names = self._tool_names_by_clone_id.get(id(get_public_agent(item.agent)))
+        tool = self._find_tool_by_name(item)
+        return (
+            owner_tool_names is not None
+            and tool is not None
+            and tool.qualified_name in owner_tool_names
+        )
+
     def find_interrupted_tool(
         self, active_turn: ActiveTurn, item: ToolApprovalItem
     ) -> DeferrableFunctionTool:

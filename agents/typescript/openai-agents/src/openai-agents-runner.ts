@@ -182,31 +182,55 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     return toFrameworkMessage(buildUserMessageItem(text));
   }
 
+  /**
+   * Makes one model call of the turn: from the stored items for a new turn, else from the restored `RunState`.
+   *
+   * When the last model response calls a function tool the agent no longer has, such as after a deploy renamed or
+   * removed it, the SDK cannot restore the `RunState`. The runner then rebuilds the turn from the session's
+   * records: it returns the turn's items so far, with every call's recorded result, as `newMessages`, and runs the
+   * model call from that history with the agent's current tools. The rebuilt run gets the turn's remaining
+   * `maxTurns`, and the agent's input guardrails run again.
+   *
+   * Changed in 0.6.15: a call of a renamed or removed tool rebuilds the turn instead of failing it.
+   * @param turn - Committed session state for this model call.
+   * @returns `tool_calls_requested` when the model asked for tools, else `completed` with the turn's new items.
+   * @throws {Error} When a call's tool is gone and the turn's items cannot be rebuilt, or any SDK or model error.
+   */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const runContext = new RunContext<TContext | undefined>(await this.createContextValue(turn.flowId));
     const modelStepGraph = await this.wrapModelStepAgentGraph(turn);
     const agentGraph = modelStepGraph.agentGraph;
     const unreturnedResumedToolCallIds = new Set<string>();
-    const runInput =
-      turn.frameworkRunState === null
-        ? readTurnInputItems(turn)
-        : await this.restoreRunState(
-            turn,
-            modelStepGraph,
-            turn.frameworkRunState,
-            runContext,
-            unreturnedResumedToolCallIds,
-          );
+    let rebuiltMessages: FrameworkMessage[] = [];
+    let maxTurns = this.settings.maxTurns;
+    let runInput: AgentInputItem[] | AnyRunState;
+    if (turn.frameworkRunState === null) {
+      runInput = readTurnInputItems(turn);
+    } else if (hasResumedCallOfMissingTool(turn.frameworkRunState, modelStepGraph)) {
+      // The SDK cannot restore a call of a renamed or removed tool, so the turn's records rebuild its items.
+      const rebuiltItems = this.rebuildTurnItems(turn);
+      rebuiltMessages = rebuiltItems.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
+      maxTurns = readRemainingMaxTurns(maxTurns, turn.frameworkRunState);
+      runInput = [...readTurnInputItems(turn), ...rebuiltItems];
+    } else {
+      runInput = await this.restoreRunState(
+        turn,
+        modelStepGraph,
+        turn.frameworkRunState,
+        runContext,
+        unreturnedResumedToolCallIds,
+      );
+    }
     const modelStep = { turn, unreturnedResumedToolCallIds, showsToolImages: this.settings.mediaStore !== undefined };
     const callModelInputFilter = this.createCallModelInputFilter(turn);
     let modelStepRun = await runningModelStepScope.run(modelStep, () =>
-      this.streamModelCall(turn, agentGraph, runInput, runContext, callModelInputFilter),
+      this.streamModelCall(turn, agentGraph, runInput, runContext, callModelInputFilter, maxTurns),
     );
     // A new call of a replay-only tool stops the run like any gated call; refuse it and continue the run.
     while (this.refuseReplayOnlyToolCalls(turn, modelStepGraph, modelStepRun.result)) {
       const refusedRunState = modelStepRun.result.state;
       const resumedRun = await runningModelStepScope.run(modelStep, () =>
-        this.streamModelCall(turn, agentGraph, refusedRunState, runContext, callModelInputFilter),
+        this.streamModelCall(turn, agentGraph, refusedRunState, runContext, callModelInputFilter, maxTurns),
       );
       modelStepRun = {
         result: resumedRun.result,
@@ -219,7 +243,10 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     const modelCallMetadata = createModelCallMetadata(modelStepRun, this.settings.runConfig.model);
     const interruptions = result.interruptions;
     if (interruptions.length === 0) {
-      const newMessages = result.output.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
+      const newMessages = [
+        ...rebuiltMessages,
+        ...result.output.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id))),
+      ];
       return { kind: "completed", newMessages, usage, ...modelCallMetadata };
     }
     const toolCalls: DeferredToolCall[] = [];
@@ -232,6 +259,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       toolCalls,
       usage,
       ...modelCallMetadata,
+      ...(rebuiltMessages.length === 0 ? {} : { newMessages: rebuiltMessages }),
     };
   }
 
@@ -249,7 +277,23 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
    * @since 0.6.12
    */
   public buildUnfinishedTurnMessages(turn: AgentTurnContext): readonly FrameworkMessage[] {
-    const items = readUnfinishedTurnItems(turn, {
+    return this.readUnfinishedTurnItems(turn).map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
+  }
+
+  private rebuildTurnItems(turn: AgentTurnContext): AgentInputItem[] {
+    try {
+      return this.readUnfinishedTurnItems(turn);
+    } catch (error) {
+      throw new Error(
+        "the RunState names a tool the agent no longer has, and the turn's items cannot be rebuilt from its " +
+          `records: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  private readUnfinishedTurnItems(turn: AgentTurnContext): AgentInputItem[] {
+    return readUnfinishedTurnItems(turn, {
       showsToolImages: this.settings.mediaStore !== undefined,
       inspectFunctionCall: (functionCall) => {
         const functionToolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
@@ -263,7 +307,6 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         };
       },
     });
-    return items.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
   }
 
   /**
@@ -547,8 +590,8 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     runInput: AgentInputItem[] | AnyRunState,
     runContext: RunContext<TContext | undefined>,
     callModelInputFilter: CallModelInputFilter | undefined,
+    maxTurns: number | null | undefined,
   ): Promise<OpenAIAgentsModelStepRun> {
-    const maxTurns = this.settings.maxTurns;
     const modelCallAgents = [Array.isArray(runInput) ? agentGraph.startingAgent : runInput.currentAgent];
     const responseIds: string[] = [];
     // The run also stops when a response reuses a recorded call ID, which the SDK would skip.
@@ -791,6 +834,33 @@ function writeRunStreamEvent(events: AgentEventWriter, event: RunStreamEvent): v
     case "run_item_stream_event":
       return;
   }
+}
+
+/** Reports whether a call of the last model response names a function tool the model step's graph lacks. */
+function hasResumedCallOfMissingTool(frameworkRunState: string, modelStepGraph: ModelStepAgentGraph): boolean {
+  const document = JSON.parse(frameworkRunState) as {
+    readonly lastProcessedResponse?: { readonly functions?: readonly { readonly toolCall?: unknown }[] };
+  };
+  return (document.lastProcessedResponse?.functions ?? []).some(({ toolCall }) => {
+    if (toolCall === null || typeof toolCall !== "object") {
+      return false;
+    }
+    const functionCall = toolCall as protocol.FunctionCallItem;
+    const functionToolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
+    return (
+      !modelStepGraph.agentGraph.functionTools.has(functionToolName) &&
+      !modelStepGraph.recordToolNames.has(functionToolName)
+    );
+  });
+}
+
+/** A rebuilt run counts its model calls from zero, so it gets only the turn's remaining model calls. */
+function readRemainingMaxTurns(
+  maxTurns: number | null | undefined,
+  frameworkRunState: string,
+): number | null | undefined {
+  const currentTurn = (JSON.parse(frameworkRunState) as { readonly currentTurn?: unknown }).currentTurn;
+  return typeof maxTurns !== "number" || typeof currentTurn !== "number" ? maxTurns : maxTurns - currentTurn;
 }
 
 function readTurnInputItems(turn: AgentTurnContext): AgentInputItem[] {
