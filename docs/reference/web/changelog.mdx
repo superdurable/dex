@@ -10,7 +10,7 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6); 1.45.7 released 2026-11-15 as [web/v1.45.7](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.7); 1.45.8 released 2026-11-15 as [web/v1.45.8](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.8); 1.45.9 released 2026-11-15 as [web/v1.45.9](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.9); 1.45.10 released 2026-11-16 as [web/v1.45.10](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.10); 1.45.11 released 2026-11-16 as [web/v1.45.11](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.11).
+Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0); 1.45.1 released 2026-11-12 as [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1); 1.45.2 released 2026-11-12 as [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2); 1.45.3 released 2026-11-13 as [web/v1.45.3](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.3); 1.45.4 released 2026-11-14 as [web/v1.45.4](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.4); 1.45.5 released 2026-11-14 as [web/v1.45.5](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.5); 1.45.6 released 2026-11-15 as [web/v1.45.6](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.6); 1.45.7 released 2026-11-15 as [web/v1.45.7](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.7); 1.45.8 released 2026-11-15 as [web/v1.45.8](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.8); 1.45.9 released 2026-11-15 as [web/v1.45.9](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.9); 1.45.10 released 2026-11-16 as [web/v1.45.10](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.10); 1.45.11 released 2026-11-16 as [web/v1.45.11](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.11); 1.45.12 released 2026-11-17 as [web/v1.45.12](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.12).
 
 ### Breaking
 
@@ -43,6 +43,28 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
   also returns **serverVersion**, **minimumSupportedProtocolVersion**, and
   **webVersion**. See
   [v1 Flows and Run pages](/reference/web/dex-web#v1-pages). Since 1.45.11.
+- **Folded** on the run page's **Graph** folds repeated Rounds of Steps.
+  Consecutive Rounds with the same Steps fold into one node, such as
+  **Rounds 1–100** or **SyncBatch ×900**. It is off by default and the
+  browser remembers the choice. The latest Round and Rounds with a failed or
+  waiting Step stay open, **Show Steps** and **Show Rounds** open a folded
+  node and bring it into view, and selecting an event inside one opens it. A
+  short card introduces **Folded** the first time **Graph** opens. Since 1.45.12.
+- The **Graph** mini map is always shown at the bottom right, colored by Step
+  status, and moves the view on click or drag. A small button hides it to a
+  map button, and the browser remembers the choice. It replaces the
+  **Mini Map** button. Since 1.45.12.
+- **Graph** nodes drop their borders for soft shadows, rounded corners, and
+  tinted WaitFor and Execute chips; edges are thinner, and edges into a
+  waiting Step are dashed. Since 1.45.12.
+- **Filter**, next to **Legend** on the Timeline, hides events by type and, for
+  Step, RPC, Channel, and Attribute events, by Step type, RPC name, Channel
+  name, or Attribute name. **Select all** and **Clear all** work for all types
+  and for the names of each type. While a filter hides events, the button shows
+  how many types it filters, the Timeline head says how many events on the page
+  are hidden, and **Show all** resets it. The overview still shows every event
+  and dims the hidden ones; a selected event always shows. The browser
+  remembers the filter per Flow type. Since 1.45.12.
 
 ### Changed
 
@@ -141,6 +163,36 @@ Released 2026-11-11 as [web/v1.45.0](https://github.com/superdurable/dex/release
 - When a tool call starts waiting for approval or an answer while you are at the newest item, the **Conversation** tab scrolls its controls into view above the message box. The waiting status chip jumps to the call, and a waiting call shows less of its arguments, so its buttons stay close. The tab does not move the view when you have scrolled up or are working in another waiting call. Since 1.45.6.
 - On **Flows**, **Queries** shows **Saved** and **Recent** as lists with a header and count each. An entry shows its query on up to two lines and when it was saved or last run. It runs on click and offers **Copy**, plus **Save** and **Remove** for a recent query or **Delete** for a saved one. **Clear** empties **Recent**. An empty list says how to fill it. Arrow keys move between entries, and **Escape** closes the panel. [Reference](/reference/web/dex-web#flows-saved-queries). Since 1.45.9.
 - **Save query** names the query in a field inside the panel instead of a browser prompt, so it also works inside an embedding page that blocks prompts. When the clipboard or browser storage is unavailable, the panel says so. Since 1.45.9.
+- A completed Execute on the run page's **Graph** shows the Step decision it
+  returned in place of **Completed**: the next Step types, such as
+  **→ ResumeTurn, CallTool** with **+N** for more, or **Dead end**,
+  **Graceful complete**, **Force complete**, **Force fail**, **Complete when
+  channels are empty**, or the canceled Step types. Each has its own icon and
+  color, and the tooltip lists the whole decision. Since 1.45.12.
+- The Timeline lane has two label modes, picked from **Dense** and **Tidy** tabs
+  next to **Legend**. **Dense**, the default, keeps each event's slanted
+  label. **Tidy** shows each label straight above its dot, wrapped at
+  word boundaries in up to three lines; identifiers read as words, such as
+  **Send User Message** for **send_user_message**, and the tooltip keeps the
+  exact name. The browser remembers the mode, and a short note introduces both
+  modes the first time the Timeline opens. Since 1.45.12.
+- Only an open run shows the end note at the Timeline lane's newest end; a
+  closed run uses that room for events. When an open run's newest end is out of
+  view, **Now**, with the live dot, goes back to the newest event. Since 1.45.12.
+- The run configuration field **Attribute stores** is now named **Sync
+  Attribute stores**. Since 1.45.12.
+- A page wider than the Timeline lane shows which events are in view. A page
+  that fits beside the run's end note shows every event from the first one, and
+  an event scrolled past the lane's left edge shows no cut-off label. Since 1.45.12.
+- The run page opens on the tab chosen last, on any run. An agent session opens
+  on **Conversation** only when no tab was chosen yet. Since 1.45.12.
+- The selected event's panel gives Input and Output equal width and Context a
+  narrow column. Each value sits under its name; short values wrap beside it,
+  and objects, including JSON stored as a string, are pretty-printed and capped
+  at seven lines with **Copy** and **Expand**. Channel conditions read as counts
+  such as "exactly 1" or "1 or more". Context times show milliseconds, add the
+  date only when it differs from the event's, and show the full timestamp on
+  hover. Since 1.45.12.
 
 ### Fixed
 
