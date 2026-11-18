@@ -445,7 +445,7 @@ def test_adaptive_rpc_burst(harness: AdaptiveSlotHarness) -> None:
         for _ in range(rpc_count)
     ]
     handlers.await_entries(rpc_count)
-    # With E = 7 and R = 1: S + R >= min(N, E + R), S <= min(E, 2N).
+    # E = 7, R = 1: S + R >= min(N, 8), S <= min(7, 2N).
     state = run.state()
     assert state.open + state.rpc_only_open >= rpc_count
     assert state.open <= 7
@@ -762,6 +762,65 @@ def test_cap_of_one_first_acknowledgement_snapshot_is_consistent(
     assert not violations, f"inconsistent snapshots: {violations}"
     assert 1 in sampler.capacities
     print(f"snapshot samples: {sampler.sample_count}")
+
+
+def test_first_acknowledgement_transition_holds_the_snapshot(
+    harness: AdaptiveSlotHarness,
+) -> None:
+    """A snapshot waits for the whole first-acknowledgement transition.
+
+    A test barrier pauses the transition under the slot lock, after the cap
+    resolution and before the capacity update. A snapshot requested from
+    another thread must block until the barrier opens, and then satisfy
+    E == max(0, C - max(R_eff, Sr + Hr)) and 0 <= G <= E with the new cap.
+    This guards against splitting that critical section again.
+    """
+    server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
+    has_entered = threading.Event()
+    release = threading.Event()
+
+    def pause_inside_first_acknowledgement() -> None:
+        has_entered.set()
+        assert release.wait(30), "the test never released the first acknowledgement"
+
+    run = harness.worker(
+        server.address,
+        AdaptiveSlotHandlers(),
+        PullWorkerOptions(
+            max_concurrent_tasks=18,
+            min_open_slots=1,
+            app_worker_id=app_id("first-ack-barrier"),
+        ),
+        _HOUR,
+        settings=_PullSlotSettings(
+            shrink_window_seconds=_HOUR,
+            inside_first_acknowledgement_for_test=pause_inside_first_acknowledgement,
+        ),
+    )
+    try:
+        assert has_entered.wait(30), "the first acknowledgement never arrived"
+        snapshots: list[PullSlotStreamState] = []
+        snapshot_taken = threading.Event()
+
+        def take_snapshot() -> None:
+            snapshots.append(run.state())
+            snapshot_taken.set()
+
+        snapshot_thread = threading.Thread(target=take_snapshot, daemon=True)
+        snapshot_thread.start()
+        # A bounded negative check: the snapshot must wait for the held slot lock.
+        assert not snapshot_taken.wait(0.5), "a snapshot read the half-done transition"
+    finally:
+        release.set()
+    assert snapshot_taken.wait(10), "the snapshot never returned"
+    state = snapshots[0]
+    rpc_only_usage = state.rpc_only_open + state.orphaned_rpc_only_handlers
+    assert state.total_capacity == 1
+    assert state.effective_ceiling == max(
+        0, state.total_capacity - max(state.rpc_only_slots, rpc_only_usage)
+    ), state
+    assert 0 <= state.growth_target <= state.effective_ceiling, state
+    run.wait_registered()
 
 
 @pytest.mark.parametrize("mode", ["fixed", "adaptive"])

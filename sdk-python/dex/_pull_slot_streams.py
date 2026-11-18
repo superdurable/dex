@@ -74,6 +74,8 @@ class _PullSlotSettings:
     shrink_window_seconds: float = _DEFAULT_SHRINK_WINDOW_SECONDS
     # Runs after a slot stream opens and before its Register is checked and sent.
     before_register_send_for_test: Callable[[PullStream], Awaitable[None]] | None = None
+    # Runs under the slot lock between the first acknowledgement's cap resolution and its capacity update.
+    inside_first_acknowledgement_for_test: Callable[[], None] | None = None
 
 
 class _SlotAttemptRevokedError(Exception):
@@ -178,6 +180,11 @@ class PullSlotStreams:
                 failure = self._resolve_slot_ceiling_locked(limit)
                 if failure is not None:
                     return failure
+                inside_first_acknowledgement = (
+                    self.settings.inside_first_acknowledgement_for_test
+                )
+                if inside_first_acknowledgement is not None:
+                    inside_first_acknowledgement()
             elif 0 < limit < self.max_concurrent_tasks and not self.is_adaptive:
                 # The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
                 _LOGGER.warning(

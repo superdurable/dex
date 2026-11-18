@@ -666,6 +666,72 @@ class FakeStub:
         return self.call
 
 
+class StopInterruptedWriteCall:
+    """A call whose Register write raises InvalidStateError after stop closes the stream."""
+
+    def __init__(self, cancel_result: bool) -> None:
+        self.cancel_result = cancel_result
+        self.write_started = asyncio.Event()
+        self.write_released = asyncio.Event()
+
+    async def write(self, request: pb.PollWorkerTaskRequest) -> None:
+        self.write_started.set()
+        await self.write_released.wait()
+        raise asyncio.InvalidStateError("RPC already finished.")
+
+    async def read(self) -> Any:
+        return getattr(grpc.aio, "EOF")
+
+    async def done_writing(self) -> None:
+        return None
+
+    def cancel(self) -> bool:
+        self.write_released.set()
+        return self.cancel_result
+
+
+@pytest.mark.parametrize("cancel_result", [True, False])
+def test_stop_downgrades_only_an_invalid_state_error_that_its_cancel_caused(
+    cancel_result: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A write that stop canceled ends quietly; an already-ended call's error stays at ERROR.
+
+    gRPC returns False from cancel() for a call that already ended, so that
+    call's InvalidStateError is a real failure even while the Worker stops.
+    """
+    asyncio.run(_stop_downgrades_invalid_state_error(cancel_result, caplog))
+
+
+async def _stop_downgrades_invalid_state_error(
+    cancel_result: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    call = StopInterruptedWriteCall(cancel_result)
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(max_concurrent_tasks=1, app_worker_id="stop-write-worker"),
+        "localhost:8801",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
+    with caplog.at_level(logging.DEBUG, logger="dex._pull_worker"):
+        running = asyncio.create_task(stream.run())
+        await asyncio.wait_for(call.write_started.wait(), timeout=1)
+        runtime._stopping.set()
+        stream.close()
+        await asyncio.wait_for(running, timeout=1)
+    failures = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.ERROR
+        and record.getMessage() == "Worker task stream failed"
+    ]
+    assert len(failures) == (0 if cancel_result else 1)
+
+
 def test_register_pong_and_idle_reconnect() -> None:
     asyncio.run(_register_pong_and_idle_reconnect())
 

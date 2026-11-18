@@ -1093,8 +1093,9 @@ class PullStream:
     def close(self) -> None:
         self._is_connection_closed = True
         if self._call is not None:
-            self._has_stop_canceled_call = self.runtime.is_stopping
-            self._call.cancel()
+            # cancel() returns False for a call that already ended; only a real cancel excuses its error.
+            did_cancel = bool(self._call.cancel())
+            self._has_stop_canceled_call |= self.runtime.is_stopping and did_cancel
 
 
 def _is_final_task_frame(frame: pb.PollWorkerTaskFrame) -> bool:
