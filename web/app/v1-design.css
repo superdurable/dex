@@ -1549,6 +1549,14 @@ body:has(.v1-page) {
   transition: background-color 160ms ease, color 160ms ease;
 }
 
+.v1-page .graph-method-execute .graph-execute-decision-lines {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .v1-page .graph-method-execute .graph-execute-decision {
   display: flex;
   max-width: 100%;
@@ -1567,7 +1575,8 @@ body:has(.v1-page) {
   line-height: inherit;
 }
 
-.v1-page .graph-method-execute .graph-execute-decision-text {
+.v1-page .graph-method-execute .graph-execute-decision-text,
+.v1-page .graph-method-execute .graph-execute-decision-channel-names {
   overflow: hidden;
   min-width: 0;
   white-space: nowrap;
@@ -1575,34 +1584,81 @@ body:has(.v1-page) {
 }
 
 /* Beside WaitFor conditions Execute takes its content width, so the text needs a cap. */
-.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-text {
-  max-width: 120px;
+.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-lines {
+  max-width: 132px;
 }
 
-.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-more {
+/* There the cancel suffix keeps its icon and count; screen readers still hear its name. */
+.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-cancel .graph-execute-decision-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-count,
+.v1-page .graph-method-execute .graph-execute-decision-channels .graph-execute-decision-count {
   flex: none;
   color: var(--muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-separator {
+  flex: none;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* The kind name takes the truncation, so the cancel icon and count stay whole. */
+.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-cancel {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision-channels {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision-channels span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
 }
 
 .v1-page .graph-method-decision-dead-end.graph-method-completed,
-.v1-page .graph-method-decision-cancel.graph-method-completed {
+.v1-page .graph-method-decision-cancel-steps.graph-method-completed {
   background: var(--ui-well);
 }
 
 .v1-page .graph-method-decision-dead-end .graph-execute-decision,
-.v1-page .graph-method-decision-cancel .graph-execute-decision {
+.v1-page .graph-method-decision-cancel-steps .graph-execute-decision {
   color: var(--muted);
 }
 
 .v1-page .graph-method-decision-graceful-complete.graph-method-completed,
 .v1-page .graph-method-decision-force-complete.graph-method-completed,
-.v1-page .graph-method-decision-complete-when-channels-empty.graph-method-completed {
+.v1-page .graph-method-decision-force-complete-if-channels-empty.graph-method-completed {
   background: var(--tone-accent-soft);
 }
 
 .v1-page .graph-method-decision-graceful-complete .graph-execute-decision,
 .v1-page .graph-method-decision-force-complete .graph-execute-decision,
-.v1-page .graph-method-decision-complete-when-channels-empty .graph-execute-decision {
+.v1-page .graph-method-decision-force-complete-if-channels-empty .graph-execute-decision {
   color: var(--tone-accent-ink);
 }
 

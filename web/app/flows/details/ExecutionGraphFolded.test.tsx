@@ -164,7 +164,7 @@ describe('Folded Graph', () => {
   it('shows the Step decision of the execution a ×N node shows', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
     const toSync = { nextSteps: [{ stepType: 'SyncBatch' }] };
-    const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }] };
+    const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }], cancelStepTypes: ['Poll'] };
     render(graph(decidedChainHistory([
       ...Array.from({ length: 8 }, () => ['SyncBatch', toSync] as [string, unknown]),
       ['SyncBatch', toCheckpoint],
@@ -175,7 +175,10 @@ describe('Folded Graph', () => {
       ['Checkpoint', { closeDecision: { closeDecisionType: 2 } }],
     ])));
     const repeated = screen.getByText('×9').closest('.graph-step-label')!;
-    expect(repeated.querySelector('.graph-execute-decision-text')?.textContent).toBe('Checkpoint');
+    expect(repeated.querySelector('.graph-execute-decision-text')?.textContent).toBe('GoTo');
+    expect(repeated.querySelector('.graph-execute-decision-cancel')?.textContent).toBe('CancelSteps×1');
+    expect(repeated.querySelector('.graph-execute-decision-lines')?.getAttribute('title'))
+      .toBe('GoTo → Checkpoint\nCancelSteps → Poll (entire Flow)');
   });
 
 
