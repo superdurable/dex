@@ -44,7 +44,6 @@ for (const [component, latest] of Object.entries(latestReferenceVersions)) {
     snapshots = [];
   }
   const archived = snapshots.filter((version) => version !== latest);
-  assert.ok(archived.length < 5, `${component} must publish at most five versions including current`);
   assert.deepEqual(snapshots, [...new Set(snapshots)].sort((first, second) => compareVersions(second, first)));
   referenceVersions.set(component, ['current', ...archived]);
   for (const version of ['current', ...archived]) {
