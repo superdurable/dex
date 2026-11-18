@@ -2,9 +2,7 @@
 
 `dexbench` measures server-zd with a Go SDK Worker. It runs six execution scenarios at
 fixed client concurrency and records throughput, latency percentiles, server
-CPU and memory, and object storage requests for each run. It also runs
-open-loop [slot stream scenarios](#slot-stream-scenarios) that measure pull
-Worker streams.
+CPU and memory, and object storage requests for each run.
 
 ## Latest results
 
@@ -214,136 +212,6 @@ FlowService PublishToChannel. Only the time from the publish call to the start
 of the Step's Execute is timed. Throughput includes the untimed setup, so use
 only the latency of this scenario.
 
-### Slot stream scenarios
-
-These scenarios come from the benchmark plan in
-[`docs/design/adaptive-worker-slot-streams.md`](../docs/design/adaptive-worker-slot-streams.md)
-and issue #1989. They measure the cost and the behavior of pull Worker slot
-streams. Each slot is one stream, so a Worker with N slots holds N streams.
-
-They differ from S1 to S6 in three ways:
-
-- **Open-loop load.** A scheduler starts one-Step probe Flows at a target rate,
-  whether or not earlier Flows finished. The probe Step holds its slot for a
-  fixed handler time, then completes the Flow. Each Flow keeps its history local.
-- **Schedule-to-start latency.** The latency of a slot point runs from the
-  planned start time of the Flow to the start of its Step's Execute. It
-  includes the StartFlow call. The scheduler integrates the target rate over
-  planned time. It samples the rate at the midpoint of each 1 ms step. A start
-  keeps its planned time even when the scheduler wakes late, so its lateness
-  counts as latency. This avoids coordinated omission. A periodic wave needs a
-  period of at least 100 ms, so that sampling stays within 1% of the wave's
-  integral. Rates and percents must be finite and nonnegative. A point fails
-  at once when its computed peak rate is not finite or when it would plan more
-  than 10 million starts.
-- **Request loss.** A planned start can be skipped because the start queue is
-  full, fail in StartFlow, or never run its Step before the point ends. Such a
-  request has no latency. The scheduler wakes every 5 ms. A start queued more
-  than 20 ms (four ticks) after its planned time is late. The lag is measured
-  when the start is actually queued. A point with any lost request or any late
-  start is marked unusable: `is_usable` is false and `unusable_reasons` says
-  why. `report.md` marks it too.
-- **Concurrency is the size.** `--concurrency` sets the main size of each
-  scenario, given in the table below.
-
-The Workers use fixed slots, with no reserved RPC slots. So the stream count
-stays flat while load changes. That flat line is the baseline for adaptive slot
-streams.
-
-| Variant | Concurrency means | Setup | Measures |
-| --- | --- | --- | --- |
-| `idle-slots-f1`, `idle-slots-f16` | total slot streams N | Workers of 256 slots (the default `matching.maxConcurrentTasksCap`), registering 1 or 16 Flow types. Phases: baseline with no Worker, open, settle (warmup), idle (duration), probe at 50 Steps/s for 30 s, then a server restart. | Server RSS and CPU per stream, from the baseline and idle phases. Time to register N streams. The `dexzd_matching_worker_streams` series. Probe schedule-to-start. Time until the server is ready and until all N streams are back after the restart. The Ping rate is derived as N / `matching.pingInterval`, because no metric counts Pings. |
-| `burst-async`, `burst-sync` | total slots | Workers of 99 slots, the design's ceiling. For each level of 8, 32, and 96 in-flight Steps per Worker: a 5 s gap with no load, then the level for the duration. The rate is level × Workers / handler time, with 1 s handlers. | Schedule-to-start and the stream count, per second and per level. |
-| `fairness` | total slots | 8 Workers with equal slots on one task queue, 100 ms handlers. Each load level of 25%, 50%, 90%, and 110% of capacity runs for the duration. 110% builds a backlog. | The Steps each Worker starts per level, its share, and Jain's fairness index. |
-| `periodic` | total slots | Workers of 99 slots, 100 ms handlers. A square wave between 10% and 90% of capacity with a 10 s period, for the duration. `-load-wave sine` gives a sine wave. | Stream count, stream closes, `not_delivered` returns, and schedule-to-start over time. |
-| `backlog-one-partition-10ms`, `backlog-one-partition-2s` | queued Steps | All Flows start with no Worker connected, so their Steps go to the durable task queue. One Worker of 99 slots then drains them, with 10 ms or 2 s handlers. | Drain time, start rate (one start per backlog Claim round trip), busy handlers, streams, and queue entries over time. |
-
-The scenario names `idle-slots`, `burst`, and `backlog-one-partition` run
-both of their variants.
-
-**One partition.** A backlog Claim covers one partition and queue at a time,
-so `backlog-one-partition` must keep all its Flows in one partition.
-
-- server-zd places a Flow by keyed SipHash-2-4 of the tenant ID and the Flow
-  ID (`server-zd/crates/dexzd-keyspace/src/partition_hash.rs:79-93`).
-- The key is random per cluster. It is created once and stored only in the
-  cluster object (`server-zd/crates/dexzd-cluster-metadata/src/cluster.rs:61,174`).
-  The server keeps it secret, so crafted Flow IDs cannot target one partition
-  (`partition_hash.rs:125`).
-- So `dexbench` cannot choose Flow IDs for one partition on its own. The
-  scripts instead run these variants with `cluster.partitionCount: 1`. Then
-  every Flow maps to partition 0 (`partition_hash.rs:87-89`). That setting also
-  limits the server to one applier lane.
-- `dexbench` also replicates the hash in Go, tested against the server's test
-  vectors. If you know the cluster's key, pass `-partition-hash-key <32 hex
-  digits> -partition-count <count> -pin-partition <p>`, and the Flow IDs all
-  hash into partition p. The key is field 5 of the protobuf object `cluster`
-  under the server's object storage prefix
-  (`server-zd/proto/dexzd/v1/metadata.proto:33`). Every point starts a new
-  cluster with a new key, so this works only against a server you keep
-  running.
-
-**Adaptive slots.** `-adaptive-slots` and `-min-open-slots` are off by default.
-The Go SDK has no adaptive slot streams yet, so setting either one fails the
-point. When the SDK gains `PullWorkerOptions.MinOpenSlots`, set it in
-`slotWorkerPullOptions` in `dexbench/slot_scenarios.go`.
-
-**Flags.** Pass these `dexbench run` flags through `DEXBENCH_SLOT_ARGS` in
-both scripts. `dexbench run --help` lists them all.
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `-slots-per-worker` | 256 for idle-slots, 99 otherwise | Slots of each Worker |
-| `-slot-workers` | derived; 8 for fairness | Worker count of burst, fairness, and periodic |
-| `-flow-types` | 1 | Flow types, when the variant does not fix them |
-| `-handler-duration` | 10 ms idle probe, 1 s burst, 100 ms otherwise | Time each probe Step holds its slot |
-| `-step-durability` | `async` | `async` or `sync`, when the variant does not fix it |
-| `-baseline` | `5s` | idle-slots observation before any Worker opens |
-| `-probe-rate`, `-probe-duration` | `50`, `30s` | idle-slots probe load |
-| `-restart-command` | empty | idle-slots restart; the scripts set it |
-| `-server-pid-file` | empty | File with the server PID that a restart changes; empty uses `process_start_time_seconds` |
-| `-ping-interval` | `20s` | The server's `matching.pingInterval`, for the derived Ping rate |
-| `-idle-gap`, `-burst-levels` | `5s`, `8,32,96` | burst gap and levels in in-flight Steps per Worker |
-| `-load-percents` | `25,50,90,110` | fairness levels |
-| `-load-wave`, `-load-period`, `-load-low-percent`, `-load-high-percent` | `square`, `10s`, `10`, `90` | periodic wave |
-| `-partition-hash-key`, `-partition-count`, `-pin-partition` | empty, `1024`, `0` | Pin Flow IDs to one partition |
-| `-start-parallelism`, `-client-connections` | `256`, `4` | Concurrent StartFlow calls and Clients |
-| `-open-timeout`, `-drain-timeout` | `10m`, `5m` | Limits for registration and for started Steps to finish |
-| `-adaptive-slots`, `-min-open-slots` | off, `0` | Reserved for adaptive slot streams |
-
-**Output.** A slot point writes the same `<target>-<variant>-c<C>-<time>.json`
-as the other scenarios. `attempts` counts every planned start, and `errors`
-counts the lost ones by cause. Its `slot_streams` object adds:
-
-- `is_usable`, `unusable_reasons`, and `request_loss`: planned starts, skipped
-  starts, StartFlow failures, Flows started, Steps started, Steps not started,
-  starts queued more than 20 ms late, and the largest scheduler lag.
-- `steps_outside_phases`: Steps that started in the short gap between two
-  phases, or after the last one. A phase lists only Steps that started within
-  its own `started_at` and `ended_at`.
-- `phases`: per phase, the offered rate, Steps started, schedule-to-start
-  percentiles, Steps and share per Worker, Jain's index, the server stream
-  range, and the peak of busy handlers.
-- `samples`: one entry per second with the phase, offered rate, Steps started
-  and finished, busy handlers, schedule-to-start percentiles, per-Worker busy
-  handlers (up to 64 Workers), and the server's stream gauge, task queue
-  entries, stream closes, and `not_delivered` returns.
-- `idle`, `restart`, and `backlog`: the summaries of those scenarios.
-- `server_metrics_delta`: the change of the server's schedule-to-start buckets,
-  stream closes, and `not_delivered` returns over the point. With a restart,
-  it ends just before the restart, because a restart resets the counters.
-- `worker_registrations`: the SDK registration snapshot of every Worker at the
-  end.
-
-Both scripts write the `dexbench` log of a slot point to a file next to its
-JSON: `<variant>-c<C>.dexbench.log` from `run.sh`, and
-`<point id>.dexbench.log` from `run-remote.sh`. Each Worker stream logs its
-disconnects, so a restart of N streams writes N lines.
-
-`report.md` adds a summary line and a phase table for each slot point. The
-server needs `metrics.level: verbose` for `dexzd_worker_stream_events`; both
-scripts set it for slot variants. idle-slots needs `--metrics-url`.
-
 ### Latency and coordinated omission
 
 The load is closed-loop. Each client sends its next request only after the
@@ -423,49 +291,9 @@ It takes about 1 hour 45 minutes.
 | `DEXBENCH_DEXCLI_BINARY` | `dexcli` on `PATH` | The `dexcli` to run |
 | `DEXBENCH_ZD_BINARY` | `dex-server-zd` on `PATH` | The server-zd binary |
 | `DEXBENCH_MAX_LOAD` | core count | Wait until the 1-minute load average is below this |
-| `DEXBENCH_SLOT_ARGS` | empty | Extra `dexbench run` flags for slot stream variants |
-| `DEXBENCH_SLOT_RESTART` | `1` | `0` skips the idle-slots server restart |
 
 Before each build and step, the script waits until the one-minute load average
 is below `DEXBENCH_MAX_LOAD`.
-
-### Slot stream scenarios locally
-
-Name the slot variants explicitly; the default scenario list leaves them out.
-These are smoke sizes:
-
-```bash
-DEXBENCH_SCENARIOS=idle-slots-f1 DEXBENCH_CONCURRENCY=200 DEXBENCH_DURATION=5 DEXBENCH_WARMUP=1 \
-  DEXBENCH_SLOT_ARGS="-baseline 3s -probe-duration 5s" benchmark/local/run.sh
-DEXBENCH_SCENARIOS=burst DEXBENCH_CONCURRENCY=198 DEXBENCH_DURATION=3 \
-  DEXBENCH_SLOT_ARGS="-burst-levels 2,8 -idle-gap 1s" benchmark/local/run.sh
-DEXBENCH_SCENARIOS=fairness DEXBENCH_CONCURRENCY=80 DEXBENCH_DURATION=3 \
-  DEXBENCH_SLOT_ARGS="-load-percents 50,110" benchmark/local/run.sh
-DEXBENCH_SCENARIOS=periodic DEXBENCH_CONCURRENCY=99 DEXBENCH_DURATION=3 \
-  DEXBENCH_SLOT_ARGS="-load-period 2s" benchmark/local/run.sh
-DEXBENCH_SCENARIOS=backlog-one-partition DEXBENCH_CONCURRENCY=200 DEXBENCH_DURATION=3 benchmark/local/run.sh
-```
-
-The plan's sizes are `DEXBENCH_CONCURRENCY=10000,50000,100000` for idle-slots
-and 1,000 queued Steps for the backlog. The default `matching.maxStreams` is
-100,000, so 100k streams is the node limit. Above it, set `matching.maxStreams`
-in the server config.
-
-For slot variants, `run.sh` adds `metrics.level: verbose` to the server
-config. For `backlog-one-partition-*` it adds `cluster.partitionCount: 1`.
-`run.sh` runs `dexcli dev` under a small supervisor shell, which is the
-sampling root. idle-slots restarts the server by sending SIGHUP to that
-supervisor. The supervisor stops `dexcli dev` and starts it again on the same
-data directory.
-
-On macOS, CPU comes from `ps` with 10 ms resolution, and the RSS of the whole
-`dexcli dev` tree moves by megabytes on its own. Per-stream costs from a laptop
-are rough. Measure them on Linux.
-
-The local server listens on port 8801, the `dexcli dev` default. Other Dex
-Workers on the same machine may connect to it. Then `idle.registered_server_streams`
-exceeds N, and the baseline phase already shows streams. Stop those Workers,
-or measure on a clean host.
 
 ### State between steps
 
@@ -516,7 +344,7 @@ The scripts live in `benchmark/aws/`:
 | Script | Runs on | Does |
 | --- | --- | --- |
 | `launch.sh` | your machine | Creates the bucket, endpoint, IAM role, security groups, placement group, and instances |
-| `serve.sh` | server host | Writes the server-zd config, starts, restarts, and stops the server, and collects server-side data |
+| `serve.sh` | server host | Writes the server-zd config, starts and stops the server, and collects server-side data |
 | `run-remote.sh` | load host | Runs every point and writes the result set |
 | `reproduce.sh` | load host | Reruns points of a recorded result set |
 | `teardown.sh` | your machine | Deletes every resource of the run and checks that none remains |
@@ -634,9 +462,6 @@ config only when its variable is set:
 | `DEXBENCH_ZD_WRITE_BUFFER_BYTES` | `localStorage.writeBufferBytes` |
 | `DEXBENCH_ZD_BLOCK_CACHE_BYTES` | `localStorage.blockCacheBytes` |
 | `DEXBENCH_ZD_MAX_INFLIGHT_RPCS` | `limits.maxInFlightRpcsPerNode` |
-| `DEXBENCH_ZD_METRICS_LEVEL` | `metrics.level` |
-| `DEXBENCH_ZD_MAX_STREAMS` | `matching.maxStreams` |
-| `DEXBENCH_ZD_MAX_TASKS_CAP` | `matching.maxConcurrentTasksCap` |
 
 For any other key, set `DEXBENCH_ZD_EXTRA` to comma-separated
 `section.key=value` pairs, such as `snapshot.interval=1h`. server-zd rejects
@@ -658,56 +483,6 @@ Other settings:
 | `DEXBENCH_S3_CREDENTIALS` | `defaultChain` | `defaultChain` uses the instance profile |
 | `DEXBENCH_PROFILE` | `1` | `1` profiles the server in the middle of each measurement; `0` turns it off |
 | `DEXBENCH_PROFILE_SECONDS`, `DEXBENCH_PROFILE_FREQUENCY` | `10`, `49` | Length and sampling rate (Hz) of the perf profile |
-| `DEXBENCH_PROFILE_DELAY_SECONDS` | warmup + duration / 3 | Seconds from the start of collection to the profile |
-| `DEXBENCH_SLOT_ARGS` | empty | Extra `dexbench run` flags for slot stream variants |
-| `DEXBENCH_SLOT_RESTART` | `1` | `0` skips the idle-slots server restart |
-
-#### Slot stream scenarios on AWS
-
-Slot variants run like any other point, so each point keeps its perf profile,
-thread stacks, and crash backtraces. `run-remote.sh` adds two settings to each
-slot point in `points.txt`, unless the point or the environment already sets
-them: `DEXBENCH_ZD_METRICS_LEVEL=verbose`, and `DEXBENCH_ZD_PARTITIONS=1` for
-`backlog-one-partition-*`.
-
-```bash
-DEXBENCH_SCENARIOS=idle-slots DEXBENCH_CONCURRENCY=10000,50000,100000 \
-  DEXBENCH_DURATION=60 DEXBENCH_WARMUP=10 DEXBENCH_PROFILE_DELAY_SECONDS=60 \
-  benchmark/aws/run-remote.sh
-```
-
-The default profile delay counts from the start of collection, so it can fall
-inside the stream registration of a large idle-slots point. Set
-`DEXBENCH_PROFILE_DELAY_SECONDS` so the profile lands in the idle phase:
-the baseline, plus the registration time, plus the warmup.
-
-For the idle-slots restart, `dexbench` runs `serve.sh restart` on the server
-host over SSH. It stops the server and starts it again with the same config,
-local store, and object storage prefix. The sampler and the profile read the
-server PID from its PID file, so they follow the new process. `server.log`
-holds both runs.
-
-`dexbench` watches the server while the restart command runs, so readiness is
-not delayed by the command's own length. Only a change of the server process
-identity counts as a restart. A failed scrape or a dip in the stream count
-never does. The identity comes from one of two sources:
-- `-server-pid-file`, a file holding the server PID. `run.sh` passes the PID
-  file that its supervisor rewrites after the old `dexcli dev` exits.
-  `run-remote.sh` in `DEXBENCH_REMOTE=local` mode passes the `serve.sh` PID
-  file.
-- Otherwise `process_start_time_seconds`. Linux servers export it at the
-  verbose level, which `run-remote.sh` sets for slot points. Over SSH, this is
-  the source.
-
-Without either source, the restart fails at once. After the identity changes,
-`ready_seconds` is the first SERVING health check, and
-`reregistered_seconds` is the first scrape with all N streams back. Both
-count from the start of the command. The command runs under the point's open
-timeout and is stopped when the restart phase ends.
-
-A large idle-slots point opens hundreds of Workers in the `dexbench` process.
-Check the load host CPU column in `report.md`; the probe load is light, so
-registration and the restart are the busy parts.
 
 #### What each point collects
 
