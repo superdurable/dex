@@ -21,6 +21,8 @@ interface FakeNode {
   position: { x: number; y: number };
   width?: number;
   height?: number;
+  ariaLabel?: string;
+  className?: string;
   data: { label: ReactNode };
 }
 
@@ -56,7 +58,17 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     useEffect(() => { onInit(flow.instance); }, [onInit]);
     return (
       <div>
-        {nodes.map((node) => <div className="react-flow__node" data-id={node.id} key={node.id}>{node.data.label}</div>)}
+        {nodes.map((node) => (
+          <div
+            aria-label={node.ariaLabel}
+            className={`react-flow__node ${node.className ?? ''}`}
+            data-id={node.id}
+            key={node.id}
+            role={node.ariaLabel ? 'group' : undefined}
+          >
+            {node.data.label}
+          </div>
+        ))}
         {children}
       </div>
     );
@@ -257,6 +269,40 @@ describe('Folded Graph', () => {
     expect(shownNodeIDs()).toContain(foldedRangeID);
     rerender(graph(loopEvents, execute10));
     await waitFor(() => expect(shownNodeIDs()).toContain('Step-10'));
+  });
+
+  it('draws a range of Rounds as a deck headed by the Round count', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const toCheck = { nextSteps: [{ stepType: 'Check' }] };
+    const toSync = { nextSteps: [{ stepType: 'Sync' }] };
+    render(graph(decidedChainHistory([
+      ...Array.from({ length: 5 }, () => [['Sync', toCheck], ['Check', toSync]] as Array<[string, unknown]>).flat(),
+      ['Sync', toCheck],
+      ['Check', { closeDecision: { closeDecisionType: 2 } }],
+    ])));
+    const range = screen.getByRole('group', { name: '5 Rounds, Rounds 1–5, 10 Steps' });
+    expect(range.classList.contains('node-round-range')).toBe(true);
+    expect(range.querySelectorAll('.graph-round-deck-layer')).toHaveLength(2);
+    expect(range.querySelector('.graph-round-deck-count')?.textContent).toBe('×5Rounds');
+    expect(range.querySelector('.graph-round-deck-span')?.textContent).toBe('1–5 · 10 Steps');
+    expect(range.querySelector('.graph-round-sequence')?.textContent).toBe('Sync → Check');
+    const rangeNode = flow.state.nodes.find((node) => node.ariaLabel === '5 Rounds, Rounds 1–5, 10 Steps')!;
+    // The deck's back cards take room up and right of the 280 by 136 card.
+    expect({ width: rangeNode.width, height: rangeNode.height }).toEqual({ width: 296, height: 148 });
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Rounds/ }));
+    const singleRound = screen.getByText('Round 1').closest('.react-flow__node')!;
+    expect(singleRound.classList.contains('node-round-range')).toBe(false);
+    expect(singleRound.querySelector('.graph-round-deck')).toBeNull();
+    expect(singleRound.querySelector('.graph-round-count')?.textContent).toBe('2 Steps');
+  });
+
+  it('keeps the Step type title on the deck of a one-Step-type range', () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(loopEvents));
+    const range = screen.getByRole('group', { name: 'Step ×19, 19 Rounds, Rounds 1–19, 19 Steps' });
+    expect(range.querySelector('.graph-round-deck-title')?.textContent).toBe('Step ×19');
+    expect(range.querySelector('.graph-round-facts')?.textContent).toContain('Rounds 1–19');
   });
 
   it('opens the folded group that holds the selected Step', async () => {
