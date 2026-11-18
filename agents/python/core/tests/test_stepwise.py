@@ -45,6 +45,7 @@ from tests.stepwise_agent import (
 )
 from tests.stepwise_agent import (
     MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE,
+    REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE,
     UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE,
 )
 
@@ -498,6 +499,88 @@ async def test_worker_killed_during_a_single_attempt_write_records_outcome_unkno
     assert harness.invocations.count("slow_write") == 1
     assert gate.reached_count() == 1
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
+
+
+@pytest.mark.parametrize(
+    ("deploy", "expected_error"),
+    [
+        ("renamed", "unknown tool issue_refund"),
+        (
+            "schema_changed",
+            "invalid arguments for issue_refund: arguments.refund_order_id is required",
+        ),
+    ],
+)
+async def test_an_idempotent_write_whose_retry_finds_a_changed_tool_records_outcome_unknown(
+    stepwise_harness: ScriptedAgentHarness, deploy: str, expected_error: str
+) -> None:
+    harness = stepwise_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "idempotent-refund model-gate order-5")
+    refund_gate = harness.gate("refund-gate")
+    await refund_gate.wait_until_reached()
+
+    worker.kill()
+    refund_gate.release()
+    await harness.stack.start_worker({REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE: deploy})
+    # The next model call waits at the gate, so the turn keeps the final record readable.
+    model_gate = harness.gate("model-gate")
+    await model_gate.wait_until_reached()
+    waiting = await harness.sessions.get_agent_snapshot(session_id)
+    model_gate.release()
+
+    assert [(call.tool_name, call.status, call.error) for call in waiting.tool_calls] == [
+        ("issue_refund", ToolCallStatus.OUTCOME_UNKNOWN, expected_error)
+    ]
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    assert snapshot.messages[-1].text == f"issue_refund: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("issue_refund") == 1
+    assert await harness.executed_step_types(session_id) == [
+        "StartAgentSession",
+        "RunModel",
+        "CallTool",
+        "ResumeTurn",
+        "RunModel",
+    ]
+
+
+async def test_a_first_attempt_that_finds_no_tool_of_that_name_records_failed(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker({REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE: "renamed"})
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "idempotent-refund - order-6")
+
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "issue_refund: The tool call failed: unknown tool issue_refund"
+    )
+
+
+async def test_a_first_attempt_of_an_idempotent_write_with_invalid_arguments_records_failed(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker({REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE: "schema_changed"})
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "idempotent-refund - order-7")
+
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "issue_refund: The tool call failed: invalid arguments for issue_refund: "
+        "arguments.refund_order_id is required"
+    )
+    assert harness.invocations.count("issue_refund") == 0
+    assert await harness.executed_step_types(session_id) == [
+        "StartAgentSession",
+        "RunModel",
+        "CallTool",
+        "ResumeTurn",
+        "RunModel",
+    ]
 
 
 async def test_worker_killed_while_a_question_waits_and_the_answer_still_resumes(

@@ -11,6 +11,8 @@ import {
   createStepwiseTestAgentFlow,
   stepwiseMarkerDirectoryVariable,
   builtinLoopTurnContinuationHookVariable,
+  refundToolDeployVariable,
+  type RefundToolDeploy,
 } from "./stepwise-test-agent.js";
 
 const markerDirectory = process.env[stepwiseMarkerDirectoryVariable];
@@ -20,5 +22,8 @@ if (markerDirectory === undefined || markerDirectory === "") {
 await runAgentWorkerProcess([
   createStepwiseTestAgentFlow(markerDirectory, {
     hasTurnContinuationHook: process.env[builtinLoopTurnContinuationHookVariable] === "1",
+    ...(process.env[refundToolDeployVariable] === undefined
+      ? {}
+      : { refundToolDeploy: process.env[refundToolDeployVariable] as RefundToolDeploy }),
   }),
 ]);

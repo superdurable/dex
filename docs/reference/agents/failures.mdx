@@ -32,7 +32,7 @@ test covers the cell yet, so its text states the design, not a checked result.
 | **CallTool**, for an idempotent write | Before the first heartbeat reaches Dex | The call runs again with the same idempotency key. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallTool**, for an idempotent write | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallTool**, for a read | While the tool runs | The call runs again. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CallTool** | Every attempt | After the last attempt, a read records **failed** and a write records **outcome_unknown**. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | Not tested |
+| **CallTool** | Every attempt | After the last attempt, a read records **failed** and a write records **outcome_unknown**. A retry that refuses a write, such as after a deploy renamed its tool, records **outcome_unknown**; see [A retry that refuses the call](#retry-refusal). | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | Not tested |
 | **CallSingleAttemptTool** | Before the first heartbeat reaches Dex | The call records **outcome_unknown** and does not run again. The model sees that the outcome is unknown. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallSingleAttemptTool** | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **AwaitToolApproval** | While it waits | Nothing runs again. The wait lives in Dex Server. A later approval runs the tool once. | [Python][py-tools], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
@@ -94,6 +94,28 @@ unknown. To check it, see
 
 A tool Step that waits in the queue does not fail and uses no attempt. See
 [Keep tool Steps dispatchable](/reference/agents/workers#dispatchable).
+
+## A retry that refuses the call {#retry-refusal}
+
+Changed in 0.6.15. A tool Step attempt can end with a failure the model should
+see: `ToolExecutionError` in Python and TypeScript. On the first attempt the
+call records **failed**. On a later attempt of a call that is not a read, the
+call records **outcome_unknown** with the same error text.
+
+A later attempt follows one that reached a Worker and ended without a result,
+so the earlier attempt may have run the tool. A retry can refuse a call before
+the tool runs, for example after a deploy:
+
+- the tool was renamed, so the error is `unknown tool <name>`;
+- its schema changed, so the error is `invalid arguments for <name>: ...`.
+
+That refusal says nothing about the earlier attempt. Before 0.6.15 such a call
+recorded **failed**, and the model could call the write again with a new tool
+call ID and a new idempotency key.
+
+A read still records **failed**. So does a call that a tool source built, such
+as a Connector or MCP tool, because the source classifies its own errors. See
+[Connector tools](/reference/agents/connector-tools).
 
 [py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
 [py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py

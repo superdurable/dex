@@ -1190,7 +1190,11 @@ so the tool's source can resolve the tool without listing it again.
 - Return `ToolTaskStarted` when the tool started remote work that the session
   polls; see [Tool tasks](#tool-tasks).
 - Throw `ToolExecutionError(message)` for a failure the model should see. The
-  call is recorded as `failed` and not retried.
+  call is recorded as `failed` and not retried. On a later attempt of a call
+  that is not a `read`, it is recorded as `outcome_unknown` instead, because an
+  earlier attempt may have run the tool: for example, a retry after a Worker
+  crash that finds the tool renamed or its schema changed. A call that a tool
+  source built keeps `failed`.
 - Throw anything else for an unexpected failure. `CallTool` retries it up to 3
   attempts; `CallSingleAttemptTool` does not retry. When the attempts run out,
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool

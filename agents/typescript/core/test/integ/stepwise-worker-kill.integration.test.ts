@@ -31,6 +31,8 @@ import {
   createStepwiseTestAgentFlow,
   stepwiseMarkerDirectoryVariable,
   builtinLoopTurnContinuationHookVariable,
+  refundToolDeployVariable,
+  type RefundToolDeploy,
 } from "../fixtures/stepwise-test-agent.js";
 
 const workerEntryModulePath = fileURLToPath(new URL("../fixtures/stepwise-test-agent-worker.js", import.meta.url));
@@ -65,7 +67,7 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
 
   async function startWorker(
     markerDirectory: string,
-    options: { readonly hasTurnContinuationHook?: boolean } = {},
+    options: { readonly hasTurnContinuationHook?: boolean; readonly refundToolDeploy?: RefundToolDeploy } = {},
   ): Promise<KillableWorkerProcess> {
     const worker = await KillableWorkerProcess.start({
       entryModulePath: workerEntryModulePath,
@@ -74,6 +76,7 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
       environment: {
         [stepwiseMarkerDirectoryVariable]: markerDirectory,
         ...(options.hasTurnContinuationHook === true ? { [builtinLoopTurnContinuationHookVariable]: "1" } : {}),
+        ...(options.refundToolDeploy === undefined ? {} : { [refundToolDeployVariable]: options.refundToolDeploy }),
       },
     });
     workers.push(worker);
@@ -220,6 +223,83 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
       "StartAgentSession",
       "RunModel",
       "RecordToolOutcomeUnknown",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  for (const [deploy, expectedError] of [
+    ["renamed", "unknown tool issue_refund"],
+    ["schema_changed", "invalid arguments for issue_refund: arguments.refund_order_id is required"],
+  ] as const) {
+    test(`an idempotent write whose retry finds the tool ${deploy} records outcome_unknown`, async () => {
+      const markerDirectory = newMarkerDirectory();
+      const firstWorker = await startWorker(markerDirectory, { refundToolDeploy: "original" });
+      const token = newToken();
+      const sessionId = `stepwise-kill-deploy-${deploy}-${token}`;
+      await sessions.startSession(sessionId, `idempotent-refund ${token} then pause`);
+      const refundGate = new FileGate(markerDirectory, "issue_refund");
+      await refundGate.waitUntilReached();
+      await waitForEvent(sessionId, "tool_call_started");
+
+      await firstWorker.kill();
+      refundGate.release();
+      await startWorker(markerDirectory, { refundToolDeploy: deploy });
+
+      // The next model call waits at the gate, so the turn keeps the final record readable.
+      const modelGate = new FileGate(markerDirectory, "model");
+      await modelGate.waitUntilReached();
+      const refund = await sessions.readToolCall(sessionId, "call-1-0-issue_refund");
+      modelGate.release();
+      assert.equal(refund?.status, "outcome_unknown");
+      assert.equal(refund?.error, expectedError);
+      const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+      assert.equal(state.lastTurnError, null);
+      const snapshot = await sessions.getAgentSnapshot(sessionId);
+      assert.equal(snapshot.messages.find((message) => message.role === "tool")?.toolOutput, outcomeUnknownToolResult);
+      assert.equal(snapshot.messages.at(-1)?.text, `issue_refund: ${outcomeUnknownToolResult}`);
+      assert.equal(new InvocationLog(join(markerDirectory, "issue_refund.log")).names().length, 1);
+      assert.deepEqual(await executedStepTypes(sessionId), [
+        "StartAgentSession",
+        "RunModel",
+        "CallTool",
+        "ResumeTurn",
+        "RunModel",
+      ]);
+    });
+  }
+
+  test("a first attempt that finds no tool of that name records failed", async () => {
+    const markerDirectory = newMarkerDirectory();
+    await startWorker(markerDirectory, { refundToolDeploy: "renamed" });
+    const token = newToken();
+    const sessionId = `stepwise-first-unknown-${token}`;
+    await sessions.startSession(sessionId, `idempotent-refund ${token}`);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "issue_refund: The tool call failed: unknown tool issue_refund",
+    );
+  });
+
+  test("a first attempt of an idempotent write with invalid arguments records failed", async () => {
+    const markerDirectory = newMarkerDirectory();
+    await startWorker(markerDirectory, { refundToolDeploy: "schema_changed" });
+    const token = newToken();
+    const sessionId = `stepwise-first-invalid-${token}`;
+    await sessions.startSession(sessionId, `idempotent-refund ${token}`);
+
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      "issue_refund: The tool call failed: invalid arguments for issue_refund: arguments.refund_order_id is required",
+    );
+    assert.equal(new InvocationLog(join(markerDirectory, "issue_refund.log")).names().length, 0);
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "CallTool",
       "ResumeTurn",
       "RunModel",
     ]);

@@ -1136,9 +1136,13 @@ export class ToolCallStep implements Step<string> {
           if (!(error instanceof ToolExecutionError)) {
             throw error;
           }
-          const failed: AgentToolCallRecord = { ...toolCall, status: "failed", error: error.message };
-          toolCallSpan.recordFinished(failed);
-          transitions.finishToolCall(context, failed, events);
+          const refused: AgentToolCallRecord = {
+            ...toolCall,
+            status: toolExecutionErrorStatus(toolCall, context.attempt),
+            error: error.message,
+          };
+          toolCallSpan.recordFinished(refused);
+          transitions.finishToolCall(context, refused, events);
           return deadEnd();
         }
         if (isToolInputRequested(outcome)) {
@@ -1235,6 +1239,26 @@ export class ToolCallStep implements Step<string> {
     });
     return goToMany(toolTaskPollMovement(transitions.persistence, waiting));
   }
+}
+
+/**
+ * Returns the status a `ToolExecutionError` from a tool Step's attempt records.
+ *
+ * A first attempt, a `read`, and a call that a tool source built record `failed`. A later attempt of any other
+ * call records `outcome_unknown`: an attempt number above 1 means an earlier attempt reached a Worker and ended
+ * without a final record, so its tool may have taken effect. A refusal on the retry, such as an unknown tool or
+ * arguments that a new schema rejects, says nothing about that earlier attempt. A tool source classifies its own
+ * errors, so its calls keep `failed`.
+ * @param toolCall - The record the attempt ran.
+ * @param attempt - The tool Step's one-based attempt number.
+ * @returns `outcome_unknown` when an earlier attempt may have run a write, otherwise `failed`.
+ */
+export function toolExecutionErrorStatus(
+  toolCall: Pick<AgentToolCallRecord, "effect" | "toolSourceReference">,
+  attempt: number,
+): "failed" | "outcome_unknown" {
+  const isSourceCall = (toolCall.toolSourceReference ?? undefined) !== undefined;
+  return attempt > 1 && toolCall.effect !== "read" && !isSourceCall ? "outcome_unknown" : "failed";
 }
 
 /**

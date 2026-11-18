@@ -41,9 +41,10 @@ export const scriptedStepwiseModelUsage = {
  * An AI SDK mock language model whose answers depend only on its prompt, so reruns are deterministic.
  *
  * The last user text is a command; tool calls are answered once their results follow it:
- * - `lookup <id>`, `refund <id>`, `charge <id>`: one `lookup_order`, `refund_order`, or `charge_card`
- *   call, then the answer `<tool>: <result>`. `lookup <id> then pause` streams partial text and waits at
- *   the `model` FileGate before that answer, and `lookup <id> then fail` throws instead of answering.
+ * - `lookup <id>`, `refund <id>`, `charge <id>`, `idempotent-refund <id>`: one `lookup_order`, `refund_order`,
+ *   `charge_card`, or `issue_refund` call, then the answer `<tool>: <result>`. `lookup <id> then pause` streams
+ *   partial text and waits at the `model` FileGate before that answer, and `lookup <id> then fail` throws instead
+ *   of answering. `idempotent-refund <id> then pause` waits at the `model` FileGate before its answer.
  * - `ask <id> [choices a,b] [strict]`: one `ask_user` call, then `answer: <result>`.
  * - `wait <seconds> <id>`: one `durable_wait` call, then `waited: <result>`.
  * - `think <id>`: reasoning with provider metadata and a `lookup_order` call, then an answer.
@@ -142,6 +143,12 @@ async function* streamScriptedResponse(
       return;
     case "charge":
       yield* callOnceThenAnswer("charge_card", { order_id: words[0] ?? "" }, "charge_card");
+      return;
+    case "idempotent-refund":
+      if (toolResults.has("issue_refund") && words.slice(1).join(" ") === "then pause") {
+        await pauseAtModelGate(markerDirectory, options.abortSignal);
+      }
+      yield* callOnceThenAnswer("issue_refund", { order_id: words[0] ?? "" }, "issue_refund");
       return;
     case "ask": {
       const choicesIndex = words.indexOf("choices");

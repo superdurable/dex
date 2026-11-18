@@ -19,6 +19,9 @@ The model reads the current turn's user text:
 * ``publish <message>`` calls ``publish_note``, which needs approval.
 * ``publish-as <tool_call_id> <message>`` does the same with a fixed tool call ID.
 * ``slow-write <gate> <message>`` calls ``slow_write``, which waits at the gate.
+* ``idempotent-refund <gate|-> <order_id>`` calls ``issue_refund``, an
+  ``IDEMPOTENT_WRITE`` that waits at ``refund-gate``; the answer waits at the
+  gate unless it is ``-``.
 * ``ask <question> | <choice> ...`` calls ``ask_user``; ``ask-strict`` disallows
   free text.
 * ``ask-raw <json>`` calls ``ask_user`` with raw arguments.
@@ -157,6 +160,9 @@ CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_CANCEL_RPC_GATE"
 FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_FINISH_CANCELLATION_GATE"
 TURN_CONTINUATION_HOOK_ENVIRONMENT_VARIABLE = "BUILTIN_LOOP_AGENT_TURN_CONTINUATION_HOOK"
 COMPACTION_WINDOW_ENVIRONMENT_VARIABLE = "BUILTIN_LOOP_AGENT_COMPACTION_WINDOW"
+# ``renamed`` registers ``issue_refund`` as ``refund_payment``; ``schema_changed``
+# requires ``refund_order_id`` instead of ``order_id``.
+REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_REFUND_TOOL_DEPLOY"
 LONG_DRAFT_COUNT = 4
 INVOCATION_LOG_NAME = "invocations.log"
 INSTRUCTIONS = "You are a scripted test agent."
@@ -234,6 +240,7 @@ def build_stepwise_agent_flow(
     finish_cancellation_gate: str | None = None,
     has_turn_continuation_hook: bool = False,
     compaction_window_tokens: int | None = None,
+    refund_tool_deploy: str | None = None,
 ) -> AgentSessionFlow:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
@@ -267,6 +274,29 @@ def build_stepwise_agent_flow(
         invocations.record("slow_write")
         await wait_at_gate(gate)
         return f"wrote {message}"
+
+    @function_tool(
+        effect=ToolEffect.IDEMPOTENT_WRITE,
+        requires_approval=False,
+        name="refund_payment" if refund_tool_deploy == "renamed" else "issue_refund",
+        description="Refund an order's payment, once per idempotency key.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                ("refund_order_id" if refund_tool_deploy == "schema_changed" else "order_id"): {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "refund_order_id" if refund_tool_deploy == "schema_changed" else "order_id"
+            ],
+            "additionalProperties": False,
+        },
+    )
+    async def issue_refund(order_id: str | None = None, refund_order_id: str | None = None) -> str:
+        invocations.record("issue_refund")
+        await wait_at_gate("refund-gate")
+        return "refund issued"
 
     @function_tool(effect=ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False)
     async def transfer_funds(
@@ -397,6 +427,8 @@ def build_stepwise_agent_flow(
                 ]
             )
         if results:
+            if verb == "idempotent-refund" and rest.split(" ", 1)[0] != "-":
+                await wait_at_gate(rest.split(" ", 1)[0])
             if verb == "lookup-then-stall" and turn_round == 2:
                 await wait_at_gate(rest.split(" ", 1)[0])
             if verb == "lookup-then-fail":
@@ -444,6 +476,8 @@ def build_stepwise_agent_flow(
                     )
                 ]
             )
+        if verb == "idempotent-refund":
+            return _call("issue_refund", {"order_id": rest.split(" ", 1)[1]})
         if verb == "slow-write":
             gate, message = rest.split(" ", 1)
             return _call("slow_write", {"message": message, "gate": gate})
@@ -531,6 +565,7 @@ def build_stepwise_agent_flow(
             lookup_order,
             publish_note,
             slow_write,
+            issue_refund,
             transfer_funds,
             confirm_shipment,
             update_record,
@@ -581,6 +616,7 @@ def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
         os.environ.get(FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE),
         os.environ.get(TURN_CONTINUATION_HOOK_ENVIRONMENT_VARIABLE) == "1",
         None if compaction_window is None else int(compaction_window),
+        os.environ.get(REFUND_TOOL_DEPLOY_ENVIRONMENT_VARIABLE),
     )
 
 

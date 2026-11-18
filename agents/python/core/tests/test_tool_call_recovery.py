@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
 import pytest
 from dex import RecoveryErrorInfo, StepAttemptProgress
@@ -24,7 +27,7 @@ from dex_agents import (
     ToolCallStatus,
     ToolEffect,
 )
-from dex_agents.session_flow import _recovered_tool_call
+from dex_agents.session_flow import _recovered_tool_call, _tool_execution_error_status
 
 APPROVED_CALL = AgentToolCall(
     tool_call_id="call-1",
@@ -115,3 +118,22 @@ def test_a_call_that_asked_a_question_already_ran_its_tool() -> None:
 
     assert recorded.status is ToolCallStatus.OUTCOME_UNKNOWN
     assert recorded.error == "worker lost"
+
+
+TOOL_EXECUTION_ERROR_CASES: list[dict[str, Any]] = json.loads(
+    (Path(__file__).resolve().parents[3] / "conformance" / "tool_execution_errors.json").read_text()
+)["cases"]
+
+
+@pytest.mark.parametrize(
+    "case", TOOL_EXECUTION_ERROR_CASES, ids=[case["name"] for case in TOOL_EXECUTION_ERROR_CASES]
+)
+def test_the_status_a_tool_execution_error_records(case: dict[str, Any]) -> None:
+    tool_call = replace(
+        APPROVED_CALL,
+        effect=ToolEffect(case["effect"]),
+        tool_source_reference=case["toolSourceReference"],
+    )
+    assert _tool_execution_error_status(tool_call, case["attempt"]) is ToolCallStatus(
+        case["status"]
+    )
