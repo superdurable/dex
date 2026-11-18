@@ -262,6 +262,8 @@ export class PullSlotProxy {
   private halfCloseGate: Deferred | undefined;
   private heldHalfCloses = 0;
   private firstAcknowledgementAtMs = 0;
+  // Set at test cleanup; a Register released then must not open a call on a closed upstream.
+  private isClosed = false;
 
   private constructor() {}
 
@@ -424,6 +426,7 @@ export class PullSlotProxy {
   }
 
   private async close(): Promise<void> {
+    this.isClosed = true;
     this.stepRegisterGate?.release.resolve();
     this.acknowledgementGate?.resolve();
     this.halfCloseGate?.resolve();
@@ -544,7 +547,7 @@ export class PullSlotProxy {
       stream.stage = "waiting for a held Step-and-RPC Register";
       await Promise.race([rpcOnlyGate.stepHeld.promise, ended]);
     }
-    if (stream.isDownstreamClosed) return;
+    if (stream.isDownstreamClosed || this.isClosed) return;
     stream.stage = "opening upstream";
     const upstream = this.upstream.makeBidiStreamRequest(POLL_WORKER_TASK_PATH, identity, identity, stream.downstream.metadata, {});
     stream.upstream = upstream;

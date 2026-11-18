@@ -292,6 +292,7 @@ export class PullWorker implements PullSlotStreamHost {
     await Promise.all([...this.streams].flatMap((poll) => poll.halfClosePromise === undefined ? [] : [poll.halfClosePromise]));
     for (const poll of this.streams) {
       if (!poll.isDisconnected) this.closeStream(poll);
+      this.slots.abandonAttempt(poll);
     }
     this.streams.clear();
     this.client.close();

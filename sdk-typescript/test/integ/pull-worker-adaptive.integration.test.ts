@@ -78,7 +78,7 @@ test("adaptive Worker grows and shrinks with a real server", { timeout: 300_000 
   assert.equal(state.totalCapacity, 16);
   assert.equal(state.rpcOnlySlots, 1);
 
-  // Test 3: a burst of N long Steps with L < N <= E grows to at least N and at most min(E, 2N).
+  // Test 3: a burst of N long Steps grows streams to between N and min(E, 2N).
   const client = server.newClient(run.registry);
   const flowIds = await startAdaptiveSlotFlows(client, run.flow, ADAPTIVE_SLOT_MODE_BLOCK, 5);
   const entries = await handlers.awaitEntries(5);
@@ -86,7 +86,7 @@ test("adaptive Worker grows and shrinks with a real server", { timeout: 300_000 
   state = run.state();
   assert.ok(state.open >= 5 && state.open <= 10, JSON.stringify(state));
 
-  // Test 9: growth up to E keeps the RPC-only stream at R, and an RPC runs while every Step slot is busy.
+  // Test 9: growth keeps the RPC-only stream at R, and an RPC runs while Steps fill every slot.
   flowIds.push(...await startAdaptiveSlotFlows(client, run.flow, ADAPTIVE_SLOT_MODE_BLOCK, 10));
   entries.push(...await handlers.awaitEntries(10));
   await requireSlotState(run, "fifteen busy Steps", (current) => current.busy === 15 && current.open === 15 && current.registering === 0);
@@ -96,7 +96,7 @@ test("adaptive Worker grows and shrinks with a real server", { timeout: 300_000 
   handlers.release();
   await requireFlowsCompleted(client, flowIds);
 
-  // Tests 4 and 5: streams return to the floor while short Steps keep arriving, and no Step spends a retry.
+  // Tests 4 and 5: streams return to the floor under a trickle, and no Step spends a retry.
   const stopTrickle = deferred();
   const trickle = startAdaptiveSlotTrickle(client, run.flow, stopTrickle.promise);
   await eventually(() => run.state().open === 2, (adaptiveSlotWindowsToFloor(15, 2) + 5) * 1_000,
@@ -112,8 +112,7 @@ test("adaptive Worker grows and shrinks with a real server", { timeout: 300_000 
   assert.ok(state.streamsShrunk >= 13, JSON.stringify(state));
   t.diagnostic(`shrink race drops: ${state.shrinkRaceDrops}`);
 
-  // Test 11 and invariant 5: the count stays at the floor, and no stream closed on purpose
-  // reopens, for longer than two maximum reconnect backoffs (2 x 7.5 s).
+  // Test 11: no stream closed on purpose reopens within two maximum reconnect backoffs.
   await requireRegisteredStreams(proxy, appWorkerID, 2, 1);
   const sinceMs = Date.now();
   await never(() => run.state().open !== 2 || proxy.registersSince(appWorkerID, sinceMs).length !== 0, 16_000,
@@ -158,7 +157,7 @@ test("adaptive Worker treats the node stream limit as a soft growth limit", { ti
   const client = server.newClient(run.registry);
   const flowIds = await startAdaptiveSlotFlows(client, run.flow, ADAPTIVE_SLOT_MODE_BLOCK, 10);
 
-  // 14 + 3 streams leave room for 3: growth reaches S = 5 and a partly rejected batch clamps G to S + H.
+  // 3 streams of room left: growth reaches S = 5, and the rejected batch clamps G.
   await requireSlotState(run, "growth clamped at the node limit", (state) =>
     state.open === 5 && state.busy === 5 && state.registering === 0 && state.growthTarget === 5 && state.growRejectedAtCap > 0);
   const state = run.state();
@@ -450,7 +449,7 @@ test("adaptive Worker counts orphaned handlers across a Server restart", { timeo
     await requireSlotState(run, "every handler orphaned", (state) => state.orphanedHandlers === 3 && state.orphanedRpcOnlyHandlers === 1, 10_000);
     const releasedAtMs = Date.now();
     handlers.releaseStubborn(flowIds[0]!);
-    // The first acknowledgement reveals cap 2 while usage is 4: the Worker registers nothing more until usage drops below 2.
+    // The acknowledgement reveals cap 2 at usage 4; no Register follows until usage drops.
     await eventually(() => proxy.acknowledgementsSince(appWorkerID, releasedAtMs).length === 1, 10_000, () => proxy.describe(appWorkerID));
     const acknowledgedAtMs = proxy.acknowledgementsSince(appWorkerID, releasedAtMs)[0]!.atMs;
     await requireSlotState(run, "capacity lowered to 2", (state) => state.totalCapacity === 2 && state.open === 0 && state.registering === 0, 10_000);
@@ -585,8 +584,7 @@ test("fixed Worker keeps parallel startup and a constant stream count", { timeou
   await requireRegisteredStreams(proxy, appWorkerID, 3, 1);
 });
 
-// F5 for an attempt granted under the old cap: when another stream reports a lower cap during its
-// backoff, it sends no Register above that cap.
+// F5: a reconnect granted under the old cap sends no Register above a cap learned during its backoff.
 test("adaptive Worker revokes a reconnect grant after the cap drops", { timeout: 120_000 }, async (t) => {
   const scope = new TestScope(t);
   captureConsole(t, "warn");
@@ -617,7 +615,7 @@ test("adaptive Worker revokes a reconnect grant after the cap drops", { timeout:
   requireNoPermanentRegistrationError(run);
 });
 
-// Admission is re-checked before the Register is written; a cap drop after it gets a Server rejection, soft in adaptive mode.
+// Admission is re-checked before the Register; a later cap drop meets a soft Server rejection.
 test("adaptive Worker re-checks admission between the backoff and the Register", { timeout: 120_000 }, async (t) => {
   const scope = new TestScope(t);
   captureConsole(t, "warn");
@@ -643,9 +641,8 @@ test("adaptive Worker re-checks admission between the backoff and the Register",
   await requireSlotState(run, "the lower cap is known", (state) => state.totalCapacity === 2, 30_000);
   const capKnownAtMs = Date.now();
   barrier.release();
-  // The two held attempts are re-checked after cap 2 is known: one is revoked and sends nothing.
-  // A Register that passed its re-check just before the cap became known may still meet the cap once;
-  // that rejection is soft, and the latch retries it at the next window.
+  // The two held attempts are re-checked under cap 2: one is revoked and sends nothing.
+  // A Register checked just before may meet the cap once; that rejection is soft.
   await never(() => {
     const rejections = proxy.rejectionsSince(appWorkerID, capKnownAtMs).length;
     return rejections > 1 || stepRegisters(proxy.registersSince(appWorkerID, capKnownAtMs)).length > 1 + rejections

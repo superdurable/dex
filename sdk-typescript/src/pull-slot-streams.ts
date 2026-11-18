@@ -386,8 +386,7 @@ export class PullSlotStreams {
   }
 
   /**
-   * Applies F5: only an adaptive Worker softens RESOURCE_EXHAUSTED, and only for a growth stream
-   * or a reconnect after initial readiness that never registered.
+   * Applies F5: adaptive mode softens RESOURCE_EXHAUSTED for an unregistered growth or post-readiness stream.
    * @returns Whether the rejection is soft.
    */
   public isSoftRejection(stream: PullSlotStream, code: number): boolean {
@@ -434,9 +433,7 @@ export class PullSlotStreams {
   }
 
   /**
-   * Checks an attempt before its runner opens a stream, and again in the synchronous block that
-   * writes its Register, because a lower cap may arrive in between. A cap drop after this check
-   * reaches the Server, which enforces the cap; an adaptive Worker treats that rejection as soft.
+   * Checks an attempt after its backoff; admitRegistrationForSend checks it again before the Register.
    * @returns Whether the attempt may register; a revoked attempt has already ended.
    */
   public admitRegistration(stream: PullSlotStream): boolean {
@@ -450,7 +447,8 @@ export class PullSlotStreams {
   }
 
   /**
-   * Re-checks the attempt and marks it as sending; the caller writes the Register in the same synchronous block.
+   * Re-checks the attempt and marks it as sending; the caller writes the Register synchronously.
+   * A cap drop after this check meets the Server's enforcement, soft in adaptive mode.
    * @returns Whether the Register may be written.
    */
   public admitRegistrationForSend(stream: PullSlotStream): boolean {
@@ -518,7 +516,7 @@ export class PullSlotStreams {
 
   /**
    * Releases capacity above a lowered cap; RPC-only surplus goes first.
-   * An attempt whose Register has not left yet is revoked first, because it costs the Server nothing.
+   * Unsent attempts are revoked before idle streams, because they cost the Server nothing.
    */
   private closeSurplus(): void {
     for (const slotKind of [PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY, PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RPC]) {
@@ -588,8 +586,8 @@ export class PullSlotStreams {
   }
 
   /**
-   * Opens streams within free capacity in F5 order. A parked runner of the same kind is reused,
-   * so it keeps its reconnect backoff.
+   * Opens streams within free capacity in F5 order.
+   * A parked runner of the same kind is reused, so it keeps its reconnect backoff.
    */
   private maybeReopen(parked: PullSlotStream | undefined): void {
     if (this.host.isWorkerStopping() || this.isReopenDeferred) return;
