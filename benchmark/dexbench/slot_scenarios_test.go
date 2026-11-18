@@ -109,16 +109,76 @@ func TestLoadWaves(t *testing.T) {
 	}
 }
 
-func TestOpenLoopCreditKeepsFractionalStarts(t *testing.T) {
-	credit, total := 0.0, 0
-	for range 200 {
-		var due int
-		due, credit = openLoopCredit(credit, 50, 5*time.Millisecond)
-		total += due
+func TestOpenLoopScheduleKeepsPlannedTimesAfterALateWakeUp(t *testing.T) {
+	constant := func(time.Duration) float64 { return 50 }
+	punctual := &openLoopSchedule{}
+	var punctualOffsets []time.Duration
+	for tick := 5 * time.Millisecond; tick <= time.Second; tick += 5 * time.Millisecond {
+		punctualOffsets = append(punctualOffsets, punctual.advanceTo(tick, constant)...)
 	}
-	// 200 ticks of 5 ms at 50 per second is one second, so 50 starts.
-	if total != 50 && total != 49 {
-		t.Fatalf("scheduled %d starts in one second at 50 per second", total)
+	late := (&openLoopSchedule{}).advanceTo(time.Second, constant)
+	if len(punctualOffsets) != 50 || !reflect.DeepEqual(late, punctualOffsets) {
+		t.Fatalf("one late wake-up planned %v, punctual ticks planned %v", late, punctualOffsets)
+	}
+	if late[0] != 20*time.Millisecond || late[49] != time.Second {
+		t.Fatalf("starts are not spread at 20 ms: first %v, last %v", late[0], late[49])
+	}
+}
+
+func TestOpenLoopScheduleIntegratesTheRateAcrossAWaveChange(t *testing.T) {
+	// 100 per second for the first half second, then 0, seen in one late wake-up.
+	wave := func(planned time.Duration) float64 { return squareWaveRate(planned, time.Second, 0, 100) }
+	due := (&openLoopSchedule{}).advanceTo(time.Second, wave)
+	if len(due) != 50 {
+		t.Fatalf("planned %d starts, want 50", len(due))
+	}
+	for _, offset := range due {
+		if offset > 500*time.Millisecond {
+			t.Fatalf("start planned at %v, inside the zero-rate half", offset)
+		}
+	}
+}
+
+func TestRecorderTagsCountAndLatencyWithTheSamePhase(t *testing.T) {
+	recorder := newSlotProbeRecorder(2)
+	first := recorder.beginPhase()
+	recorder.recordStart(0, time.Now())
+	second := recorder.beginPhase()
+	recorder.recordStart(1, time.Now())
+	recorder.recordStart(1, time.Now())
+	firstCounts, firstLatencies := recorder.phaseSteps(first)
+	secondCounts, secondLatencies := recorder.phaseSteps(second)
+	if !reflect.DeepEqual(firstCounts, []int64{1, 0}) || len(firstLatencies) != 1 ||
+		!reflect.DeepEqual(secondCounts, []int64{0, 2}) || len(secondLatencies) != 2 {
+		t.Fatalf("phase buckets %v %v, %v %v", firstCounts, firstLatencies, secondCounts, secondLatencies)
+	}
+}
+
+func TestUnusableReasonsReportEveryLoss(t *testing.T) {
+	if reasons := unusableReasons(SlotRequestLoss{Planned: 10, FlowsStarted: 10, StepsStarted: 10, MaxSchedulerLagMs: 5}); reasons != nil {
+		t.Fatalf("a complete point is unusable: %v", reasons)
+	}
+	reasons := unusableReasons(SlotRequestLoss{Planned: 10, Skipped: 1, StartFailed: 2, StepsNotStarted: 3, MaxSchedulerLagMs: 250})
+	if len(reasons) != 4 {
+		t.Fatalf("reasons %v", reasons)
+	}
+}
+
+func TestIsRestartedServer(t *testing.T) {
+	before := slotServerMetrics{processStartTimeSeconds: 100, scheduleToStartCount: 50, streamsClosed: 3}
+	if isRestartedServer(before, before, nil) {
+		t.Fatal("the same process counted as restarted")
+	}
+	for _, after := range []slotServerMetrics{
+		{processStartTimeSeconds: 200, scheduleToStartCount: 50, streamsClosed: 3},
+		{processStartTimeSeconds: 100, scheduleToStartCount: 0, streamsClosed: 3},
+	} {
+		if !isRestartedServer(before, after, nil) {
+			t.Fatalf("restart not seen in %+v", after)
+		}
+	}
+	if !isRestartedServer(before, slotServerMetrics{}, errors.New("connection refused")) {
+		t.Fatal("a failed scrape is not a restart sign")
 	}
 }
 
@@ -192,10 +252,13 @@ func TestSplitSlots(t *testing.T) {
 	if got := splitSlots(513, 256); !reflect.DeepEqual(got, []int{256, 256, 1}) {
 		t.Fatalf("splitSlots = %v", got)
 	}
-	if got := splitSlotsEvenly(10, 0, 4); !reflect.DeepEqual(got, []int{4, 4, 4}) {
+	if got := splitSlotsEvenly(10, 0, 4); !reflect.DeepEqual(got, []int{4, 3, 3}) {
 		t.Fatalf("splitSlotsEvenly from slots = %v", got)
 	}
-	if got := splitSlotsEvenly(10, 4, 0); !reflect.DeepEqual(got, []int{3, 3, 3, 3}) {
+	if got := splitSlotsEvenly(10, 4, 0); !reflect.DeepEqual(got, []int{3, 3, 2, 2}) {
 		t.Fatalf("splitSlotsEvenly from Workers = %v", got)
+	}
+	if got := splitSlotsEvenly(3, 8, 0); !reflect.DeepEqual(got, []int{1, 1, 1}) {
+		t.Fatalf("splitSlotsEvenly with more Workers than slots = %v", got)
 	}
 }

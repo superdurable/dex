@@ -90,8 +90,11 @@ func writeSlotStreamReport(output *strings.Builder, results []Result) {
 		options := result.Config.SlotStreams
 		fmt.Fprintf(output, "\n**C=%d:** %d Workers, %d slots, %d Flow types, %g ms handlers, %s Steps. Latency is schedule-to-start.",
 			result.Config.Concurrency, slot.Workers, slot.TotalSlots, options.FlowTypes, options.HandlerMilliseconds, options.StepDurability)
-		if slot.StartsSkipped > 0 {
-			fmt.Fprintf(output, " %d open-loop starts were skipped because the load generator fell behind.", slot.StartsSkipped)
+		loss := slot.RequestLoss
+		fmt.Fprintf(output, " Requests: %d planned, %d skipped, %d StartFlow failures, %d Steps not started, %d late submissions, scheduler lag max %.1f ms.",
+			loss.Planned, loss.Skipped, loss.StartFailed, loss.StepsNotStarted, loss.LateSubmissions, loss.MaxSchedulerLagMs)
+		if !slot.IsUsable {
+			fmt.Fprintf(output, " **Unusable:** %s.", strings.Join(slot.UnusableReasons, "; "))
 		}
 		if slot.PartitionPinning != "" {
 			fmt.Fprintf(output, " Partition: %s.", slot.PartitionPinning)
@@ -276,6 +279,9 @@ func notes(result Result) string {
 	}
 	if result.Config.Connections > 1 {
 		parts = append(parts, fmt.Sprintf("%d connections", result.Config.Connections))
+	}
+	if result.SlotStreams != nil && !result.SlotStreams.IsUsable {
+		parts = append(parts, "unusable: requests lost or scheduler behind")
 	}
 	return strings.Join(parts, "; ")
 }

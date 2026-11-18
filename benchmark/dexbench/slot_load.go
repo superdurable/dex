@@ -26,9 +26,12 @@ type slotProbeRecorder struct {
 	// firstStartUnixNano and lastStartUnixNano bound the Step starts since the last resetStartBounds.
 	firstStartUnixNano atomic.Int64
 	lastStartUnixNano  atomic.Int64
-	mutex              sync.Mutex
-	intervalLatencies  []time.Duration
-	phaseLatencies     []time.Duration
+	// mutex guards the phase buckets, so a Step's count and latency always land in the same phase.
+	mutex             sync.Mutex
+	intervalLatencies []time.Duration
+	currentPhase      int
+	phaseWorkerSteps  [][]int64
+	phaseLatencies    [][]time.Duration
 }
 
 func newSlotProbeRecorder(workers int) *slotProbeRecorder {
@@ -36,21 +39,42 @@ func newSlotProbeRecorder(workers int) *slotProbeRecorder {
 		workerStarted:  make([]atomic.Int64, workers),
 		workerFinished: make([]atomic.Int64, workers),
 		workerBusy:     make([]atomic.Int64, workers),
+		currentPhase:   -1,
 	}
 }
 
-// recordStart counts a Step start on worker and its delay from the scheduled start.
-func (recorder *slotProbeRecorder) recordStart(worker int, scheduledAt time.Time) {
+// beginPhase opens a new phase bucket for later Step starts and returns its index.
+func (recorder *slotProbeRecorder) beginPhase() int {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	recorder.phaseWorkerSteps = append(recorder.phaseWorkerSteps, make([]int64, len(recorder.workerStarted)))
+	recorder.phaseLatencies = append(recorder.phaseLatencies, nil)
+	recorder.currentPhase = len(recorder.phaseLatencies) - 1
+	return recorder.currentPhase
+}
+
+// phaseSteps returns a copy of the per-Worker Step starts and the latencies recorded in phase.
+func (recorder *slotProbeRecorder) phaseSteps(phase int) ([]int64, []time.Duration) {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	return append([]int64(nil), recorder.phaseWorkerSteps[phase]...), append([]time.Duration(nil), recorder.phaseLatencies[phase]...)
+}
+
+// recordStart counts a Step start on worker and its delay from the planned start, in one phase bucket.
+func (recorder *slotProbeRecorder) recordStart(worker int, plannedAt time.Time) {
 	now := time.Now()
 	recorder.workerStarted[worker].Add(1)
 	recorder.workerBusy[worker].Add(1)
 	recorder.firstStartUnixNano.CompareAndSwap(0, now.UnixNano())
 	recorder.lastStartUnixNano.Store(now.UnixNano())
-	latency := now.Sub(scheduledAt)
+	latency := now.Sub(plannedAt)
 	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
 	recorder.intervalLatencies = append(recorder.intervalLatencies, latency)
-	recorder.phaseLatencies = append(recorder.phaseLatencies, latency)
-	recorder.mutex.Unlock()
+	if recorder.currentPhase >= 0 {
+		recorder.phaseWorkerSteps[recorder.currentPhase][worker]++
+		recorder.phaseLatencies[recorder.currentPhase] = append(recorder.phaseLatencies[recorder.currentPhase], latency)
+	}
 }
 
 func (recorder *slotProbeRecorder) recordFinish(worker int) {
@@ -66,26 +90,9 @@ func (recorder *slotProbeRecorder) takeIntervalLatencies() []time.Duration {
 	return latencies
 }
 
-func (recorder *slotProbeRecorder) takePhaseLatencies() []time.Duration {
-	recorder.mutex.Lock()
-	defer recorder.mutex.Unlock()
-	latencies := recorder.phaseLatencies
-	recorder.phaseLatencies = nil
-	return latencies
-}
-
 func (recorder *slotProbeRecorder) resetStartBounds() {
 	recorder.firstStartUnixNano.Store(0)
 	recorder.lastStartUnixNano.Store(0)
-}
-
-// startedPerWorker returns a copy of the cumulative Step starts of every Worker.
-func (recorder *slotProbeRecorder) startedPerWorker() []int64 {
-	counts := make([]int64, len(recorder.workerStarted))
-	for index := range recorder.workerStarted {
-		counts[index] = recorder.workerStarted[index].Load()
-	}
-	return counts
 }
 
 // totals returns the cumulative started and finished Steps and the handlers running now.
@@ -115,9 +122,12 @@ type slotServerMetrics struct {
 	notDelivered           float64
 	scheduleToStartBuckets map[string]float64
 	scheduleToStartCount   float64
+	// processStartTimeSeconds is 0 where the server does not export it (verbose level, Linux only).
+	processStartTimeSeconds float64
 }
 
 var slotMetricPrefixes = []string{
+	"process_start_time_seconds",
 	"dexzd_matching_worker_streams",
 	"dexzd_step_task_queue_entries",
 	"dexzd_worker_stream_events",
@@ -153,6 +163,8 @@ func slotMetricsFromSeries(series map[string]float64) slotServerMetrics {
 	for name, value := range series {
 		family := metricFamilyName(name)
 		switch {
+		case family == "process_start_time_seconds":
+			metrics.processStartTimeSeconds = value
 		case family == "dexzd_matching_worker_streams":
 			metrics.workerStreams += value
 		case family == "dexzd_step_task_queue_entries":
@@ -214,9 +226,40 @@ func sineWaveRate(elapsed, period time.Duration, low, high float64) float64 {
 	return low + (high-low)*(1+math.Sin(phase))/2
 }
 
-// openLoopCredit adds rate*interval to credit and returns the whole starts now due and the remaining credit.
-func openLoopCredit(credit, ratePerSecond float64, interval time.Duration) (int, float64) {
-	credit += ratePerSecond * interval.Seconds()
-	due := math.Floor(credit)
-	return int(due), credit - due
+// isRestartedServer reports whether after comes from a different server process than before.
+// A failed scrape, a new process start time, or a reset counter each show a restart.
+func isRestartedServer(before slotServerMetrics, after slotServerMetrics, scrapeErr error) bool {
+	if scrapeErr != nil {
+		return true
+	}
+	if before.processStartTimeSeconds != 0 && after.processStartTimeSeconds != before.processStartTimeSeconds {
+		return true
+	}
+	return after.scheduleToStartCount < before.scheduleToStartCount || after.streamsClosed < before.streamsClosed
+}
+
+// openLoopPlanStep is the resolution at which the rate is integrated over planned time.
+const openLoopPlanStep = time.Millisecond
+
+// openLoopSchedule integrates a rate over planned time, independent of when the scheduler wakes up.
+type openLoopSchedule struct {
+	planned time.Duration
+	credit  float64
+}
+
+// advanceTo returns the planned offsets of every start due up to elapsed, using rate at each planned time.
+// A late wake-up returns the starts it missed with their original planned offsets.
+func (schedule *openLoopSchedule) advanceTo(elapsed time.Duration, rate func(time.Duration) float64) []time.Duration {
+	var due []time.Duration
+	for schedule.planned < elapsed {
+		step := min(openLoopPlanStep, elapsed-schedule.planned)
+		schedule.credit += rate(schedule.planned) * step.Seconds()
+		schedule.planned += step
+		// The epsilon absorbs float drift, so 500 steps of 0.1 make 50 starts, not 49.
+		for schedule.credit >= 1-1e-9 {
+			schedule.credit--
+			due = append(due, schedule.planned)
+		}
+	}
+	return due
 }

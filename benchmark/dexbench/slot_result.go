@@ -62,12 +62,15 @@ type SlotStreamConfig struct {
 
 // SlotStreamResult is the scenario-specific part of a slot stream point.
 type SlotStreamResult struct {
-	Workers            int                     `json:"workers"`
-	SlotsPerWorker     []int                   `json:"slots_per_worker"`
-	TotalSlots         int                     `json:"total_slots"`
-	PartitionPinning   string                  `json:"partition_pinning,omitempty"`
-	BaselineStreams    float64                 `json:"baseline_server_streams"`
-	StartsSkipped      int64                   `json:"starts_skipped"`
+	Workers          int     `json:"workers"`
+	SlotsPerWorker   []int   `json:"slots_per_worker"`
+	TotalSlots       int     `json:"total_slots"`
+	PartitionPinning string  `json:"partition_pinning,omitempty"`
+	BaselineStreams  float64 `json:"baseline_server_streams"`
+	// IsUsable is false when requests were lost or the load generator fell behind; UnusableReasons says why.
+	IsUsable           bool                    `json:"is_usable"`
+	UnusableReasons    []string                `json:"unusable_reasons,omitempty"`
+	RequestLoss        SlotRequestLoss         `json:"request_loss"`
 	Phases             []SlotStreamPhase       `json:"phases"`
 	Samples            []SlotStreamSample      `json:"samples"`
 	Idle               *IdleStreamCost         `json:"idle,omitempty"`
@@ -76,6 +79,23 @@ type SlotStreamResult struct {
 	ServerMetricsDelta *SlotServerMetricsDelta `json:"server_metrics_delta,omitempty"`
 	// WorkerRegistrations is the SDK registration snapshot of every Worker at the end of the point.
 	WorkerRegistrations []SlotWorkerRegistration `json:"worker_registrations"`
+}
+
+// SlotRequestLoss accounts for every planned probe start of a point.
+type SlotRequestLoss struct {
+	// Planned counts every start the schedule made due.
+	Planned int64 `json:"planned"`
+	// Skipped starts were dropped because the start queue was full; they never reached the server.
+	Skipped int64 `json:"skipped"`
+	// StartFailed starts returned a StartFlow error.
+	StartFailed  int64 `json:"start_failed"`
+	FlowsStarted int64 `json:"flows_started"`
+	StepsStarted int64 `json:"steps_started"`
+	// StepsNotStarted are started Flows whose Step never ran before the point ended.
+	StepsNotStarted int64 `json:"steps_not_started"`
+	// LateSubmissions were queued more than lateSubmissionThreshold after their planned time.
+	LateSubmissions   int64   `json:"late_submissions"`
+	MaxSchedulerLagMs float64 `json:"max_scheduler_lag_ms"`
 }
 
 // SlotStreamPhase summarizes one load phase.

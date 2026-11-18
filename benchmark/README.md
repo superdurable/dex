@@ -226,9 +226,17 @@ They differ from S1 to S6 in three ways:
 - **Open-loop load.** A scheduler starts one-Step probe Flows at a target rate,
   whether or not earlier Flows finished. The probe Step holds its slot for a
   fixed handler time, then completes the Flow. Each Flow keeps its history local.
-- **Schedule-to-start latency.** The latency of a slot point runs from the time
-  the scheduler meant to start the Flow to the start of its Step's Execute.
-  It includes the StartFlow call. It is not affected by coordinated omission.
+- **Schedule-to-start latency.** The latency of a slot point runs from the
+  planned start time of the Flow to the start of its Step's Execute. It
+  includes the StartFlow call. The scheduler integrates the target rate over
+  planned time, at 1 ms resolution. A start keeps its planned time even when
+  the scheduler wakes late, so its lateness counts as latency. This avoids
+  coordinated omission.
+- **Request loss.** A planned start can be skipped because the start queue is
+  full, fail in StartFlow, or never run its Step before the point ends. Such a
+  request has no latency. A point with any lost request, or a scheduler more
+  than 100 ms behind its plan, is marked unusable: `is_usable` is false and
+  `unusable_reasons` says why. `report.md` marks it too.
 - **Concurrency is the size.** `--concurrency` sets the main size of each
   scenario, given in the table below.
 
@@ -297,8 +305,12 @@ both scripts. `dexbench run --help` lists them all.
 | `-adaptive-slots`, `-min-open-slots` | off, `0` | Reserved for adaptive slot streams |
 
 **Output.** A slot point writes the same `<target>-<variant>-c<C>-<time>.json`
-as the other scenarios. Its `slot_streams` object adds:
+as the other scenarios. `attempts` counts every planned start, and `errors`
+counts the lost ones by cause. Its `slot_streams` object adds:
 
+- `is_usable`, `unusable_reasons`, and `request_loss`: planned starts, skipped
+  starts, StartFlow failures, Flows started, Steps started, Steps not started,
+  starts queued more than 10 ms late, and the largest scheduler lag.
 - `phases`: per phase, the offered rate, Steps started, schedule-to-start
   percentiles, Steps and share per Worker, Jain's index, the server stream
   range, and the peak of busy handlers.
@@ -664,6 +676,19 @@ host over SSH. It stops the server and starts it again with the same config,
 local store, and object storage prefix. The sampler and the profile read the
 server PID from its PID file, so they follow the new process. `server.log`
 holds both runs.
+
+`dexbench` watches the server while the restart command runs, so readiness is
+not delayed by the command's own length. Any one of these signs means the new
+server process is up:
+- a failed scrape;
+- fewer streams than N;
+- a new `process_start_time_seconds`, which Linux servers export at the verbose
+  level;
+- a reset schedule-to-start or stream-close counter.
+
+Then `ready_seconds` is the first SERVING health check, and
+`reregistered_seconds` is the first scrape with all N streams back. Both
+count from the start of the command.
 
 A large idle-slots point opens hundreds of Workers in the `dexbench` process.
 Check the load host CPU column in `report.md`; the probe load is light, so
