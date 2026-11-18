@@ -21,6 +21,7 @@ cannot change after the Flow starts.
 | **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values. |
 | **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
+| **TaskQueue** | Task queue whose Workers run the Flow. See [TaskQueue](#task-queue). |
 
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
@@ -327,3 +328,24 @@ work, start the Flow without a delay and begin the start Step with a durable
 
 **Attributes** sets initial Attribute values. Each one must match an
 Attribute or AttributeMap in the Flow persistence schema.
+
+## TaskQueue {#task-queue}
+
+**TaskQueue** names the task queue whose pull Workers run the Flow's Steps and
+RPCs. Only Workers whose [**PullWorkerOptions.TaskQueue**](./workers.mdx#task-queue)
+has the same name receive this work. Since 1.45.2.
+
+- An empty name, the default, uses the default task queue. **DefaultTaskQueue**
+  routes the same way, but it needs Server protocol 5, as described below.
+- The Flow keeps its task queue for its whole run. A SubFlow inherits it unless
+  [**SubFlowOptions.TaskQueue**](./subflow.mdx#task-queue) names another one.
+- Work waits in the task queue until a Worker on it is connected. Workers of
+  the same Flow type on other task queues leave it alone.
+- A name has 1 to 63 characters from A-Z, a-z, 0-9, '.', '_', and '-'. Names
+  starting with **dex.** are reserved; only **DefaultTaskQueue** is accepted.
+  **StartFlow** returns an error for any other name before it sends the request.
+- A named task queue, including **DefaultTaskQueue**, requires Server protocol 5
+  or later. **StartFlow** returns **TaskQueueUnsupportedError** against an older
+  Server instead of starting the Flow on the default task queue.
+
+See the [API reference](pathname:///api/go/latest/dex/#type-startflowoptions).
