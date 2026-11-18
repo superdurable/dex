@@ -38,6 +38,8 @@ commit:
   # null enables the build default: true in debug builds, false in release builds.
   debugReplayChecks: null
   batchWindow: 20ms
+  # Longest wait for object storage to accept one log batch before the node stops; at most 5m.
+  batchWriteDeadline: 10s
   maxInFlight: 4
   sealAtBytes: 4194304
   multipartThresholdBytes: 8388608

@@ -442,6 +442,73 @@ async fn object_storage_outage_stops_the_node() {
     test.node.shutdown().await.expect("lease released");
 }
 
+/// Longer than the default 10 s batch write deadline and shorter than [`RAISED_BATCH_WRITE_DEADLINE`].
+const SLOW_LOG_PUT: Duration = Duration::from_secs(15);
+const RAISED_BATCH_WRITE_DEADLINE: Duration = Duration::from_secs(30);
+
+#[tokio::test(start_paused = true)]
+async fn a_raised_batch_write_deadline_keeps_serving_through_a_slow_log_write() {
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.commit.batch_write_deadline = RAISED_BATCH_WRITE_DEADLINE;
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("slow-log-flow", 1).await;
+    cluster.faults.delay_next_put_under("log/", SLOW_LOG_PUT);
+    let (_, ticket) = test
+        .submit("slow-log-flow", CommitUrgency::Prompt)
+        .expect("submit succeeds");
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    ticket.wait().await.expect("the slow log write commits");
+    assert_eq!(test.node.stop_reason(), None);
+    assert_eq!(test.committed_count("slow-log-flow").await, 2);
+    test.commit_prompt("slow-log-flow", 1).await;
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_default_batch_write_deadline_stops_the_node_on_the_same_slow_log_write() {
+    let mut cluster = TestCluster::new();
+    let test = cluster.start_in_memory().await;
+    test.commit_prompt("slow-log-flow", 1).await;
+    cluster.faults.delay_next_put_under("log/", SLOW_LOG_PUT);
+    let (_, ticket) = test
+        .submit("slow-log-flow", CommitUrgency::Prompt)
+        .expect("submit succeeds");
+    assert!(matches!(
+        ticket.wait().await,
+        Err(CommitError::NodeStopping { .. })
+    ));
+    assert_eq!(
+        test.node.wait_for_stop().await,
+        NodeStopReason::CommitPipelineFailed {
+            detail: "object storage did not accept a log batch before its deadline".to_owned(),
+        }
+    );
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_raised_batch_write_deadline_still_stops_the_node_when_log_writes_fail() {
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.commit.batch_write_deadline = RAISED_BATCH_WRITE_DEADLINE;
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("failing-log-flow", 1).await;
+    cluster.faults.fail_puts_under("log/");
+    let (_, ticket) = test
+        .submit("failing-log-flow", CommitUrgency::Prompt)
+        .expect("submit succeeds");
+    assert!(matches!(
+        ticket.wait().await,
+        Err(CommitError::NodeStopping { .. })
+    ));
+    assert!(matches!(
+        test.node.wait_for_stop().await,
+        NodeStopReason::CommitPipelineFailed { .. }
+    ));
+    test.node.shutdown().await.expect("lease released");
+}
+
 #[tokio::test(start_paused = true)]
 async fn lost_lease_stops_serving() {
     let mut cluster = TestCluster::new();

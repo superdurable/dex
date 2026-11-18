@@ -320,11 +320,7 @@ impl Config {
     }
 
     fn validate_commit_and_recovery(&self) -> Result<(), ConfigError> {
-        ensure(
-            self.commit.batch_window > Duration::ZERO,
-            "commit.batchWindow",
-            "must be positive",
-        )?;
+        self.commit.validate_batch_timings()?;
         ensure(
             self.commit.max_in_flight > 0,
             "commit.maxInFlight",

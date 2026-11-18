@@ -12,6 +12,8 @@ use std::time::Duration;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
+use super::ConfigError;
+
 /// Identifies this node and the cluster's immutable partition layout.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -44,6 +46,14 @@ pub struct CommitConfig {
     /// Defaults to 20 ms; maximum time an unsealed batch waits for more commands.
     #[serde(with = "humantime_serde")]
     pub batch_window: Duration,
+    /// Defaults to 10 s; longest time object storage may take to accept one log batch, including
+    /// retries of transient errors. A batch still not accepted then stops the node with a commit
+    /// pipeline failure. Every later commit waits behind that batch, so a larger value trades a
+    /// longer stall for fewer stops on slow storage. Must be positive and at most 5 minutes.
+    /// Acknowledgements still require a valid lease, and the epoch fences late writes, so the
+    /// value does not depend on `lease.duration`.
+    #[serde(with = "humantime_serde")]
+    pub batch_write_deadline: Duration,
     /// Defaults to 4; maximum conditional object writes in flight for one partition.
     pub max_in_flight: u32,
     /// Defaults to 4 MiB; seals a batch at this many serialized bytes unless a command itself is larger.
@@ -76,6 +86,7 @@ impl Default for CommitConfig {
         Self {
             debug_replay_checks: None,
             batch_window: Duration::from_millis(20),
+            batch_write_deadline: Duration::from_secs(10),
             max_in_flight: 4,
             seal_at_bytes: 4 * 1024 * 1024,
             multipart_threshold_bytes: 8 * 1024 * 1024,
@@ -93,7 +104,30 @@ const MIN_DEFAULT_APPLIER_LANES: u32 = 8;
 /// Most applier lanes; each lane is a task with its own queue.
 pub(crate) const MAX_APPLIER_LANES: u32 = 1024;
 
+/// Longest `commit.batchWriteDeadline`; a longer head-of-line stall should stop and recover instead.
+const MAX_BATCH_WRITE_DEADLINE: Duration = Duration::from_secs(300);
+
 impl CommitConfig {
+    /// Checks `batchWindow` and `batchWriteDeadline` and reports the first failing field.
+    pub(crate) fn validate_batch_timings(&self) -> Result<(), ConfigError> {
+        let invalid = |field: &'static str, message: &str| ConfigError::Invalid {
+            field,
+            message: message.to_owned(),
+        };
+        if self.batch_window.is_zero() {
+            return Err(invalid("commit.batchWindow", "must be positive"));
+        }
+        if self.batch_write_deadline.is_zero()
+            || self.batch_write_deadline > MAX_BATCH_WRITE_DEADLINE
+        {
+            return Err(invalid(
+                "commit.batchWriteDeadline",
+                "must be positive and at most 5 minutes",
+            ));
+        }
+        Ok(())
+    }
+
     /// Returns `applierLanes` when set. Otherwise returns the larger of 8 and `available_cpus`
     /// (8 when the CPU count is unknown), clamped to between 1 and the smaller of
     /// `partition_count` and 1024.

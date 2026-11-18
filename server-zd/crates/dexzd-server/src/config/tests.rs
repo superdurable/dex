@@ -937,6 +937,62 @@ fn replay_check_yaml_override_reaches_the_engine_node() {
 }
 
 #[test]
+fn batch_write_deadline_defaults_to_ten_seconds_and_reaches_the_engine_node() {
+    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    assert_eq!(
+        valid_config().commit.batch_write_deadline,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        defaults.engine_node.commit.batch_write_deadline,
+        dexzd_engine::CommitConfig::default().batch_write_deadline
+    );
+
+    let parsed = Config::parse_yaml("commit:\n  batchWriteDeadline: 45s\n")
+        .expect("parse batch write deadline");
+    let mut configuration = valid_config();
+    configuration.commit = parsed.commit;
+    configuration.validate().expect("a 45 s deadline is valid");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(
+        components.engine_node.commit.batch_write_deadline,
+        Duration::from_secs(45)
+    );
+
+    configuration.commit.batch_write_deadline = Duration::from_secs(300);
+    configuration
+        .validate()
+        .expect("the 5 minute bound is valid");
+    for deadline in [Duration::ZERO, Duration::from_millis(300_001)] {
+        configuration.commit.batch_write_deadline = deadline;
+        let error = configuration
+            .validate()
+            .expect_err("invalid batch write deadline");
+        assert!(
+            matches!(
+                &error,
+                ConfigError::Invalid {
+                    field: "commit.batchWriteDeadline",
+                    message,
+                } if message == "must be positive and at most 5 minutes"
+            ),
+            "{deadline:?}: {error}"
+        );
+    }
+
+    for yaml in [
+        "commit:\n  batchWriteDeadlines: 45s\n",
+        "commit:\n  batchWriteDeadline: 45\n",
+    ] {
+        assert!(
+            matches!(Config::parse_yaml(yaml), Err(ConfigError::Yaml { .. })),
+            "{yaml}"
+        );
+    }
+}
+
+#[test]
 fn dev_flags_override_yaml_and_create_documented_local_layout() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("config.yaml");
@@ -1776,6 +1832,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("commit.batchWindow", |config| {
             config.commit.batch_window = Duration::ZERO
+        }),
+        ("commit.batchWriteDeadline", |config| {
+            config.commit.batch_write_deadline = Duration::ZERO
         }),
         ("commit.maxInFlight", |config| {
             config.commit.max_in_flight = 0

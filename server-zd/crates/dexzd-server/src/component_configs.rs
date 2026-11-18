@@ -196,6 +196,7 @@ impl ComponentConfigs {
                     .debug_replay_checks
                     .unwrap_or(cfg!(debug_assertions)),
                 batch_window: config.commit.batch_window,
+                batch_write_deadline: config.commit.batch_write_deadline,
                 seal_at_bytes: to_usize("commit.sealAtBytes", config.commit.seal_at_bytes)?,
                 max_in_flight_batches: to_usize(
                     "commit.maxInFlight",
@@ -211,7 +212,6 @@ impl ComponentConfigs {
                     "commit.applierQueueFrames",
                     u64::from(config.commit.applier_queue_frames),
                 )?,
-                ..CommitConfig::default()
             },
             snapshots: SnapshotConfig {
                 log_threshold_bytes: config.snapshot.log_threshold_bytes,
