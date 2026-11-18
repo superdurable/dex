@@ -49,8 +49,11 @@ function stepNode(
   eventId: number,
   status: StepGraphNode['status'] = 'Completed',
   fromStepExecutionId = '__start__',
+  lineage?: { fromEventId: number; nextStepTypes: string[] },
 ): StepGraphNode {
   const eventTime = new Date(Date.parse('2026-10-24T17:00:00Z') + eventId * 1000).toISOString();
+  const context = lineage ? { context: { fromEventId: String(lineage.fromEventId) } } : {};
+  const output = lineage ? { output: { stepDecision: { nextSteps: lineage.nextStepTypes.map((next) => ({ stepType: next })) } } } : {};
   return {
     id,
     label: stepType,
@@ -59,10 +62,10 @@ function stepNode(
     stepType,
     fromStepExecutionId,
     execute: status === 'Completed' || status === 'Failed'
-      ? { eventId, eventTime, type: status === 'Failed' ? 'StepExecuteFailed' : 'StepExecuteCompleted', payload: {} }
+      ? { eventId, eventTime, type: status === 'Failed' ? 'StepExecuteFailed' : 'StepExecuteCompleted', payload: { ...context, ...output } }
       : undefined,
     waitFor: status === 'Waiting'
-      ? { eventId, eventTime, type: 'StepWaitForCompleted', payload: {} }
+      ? { eventId, eventTime, type: 'StepWaitForCompleted', payload: context }
       : undefined,
   };
 }
@@ -71,7 +74,7 @@ const startNode: StepGraphNode = { id: '__start__', label: 'Flow start', kind: '
 
 type ChainStep = [string, StepGraphNode['status']?];
 
-/** A chain of Steps named by type; each moves to the next one. */
+/** A chain of Steps named by type; each one's decision moves to the next one. */
 function chain(stepTypes: ChainStep[]): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes: StepGraphNode[] = [startNode];
   const edges: StepGraphEdge[] = [];
@@ -81,7 +84,9 @@ function chain(stepTypes: ChainStep[]): { nodes: StepGraphNode[]; edges: StepGra
     const count = (counts.get(stepType) ?? 0) + 1;
     counts.set(stepType, count);
     const id = `${stepType}-${count}`;
-    nodes.push(stepNode(id, stepType, index + 2, status ?? 'Completed', previous));
+    const nextStepType = stepTypes[index + 1]?.[0];
+    const lineage = { fromEventId: index === 0 ? 1 : index + 1, nextStepTypes: nextStepType ? [nextStepType] : [] };
+    nodes.push(stepNode(id, stepType, index + 2, status ?? 'Completed', previous, lineage));
     edges.push({ id: `${previous}->${id}`, source: previous, target: id });
     previous = id;
   });
@@ -225,6 +230,61 @@ describe('Spawn order', () => {
     expect(shown(folded.items)).toEqual([
       '__start__', 'startCronSchedule-1', 'waitForCronSchedule-1', '[Rounds 1–39]', 'runCronSchedule-40', 'waitForCronSchedule-41',
     ]);
+  });
+
+  it('keeps a delayed sibling in its decision when the deciding event is outside the loaded window', () => {
+    const history = cronScheduleHistory(2, (round) => (round === 1 ? 'run-after-next-decision' : 'wait-first'));
+    const firstDecision = history.find((event) => event.type === 'StepExecuteCompleted'
+      && (event.payload.context as Record<string, unknown>).stepExecutionId === 'waitForCronSchedule-1');
+    const window = history.filter((event) => event.eventId > (firstDecision?.eventId ?? 0));
+    const graph = buildStepGraph(window, [], '', { hasEarlierEvents: true });
+    expect(stepsInExecutionOrder(graph.nodes, window).map((node) => node.id)).toEqual([
+      'waitForCronSchedule-2', 'runCronSchedule-1', 'runCronSchedule-2', 'waitForCronSchedule-3',
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, {
+      ...defaultOptions, preferredAnchorStepType: 'runCronSchedule', historyEvents: window,
+    });
+    expect(folded.rounds.map((round) => [round.key, round.isLatest])).toEqual([
+      ['round:runCronSchedule-1', false],
+      ['round:runCronSchedule-2', true],
+    ]);
+  });
+
+  it('gives each execution of a repeated Step type its own place in the decision', () => {
+    const events = [
+      cronStepEvent(2, 'StepExecuteCompleted', 'Plan-1', '__start__', 1, ['A', 'B', 'A']),
+      cronStepEvent(3, 'StepExecuteCompleted', 'A-2', 'Plan-1', 2, []),
+      cronStepEvent(4, 'StepExecuteCompleted', 'A-1', 'Plan-1', 2, []),
+      cronStepEvent(5, 'StepExecuteCompleted', 'B-1', 'Plan-1', 2, []),
+    ];
+    const graph = buildStepGraph(events);
+    expect(stepsInExecutionOrder(graph.nodes, events).map((node) => node.id)).toEqual(['Plan-1', 'A-1', 'B-1', 'A-2']);
+  });
+
+  it('orders the Steps an RPC started by the RPC decision', () => {
+    const rpc: FlowHistoryEvent = {
+      eventId: 2,
+      eventTime: null,
+      type: 'RpcExecutionCompleted',
+      payload: { rpcName: 'startJobs', stepDecision: { nextSteps: [{ stepType: 'Fetch' }, { stepType: 'Notify' }] } },
+    };
+    const events = [
+      rpc,
+      cronStepEvent(3, 'StepExecuteCompleted', 'Notify-1', '__rpc/startJobs', 2, []),
+      cronStepEvent(4, 'StepExecuteCompleted', 'Fetch-1', '__rpc/startJobs', 2, []),
+    ];
+    const executed = buildStepGraph(events).nodes.filter((node) => !node.isPlanned);
+    expect(stepsInExecutionOrder(executed, events).map((node) => node.id)).toEqual(['Fetch-1', 'Notify-1']);
+  });
+
+  it('orders Steps without events in one total order, whatever order they arrive in', () => {
+    const eventless = ['Task2-1', '__planned:10:0', 'Task02-1', '__planned:9:0'].map((id): StepGraphNode => ({
+      id, label: 'Task', kind: 'step', status: 'Pending', stepType: 'Task', isPlanned: id.startsWith('__planned'),
+    }));
+    const forward = stepsInExecutionOrder(eventless).map((node) => node.id);
+    expect(stepsInExecutionOrder([...eventless].reverse()).map((node) => node.id)).toEqual(forward);
+    expect(new Set(forward).size).toBe(4);
+    expect(forward.indexOf('__planned:9:0')).toBeLessThan(forward.indexOf('__planned:10:0'));
   });
 
   it('orders by first event when the deciding event is outside the loaded window', () => {
