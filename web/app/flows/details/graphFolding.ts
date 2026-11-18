@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { formatDuration } from '@/lib/format';
+import { stepDecision } from '@/lib/graph';
+import { decidingEventIdOf } from '@/lib/historyRelations';
 import type { FlowHistoryEvent, StepGraphEdge, StepGraphNode } from '@/lib/types';
 
 /** An opened range longer than this shows only its first, selected and last Rounds. */
@@ -100,6 +102,8 @@ export interface StepGraphFoldingOptions {
   selectedStepExecutionID: string;
   /** The Step type that anchored Rounds before; kept while it still repeats, so groups stay stable. */
   preferredAnchorStepType?: string;
+  /** The loaded history; its Step and RPC decisions order the Steps each one started. */
+  historyEvents?: FlowHistoryEvent[];
 }
 
 interface RoundDraft {
@@ -126,7 +130,7 @@ export function foldStepGraph(
   edges: StepGraphEdge[],
   options: StepGraphFoldingOptions,
 ): FoldedStepGraph {
-  const steps = stepsInExecutionOrder(nodes);
+  const steps = stepsInExecutionOrder(nodes, options.historyEvents);
   const anchorStepType = roundAnchorStepType(steps, options.preferredAnchorStepType ?? '');
   const drafts = roundDrafts(steps, anchorStepType);
   if (drafts.length === 0) return unfoldedStepGraph(nodes, edges);
@@ -183,13 +187,93 @@ export function unfoldedStepGraph(nodes: StepGraphNode[], edges: StepGraphEdge[]
   };
 }
 
-/** Step executions ordered by their first recorded event; those without one keep their order at the end. */
-export function stepsInExecutionOrder(nodes: StepGraphNode[]): StepGraphNode[] {
-  return nodes
-    .map((node, index) => ({ node, index, order: firstEventID(node) }))
-    .filter(({ node }) => node.kind === 'step')
-    .sort((left, right) => left.order - right.order || left.index - right.index)
+interface StepSpawnOrder {
+  node: StepGraphNode;
+  /** The deciding event that started the Step execution, loaded or not; else its first event. */
+  spawnEventID: number;
+  /** The index in the deciding event's next Steps; see the constants below for the other cases. */
+  nextStepIndex: number;
+  firstEventID: number;
+}
+
+/** Sorts a Step without a deciding event before the Steps its own first event decides. */
+const noDecisionNextStepIndex = -1;
+/** Sorts a Step after its siblings when its deciding event is unloaded or lists it no more. */
+const unknownNextStepIndex = Number.MAX_SAFE_INTEGER;
+
+/** Step executions in spawn order: deciding event, next-Step index, first event, then ID. */
+export function stepsInExecutionOrder(nodes: StepGraphNode[], historyEvents: FlowHistoryEvent[] = []): StepGraphNode[] {
+  const steps = nodes.filter((node) => node.kind === 'step');
+  const nextStepIndexesByDecision = nextStepIndexesByDecisionEvent([...historyEvents, ...steps.flatMap(stepEvents)]);
+  const decidedSteps = new Map<string, StepGraphNode[]>();
+  const orders = new Map<StepGraphNode, StepSpawnOrder>();
+  for (const node of steps) {
+    const firstEvent = firstEventID(node);
+    const decisionEventID = stepEvents(node).map(decidingEventIdOf).find(isDefined);
+    if (decisionEventID === undefined) {
+      orders.set(node, { node, spawnEventID: firstEvent, nextStepIndex: noDecisionNextStepIndex, firstEventID: firstEvent });
+      continue;
+    }
+    orders.set(node, { node, spawnEventID: decisionEventID, nextStepIndex: unknownNextStepIndex, firstEventID: firstEvent });
+    appendToList(decidedSteps, decisionStepTypeKey(decisionEventID, stepTypeOf(node)), node);
+  }
+  // The k-th execution of a Step type takes that type's k-th place in its decision.
+  for (const [key, siblings] of decidedSteps) {
+    const indexes = nextStepIndexesByDecision.get(key);
+    if (!indexes) continue;
+    siblings.sort((left, right) => compareStepExecutionIDs(left.id, right.id) || firstEventID(left) - firstEventID(right));
+    siblings.forEach((sibling, occurrence) => {
+      const order = orders.get(sibling);
+      if (order && occurrence < indexes.length) order.nextStepIndex = indexes[occurrence];
+    });
+  }
+  return [...orders.values()]
+    .sort((left, right) => compareNumbers(left.spawnEventID, right.spawnEventID)
+      || left.nextStepIndex - right.nextStepIndex
+      || compareNumbers(left.firstEventID, right.firstEventID)
+      || compareStepExecutionIDs(left.node.id, right.node.id))
     .map(({ node }) => node);
+}
+
+/** The next-Step indexes of each Step type in each loaded Step or RPC decision. */
+function nextStepIndexesByDecisionEvent(events: FlowHistoryEvent[]): Map<string, number[]> {
+  const decisionEventIDs = new Set<number>();
+  const indexesByKey = new Map<string, number[]>();
+  for (const event of events) {
+    const decision = stepDecision(event);
+    if (!decision || decisionEventIDs.has(event.eventId)) continue;
+    decisionEventIDs.add(event.eventId);
+    const nextSteps = Array.isArray(decision.nextSteps) ? decision.nextSteps : [];
+    nextSteps.forEach((movement, index) => {
+      appendToList(indexesByKey, decisionStepTypeKey(event.eventId, nextStepTypeOf(movement)), index);
+    });
+  }
+  return indexesByKey;
+}
+
+function appendToList<Value>(listsByKey: Map<string, Value[]>, key: string, value: Value): void {
+  const list = listsByKey.get(key);
+  if (list) list.push(value);
+  else listsByKey.set(key, [value]);
+}
+
+function decisionStepTypeKey(decisionEventID: number, stepType: string): string {
+  return `${decisionEventID}\u0000${stepType}`;
+}
+
+function nextStepTypeOf(movement: unknown): string {
+  const stepType = movement && typeof movement === 'object' ? (movement as Record<string, unknown>).stepType : undefined;
+  return typeof stepType === 'string' ? stepType : '';
+}
+
+/** Compares numbers where two infinities are equal, unlike subtraction, which gives NaN. */
+function compareNumbers(left: number, right: number): number {
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+/** Orders "Step-9" before "Step-10"; distinct IDs that compare equal numerically fall back to code points. */
+function compareStepExecutionIDs(left: string, right: string): number {
+  return left.localeCompare(right, 'en', { numeric: true }) || (left < right ? -1 : left > right ? 1 : 0);
 }
 
 function firstEventID(node: StepGraphNode): number {

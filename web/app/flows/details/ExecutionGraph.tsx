@@ -819,9 +819,10 @@ export function ExecutionGraph({
         openIntents,
         selectedStepExecutionID,
         preferredAnchorStepType: preferredAnchorStepType.current.stepType,
+        historyEvents: events,
       })
       : unfoldedStepGraph(graph.nodes, graph.edges)),
-    [graph.edges, graph.nodes, isFolded, openIntents, selectedStepExecutionID],
+    [events, graph.edges, graph.nodes, isFolded, openIntents, selectedStepExecutionID],
   );
   useEffect(() => {
     if (folded.anchorStepType) preferredAnchorStepType.current = { flowId, stepType: folded.anchorStepType };
