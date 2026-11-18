@@ -463,13 +463,13 @@ executes every assignment and never rejects work for capacity. Start fails with 
 `matching.maxConcurrentTasksCap` reported by the first registered stream. That stream
 half-closes and drops any task already sent, so Dex returns it without consuming an
 attempt. A lower limit reported after a later reconnect only logs a warning.
-Since 1.45.4 this failure applies to an explicit `max_concurrent_tasks` of a fixed
+Since 1.45.7 this failure applies to an explicit `max_concurrent_tasks` of a fixed
 Worker. A fixed Worker without `max_concurrent_tasks` opens one stream first, learns
 the cap from its acknowledgement, and clamps its CPU-count default to the cap with a
 WARN log before it opens the other streams.
 The deprecated `idle_streams_per_queue` setting is still accepted and has no effect.
 
-`min_open_slots` (since 1.45.4) below `max_concurrent_tasks` makes the Worker
+`min_open_slots` (since 1.45.7) below `max_concurrent_tasks` makes the Worker
 adaptive. It keeps between `min_open_slots` and `max_concurrent_tasks` slot streams
 open; both counts include `reserved_rpc_tasks`. It doubles its Step-and-RPC streams,
 one batch at a time, when a task takes the last idle one. Every 30 seconds it

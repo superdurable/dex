@@ -1329,7 +1329,7 @@ final class PullWorker {
         }
 
         // Checks the Server's per-Worker slot limit on the first registration after start only.
-        // Changed in 1.45.4: an unset fixed ceiling and any adaptive ceiling are clamped instead (D4, F6).
+        // Changed in 1.45.7: an unset fixed ceiling and any adaptive ceiling are clamped instead (D4, F6).
         private boolean isRegistrationWithinServerLimit(final PollWorkerTaskResponse response) {
             final long serverLimit = Integer.toUnsignedLong(response.getRegistered()
                     .getMaxConcurrentTasksPerAppWorker());

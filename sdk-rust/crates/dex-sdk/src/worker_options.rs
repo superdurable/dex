@@ -22,7 +22,7 @@ use crate::{Credential, FlowDefinitionDocument, FlowServiceTlsOptions};
 ///
 /// Changed in 1.35.0: each execution slot owns one stream, replacing per-queue idle streams.
 /// Start requires protocol 4 (server-zd newer than v0.1.16); upgrade the Server before the SDK.
-/// Changed in 1.45.4: [`Self::min_open_slots`] below `max_concurrent_tasks` makes the Worker
+/// Changed in 1.45.7: [`Self::min_open_slots`] below `max_concurrent_tasks` makes the Worker
 /// adaptive.
 ///
 /// ```no_run
@@ -69,7 +69,7 @@ impl PullWorkerOptions {
     /// every task assigned to it. Changed in 1.35.0: [`crate::Worker::start`] fails if this value
     /// exceeds the Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
     ///
-    /// Changed in 1.45.4: this value is the ceiling of the slot streams, including the RPC-only
+    /// Changed in 1.45.7: this value is the ceiling of the slot streams, including the RPC-only
     /// slots. A fixed Worker, whose [`Self::min_open_slots`] is unset or equal to this value, keeps
     /// this many streams open. An adaptive Worker, whose [`Self::min_open_slots`] is below it,
     /// opens streams up to it only while every open Step-and-RPC stream is busy. Two cases now
@@ -129,7 +129,7 @@ impl PullWorkerOptions {
     /// `max_concurrent_tasks` below `min_open_slots`, or to `reserved_rpc_tasks` or less; the error
     /// names the values and the cap. Returns these options with the floor applied.
     ///
-    /// Since 1.45.4.
+    /// Since 1.45.7.
     ///
     /// ```no_run
     /// use std::sync::Arc;
@@ -193,7 +193,7 @@ impl PullWorkerOptions {
     /// Changed in 1.35.0: reservations select RPC-only streams instead of declining
     /// assigned Steps; the Worker executes every assignment.
     ///
-    /// Changed in 1.45.4: the default also reserves zero when [`Self::min_open_slots`] is one, and
+    /// Changed in 1.45.7: the default also reserves zero when [`Self::min_open_slots`] is one, and
     /// Start then warns that RPCs may wait behind Steps.
     ///
     /// The default reserves one slot when resolved concurrency is at least two, otherwise zero.

@@ -93,7 +93,7 @@ class PullRegistrationState:
     re-registration. When the first registration reports a Server per-Worker
     limit below ``max_concurrent_tasks``, ``is_ready`` stays false permanently.
 
-    .. versionchanged:: 1.45.5
+    .. versionchanged:: 1.45.7
        That permanent failure applies to an explicit ``max_concurrent_tasks``
        of a fixed Worker. An unset ``max_concurrent_tasks``, or any value of an
        adaptive Worker, is clamped to the limit instead. When the clamp leaves
@@ -193,7 +193,7 @@ class PullSlotStreamState:
         ...     f"orphaned={state.orphaned_handlers} capacity={state.total_capacity}"
         ... )
 
-    .. versionadded:: 1.45.5
+    .. versionadded:: 1.45.7
     """
 
     is_adaptive: bool = False

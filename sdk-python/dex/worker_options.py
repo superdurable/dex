@@ -45,7 +45,7 @@ class PullWorkerOptions:
        Start fails above matching.maxConcurrentTasksCap. Tasks received during
        stop return to Dex without consuming a retry.
 
-    .. versionchanged:: 1.45.5
+    .. versionchanged:: 1.45.7
        With ``min_open_slots`` below ``max_concurrent_tasks`` the Worker is
        adaptive. It keeps between ``min_open_slots`` and
        ``max_concurrent_tasks`` slot streams open, so an idle Worker holds fewer
@@ -60,7 +60,7 @@ class PullWorkerOptions:
             fails if an explicit value of a fixed Worker exceeds the Server's
             nonzero per-Worker limit reported by matching.maxConcurrentTasksCap.
 
-            .. versionchanged:: 1.45.5
+            .. versionchanged:: 1.45.7
                This is the ceiling of the slot streams. A fixed Worker, whose
                ``min_open_slots`` is unset or equal to it, keeps this many
                streams open. An adaptive Worker, whose ``min_open_slots`` is
@@ -87,7 +87,7 @@ class PullWorkerOptions:
             than the resolved task limit. With one slot and no explicit reserve,
             start warns that RPCs may wait behind long-running Steps.
 
-            .. versionchanged:: 1.45.5
+            .. versionchanged:: 1.45.7
                None also reserves zero when ``min_open_slots`` is 1, and start
                then warns that RPCs may wait behind long-running Steps.
         idle_streams_per_queue: Deprecated; accepted for source compatibility and
@@ -183,7 +183,7 @@ class PullWorkerOptions:
             below ``min_open_slots`` or to ``reserved_rpc_tasks`` or less; the
             error names the values and the cap.
 
-            .. versionadded:: 1.45.5
+            .. versionadded:: 1.45.7
 
     Raises:
         ValueError: If a numeric option is negative, the reserve reaches the task

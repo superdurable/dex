@@ -39,7 +39,7 @@ package io.superdurable.dex;
  *         + " capacity=" + state.getTotalCapacity());
  * }</pre>
  *
- * @since 1.45.4
+ * @since 1.45.7
  */
 public final class PullSlotStreamState {
     private final boolean isAdaptive;

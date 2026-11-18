@@ -177,7 +177,7 @@ class AsyncWorker:
            Fails before opening task streams when ``PullWorkerOptions.task_queue``
            names a task queue and the Server protocol is older than version 5.
 
-        .. versionchanged:: 1.45.5
+        .. versionchanged:: 1.45.7
            The matching.maxConcurrentTasksCap failure applies to an explicit
            ``max_concurrent_tasks`` of a fixed Worker. An unset
            ``max_concurrent_tasks``, or any value of an adaptive Worker, is
@@ -223,7 +223,7 @@ class AsyncWorker:
         .. versionchanged:: 1.35.0
            Readiness tracks STEP_AND_RPC and RPC_ONLY slot kinds instead of Flow queues.
 
-        .. versionchanged:: 1.45.5
+        .. versionchanged:: 1.45.7
            The limit error applies to an explicit ``max_concurrent_tasks`` of a
            fixed Worker. Other Workers clamp to the limit and become ready. A
            clamp that leaves no RPC-only slot drops the RPC_ONLY requirement.
@@ -303,7 +303,7 @@ class AsyncWorker:
             >>> state = worker.pull_slot_stream_state()
             >>> logger.info("open=%d busy=%d", state.open, state.busy)
 
-        .. versionadded:: 1.45.5
+        .. versionadded:: 1.45.7
         """
         return self._pull.slot_stream_state()
 

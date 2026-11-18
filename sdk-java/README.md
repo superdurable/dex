@@ -335,13 +335,13 @@ its task runs. The Worker executes every delivered task and never rejects for
 capacity. It can reject an unknown Step or RPC before invoking its handler.
 The default slot count is the available CPU count. Worker start fails if it
 exceeds the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit.
-Since 1.45.4 that failure applies to an explicit `maxConcurrentTasks` of a fixed
+Since 1.45.7 that failure applies to an explicit `maxConcurrentTasks` of a fixed
 Worker. A fixed Worker with `maxConcurrentTasks` unset opens one stream first,
 learns the cap from its registration, and clamps its CPU-count default to the cap
 with a warning before it opens the other streams.
 The deprecated `idleStreamsPerQueue` option is accepted but has no effect.
 
-`minOpenSlots` (since 1.45.4) below `maxConcurrentTasks` makes the Worker
+`minOpenSlots` (since 1.45.7) below `maxConcurrentTasks` makes the Worker
 adaptive. It keeps between `minOpenSlots` and `maxConcurrentTasks` slot streams
 open; both counts include `reservedRpcTasks`. It doubles its Step-and-RPC
 streams, one batch at a time, when a task takes the last idle one. Every 30
