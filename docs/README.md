@@ -102,8 +102,8 @@ node scripts/snapshot-reference.mjs server 0.1.21
 ```
 
 The script runs `docusaurus docs:version:reference-<component>`, updates the
-latest label, and keeps five released snapshots, including the latest. It
-then points the new snapshot's links to its own component at the same version:
+latest label, and keeps every released snapshot. It never removes a version.
+It then points the new snapshot's links to its own component at the same version:
 `/reference/server/workers` becomes `/reference/server/0.1.20/workers`. A
 reader of an archived version stays in that version. Anchors and trailing
 slashes are kept. Links to other components, generated API references, and
@@ -145,9 +145,9 @@ releases rather than relabeling current content.
 Moving or renaming a page can break links inside archived snapshots. The new
 redirect does not fix them: client redirects are not routes, and the build
 fails on broken links. After adding the redirect, retarget every existing
-redirect whose destination is the old URL, in both locales. Pruning redirects
-often point at current pages. Then rewrite the moved URL in every retained
-snapshot and run `npm run check`:
+redirect whose destination is the old URL, in both locales. Redirects from
+removed versions often point at current pages. Then rewrite the moved URL in
+every stored snapshot and run `npm run check`:
 
 ```bash
 node scripts/snapshot-reference.mjs --rewrite-links /concepts/old-page /concepts/new-page
@@ -174,20 +174,25 @@ A version-local link to a page or anchor that the version lacks fails
 `npm run check`. Fix the snapshot text: drop the link or the anchor. Do not
 point it back to the current page, which describes a different release.
 
-### Pruning and search indexing
+### Removing a version and search indexing
 
-Pruning removes obsolete snapshot files and adds direct redirects in both
-locale shells. Each dropped page goes to the latest page with the same document
-ID, or to the component index if that document no longer exists. Existing
-redirects are retargeted to avoid chains. Reference sidebars have no generated
-category pages, so every route of a version is a document route and has a
-redirect. Redirects are not routes, so the build still rejects a link to a
-dropped version. Change logs link to older versions, for example. Pruning
-therefore rewrites every such link in current content, the docs and i18n
-sources, and the retained snapshots to the same redirect destination, without
-its anchor. A `test:reference` case simulates the next release of every
-component on the real tree and fails when a link to a pruned version remains,
-so `npm run check` catches the problem before a release. Archived pages have self-canonical
+The site keeps every reference version. A version is removed by hand, and only
+when the owner asks. Removing one deletes its
+`reference-<component>_versioned_docs/version-<version>/` directory, its
+sidebar file, and its entry in `reference-<component>_versions.json`. Add
+direct redirects for every page of the version in both locale shells. Each
+removed page goes to the latest page with the same document ID, or to the
+component index if that document no longer exists. Retarget existing redirects
+whose destination is a removed page, so no chain remains. Reference sidebars
+have no generated category pages, so every route of a version is a document
+route and needs a redirect. Redirects are not routes, so the build still
+rejects a link to a removed version. Change logs link to older versions, for
+example. Rewrite every such link in current content, the docs and i18n
+sources, and the remaining snapshots to the same redirect destination, without
+its anchor. `npm run check` fails on any link that remains. A restored version
+needs the reverse: remove its redirects, so its pages are served again.
+
+Archived pages have self-canonical
 URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
 `llms.txt`. Their Markdown twins still exist. Current pages remain indexable.
 
@@ -243,8 +248,8 @@ the index links and locks to agree with it.
 
 ### Tests and upgrade risks
 
-`npm run test:reference` checks version boundaries, retention, file pruning,
-page fallback, locale redirects, patch replacement, the missing-bootstrap error,
+`npm run test:reference` checks version boundaries, that every version is kept,
+page fallback, patch replacement, the missing-bootstrap error,
 link rewrites (including angle-bracket destinations), version-local links in
 archived and hidden snapshots, and isolation between instances. `npm run check` also builds both
 locale shells and audits the selectors, archived routes, banners, canonicals,

@@ -14,8 +14,8 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {Globby} from '@docusaurus/utils';
 import {
-  compareVersions, droppedVersionRedirects, localizeAllSnapshotLinks, pinServerCompatibilityVersion, readReferenceDocuments,
-  referenceVersion, retargetRedirects, rewriteSnapshotLinks, snapshotReference,
+  compareVersions, localizeAllSnapshotLinks, pinServerCompatibilityVersion, readReferenceDocuments,
+  referenceVersion, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
 
 const docsDirectory = fileURLToPath(new URL('../', import.meta.url));
@@ -70,24 +70,7 @@ test('release versions follow component boundaries', () => {
   assert.equal(compareVersions('v1', 'v1'), 0);
 });
 
-test('pruning matches document IDs across slugs and falls back to the index in both locales', () => {
-  const redirects = droppedVersionRedirects('web', '1.28.x', [
-    {id: 'index', slug: '/'}, {id: 'page', slug: '/old-slug/'}, {id: 'gone', slug: '/removed/'},
-  ], [{id: 'index', slug: '/'}, {id: 'page', slug: '/new-slug/'}]);
-  assert.deepEqual(redirects.slice(0, 3), [
-    {from: '/reference/web/1.28.x/', to: '/reference/web/'},
-    {from: '/reference/web/1.28.x/old-slug/', to: '/reference/web/new-slug/'},
-    {from: '/reference/web/1.28.x/removed/', to: '/reference/web/'},
-  ]);
-  assert.equal(redirects[4].to, '/zh-Hans/reference/web/new-slug/');
-  assert.deepEqual(retargetRedirects([
-    {from: '/legacy/', to: '/reference/web/1.28.x/old-slug/'},
-  ], new Map(redirects.map(({from, to}) => [from, to])))[0],
-  {from: '/legacy/', to: '/reference/web/new-slug/'});
-  assert.throws(() => retargetRedirects([{from: '/a/', to: '/b/'}, {from: '/b/', to: '/a/'}], new Map()), /cycle/);
-});
-
-test('snapshot retains five releases, prunes files, flattens redirects, and leaves other instances alone', async () => {
+test('snapshot keeps every release, leaves redirects unchanged, and leaves other instances alone', async () => {
   const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-snapshot-'));
   try {
     const latestDirectory = join(siteDirectory, 'reference/web');
@@ -98,9 +81,8 @@ test('snapshot retains five releases, prunes files, flattens redirects, and leav
     await mkdir(join(latestDirectory, '_drafts'));
     await writeFile(join(latestDirectory, '_drafts/draft.mdx'), '# Draft');
     await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({web: '1.35.x', go: '1.35.x'}));
-    await writeFile(join(siteDirectory, 'redirects.json'), JSON.stringify([
-      {from: '/legacy/', to: '/reference/web/1.28.x/guide/old-name'},
-    ]));
+    const redirectsContent = JSON.stringify([{from: '/legacy/', to: '/reference/web/1.28.x/guide/old-name'}]);
+    await writeFile(join(siteDirectory, 'redirects.json'), redirectsContent);
     const previousVersions = ['1.35.x', '1.32.x', '1.30.x', '1.29.x', '1.28.x'];
     await writeFile(join(siteDirectory, 'reference-web_versions.json'), JSON.stringify(previousVersions));
     await writeFile(join(siteDirectory, 'reference-go_versions.json'), '["1.32.x"]\n');
@@ -120,13 +102,11 @@ test('snapshot retains five releases, prunes files, flattens redirects, and leav
       await writeFile(join(directory, `reference-web_versioned_sidebars/version-${version}-sidebars.json`), '{}');
     };
     const result = await snapshotReference('web', '1.36.0', {siteDirectory, createSnapshot});
-    assert.deepEqual(result.retainedVersions, ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x']);
-    assert.deepEqual(result.droppedVersions, ['1.28.x']);
-    const redirects = JSON.parse(await readFile(join(siteDirectory, 'redirects.json'), 'utf8'));
-    assert.deepEqual(redirects[0], {from: '/legacy/', to: '/reference/web/guide/new-name/'});
-    assert.ok(redirects.some(({from, to}) => from === '/zh-Hans/reference/web/1.28.x/gone/' && to === '/zh-Hans/reference/web/'));
-    await assert.rejects(readFile(join(siteDirectory, 'reference-web_versioned_docs/version-1.28.x/index.mdx')), {code: 'ENOENT'});
-    await assert.rejects(readFile(join(siteDirectory, 'reference-web_versioned_sidebars/version-1.28.x-sidebars.json')), {code: 'ENOENT'});
+    const allVersions = ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x', '1.28.x'];
+    assert.deepEqual(result.versions, allVersions);
+    assert.equal(await readFile(join(siteDirectory, 'redirects.json'), 'utf8'), redirectsContent);
+    assert.equal(await readFile(join(siteDirectory, 'reference-web_versioned_docs/version-1.28.x/gone.mdx'), 'utf8'), '# Gone');
+    assert.equal(await readFile(join(siteDirectory, 'reference-web_versioned_sidebars/version-1.28.x-sidebars.json'), 'utf8'), '{}');
     assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8')), {web: '1.36.x', go: '1.35.x'});
     assert.equal(await readFile(join(siteDirectory, 'reference-go_versions.json'), 'utf8'), '["1.32.x"]\n');
     assert.deepEqual(await readReferenceDocuments(latestDirectory), [
@@ -135,11 +115,9 @@ test('snapshot retains five releases, prunes files, flattens redirects, and leav
     await writeFile(join(latestDirectory, 'patched.mdx'), '# Patched');
     const patchResult = await snapshotReference('web', '1.36.1', {siteDirectory, createSnapshot});
     assert.equal(snapshotCount, 2, 'a patch release must refresh the hidden latest snapshot');
-    assert.deepEqual(patchResult.retainedVersions, ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x']);
-    assert.deepEqual(patchResult.droppedVersions, []);
+    assert.deepEqual(patchResult.versions, allVersions);
     assert.equal(await readFile(join(siteDirectory, 'reference-web_versioned_docs/version-1.36.x/patched.mdx'), 'utf8'), '# Patched');
-    assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference-web_versions.json'), 'utf8')),
-      ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x']);
+    assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference-web_versions.json'), 'utf8')), allVersions);
     await assert.rejects(snapshotReference('web', '1.32.0', {siteDirectory, createSnapshot}), /older/);
     await assert.rejects(snapshotReference('../invalid', '1.36.0', {siteDirectory, createSnapshot}), /Unknown/);
     await assert.rejects(snapshotReference('go', '1.36.0', {siteDirectory, createSnapshot}),
@@ -163,8 +141,8 @@ test('bootstrap snapshot of the latest label stays hidden and enables the next r
       await writeFile(join(directory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`), '{}');
     };
     await assert.rejects(snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot}), /0\.1\.19 is missing/);
-    assert.deepEqual((await snapshotReference('server', 'v0.1.19', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.19']);
-    assert.deepEqual((await snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.20', '0.1.19']);
+    assert.deepEqual((await snapshotReference('server', 'v0.1.19', {siteDirectory, createSnapshot})).versions, ['0.1.19']);
+    assert.deepEqual((await snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot})).versions, ['0.1.20', '0.1.19']);
     assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8')), {server: '0.1.20'});
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
@@ -252,70 +230,7 @@ test('link rewrites update whole paths in retained snapshots only', async () => 
   }
 });
 
-test('pruning points links to dropped versions at their redirect destinations everywhere', async () => {
-  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-dropped-links-'));
-  try {
-    const latestDirectory = join(siteDirectory, 'reference/cli');
-    await mkdir(latestDirectory, {recursive: true});
-    await writeFile(join(latestDirectory, 'index.mdx'), '---\nslug: /\n---\n# CLI');
-    await writeFile(join(latestDirectory, 'changelog.mdx'), [
-      '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.33.x/) [bare](/reference/cli/1.33.x)',
-      '[anchor](/reference/cli/1.33.x/#start-locally) [log](/reference/cli/1.33.x/changelog/#v1-33)',
-      '[gone](</reference/cli/1.33.x/removed>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
-      '[zh](/zh-Hans/reference/cli/1.33.x/changelog/#v1-33) [zh-gone](/zh-Hans/reference/cli/1.33.x/removed/)',
-    ].join('\n'));
-    await mkdir(join(siteDirectory, 'content'), {recursive: true});
-    await writeFile(join(siteDirectory, 'content/guide.mdx'), '<Link to="/reference/cli/1.33.x/changelog">c</Link>');
-    await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({cli: '1.37.x'}));
-    await writeFile(join(siteDirectory, 'redirects.json'), '[]');
-    const previousVersions = ['1.37.x', '1.36.x', '1.35.x', '1.34.x', '1.33.x'];
-    await writeFile(join(siteDirectory, 'reference-cli_versions.json'), JSON.stringify(previousVersions));
-    await mkdir(join(siteDirectory, 'reference-cli_versioned_sidebars'));
-    for (const version of previousVersions) {
-      const directory = join(siteDirectory, `reference-cli_versioned_docs/version-${version}`);
-      await cp(latestDirectory, directory, {recursive: true});
-      await writeFile(join(directory, 'removed.mdx'), '# Removed');
-      await writeFile(join(siteDirectory, `reference-cli_versioned_sidebars/version-${version}-sidebars.json`), '{}');
-    }
-    const createSnapshot = async (directory, component, version) => {
-      await cp(latestDirectory, join(directory, `reference-cli_versioned_docs/version-${version}`), {recursive: true});
-      await writeFile(join(directory, `reference-cli_versioned_sidebars/version-${version}-sidebars.json`), '{}');
-    };
-    const result = await snapshotReference('cli', '1.38.0', {siteDirectory, createSnapshot});
-    assert.deepEqual(result.droppedVersions, ['1.33.x']);
-    assert.deepEqual(result.rewrittenFiles, [
-      'content/guide.mdx',
-      'reference-cli_versioned_docs/version-1.34.x/changelog.mdx',
-      'reference-cli_versioned_docs/version-1.35.x/changelog.mdx',
-      'reference-cli_versioned_docs/version-1.36.x/changelog.mdx',
-      'reference-cli_versioned_docs/version-1.37.x/changelog.mdx',
-      'reference-cli_versioned_docs/version-1.38.x/changelog.mdx',
-      'reference/cli/changelog.mdx',
-    ]);
-    const expectedChangelog = [
-      '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/) [bare](/reference/cli/)',
-      '[anchor](/reference/cli/) [log](/reference/cli/changelog/)',
-      '[gone](</reference/cli/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
-      '[zh](/zh-Hans/reference/cli/changelog/) [zh-gone](/zh-Hans/reference/cli/)',
-    ].join('\n');
-    assert.equal(await readFile(join(latestDirectory, 'changelog.mdx'), 'utf8'), expectedChangelog);
-    assert.equal(await readFile(join(siteDirectory, 'reference-cli_versioned_docs/version-1.34.x/changelog.mdx'), 'utf8'),
-      expectedChangelog);
-    assert.equal(await readFile(join(siteDirectory, 'content/guide.mdx'), 'utf8'),
-      '<Link to="/reference/cli/changelog/">c</Link>');
-    assert.equal(await readFile(join(siteDirectory, 'reference-cli_versioned_docs/version-1.38.x/changelog.mdx'), 'utf8'),
-      [
-        '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.38.x/) [bare](/reference/cli/1.38.x/)',
-        '[anchor](/reference/cli/1.38.x/) [log](/reference/cli/1.38.x/changelog/)',
-        '[gone](</reference/cli/1.38.x/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.38.x/1.33.xy/)',
-        '[zh](/zh-Hans/reference/cli/changelog/) [zh-gone](/zh-Hans/reference/cli/)',
-      ].join('\n'));
-  } finally {
-    await rm(siteDirectory, {recursive: true, force: true});
-  }
-});
-
-test('the next release of every component leaves no link to a version it prunes', async () => {
+test('the next release of every component keeps every stored version', async () => {
   const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-next-release-'));
   try {
     for (const entry of await readdir(docsDirectory)) {
@@ -331,27 +246,22 @@ test('the next release of every component leaves no link to a version it prunes'
       await cp(join(directory, `reference-${component}_versioned_sidebars/version-${latestVersions[component]}-sidebars.json`),
         join(directory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`));
     };
-    const droppedRoutes = [];
+    const redirectsContent = await readFile(join(siteDirectory, 'redirects.json'), 'utf8');
     for (const [component, latestVersion] of Object.entries(latestVersions)) {
       const [major, minor, patch] = latestVersion.split('.');
       const schemaVersion = latestVersion.match(/^v(\d+)$/)?.[1];
       const nextRelease = schemaVersion ? `v${Number(schemaVersion) + 1}`
         : patch === 'x' ? `${major}.${Number(minor) + 1}.0` : `${major}.${minor}.${Number(patch) + 1}`;
-      const {droppedVersions} = await snapshotReference(component, nextRelease, {siteDirectory, createSnapshot});
-      droppedRoutes.push(...droppedVersions.map((version) => `/reference/${component}/${version}`));
-    }
-    assert.ok(droppedRoutes.length > 0, 'the simulated releases must prune at least one version');
-    const remainingLinkPattern = new RegExp(`(?:${droppedRoutes.map((route) => route.replaceAll('.', '\\.')).join('|')})`
-      + '(?=$|[\\s/)"\'\\]#?>])', 'm');
-    const sources = await Globby(['reference/**', 'content/**', 'i18n/**', 'src/**', 'reference-*_versioned_*/**'],
-      {cwd: siteDirectory});
-    const filesWithPrunedLinks = [];
-    for (const source of sources.sort()) {
-      if (remainingLinkPattern.test(await readFile(join(siteDirectory, source), 'utf8'))) {
-        filesWithPrunedLinks.push(source);
+      const previousVersions = JSON.parse(await readFile(join(siteDirectory, `reference-${component}_versions.json`), 'utf8'));
+      const {version, versions} = await snapshotReference(component, nextRelease, {siteDirectory, createSnapshot});
+      assert.deepEqual(versions, [version, ...previousVersions], `${component} must keep every stored version`);
+      for (const storedVersion of versions) {
+        assert.ok((await Globby(['**/*.{md,mdx}'],
+          {cwd: join(siteDirectory, `reference-${component}_versioned_docs/version-${storedVersion}`)})).length > 0,
+        `${component} ${storedVersion} snapshot must remain`);
       }
     }
-    assert.deepEqual(filesWithPrunedLinks, [], `links remain to pruned versions ${droppedRoutes.join(', ')}`);
+    assert.equal(await readFile(join(siteDirectory, 'redirects.json'), 'utf8'), redirectsContent);
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
   }

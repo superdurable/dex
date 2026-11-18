@@ -1,0 +1,287 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
+
+## 0.1.29 {#v0-1-29}
+
+Released 2026-11-12 as [server-zd/v0.1.29](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.29).
+
+### Breaking
+
+- With the default **metrics.level** of **advanced**, **GET /metrics** no longer exports these families: **dexzd_snapshot_last_bytes**, **dexzd_startup_read_retries_total**, **dexzd_recovery_last_replayed_bytes**, **dexzd_matching_unsupported_type_entries**, **dexzd_matching_heads_restored_refs_total**, **dexzd_matching_heads_incomplete_scans_total**, **dexzd_step_task_queue_incomplete_seeks_total**, **dexzd_worker_stream_protocol_errors_total**, **dexzd_worker_stream_events_total**, **dexzd_attribute_sync_fenced_writes_total**, **dexzd_search_outbox_max_partition_entries**, **dexzd_search_outbox_projected_entries_total**, **dexzd_search_outbox_projected_runs_total**, **dexzd_search_outbox_ack_proposals_total**, **dexzd_search_initial_load_documents_total**, **dexzd_search_initial_loads_total**, **dexzd_search_projection_mode_skipped_partitions_total**, **dexzd_history_upload_concurrency_limit**, **dexzd_history_upload_in_flight_bytes**, **dexzd_history_upload_bytes_total**, **dexzd_history_reads_total**, **dexzd_history_value_revivals_total**, **dexzd_history_expired_objects_deleted_total**, **dexzd_history_orphan_objects_deleted_total**, **dexzd_hot_standby_lag_batches**, **dexzd_takeover_duration_seconds**, and, on Linux, **process_resident_memory_bytes**, **process_cpu_seconds_total**, **process_start_time_seconds**, and **process_open_fds**. Set **metrics.level** to **verbose** to export them again. [Reference](/reference/server/0.1.29/metrics#metrics-levels).
+- Removed **dexzd_commit_batches_total**. It always equaled **dexzd_commit_latency_seconds_count**; use that series instead. [Reference](/reference/server/0.1.29/metrics#metrics-levels).
+
+### Added
+
+- The server logs the effective values of **retention.closedFlowDuration**, **values.maxValueBytes**, **limits.maxFlowStateBytes**, **lifecycle.attemptDrainTimeout**, and **metrics.level** in one **effective configuration** INFO line at startup, including defaults for unset keys. **dev** and **local** also log **dev.durabilityMode**. [Reference](/reference/server/0.1.29/configuration#effective-configuration).
+- **metrics.level** selects which metric families **GET /metrics** exports: **basic** (golden signals for SLOs and paging alerts), **advanced** (the default; adds capacity, cost, and the lag and failure signals of each optional component), or **verbose** (adds internal mechanisms, throughput detail, and the Linux process metrics). Each level includes the families of the levels below it, and a family keeps the same labels and buckets at every level. The metrics page now lists every family with its type, labels, buckets, and level. [Reference](/reference/server/0.1.29/metrics#metrics-levels).
+
+### Changed
+
+- With **objectStore.provider: aliyunOSS**, the server keeps each replaced version of the manifest, the registry, node leases, and Flow definitions for at least 10 minutes instead of 60 seconds before it deletes it. Once every node runs this release, replacements stay correct while an OSS listing lags behind a write by less than 10 minutes; nodes of an older release still delete versions after 60 seconds. Each node keeps about 180 lease versions at the default **lease.duration**, with the same number of requests per renewal as before. The new **dexzd_object_store_versioned_listing_stale_total** counter, with a **site** label, counts listings that missed a version the node had just written; alert on any increase. [Reference](/reference/server/0.1.29/object-storage#aliyun-oss).
+
+## 0.1.28 {#v0-1-28}
+
+Released 2026-11-12 as [server-zd/v0.1.28](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.28).
+
+### Added
+
+- **objectStore.provider: azureBlob** and **objectStore.provider: googleCloudStorage** let **serve** keep its object storage in Azure Blob Storage or Google Cloud Storage through each cloud's native API. Set the Azure storage account in **objectStore.azureAccount** and the container or bucket in **objectStore.bucket**. Credentials come from the environment or each cloud's default identity chain. Existing configurations keep using S3, and a prefix cannot switch providers. [Reference](/reference/server/0.1.29/configuration#azure-gcs).
+- **objectStore.hardDeleteStore.provider** selects the provider of the hard-delete destination: **s3**, **aliyunOSS**, **azureBlob**, or **googleCloudStorage**; **db9** is rejected. Without it, the destination uses **aliyunOSS** when the primary store does and **s3** otherwise, as before. **objectStore.hardDeleteStore.azureAccount** names its Azure storage account. [Reference](/reference/server/0.1.29/configuration#azure-gcs-switching).
+
+## 0.1.27 {#v0-1-27}
+
+Released 2026-11-12 as [server-zd/v0.1.27](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.27).
+
+### Added
+
+- **objectStore.provider: aliyunOSS** lets **serve** keep its object storage in an Aliyun OSS bucket through the OSS S3-compatible endpoint, such as **https://s3.oss-cn-hangzhou.aliyuncs.com**. The bucket must never have had versioning enabled; startup checks this. Objects that the server replaces, such as the cluster manifest and node leases, are stored as versions that the server manages. Data cannot move between **aliyunOSS** and other providers. [Reference](/reference/server/0.1.29/object-storage#aliyun-oss).
+
+### Changed
+
+- Startup fails when the object storage startup check, which writes and deletes a probe object, does not finish within 5 minutes. This applies to every provider. [Reference](/reference/server/0.1.29/object-storage#iam-policy).
+
+## 0.1.26 {#v0-1-26}
+
+Released 2026-11-11 as [server-zd/v0.1.26](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.26).
+
+### Breaking
+
+- Removed **FlowService.TriggerContinueAsNew** and **TriggerContinueAsNewRequest**. The RPC previously returned UNIMPLEMENTED. [Reference](/reference/server/0.1.29/runtime-client).
+- Removed **FlowConfig.continue_as_new_threshold** (2), **continue_as_new_page_size_in_bytes** (3), **SearchFlowsRequest.include_continued_as_new** (4), **FlowStatus.FLOW_STATUS_CONTINUED_AS_NEW** (7), **FlowStartedOrContinuedHistoryEvent.continued_start** (11), **FlowContinuedStart**, and **FlowClosedHistoryEvent.continued_to_run_id** (5). Their field numbers and names, and the enum number and name, are reserved where applicable. [Reference](/reference/server/0.1.29/runtime-client#update-flowconfig).
+- A search query that compares **ExecutionStatus** with **ContinuedAsNew**, such as **ExecutionStatus = 'ContinuedAsNew'** or **ExecutionStatus != 'ContinuedAsNew'**, fails with INVALID_ARGUMENT. Remove that predicate from stored queries. [Reference](/reference/server/0.1.29/runtime-client#search-flows).
+- Removed **WaitForStepCompletionRequest.internal_handler_timeout_seconds** (5) and **WaitForAttributeRequest.internal_handler_timeout_seconds** (4). The server ignored positive values. [Reference](/reference/server/0.1.29/runtime-client#wait-timeouts-and-limits).
+- A Step whose Step type contains a dash can no longer start SubFlows. Dex Server rejects its WaitFor result as an invalid Worker response, and the attempt fails without retry. A dash made the SubFlow ID ambiguous, so two parents could share one child. Rename such Step types. [Reference](/reference/server/0.1.29/runtime-data#subflow-step-types).
+- Renamed **FlowExecutionID** to **FlowRunID** and both **flow_execution_id** fields to **flow_run_id** without changing field numbers. ProtoJSON field names change from **flowExecutionId** to **flowRunId**; update JSON clients and generated-code consumers. [Reference](/reference/server/0.1.29/runtime-client#describe-a-flow).
+- Apply results change. Stop the standby and the active process, upgrade both binaries, then start the active process before the standby. A mixed-version pair diverges. [Reference](/reference/server/0.1.29/upgrades).
+
+### Added
+
+- **FlowService.UploadFlowDefinitions**, **ListFlowDefinitions**, and **GetFlowDefinitions** store and read Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type, so that Dex Web can render Flows without a definition directory. An upload keeps the stored document unless the new one differs and has a strictly later **generated_at**, or the request sets **force**. Errors use the new **ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID** and **ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE**. [Reference](/reference/server/0.1.29/runtime-client#flow-definitions).
+- **flowDefinitions.maxDefinitionBytes** (default 8 MiB) limits one uploaded Flow definition. [Reference](/reference/server/0.1.29/configuration#flow-definitions).
+- The only new persisted data is one object per uploaded Flow type under **PREFIX/registry/flow-definitions/**. It is outside the log and snapshots, and older server binaries never read it, so they keep working on the same prefix. [Reference](/reference/server/0.1.29/object-storage#flow-definitions).
+- **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/0.1.29/configuration#single-node-application-bucket).
+
+### Fixed
+
+- A Step that a decision or an RPC cancels after its wait consumed Channel messages, but before its **Execute** result was saved, no longer loses those messages. They return to the front of their Channel or ChannelMap instance in their original order, and another wait can consume them, so a message can reach **Execute** twice. The server still drops them when the Flow close cancels the Step: a stop, a Flow timeout, a failure that closes the Flow, or a decision that cancels it and closes with **ForceComplete** or **ForceFail**. A Step that a commit cancels also no longer consumes that commit's own publications. [Reference](/reference/server/0.1.29/runtime-data#canceled-step-messages).
+- A **StartFlow** retry with the **request_id** that started the latest run of the Flow ID no longer goes through the ID reuse policy. It returns that run with **ignore_already_started_error**, or ALREADY_EXISTS / FLOW_ALREADY_STARTED without it. Before, **ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING** and **ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY** started a second run for the retry, and **ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING** terminated the run that the retried request had started. [Reference](/reference/go/start-flow-options#start-request-server-behavior).
+
+## 0.1.25 {#v0-1-25}
+
+Released 2026-11-09 as [server-zd/v0.1.25](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.25).
+
+### Breaking
+
+- **StepMethodFailure.backend_error** now holds the Flow error category name, **FLOW_ERROR_TYPE_WORKER_API_FAIL** or **FLOW_ERROR_TYPE_INTERNAL**, for a failed Step attempt. Before, it held the raw failure text. The Worker error detail, type, gRPC status, and stack trace are in the **original_worker_error** fields of **details**, and the server failure detail is in **details.detail**. The application failure text and history recorded before the upgrade are unchanged. Code that read the failure text from **backend_error** should read **details** instead.
+- Apply results change. Stop the standby and the active process, upgrade both binaries, then start the active process before the standby. A mixed-version pair diverges. [Reference](/reference/server/0.1.29/upgrades).
+
+### Changed
+
+- Dex Web shows the error category as the error type of a failed Step, and the Worker error detail stays in its own field.
+- An RPC that finds an idle Worker slot at once takes the **WorkerDispatch** registry lock twice instead of eight times. Plain-RPC throughput rose from about 34k to 51k–68k RPCs/s on an 18-core host.
+- A sticky Worker that declined the Step type is skipped at once instead of after the sticky wait.
+
+## 0.1.24 {#v0-1-24}
+
+Released 2026-11-09 as [server-zd/v0.1.24](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.24).
+
+### Added
+
+- **objectStore.provider: db9** lets **serve** keep its object storage in db9, a PostgreSQL-compatible database, instead of S3. Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Existing configurations keep using S3, and existing S3 data is not migrated. [Reference](/reference/server/0.1.29/object-storage#db9).
+
+## 0.1.23 {#v0-1-23}
+
+Released 2026-11-09 as [server-zd/v0.1.23](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.23). Reference: [0.1.23](/reference/server/0.1.29/).
+
+### Breaking
+
+- Each run now chooses at start whether it offloads its history, with the new **FlowConfig.offload_history** (field 9). Unset means true in **serve**, **dev**, and **local**. Set it at StartFlow or in a SubFlow override. A child inherits its parent's choice unless its override sets one. UpdateFlowConfig rejects a request that sets it with INVALID_ARGUMENT. [Reference](/reference/server/0.1.29/configuration#history-offload).
+- A run with **offload_history** false keeps its history on local disk and never writes a history object. It keeps every superseded value its window covers, with no byte cap. For a run that rewrites large values, keep offload or set a smaller **history_window_events**.
+- Runs that started before the upgrade keep the offload mode their partition recorded at the upgrade. A **dev** or **local** data directory upgraded from 0.1.21 directly to 0.1.23 never had offload, so its runs stay local.
+- **history.offloadEnabled** is removed. A value of true is accepted with a startup warning and no effect. A value of false fails startup; remove the key and set **offload_history** false on the Flows that keep history locally.
+- **history.deleteExpiredObjects** and **history.maxRetainedSupersededBytes** are removed. They are accepted with a startup warning and no effect.
+- **FlowConfig.delete_expired_history_objects** (field 8) is deprecated. Runs that start with 0.1.23 or later ignore it and always delete the objects of expired history segments about one hour after expiry. Runs that started earlier still follow it.
+- The default **history.windowEvents** is now 50,000 for **serve** and 5,000 for **dev** and **local**, where it was 10,000. Existing runs keep their window. SubFlow children record the server **history.windowEvents** and **history.pruneChunkSize**. [Reference](/reference/server/0.1.29/configuration#history-window).
+- Runs started since 0.1.23 no longer count the bookkeeping rows of superseded values toward **limits.maxFlowStateBytes**, and no run counts Steps that ended normally.
+- The LoadBlobs limit of 1,000 entries now counts only entries of runs that offload history.
+- The metric **dexzd_history_offload_mode_skipped_partitions_total** is removed.
+- **history.uploadConcurrency** is now the cap of an adaptive upload limit (default 256, was a fixed 16). The limit starts at the new **history.uploadMinConcurrency** (16) and grows while uploads wait. To keep a fixed value N, set both to N. [Reference](/reference/server/0.1.29/configuration#history-upload-concurrency).
+- Apply results change. Stop the standby and the active process, upgrade both binaries, then start the active process before the standby. Do not run an earlier release on the storage prefix or data directory afterwards. [Reference](/reference/server/0.1.29/upgrades).
+- **serve** creates a history read cache directory next to **localStorage.directory**, 1 GiB by default. Set **history.readCacheDirectory** to a writable volume when the store volume is mounted at **localStorage.directory**. The node needs read, write, and delete access to **PREFIX/history/**, and no bucket lifecycle rule may expire objects there. [Reference](/reference/server/0.1.29/object-storage#history-offload).
+
+### Added
+
+- **history.uploadMaxInFlightBytes** (128 MiB) bounds the bytes being encoded and uploaded at once. Upload concurrency halves on retryable storage failures such as S3 SlowDown.
+- The metric **dexzd_history_upload_backlog_segments** reports the live backlog. New gauges are **dexzd_history_upload_concurrency_limit** and **dexzd_history_upload_in_flight_bytes**.
+- SDKs 1.40.0 expose **FlowConfig.offload_history**, and **dexcli flow start --config** accepts **offloadHistory**.
+
+### Changed
+
+- A purge of an offloaded run waits one minute for in-flight history uploads before it deletes the run's objects.
+
+### Fixed
+
+- A run that executes many Steps no longer slows down as it ages. The server maintains active Step types incrementally, starts history and value pruning from persisted cursors, and deletes the rows of Steps that ended normally. A 40k-Step run now keeps 4 Step rows instead of 40,002.
+
+## 0.1.22 {#v0-1-22}
+
+Released 2026-11-09 as [server-zd/v0.1.22](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.22).
+
+### Breaking
+
+- **dex-server-zd dev**, **dex-server-zd local**, and **dexcli dev** now default **history.offloadEnabled** to true. **serve** keeps false. An existing **dev** or **local** data directory turns offload on at its next start, and its running runs migrate their history to segments. Once offload has been on, do not run an earlier release on that data directory. To keep history on local disk, set **history.offloadEnabled** false in the overrides file before the first start. [Reference](/reference/server/0.1.29/configuration#history-offload).
+- Stop the standby and the active process, upgrade both, then start. New log commands are unknown to older binaries, so a mixed pair halts. [Reference](/reference/server/0.1.29/upgrades).
+- GetHistoryEvents pages hold at most 1,000 events and return events only from the window start. Events before the window start are reported in the pruned range.
+- While history offload is on, a LoadBlobs request names at most 1,000 values. SDKs from 1.39.0 batch automatically.
+
+### Added
+
+- History offload is complete but experimental. Run history is sealed into segments, uploaded under **history/** in the primary object store, read back for GetHistoryEvents, LoadBlobs, and time travel, and deleted from local disk after upload. Idle and closed runs clean up local history after **history.supersededValueGracePeriod** (default 10 minutes). [Reference](/reference/server/0.1.29/object-storage#history-offload).
+- Segments the window passed expire. Their objects are deleted one hour later when the per-run **FlowConfig.delete_expired_history_objects** is on, which is the default for **dev** and **local**. A periodic sweep removes orphaned **history/** objects.
+- The engine computes time travel and stages it for apply, so it works over history in object storage. A replay is bounded by **history.timeTravelReplayMemoryBytes** (default 1 GiB).
+- A history read cache is configured with **history.readCacheDirectory**, **history.readCacheMaxBytes** (default 1 GiB), and **history.objectReadConcurrency**.
+- New metrics are **dexzd_history_reads_total**, **dexzd_history_value_revivals_total**, **dexzd_history_expired_objects_deleted_total**, **dexzd_history_orphan_objects_deleted_total**, and **dexzd_history_upload_rescan_errors_total**.
+
+### Fixed
+
+- Large values deleted from the Value column family release their RocksDB blob files without a manual compaction.
+- An idle server deletes log objects covered by an old enough snapshot.
+- History pages no longer show events at the window start whose values are gone or that cannot be time-travelled to.
+- Upload backlog gauges are correct right after a restart.
+- A normal shutdown logs the registry halt at WARN instead of ERROR.
+
+## 0.1.21 {#v0-1-21}
+
+Released 2026-11-07 as [server-zd/v0.1.21](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.21).
+
+### Breaking
+
+- Stop the standby and the active process, upgrade both, then start. Several changes alter apply results, so a mixed-version pair can diverge. [Reference](/reference/server/0.1.29/upgrades).
+- **history.windowSemanticEvents** is renamed to **history.windowEvents** and counts history events instead of semantic commands. **history.pruneChunkSize** also counts events. The old key works with a startup deprecation warning, and setting both names is an error. Runs started earlier keep their recorded window, now read as an event count. [Reference](/reference/server/0.1.29/configuration#history-window).
+- A GetHistoryEvents page ends early when the next event would exceed the gRPC response limit, and the next page token continues from there. Large values in history events are returned as value references; load them with LoadBlobs.
+
+### Added
+
+- The public **FlowConfig.history_window_events** sets how many history events one run keeps. Set it at StartFlow, with UpdateFlowConfig, or in a SubFlow override. Children inherit it. Values range from 1 to **history.maxWindowEvents** (default 100,000).
+- **dev** and **local** default **snapshot.logDeletionDelay** to 1 hour instead of 24 hours. **serve** keeps 24 hours. [Reference](/reference/server/0.1.29/configuration#single-node-local-disk).
+- An experimental, off-by-default mode seals run history into segments and uploads them to the primary object store under **history/**. Do not turn it on in this release, because reading uploaded history arrives later.
+
+### Changed
+
+- Only active state counts toward **limits.maxFlowStateBytes**. History and the superseded values kept for time travel no longer count.
+- **history.checkpointCommandInterval** is renamed to **history.checkpointCommandThreshold** and defaults to 1,000 commands, where it was 10,000. **history.checkpointMinWrittenBytes** is renamed to **history.checkpointRowWriteBytesThreshold**. The old keys work with a deprecation warning. [Reference](/reference/server/0.1.29/configuration#history-checkpoints).
+
+### Fixed
+
+- Step and history event waits no longer read History rows.
+- History pages respect the gRPC message limit, and stored effect values are referenced instead of inlined in history events.
+
+## 0.1.20 {#v0-1-20}
+
+Released 2026-11-06 as [server-zd/v0.1.20](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.20). Reference: [0.1.20](/reference/server/0.1.29/).
+
+### Breaking
+
+- **dev** and **local** now default to 32 partitions instead of 1024; **serve** keeps 1024. To keep an existing 1024-partition directory, set **cluster.partitionCount** to 1024 in **--config**. [Reference](/reference/server/0.1.29/configuration#single-node-partition-count).
+- **dev** now honors **api.listen** from **--config** when **--listen** is absent. Review copied configuration files or pass **--listen** explicitly to keep the previous bind address. [Reference](/reference/server/0.1.29/configuration#single-node-local).
+
+### Added
+
+- **dex-server-zd local** runs a single production node on local disk with the same data directory layout and lock as **dev**. It allows a 30-second Step attempt drain by default. [Reference](/reference/server/0.1.29/configuration#single-node-local).
+- **dev** and **local** warn at startup when listening on a non-loopback address without authenticators. [Reference](/reference/server/0.1.29/configuration#single-node-local).
+
+### Changed
+
+- Partition-count mismatch errors report the data directory and both counts. A hot standby classifies the mismatch as a configuration error. [Reference](/reference/server/0.1.29/configuration#single-node-partition-count).
+
+## 0.1.19 {#v0-1-19}
+
+Released 2026-11-06 as [server-zd/v0.1.19](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.19). Reference: [0.1.19](/reference/server/0.1.29/).
+
+### Breaking
+
+- **streamStore.backend** now defaults to **memory** for **serve** as well as **dev**. Set it to **disabled** to retain rejection of Client Stream calls with **FAILED_PRECONDITION**. [Reference](/reference/server/0.1.29/configuration#streams).
+- **streamStore.maxTotalBytes** caps node Stream data at 1 GiB by default; writes beyond it return **RESOURCE_EXHAUSTED**. Raise this setting and **streamStore.maxStreamCapacityBytes** (64 MiB by default) if applications need larger buffers. [Reference](/reference/server/0.1.29/configuration#streams).
+
+### Added
+
+- **dexzd_step_stream_writes_dropped_total** counts dropped Step Stream writes by reason. These best-effort writes still never fail the Step. [Reference](/reference/server/0.1.29/metrics).
+- Startup warns when **streamStore.backend** is **disabled**. [Reference](/reference/server/0.1.29/configuration#streams).
+
+### Changed
+
+- A Stream message too large to fit still returns **RESOURCE_EXHAUSTED**, with an error explaining that it can never fit. The rejection no longer trims that Stream. [Reference](/reference/server/0.1.29/runtime-data#stream-capacity).
+
+### Fixed
+
+- **streamStore.estimatedMessageOverheadBytes**, **streamStore.backgroundTrimBatchSize**, **streamStore.trimBatchYieldTime**, and **streamStore.trimWorkers** now take effect. [Reference](/reference/server/0.1.29/configuration#streams).
+- A rejected Stream write requests enough trimming to make room for itself, preventing continued rejection while usage sits at the trim target. [Reference](/reference/server/0.1.29/runtime-data#stream-capacity).
+- Stream message identities keep increasing after trimming removes a Stream and a write recreates it, so resume tokens do not skip new messages. [Reference](/reference/server/0.1.29/runtime-data#stream-resumable-reads).
+
+## 0.1.18 {#v0-1-18}
+
+Released 2026-11-05 as [server-zd/v0.1.18](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18). Reference: [0.1.18](/reference/server/0.1.29/).
+
+### Breaking
+
+- **dev** now defaults to strict durability and flushes acknowledged writes to disk. Pass **--durability process-crash-safe** or set **dev.durabilityMode** to **processCrashSafe** for the previous behavior. [Reference](/reference/server/0.1.29/configuration#single-node-local-durability).
+- Strict startup fails if the embedded store cannot open or flush its data directory or an ancestor directory. Fix the named directory before restarting. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
+- All durability modes refuse a data directory left unclean by a release before 0.1.4. Delete that directory to start empty; cleanly stopped directories remain usable. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
+
+### Added
+
+- **dex-server-zd dev --durability** selects **strict**, **process-crash-safe**, or **relaxed** and overrides **dev.durabilityMode**. [Reference](/reference/server/0.1.29/configuration#single-node-local-durability).
+
+### Changed
+
+- The embedded object store is now named **s3local**. Its on-disk format is unchanged. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
+
+### Fixed
+
+- Strict writes flush parent directory entries, including existing directories and concurrent creation, before acknowledging writes. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
+
+## 0.1.17 {#v0-1-17}
+
+Released 2026-11-05 as [server-zd/v0.1.17](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.17). Reference: [0.1.17](/reference/server/0.1.29/).
+
+### Breaking
+
+- Protocol version 4 requires a coordinated server upgrade: stop all old active and standby processes before starting the new version, then upgrade SDKs. After the new binary writes to a storage prefix, roll forward or restore a pre-upgrade backup into a new prefix. [Reference](/reference/server/0.1.29/upgrades).
+- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/failure-and-retries#same-attempt-redelivery).
+- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/step-options#timeouts-and-total-duration).
+- Steps with no available or supporting Worker now wait durably instead of failing with **NO_WORKER_AVAILABLE**. Set a Flow timeout when that wait must be bounded; **matching.dispatchWait** now applies only to RPCs. [Reference](/reference/server/0.1.29/workers#step-task-queue).
+- Worker startup fails when its requested concurrency exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower Worker concurrency or raise that cap and **matching.maxStreams** first. [Reference](/reference/server/0.1.29/workers#pull-worker-dispatch).
+- **limits.maxChildFlowResultBytes** now limits child Flow results to 16 MiB by default. Raise it before starting affected runs or reduce result size. [Reference](/reference/server/0.1.29/configuration#limits).
+
+### Added
+
+- Protocol version 4 records Step attempt start at hand-out to a reserved Worker slot and reports **attempt_progress** in recovery errors. The minimum supported protocol remains unchanged, so older SDKs keep working. [Reference](/reference/server/0.1.29/upgrades).
+- **lifecycle.attemptDrainTimeout** lets planned stops and step-downs drain running attempts for 30 seconds by default, or 2 seconds under **dev**. Set Kubernetes **terminationGracePeriodSeconds** longer than this timeout. [Reference](/reference/server/0.1.29/kubernetes#graceful-shutdown).
+- **matching.syncMatchWait**, **matching.headsResyncInterval**, **matching.headsMaxSkippedDeletions**, and **matching.unsupportedTypeCacheEntries** configure durable Step dispatch. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.17).
+- **dexzd_step_task_queue_entries** and **dexzd_step_task_queue_oldest_age_seconds** expose durable backlog. The entries gauge can read low during background counting after recovery; use oldest age meanwhile. [Reference](/reference/server/0.1.29/workers#step-task-queue).
+
+### Changed
+
+- The RPC lock-conflict message now says “a Step” instead of “a running Step”. [Reference](/reference/server/0.1.29/runtime-data#rpc-lock-conflicts).
+
+### Fixed
+
+- **limits.maxFlowStateBytes** now checks state growth across Step attempts and RPCs that change Flow state. [Reference](/reference/server/0.1.29/configuration#limits).
+
+## 0.1.16 {#v0-1-16}
+
+Released 2026-11-02 as [server-zd/v0.1.16](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.16). Reference: [0.1.16](/reference/server/0.1.29/).
+
+### Fixed
+
+- A process that steps down and takes its own lease back resumes serving instead of exiting. Public calls still running after lease release end with **UNAVAILABLE** and may be retried. [Reference](/reference/server/0.1.29/high-availability#step-down).
+- Only the newest gRPC server instance accepts new connections, preventing startup refusals after readiness reports **SERVING** and first-call connection errors. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.16).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=server-zd&expanded=true).
