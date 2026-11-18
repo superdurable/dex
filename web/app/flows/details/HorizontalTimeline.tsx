@@ -728,7 +728,7 @@ export function HorizontalTimeline({
     });
     return { laneEvents: lane, laneToPage: pageIndexes };
   }, [highlightedEventId, linkedEventIds, pageEvents, pageShownFlags, selectedEventId]);
-  /** Keys skip lane events shown only as a link end, so a chain of links never walks past the filter. */
+  /** Keys skip filtered events shown only because they link to the selection. */
   const laneKeyStopFlags = useMemo(() => laneEvents.map((event, laneIndex) => (
     pageShownFlags[laneToPage[laneIndex]] || event.eventId === selectedEventId || event.eventId === highlightedEventId
   )), [highlightedEventId, laneEvents, laneToPage, pageShownFlags, selectedEventId]);
@@ -1124,6 +1124,15 @@ export function HorizontalTimeline({
       .sort((left, right) => (side === 'left' ? right.linkedIndex - left.linkedIndex : left.linkedIndex - right.linkedIndex));
     return lines.length ? [{ side, lines }] : [];
   });
+  // Lines to one edge share their geometry, so each edge draws one line per direction, to the nearest.
+  const drawnLinkLines = [
+    ...linkLines.filter((line) => !line.isLinkedOutOfView),
+    ...linkEdgeMarkers.flatMap(({ lines }) => (['incoming', 'outgoing'] as const).flatMap((direction) => {
+      const sameDirection = lines.filter((line) => line.link.direction === direction);
+      if (!sameDirection.length) return [];
+      return [{ ...sameDirection[0], isLinkedFilteredOut: sameDirection.every((line) => line.isLinkedFilteredOut) }];
+    })),
+  ];
   const barSlotWidth = plotWidth / bucketCount;
   const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
   /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
@@ -1470,7 +1479,7 @@ export function HorizontalTimeline({
           })}
         </div>
         <svg aria-hidden="true" className="htl-arcs" height={arcBandHeight} width={stripWidth}>
-          {linkLines.map((line) => (
+          {drawnLinkLines.map((line) => (
             <g
               className={[
                 'htl-arc',
