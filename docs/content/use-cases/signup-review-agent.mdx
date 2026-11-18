@@ -1,0 +1,73 @@
+---
+title: Sign-up Review Agent
+sidebar_label: Sign-up Review Agent
+slug: /use-cases/signup-review-agent
+---
+
+# Sign-up Review Agent
+
+The sign-up review agent reviews each new Dex Cloud sign-up with the admins in Slack, then approves the account and sends a welcome email. It shows a real business process as one durable agent session: it reads, posts, waits days for a person, and writes to other systems.
+
+**SDK:** TypeScript · **Code:** [superdurable-apps/dex-signup-agent-demo](https://github.com/superdurable-apps/dex-signup-agent-demo)
+
+**Shows:** an agent session per sign-up, Connector tools for Slack and Gmail, a Connector Trigger that delivers replies, a durable wait for a person, and recovery of a failed send with Time Travel.
+
+## What the agent does {#what-the-agent-does}
+
+1. Someone signs up for Dex Cloud. The agent looks the applicant up on GitHub and on their profile page or website.
+2. It posts a review in a Slack channel: a recommendation to approve or reject, its reasons, and a draft welcome email.
+3. It waits for a reviewer to reply in the review's thread. The wait can take minutes or days.
+4. A reviewer replies `approve`, `reject <reason>`, or `hold`. Any other reply is feedback on the email, and the agent posts a new draft.
+5. After the approval, a reviewer replies `send`. The agent sends the latest draft to the applicant from the team's Gmail.
+6. The agent posts a summary in the thread and ends the review.
+
+## How it maps to Dex {#how-it-maps-to-dex}
+
+Each sign-up gets one agent session, a Flow with the ID `signup-review-<accountId>`. A small loop in the Worker lists pending sign-ups every 30 seconds. It starts a session for each new one, with the sign-up data as the first message. The start uses an ID reuse policy that rejects a used Flow ID. So each account gets one review.
+
+The application is the agent's prompt and nine tools. Each tool's [effect class](/agent-frameworks/tool-calls#effect-classes) decides how Dex runs it:
+
+| Tool | What it does | Effect class | Runs in |
+| --- | --- | --- | --- |
+| `github_user`, `fetch_profile` | Read the applicant's GitHub profile and web page | `read` | `CallTool`, with retries |
+| `post_review`, `post_draft`, `reply_in_thread` | Post the review, a new draft, or a note in Slack | `non_idempotent_write` | `CallSingleAttemptTool`, with bounded resends |
+| `approve_account`, `reject_account` | Decide the account, then post the outcome in the thread | `non_idempotent_write` | `CallSingleAttemptTool`, with bounded resends |
+| `send_welcome_email` | Send the latest draft with Gmail | `non_idempotent_write` | `CallSingleAttemptTool`, with bounded resends |
+| `finish_review` | End the session once the account is decided | `idempotent_write` | `CallTool`, with retries |
+
+The Slack and Gmail tools are [Connector tools](/agent-frameworks/connectors-as-tools) of the official Slack and Gmail Connectors. The app writes no Slack or Gmail client code. The effect class comes from each operation's manifest. These Slack and Gmail operations allow up to three sends for one call. [Effect classes](/agent-frameworks/connectors-as-tools#connector-tools-effects) explains bounded resends.
+
+The same prompt and tools run on two harnesses: Pi, the built-in agent loop with pi-ai, and the Claude Agent SDK. With the Claude Agent SDK, one `RunModel` Step runs a turn segment, with the model calls and the reads inside it. Each write runs in its own Step. [Framework details](/agent-frameworks/framework-details) covers both.
+
+## Wait for a reviewer {#wait-for-a-reviewer}
+
+After `post_review`, the session waits in `AwaitUserMessage`. The wait holds no Worker and no process. If the Worker stops and restarts, the session keeps waiting in Dex.
+
+The reviewers' replies come from the Slack Connector's `threadReplyCreated` [Trigger](/concepts/connector). It keeps only thread replies from the listed reviewers. It finds the session that owns the thread. It sends each reply to that session through the session's `send_user_message` RPC. The reply wakes the session for one turn, and the agent acts on it.
+
+## Recover a failed email send {#recover-a-failed-email-send}
+
+The welcome email is a write that must not repeat. If Gmail's answer is lost, the Connector first searches Sent Mail for the message. It sends again only when it finds no copy, and at most three times for the call. If Gmail rejects the message, nothing was sent and the call fails.
+
+If the outcome stays unknown after those checks, Dex records the call as `outcome_unknown`. Dex runs that call no more. The agent posts in the thread that the email may have gone out, and asks the admins to check Sent Mail. The tool refuses another send of that draft in the same review. So a new call cannot email the applicant again.
+
+To send it after you fix the cause, such as an expired Gmail connection, use [Time Travel](/components/operate-and-debug#time-travel). Move the session back to a point right before the send. The session's records go back with it. Then the send runs again in the same run, with the same Run ID and a new attempt.
+
+## Run it {#run-it}
+
+You need Node.js 22.19 or later, `dexcli`, a Slack app, and a Gmail account to send from.
+
+1. Start Dex with `dexcli dev`.
+2. In Dex Web, open **Connectors** and add two connections: `review-slack` for Slack and `welcome-gmail` for Gmail.
+3. Copy `.env.example` to `.env`, and fill in the review channel, the reviewers, and the model settings.
+4. Run `npm ci && npm start`.
+5. Reply in the review's thread in Slack, and watch the session `signup-review-<accountId>` in Dex Web.
+
+The repository lists every setting and the Slack app's scopes. It also runs the same agent on Dex Cloud.
+
+## Next
+
+- [AI Agent](/use-cases/ai-agent): what Dex adds to an agent, and how to build one.
+- [Order Support Agent](/use-cases/order-support-agent): one agent built in each agent framework.
+- [Connectors as Tools](/agent-frameworks/connectors-as-tools)
+- [Tool Calls](/agent-frameworks/tool-calls)

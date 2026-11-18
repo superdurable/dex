@@ -1,0 +1,73 @@
+---
+title: 注册审核 Agent
+sidebar_label: 注册审核 Agent
+slug: /use-cases/signup-review-agent
+---
+
+# 注册审核 Agent
+
+注册审核 Agent 与 Slack 中的管理员一起审核每个新的 Dex Cloud 注册，然后批准账号并发送欢迎邮件。它把一个真实的业务流程做成一个持久化的 Agent Session：读取信息、发帖、等人几天，并写入其他系统。
+
+**SDK：** TypeScript · **代码：** [superdurable-apps/dex-signup-agent-demo](https://github.com/superdurable-apps/dex-signup-agent-demo)
+
+**展示：** 每个注册一个 Agent Session、Slack 和 Gmail 的 Connector tool、投递回复的 Connector Trigger、等待人的持久化等待，以及用 Time Travel 恢复一次失败的发送。
+
+## Agent 做什么 {#what-the-agent-does}
+
+1. 有人注册 Dex Cloud。Agent 在 GitHub 上以及申请人的个人主页或网站上查找这个人。
+2. 它在一个 Slack channel 中发布审核：批准或拒绝的建议、理由，以及一份欢迎邮件草稿。
+3. 它等待审核人在这条审核的 thread 中回复。等待可能是几分钟，也可能是几天。
+4. 审核人回复 `approve`、`reject <reason>` 或 `hold`。其他回复都是对邮件的反馈，Agent 会发布一份新草稿。
+5. 批准之后，审核人回复 `send`。Agent 用团队的 Gmail 把最新草稿发给申请人。
+6. Agent 在 thread 中发布一条总结，然后结束审核。
+
+## 怎样对应到 Dex {#how-it-maps-to-dex}
+
+每个注册对应一个 Agent Session，也就是 Flow ID 为 `signup-review-<accountId>` 的 Flow。Worker 中的一个小循环每 30 秒列出待审核的注册。它为每个新注册启动一个 Session，第一条消息是注册数据。启动时使用拒绝已用 Flow ID 的 ID 复用策略。所以每个账号只审核一次。
+
+这个应用就是 Agent 的 prompt 和九个 tool。每个 tool 的 [effect class](/agent-frameworks/tool-calls#effect-classes) 决定 Dex 怎样运行它：
+
+| Tool | 做什么 | Effect class | 运行在 |
+| --- | --- | --- | --- |
+| `github_user`、`fetch_profile` | 读取申请人的 GitHub 资料和网页 | `read` | `CallTool`，带重试 |
+| `post_review`、`post_draft`、`reply_in_thread` | 在 Slack 中发布审核、新草稿或一条备注 | `non_idempotent_write` | `CallSingleAttemptTool`，带有限次重发 |
+| `approve_account`、`reject_account` | 对账号做出决定，然后在 thread 中发布结果 | `non_idempotent_write` | `CallSingleAttemptTool`，带有限次重发 |
+| `send_welcome_email` | 用 Gmail 发送最新草稿 | `non_idempotent_write` | `CallSingleAttemptTool`，带有限次重发 |
+| `finish_review` | 账号有了决定后结束 Session | `idempotent_write` | `CallTool`，带重试 |
+
+Slack 和 Gmail 的 tool 是官方 Slack 和 Gmail Connector 的 [Connector tool](/agent-frameworks/connectors-as-tools)。应用里没有自己写的 Slack 或 Gmail 客户端代码。Effect class 来自每个 operation 的 manifest。这些 Slack 和 Gmail operation 允许一次调用最多发送三次。[Effect class](/agent-frameworks/connectors-as-tools#connector-tools-effects) 解释了有限次重发。
+
+同一套 prompt 和 tool 运行在两个 harness 上：Pi（基于 pi-ai 的内置 Agent Loop）和 Claude Agent SDK。使用 Claude Agent SDK 时，一个 `RunModel` Step 运行一个 turn segment，模型调用和读操作都在其中。每个写操作在自己的 Step 中运行。[框架细节](/agent-frameworks/framework-details) 介绍了两者。
+
+## 等待审核人 {#wait-for-a-reviewer}
+
+`post_review` 之后，Session 在 `AwaitUserMessage` 中等待。等待期间不占用 Worker，也不占用进程。如果 Worker 停下再重启，Session 仍在 Dex 中继续等待。
+
+审核人的回复来自 Slack Connector 的 `threadReplyCreated` [Trigger](/concepts/connector)。它只保留名单内审核人的 thread 回复。它找到拥有这个 thread 的 Session。它通过该 Session 的 `send_user_message` RPC 把每条回复发给这个 Session。回复唤醒 Session 运行一个 turn，Agent 据此行动。
+
+## 恢复失败的邮件发送 {#recover-a-failed-email-send}
+
+欢迎邮件是一个重复了就会多发一封的写操作。如果 Gmail 的应答丢失，Connector 先在已发送邮件中查找这封邮件。只有找不到时它才重新发送，而且一次调用最多发送三次。如果 Gmail 拒收这封邮件，说明什么都没发出，这次调用记为失败。
+
+如果经过这些检查结果仍然未知，Dex 把这次调用记为 `outcome_unknown`。Dex 之后不再运行这次调用。Agent 在 thread 中说明邮件可能已经发出，请管理员检查已发送邮件。在同一次审核中，这个 tool 拒绝再次发送这份草稿。所以新的调用无法再次给申请人发邮件。
+
+修复原因之后（比如过期的 Gmail connection），用 [Time Travel](/components/operate-and-debug#time-travel) 再发送一次。把 Session 退回到发送之前的那个点。Session 的记录也随之退回。然后发送会在同一次 run 中重新运行，Run ID 不变，开始一次新的尝试。
+
+## 运行它 {#run-it}
+
+你需要 Node.js 22.19 或更新版本、`dexcli`、一个 Slack app，以及一个用来发信的 Gmail 账号。
+
+1. 用 `dexcli dev` 启动 Dex。
+2. 在 Dex Web 中打开 **Connectors**，添加两个 connection：Slack 的 `review-slack` 和 Gmail 的 `welcome-gmail`。
+3. 把 `.env.example` 复制为 `.env`，填写审核 channel、审核人和模型设置。
+4. 运行 `npm ci && npm start`。
+5. 在 Slack 中审核的 thread 里回复，并在 Dex Web 中查看 Session `signup-review-<accountId>`。
+
+仓库列出了所有设置和 Slack app 需要的 scope。它也介绍了如何在 Dex Cloud 上运行同一个 Agent。
+
+## 下一步
+
+- [AI Agent](/use-cases/ai-agent)：Dex 为 Agent 带来什么，以及如何构建一个 Agent。
+- [订单客服 Agent](/use-cases/order-support-agent)：同一个 Agent 在每个 Agent 框架中各实现一份。
+- [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools)
+- [Tool Call](/agent-frameworks/tool-calls)

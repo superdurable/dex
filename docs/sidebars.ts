@@ -178,6 +178,7 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'product-examples'},
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
+        'use-cases/signup-review-agent',
         'use-cases/ai-agent',
         'use-cases/order-support-agent',
         'use-cases/order-processing',
