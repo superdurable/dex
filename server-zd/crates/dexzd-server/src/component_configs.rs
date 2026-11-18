@@ -159,6 +159,7 @@ impl ComponentConfigs {
             },
             lease: dexzd_cluster_metadata::LeaseConfig {
                 duration: config.lease.duration,
+                renewal_attempt_timeout: config.lease.renewal_attempt_timeout,
                 fail_fast: config.lease.fail_if_held,
                 should_take_over_held_lease,
                 held_lease_poll_limit: match config.standby.mode {

@@ -60,7 +60,7 @@ pub struct Config {
     pub local_storage: LocalStorageConfig,
     /// Group commit and multipart thresholds. Defaults to a 20 ms window and four in-flight writes.
     pub commit: CommitConfig,
-    /// Owner lease settings. Defaults to a ten-second lease, or 30 seconds for `dev` and `local`.
+    /// Owner lease settings. Defaults to a ten-second lease, or 30 seconds for `local` and 90 seconds for `dev`.
     pub lease: LeaseConfig,
     /// How a process waits for the lease and steps down. Defaults to a cold standby.
     pub standby: StandbyConfig,

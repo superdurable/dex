@@ -547,6 +547,7 @@ pub(crate) fn engine_node_config(
             should_take_over_held_lease: false,
             held_lease_poll_limit: LeaseConfig::default().held_lease_poll_limit,
             acquisition_delay: None,
+            renewal_attempt_timeout: None,
         },
         local_store,
         commit: CommitConfig {

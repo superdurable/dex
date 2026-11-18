@@ -59,6 +59,8 @@ struct MemoryStore {
     manifest_read_barrier: Mutex<Option<(Arc<Barrier>, usize)>>,
     registry_read_barrier: Mutex<Option<(Arc<Barrier>, usize)>>,
     lease_read_instants: Mutex<Vec<Instant>>,
+    lease_renewal_write_delay: Mutex<Option<Duration>>,
+    lease_renewal_write_count: AtomicU64,
 }
 
 impl MemoryStore {
@@ -78,6 +80,19 @@ impl ObjectStore for MemoryStore {
         let is_lease_release = key.starts_with("lease/")
             && NodeLease::decode(body.clone())
                 .is_ok_and(|lease| lease.expires_at_unix_micros == i64::MIN);
+        let is_lease_renewal = key.starts_with("lease/")
+            && !is_lease_release
+            && matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
+        let renewal_write_delay = *self
+            .lease_renewal_write_delay
+            .lock()
+            .expect("test store mutex");
+        if is_lease_renewal && let Some(delay) = renewal_write_delay {
+            self.lease_renewal_write_count
+                .fetch_add(1, Ordering::SeqCst);
+            // A slow host or disk: the write lands only after the delay.
+            tokio::time::sleep(delay).await;
+        }
         if key.starts_with("lease/")
             && !is_lease_release
             && matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. })
@@ -1348,6 +1363,90 @@ async fn hung_renewal_attempts_time_out_retry_and_report_loss_before_the_local_d
     store.block_lease_renewals.store(false, Ordering::SeqCst);
     holder.shutdown().await.unwrap();
     assert_eq!(validity_deadline.armed_deadline(), None);
+}
+
+/// A renewal write that a busy development host takes 15 s to finish.
+const SLOW_RENEWAL_WRITE: Duration = Duration::from_secs(15);
+
+#[tokio::test(start_paused = true)]
+async fn a_thirty_second_lease_with_derived_attempts_loses_slow_renewals() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let config = LeaseConfig {
+        duration: Duration::from_secs(30),
+        ..LeaseConfig::default()
+    };
+    assert_eq!(
+        config.effective_renewal_attempt_timeout(),
+        Duration::from_secs(5)
+    );
+    let holder = acquire_lease(store.clone(), clock, &node(), &config)
+        .await
+        .unwrap();
+    let mut status = holder.subscribe();
+    assert!(matches!(
+        *status.borrow_and_update(),
+        LeaseStatus::ValidUntil(_)
+    ));
+    *store.lease_renewal_write_delay.lock().unwrap() = Some(SLOW_RENEWAL_WRITE);
+    // 5 s attempts are cut off, and the last one gets under 10 s of the remaining validity.
+    tokio::time::timeout(Duration::from_secs(31), status.changed())
+        .await
+        .expect("the loss is reported before the lease ends")
+        .unwrap();
+    assert!(matches!(
+        &*status.borrow(),
+        LeaseStatus::Lost(detail) if detail.contains("renewal exceeded local lease deadline")
+    ));
+    *store.lease_renewal_write_delay.lock().unwrap() = None;
+    holder.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_ninety_second_lease_with_twenty_second_attempts_keeps_slow_renewals() {
+    let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(TestClock::default());
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        .await
+        .unwrap();
+    let config = LeaseConfig {
+        duration: Duration::from_secs(90),
+        renewal_attempt_timeout: Some(Duration::from_secs(20)),
+        ..LeaseConfig::default()
+    };
+    let holder = acquire_lease(store.clone(), clock, &node(), &config)
+        .await
+        .unwrap();
+    let mut status = holder.subscribe();
+    let mut previous_deadline = match *status.borrow_and_update() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(ref detail) => panic!("expected a valid lease: {detail}"),
+    };
+    *store.lease_renewal_write_delay.lock().unwrap() = Some(SLOW_RENEWAL_WRITE);
+    let renewal_count = 5;
+    for _ in 0..renewal_count {
+        // Renewal starts 30 s after the last one was sent and takes 15 s.
+        tokio::time::timeout(Duration::from_secs(46), status.changed())
+            .await
+            .expect("each slow renewal completes")
+            .unwrap();
+        let renewed_deadline = match *status.borrow_and_update() {
+            LeaseStatus::ValidUntil(deadline) => deadline,
+            LeaseStatus::Lost(ref detail) => panic!("a slow renewal lost the lease: {detail}"),
+        };
+        assert!(renewed_deadline >= previous_deadline + Duration::from_secs(30));
+        previous_deadline = renewed_deadline;
+    }
+    // Every renewal finished in its first attempt; none was cut off and retried.
+    assert_eq!(
+        store.lease_renewal_write_count.load(Ordering::SeqCst),
+        renewal_count
+    );
+    *store.lease_renewal_write_delay.lock().unwrap() = None;
+    holder.shutdown().await.unwrap();
 }
 
 #[tokio::test(start_paused = true)]

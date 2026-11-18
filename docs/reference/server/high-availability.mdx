@@ -11,16 +11,19 @@ description: "How server-zd keeps one active node: the lease in object storage, 
 The node holds a lease object in object storage. **lease.duration** defaults to
 10 seconds. The node renews the lease after one third of the duration.
 
-**dex-server-zd dev** defaults **lease.duration** to 30 seconds, unless its
-override file sets it. A dev node has no standby, so the longer lease costs no
-failover time, and it lets the node survive longer host stalls.
+**dex-server-zd dev** defaults **lease.duration** to 90 seconds and
+**lease.renewalAttemptTimeout** to 20 seconds, unless its override file sets
+**lease.duration**. A dev node has no standby, so the longer lease costs no
+failover time. It lets the node survive host stalls and slow local storage
+writes of about a minute, as on a busy development machine. Changed in 0.1.35:
+the dev defaults were a 30-second lease and the derived renewal attempt timeout.
 
 A dev node holds an exclusive lock on **dev.lock** in its data directory, so a
 second dev process on that directory fails to start. While a dev node holds the
 lock, any lease that is still held belongs to a stopped process. The dev node
 takes that lease over at once with a raised epoch, so a restart does not wait,
 even after a crash. On a filesystem that cannot lock files, the dev node logs a
-warning and waits for the lease to expire, up to 31 seconds.
+warning and waits for the lease to expire, up to 91 seconds.
 
 The default **dev.durabilityMode**, **strict**, flushes every write with fsync
 before the reply. Every acknowledged write survives a process crash or kill,
@@ -31,8 +34,9 @@ abrupt exit in **relaxed** mode, the dev node refuses to start until you delete
 its data directory. See
 [local development](/reference/web/dex-web#run-against-server-zd).
 
-**dex-server-zd local** uses the same lease default, lock, takeover, and
-durability modes. See
+**dex-server-zd local** uses the same lock, takeover, and durability modes. Its
+**lease.duration** defaults to 30 seconds, and a restart on a filesystem
+without file locks waits up to 31 seconds. See
 [Single node on local disk](/reference/server/configuration#single-node-local).
 
 Data safety does not depend on the duration. Each lease acquisition raises the
@@ -52,9 +56,15 @@ The duration only partly affects object storage outages:
 
 - A renewal attempt that fails with a transient error, such as a 5xx or
   throttling response, is retried after a backoff.
-- While another attempt still fits, each attempt is cut off after one sixth of
-  the duration, between 1 and 5 seconds. The last attempt may use all the
-  remaining time, so with a long lease it can run longer than 5 seconds.
+- While another attempt still fits, each attempt is cut off after
+  **lease.renewalAttemptTimeout**. When that key is unset, the default, the
+  cutoff is one sixth of the duration, between 1 and 5 seconds. The last
+  attempt may use all the remaining time, so with a long lease it can run
+  longer than the cutoff.
+- **lease.renewalAttemptTimeout** must be positive and at most one third of
+  **lease.duration**, so a cut-off attempt leaves time for a retry. Set it
+  when renewal writes can take longer than 5 seconds, so a slow write that
+  would succeed is not cut off and retried. Since 0.1.35.
 - Retries continue only while the next backoff ends before the renewal cutoff,
   100 ms before the current lease period ends. When no retry fits, or the last
   attempt fails, the node stops.

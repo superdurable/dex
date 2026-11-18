@@ -115,11 +115,12 @@ impl CommitConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct LeaseConfig {
-    /// Defaults to 10 s, or 30 s for `dev` and `local` unless the `--config` file sets it; owner renews after one third of this interval and stops serving when validity ends.
+    /// Defaults to 10 s, or 30 s for `local` and 90 s for `dev` unless the `--config` file sets it; owner renews after one third of this interval and stops serving when validity ends.
     ///
     /// Validity ends this long after the last successful renewal was sent, on the local monotonic
-    /// clock. Each renewal attempt times out after one sixth of this interval, from 1 s to 5 s,
-    /// while a retry still fits; the last attempt may use the remaining validity. Transient
+    /// clock. Each renewal attempt times out after `renewalAttemptTimeout`, by default one sixth
+    /// of this interval from 1 s to 5 s, while a retry still fits; the last attempt may use the
+    /// remaining validity. Transient
     /// failures are retried with a jittered backoff from 200 ms doubling to 2 s until 100 ms before
     /// validity ends. A conditional write lost to another holder
     /// stops the node at once. Once validity ends, the node acknowledges no commits and reports
@@ -134,6 +135,15 @@ pub struct LeaseConfig {
     /// stopped process, and `dev` or `local` takes it over at once. Where the filesystem cannot
     /// lock files, `dev` and `local` wait like `serve`.
     pub fail_if_held: bool,
+    /// Defaults to unset, which cuts off each renewal attempt after one sixth of `duration`, from
+    /// 1 s to 5 s; `dev` sets 20 s unless the `--config` file sets this field or `duration`.
+    ///
+    /// When set, it must be positive and at most one third of `duration`, so a cut-off attempt
+    /// leaves time for a retry. An attempt runs to this cutoff only while a retry still fits after
+    /// it; the last attempt may use the remaining validity. A longer cutoff lets a slow but
+    /// successful renewal write finish instead of being cut off and retried.
+    #[serde(with = "humantime_serde", skip_serializing_if = "Option::is_none")]
+    pub renewal_attempt_timeout: Option<Duration>,
 }
 
 impl Default for LeaseConfig {
@@ -141,6 +151,7 @@ impl Default for LeaseConfig {
         Self {
             duration: Duration::from_secs(10),
             fail_if_held: false,
+            renewal_attempt_timeout: None,
         }
     }
 }
