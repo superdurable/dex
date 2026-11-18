@@ -159,57 +159,124 @@ function nodeWithDecision(stepDecision: unknown): StepGraphNode {
 
 describe('Execution graph Execute decision', () => {
   it.each([
-    [{ nextSteps: [{ stepType: 'SyncBatch' }] }, 'next-steps', 'SyncBatch', 'lucide-arrow-right'],
-    [{ closeDecision: { closeDecisionType: 5 } }, 'dead-end', 'Dead end', 'lucide-circle-slash-2'],
-    [{ closeDecision: { closeDecisionType: 2 } }, 'graceful-complete', 'Graceful complete', 'lucide-flag'],
-    [{ closeDecision: { closeDecisionType: 3 } }, 'force-complete', 'Force complete', 'lucide-check-check'],
-    [{ closeDecision: { closeDecisionType: 4 } }, 'force-fail', 'Force fail', 'lucide-octagon-x'],
-    [{ closeDecision: { closeDecisionType: 1 } }, 'complete-when-channels-empty', 'Complete when channels are empty', 'lucide-inbox'],
-    [{ cancelStepTypes: ['Poll'] }, 'cancel', 'Cancel Poll', 'lucide-ban'],
-  ])('shows the decision %j with its label, icon, and tone', (stepDecision, kind, label, iconClass) => {
+    [{ nextSteps: [{ stepType: 'SyncBatch' }] }, 'go-to', 'GoTo', 'lucide-arrow-right'],
+    [{ closeDecision: { closeDecisionType: 5 } }, 'dead-end', 'DeadEnd', 'lucide-circle-slash-2'],
+    [{ closeDecision: { closeDecisionType: 2 } }, 'graceful-complete', 'GracefulComplete', 'lucide-flag'],
+    [{ closeDecision: { closeDecisionType: 3 } }, 'force-complete', 'ForceComplete', 'lucide-check-check'],
+    [{ closeDecision: { closeDecisionType: 4 } }, 'force-fail', 'ForceFail', 'lucide-octagon-x'],
+    [{ closeDecision: { closeDecisionType: 1 } }, 'force-complete-if-channels-empty', 'ForceCompleteIfChannelsEmpty', 'lucide-inbox'],
+    [{ cancelStepTypes: ['Poll'] }, 'cancel-steps', 'CancelSteps', 'lucide-ban'],
+  ])('shows the decision %j with its SDK name, icon, and tone', (stepDecision, kind, label, iconClass) => {
     render(<StepNodeLabel node={nodeWithDecision(stepDecision)} onSelect={vi.fn()} />);
-    const execute = screen.getByRole('button', { name: new RegExp(`^Execute .*${label}`) });
+    const execute = screen.getByRole('button', { name: new RegExp(`^Execute ${label}`) });
     expect(execute.className).toContain(`graph-method-decision-${kind}`);
     expect(execute.querySelector('.graph-execute-decision-text')?.textContent).toBe(label);
     expect(execute.querySelector(`svg.${iconClass}`)).not.toBeNull();
     expect(execute.textContent).not.toContain('Completed');
+    const visibleText = execute.querySelector('.graph-execute-decision-lines')?.textContent;
+    expect(visibleText).not.toContain('SyncBatch');
+    expect(visibleText).not.toContain('Poll');
+    expect(execute.querySelector('.graph-execute-decision-channels')).toBeNull();
   });
 
-  it('truncates a long next Step list with +N and keeps the full list in the tooltip', () => {
+  it('shows GoTo without a count for one next Step and GoTo ×N for several', () => {
+    render(<StepNodeLabel node={nodeWithDecision({ nextSteps: [{ stepType: 'Notify' }] })} onSelect={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Execute GoTo' }).querySelector('.graph-execute-decision-count')).toBeNull();
+    cleanup();
     render(<StepNodeLabel node={nodeWithDecision({
       nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }, { stepType: 'Audit' }],
     })} onSelect={vi.fn()} />);
-    const line = document.querySelector('.graph-execute-decision')!;
-    expect(line.querySelector('.graph-execute-decision-text')?.textContent).toBe('ResumeTurn, CallTool');
-    expect(line.querySelector('.graph-execute-decision-more')?.textContent).toBe('+1');
-    expect(line.getAttribute('title')).toBe('→ ResumeTurn\n→ CallTool\n→ Audit');
+    const execute = screen.getByRole('button', { name: 'Execute GoTo ×3' });
+    expect(execute.querySelector('.graph-execute-decision-count')?.textContent).toBe('×3');
+    expect(execute.textContent).not.toContain('GoToMany');
+    expect(execute.querySelector('.graph-execute-decision-lines')?.getAttribute('title'))
+      .toBe('GoTo → ResumeTurn\nGoTo → CallTool\nGoTo → Audit');
+  });
+
+  it('adds CancelSteps ×N to the decision kind and lists the cancellation in the tooltip and description', () => {
+    render(<StepNodeLabel node={nodeWithDecision({
+      nextSteps: [{ stepType: 'RequestHumanApprovalStep' }],
+      cancelStepTypes: ['GetUsageStep'],
+    })} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute GoTo CancelSteps ×1' });
+    expect(execute.querySelector('.graph-execute-decision-separator')?.textContent).toBe('·');
+    expect(execute.className).toContain('graph-method-decision-go-to');
+    const cancel = execute.querySelector('.graph-execute-decision-cancel')!;
+    expect(cancel.querySelector('svg.lucide-ban')).not.toBeNull();
+    expect(cancel.textContent).toBe('CancelSteps×1');
+    const fullText = 'GoTo → RequestHumanApprovalStep\nCancelSteps → GetUsageStep (entire Flow)';
+    expect(execute.querySelector('.graph-execute-decision-lines')?.getAttribute('title')).toBe(fullText);
+    expect(screen.getByRole('button', { description: fullText.split('\n').join('; ') })).toBe(execute);
+  });
+
+  it('shows CancelSteps ×N alone for a decision that only cancels', () => {
+    render(<StepNodeLabel node={nodeWithDecision({ cancelStepTypes: ['Poll'], cancelSiblingStepTypes: ['Retry'] })} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute CancelSteps ×2' });
+    expect(execute.className).toContain('graph-method-decision-cancel-steps');
+    expect(execute.querySelector('.graph-execute-decision-cancel')).toBeNull();
+    expect(screen.getByRole('button', {
+      description: 'CancelSteps → Poll (entire Flow); CancelSiblingSteps → Retry (same parent execution)',
+    })).toBe(execute);
   });
 
   it('describes the whole decision to the focused Execute button', () => {
     render(<StepNodeLabel node={nodeWithDecision({
-      nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }, { stepType: 'Audit' }],
+      nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }],
       cancelStepTypes: ['Poll'],
       closeDecision: { closeDecisionType: 2 },
     })} onSelect={vi.fn()} />);
     const execute = screen.getByRole('button', { name: /^Execute/ });
     execute.focus();
     expect(document.activeElement).toBe(execute);
-    const description = document.getElementById(execute.getAttribute('aria-describedby') ?? '');
-    expect(description?.textContent).toBe('→ ResumeTurn; → CallTool; → Audit; Cancel Poll (entire Flow); Graceful complete');
-    expect(screen.getByRole('button', {
-      description: '→ ResumeTurn; → CallTool; → Audit; Cancel Poll (entire Flow); Graceful complete',
-    })).toBe(execute);
-    expect(screen.getByRole('button', { name: 'Execute Graceful complete' })).toBe(execute);
+    const description = 'GracefulComplete; GoTo → ResumeTurn; GoTo → CallTool; CancelSteps → Poll (entire Flow)';
+    expect(document.getElementById(execute.getAttribute('aria-describedby') ?? '')?.textContent).toBe(description);
+    expect(screen.getByRole('button', { description })).toBe(execute);
+    expect(screen.getByRole('button', { name: 'Execute GracefulComplete CancelSteps ×1' })).toBe(execute);
   });
 
-  it('shows next Steps and lists the cancellation in the description when there is no close decision', () => {
+  it('keeps the ForceFail reason in the tooltip and description', () => {
     render(<StepNodeLabel node={nodeWithDecision({
-      nextSteps: [{ stepType: 'Notify' }],
-      cancelSiblingStepTypes: ['Retry'],
+      closeDecision: { closeDecisionType: 4, closeInput: { stringValue: 'card declined' } },
     })} onSelect={vi.fn()} />);
-    const execute = screen.getByRole('button', { name: 'Execute Next Steps Notify' });
-    expect(execute.className).toContain('graph-method-decision-next-steps');
-    expect(screen.getByRole('button', { description: '→ Notify; Cancel Retry (same parent execution)' })).toBe(execute);
+    const execute = screen.getByRole('button', { name: 'Execute ForceFail' });
+    expect(execute.querySelector('.graph-execute-decision-lines')?.getAttribute('title')).toBe('ForceFail: card declined');
+    expect(screen.getByRole('button', { description: 'ForceFail: card declined' })).toBe(execute);
+  });
+
+  it.each([
+    [['orders'], 'orders', null],
+    [['orders', 'refunds'], 'orders, refunds', null],
+    [['orders', 'refunds', 'audits', 'payouts'], 'orders, refunds', '+2'],
+  ])('shows up to two of the Channels %j under ForceCompleteIfChannelsEmpty', (channels, shown, more) => {
+    render(<StepNodeLabel node={nodeWithDecision({
+      closeDecision: { closeDecisionType: 1, conditionalChannelNames: channels },
+    })} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: /^Execute ForceCompleteIfChannelsEmpty/ });
+    const channelLine = execute.querySelector('.graph-execute-decision-channels')!;
+    expect(channelLine.querySelector('svg.graph-condition-icon')).not.toBeNull();
+    expect(channelLine.querySelector('.graph-execute-decision-channel-names')?.textContent).toBe(shown);
+    expect(channelLine.querySelector('.graph-execute-decision-count')?.textContent ?? null).toBe(more);
+    const fullText = `ForceCompleteIfChannelsEmpty → channels ${channels.join(', ')}`;
+    expect(execute.querySelector('.graph-execute-decision-lines')?.getAttribute('title')).toBe(fullText);
+    expect(screen.getByRole('button', { description: fullText })).toBe(execute);
+  });
+
+  it('grows only an Execute-only node with a Channel line', () => {
+    const baseHeight = graphNodeDimensions(completedNode).height;
+    for (const stepDecision of [
+      { nextSteps: [{ stepType: 'A' }, { stepType: 'B' }], cancelStepTypes: ['C'] },
+      { closeDecision: { closeDecisionType: 4 } },
+      { closeDecision: { closeDecisionType: 1 } },
+    ]) {
+      expect(graphNodeDimensions(nodeWithDecision(stepDecision)).height).toBe(baseHeight);
+    }
+    const withChannels = nodeWithDecision({ closeDecision: { closeDecisionType: 1, conditionalChannelNames: ['orders'] } });
+    expect(graphNodeDimensions(withChannels).height).toBeGreaterThan(baseHeight);
+    const withWaitFor: StepGraphNode = {
+      ...withChannels,
+      waitFor: { eventId: 2, eventTime: null, type: 'StepWaitForCompleted', payload: {} },
+    };
+    expect(graphNodeDimensions(withWaitFor).height).toBe(graphNodeDimensions({ ...completedNode, waitFor: withWaitFor.waitFor }).height);
   });
 
   it('keeps the current status of a Step with WaitFor only and no Execute event yet', () => {

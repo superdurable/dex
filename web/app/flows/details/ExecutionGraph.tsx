@@ -65,6 +65,7 @@ import {
   type StepRoundGroup,
 } from './graphFolding';
 import {
+  executeDecisionSDKNames,
   executeDecisionSummary,
   type ExecuteDecisionKind,
   type ExecuteDecisionSummary,
@@ -229,6 +230,11 @@ function conditionLineCounts(node: StepGraphNode): { kinds: number; channelLines
   return { kinds, channelLines };
 }
 
+/** The Step decision a completed Execute shows in place of its status; both the label and the node height read it. */
+function completedExecuteDecision(node: StepGraphNode): ExecuteDecisionSummary | undefined {
+  return executeStatus(node) === 'Completed' ? executeDecisionSummary(node.execute) : undefined;
+}
+
 function skipsWaitFor(node: StepGraphNode): boolean {
   const options = node.active?.movement?.stepOptions ?? node.movement?.stepOptions;
   return Boolean(options && typeof options === 'object' && (options as Record<string, unknown>).skipWaitFor === true);
@@ -280,13 +286,13 @@ function executeStatus(node: StepGraphNode): MethodStatus {
 }
 
 const executeDecisionIcons: Record<ExecuteDecisionKind, LucideIcon> = {
-  'next-steps': ArrowRight,
+  'go-to': ArrowRight,
   'dead-end': CircleSlash2,
   'graceful-complete': Flag,
   'force-complete': CheckCheck,
   'force-fail': OctagonX,
-  'complete-when-channels-empty': Inbox,
-  cancel: Ban,
+  'force-complete-if-channels-empty': Inbox,
+  'cancel-steps': Ban,
 };
 
 function MethodSection({
@@ -334,13 +340,35 @@ function MethodSection({
 
 function ExecuteDecisionLine({ decision }: { decision: ExecuteDecisionSummary }) {
   const Icon = executeDecisionIcons[decision.kind];
+  const showsCount = decision.kind === 'cancel-steps' || decision.count > 1;
+  const shownChannels = visibleChannelNames(decision.channelNames);
   return (
-    <strong className="graph-execute-decision" title={decision.fullText}>
-      <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
-      {decision.kind === 'next-steps' && <span className="sr-only">Next Steps </span>}
-      <span className="graph-execute-decision-text">{decision.label}</span>
-      {decision.hiddenCount > 0 && <span className="graph-execute-decision-more">+{decision.hiddenCount}</span>}
-    </strong>
+    <span className="graph-execute-decision-lines" title={decision.fullText}>
+      <strong className="graph-execute-decision">
+        <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
+        <span className="graph-execute-decision-text">{decision.label}</span>
+        {showsCount && <span className="graph-execute-decision-count">×{decision.count}</span>}
+        {decision.addedCancelCount > 0 && (
+          <>
+            <span aria-hidden="true" className="graph-execute-decision-separator">·</span>
+            <span className="graph-execute-decision-cancel">
+              <Ban aria-hidden="true" size={12} strokeWidth={2.25} />
+              <span className="graph-execute-decision-text">{executeDecisionSDKNames['cancel-steps']}</span>
+              <span className="graph-execute-decision-count">×{decision.addedCancelCount}</span>
+            </span>
+          </>
+        )}
+      </strong>
+      {decision.channelNames.length > 0 && (
+        <small className="graph-execute-decision-channels">
+          <ConditionIcon type="channel" />
+          <span className="graph-execute-decision-channel-names">{shownChannels.visible.join(', ')}</span>
+          {shownChannels.hiddenCount > 0 && (
+            <span className="graph-execute-decision-count">+{shownChannels.hiddenCount}</span>
+          )}
+        </small>
+      )}
+    </span>
   );
 }
 
@@ -366,7 +394,7 @@ export function StepNodeLabel({
   const shownChannels = visibleChannelNames(channels);
   const showWaitFor = showsWaitFor(node);
   const executeMethodStatus = executeStatus(node);
-  const decision = executeMethodStatus === 'Completed' ? executeDecisionSummary(node.execute) : undefined;
+  const decision = completedExecuteDecision(node);
   return (
     <div className={`graph-step-label${showWaitFor ? '' : ' graph-step-label--execute-only'}`}>
       <div className="graph-step-heading">
@@ -583,7 +611,14 @@ const graphNodeTypes: NodeTypes = { graph: GraphNode };
 
 export function graphNodeDimensions(node: StepGraphNode): { height: number; width: number } {
   if (node.kind !== 'step') return { height: 90, width: 220 };
-  if (!showsWaitFor(node)) return { height: stepNodeHeight.executeOnly, width: 300 };
+  if (!showsWaitFor(node)) {
+    // A WaitFor node already leaves room for this line beside its condition line.
+    const hasChannelLine = (completedExecuteDecision(node)?.channelNames.length ?? 0) > 0;
+    return {
+      height: stepNodeHeight.executeOnly + (hasChannelLine ? stepNodeHeight.perExtraConditionLine : 0),
+      width: 300,
+    };
+  }
   const { kinds, channelLines } = conditionLineCounts(node);
   const extraKindLines = Math.max(0, kinds - 1);
   const extraChannelLines = Math.max(0, channelLines - 1);

@@ -6,41 +6,55 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { decodedValue } from '@/app/components/StructuredValue';
+import { isBlobReferenceValue, isStoredValueUnavailable } from '@/lib/blobs';
 import { stepDecision } from '@/lib/graph';
 import { closeDecisionTypeLabel } from '@/lib/semantic';
 import type { FlowHistoryEvent } from '@/lib/types';
 
-/** The part of a Step decision a Graph node shows, chosen by `executeDecisionSummary`. */
+/** The kind of Step decision a Graph node shows, chosen by `executeDecisionSummary`. */
 export type ExecuteDecisionKind =
-  | 'next-steps'
+  | 'go-to'
   | 'dead-end'
   | 'graceful-complete'
   | 'force-complete'
   | 'force-fail'
-  | 'complete-when-channels-empty'
-  | 'cancel';
+  | 'force-complete-if-channels-empty'
+  | 'cancel-steps';
 
-/** One line that names the Step decision a completed Execute returned. */
+/** The Step decision a completed Execute returned, as a Graph node shows it. */
 export interface ExecuteDecisionSummary {
   kind: ExecuteDecisionKind;
-  /** The visible text: a close decision name, the first next Step types, or the canceled Step types. */
+  /** The SDK decision name, such as `GoTo` or `ForceFail`. */
   label: string;
-  /** Next Step types the label leaves out, shown as "+N". */
-  hiddenCount: number;
-  /** Every part of the decision, one per line, for the tooltip. */
+  /** Next Steps for `go-to`, canceled Step types for `cancel-steps`, otherwise 0. */
+  count: number;
+  /** Canceled Step types added to a decision of another kind; 0 for none. */
+  addedCancelCount: number;
+  /** Conditional Channel names of a `force-complete-if-channels-empty` decision. */
+  channelNames: string[];
+  /** Every part of the decision, one per line, each starting with its SDK name. */
   fullText: string;
 }
 
-/** A node shows this many next Step types before it shows "+N". */
-export const maxVisibleNextStepTypes = 2;
+/** SDK decision names, so the node names a decision as application code does. */
+export const executeDecisionSDKNames: Record<ExecuteDecisionKind, string> = {
+  'go-to': 'GoTo',
+  'dead-end': 'DeadEnd',
+  'graceful-complete': 'GracefulComplete',
+  'force-complete': 'ForceComplete',
+  'force-fail': 'ForceFail',
+  'force-complete-if-channels-empty': 'ForceCompleteIfChannelsEmpty',
+  'cancel-steps': 'CancelSteps',
+};
 
-/** Keyed by the selected-event panel's close decision labels, so both views use the same words. */
+/** Keyed by the selected-event panel's close decision labels, so both views read the type the same way. */
 const closeDecisionKindByLabel: Record<string, ExecuteDecisionKind> = {
   'Dead end': 'dead-end',
   'Graceful complete': 'graceful-complete',
   'Force complete': 'force-complete',
   'Force fail': 'force-fail',
-  'Complete when channels are empty': 'complete-when-channels-empty',
+  'Complete when channels are empty': 'force-complete-if-channels-empty',
 };
 
 /**
@@ -48,7 +62,8 @@ const closeDecisionKindByLabel: Record<string, ExecuteDecisionKind> = {
  *
  * Returns undefined for any other event, and for a decision with no next Step,
  * close decision, or cancellation. A close decision decides the kind first,
- * then next Steps, then cancellations; the tooltip lists every part.
+ * then next Steps, then cancellations. Cancellations alongside another kind are
+ * counted in `addedCancelCount`. The full text lists every part.
  */
 export function executeDecisionSummary(event: FlowHistoryEvent | undefined): ExecuteDecisionSummary | undefined {
   if (event?.type !== 'StepExecuteCompleted') return undefined;
@@ -57,31 +72,51 @@ export function executeDecisionSummary(event: FlowHistoryEvent | undefined): Exe
   const nextStepTypes = namesOf(decision.nextSteps, 'stepType');
   const flowCancels = stringsOf(decision.cancelStepTypes);
   const siblingCancels = stringsOf(decision.cancelSiblingStepTypes);
+  const cancelCount = flowCancels.length + siblingCancels.length;
   const close = record(decision.closeDecision);
-  const closeLabel = close ? closeDecisionTypeLabel(close.closeDecisionType) : undefined;
-  const closeKind = closeLabel ? closeDecisionKindByLabel[closeLabel] : undefined;
-  const closeChannels = stringsOf(close?.conditionalChannelNames);
+  const closeKind = close ? closeDecisionKindByLabel[closeDecisionTypeLabel(close.closeDecisionType)] : undefined;
+  const channelNames = closeKind === 'force-complete-if-channels-empty' ? stringsOf(close?.conditionalChannelNames) : [];
 
-  const lines = nextStepTypes.map((stepType) => `→ ${stepType}`);
-  if (flowCancels.length > 0) lines.push(`Cancel ${flowCancels.join(', ')} (entire Flow)`);
-  if (siblingCancels.length > 0) lines.push(`Cancel ${siblingCancels.join(', ')} (same parent execution)`);
-  if (closeKind && closeLabel) {
-    lines.push(closeChannels.length > 0 ? `${closeLabel}: channels ${closeChannels.join(', ')}` : closeLabel);
-  }
+  const lines: string[] = [];
+  if (closeKind) lines.push(closeDecisionLine(closeKind, channelNames, close?.closeInput));
+  for (const stepType of nextStepTypes) lines.push(`GoTo → ${stepType}`);
+  if (flowCancels.length > 0) lines.push(`CancelSteps → ${flowCancels.join(', ')} (entire Flow)`);
+  if (siblingCancels.length > 0) lines.push(`CancelSiblingSteps → ${siblingCancels.join(', ')} (same parent execution)`);
   const fullText = lines.join('\n');
 
-  if (closeKind && closeLabel) return { kind: closeKind, label: closeLabel, hiddenCount: 0, fullText };
-  if (nextStepTypes.length > 0) {
-    return {
-      kind: 'next-steps',
-      label: nextStepTypes.slice(0, maxVisibleNextStepTypes).join(', '),
-      hiddenCount: Math.max(0, nextStepTypes.length - maxVisibleNextStepTypes),
-      fullText,
-    };
+  const kind = closeKind ?? (nextStepTypes.length > 0 ? 'go-to' : cancelCount > 0 ? 'cancel-steps' : undefined);
+  if (!kind) return undefined;
+  const count = kind === 'go-to' ? nextStepTypes.length : kind === 'cancel-steps' ? cancelCount : 0;
+  return {
+    kind,
+    label: executeDecisionSDKNames[kind],
+    count,
+    addedCancelCount: kind === 'cancel-steps' ? 0 : cancelCount,
+    channelNames,
+    fullText,
+  };
+}
+
+function closeDecisionLine(kind: ExecuteDecisionKind, channelNames: string[], closeInput: unknown): string {
+  const name = executeDecisionSDKNames[kind];
+  if (kind === 'force-complete-if-channels-empty' && channelNames.length > 0) {
+    return `${name} → channels ${channelNames.join(', ')}`;
   }
-  const canceled = [...new Set([...flowCancels, ...siblingCancels])];
-  if (canceled.length > 0) return { kind: 'cancel', label: `Cancel ${canceled.join(', ')}`, hiddenCount: 0, fullText };
-  return undefined;
+  if (kind === 'force-fail') {
+    const reason = forceFailReason(closeInput);
+    if (reason) return `${name}: ${reason}`;
+  }
+  return name;
+}
+
+/** The ForceFail reason as text, or undefined when the history holds none or only a stored-value reference. */
+function forceFailReason(closeInput: unknown): string | undefined {
+  if (closeInput === undefined || closeInput === null) return undefined;
+  if (isBlobReferenceValue(closeInput) || isStoredValueUnavailable(closeInput)) return undefined;
+  const reason = decodedValue(closeInput);
+  if (typeof reason === 'string') return reason.trim() || undefined;
+  if (reason === undefined || reason === null) return undefined;
+  return JSON.stringify(reason);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

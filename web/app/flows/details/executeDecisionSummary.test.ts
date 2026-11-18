@@ -14,81 +14,98 @@ function executeCompleted(stepDecision: unknown): FlowHistoryEvent {
   return { eventId: 3, eventTime: null, type: 'StepExecuteCompleted', payload: { output: { stepDecision } } };
 }
 
+function jsonValue(value: unknown): unknown {
+  return { objValue: { encoding: 'json', payload: btoa(JSON.stringify(value)) } };
+}
+
 describe('executeDecisionSummary', () => {
-  it('names one next Step type', () => {
+  it('names one next Step as GoTo', () => {
     expect(executeDecisionSummary(executeCompleted({ nextSteps: [{ stepType: 'SyncBatch' }] }))).toEqual({
-      kind: 'next-steps',
-      label: 'SyncBatch',
-      hiddenCount: 0,
-      fullText: '→ SyncBatch',
+      kind: 'go-to',
+      label: 'GoTo',
+      count: 1,
+      addedCancelCount: 0,
+      channelNames: [],
+      fullText: 'GoTo → SyncBatch',
     });
   });
 
-  it('shows two next Step types and counts the rest', () => {
+  it('counts every next Step and lists each one in the full text', () => {
     const summary = executeDecisionSummary(executeCompleted({
       nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }, { stepType: 'CallTool' }, { stepType: 'Audit' }],
     }));
-    expect(summary?.label).toBe('ResumeTurn, CallTool');
-    expect(summary?.hiddenCount).toBe(2);
-    expect(summary?.fullText).toBe('→ ResumeTurn\n→ CallTool\n→ CallTool\n→ Audit');
+    expect(summary).toMatchObject({ kind: 'go-to', label: 'GoTo', count: 4 });
+    expect(summary?.fullText).toBe('GoTo → ResumeTurn\nGoTo → CallTool\nGoTo → CallTool\nGoTo → Audit');
   });
 
   it.each([
-    [5, 'dead-end', 'Dead end'],
-    ['CLOSE_DECISION_TYPE_DEAD_END', 'dead-end', 'Dead end'],
-    [2, 'graceful-complete', 'Graceful complete'],
-    ['CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE', 'graceful-complete', 'Graceful complete'],
-    [3, 'force-complete', 'Force complete'],
-    ['CLOSE_DECISION_TYPE_FORCE_COMPLETE', 'force-complete', 'Force complete'],
-    [4, 'force-fail', 'Force fail'],
-    ['CLOSE_DECISION_TYPE_FORCE_FAIL', 'force-fail', 'Force fail'],
-    [1, 'complete-when-channels-empty', 'Complete when channels are empty'],
-    ['CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY', 'complete-when-channels-empty', 'Complete when channels are empty'],
-  ])('names close decision type %s', (closeDecisionType, kind, label) => {
+    [5, 'dead-end', 'DeadEnd'],
+    ['CLOSE_DECISION_TYPE_DEAD_END', 'dead-end', 'DeadEnd'],
+    [2, 'graceful-complete', 'GracefulComplete'],
+    ['CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE', 'graceful-complete', 'GracefulComplete'],
+    [3, 'force-complete', 'ForceComplete'],
+    ['CLOSE_DECISION_TYPE_FORCE_COMPLETE', 'force-complete', 'ForceComplete'],
+    [4, 'force-fail', 'ForceFail'],
+    ['CLOSE_DECISION_TYPE_FORCE_FAIL', 'force-fail', 'ForceFail'],
+    [1, 'force-complete-if-channels-empty', 'ForceCompleteIfChannelsEmpty'],
+    ['CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY', 'force-complete-if-channels-empty', 'ForceCompleteIfChannelsEmpty'],
+  ])('names close decision type %s by its SDK name', (closeDecisionType, kind, label) => {
     const summary = executeDecisionSummary(executeCompleted({ closeDecision: { closeDecisionType } }));
-    expect(summary).toEqual({ kind, label, hiddenCount: 0, fullText: label });
+    expect(summary).toEqual({ kind, label, count: 0, addedCancelCount: 0, channelNames: [], fullText: label });
   });
 
-  it('lists the conditional Channels of a channels-empty completion in the tooltip', () => {
+  it('keeps every conditional Channel of ForceCompleteIfChannelsEmpty', () => {
     const summary = executeDecisionSummary(executeCompleted({
-      closeDecision: { closeDecisionType: 1, conditionalChannelNames: ['orders', 'refunds'] },
+      closeDecision: { closeDecisionType: 1, conditionalChannelNames: ['orders', 'refunds', 'audits'] },
     }));
-    expect(summary?.fullText).toBe('Complete when channels are empty: channels orders, refunds');
+    expect(summary?.channelNames).toEqual(['orders', 'refunds', 'audits']);
+    expect(summary?.fullText).toBe('ForceCompleteIfChannelsEmpty → channels orders, refunds, audits');
   });
 
-  it('shows the close decision before next Steps and lists every part in the tooltip', () => {
+  it('adds the ForceFail reason to the full text', () => {
+    expect(executeDecisionSummary(executeCompleted({
+      closeDecision: { closeDecisionType: 4, closeInput: jsonValue('quota exceeded') },
+    }))?.fullText).toBe('ForceFail: quota exceeded');
+    expect(executeDecisionSummary(executeCompleted({
+      closeDecision: { closeDecisionType: 4, closeInput: { stringValue: 'card declined' } },
+    }))?.fullText).toBe('ForceFail: card declined');
+  });
+
+  it('shows the close decision first and adds cancellations of either scope', () => {
     const summary = executeDecisionSummary(executeCompleted({
       nextSteps: [{ stepType: 'Notify' }],
       cancelStepTypes: ['Poll'],
       cancelSiblingStepTypes: ['Retry'],
       closeDecision: { closeDecisionType: 2 },
     }));
-    expect(summary?.kind).toBe('graceful-complete');
+    expect(summary).toMatchObject({ kind: 'graceful-complete', label: 'GracefulComplete', addedCancelCount: 2 });
     expect(summary?.fullText).toBe([
-      '→ Notify',
-      'Cancel Poll (entire Flow)',
-      'Cancel Retry (same parent execution)',
-      'Graceful complete',
+      'GracefulComplete',
+      'GoTo → Notify',
+      'CancelSteps → Poll (entire Flow)',
+      'CancelSiblingSteps → Retry (same parent execution)',
     ].join('\n'));
   });
 
-  it('shows next Steps before cancellations when there is no close decision', () => {
+  it('adds cancellations to GoTo when there is no close decision', () => {
     const summary = executeDecisionSummary(executeCompleted({
-      nextSteps: [{ stepType: 'Notify' }],
-      cancelStepTypes: ['Poll'],
+      nextSteps: [{ stepType: 'RequestHumanApprovalStep' }],
+      cancelStepTypes: ['GetUsageStep'],
       closeDecision: { closeDecisionType: 'CLOSE_DECISION_TYPE_UNSPECIFIED' },
     }));
     expect(summary).toEqual({
-      kind: 'next-steps',
-      label: 'Notify',
-      hiddenCount: 0,
-      fullText: '→ Notify\nCancel Poll (entire Flow)',
+      kind: 'go-to',
+      label: 'GoTo',
+      count: 1,
+      addedCancelCount: 1,
+      channelNames: [],
+      fullText: 'GoTo → RequestHumanApprovalStep\nCancelSteps → GetUsageStep (entire Flow)',
     });
   });
 
-  it('names cancellations when the decision only cancels', () => {
+  it('names a decision that only cancels CancelSteps and counts its Step types', () => {
     const summary = executeDecisionSummary(executeCompleted({ cancelStepTypes: ['Poll'], cancelSiblingStepTypes: ['Retry'] }));
-    expect(summary).toMatchObject({ kind: 'cancel', label: 'Cancel Poll, Retry' });
+    expect(summary).toMatchObject({ kind: 'cancel-steps', label: 'CancelSteps', count: 2, addedCancelCount: 0 });
   });
 
   it('has no summary for an empty decision, an unspecified close type, or a failed Execute', () => {
