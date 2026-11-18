@@ -17,6 +17,7 @@ import {
   stepsInExecutionOrder,
   withGroupOpenChoice,
   withStepExecutionOpened,
+  withStepRunOpenChoice,
   type FoldedGraphItem,
   type GroupOpenIntents,
   type StepGraphFoldingOptions,
@@ -93,7 +94,7 @@ function chain(stepTypes: ChainStep[]): { nodes: StepGraphNode[]; edges: StepGra
   return { nodes, edges };
 }
 
-function repeat(count: number, stepTypes: ChainStep[]): ChainStep[] {
+function repeat<Step extends ChainStep | DecidedStep>(count: number, stepTypes: Step[]): Step[] {
   return Array.from({ length: count }, () => stepTypes).flat();
 }
 
@@ -426,7 +427,9 @@ describe('Folding as events arrive', () => {
       ['round:A-2', false],
       ['round:A-3', true],
     ]);
-    expect(shown(folded.items)).toEqual(['__start__', 'A-1', 'B-1 ×2', '[Round 2]', 'A-3']);
+    // Selecting B-1 also opened its ×2 run.
+    expect(shown(folded.items)).toEqual(['__start__', 'A-1', 'B-1', 'B-2', '[Round 2]', 'A-3']);
+    expect(folded.stepRuns.map((stepRun) => [stepRun.key, stepRun.isOpen])).toEqual([['run:B-1', true]]);
   });
 
   it('keeps the Round anchor while it still repeats', () => {
@@ -453,6 +456,154 @@ describe('Folding as events arrive', () => {
     const graph = chain([...repeat(4, [['Poll'], ['Check']])]);
     const folded = foldWithChoices(graph, [['rounds:Poll-1', true], ['round:Poll-2', true], ['rounds:Poll-1', false], ['rounds:Poll-1', true]]);
     expect(folded.rounds.filter((round) => round.parentKey).map((round) => round.isOpen)).toEqual([false, false, false]);
+  });
+});
+
+const gracefulComplete = { closeDecision: { closeDecisionType: 2 } };
+const goTo = (stepType: string, cancelStepTypes?: string[]) => ({ nextSteps: [{ stepType }], ...(cancelStepTypes ? { cancelStepTypes } : {}) });
+type DecidedStep = [stepType: string, stepDecision: unknown | 'failed'];
+
+/** A chain of settled Step executions from history, each returning its Step decision or failing. */
+function decidedChainGraph(steps: DecidedStep[]): Graph {
+  const events: FlowHistoryEvent[] = [];
+  const counts = new Map<string, number>();
+  let fromStepExecutionId = '__start__';
+  let fromEventId = 1;
+  steps.forEach(([stepType, stepDecision], index) => {
+    const count = (counts.get(stepType) ?? 0) + 1;
+    counts.set(stepType, count);
+    const stepExecutionId = `${stepType}-${count}`;
+    const eventId = index + 2;
+    const isFailed = stepDecision === 'failed';
+    events.push({
+      eventId,
+      eventTime: new Date(Date.parse('2026-11-17T00:00:00Z') + eventId * 1000).toISOString(),
+      type: isFailed ? 'StepExecuteFailed' : 'StepExecuteCompleted',
+      payload: {
+        context: { stepExecutionId, stepType, fromStepExecutionId, fromEventId: String(fromEventId) },
+        ...(isFailed ? {} : { output: { stepDecision } }),
+      },
+    });
+    fromStepExecutionId = stepExecutionId;
+    fromEventId = eventId;
+  });
+  return buildStepGraph(events);
+}
+
+/** A Checkpoint Round: Checkpoint, then nine SyncBatch executions, the last deciding `last`. */
+function checkpointRound(last: unknown): DecidedStep[] {
+  return [
+    ['Checkpoint', goTo('SyncBatch')],
+    ...Array.from({ length: 8 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
+    ['SyncBatch', last],
+  ];
+}
+
+describe('×N runs by Step decision', () => {
+  it('folds only executions that return the same Step decision', () => {
+    const graph = decidedChainGraph([...repeat(3, checkpointRound(goTo('Checkpoint'))), ...checkpointRound(gracefulComplete)]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    // Uniform Rounds still merge into one range.
+    expect(folded.rounds.map((round) => round.title)).toEqual(['Rounds 1–3', 'Round 4']);
+    expect(folded.rounds[0]).toMatchObject({ sequence: ['Checkpoint', 'SyncBatch ×9'], stepCount: 30 });
+    expect(folded.rounds[1].sequence).toEqual(['Checkpoint', 'SyncBatch ×8', 'SyncBatch']);
+    expect(shown(folded.items)).toEqual(['__start__', '[Rounds 1–3]', 'Checkpoint-4', 'SyncBatch-35 ×8', 'SyncBatch-36']);
+    expect(folded.stepRuns).toEqual([expect.objectContaining({
+      key: 'run:SyncBatch-28', stepType: 'SyncBatch', stepCount: 8, decisionLabel: 'GoTo', isOpen: false, parentKey: 'round:Checkpoint-4',
+    })]);
+  });
+
+  it('keeps one ×9 node per Round when every execution decides GoTo', () => {
+    const graph = decidedChainGraph([...repeat(2, checkpointRound(goTo('Checkpoint'))), ['Checkpoint', gracefulComplete]]);
+    const folded = foldWithChoices(graph, [['rounds:Checkpoint-1', true], ['round:Checkpoint-1', true]]);
+    expect(shown(folded.items)).toContain('SyncBatch-9 ×9');
+  });
+
+  it('counts a cancellation as part of the decision', () => {
+    const graph = decidedChainGraph([
+      ['SyncBatch', goTo('SyncBatch')],
+      ['SyncBatch', goTo('SyncBatch')],
+      ['SyncBatch', goTo('SyncBatch', ['Poll'])],
+      ['SyncBatch', goTo('Checkpoint')],
+      ['Checkpoint', goTo('Checkpoint')],
+      ['Checkpoint', gracefulComplete],
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(shown(folded.items).slice(0, 4)).toEqual(['__start__', 'SyncBatch-2 ×2', 'SyncBatch-3', 'SyncBatch-4']);
+  });
+
+  it('never merges Rounds that decide differently', () => {
+    const pollRound = (checkDecision: unknown): DecidedStep[] => [['Poll', goTo('Check')], ['Check', checkDecision]];
+    const graph = decidedChainGraph([
+      ...repeat(2, pollRound(goTo('Poll'))),
+      ...pollRound(goTo('Poll', ['Retry'])),
+      ...repeat(2, pollRound(goTo('Poll'))),
+      ...pollRound(gracefulComplete),
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(folded.rounds.map((round) => round.title)).toEqual(['Rounds 1–2', 'Round 3', 'Rounds 4–5', 'Round 6']);
+  });
+
+  it('keeps a failed execution in the run of the executions around it', () => {
+    const graph = decidedChainGraph([
+      ['SyncBatch', goTo('SyncBatch')],
+      ['SyncBatch', 'failed'],
+      ['SyncBatch', goTo('Checkpoint')],
+      ['Checkpoint', goTo('Checkpoint')],
+      ['Checkpoint', gracefulComplete],
+    ]);
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(shown(folded.items).slice(0, 2)).toEqual(['__start__', 'SyncBatch-2 ×3']);
+    expect(folded.stepRuns[0]).toMatchObject({ failedCount: 1, decisionLabel: 'GoTo' });
+  });
+});
+
+describe('Opened ×N runs', () => {
+  const tenSyncBatches = decidedChainGraph([
+    ...Array.from({ length: 6 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
+    ['SyncBatch', 'failed'],
+    ...Array.from({ length: 3 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]),
+    ['Checkpoint', goTo('Checkpoint')],
+    ['Checkpoint', gracefulComplete],
+  ]);
+
+  it('shows the first, failed, selected and last executions inside a frame, and folds again with Hide', () => {
+    const fold = (openIntents: GroupOpenIntents) => foldStepGraph(tenSyncBatches.nodes, tenSyncBatches.edges, {
+      openIntents, selectedStepExecutionID: 'SyncBatch-5',
+    });
+    const [stepRun] = fold(noGroupOpenIntents).stepRuns;
+    expect(stepRun).toMatchObject({ key: 'run:SyncBatch-1', stepCount: 10, isOpen: false });
+    const opened = fold(withStepRunOpenChoice(noGroupOpenIntents, stepRun, true));
+    expect(shown(opened.items).slice(0, 11)).toEqual([
+      '__start__',
+      'SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3',
+      '… 1 more Steps',
+      'SyncBatch-5',
+      '… 1 more Steps',
+      'SyncBatch-7',
+      '… 1 more Steps',
+      'SyncBatch-9', 'SyncBatch-10',
+    ]);
+    expect(opened.items.find((item) => item.id === 'SyncBatch-7')?.frameKeys).toEqual(['run:SyncBatch-1']);
+    expect(opened.edges.map((edge) => `${edge.source}->${edge.target}`)).toContain('SyncBatch-3->__run-more:run:SyncBatch-1:SyncBatch-4');
+
+    const hidden = fold(withStepRunOpenChoice(withStepRunOpenChoice(noGroupOpenIntents, stepRun, true), stepRun, false));
+    expect(shown(hidden.items).slice(0, 2)).toEqual(['__start__', 'SyncBatch-5 ×10']);
+  });
+
+  it('stays open as new executions join the run', () => {
+    const before = decidedChainGraph([
+      ['SyncBatch', goTo('SyncBatch')], ['SyncBatch', goTo('SyncBatch')], ['SyncBatch', goTo('Checkpoint')],
+      ['Checkpoint', goTo('Checkpoint')], ['Checkpoint', gracefulComplete],
+    ]);
+    const [stepRun] = foldStepGraph(before.nodes, before.edges, defaultOptions).stepRuns;
+    const openIntents = withStepRunOpenChoice(noGroupOpenIntents, stepRun, true);
+    const after = decidedChainGraph([
+      ...Array.from({ length: 4 }, (): DecidedStep => ['SyncBatch', goTo('SyncBatch')]), ['SyncBatch', goTo('Checkpoint')],
+      ['Checkpoint', goTo('Checkpoint')], ['Checkpoint', gracefulComplete],
+    ]);
+    const folded = foldStepGraph(after.nodes, after.edges, { openIntents, selectedStepExecutionID: '' });
+    expect(folded.stepRuns[0]).toMatchObject({ key: 'run:SyncBatch-1', stepCount: 5, isOpen: true });
   });
 });
 

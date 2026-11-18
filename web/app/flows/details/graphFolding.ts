@@ -10,11 +10,16 @@ import { formatDuration } from '@/lib/format';
 import { stepDecision } from '@/lib/graph';
 import { decidingEventIdOf } from '@/lib/historyRelations';
 import type { FlowHistoryEvent, StepGraphEdge, StepGraphNode } from '@/lib/types';
+import { executeDecisionSummary } from './executeDecisionSummary';
 
 /** An opened range longer than this shows only its first, selected and last Rounds. */
 const maximumUnelidedRangeSize = 6;
 const shownFirstRounds = 3;
 const shownLastRounds = 2;
+/** An opened run of Step executions longer than this elides the same way. */
+const maximumUnelidedStepRunSize = 6;
+const shownFirstStepRunSteps = 3;
+const shownLastStepRunSteps = 2;
 /** A folded group lists at most this many Step sequence entries before an ellipsis. */
 const maximumSequenceEntries = 4;
 
@@ -49,9 +54,33 @@ export interface StepRoundGroup {
   parentKey: string;
 }
 
+/** Consecutive settled executions of one Step type with the same Execute decision, shown as one ×N node. */
+export interface FoldedStepRun {
+  /** "run:" and the first Step execution ID; stable while events arrive. */
+  key: string;
+  stepType: string;
+  stepExecutionIDs: string[];
+  stepCount: number;
+  failedCount: number;
+  /** The SDK decision name the decided executions share, such as "GoTo"; empty when none decided. */
+  decisionLabel: string;
+  duration: string;
+  isOpen: boolean;
+  /** The innermost opened group this run shows inside; empty for a top-level run. */
+  parentKey: string;
+}
+
 /** A node the folded graph draws: an original node, a folded group, or a gap of an opened range. */
 export type FoldedGraphItem =
-  | { display: 'node'; id: string; node: StepGraphNode; repeatCount: number; frameKeys: string[] }
+  | {
+    display: 'node';
+    id: string;
+    node: StepGraphNode;
+    repeatCount: number;
+    frameKeys: string[];
+    /** The folded run this node stands for when `repeatCount` is above 1. */
+    stepRunKey?: string;
+  }
   | { display: 'group'; id: string; round: StepRoundGroup; frameKeys: string[] }
   | { display: 'more'; id: string; hiddenCount: number; unit: 'Steps' | 'Rounds'; frameKeys: string[] };
 
@@ -60,6 +89,8 @@ export interface FoldedStepGraph {
   edges: StepGraphEdge[];
   /** Every Round and range in execution order, with each range's Rounds after it; empty when nothing repeats. */
   rounds: StepRoundGroup[];
+  /** Every folded run of two or more Step executions, opened or not, in execution order. */
+  stepRuns: FoldedStepRun[];
   /** The group keys that hold each Step execution, outermost first. */
   groupKeysByStepExecutionID: Map<string, string[]>;
   /** The Step type that starts each Round; empty when nothing repeats. */
@@ -72,28 +103,45 @@ export interface GroupOpenIntents {
   rounds: ReadonlyMap<string, boolean>;
   /** Choices that open or hide ranges of Rounds. */
   ranges: ReadonlyMap<string, boolean>;
+  /** Choices that open or hide ×N runs of Step executions. */
+  stepRuns: ReadonlyMap<string, boolean>;
 }
 
-export const noGroupOpenIntents: GroupOpenIntents = { rounds: new Map(), ranges: new Map() };
+export const noGroupOpenIntents: GroupOpenIntents = { rounds: new Map(), ranges: new Map(), stepRuns: new Map() };
 
 /** Records Show or Hide on a group for each of its Step executions. */
 export function withGroupOpenChoice(intents: GroupOpenIntents, group: StepRoundGroup, isOpen: boolean): GroupOpenIntents {
   const rounds = new Map(intents.rounds);
   const ranges = new Map(intents.ranges);
+  const stepRuns = new Map(intents.stepRuns);
   for (const id of group.stepExecutionIDs) {
     // Opening a range leaves its Rounds folded; hiding it folds them too.
     if (group.kind === 'round' || !isOpen) rounds.set(id, isOpen);
     // A Round inside an opened range leaves the range as it is.
     if (!group.parentKey) ranges.set(id, isOpen);
+    // Hiding a group also folds the runs inside it.
+    if (!isOpen) stepRuns.set(id, false);
   }
-  return { rounds, ranges };
+  return { rounds, ranges, stepRuns };
 }
 
-/** Opens every group that holds the selected Step execution. */
-export function withStepExecutionOpened(intents: GroupOpenIntents, stepExecutionID: string): GroupOpenIntents {
+/** Records Show or Hide on a ×N run for each of its Step executions. */
+export function withStepRunOpenChoice(intents: GroupOpenIntents, stepRun: FoldedStepRun, isOpen: boolean): GroupOpenIntents {
+  const stepRuns = new Map(intents.stepRuns);
+  for (const id of stepRun.stepExecutionIDs) stepRuns.set(id, isOpen);
+  return { ...intents, stepRuns };
+}
+
+/** Opens every group that holds the selected Step execution, and its ×N run unless told otherwise. */
+export function withStepExecutionOpened(
+  intents: GroupOpenIntents,
+  stepExecutionID: string,
+  { isStepRunOpened = true }: { isStepRunOpened?: boolean } = {},
+): GroupOpenIntents {
   return {
     rounds: new Map(intents.rounds).set(stepExecutionID, true),
     ranges: new Map(intents.ranges).set(stepExecutionID, true),
+    stepRuns: isStepRunOpened ? new Map(intents.stepRuns).set(stepExecutionID, true) : intents.stepRuns,
   };
 }
 
@@ -122,6 +170,7 @@ interface FoldingContext {
   itemByID: Map<string, FoldedGraphItem>;
   groupKeysByStepExecutionID: Map<string, string[]>;
   rounds: StepRoundGroup[];
+  stepRuns: FoldedStepRun[];
 }
 
 /** Folds repeated Rounds; each starts at the repeated Step type with the fewest executions. */
@@ -140,6 +189,7 @@ export function foldStepGraph(
     itemByID: new Map(),
     groupKeysByStepExecutionID: new Map(),
     rounds: [],
+    stepRuns: [],
   };
   // Steps before the first Round fold their repeats as inside a Round.
   addStepRuns(context, steps.slice(0, steps.indexOf(drafts[0].steps[0])), []);
@@ -171,6 +221,7 @@ export function foldStepGraph(
     items,
     edges: foldedEdges(edges, displayIDByNodeID),
     rounds: context.rounds,
+    stepRuns: context.stepRuns,
     groupKeysByStepExecutionID: context.groupKeysByStepExecutionID,
     anchorStepType,
   };
@@ -182,6 +233,7 @@ export function unfoldedStepGraph(nodes: StepGraphNode[], edges: StepGraphEdge[]
     items: nodes.map((node) => ({ display: 'node', id: node.id, node, repeatCount: 1, frameKeys: [] })),
     edges,
     rounds: [],
+    stepRuns: [],
     groupKeysByStepExecutionID: new Map(),
     anchorStepType: '',
   };
@@ -321,7 +373,7 @@ function roundDrafts(steps: StepGraphNode[], anchorType: string): RoundDraft[] {
     number: index + 1,
     key: `round:${roundSteps[0].id}`,
     steps: roundSteps,
-    signature: stepSequence(roundSteps).join(' → '),
+    signature: roundSignature(roundSteps),
     isLive: roundSteps.some(isLiveStep),
     hasFailed: roundSteps.some((step) => step.status === 'Failed'),
     isLatest: index === groups.length - 1,
@@ -357,16 +409,78 @@ function addRound(context: FoldingContext, draft: RoundDraft, outerKeys: string[
   addStepRuns(context, draft.steps, groupKeys);
 }
 
-/** Shows consecutive settled executions of one Step type as one node with a ×N badge. */
+/** Shows consecutive settled executions of one Step type and decision as one node with a ×N badge. */
 function addStepRuns(context: FoldingContext, steps: StepGraphNode[], frameKeys: string[]): void {
-  for (const run of consecutiveRuns(steps, (step) => !isLiveStep(step))) {
+  for (const { steps: run, decisionLabel } of consecutiveRuns(steps, (step) => !isLiveStep(step))) {
+    if (run.length === 1) {
+      addShownStep(context, run[0], frameKeys);
+      continue;
+    }
+    const stepRun = stepRunGroup(run, decisionLabel, context.options.openIntents, frameKeys.at(-1) ?? '');
+    context.stepRuns.push(stepRun);
+    if (stepRun.isOpen) {
+      addOpenedStepRun(context, run, [...frameKeys, stepRun.key]);
+      continue;
+    }
     const shown = run.find((step) => step.id === context.options.selectedStepExecutionID)
       ?? run.findLast((step) => step.status === 'Failed')
       ?? run.at(-1)
       ?? run[0];
     for (const step of run) context.displayIDByNodeID.set(step.id, shown.id);
-    context.itemByID.set(shown.id, { display: 'node', id: shown.id, node: shown, repeatCount: run.length, frameKeys });
+    context.itemByID.set(shown.id, {
+      display: 'node', id: shown.id, node: shown, repeatCount: run.length, frameKeys, stepRunKey: stepRun.key,
+    });
   }
+}
+
+/** An opened ×N run: each execution as a node, eliding the middle of a long run except failed or selected ones. */
+function addOpenedStepRun(context: FoldingContext, run: StepGraphNode[], frameKeys: string[]): void {
+  const selectedID = context.options.selectedStepExecutionID;
+  const isElided = run.length > maximumUnelidedStepRunSize;
+  const isShown = (step: StepGraphNode, index: number) => !isElided
+    || index < shownFirstStepRunSteps || index >= run.length - shownLastStepRunSteps
+    || step.id === selectedID || step.status === 'Failed';
+  let gap: StepGraphNode[] = [];
+  const closeGap = () => {
+    if (gap.length === 0) return;
+    const id = `__run-more:${frameKeys.at(-1) ?? ''}:${gap[0].id}`;
+    for (const hidden of gap) context.displayIDByNodeID.set(hidden.id, id);
+    context.itemByID.set(id, { display: 'more', id, hiddenCount: gap.length, unit: 'Steps', frameKeys });
+    gap = [];
+  };
+  run.forEach((step, index) => {
+    if (!isShown(step, index)) {
+      gap.push(step);
+      return;
+    }
+    closeGap();
+    addShownStep(context, step, frameKeys);
+  });
+  closeGap();
+}
+
+function addShownStep(context: FoldingContext, step: StepGraphNode, frameKeys: string[]): void {
+  context.displayIDByNodeID.set(step.id, step.id);
+  context.itemByID.set(step.id, { display: 'node', id: step.id, node: step, repeatCount: 1, frameKeys });
+}
+
+function stepRunGroup(
+  run: StepGraphNode[],
+  decisionLabel: string,
+  intents: GroupOpenIntents,
+  parentKey: string,
+): FoldedStepRun {
+  return {
+    key: `run:${run[0].id}`,
+    stepType: stepTypeOf(run[0]),
+    stepExecutionIDs: run.map((step) => step.id),
+    stepCount: run.length,
+    failedCount: run.filter((step) => step.status === 'Failed').length,
+    decisionLabel,
+    duration: stepsDuration(run),
+    isOpen: chosenOpenState(intents.stepRuns, run) === true,
+    parentKey,
+  };
 }
 
 /** A range of Rounds; opened, it shows its first, selected and last Rounds, each folded. */
@@ -409,9 +523,7 @@ function addRange(context: FoldingContext, drafts: RoundDraft[]): void {
     }
     closeGap();
     if (draft.steps.length === 1) {
-      const [step] = draft.steps;
-      context.displayIDByNodeID.set(step.id, step.id);
-      context.itemByID.set(step.id, { display: 'node', id: step.id, node: step, repeatCount: 1, frameKeys });
+      addShownStep(context, draft.steps[0], frameKeys);
       return;
     }
     addRound(context, draft, frameKeys);
@@ -500,7 +612,14 @@ function stepTotals(steps: StepGraphNode[]) {
 
 function stepSequence(steps: StepGraphNode[]): string[] {
   return consecutiveRuns(steps, () => true)
-    .map((run) => (run.length > 1 ? `${stepTypeOf(run[0])} ×${run.length}` : stepTypeOf(run[0])));
+    .map(({ steps: run }) => (run.length > 1 ? `${stepTypeOf(run[0])} ×${run.length}` : stepTypeOf(run[0])));
+}
+
+/** The Step sequence with each run's Execute decision, so Rounds that decide differently never merge. */
+function roundSignature(steps: StepGraphNode[]): string {
+  return consecutiveRuns(steps, () => true)
+    .map(({ steps: run, decisionIdentity }) => `${stepTypeOf(run[0])}[${decisionIdentity ?? ''}] ×${run.length}`)
+    .join(' → ');
 }
 
 function truncatedSequence(entries: string[]): string[] {
@@ -515,16 +634,57 @@ function stepsDuration(steps: StepGraphNode[]): string {
   return times.length > 0 ? formatDuration(times[0], times.at(-1) ?? times[0]) : '';
 }
 
-/** Splits Steps into runs of one Step type; a Step that may not join a run starts its own. */
-function consecutiveRuns(steps: StepGraphNode[], canJoin: (step: StepGraphNode) => boolean): StepGraphNode[][] {
-  const runs: StepGraphNode[][] = [];
+interface ConsecutiveStepRun {
+  steps: StepGraphNode[];
+  /** The Execute decision identity its decided executions share; undefined when none decided. */
+  decisionIdentity: string | undefined;
+  decisionLabel: string;
+}
+
+/** Splits Steps into runs of one Step type and decision; a Step that may not join a run starts its own. */
+function consecutiveRuns(steps: StepGraphNode[], canJoin: (step: StepGraphNode) => boolean): ConsecutiveStepRun[] {
+  const runs: ConsecutiveStepRun[] = [];
   for (const step of steps) {
     const run = runs.at(-1);
-    const previous = run?.at(-1);
-    if (run && previous && stepTypeOf(previous) === stepTypeOf(step) && canJoin(previous) && canJoin(step)) run.push(step);
-    else runs.push([step]);
+    const previous = run?.steps.at(-1);
+    const decision = executeDecisionIdentity(step);
+    // An execution without a completed Execute joins any run, as before decisions split runs.
+    const isSameDecision = !decision || run?.decisionIdentity === undefined || run.decisionIdentity === decision.identity;
+    if (run && previous && stepTypeOf(previous) === stepTypeOf(step) && canJoin(previous) && canJoin(step) && isSameDecision) {
+      run.steps.push(step);
+      if (decision && run.decisionIdentity === undefined) {
+        run.decisionIdentity = decision.identity;
+        run.decisionLabel = decision.label;
+      }
+    } else {
+      runs.push({ steps: [step], decisionIdentity: decision?.identity, decisionLabel: decision?.label ?? '' });
+    }
   }
   return runs;
+}
+
+interface ExecuteDecisionIdentity {
+  /** The decision kind, with "+cancel" when it also cancels Steps. */
+  identity: string;
+  /** The SDK decision name, such as "GoTo" or "GoTo + CancelSteps"; empty for a decision without one. */
+  label: string;
+}
+
+const decisionIdentityByExecuteEvent = new WeakMap<FlowHistoryEvent, ExecuteDecisionIdentity>();
+
+/** The decision a completed Execute returned; undefined while Execute has not completed. */
+function executeDecisionIdentity(step: StepGraphNode): ExecuteDecisionIdentity | undefined {
+  const event = step.execute;
+  if (event?.type !== 'StepExecuteCompleted') return undefined;
+  const cached = decisionIdentityByExecuteEvent.get(event);
+  if (cached) return cached;
+  const summary = executeDecisionSummary(event);
+  const cancels = summary !== undefined && summary.kind !== 'cancel-steps' && summary.canceledStepTypeCount > 0;
+  const decision: ExecuteDecisionIdentity = summary
+    ? { identity: `${summary.kind}${cancels ? '+cancel' : ''}`, label: `${summary.label}${cancels ? ' + CancelSteps' : ''}` }
+    : { identity: 'none', label: '' };
+  decisionIdentityByExecuteEvent.set(event, decision);
+  return decision;
 }
 
 /** Points each edge at the nodes that show its ends, without duplicates or edges inside one node. */
