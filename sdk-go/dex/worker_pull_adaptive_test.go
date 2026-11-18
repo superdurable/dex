@@ -28,6 +28,7 @@ import (
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -93,6 +94,21 @@ type registerSendBarrier struct {
 	passes      chan struct{}
 	released    chan struct{}
 	releaseOnce sync.Once
+}
+
+// blockingRegisterPollClient makes the next Step-and-RPC Register Sends block until their stream ends or release closes.
+type blockingRegisterPollClient struct {
+	dexpb.WorkerTaskServiceClient
+	remainingBlocks atomic.Int32
+	blockedSends    atomic.Int32
+	release         chan struct{}
+	releaseOnce     sync.Once
+}
+
+type blockingRegisterPollStream struct {
+	dexpb.WorkerTaskService_PollWorkerTaskClient
+	client *blockingRegisterPollClient
+	ctx    context.Context
 }
 
 // adaptiveSlotWorkerRun owns a started Worker and its Start result.
@@ -797,7 +813,7 @@ func TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer(t *testi
 	appWorkerID := "adaptive-barrier-" + uuid.NewString()[:8]
 	run := startAdaptiveSlotWorkerWithSettings(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{
 		MaxConcurrentTasks: 8, MinOpenSlots: 3, ReservedRPCTasks: ptr.Any(0), AppWorkerID: appWorkerID,
-	}, pullSlotSettings{shrinkWindow: time.Hour, beforeRegisterSendForTest: barrier.hold})
+	}, pullSlotSettings{shrinkWindow: time.Second, beforeRegisterSendForTest: barrier.hold})
 	t.Cleanup(barrier.release)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -817,15 +833,78 @@ func TestWorkerPullAdaptiveCapDropBetweenAdmissionAndSendWithRealServer(t *testi
 	})
 	capKnownAt := time.Now()
 	barrier.release()
+	// The two held attempts are re-checked after cap 2 is known: one is revoked and sends nothing.
+	// A Register that passed its re-check just before the cap became known may still meet the cap once;
+	// that rejection is soft, and the latch retries it at the next window.
 	require.Never(t, func() bool {
-		return len(stepRegisters(proxy.registersSince(appWorkerID, capKnownAt))) > 1 || len(proxy.rejectionsSince(appWorkerID, capKnownAt)) != 0 ||
+		rejections := len(proxy.rejectionsSince(appWorkerID, capKnownAt))
+		return rejections > 1 || len(stepRegisters(proxy.registersSince(appWorkerID, capKnownAt))) > 1+rejections ||
 			proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) > 2
-	}, 3*time.Second, 10*time.Millisecond, "a Register admitted under the old cap was sent above the new cap")
+	}, 3*time.Second, 10*time.Millisecond, "a revoked attempt sent a Register, or Registers exceeded the new cap")
 	requireRegisteredStreams(t, proxy, appWorkerID, 2, 0)
 	requireSlotState(t, run.worker, "two streams at cap 2", func(state PullSlotStreamState) bool {
 		return state.Open == 2 && state.Registering == 0
 	})
+	if rejections := len(proxy.rejectionsSince(appWorkerID, capKnownAt)); rejections > 0 {
+		require.GreaterOrEqual(t, run.worker.PullSlotStreamState().GrowRejectedAtCap, uint64(rejections), "the rejection was not handled as soft")
+	}
 	requireNoPermanentRegistrationError(t, run)
+}
+
+// TestWorkerPullAdaptiveBlockedRegisterSendWithRealServer blocks one Register's Send. Cap updates and
+// handlers on the other streams must still progress, and Stop must still finish.
+func TestWorkerPullAdaptiveBlockedRegisterSendWithRealServer(t *testing.T) {
+	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 4})
+	handlers := newAdaptiveSlotHandlers()
+	registry, err := NewRegistry([]Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}})
+	require.NoError(t, err)
+	cache, err := blobcache.New(&blobcache.Config{Dir: t.TempDir(), MaxBytes: 1 << 20})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cache.Close()) })
+	worker, err := newWorker(registry, cache, WorkerOptions{FlowServiceAddress: server.address, Pull: &PullWorkerOptions{
+		MaxConcurrentTasks: 8, MinOpenSlots: 3, StopDrainTimeout: time.Second, AppWorkerID: "adaptive-blocked-send-" + uuid.NewString()[:8],
+	}}, pullSlotSettings{shrinkWindow: time.Hour})
+	require.NoError(t, err)
+	blocking := &blockingRegisterPollClient{WorkerTaskServiceClient: worker.pull.client, release: make(chan struct{})}
+	blocking.remainingBlocks.Store(1)
+	worker.pull.client = blocking
+	started := make(chan error, 1)
+	go func() { started <- worker.Start() }()
+	t.Cleanup(blocking.releaseAll)
+
+	// The first Step-and-RPC Register blocks in Send; the second registers and reports cap 4.
+	require.Eventually(t, func() bool { return blocking.blockedSends.Load() == 1 }, 20*time.Second, 10*time.Millisecond)
+	requireSlotStateWithin(t, worker, "a cap update on another stream", 20*time.Second, func(state PullSlotStreamState) bool {
+		return state.TotalCapacity == 4 && state.Idle >= 1
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	client := server.newClient(t, registry)
+	flowIDs := startAdaptiveSlotFlows(t, ctx, client, &adaptiveSlotFlow{handlers: handlers}, adaptiveSlotModeQuick, 2)
+	requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
+	require.Equal(t, int32(1), blocking.blockedSends.Load(), "the blocked Send returned on its own")
+
+	// Stop finishes within its drain timeout although one Send never returns by itself.
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStop()
+	stopped := make(chan error, 1)
+	stopStartedAt := time.Now()
+	go func() { stopped <- worker.Stop(stopCtx) }()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("Stop did not finish while a Register Send was blocked")
+	}
+	require.Less(t, time.Since(stopStartedAt), 10*time.Second)
+	select {
+	case err := <-started:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Start did not return after Stop")
+	}
 }
 
 // TestWorkerPullAdaptiveCapDropWithoutOrphansWithRealServer covers design Test 7 for a cap above and below the floor.
@@ -1166,6 +1245,33 @@ func (sampler *slotUsageSampler) stopSampling() []PullSlotStreamState {
 	}
 	<-sampler.done
 	return sampler.violations
+}
+
+func (client *blockingRegisterPollClient) PollWorkerTask(ctx context.Context, options ...grpc.CallOption) (dexpb.WorkerTaskService_PollWorkerTaskClient, error) {
+	stream, err := client.WorkerTaskServiceClient.PollWorkerTask(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &blockingRegisterPollStream{WorkerTaskService_PollWorkerTaskClient: stream, client: client, ctx: ctx}, nil
+}
+
+func (client *blockingRegisterPollClient) releaseAll() {
+	client.releaseOnce.Do(func() { close(client.release) })
+}
+
+// Send blocks like a stalled transport; a cancelled stream context still ends it, as in grpc.
+func (stream *blockingRegisterPollStream) Send(request *dexpb.PollWorkerTaskRequest) error {
+	isStepRegister := request.GetRegister().GetSlotKind() == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+	if isStepRegister && stream.client.remainingBlocks.Add(-1) >= 0 {
+		stream.client.blockedSends.Add(1)
+		defer stream.client.blockedSends.Add(-1)
+		select {
+		case <-stream.client.release:
+		case <-stream.ctx.Done():
+			return stream.ctx.Err()
+		}
+	}
+	return stream.WorkerTaskService_PollWorkerTaskClient.Send(request)
 }
 
 // hold waits for a pass token, for release, or for the stream's end.

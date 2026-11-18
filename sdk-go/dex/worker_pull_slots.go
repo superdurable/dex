@@ -141,7 +141,7 @@ type pullSlotAttempt struct {
 	isOpenedAfterReadiness bool
 	hasEnded               bool
 	hasReceivedRegistered  bool
-	// isRegisterSent is set under worker.mu together with the Register's Send; until then close_surplus may revoke the attempt.
+	// isRegisterSent is set under worker.mu just before the Register's Send; until then close_surplus may revoke the attempt.
 	isRegisterSent    bool
 	isOrphaned        bool
 	isClosedOnPurpose bool
@@ -484,16 +484,21 @@ func (worker *pullWorker) admitSlotRegistration(stream *pullStream) bool {
 	return worker.admitSlotRegistrationLocked(stream)
 }
 
-// sendSlotRegistration sends the Register under worker.mu, so no cap update falls between the last
-// capacity check and the Send (F5). The first frame of a new stream fits its flow-control window, so
-// the Send does not wait for the network. It returns errSlotAttemptRevoked when the attempt no longer fits.
+// sendSlotRegistration re-checks the attempt, marks it as sending, and sends its Register after
+// releasing worker.mu, because Send may block on the transport. A cap drop between the check and the
+// Send reaches the Server, which enforces the cap; an adaptive Worker treats that rejection as soft.
+// It returns errSlotAttemptRevoked when the attempt no longer fits.
 func (worker *pullWorker) sendSlotRegistration(stream *pullStream, register *dexpb.PollWorkerTaskRequest) error {
 	worker.mu.Lock()
-	defer worker.mu.Unlock()
-	if !worker.admitSlotRegistrationLocked(stream) {
+	isAdmitted := worker.admitSlotRegistrationLocked(stream)
+	if isAdmitted {
+		stream.slot.isRegisterSent = true
+	}
+	worker.mu.Unlock()
+	if !isAdmitted {
 		return errSlotAttemptRevoked
 	}
-	stream.slot.isRegisterSent = true
+	// Lock order is worker.mu, then stream.mu, then sendMu; Send holds only sendMu, and Stop cancels its context.
 	return stream.send(register)
 }
 
