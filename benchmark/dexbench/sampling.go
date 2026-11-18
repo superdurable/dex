@@ -92,11 +92,6 @@ func scrapeMetrics(ctx context.Context, address string) (map[string]float64, err
 }
 
 func parseMetrics(reader io.Reader) (map[string]float64, error) {
-	return parseMetricSeries(reader, []string{"dexzd_object_store_", "dexzd_commit_latency_seconds"})
-}
-
-// parseMetricSeries returns the value of every series whose name starts with one of prefixes.
-func parseMetricSeries(reader io.Reader, prefixes []string) (map[string]float64, error) {
 	values := map[string]float64{}
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
@@ -108,7 +103,7 @@ func parseMetricSeries(reader io.Reader, prefixes []string) (map[string]float64,
 		if len(fields) < 2 {
 			continue
 		}
-		if !hasAnyPrefix(fields[0], prefixes) {
+		if !strings.HasPrefix(fields[0], "dexzd_object_store_") && !strings.HasPrefix(fields[0], "dexzd_commit_latency_seconds") {
 			continue
 		}
 		value, err := strconv.ParseFloat(fields[1], 64)
@@ -118,15 +113,6 @@ func parseMetricSeries(reader io.Reader, prefixes []string) (map[string]float64,
 		values[fields[0]] = value
 	}
 	return values, scanner.Err()
-}
-
-func hasAnyPrefix(value string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func metricDifference(before, after map[string]float64, duration time.Duration) *ObjectStoreMetrics {

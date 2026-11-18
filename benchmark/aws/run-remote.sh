@@ -23,12 +23,6 @@ scenarios="${DEXBENCH_SCENARIOS:-sequential-steps}"
 points_file="${DEXBENCH_POINTS:-}"
 # Profiling perturbs the measurement slightly; turn it off for headline trials.
 profile="${DEXBENCH_PROFILE:-1}"
-# Seconds from collect-start to the profile; slot scenarios set it to land in their measured phase.
-profile_delay_seconds="${DEXBENCH_PROFILE_DELAY_SECONDS:-}"
-# Extra dexbench run flags for the slot stream scenarios, such as "-flow-types 4 -probe-rate 20".
-read -ra slot_args <<< "${DEXBENCH_SLOT_ARGS:-}"
-# idle-slots restarts the server after its probe unless this is 0.
-slot_restart="${DEXBENCH_SLOT_RESTART:-1}"
 run_id="${DEXBENCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 # Each invocation writes under its own prefix, so rerunning a run ID never reuses objects.
 invocation_id="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
@@ -102,35 +96,6 @@ effective_tunables() {
   printf '%s' "$result"
 }
 
-is_slot_variant() {
-  case "$1" in idle-slots-*|burst-*|fairness|periodic|backlog-one-partition-*) return 0 ;; esac
-  return 1
-}
-
-# slot_overrides prints the server settings a slot variant needs unless the point or the environment sets them.
-slot_overrides() {
-  local variant="$1" overrides="$2" result=""
-  is_slot_variant "$variant" || return 0
-  # dexzd_worker_stream_events is a verbose family.
-  if [[ " $overrides " != *" DEXBENCH_ZD_METRICS_LEVEL="* && -z "${DEXBENCH_ZD_METRICS_LEVEL:-}" ]]; then
-    result+=" DEXBENCH_ZD_METRICS_LEVEL=verbose"
-  fi
-  # Flow IDs cannot be pinned without the cluster's secret hash key, so the backlog runs on one partition.
-  if [[ "$variant" == backlog-one-partition-* && " $overrides " != *" DEXBENCH_ZD_PARTITIONS="* && -z "${DEXBENCH_ZD_PARTITIONS:-}" ]]; then
-    result+=" DEXBENCH_ZD_PARTITIONS=1"
-  fi
-  printf '%s' "${result# }"
-}
-
-# remote_command_line prints a shell command line that runs a server-side command from this host.
-remote_command_line() {
-  if [[ "$remote_mode" == local ]]; then
-    printf 'bash -c %q' "$1"
-  else
-    printf 'ssh -n %s %q %q' "$ssh_options" "$server_host" "$1"
-  fi
-}
-
 validate_override() {
   [[ "$1" =~ ^DEXBENCH_ZD_[A-Z_]+=[A-Za-z0-9._:/,=-]+$ ]] || { echo "invalid point override '$1'; use DEXBENCH_ZD_NAME=value" >&2; exit 2; }
 }
@@ -149,12 +114,9 @@ fi
 points_list="$output_dir/points.txt"
 : > "$points_list"
 add_points() {
-  local scenario="$1" point_concurrency="$2" overrides="$3" variant variant_overrides extra_overrides
+  local scenario="$1" point_concurrency="$2" overrides="$3" variant
   for variant in $("$benchmark_binary" variants --scenarios "$scenario"); do
-    variant_overrides="$overrides"
-    extra_overrides="$(slot_overrides "$variant" "$overrides")"
-    variant_overrides+="${extra_overrides:+${variant_overrides:+ }$extra_overrides}"
-    echo "$variant $point_concurrency${variant_overrides:+ $variant_overrides}" >> "$points_list"
+    echo "$variant $point_concurrency${overrides:+ $overrides}" >> "$points_list"
   done
 }
 if [[ -n "$points_file" ]]; then
@@ -196,8 +158,7 @@ zd_version="$(sed -n 's/^server_zd_version=//p' "$output_dir/host.txt")"
 {
   echo "# Settings to rerun these points with benchmark/aws/reproduce.sh. Recorded values start with RECORDED_."
   for name in DEXBENCH_DURATION DEXBENCH_WARMUP DEXBENCH_CONNECTIONS DEXBENCH_TRIALS DEXBENCH_WORKERS DEXBENCH_STEPS \
-    DEXBENCH_PROFILE DEXBENCH_PROFILE_DELAY_SECONDS DEXBENCH_SLOT_ARGS DEXBENCH_SLOT_RESTART \
-    DEXBENCH_S3_REGION DEXBENCH_STORAGE_DIR $(tunable_names); do
+    DEXBENCH_PROFILE DEXBENCH_S3_REGION DEXBENCH_STORAGE_DIR $(tunable_names); do
     case "$name" in
       DEXBENCH_DURATION) value="$duration" ;; DEXBENCH_WARMUP) value="$warmup" ;;
       DEXBENCH_CONNECTIONS) value="$connections" ;; DEXBENCH_TRIALS) value="$trials" ;;
@@ -275,26 +236,14 @@ run_point() {
   fi
   local profile_overrides=""
   if [[ "$profile" == 1 ]]; then
-    profile_overrides="DEXBENCH_PROFILE_DELAY=${profile_delay_seconds:-$((warmup + duration / 3))}"
-  fi
-  local variant_args=() stderr_log=/dev/stderr
-  if is_slot_variant "$variant"; then
-    # Every Worker stream logs its disconnects, so a restart of N streams writes N lines.
-    stderr_log="$output_dir/$point_id.dexbench.log"
-    variant_args=(${slot_args[@]+"${slot_args[@]}"})
-    if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
-      variant_args+=(--restart-command "$(remote_command_line "$(serve_command "$overrides" restart)")")
-      # Over SSH, dexbench identifies the server by process_start_time_seconds; here it can read the PID file.
-      if [[ "$remote_mode" == local ]]; then variant_args+=(--server-pid-file "$server_state_dir/server.pid"); fi
-    fi
+    profile_overrides="DEXBENCH_PROFILE_DELAY=$((warmup + duration / 3))"
   fi
   remote "$(serve_command "$overrides $profile_overrides" collect-start "$collect_dir")" || return 1
   DEXBENCH_GIT_COMMIT="$git_commit" DEXBENCH_SERVER_VERSION="$zd_version" "$benchmark_binary" run \
     --address "$server_address:$api_port" --metrics-url "http://$server_address:$metrics_port/metrics" \
     --duration "$duration" --warmup "$warmup" --concurrency "$point_concurrency" --connections "$connections" \
     --workers "$workers" --steps "$steps" --scenarios "$variant" --mode aws --trial "$trial_flag" \
-    --server-tunables "$(effective_tunables "$overrides")" --out "$point_dir" \
-    ${variant_args[@]+"${variant_args[@]}"} </dev/null 2>>"$stderr_log" || run_status=$?
+    --server-tunables "$(effective_tunables "$overrides")" --out "$point_dir" </dev/null || run_status=$?
   remote "$(serve_command "$overrides" collect-stop "$collect_dir")" || collect_status=$?
   stop_remote_server
   fetch "$collect_dir" "$output_dir/$point_id.server" || collect_status=1
