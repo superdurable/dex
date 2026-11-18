@@ -12,6 +12,7 @@
 
 from dex import Attribute, Context, Flow, PersistenceSchema, RPCResult, rpc
 
+
 class TypeScriptClientNoteFlow(Flow[None]):
     note = Attribute("note", str)
 

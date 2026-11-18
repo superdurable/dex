@@ -30,6 +30,7 @@ TYPESCRIPT_CLIENT_SCRIPT = (
     Path(__file__).resolve().parent / "typescript" / "invoke_python_worker_rpcs.mjs"
 )
 
+
 def test_typescript_client_invokes_rpcs_on_a_python_worker() -> None:
     assert (
         TYPESCRIPT_SDK_DIRECTORY / "dist" / "src" / "index.js"
@@ -58,6 +59,7 @@ def test_typescript_client_invokes_rpcs_on_a_python_worker() -> None:
             "noteAfterClear": "",
         }
         environment.client.stop_flow(flow_id)
+
 
 def test_python_worker_serves_an_input_free_rpc_whose_input_is_unset() -> None:
     flow = TypeScriptClientNoteFlow()
