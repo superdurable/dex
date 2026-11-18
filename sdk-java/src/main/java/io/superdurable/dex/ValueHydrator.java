@@ -193,14 +193,19 @@ final class ValueHydrator {
 
     InvokeWorkerRPCRequest hydrate(final InvokeWorkerRPCRequest request) {
         final List<Value> source = new ArrayList<Value>();
-        source.add(request.getInput());
+        // Released TypeScript Clients leave the input of an input-free RPC unset.
+        final boolean hasInput = request.hasInput();
+        if (hasInput) {
+            source.add(request.getInput());
+        }
         addValues(source, request.getAttributesList());
         addChannelMessageValues(source, request.getLoadedChannelMessagesMap());
         final List<Value> hydrated = hydrateAll(request.getContext().getFlowId(), source);
         int index = 0;
-        final InvokeWorkerRPCRequest.Builder builder = request.toBuilder()
-                .setInput(hydrated.get(index++))
-                .clearAttributes();
+        final InvokeWorkerRPCRequest.Builder builder = request.toBuilder().clearAttributes();
+        if (hasInput) {
+            builder.setInput(hydrated.get(index++));
+        }
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));
         }

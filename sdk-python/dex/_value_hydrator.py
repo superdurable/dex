@@ -175,16 +175,19 @@ class ValueHydrator:
     ) -> pb.InvokeWorkerRPCRequest:
         result = pb.InvokeWorkerRPCRequest()
         result.CopyFrom(request)
-        values = [request.input, *(entry.value for entry in request.attributes)]
+        # Released TypeScript Clients leave the input of an input-free RPC unset.
+        has_input = request.HasField("input")
+        values = [request.input] if has_input else []
+        values.extend(entry.value for entry in request.attributes)
         channel_messages = [
             message
             for channel_values in request.loaded_channel_messages.values()
             for message in channel_values.messages
         ]
         values.extend(message.value for message in channel_messages)
-        hydrated = self.hydrate_all(request.context.flow_id, values)
-        result.input.CopyFrom(hydrated[0])
-        hydrated_entries = iter(hydrated[1:])
+        hydrated_entries = iter(self.hydrate_all(request.context.flow_id, values))
+        if has_input:
+            result.input.CopyFrom(next(hydrated_entries))
         for entry in result.attributes:
             entry.value.CopyFrom(next(hydrated_entries))
         result_messages = [

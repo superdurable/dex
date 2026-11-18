@@ -680,9 +680,10 @@ export class Client {
           flowId: requireName(flowId),
           runId,
           rpcName: rpc.name,
+          // An input-free RPC sends null, like the other SDK Clients; some Workers reject an unset input.
           input: rpc.hasInput
             ? encodeValue(codecOrJson(rpc.options.inputCodec), input)
-            : undefined,
+            : encodeValue(codecOrJson<null>(), null),
           timeoutSeconds: seconds(rpc.options.timeoutMs),
           lockAttributeKeys: uniqueSorted([
             ...(rpc.options.lockAttributes ?? []).map((lock) =>

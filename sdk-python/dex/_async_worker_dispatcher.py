@@ -386,7 +386,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         )
         arguments: list[object] = [context]
         if rpc.input_codec is not None:
-            arguments.append(self._values.decode(request.input, rpc.input_codec))
+            arguments.append(self._decode_rpc_input(request, rpc.input_codec))
         returned: Any = rpc.method(*arguments)
         if isawaitable(returned):
             returned = await returned

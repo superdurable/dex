@@ -25,6 +25,11 @@ servers without ALPN h2. To run only the TLS integration scenarios:
 ./run-integration-tests.sh tests/integ/test_flow_service_tls_runtime.py
 ```
 
+`test_typescript_client_runtime.py` calls RPCs with and without input on a
+Python Worker through the TypeScript Client of this repository. The script
+builds `sdk-typescript` first when its `dist/` is missing; that build needs
+Node.js 22 and Cargo.
+
 The compile-oriented call-site modules remain part of strict static checking:
 
 ```shell

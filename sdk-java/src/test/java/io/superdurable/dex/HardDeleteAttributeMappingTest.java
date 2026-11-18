@@ -21,6 +21,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
+import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.FlowStartOptions;
@@ -436,6 +437,24 @@ final class HardDeleteAttributeMappingTest {
 
     private interface ThrowingSupplier<T> {
         T get() throws Throwable;
+    }
+
+    @Test
+    void servesAnInputFreeRpcWhoseInputIsUnset() throws Throwable {
+        final Registry registry = new Registry(Arrays.<Flow<?>>asList(
+                new HardDeleteMappingFlow(), new HardDeleteMappingChildFlow()));
+        final ValueMapper values = new ValueMapper(new ObjectMapper());
+        final NegotiatedServerProtocol protocol = new NegotiatedServerProtocol();
+        protocol.recordNegotiatedVersion(3);
+        final WorkerDispatcher dispatcher = new WorkerDispatcher(
+                registry, values, unusedHydrator(), protocol);
+
+        final AttributeWrite rpcDelete = dispatcher.invokeRpc(
+                rpcRequest(values, "deleteSecret", null).toBuilder().clearInput().build())
+                .getUpsertAttributes(0);
+        assertEquals(Value.KindCase.NULL_VALUE, rpcDelete.getValue().getKindCase());
+        assertThrows(ValueMappingException.class, () -> dispatcher.invokeRpc(
+                rpcRequest(values, "rotateSecret", null).toBuilder().clearInput().build()));
     }
 
     private static Map<String, AttributeWrite> writesByKey(final List<AttributeWrite> writes) {

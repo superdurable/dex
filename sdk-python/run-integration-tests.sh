@@ -66,6 +66,16 @@ if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   )
 fi
 
+# The TypeScript Client test loads the built TypeScript SDK.
+if [[ ! -f "$repo_root/sdk-typescript/dist/src/index.js" ]]; then
+  (
+    cd "$repo_root/sdk-typescript"
+    npm ci
+    npm run build:native
+    npm run build
+  )
+fi
+
 (
   cd "$repo_root/cli"
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
