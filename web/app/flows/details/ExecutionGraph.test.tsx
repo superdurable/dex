@@ -150,6 +150,64 @@ describe('Folded Graph newest-part framing', () => {
   });
 });
 
+function nodeWithDecision(stepDecision: unknown): StepGraphNode {
+  return {
+    ...completedNode,
+    execute: { eventId: 3, eventTime: null, type: 'StepExecuteCompleted', payload: { output: { stepDecision } } },
+  };
+}
+
+describe('Execution graph Execute decision', () => {
+  it.each([
+    [{ nextSteps: [{ stepType: 'SyncBatch' }] }, 'next-steps', 'SyncBatch', 'lucide-arrow-right'],
+    [{ closeDecision: { closeDecisionType: 5 } }, 'dead-end', 'Dead end', 'lucide-circle-slash-2'],
+    [{ closeDecision: { closeDecisionType: 2 } }, 'graceful-complete', 'Graceful complete', 'lucide-flag'],
+    [{ closeDecision: { closeDecisionType: 3 } }, 'force-complete', 'Force complete', 'lucide-check-check'],
+    [{ closeDecision: { closeDecisionType: 4 } }, 'force-fail', 'Force fail', 'lucide-octagon-x'],
+    [{ closeDecision: { closeDecisionType: 1 } }, 'complete-when-channels-empty', 'Complete when channels are empty', 'lucide-inbox'],
+    [{ cancelStepTypes: ['Poll'] }, 'cancel', 'Cancel Poll', 'lucide-ban'],
+  ])('shows the decision %j with its label, icon, and tone', (stepDecision, kind, label, iconClass) => {
+    render(<StepNodeLabel node={nodeWithDecision(stepDecision)} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: new RegExp(`^Execute .*${label}`) });
+    expect(execute.className).toContain(`graph-method-decision-${kind}`);
+    expect(execute.querySelector('.graph-execute-decision-text')?.textContent).toBe(label);
+    expect(execute.querySelector(`svg.${iconClass}`)).not.toBeNull();
+    expect(execute.textContent).not.toContain('Completed');
+  });
+
+  it('truncates a long next Step list with +N and keeps the full list in the tooltip', () => {
+    render(<StepNodeLabel node={nodeWithDecision({
+      nextSteps: [{ stepType: 'ResumeTurn' }, { stepType: 'CallTool' }, { stepType: 'Audit' }],
+    })} onSelect={vi.fn()} />);
+    const line = document.querySelector('.graph-execute-decision')!;
+    expect(line.querySelector('.graph-execute-decision-text')?.textContent).toBe('ResumeTurn, CallTool');
+    expect(line.querySelector('.graph-execute-decision-more')?.textContent).toBe('+1');
+    expect(line.getAttribute('title')).toBe('→ ResumeTurn\n→ CallTool\n→ Audit');
+  });
+
+  it('keeps the failure status for a failed Execute', () => {
+    const node: StepGraphNode = {
+      ...completedNode,
+      status: 'Failed',
+      execute: {
+        eventId: 3,
+        eventTime: null,
+        type: 'StepExecuteFailed',
+        payload: { output: { stepDecision: { nextSteps: [{ stepType: 'Recover' }] } } },
+      },
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute Failed' });
+    expect(execute.className).toContain('graph-method-failed');
+    expect(execute.querySelector('.graph-execute-decision')).toBeNull();
+  });
+
+  it('keeps Completed when the decision has nothing to show', () => {
+    render(<StepNodeLabel node={nodeWithDecision({ closeDecision: { closeDecisionType: 0 } })} onSelect={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Execute Completed' })).toBeTruthy();
+  });
+});
+
 describe('Execution graph method selection', () => {
   it('marks the method that recorded the selected event', () => {
     const node: StepGraphNode = {

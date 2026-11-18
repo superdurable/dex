@@ -1544,6 +1544,76 @@ body:has(.v1-page) {
   border-radius: 10px 0 0 10px;
 }
 
+/* A completed Execute shows its Step decision; the fill and ink follow the decision kind. */
+.v1-page .graph-method-execute.graph-method-decision {
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--ui-ink);
+}
+
+.v1-page .graph-method-execute .graph-execute-decision svg {
+  flex: none;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision-text {
+  overflow: hidden;
+  min-width: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Beside WaitFor conditions Execute takes its content width, so the text needs a cap. */
+.v1-page .graph-methods:has(.graph-conditions) .graph-execute-decision-text {
+  max-width: 120px;
+}
+
+.v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-more {
+  flex: none;
+  color: var(--muted);
+}
+
+.v1-page .graph-method-decision-dead-end.graph-method-completed,
+.v1-page .graph-method-decision-cancel.graph-method-completed {
+  background: var(--ui-well);
+}
+
+.v1-page .graph-method-decision-dead-end .graph-execute-decision,
+.v1-page .graph-method-decision-cancel .graph-execute-decision {
+  color: var(--muted);
+}
+
+.v1-page .graph-method-decision-graceful-complete.graph-method-completed,
+.v1-page .graph-method-decision-force-complete.graph-method-completed,
+.v1-page .graph-method-decision-complete-when-channels-empty.graph-method-completed {
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .graph-method-decision-graceful-complete .graph-execute-decision,
+.v1-page .graph-method-decision-force-complete .graph-execute-decision,
+.v1-page .graph-method-decision-complete-when-channels-empty .graph-execute-decision {
+  color: var(--tone-accent-ink);
+}
+
+.v1-page .graph-method-decision-force-fail.graph-method-completed {
+  background: var(--tone-fail-soft);
+}
+
+.v1-page .graph-method-decision-force-fail .graph-execute-decision {
+  color: var(--tone-fail-ink);
+}
+
 .v1-page .react-flow__node.node-repeated .graph-step-heading {
   padding-right: 56px;
 }
