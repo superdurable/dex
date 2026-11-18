@@ -912,13 +912,15 @@ The defaults suit most nodes. Change these keys only when a load test shows a
 bottleneck. They change throughput and memory use, not Flow results, with one
 exception: **commit.maxUnappliedBytes** bounds the backlog of accepted
 commands, so a smaller value makes more requests fail with UNAVAILABLE under
-load. Each key takes effect when the node starts.
+load. **commit.batchWriteDeadline** sets how long a slow log write may take
+before it stops the node. Each key takes effect when the node starts.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **commit.applierLanes** | The larger of 8 and the CPUs available to the process, at most **cluster.partitionCount** and 1024 | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. Applying a command reads and writes the local store, so even a small host uses at least 8 lanes. An explicit value must be from 1 to the smaller of **cluster.partitionCount** and 1024. If the CPU count cannot be read, the default is 8. |
 | **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
 | **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
+| **commit.batchWriteDeadline** | 10s | Since 0.1.36. How long object storage may take to accept one log batch, including retries. A batch that is still not accepted stops the node, and the process exits 1. Every later commit waits behind that batch. Must be positive and at most 5 minutes. Before 0.1.36, the limit is fixed at 10 seconds. See [Lease](/reference/server/high-availability#lease). |
 | **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
 | **commit.maxInFlight** | 4 | Most log batches that the node writes to object storage at once. Must be positive. Since 0.1.31, **objectStore.provider: tencentCOS** also limits it to 32. A Tencent COS listing can miss the newest log batches for a few seconds, so recovery after a restart or failover checks the next 32 seqs past the last batch it knows of, and repeats from each batch it finds, until 32 seqs in a row are absent. |
 | **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |

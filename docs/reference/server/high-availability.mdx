@@ -18,8 +18,9 @@ failover time. Renewal starts 30 seconds after the last one and has about 60
 seconds before the lease ends. A renewal write may take up to 20 seconds. A
 write cut off after 20 seconds is retried once, and that retry may use the
 rest of the 60 seconds. A renewal that takes longer still stops the node. Log
-writes keep their own 10-second limit, described below, so a longer stall can
-still stop a dev node. Changed in 0.1.35: the dev defaults were a 30-second
+writes keep their own limit, **commit.batchWriteDeadline**, described below.
+It defaults to 10 seconds in dev too, so a longer stall can still stop a dev
+node. Changed in 0.1.35: the dev defaults were a 30-second
 lease and the derived renewal attempt timeout.
 
 A dev node holds an exclusive lock on **dev.lock** in its data directory, so a
@@ -78,8 +79,14 @@ The duration only partly affects object storage outages:
   cutoff.
 - A renewal lost to another holder, or a permanent storage error, stops the
   node at once.
-- A log write that object storage does not accept within 10 seconds also stops
-  the node. This limit is fixed and does not depend on the lease duration.
+- A log write that object storage does not accept within
+  **commit.batchWriteDeadline** also stops the node. The deadline defaults to
+  10 seconds and covers retries of the write. It does not depend on the lease
+  duration. A commit is acknowledged only while the lease is valid, and the
+  epoch fences a write that lands later. Every later commit waits behind a slow
+  write. So raise the deadline only when object storage can be slower than 10
+  seconds, such as on a busy test machine. It must be positive and at most 5
+  minutes. Since 0.1.36; earlier releases fix the limit at 10 seconds.
 
 So a longer lease lets an idle node survive a stalled object store or a stalled
 host for longer. After any of these stops, the process exits 1.

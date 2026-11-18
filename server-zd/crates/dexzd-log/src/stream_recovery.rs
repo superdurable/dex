@@ -28,6 +28,7 @@ use crate::stream_layout::{
 };
 use crate::stream_tail_reader::{StreamTailReader, StreamTailStep};
 
+/// Bounds recovery's EpochStart writes; separate from the commit pipeline's configurable head deadline.
 const RECOVERY_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Every accepted batch and voided seq of a recovery, so it grows with the log.

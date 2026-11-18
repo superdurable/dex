@@ -24,7 +24,7 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 
 - **一个集群的上限是一个 active 节点。** Dex 把一个集群的 Flow 和任务队列分成多个分区，每个分区是这部分状态里固定的一片。一个节点拥有全部分区。所以更大的负载需要更大的节点，或者单独的集群。见[超出一个节点的容量](#grow-past-one-node)和[性能](/intro/performance)。
 - **故障转移最多需要 lease 时长加 1 秒。** lease 默认是 10 秒。单副本部署应该用 60 秒，所以崩溃后最多要等大约一分钟。正常关闭会立即交接。见 [Lease](/reference/server/high-availability#lease)（英文）。
-- **对象存储卡住会让节点停止。** 如果一次日志写入在 10 秒内没有被对象存储接受，active 节点会停止，lease 到期后由 standby 接管。见[依赖出故障时](/components/server#dependency-failures)。
+- **对象存储卡住会让节点停止。** 如果一次日志写入在期限内没有被对象存储接受，active 节点会停止，lease 到期后由 standby 接管。这个期限默认是 10 秒。见[依赖出故障时](/components/server#dependency-failures)。
 - **故障转移会重新运行进行中的 Step。** 恢复时，Worker 已经领取的每次尝试都会失败，每次都消耗一次重试。见[故障转移和部署](/concepts/failover-and-deploys)。
 - **分区数在第一次启动时固定。** 见 [Partition count](/reference/server/configuration#single-node-partition-count)（英文）。
 - **有些升级需要停止集群。** 有些 server 版本要求在新版本启动前，停止所有 server 进程，包括 standby。升级只能向前。升级页面列出了每个这样的版本，所以升级前先读它。见 [Upgrades and compatibility](/reference/server/upgrades)（英文）。

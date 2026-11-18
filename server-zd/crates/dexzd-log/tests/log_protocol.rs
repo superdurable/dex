@@ -1304,6 +1304,26 @@ async fn pipeline_fails_when_head_put_exceeds_deadline() {
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn pipeline_commits_a_head_put_slower_than_ten_seconds_within_a_longer_deadline() {
+    let store = Arc::new(MemoryStore::default());
+    let release = store.block_seq(1).await;
+    let config = CommitPipelineConfig {
+        head_deadline: Duration::from_secs(30),
+        ..Default::default()
+    };
+    let (pipeline, mut committed) =
+        CommitPipeline::start(store, Arc::new(FixedClock), stream(), 1, 1, config).unwrap();
+    let ticket = pipeline
+        .propose(2, Bytes::from_static(b"slow"), true)
+        .await
+        .unwrap();
+    tokio::time::advance(Duration::from_secs(15)).await;
+    release.notify_one();
+    assert_eq!(ticket.committed.await.unwrap(), Ok(1));
+    assert_eq!(committed.recv().await.unwrap().seq, 1);
+}
+
 #[tokio::test]
 async fn crashed_pipeline_leaves_a_void_tail_and_stale_writer_is_fenced() {
     let store = Arc::new(MemoryStore::default());
