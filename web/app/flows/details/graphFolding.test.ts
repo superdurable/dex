@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { describe, expect, it } from 'vitest';
-import type { StepGraphEdge, StepGraphNode } from '@/lib/types';
+import { buildStepGraph } from '@/lib/graph';
+import type { FlowHistoryEvent, StepGraphEdge, StepGraphNode } from '@/lib/types';
 import {
   foldStepGraph,
   noGroupOpenIntents,
@@ -150,6 +151,94 @@ describe('Round anchor', () => {
     const earlier = stepNode('A-1', 'A', 3);
     const planned: StepGraphNode = { id: '__planned:9:0', label: 'C', kind: 'step', status: 'Pending', stepType: 'C', isPlanned: true };
     expect(stepsInExecutionOrder([startNode, planned, later, earlier]).map((node) => node.id)).toEqual(['A-1', 'B-1', '__planned:9:0']);
+  });
+});
+
+type CronSiblingOrder = 'run-first' | 'wait-first' | 'run-after-next-decision';
+
+/** Events of one Step execution, shaped as the history API sends them. */
+function cronStepEvent(
+  eventId: number,
+  type: FlowHistoryEvent['type'],
+  stepExecutionId: string,
+  fromStepExecutionId: string,
+  fromEventId: number,
+  nextStepTypes?: string[],
+): FlowHistoryEvent {
+  const stepType = stepExecutionId.replace(/-\d+$/, '');
+  return {
+    eventId,
+    eventTime: new Date(Date.parse('2026-11-17T00:00:00Z') + eventId * 1000).toISOString(),
+    type,
+    payload: {
+      context: { stepExecutionId, stepType, fromStepExecutionId, fromEventId: String(fromEventId) },
+      ...(nextStepTypes ? { output: { stepDecision: { nextSteps: nextStepTypes.map((next) => ({ stepType: next })) } } } : {}),
+    },
+  };
+}
+
+/** A Cron schedule run: each wait decides GoToMany(run, next wait), whose first events race. */
+function cronScheduleHistory(roundCount: number, siblingOrderOf: (round: number) => CronSiblingOrder): FlowHistoryEvent[] {
+  const events: FlowHistoryEvent[] = [{ eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: {} }];
+  const add = (...args: Parameters<typeof cronStepEvent> extends [number, ...infer Rest] ? Rest : never) => {
+    const event = cronStepEvent(events.length + 1, ...args);
+    events.push(event);
+    return event.eventId;
+  };
+  const startDecision = add('StepExecuteCompleted', 'startCronSchedule-1', '__start__', 1, ['waitForCronSchedule']);
+  add('StepWaitForCompleted', 'waitForCronSchedule-1', 'startCronSchedule-1', startDecision);
+  let waitDecision = add('StepExecuteCompleted', 'waitForCronSchedule-1', 'startCronSchedule-1', startDecision, [
+    'runCronSchedule', 'waitForCronSchedule',
+  ]);
+  for (let round = 1; round <= roundCount; round += 1) {
+    const deciding = `waitForCronSchedule-${round}`;
+    const nextWait = `waitForCronSchedule-${round + 1}`;
+    const run = `runCronSchedule-${round}`;
+    const isLast = round === roundCount;
+    const decideNextWait = () => (isLast ? 0 : add('StepExecuteCompleted', nextWait, deciding, waitDecision, [
+      'runCronSchedule', 'waitForCronSchedule',
+    ]));
+    const runOnce = () => add('StepExecuteCompleted', run, deciding, waitDecision, []);
+    const order = siblingOrderOf(round);
+    let nextDecision = 0;
+    if (order === 'run-first') runOnce();
+    add('StepWaitForCompleted', nextWait, deciding, waitDecision);
+    if (order === 'wait-first') runOnce();
+    nextDecision = decideNextWait();
+    if (order === 'run-after-next-decision') runOnce();
+    waitDecision = nextDecision;
+  }
+  return events;
+}
+
+const cronSiblingOrders: CronSiblingOrder[] = ['run-first', 'wait-first', 'wait-first', 'run-after-next-decision', 'run-first'];
+
+describe('Spawn order', () => {
+  it('folds a Cron schedule into one range however its spawned Steps race', () => {
+    const graph = buildStepGraph(cronScheduleHistory(40, (round) => cronSiblingOrders[round % cronSiblingOrders.length]));
+    const folded = foldStepGraph(graph.nodes, graph.edges, defaultOptions);
+    expect(folded.anchorStepType).toBe('runCronSchedule');
+    expect(folded.rounds.map((round) => round.title)).toEqual(['Rounds 1–39', 'Round 40']);
+    expect(folded.rounds[0]).toMatchObject({ stepCount: 78, sequence: ['runCronSchedule', 'waitForCronSchedule'] });
+    expect(folded.rounds[1]).toMatchObject({ isLatest: true, isOpen: true, stepCount: 2 });
+    expect(folded.items.filter((item) => item.display === 'group')).toHaveLength(1);
+    expect(shown(folded.items)).toEqual([
+      '__start__', 'startCronSchedule-1', 'waitForCronSchedule-1', '[Rounds 1–39]', 'runCronSchedule-40', 'waitForCronSchedule-41',
+    ]);
+  });
+
+  it('orders by first event when the deciding event is outside the loaded window', () => {
+    const history = cronScheduleHistory(3, () => 'wait-first');
+    // Drop the first wait's decision, so the Steps it started fall back to their first events.
+    const firstDecision = history.find((event) => event.type === 'StepExecuteCompleted'
+      && (event.payload.context as Record<string, unknown>).stepExecutionId === 'waitForCronSchedule-1');
+    const window = history.filter((event) => event.eventId > (firstDecision?.eventId ?? 0));
+    const graph = buildStepGraph(window, [], '', { hasEarlierEvents: true });
+    expect(stepsInExecutionOrder(graph.nodes).map((node) => node.id)).toEqual([
+      'waitForCronSchedule-2', 'runCronSchedule-1',
+      'runCronSchedule-2', 'waitForCronSchedule-3',
+      'runCronSchedule-3', 'waitForCronSchedule-4',
+    ]);
   });
 });
 

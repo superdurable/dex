@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { formatDuration } from '@/lib/format';
+import { stepDecision } from '@/lib/graph';
+import { decidingEventIdOf } from '@/lib/historyRelations';
 import type { FlowHistoryEvent, StepGraphEdge, StepGraphNode } from '@/lib/types';
 
 /** An opened range longer than this shows only its first, selected and last Rounds. */
@@ -183,13 +185,62 @@ export function unfoldedStepGraph(nodes: StepGraphNode[], edges: StepGraphEdge[]
   };
 }
 
-/** Step executions ordered by their first recorded event; those without one keep their order at the end. */
+interface StepSpawnOrder {
+  node: StepGraphNode;
+  /** The loaded deciding event that started the Step execution, else its first event. */
+  spawnEventID: number;
+  /** The index in the deciding event's next Steps; -1 keeps a fallback before Steps it decides. */
+  nextStepIndex: number;
+  firstEventID: number;
+}
+
+/** Step executions in spawn order: deciding event, next-Step index, first event, then ID. */
 export function stepsInExecutionOrder(nodes: StepGraphNode[]): StepGraphNode[] {
-  return nodes
-    .map((node, index) => ({ node, index, order: firstEventID(node) }))
-    .filter(({ node }) => node.kind === 'step')
-    .sort((left, right) => left.order - right.order || left.index - right.index)
+  const steps = nodes.filter((node) => node.kind === 'step');
+  const nextStepTypesByDecisionEventID = nextStepTypesByDecisionEvent(steps);
+  return steps
+    .map((node) => stepSpawnOrder(node, nextStepTypesByDecisionEventID))
+    .sort((left, right) => left.spawnEventID - right.spawnEventID
+      || left.nextStepIndex - right.nextStepIndex
+      || left.firstEventID - right.firstEventID
+      || compareStepExecutionIDs(left.node.id, right.node.id))
     .map(({ node }) => node);
+}
+
+/** The next Step types of each loaded Step decision, by its event ID. */
+function nextStepTypesByDecisionEvent(steps: StepGraphNode[]): Map<number, string[]> {
+  const nextStepTypesByDecisionEventID = new Map<number, string[]>();
+  for (const step of steps) {
+    for (const event of stepEvents(step)) {
+      const decision = stepDecision(event);
+      if (!decision) continue;
+      const nextSteps = Array.isArray(decision.nextSteps) ? decision.nextSteps : [];
+      nextStepTypesByDecisionEventID.set(event.eventId, nextSteps.map(nextStepTypeOf));
+    }
+  }
+  return nextStepTypesByDecisionEventID;
+}
+
+function nextStepTypeOf(movement: unknown): string {
+  const stepType = movement && typeof movement === 'object' ? (movement as Record<string, unknown>).stepType : undefined;
+  return typeof stepType === 'string' ? stepType : '';
+}
+
+function stepSpawnOrder(node: StepGraphNode, nextStepTypesByDecisionEventID: Map<number, string[]>): StepSpawnOrder {
+  const firstEvent = firstEventID(node);
+  const decisionEventID = stepEvents(node).map(decidingEventIdOf).find(isDefined);
+  const nextStepIndex = decisionEventID === undefined
+    ? -1
+    : nextStepTypesByDecisionEventID.get(decisionEventID)?.indexOf(stepTypeOf(node)) ?? -1;
+  if (decisionEventID === undefined || nextStepIndex < 0) {
+    return { node, spawnEventID: firstEvent, nextStepIndex: -1, firstEventID: firstEvent };
+  }
+  return { node, spawnEventID: decisionEventID, nextStepIndex, firstEventID: firstEvent };
+}
+
+/** Orders "Step-9" before "Step-10" by comparing digit runs as numbers. */
+function compareStepExecutionIDs(left: string, right: string): number {
+  return left.localeCompare(right, 'en', { numeric: true });
 }
 
 function firstEventID(node: StepGraphNode): number {
