@@ -1234,7 +1234,8 @@ export interface PullWorkerOptions {
   /**
    * Number of execution slots, each represented by one long-lived poll stream.
    * Zero or omission uses the logical CPU count. Negative values are invalid.
-   * Worker.start fails if this exceeds the Server per-Worker limit, matching.maxConcurrentTasksCap.
+   * For a fixed Worker with this value set explicitly, Worker.start fails if it exceeds the Server
+   * per-Worker limit, matching.maxConcurrentTasksCap.
    * Requires a nonnegative safe integer; construction throws RangeError otherwise.
    * Changed in SDK v1.35.0: this is also the exact stream count, and exceeding the cap fails startup.
    *
@@ -1278,8 +1279,10 @@ export interface PullWorkerOptions {
    * grows. A task that reaches a stream while it closes returns to the Server without spending a
    * Step retry, and the Server dispatches it again. When the Server rejects a stream at its stream
    * limit (`RESOURCE_EXHAUSTED`), an adaptive Worker treats the rejection of a growth stream, or of
-   * a reconnect after readiness, as a soft limit: it records no {@link PullRegistrationError} and
-   * retries at most once per 30 seconds. Use `Worker.pullSlotStreamState` to observe the streams.
+   * a reconnect after readiness, as a soft limit: it records no {@link PullRegistrationError}.
+   * While growth rejections persist, it sends at most one growth batch per 30-second window. A
+   * soft-rejected floor or reconnect stream retries when another registered stream of the Worker
+   * ends, or at the next window. Use `Worker.pullSlotStreamState` to observe the streams.
    *
    * The Worker constructor throws `RangeError` unless
    * `reservedRpcTasks + 1 <= minOpenSlots <= maxConcurrentTasks`, using the resolved values. When
@@ -1304,7 +1307,7 @@ export interface PullWorkerOptions {
   readonly minOpenSlots?: number;
   /**
    * Number of long-lived slots that accept only RPCs.
-   * Unset reserves one slot when maxConcurrentTasks resolves to at least two, otherwise zero.
+   * Unset reserves one slot when maxConcurrentTasks resolves to at least two and minOpenSlots >= 2, otherwise zero.
    * Set zero to let every slot accept Steps and RPCs. Steps are never declined for capacity.
    * With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
    * Requires an integer at least zero and less than maxConcurrentTasks; construction throws RangeError otherwise.

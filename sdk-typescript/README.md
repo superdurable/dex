@@ -390,7 +390,9 @@ between `minOpenSlots` and `maxConcurrentTasks` slot streams open; both counts i
 the last idle one. Every 30 seconds it half-closes half of the idle surplus above the window's
 peak busy count plus 25% headroom. An adaptive Worker clamps `maxConcurrentTasks` to the Server
 cap with a warning. It treats `RESOURCE_EXHAUSTED` for a growth stream, or for a reconnect after
-readiness, as a soft limit: no permanent error, and at most one retry per window. It counts
+readiness, as a soft limit with no permanent error. While growth rejections persist, it sends at
+most one growth batch per window. A soft-rejected floor or reconnect stream retries when another
+registered stream of the Worker ends, or at the next window. It counts
 handlers that still run after their stream ended against its capacity, so it never registers a
 stream for a busy slot. `worker.pullSlotStreamState()` returns a snapshot of the streams, and
 `NODE_DEBUG=dex` logs each grow and shrink. The state machine is specified in
