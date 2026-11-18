@@ -1014,30 +1014,14 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         ValueHydrator::new(FlowServiceClient::new(channel.clone()), cache),
         crate::server_protocol::NegotiatedServerProtocolVersion::default(),
     );
-    let shared = Arc::new(PullShared {
-        registration: Arc::new(PullRegistration::new(
+    let shared = PullShared::with_stream_for_test(
+        Arc::new(PullRegistration::new(
             &["STEP_AND_RPC".to_string()],
             String::new(),
         )),
-        state: Mutex::new(PullState {
-            streams: HashMap::from([(
-                0,
-                StreamSlot {
-                    is_busy: false,
-                    is_registered: false,
-                    is_draining: false,
-                },
-            )]),
-            busy_tasks: 0,
-            is_stopping: false,
-            logged_unsupported: false,
-        }),
-        notify: Notify::new(),
-        max_concurrent_tasks: 1,
-        has_checked_registration_limit: Mutex::new(false),
-        startup_error: Mutex::new(None),
-        task_start_gate: Arc::new(Mutex::new(false)),
-    });
+        1,
+        0,
+    );
     let (stop, stop_receiver) = watch::channel(StopSignal {
         phase: 0,
         deadline: None,
@@ -1056,6 +1040,7 @@ async fn final_output_held_by_backpressure_before_stop_keeps_the_flush_grace() {
         stop: stop_receiver,
         stop_drain_timeout: Duration::from_millis(200),
         is_registered: false,
+        was_soft_rejected: false,
         has_recorded_result: false,
         has_task_queue_mismatch: false,
     };

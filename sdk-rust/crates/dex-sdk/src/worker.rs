@@ -165,6 +165,14 @@ impl Worker {
     /// with a Service error before Attribute-index synchronization when the Server protocol is
     /// older than 5. A stream that the Server confirms for a different task queue is a permanent
     /// rejection with the gRPC code `FAILED_PRECONDITION`.
+    ///
+    /// Changed in 1.45.4: the `max_concurrent_tasks` failure applies to an explicit value of a
+    /// fixed Worker. Without that setting, or in an adaptive Worker, the Worker clamps the value
+    /// to the Server setting instead, with a WARN log; see
+    /// [`crate::PullWorkerOptions::max_concurrent_tasks`] and
+    /// [`crate::PullWorkerOptions::min_open_slots`]. Startup also fails with
+    /// `FAILED_PRECONDITION` when the clamped value leaves no room for the reserved RPC slots or
+    /// the floor.
     pub fn start(&self) -> SdkResult<()> {
         let result = self.start_worker();
         self.pull
@@ -325,6 +333,38 @@ impl Worker {
     /// Transient disconnects and Stop do not clear readiness. See [`Self::wait_pull_registered`] for a startup and probe example.
     pub fn pull_registration_state(&self) -> crate::PullRegistrationState {
         self.pull.registration.snapshot()
+    }
+
+    /// Returns an independent snapshot of the Worker's slot streams.
+    ///
+    /// Use it to observe how many Server streams the Worker holds and how many of them are busy,
+    /// for example in a debug endpoint or a periodic log line. It is most useful for an adaptive
+    /// Worker, whose [`crate::PullWorkerOptions::min_open_slots`] is below `max_concurrent_tasks`
+    /// and whose stream count varies with load. It is safe to call from any thread before,
+    /// during, or after [`Self::start`] and [`Self::stop`], and it does not block on the network.
+    /// Readiness is separate: use [`Self::pull_registration_state`] or
+    /// [`Self::wait_pull_registered`] for probes. Before Start the counts are zero, and the
+    /// capacities come from the options; the first registration may lower them to the Server cap.
+    /// See [`crate::PullSlotStreamState`] for the meaning of each field.
+    ///
+    /// Since 1.45.4.
+    ///
+    /// ```no_run
+    /// # fn report(worker: &dex_sdk::Worker) {
+    /// let state = worker.pull_slot_stream_state();
+    /// println!(
+    ///     "open={} busy={} idle={} rpc_only={} orphaned={} capacity={}",
+    ///     state.open,
+    ///     state.busy,
+    ///     state.idle,
+    ///     state.rpc_only_open,
+    ///     state.orphaned_handlers,
+    ///     state.total_capacity
+    /// );
+    /// # }
+    /// ```
+    pub fn pull_slot_stream_state(&self) -> crate::PullSlotStreamState {
+        self.pull.slot_stream_state()
     }
 
     /// Requests shutdown of a running Worker and returns immediately.

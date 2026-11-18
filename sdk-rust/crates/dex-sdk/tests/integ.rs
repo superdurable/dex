@@ -9,6 +9,14 @@
 #[path = "integ/support.rs"]
 mod support;
 
+#[path = "integ/adaptive_slot_harness.rs"]
+mod adaptive_slot_harness;
+#[path = "integ/adaptive_slot_streams_test.rs"]
+mod adaptive_slot_streams_test;
+#[path = "integ/adaptive_slot_support.rs"]
+mod adaptive_slot_support;
+#[path = "integ/adaptive_slot_workflow.rs"]
+mod adaptive_slot_workflow;
 #[path = "integ/any_command_combination_test.rs"]
 mod any_command_combination_test;
 #[path = "integ/any_command_combination_workflow.rs"]

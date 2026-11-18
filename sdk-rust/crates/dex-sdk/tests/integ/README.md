@@ -7,6 +7,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 
 | Java test | Rust module |
 | --- | --- |
+| Go adaptive pull slot streams | `adaptive_slot_streams_test.rs` |
 | `AnyCommandCombinationTest` | `any_command_combination_test.rs` |
 | `BasicTest` | `basic_test.rs` |
 | Rust clone fork and event-ID time travel | `clone_fork_flow_test.rs` |
@@ -39,7 +40,10 @@ Run all scenarios against an isolated `dexcli dev` stack from `sdk-rust`:
 ```
 
 Each run starts a fresh server-zd stack. Set `DEX_SERVER_ZD_BINARY` to reuse a
-built `dex-server-zd`. All shared Workers and Clients use pull routing in both
+built `dex-server-zd`. The adaptive slot stream tests start their own
+`dex-server-zd` process from `DEX_SERVER_ZD_BINARY`, so they can set matching
+limits, kill, and restart it; a gRPC proxy between the Worker and the server
+observes and orders the slot stream Registers. All shared Workers and Clients use pull routing in both
 integration targets, including the Worker E2E scenarios.
 
 To collect production `dex-sdk` coverage from only these integration targets,

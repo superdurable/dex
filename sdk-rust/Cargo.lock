@@ -409,6 +409,7 @@ dependencies = [
  "bytes",
  "dex-blob-cache",
  "dex-protocol",
+ "dex-sdk",
  "gethostname",
  "h2",
  "http-body",

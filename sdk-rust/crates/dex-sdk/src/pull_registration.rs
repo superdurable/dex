@@ -164,6 +164,23 @@ impl PullRegistration {
         self.changed.send_replace(());
     }
 
+    /// Returns whether every required slot kind has registered once; it stays true after that.
+    pub(crate) fn has_registered_all_slot_kinds(&self) -> bool {
+        self.state
+            .lock()
+            .expect("pull registration lock")
+            .has_registered_all_queues
+    }
+
+    /// Stops requiring a slot kind for readiness, after the Server cap leaves it no slot.
+    pub(crate) fn remove_slot_kind(&self, queue: &str) {
+        let mut state = self.state.lock().expect("pull registration lock");
+        state.queues.remove(queue);
+        state.has_registered_all_queues |=
+            !state.queues.is_empty() && state.queues.values().all(|queue| queue.has_registered);
+        self.changed.send_replace(());
+    }
+
     pub(crate) fn finish(&self, failure: Option<SdkError>) {
         let mut state = self.state.lock().expect("pull registration lock");
         if state.initial_error.is_none() {

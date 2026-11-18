@@ -15,11 +15,15 @@ use crate::{Credential, FlowDefinitionDocument, FlowServiceTlsOptions};
 /// Configures outbound polling for a Worker.
 ///
 /// Pass this to [`WorkerOptions::pull`]. The Worker polls its sticky queue and each registered
-/// Flow type through exactly `max_concurrent_tasks` long-lived slot streams. An omitted task limit
+/// Flow type through long-lived slot streams. A fixed Worker, the default, keeps exactly
+/// `max_concurrent_tasks` of them open. An adaptive Worker, whose [`Self::min_open_slots`] is
+/// below `max_concurrent_tasks`, keeps between the two counts open. An omitted task limit
 /// uses the CPU count. An omitted drain timeout uses 30 seconds.
 ///
 /// Changed in 1.35.0: each execution slot owns one stream, replacing per-queue idle streams.
 /// Start requires protocol 4 (server-zd newer than v0.1.16); upgrade the Server before the SDK.
+/// Changed in 1.45.4: [`Self::min_open_slots`] below `max_concurrent_tasks` makes the Worker
+/// adaptive.
 ///
 /// ```no_run
 /// use std::sync::Arc;
@@ -40,12 +44,14 @@ use crate::{Credential, FlowDefinitionDocument, FlowServiceTlsOptions};
 #[derive(Clone, Debug, Default)]
 pub struct PullWorkerOptions {
     pub(crate) max_concurrent_tasks: Option<usize>,
+    pub(crate) min_open_slots: Option<usize>,
     pub(crate) reserved_rpc_tasks: Option<usize>,
     pub(crate) idle_streams_per_queue: Option<usize>,
     pub(crate) app_worker_id: Option<String>,
     pub(crate) stop_drain_timeout: Option<Duration>,
     pub(crate) stop_on_permanent_stream_rejection: bool,
     pub(crate) task_queue: String,
+    pub(crate) slot_settings: crate::worker_pull::PullSlotSettings,
 }
 
 impl PullWorkerOptions {
@@ -62,8 +68,104 @@ impl PullWorkerOptions {
     /// from [`crate::Worker::try_new`]. Each slot owns one long-lived poll stream and executes
     /// every task assigned to it. Changed in 1.35.0: [`crate::Worker::start`] fails if this value
     /// exceeds the Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
+    ///
+    /// Changed in 1.45.4: this value is the ceiling of the slot streams, including the RPC-only
+    /// slots. A fixed Worker, whose [`Self::min_open_slots`] is unset or equal to this value, keeps
+    /// this many streams open. An adaptive Worker, whose [`Self::min_open_slots`] is below it,
+    /// opens streams up to it only while every open Step-and-RPC stream is busy. Two cases now
+    /// clamp the value to the Server cap with a WARN log that names both values, instead of
+    /// failing [`crate::Worker::start`]:
+    ///
+    /// - a fixed Worker without this setting, whose CPU-count default exceeds the cap;
+    /// - an adaptive Worker, with this setting or without it.
+    ///
+    /// A fixed Worker without this setting therefore opens one stream first, learns the cap from
+    /// its acknowledgement, and then opens the others. That adds one round trip to Start. A fixed
+    /// Worker with an explicit value above the cap still fails Start, and opens all its streams at
+    /// once. After a clamp, the [`Self::reserved_rpc_tasks`] and [`Self::min_open_slots`] defaults
+    /// come from the clamped value. In an adaptive Worker, a lower cap reported on a reconnect
+    /// lowers its capacity: it half-closes the surplus streams, RPC-only streams first, and keeps
+    /// running. A fixed Worker keeps the earlier behavior. Returns these options with the limit
+    /// applied.
     pub fn max_concurrent_tasks(mut self, value: usize) -> Self {
         self.max_concurrent_tasks = Some(value);
+        self
+    }
+
+    /// Sets the fewest slot streams the Worker keeps open, which makes the Worker adaptive when
+    /// the value is below [`Self::max_concurrent_tasks`].
+    ///
+    /// The value uses the same unit as [`Self::max_concurrent_tasks`], so it counts the reserved
+    /// RPC-only slots too. Without this setting the floor is the resolved `max_concurrent_tasks`:
+    /// every slot keeps a stream, the Worker is fixed, and it behaves as earlier releases did.
+    ///
+    /// Use a lower value when idle Workers should hold fewer Server streams, such as a large fleet
+    /// or a high `max_concurrent_tasks`. An adaptive Worker:
+    ///
+    /// - starts with `min_open_slots - reserved_rpc_tasks` Step-and-RPC streams, and opens the
+    ///   RPC-only streams after the first registration;
+    /// - doubles its Step-and-RPC streams, one batch at a time, when a task takes the last idle
+    ///   one, up to `max_concurrent_tasks`;
+    /// - every 30 seconds half-closes half of the idle streams above the window's peak busy count
+    ///   plus 25% headroom, never below the floor and never its last idle stream;
+    /// - keeps the RPC-only streams at `reserved_rpc_tasks`.
+    ///
+    /// A burst larger than the open streams waits a few registration round trips while the Worker
+    /// grows. A task that reaches a stream while it closes returns to the Server without spending
+    /// a Step retry, and the Server dispatches it again. When the Server rejects a stream at its
+    /// stream limit (`RESOURCE_EXHAUSTED`), an adaptive Worker treats the rejection of a growth
+    /// stream, or of a reconnect after readiness, as a soft limit: it records no
+    /// [`crate::PullRegistrationError`] and retries at most once per 30 seconds. Use
+    /// [`crate::Worker::pull_slot_stream_state`] to observe the streams.
+    ///
+    /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`] unless
+    /// `reserved_rpc_tasks + 1 <= min_open_slots <= max_concurrent_tasks`, using the resolved
+    /// values; zero is therefore invalid. Without [`Self::reserved_rpc_tasks`], the default
+    /// reserves one slot only when both `max_concurrent_tasks` and `min_open_slots` are at least
+    /// two. [`crate::Worker::start`] fails at the first registration when the Server cap lowers
+    /// `max_concurrent_tasks` below `min_open_slots`, or to `reserved_rpc_tasks` or less; the error
+    /// names the values and the cap. Returns these options with the floor applied.
+    ///
+    /// Since 1.45.4.
+    ///
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use dex_sdk::{BlobCache, BlobCacheConfig, PullWorkerOptions, Registry, Worker, WorkerOptions};
+    ///
+    /// let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+    ///     "/tmp/dex-pull-blobs", 64 * 1024 * 1024, 0,
+    /// )?)?);
+    /// // Between 8 and 64 slot streams, one of them reserved for RPCs.
+    /// let pull = PullWorkerOptions::new().max_concurrent_tasks(64).min_open_slots(8);
+    /// let worker = Worker::try_new(Registry::new(), cache, WorkerOptions::new().pull(pull))?;
+    /// // Run worker.start() on a dedicated thread; call worker.stop() during shutdown.
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn min_open_slots(mut self, value: usize) -> Self {
+        self.min_open_slots = Some(value);
+        self
+    }
+
+    /// Shortens the adaptive shrink window of 30 seconds, for tests only.
+    ///
+    /// Zero disables the window. Returns these options with the window applied.
+    #[cfg(feature = "test-util")]
+    pub fn shrink_window_for_test(mut self, window: Duration) -> Self {
+        self.slot_settings.shrink_window = window;
+        self
+    }
+
+    /// Runs `hook` after each slot stream's admission and before its Register is checked again
+    /// and sent, for tests only.
+    ///
+    /// Stop ends a waiting hook. Returns these options with the hook applied.
+    #[cfg(feature = "test-util")]
+    pub fn before_register_send_for_test<F, Fut>(mut self, hook: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.slot_settings.before_register_send = Some(Arc::new(move || Box::pin(hook())));
         self
     }
 
@@ -72,6 +174,9 @@ impl PullWorkerOptions {
     /// Changed in 1.23.0: reserved RPC capacity remains available under a Step backlog.
     /// Changed in 1.35.0: reservations select RPC-only streams instead of declining
     /// assigned Steps; the Worker executes every assignment.
+    ///
+    /// Changed in 1.45.4: the default also reserves zero when [`Self::min_open_slots`] is one, and
+    /// Start then warns that RPCs may wait behind Steps.
     ///
     /// The default reserves one slot when resolved concurrency is at least two, otherwise zero.
     /// The remaining slots accept Steps and RPCs. The Server selects eligible slots; the Worker
@@ -96,8 +201,9 @@ impl PullWorkerOptions {
     /// Changed in 1.35.0: this setting became a compatibility-only no-op.
     ///
     /// Deprecated: `value` is accepted, including zero, and has no effect. Every execution slot
-    /// now owns exactly one long-lived stream. Use [`Self::max_concurrent_tasks`] to select the
-    /// total stream count. Returns these options with the compatibility value retained.
+    /// now owns at most one long-lived stream. Use [`Self::max_concurrent_tasks`] and
+    /// [`Self::min_open_slots`] to select the stream count. Returns these options with the
+    /// compatibility value retained.
     #[deprecated(note = "one long-lived stream per execution slot; this setting has no effect")]
     pub fn idle_streams_per_queue(mut self, value: usize) -> Self {
         self.idle_streams_per_queue = Some(value);
