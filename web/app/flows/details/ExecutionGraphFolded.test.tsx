@@ -208,13 +208,20 @@ const toolRoundsHistory = decidedChainHistory([
 const toSyncBatch = { nextSteps: [{ stepType: 'SyncBatch' }] };
 const gracefulComplete = { closeDecision: { closeDecisionType: 2 } };
 
-/** SyncBatch executions deciding GoTo, then a two-Round Checkpoint tail; the first ones fold into ×N. */
+const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }] };
+
+/** Four Checkpoints with one SyncBatch between each, so Checkpoint anchors the Rounds. */
+const checkpointTail: Array<[string, unknown]> = [
+  ...Array.from({ length: 3 }, () => [['Checkpoint', toSyncBatch], ['SyncBatch', toCheckpoint]] as Array<[string, unknown]>).flat(),
+  ['Checkpoint', gracefulComplete],
+];
+
+/** SyncBatch executions deciding GoTo, then a Checkpoint tail; the first ones fold into ×N. */
 function syncBatchRunHistory(count: number): FlowHistoryEvent[] {
   return decidedChainHistory([
     ...Array.from({ length: count - 1 }, () => ['SyncBatch', toSyncBatch] as [string, unknown]),
-    ['SyncBatch', { nextSteps: [{ stepType: 'Checkpoint' }] }],
-    ['Checkpoint', { nextSteps: [{ stepType: 'Checkpoint' }] }],
-    ['Checkpoint', gracefulComplete],
+    ['SyncBatch', toCheckpoint],
+    ...checkpointTail,
   ]);
 }
 
@@ -225,14 +232,14 @@ function stepNodeElement(id: string): HTMLElement {
 describe('Folded Graph', () => {
   it('folds only executions that return the same Step decision', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
-    const toCheckpoint = { nextSteps: [{ stepType: 'Checkpoint' }], cancelStepTypes: ['Poll'] };
+    const toCheckpointCancelingPoll = { nextSteps: [{ stepType: 'Checkpoint' }], cancelStepTypes: ['Poll'] };
     render(graph(decidedChainHistory([
       ...Array.from({ length: 8 }, () => ['SyncBatch', toSyncBatch] as [string, unknown]),
-      ['SyncBatch', toCheckpoint],
-      ['Checkpoint', toSyncBatch],
-      ['SyncBatch', toCheckpoint],
-      ['Checkpoint', toSyncBatch],
-      ['SyncBatch', toCheckpoint],
+      ['SyncBatch', toCheckpointCancelingPoll],
+      ...Array.from({ length: 3 }, () => [
+        ['Checkpoint', toSyncBatch],
+        ['SyncBatch', toCheckpointCancelingPoll],
+      ] as Array<[string, unknown]>).flat(),
       ['Checkpoint', gracefulComplete],
     ])));
     const repeated = screen.getByText('×8').closest('.graph-step-label')!;

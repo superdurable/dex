@@ -1032,7 +1032,7 @@ export function ExecutionGraph({
   );
   const [isFoldedIntroLeaving, setIsFoldedIntroLeaving] = useState(false);
   const [openIntents, setOpenIntents] = useState<GroupOpenIntents>(noGroupOpenIntents);
-  // The Round anchor stays while it still repeats, so new events never regroup the whole run.
+  // The Round anchor stays unless a clearly more uniform one appears, so new events rarely regroup the whole run.
   const preferredAnchorStepType = useRef({ flowId, stepType: '' });
   if (preferredAnchorStepType.current.flowId !== flowId) preferredAnchorStepType.current = { flowId, stepType: '' };
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);

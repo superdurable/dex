@@ -155,7 +155,7 @@ export interface StepGraphFoldingOptions {
   /** Which consecutive finished Rounds merge into a range; defaults to exact. */
   roundGrouping?: RoundGrouping;
   selectedStepExecutionID: string;
-  /** The Step type that anchored Rounds before; kept while it repeats and is no less uniform, so groups stay stable. */
+  /** The Step type that anchored Rounds before; kept unless a well-sampled one is clearly more uniform. */
   preferredAnchorStepType?: string;
   /** The loaded history; its Step and RPC decisions order the Steps each one started. */
   historyEvents?: FlowHistoryEvent[];
@@ -366,14 +366,31 @@ interface RoundAnchorCandidate {
   finishedRoundCount: number;
 }
 
+/** A Step type competes as an anchor only with this many finished Rounds, unless none has them. */
+const minimumAnchorFinishedRounds = 3;
+
 /** The repeated Step type with the most uniform finished Rounds; ties to fewer executions, then the earliest. */
 function roundAnchorStepType(steps: StepGraphNode[], preferredStepType: string): string {
   const candidates = roundAnchorCandidates(steps.filter((step) => !step.isPlanned));
   if (candidates.length === 0) return '';
-  const best = candidates.reduce((leader, candidate) => (isBetterRoundAnchor(candidate, leader) ? candidate : leader));
+  const qualified = candidates.filter((candidate) => candidate.finishedRoundCount >= minimumAnchorFinishedRounds);
   const preferred = candidates.find((candidate) => candidate.stepType === preferredStepType);
-  if (preferred && compareUniformity(preferred, best) >= 0) return preferred.stepType;
+  if (qualified.length === 0) return preferred?.stepType ?? bestRoundAnchor(candidates).stepType;
+  const best = bestRoundAnchor(qualified);
+  if (preferred && !isClearlyMoreUniform(best, preferred)) return preferred.stepType;
   return best.stepType;
+}
+
+/** Strictly more uniform, with at most half the kept anchor's uneven-Round share, so close anchors never flip. */
+function isClearlyMoreUniform(challenger: RoundAnchorCandidate, kept: RoundAnchorCandidate): boolean {
+  const challengerUneven = challenger.finishedRoundCount - challenger.uniformRoundCount;
+  const keptUneven = kept.finishedRoundCount - kept.uniformRoundCount;
+  return compareUniformity(challenger, kept) > 0
+    && 2 * challengerUneven * kept.finishedRoundCount <= keptUneven * challenger.finishedRoundCount;
+}
+
+function bestRoundAnchor(candidates: RoundAnchorCandidate[]): RoundAnchorCandidate {
+  return candidates.reduce((leader, candidate) => (isBetterRoundAnchor(candidate, leader) ? candidate : leader));
 }
 
 /** Every Step type that ran at least twice, in order of first execution, with its Round length uniformity. */
