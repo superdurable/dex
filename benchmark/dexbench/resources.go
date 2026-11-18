@@ -37,7 +37,9 @@ type processTime struct {
 }
 
 type resourceSampler struct {
-	rootPIDs        []int
+	rootPIDs []int
+	// rootPIDFile, when set, is read at every sample, so the sampler follows a restarted server.
+	rootPIDFile     string
 	clockTicks      float64
 	pageSize        uint64
 	previousAt      time.Time
@@ -92,6 +94,15 @@ func (sampler *resourceSampler) establishBaseline() error {
 
 // sample returns usage since the previous call. PIDs are re-resolved on every call.
 func (sampler *resourceSampler) sample() (ResourceSample, error) {
+	if sampler.rootPIDFile != "" {
+		processID, err := readPIDFile(sampler.rootPIDFile)
+		if err != nil {
+			// A restart briefly removes the file; the previous root then reports no usage.
+			slog.Debug("read server PID file", "path", sampler.rootPIDFile, "error", err)
+		} else {
+			sampler.rootPIDs = []int{processID}
+		}
+	}
 	now := time.Now()
 	processes, err := readProcessTable(sampler.clockTicks, sampler.pageSize)
 	if err != nil {
@@ -109,6 +120,19 @@ func (sampler *resourceSampler) sample() (ResourceSample, error) {
 	sample.IntervalSeconds = interval
 	sample.CPUPercent = cpuSeconds / interval * 100
 	return sample, nil
+}
+
+// readPIDFile returns the positive process ID stored in path.
+func readPIDFile(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	processID, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || processID < 1 {
+		return 0, fmt.Errorf("PID file %s holds %q", path, strings.TrimSpace(string(data)))
+	}
+	return processID, nil
 }
 
 // processTreeUsage returns the trees' CPU seconds since previous, current RSS bytes, and process count.

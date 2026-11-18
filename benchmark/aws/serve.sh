@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs dex-server-zd and collects server-side data on the benchmark server host.
-# Usage: serve.sh start | stop | status | config | collect-start DIR | collect-stop DIR | host-info
+# Usage: serve.sh start | restart | stop | status | config | collect-start DIR | collect-stop DIR | host-info
 #        serve.sh profile DIR PID (started by collect-start when DEXBENCH_PROFILE_DELAY is set)
 set -euo pipefail
 
@@ -40,6 +40,9 @@ DEXBENCH_ZD_MAX_BACKGROUND_JOBS localStorage.maxBackgroundJobs
 DEXBENCH_ZD_WRITE_BUFFER_BYTES localStorage.writeBufferBytes
 DEXBENCH_ZD_BLOCK_CACHE_BYTES localStorage.blockCacheBytes
 DEXBENCH_ZD_MAX_INFLIGHT_RPCS limits.maxInFlightRpcsPerNode
+DEXBENCH_ZD_METRICS_LEVEL metrics.level
+DEXBENCH_ZD_MAX_STREAMS matching.maxStreams
+DEXBENCH_ZD_MAX_TASKS_CAP matching.maxConcurrentTasksCap
 "
 
 fail() { echo "serve.sh: $*" >&2; exit 1; }
@@ -117,6 +120,12 @@ stop_collectors() {
 
 stop_server() {
   stop_collectors
+  stop_server_process
+  rm -f "$pid_path"
+}
+
+# stop_server_process sends SIGTERM and kills the server if it has not exited after 60 seconds.
+stop_server_process() {
   if is_running; then
     local server_pid
     server_pid="$(cat "$pid_path")"
@@ -130,7 +139,6 @@ stop_server() {
       kill -KILL "$server_pid"
     fi
   fi
-  rm -f "$pid_path"
 }
 
 start_server() {
@@ -141,9 +149,22 @@ start_server() {
   # The server must be stopped first: RocksDB holds a lock on its directory.
   rm -rf "$storage_dir"
   mkdir -p "$storage_dir"
+  : > "$log_path"
+  launch_server_process
+}
+
+# restart_server keeps config, storage, and collectors; collectors read the new PID from pid_path.
+restart_server() {
+  is_running || fail "server is not running"
+  stop_server_process
+  echo "== serve.sh restart" >> "$log_path"
+  launch_server_process
+}
+
+launch_server_process() {
   # A crash leaves a core in core_dir when launch.sh set kernel.core_pattern.
   ulimit -c unlimited || echo "cannot raise the core size limit" >&2
-  nohup "$zd_binary" serve --config "$config_path" </dev/null >"$log_path" 2>&1 &
+  nohup "$zd_binary" serve --config "$config_path" </dev/null >>"$log_path" 2>&1 &
   echo $! > "$pid_path"
 }
 
@@ -156,7 +177,8 @@ collect_start() {
   # record_crash only reports cores written after this marker.
   touch "$directory/.collect-start"
   scrape_metrics "$directory/metrics-before.txt"
-  nohup "$bench_binary" sample --pid "$(cat "$pid_path")" --out "$directory/server-samples.json" \
+  # The sampler re-reads pid_path every second, so it follows a restart.
+  nohup "$bench_binary" sample --pid-file "$pid_path" --out "$directory/server-samples.json" \
     </dev/null >"$directory/sampler.log" 2>&1 &
   echo $! > "$directory/.sampler.pid"
   echo $! >> "$collectors_path"
@@ -181,6 +203,8 @@ collect_start() {
 capture_profile() {
   local directory="$1" server_pid="$2"
   sleep "$profile_delay"
+  # A restart during the delay replaces the PID.
+  if [[ -s "$pid_path" ]]; then server_pid="$(cat "$pid_path")"; fi
   kill -0 "$server_pid" 2>/dev/null || { echo "server exited before profiling"; return 0; }
   capture_thread_stacks "$server_pid" > "$directory/thread-stacks-1.txt"
   if command -v perf >/dev/null; then
@@ -314,6 +338,7 @@ imds() {
 
 case "${1:-}" in
   start) start_server ;;
+  restart) restart_server ;;
   stop) stop_server ;;
   status) is_running ;;
   config) render_config ;;
@@ -321,5 +346,5 @@ case "${1:-}" in
   collect-stop) collect_stop "${2:?collect-stop needs a directory}" ;;
   host-info) host_info ;;
   profile) capture_profile "${2:?profile needs a directory}" "${3:?profile needs a server PID}" ;;
-  *) fail "usage: serve.sh start|stop|status|config|collect-start DIR|collect-stop DIR|host-info|profile DIR PID" ;;
+  *) fail "usage: serve.sh start|restart|stop|status|config|collect-start DIR|collect-stop DIR|host-info|profile DIR PID" ;;
 esac
