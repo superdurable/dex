@@ -29,7 +29,7 @@ export function useTimelineLabelModeIntro(): { isIntroShown: boolean; dismissInt
   return { isIntroShown, dismissIntro };
 }
 
-/** Switches the Timeline between Tidy and Dense labels. */
+/** Switches the Timeline between Dense and Tidy labels. */
 export function TimelineLabelModeTabs({
   labelMode,
   onChangeLabelMode,
