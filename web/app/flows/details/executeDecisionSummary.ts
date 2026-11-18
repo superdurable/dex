@@ -107,14 +107,13 @@ function closeDecisionLine(kind: ExecuteDecisionKind, channelNames: string[], cl
   return name;
 }
 
-/** The ForceFail reason as text, or undefined when the history holds none or only a stored-value reference. */
+/** The ForceFail reason when the history holds it as readable text, otherwise undefined. */
 function forceFailReason(closeInput: unknown): string | undefined {
-  if (closeInput === undefined || closeInput === null) return undefined;
+  if (!closeInput || typeof closeInput !== 'object') return undefined;
   if (isBlobReferenceValue(closeInput) || isStoredValueUnavailable(closeInput)) return undefined;
   const reason = decodedValue(closeInput);
-  if (typeof reason === 'string') return reason.trim() || undefined;
-  if (reason === undefined || reason === null) return undefined;
-  return JSON.stringify(reason);
+  // Undecodable payloads come back as an object or as the original Value, never as a string.
+  return typeof reason === 'string' ? reason.trim() || undefined : undefined;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

@@ -1612,9 +1612,10 @@ body:has(.v1-page) {
   font-weight: 400;
 }
 
+/* The kind name takes the truncation, so the cancel icon and count stay whole. */
 .v1-page .graph-method-execute .graph-execute-decision .graph-execute-decision-cancel {
   display: inline-flex;
-  min-width: 0;
+  flex: none;
   align-items: center;
   gap: 3px;
   color: var(--muted);

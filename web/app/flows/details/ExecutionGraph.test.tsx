@@ -311,6 +311,33 @@ describe('Execution graph Execute decision', () => {
     expect(execute.querySelector('.graph-execute-decision')).toBeNull();
   });
 
+  it('keeps Running for an Execute that runs now', () => {
+    const node: StepGraphNode = {
+      id: 'ChargeCard-1',
+      label: 'ChargeCard',
+      kind: 'step',
+      status: 'Active',
+      waitFor: { eventId: 2, eventTime: null, type: 'StepWaitForCompleted', payload: {} },
+      active: { phase: 'Active' } as StepGraphNode['active'],
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute Running' });
+    expect(execute.querySelector('.graph-execute-decision')).toBeNull();
+    expect(execute.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('keeps Pending for an Execute that waits to run, even after an earlier decision', () => {
+    const node: StepGraphNode = {
+      ...nodeWithDecision({ closeDecision: { closeDecisionType: 2 } }),
+      status: 'Pending',
+      pendingExecute: { eventId: 4, eventTime: null, type: 'StepExecutePending', payload: {} },
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const execute = screen.getByRole('button', { name: 'Execute Pending' });
+    expect(execute.querySelector('.graph-execute-decision')).toBeNull();
+    expect(execute.getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('keeps Completed when the decision has nothing to show', () => {
     render(<StepNodeLabel node={nodeWithDecision({ closeDecision: { closeDecisionType: 0 } })} onSelect={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Execute Completed' })).toBeTruthy();

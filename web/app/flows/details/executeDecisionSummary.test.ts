@@ -71,6 +71,20 @@ describe('executeDecisionSummary', () => {
     }))?.fullText).toBe('ForceFail: card declined');
   });
 
+  it.each([
+    ['an unknown encoding', { objValue: { encoding: 'binary', payload: 'aGVsbG8=' } }],
+    ['invalid base64', { objValue: { encoding: 'json', payload: '%%%' } }],
+    ['a JSON object', jsonValue({ code: 42 })],
+    ['an empty string', { stringValue: '' }],
+    ['an empty Value', {}],
+    ['a stored-value reference', { __dexBlobReference: { id: 'blob-1', kind: 'string' } }],
+    ['an unavailable stored value', { __dexStoredValueUnavailable: true }],
+  ])('leaves out a ForceFail reason held as %s', (_description, closeInput) => {
+    expect(executeDecisionSummary(executeCompleted({
+      closeDecision: { closeDecisionType: 4, closeInput },
+    }))?.fullText).toBe('ForceFail');
+  });
+
   it('shows the close decision first and adds cancellations of either scope', () => {
     const summary = executeDecisionSummary(executeCompleted({
       nextSteps: [{ stepType: 'Notify' }],
