@@ -392,8 +392,12 @@ Since 1.45.7 (Go). A Go Worker can vary its open slot streams with load. Set
 adaptive. The task limit is then the most streams the Worker opens, and
 **MinOpenSlots** is the fewest. Both count the reserved RPC slots. With
 **MinOpenSlots** unset, or equal to the task limit, the Worker is fixed and
-behaves as the sections above describe. Workers of the other SDKs keep fixed
-slots.
+behaves as the sections above describe.
+
+Since 1.45.5 (Python). A Python Worker is adaptive the same way, with
+**PullWorkerOptions.min_open_slots** below **max_concurrent_tasks**. See
+[Python Workers](/reference/python/workers#capacity-and-shutdown). Workers of
+the other SDKs keep fixed slots.
 
 An adaptive Worker works as follows:
 

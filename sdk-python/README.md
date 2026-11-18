@@ -215,15 +215,32 @@ finally:
     worker_thread.join()
 ```
 
-The Worker opens exactly `max_concurrent_tasks` long-lived streams. Each stream
-is one execution slot serving the sticky queue and every registered Flow type.
-Flow type names must be unique within a Dex server. Concurrency defaults to the
-CPU count. Start fails if the configured concurrency exceeds the Server's
-reported `matching.maxConcurrentTasksCap`; zero means no limit was reported.
-The Worker checks the limit on its first registration only. It then half-closes
-its streams, drops any task they receive, and never reports readiness;
-registration waiters raise the limit error. A lower limit reported on a later
-reconnect is logged as a warning, and the Worker keeps running.
+By default the Worker is fixed: it opens exactly `max_concurrent_tasks`
+long-lived streams. Each stream is one execution slot serving the sticky queue
+and every registered Flow type. Flow type names must be unique within a Dex
+server. Concurrency defaults to the CPU count. Start fails if an explicit
+`max_concurrent_tasks` exceeds the Server's reported
+`matching.maxConcurrentTasksCap`; zero means no limit was reported. With
+`max_concurrent_tasks` unset, the Worker opens one stream first and clamps its
+CPU-count default to the cap with a warning. The Worker checks the limit on
+its first registration only. After a failed check it half-closes its streams,
+drops any task they receive, and never reports readiness; registration waiters
+raise the limit error. A lower limit reported on a later reconnect is logged as
+a warning, and the Worker keeps running.
+
+Set `min_open_slots` below `max_concurrent_tasks` to make the Worker adaptive.
+It then keeps between `min_open_slots` and `max_concurrent_tasks` slot streams
+open, both counting the reserved RPC slots, so an idle Worker holds fewer
+Server streams. It doubles its Step-and-RPC streams when a task takes the last
+idle one and half-closes half of the idle surplus every 30 seconds. An adaptive
+Worker clamps `max_concurrent_tasks` to the Server cap with a warning instead
+of failing start. `worker.pull_slot_stream_state()` returns a snapshot of the
+open, busy, and idle streams.
+
+```python
+# Between 8 and 64 slot streams, one of them reserved for RPCs.
+pull = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=8)
+```
 `idle_streams_per_queue` is deprecated, remains accepted, and has no effect.
 Each slot executes every task it receives and never rejects a task for capacity.
 Step heartbeats and stream writes use the same stream. Busy streams send a Pong

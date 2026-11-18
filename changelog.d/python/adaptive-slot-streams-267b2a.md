@@ -1,0 +1,6 @@
+---
+section: Added
+---
+- **PullWorkerOptions.min_open_slots** makes a pull Worker adaptive when it is below **max_concurrent_tasks**. The Worker keeps between the two counts of slot streams open, both including the reserved RPC slots: it doubles its Step-and-RPC streams when a task takes the last idle one, and every 30 seconds it half-closes half of the idle surplus. An idle adaptive Worker holds only its floor of Server streams. The default equals **max_concurrent_tasks**, which keeps the Worker fixed with unchanged behavior.
+- An adaptive Worker clamps **max_concurrent_tasks** above the Server's **matching.maxConcurrentTasksCap** to the cap with a WARNING log. It treats a **RESOURCE_EXHAUSTED** registration of a growth stream, or of a reconnect after readiness, as a soft limit that it retries at most once per 30 seconds, without a **PullRegistrationError**. A synchronous handler that outlives its stream keeps its slot until it returns.
+- **Worker.pull_slot_stream_state** and **AsyncWorker.pull_slot_stream_state** return a **PullSlotStreamState** snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters. [API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots).

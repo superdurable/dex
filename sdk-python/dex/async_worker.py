@@ -35,7 +35,7 @@ from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-from dex.pull_registration import PullRegistrationState
+from dex.pull_registration import PullRegistrationState, PullSlotStreamState
 from dex.worker_options import WorkerOptions
 
 
@@ -177,12 +177,20 @@ class AsyncWorker:
            Fails before opening task streams when ``PullWorkerOptions.task_queue``
            names a task queue and the Server protocol is older than version 5.
 
+        .. versionchanged:: 1.45.5
+           The matching.maxConcurrentTasksCap failure applies to an explicit
+           ``max_concurrent_tasks`` of a fixed Worker. An unset
+           ``max_concurrent_tasks``, or any value of an adaptive Worker, is
+           clamped to the cap with a warning instead. See
+           ``PullWorkerOptions.min_open_slots``.
+
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
             RuntimeError: If lifecycle state is invalid, Server protocol 4 is
                 unsupported, a named task queue needs Server protocol 5,
-                concurrency exceeds matching.maxConcurrentTasksCap, or index
-                synchronization fails.
+                concurrency exceeds matching.maxConcurrentTasksCap, the cap
+                leaves no room for ``reserved_rpc_tasks`` or
+                ``min_open_slots``, or index synchronization fails.
         """
         if self._has_start_called:
             raise RuntimeError("Worker can only start once")
@@ -214,6 +222,11 @@ class AsyncWorker:
 
         .. versionchanged:: 1.35.0
            Readiness tracks STEP_AND_RPC and RPC_ONLY slot kinds instead of Flow queues.
+
+        .. versionchanged:: 1.45.5
+           The limit error applies to an explicit ``max_concurrent_tasks`` of a
+           fixed Worker. Other Workers clamp to the limit and become ready. A
+           clamp that leaves no RPC-only slot drops the RPC_ONLY requirement.
 
         Args:
             timeout: Maximum seconds to wait; None waits indefinitely.
@@ -267,6 +280,32 @@ class AsyncWorker:
             Current state grouped by STEP_AND_RPC and, when configured, RPC_ONLY.
         """
         return self._pull.registration.snapshot()
+
+    def pull_slot_stream_state(self) -> PullSlotStreamState:
+        """Return an independent snapshot of the Worker's slot streams.
+
+        Use it to observe how many Server streams the Worker holds and how many
+        of them are busy, for example in a debug endpoint or a periodic log
+        line. It is most useful for an adaptive Worker, whose
+        ``PullWorkerOptions.min_open_slots`` is below ``max_concurrent_tasks``
+        and whose stream count varies with load. It is safe to call from any
+        thread or task, before, during, or after ``start`` and ``stop``, and it
+        never waits for the network. Readiness is separate: use
+        ``pull_registration_state`` or ``wait_pull_registered`` for probes.
+        Before start the counts are zero and the capacities come from the
+        options; the first registration may lower them to the Server cap.
+
+        Returns:
+            A frozen ``PullSlotStreamState`` copy of the current counts,
+            capacities, and counters.
+
+        Examples:
+            >>> state = worker.pull_slot_stream_state()
+            >>> logger.info("open=%d busy=%d", state.open, state.busy)
+
+        .. versionadded:: 1.45.5
+        """
+        return self._pull.slot_stream_state()
 
     async def _start(self) -> None:
         if self._state != "created":

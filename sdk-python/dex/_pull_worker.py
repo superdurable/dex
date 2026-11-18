@@ -30,11 +30,18 @@ from dex._credential_transport import (
 from dex._flow_service_tls import FlowServiceTransport
 from dex._grpc_errors import _worker_error_status
 from dex._message_size import grpc_message_size_channel_options
+from dex._pull_slot_streams import (
+    RPC_ONLY_QUEUE,
+    STEP_AND_RPC_QUEUE,
+    PullSlotStreams,
+    _PullSlotAttempt,
+    _SlotAttemptRevokedError,
+)
 from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-from dex.pull_registration import _PullRegistration
+from dex.pull_registration import PullSlotStreamState, _PullRegistration
 from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
@@ -135,37 +142,51 @@ class PullWorkerRuntime:
         )
         self._permanent_error: RuntimeError | None = None
         self._rejection_stop_task: asyncio.Task[None] | None = None
-        self.max_concurrent_tasks = options.max_concurrent_tasks or os.cpu_count() or 1
-        self.reserved_rpc_tasks = (
-            options.reserved_rpc_tasks
-            if options.reserved_rpc_tasks is not None
-            else int(self.max_concurrent_tasks >= 2)
-        )
+        self._streams: set[PullStream] = set()
+        self._stopping: asyncio.Event | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stub: Any = None
+        self._slot_streams = PullSlotStreams(self, options)
         self._should_warn_rpc_capacity = (
             options.reserved_rpc_tasks is None and self.max_concurrent_tasks == 1
         )
+        self._should_warn_floor_rpc_capacity = (
+            options.reserved_rpc_tasks is None
+            and self.max_concurrent_tasks >= 2
+            and self._slot_streams.min_open_slots == 1
+        )
         self.reserved_rpc_declines = 0
-        self.queues = ("STEP_AND_RPC",) + (
-            ("RPC_ONLY",) if self.reserved_rpc_tasks else ()
+        self.queues = (STEP_AND_RPC_QUEUE,) + (
+            (RPC_ONLY_QUEUE,) if self.reserved_rpc_tasks else ()
         )
         self.registration = _PullRegistration(self.queues, self.task_queue)
-        self._has_checked_registration_limit = False
         self.stop_drain_timeout = options.stop_drain_timeout.total_seconds() or 30
         self._dispatcher = dispatcher
         self._server_address = server_address
         self._executor = executor
         self._credential_runner = credential_runner
-        self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread_id: int | None = None
         self._started = threading.Event()
         self._wake: asyncio.Event | None = None
-        self._stopping: asyncio.Event | None = None
         self._stop_completed: asyncio.Event | None = None
         self._stop_drain_deadline: float | None = None
         self._final_output_flush_deadline: float | None = None
-        self._streams: set[PullStream] = set()
         self._busy_tasks = 0
         self._unsupported_logged = False
+
+    @property
+    def max_concurrent_tasks(self) -> int:
+        """Return the slot ceiling, clamped to the Server cap after the first registration."""
+        return self._slot_streams.max_concurrent_tasks
+
+    @property
+    def reserved_rpc_tasks(self) -> int:
+        """Return the configured RPC-only slot count, derived again after a clamp."""
+        return self._slot_streams.reserved_rpc_tasks
+
+    def slot_stream_state(self) -> PullSlotStreamState:
+        """Return a snapshot of the slot streams; safe from any thread."""
+        return self._slot_streams.slot_stream_state()
 
     def unknown_task_reason(
         self, task: pb.PollWorkerTask
@@ -192,6 +213,10 @@ class PullWorkerRuntime:
             _LOGGER.warning(
                 "RPCs may wait behind long-running Steps; use max_concurrent_tasks >= 2 or set reserved_rpc_tasks explicitly"
             )
+        if self._should_warn_floor_rpc_capacity:
+            _LOGGER.warning(
+                "RPCs may wait behind long-running Steps; min_open_slots 1 reserves no RPC slot, so use min_open_slots >= 2 to reserve one"
+            )
         self._loop = asyncio.get_running_loop()
         self._loop_thread_id = threading.get_ident()
         self._wake = asyncio.Event()
@@ -204,7 +229,8 @@ class PullWorkerRuntime:
                 self._server_address, self._transport, self._grpc_max_message_bytes
             )
             stub = dex_pb2_grpc.WorkerTaskServiceStub(channel)  # type: ignore[no-untyped-call]
-            self._wake.set()
+            self._stub = stub
+            self._slot_streams.start_slot_streams()
             while not self._stopping.is_set():
                 await self._wake.wait()
                 self._wake.clear()
@@ -232,25 +258,21 @@ class PullWorkerRuntime:
     def _reconcile(self, stub: Any) -> None:
         if self._stopping is None or self._stopping.is_set():
             return
-        for slot_kind, desired_count in (
-            (
-                pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC,
-                self.max_concurrent_tasks - self.reserved_rpc_tasks,
-            ),
-            (pb.POLL_WORKER_SLOT_KIND_RPC_ONLY, self.reserved_rpc_tasks),
-        ):
-            existing_count = sum(
-                stream.slot_kind == slot_kind for stream in self._streams
-            )
-            for _ in range(desired_count - existing_count):
-                stream = PullStream(
-                    self,
-                    stub,
-                    slot_kind,
-                )
-                self._streams.add(stream)
-                stream.run_task = asyncio.create_task(stream.run())
-                stream.run_task.add_done_callback(stream.on_done)
+        self._stub = stub
+        self._slot_streams.reconcile()
+
+    def _create_slot_stream(self, slot_kind: pb.PollWorkerSlotKind) -> PullStream:
+        return PullStream(self, self._stub, slot_kind)
+
+    def _launch_slot_stream(self, stream: PullStream) -> None:
+        self._streams.add(stream)
+        stream.run_task = asyncio.create_task(stream.run())
+        stream.run_task.add_done_callback(stream.on_done)
+
+    def _remove_rpc_only_slot_kind(self) -> None:
+        # A clamp to a cap of one leaves no RPC-only slot, so readiness stops waiting for one.
+        self.queues = (STEP_AND_RPC_QUEUE,)
+        self.registration.remove_slot_kind(RPC_ONLY_QUEUE)
 
     def accept_registration(self, registered: pb.PollWorkerTaskRegistered) -> bool:
         """Check one Registered acknowledgement before its stream counts as ready.
@@ -263,9 +285,17 @@ class PullWorkerRuntime:
         if self._permanent_error is not None:
             return False
         server_limit = registered.max_concurrent_tasks_per_app_worker
-        is_limit_exceeded = 0 < server_limit < self.max_concurrent_tasks
-        if self._has_checked_registration_limit:
-            if is_limit_exceeded:
+        is_first_acknowledgement, failure = (
+            self._slot_streams.resolve_slot_ceiling_at_first_acknowledgement(
+                server_limit
+            )
+        )
+        if not is_first_acknowledgement:
+            if (
+                0 < server_limit < self.max_concurrent_tasks
+                and not self._slot_streams.is_adaptive
+            ):
+                # The Server rejects surplus slot streams itself, so a lowered limit must not stop a running Worker.
                 _LOGGER.warning(
                     "Server lowered matching.maxConcurrentTasksCap below "
                     "max_concurrent_tasks after start; extra streams may be rejected",
@@ -275,19 +305,16 @@ class PullWorkerRuntime:
                     },
                 )
             return True
-        self._has_checked_registration_limit = True
-        if not is_limit_exceeded:
+        if failure is None:
             return True
-        self._permanent_error = RuntimeError(
-            f"max_concurrent_tasks={self.max_concurrent_tasks} exceeds Server "
-            f"matching.maxConcurrentTasksCap={server_limit} "
-            "(max_concurrent_tasks_per_app_worker)"
-        )
+        self._permanent_error = RuntimeError(failure)
         self.registration.record_fatal_error(self._permanent_error)
+        self._slot_streams.stop_shrink_window()
         self._rejection_stop_task = asyncio.create_task(self.stop())
         return False
 
     def _stream_done(self, stream: PullStream, completed: asyncio.Task[None]) -> None:
+        self._slot_streams.abandon_slot_attempt(stream)
         self._streams.discard(stream)
         if not completed.cancelled():
             failure = completed.exception()
@@ -323,6 +350,7 @@ class PullWorkerRuntime:
             self._stop_drain_deadline + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
         )
         self._stopping.set()
+        self._slot_streams.stop_shrink_window()
         try:
             for stream in tuple(self._streams):
                 stream.drain()
@@ -422,6 +450,9 @@ class PullStream:
         self._stream_metadata: Any = None
         self._deadline_handle: asyncio.TimerHandle | None = None
         self._is_connection_closed = False
+        # The current attempt in the slot stream state machine; None for a stream it does not track.
+        self.slot: _PullSlotAttempt | None = None
+        self._should_retry_unauthenticated = False
 
     def on_done(self, completed: asyncio.Task[None]) -> None:
         self.runtime._stream_done(self, completed)
@@ -429,13 +460,23 @@ class PullStream:
     async def run(self) -> None:
         backoff = 0.1
         has_retried_unauthenticated = False
+        slot_streams = self.runtime._slot_streams
         while not self.runtime.is_stopping:
+            # The grant may be older than the cap that another stream reported during the backoff.
+            if not slot_streams.admit_slot_registration(self):
+                return
+            attempt = self.slot
             self.is_draining = False
             was_registered = False
+            is_revoked = False
+            is_soft_rejection = False
             error: grpc.RpcError | None = None
             task_queue_mismatch: TaskQueueRegistrationMismatchError | None = None
             try:
                 was_registered = await self._poll()
+            except _SlotAttemptRevokedError:
+                # The revocation already ended the attempt and re-ran the reopen rule.
+                is_revoked = True
             except grpc.RpcError as failure:
                 error = failure
             except TaskQueueRegistrationMismatchError as failure:
@@ -445,47 +486,28 @@ class PullStream:
                     "Worker task stream failed", extra={"queue": self.queue}
                 )
             finally:
-                code = error.code() if error is not None else None
                 if self._is_registered:
                     has_retried_unauthenticated = False
-                credential = (
-                    self.runtime._credential_runner._credential
-                    if self.runtime._credential_runner is not None
-                    else None
-                )
-                can_reject_token = (
-                    code is grpc.StatusCode.UNAUTHENTICATED
-                    and self._stream_metadata is not None
-                    and credential is not None
-                    and callable(getattr(credential, "_reject_token", None))
-                )
-                should_retry_unauthenticated = (
-                    can_reject_token and not has_retried_unauthenticated
-                )
-                if can_reject_token and credential is not None:
-                    _reject_credential_token(credential, self._stream_metadata)
-                permanent_error: BaseException | None = task_queue_mismatch
-                if code in _PERMANENT_CODES and not should_retry_unauthenticated:
-                    permanent_error = error
-                rejection = self.runtime.registration.record_stream_result(
-                    self.queue, self._is_registered, permanent_error
-                )
-                self._is_registered = False
-                self._stream_metadata = None
-                if (
-                    rejection is not None
-                    and self.runtime._stop_on_permanent_stream_rejection
-                    and self.runtime._permanent_error is None
-                ):
-                    self.runtime._permanent_error = rejection
-                    self.runtime._rejection_stop_task = asyncio.create_task(
-                        self.runtime.stop()
+                if not is_revoked:
+                    is_soft_rejection = self._record_stream_result(
+                        attempt, error, task_queue_mismatch, has_retried_unauthenticated
                     )
+            if is_revoked:
+                return
             if self.runtime.is_stopping or self.runtime._permanent_error is not None:
                 break
-            if should_retry_unauthenticated:
+            if is_soft_rejection:
+                # A soft rejection waits for another registered stream to end or for the next shrink window.
+                _LOGGER.debug(
+                    "Worker task stream reached the Server stream limit: %s", error
+                )
+                return
+            if self._should_retry_unauthenticated:
+                if not slot_streams.take_reopen_grant(self):
+                    return
                 has_retried_unauthenticated = True
                 continue
+            code = error.code() if error is not None else None
             if code is grpc.StatusCode.UNAUTHENTICATED:
                 has_retried_unauthenticated = False
             if self._is_reconnecting:
@@ -493,7 +515,6 @@ class PullStream:
                 backoff = 0.1
             if was_registered:
                 backoff = 0.1
-            code = error.code() if error is not None else None
             if code is grpc.StatusCode.UNIMPLEMENTED:
                 if not self.runtime._unsupported_logged:
                     self.runtime._unsupported_logged = True
@@ -509,6 +530,9 @@ class PullStream:
                 backoff = 60
             elif error is not None:
                 _LOGGER.warning("Worker task stream disconnected: %s", error)
+            # Only the reopen rule continues this runner; a stream closed on purpose never reopens.
+            if not slot_streams.take_reopen_grant(self):
+                return
             if self.runtime._stopping is not None:
                 try:
                     await asyncio.wait_for(
@@ -519,6 +543,59 @@ class PullStream:
                     pass
             if code not in _PERMANENT_CODES and task_queue_mismatch is None:
                 backoff = min(backoff * 2, 5)
+
+    def _record_stream_result(
+        self,
+        attempt: _PullSlotAttempt | None,
+        error: grpc.RpcError | None,
+        task_queue_mismatch: TaskQueueRegistrationMismatchError | None,
+        has_retried_unauthenticated: bool,
+    ) -> bool:
+        """Record one poll's end in the registration state and the slot state machine.
+
+        Returns:
+            True when the poll's attempt met a soft RESOURCE_EXHAUSTED rejection
+            (F5), which records no permanent error and must not be retried by
+            this runner. False otherwise.
+        """
+        code = error.code() if error is not None else None
+        credential = (
+            self.runtime._credential_runner._credential
+            if self.runtime._credential_runner is not None
+            else None
+        )
+        can_reject_token = (
+            code is grpc.StatusCode.UNAUTHENTICATED
+            and self._stream_metadata is not None
+            and credential is not None
+            and callable(getattr(credential, "_reject_token", None))
+        )
+        self._should_retry_unauthenticated = (
+            can_reject_token and not has_retried_unauthenticated
+        )
+        if can_reject_token and credential is not None:
+            _reject_credential_token(credential, self._stream_metadata)
+        permanent_error: BaseException | None = task_queue_mismatch
+        if code in _PERMANENT_CODES and not self._should_retry_unauthenticated:
+            permanent_error = error
+        is_soft_rejection = self.runtime._slot_streams.record_slot_stream_result(
+            self, attempt, code
+        )
+        if is_soft_rejection:
+            permanent_error = None
+        rejection = self.runtime.registration.record_stream_result(
+            self.queue, self._is_registered, permanent_error
+        )
+        self._is_registered = False
+        self._stream_metadata = None
+        if (
+            rejection is not None
+            and self.runtime._stop_on_permanent_stream_rejection
+            and self.runtime._permanent_error is None
+        ):
+            self.runtime._permanent_error = rejection
+            self.runtime._rejection_stop_task = asyncio.create_task(self.runtime.stop())
+        return is_soft_rejection
 
     async def _poll(self) -> bool:
         if self.runtime.is_stopping:
@@ -543,20 +620,26 @@ class PullStream:
         reader: asyncio.Task[Any] | None = None
         retirement = asyncio.create_task(self._retirement_requested.wait())
         try:
-            await self._send(
-                pb.PollWorkerTaskRequest(
-                    register=pb.PollWorkerTaskRegister(
-                        queue="",
-                        supports_reserved_slot_dispatch=True,
-                        slot_kind=self.slot_kind,
-                        app_worker_id=self.runtime.app_worker_id,
-                        flow_types=self.runtime.flow_types,
-                        sdk_name="python",
-                        sdk_version=sdk_version(),
-                        task_queue=self.runtime.task_queue,
-                    )
+            register = pb.PollWorkerTaskRequest(
+                register=pb.PollWorkerTaskRegister(
+                    queue="",
+                    supports_reserved_slot_dispatch=True,
+                    slot_kind=self.slot_kind,
+                    app_worker_id=self.runtime.app_worker_id,
+                    flow_types=self.runtime.flow_types,
+                    sdk_name="python",
+                    sdk_version=sdk_version(),
+                    task_queue=self.runtime.task_queue,
                 )
             )
+            slot_streams = self.runtime._slot_streams
+            before_register_send = slot_streams.settings.before_register_send_for_test
+            if before_register_send is not None and self.slot is not None:
+                await before_register_send(self)
+            # The re-check marks the attempt as sending; the write happens after the slot lock is released.
+            if not slot_streams.mark_slot_registration_sending(self):
+                raise _SlotAttemptRevokedError()
+            await self._send(register)
             while True:
                 if reader is None:
                     reader = asyncio.create_task(self._call.read())
@@ -605,6 +688,9 @@ class PullStream:
                         continue
                     self._is_registered = True
                     self.runtime.registration.record_registered_stream(self.queue)
+                    slot_streams.record_slot_registered(
+                        self, frame.registered.max_concurrent_tasks_per_app_worker
+                    )
                     self.runtime.signal()
                     continue
                 if kind == "task":
@@ -620,11 +706,15 @@ class PullStream:
                         pb.PollWorkerTaskRequest(pong=pb.PollWorkerTaskPong())
                     )
                 elif kind == "reconnect":
+                    slot_streams.record_slot_reconnect_requested(self)
                     self.drain()
         finally:
             self._is_connection_closed = True
             self._call.cancel()
             self.cancel_handler()
+            if self.handler_task is not None:
+                # The handler may outlive its stream, such as a sync handler; it then holds its slot as orphaned.
+                self.runtime._slot_streams.record_slot_stream_ended(self)
             async with self._send_lock:
                 self._stop_keepalive()
             retirement.cancel()
@@ -703,6 +793,7 @@ class PullStream:
 
     async def _start_task(self, task: pb.PollWorkerTask) -> None:
         if self.runtime.is_stopping or self.is_draining:
+            self.runtime._slot_streams.record_slot_task_dropped(self)
             return
         if self.is_busy:
             if not self._is_final_frame_sent:
@@ -712,6 +803,7 @@ class PullStream:
             # The final output frees the slot on the Server before local cleanup ends.
             await self._finish_handler_or_fail_stream()
             if self.runtime.is_stopping or self.is_draining:
+                self.runtime._slot_streams.record_slot_task_dropped(self)
                 return
         # Validate untrusted task fields before admission; a failure resets the stream.
         deadline_seconds = _task_deadline_seconds(task)
@@ -731,6 +823,7 @@ class PullStream:
             self._deadline_handle = asyncio.get_running_loop().call_later(
                 deadline_seconds, self._cancel_if_current, task.task_id
             )
+        self.runtime._slot_streams.record_slot_task_started(self)
         self.runtime.signal()
 
     async def _reject_task(
@@ -960,6 +1053,11 @@ class PullStream:
         self.task_id = ""
         self.is_busy = False
         self._active.clear()
+        if self.runtime._slot_streams.record_slot_task_completed(
+            self, self.is_draining
+        ):
+            # A surplus stream after a lowered cap half-closes after its final output.
+            self.is_draining = True
         if self.is_draining:
             self._retirement_requested.set()
         self.runtime.finish_task()
@@ -976,6 +1074,12 @@ class PullStream:
             self._retirement_requested.set()
         if self._call is None:
             self.run_task.cancel()
+
+    def _request_slot_half_close(self) -> None:
+        # The poll loop half-closes once the stream is not busy, and keeps reading until the Server ends it.
+        self.is_draining = True
+        if not self.is_busy:
+            self._retirement_requested.set()
 
     def close(self) -> None:
         self._is_connection_closed = True

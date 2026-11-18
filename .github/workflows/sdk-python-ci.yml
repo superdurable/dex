@@ -111,6 +111,7 @@ jobs:
             dex/_grpc_errors.py \
             dex/_invocation_context.py \
             dex/_native.pyi \
+            dex/_pull_slot_streams.py \
             dex/_pull_worker.py \
             dex/_server_protocol.py \
             dex/_utils.py \

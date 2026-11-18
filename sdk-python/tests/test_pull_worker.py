@@ -69,9 +69,41 @@ def test_pull_options_validate_capacity() -> None:
         {"app_worker_id": "bad/id"},
         {"app_worker_id": "x" * 64},
         {"app_worker_id": "é"},
+        {"min_open_slots": -1},
+        {"max_concurrent_tasks": 4, "min_open_slots": 5},
+        {"max_concurrent_tasks": 4, "min_open_slots": 2, "reserved_rpc_tasks": 2},
     ):
         with pytest.raises(ValueError):
             PullWorkerOptions(**option)
+
+
+@pytest.mark.parametrize(
+    ("max_concurrent_tasks", "min_open_slots", "reserved_rpc_tasks", "is_adaptive"),
+    [(8, 0, 1, False), (8, 8, 1, False), (8, 2, 1, True), (8, 1, 0, True)],
+)
+def test_min_open_slots_resolves_mode_and_reserve(
+    max_concurrent_tasks: int,
+    min_open_slots: int,
+    reserved_rpc_tasks: int,
+    is_adaptive: bool,
+) -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(
+            max_concurrent_tasks=max_concurrent_tasks, min_open_slots=min_open_slots
+        ),
+        "localhost:8801",
+        None,
+    )
+    state = runtime.slot_stream_state()
+    assert runtime.reserved_rpc_tasks == reserved_rpc_tasks
+    assert state.is_adaptive is is_adaptive
+    assert state.total_capacity == max_concurrent_tasks
+    assert state.rpc_only_slots == reserved_rpc_tasks
+    assert state.effective_ceiling == max_concurrent_tasks - reserved_rpc_tasks
+    assert state.floor == (min_open_slots or max_concurrent_tasks) - reserved_rpc_tasks
+    assert (state.open, state.busy, state.idle, state.registering) == (0, 0, 0, 0)
 
 
 @pytest.mark.parametrize("client_type", [Client, AsyncClient])

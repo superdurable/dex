@@ -18,6 +18,11 @@ from dex.flow_definition import FlowDefinitionDocument
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 
+def _default_reserved_rpc_tasks(max_concurrent_tasks: int, min_open_slots: int) -> int:
+    # One RPC-only slot only when the ceiling and the floor both leave room for it.
+    return int(max_concurrent_tasks >= 2 and min_open_slots >= 2)
+
+
 @dataclass(frozen=True)
 class PullWorkerOptions:
     """Configure outbound task polling for a Worker or AsyncWorker.
@@ -40,20 +45,55 @@ class PullWorkerOptions:
        Start fails above matching.maxConcurrentTasksCap. Tasks received during
        stop return to Dex without consuming a retry.
 
+    .. versionchanged:: 1.45.5
+       With ``min_open_slots`` below ``max_concurrent_tasks`` the Worker is
+       adaptive. It keeps between ``min_open_slots`` and
+       ``max_concurrent_tasks`` slot streams open, so an idle Worker holds fewer
+       Server streams. With ``min_open_slots`` unset or equal to
+       ``max_concurrent_tasks`` the Worker is fixed and keeps every slot open,
+       as before.
+
     Attributes:
-        max_concurrent_tasks: Execution slots, each owning one long-lived poll
+        max_concurrent_tasks: The most tasks the Worker runs at once, including
+            the reserved RPC slots. Each running task holds one long-lived poll
             stream. Zero uses the CPU count. Negative values are invalid. Start
-            fails if this exceeds the Server's nonzero per-Worker limit reported
-            by matching.maxConcurrentTasksCap.
+            fails if an explicit value of a fixed Worker exceeds the Server's
+            nonzero per-Worker limit reported by matching.maxConcurrentTasksCap.
+
+            .. versionchanged:: 1.45.5
+               This is the ceiling of the slot streams. A fixed Worker, whose
+               ``min_open_slots`` is unset or equal to it, keeps this many
+               streams open. An adaptive Worker, whose ``min_open_slots`` is
+               below it, opens streams up to it only while every open
+               Step-and-RPC stream is busy. Two cases clamp the value to the
+               Server cap at the first registration, with a WARNING log that
+               names both values, instead of failing start: a fixed Worker with
+               this option unset, whose CPU-count default exceeds the cap, and
+               an adaptive Worker, with this option set or unset. A fixed Worker
+               with this option unset therefore opens one stream first, learns
+               the cap from its registration, and then opens the others, which
+               adds one round trip to start. A fixed Worker with an explicit
+               value opens all its streams at once and still fails start above
+               the cap. After a clamp, the ``reserved_rpc_tasks`` and
+               ``min_open_slots`` defaults come from the clamped value. In an
+               adaptive Worker, a lower cap reported on a reconnect lowers its
+               capacity: it half-closes the surplus streams, RPC-only streams
+               first, and keeps running. A fixed Worker keeps the earlier
+               behavior.
         reserved_rpc_tasks: Slots accepting only RPCs. The remaining slots accept
             Steps and RPCs. Steps are never declined for capacity. None reserves
             one slot when the resolved task limit is at least two, otherwise zero.
             Zero disables reservation. Values must be nonnegative and smaller
             than the resolved task limit. With one slot and no explicit reserve,
             start warns that RPCs may wait behind long-running Steps.
+
+            .. versionchanged:: 1.45.5
+               None also reserves zero when ``min_open_slots`` is 1, and start
+               then warns that RPCs may wait behind long-running Steps.
         idle_streams_per_queue: Deprecated; accepted for source compatibility and
-            has no effect. The Worker opens exactly max_concurrent_tasks streams.
-            Zero remains valid; negative values remain invalid.
+            has no effect. ``max_concurrent_tasks`` and ``min_open_slots``
+            determine the number of slot streams. Zero remains valid; negative
+            values remain invalid.
         app_worker_id: Unique process identity for sticky routing. Empty generates
             an identity with eight random base32 characters. A supplied value
             must contain 1-63 ASCII letters, digits, dots, underscores, or hyphens,
@@ -98,10 +138,55 @@ class PullWorkerOptions:
             ``PullRegistrationError`` and ``pull_registration_state``.
 
             .. versionadded:: 1.45.1
+        min_open_slots: The fewest slot streams the Worker keeps open. It uses
+            the same unit as ``max_concurrent_tasks``, so it counts the reserved
+            RPC-only slots too. Zero, the default, uses the resolved
+            ``max_concurrent_tasks``: every slot keeps a stream, the Worker is
+            fixed, and it behaves as earlier releases did. Negative values are
+            invalid.
+
+            A value below ``max_concurrent_tasks`` makes the Worker adaptive.
+            Use it when idle Workers should hold fewer Server streams, such as a
+            large fleet or a high ``max_concurrent_tasks``. An adaptive Worker
+            starts with ``min_open_slots - reserved_rpc_tasks`` Step-and-RPC
+            streams and opens the RPC-only streams after the first registration.
+            When a task takes its last idle Step-and-RPC stream, it doubles its
+            Step-and-RPC streams, one batch at a time, up to
+            ``max_concurrent_tasks``. Every 30 seconds it half-closes half of
+            the idle streams above the window's peak busy count plus 25%
+            headroom. It never goes below the floor and never closes its last
+            idle stream. Its RPC-only streams stay at ``reserved_rpc_tasks``.
+
+            A burst larger than the open streams waits a few registration round
+            trips while the Worker grows. A task that reaches a stream while it
+            closes returns to the Server without spending a Step retry, and the
+            Server dispatches it again. When the Server rejects a stream at its
+            stream limit (RESOURCE_EXHAUSTED), an adaptive Worker treats the
+            rejection of a growth stream, or of a reconnect after readiness, as
+            a soft limit. It records no ``PullRegistrationError`` and retries at
+            most once per 30 seconds. Use ``Worker.pull_slot_stream_state`` to
+            observe the streams.
+
+            A handler that keeps running after its stream ends, such as a
+            synchronous handler during a Server restart, keeps its slot. The
+            Worker registers no stream for that slot until the handler returns.
+
+            Construction raises ``ValueError`` unless
+            ``reserved_rpc_tasks + 1 <= min_open_slots <= max_concurrent_tasks``
+            with the resolved values. When ``reserved_rpc_tasks`` is None, its
+            default reserves one slot only when both ``max_concurrent_tasks``
+            and ``min_open_slots`` are at least two. Start fails at the first
+            registration when the Server cap lowers ``max_concurrent_tasks``
+            below ``min_open_slots`` or to ``reserved_rpc_tasks`` or less; the
+            error names the values and the cap.
+
+            .. versionadded:: 1.45.5
 
     Raises:
         ValueError: If a numeric option is negative, the reserve reaches the task
-            limit, app_worker_id is invalid, or task_queue is invalid.
+            limit, ``min_open_slots`` is outside
+            ``reserved_rpc_tasks + 1 <= min_open_slots <= max_concurrent_tasks``,
+            app_worker_id is invalid, or task_queue is invalid.
 
     Examples:
         >>> pull = PullWorkerOptions(max_concurrent_tasks=8, reserved_rpc_tasks=2)
@@ -111,6 +196,9 @@ class PullWorkerOptions:
         ...     cache,
         ...     WorkerOptions(pull=PullWorkerOptions(task_queue="gpu")),
         ... )
+        >>> # Between 8 and 64 slot streams, one of them reserved for RPCs.
+        >>> adaptive = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=8)
+        >>> adaptive_worker = Worker(registry, cache, WorkerOptions(pull=adaptive))
     """
 
     max_concurrent_tasks: int = 0
@@ -120,6 +208,7 @@ class PullWorkerOptions:
     stop_on_permanent_stream_rejection: bool = False
     reserved_rpc_tasks: int | None = None
     task_queue: str = ""
+    min_open_slots: int = 0
 
     def __post_init__(self) -> None:
         task_queue_error = registered_task_queue_name_error(self.task_queue)
@@ -129,12 +218,30 @@ class PullWorkerOptions:
             )
         if self.max_concurrent_tasks < 0:
             raise ValueError("max_concurrent_tasks must not be negative")
+        if self.min_open_slots < 0:
+            raise ValueError("min_open_slots must not be negative")
         task_limit = self.max_concurrent_tasks or os.cpu_count() or 1
+        open_slot_floor = self.min_open_slots or task_limit
+        if open_slot_floor > task_limit:
+            raise ValueError(
+                f"min_open_slots {open_slot_floor} must not exceed "
+                f"max_concurrent_tasks {task_limit}"
+            )
         if self.reserved_rpc_tasks is not None and (
             self.reserved_rpc_tasks < 0 or self.reserved_rpc_tasks >= task_limit
         ):
             raise ValueError(
                 "reserved_rpc_tasks must be nonnegative and less than max_concurrent_tasks"
+            )
+        reserved_rpc_tasks = (
+            self.reserved_rpc_tasks
+            if self.reserved_rpc_tasks is not None
+            else _default_reserved_rpc_tasks(task_limit, open_slot_floor)
+        )
+        if reserved_rpc_tasks + 1 > open_slot_floor:
+            raise ValueError(
+                f"min_open_slots {open_slot_floor} must be at least "
+                f"reserved_rpc_tasks {reserved_rpc_tasks} plus one Step-and-RPC slot"
             )
         if self.idle_streams_per_queue < 0:
             raise ValueError("idle_streams_per_queue must not be negative")
