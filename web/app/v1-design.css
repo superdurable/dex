@@ -4680,15 +4680,96 @@ html:has(.v1-page .stream-scroll--entries) {
   pointer-events: none;
 }
 
+/* The selection's links, as Graph draws a selected Step's edges: incoming in ink, outgoing in accent. */
 .htl-arc {
-  fill: none;
-  stroke: var(--tone-accent);
-  stroke-width: 1.5px;
+  color: var(--ui-ink-2);
 }
 
-.htl-arc.kind-condition-wait {
-  stroke: var(--tone-wait);
-  stroke-dasharray: 4 3;
+.htl-arc.is-outgoing {
+  color: var(--tone-accent);
+}
+
+.htl-arc.is-filtered-out {
+  opacity: 0.55;
+}
+
+.htl-arc-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2px;
+}
+
+.htl-arc-arrow {
+  fill: currentColor;
+}
+
+/* The dash flows from source to target, in the direction of time and cause. */
+.htl-arc.is-flowing .htl-arc-line {
+  animation: htl-link-flow 650ms linear infinite;
+  stroke-dasharray: 8 5;
+}
+
+@keyframes htl-link-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .htl-arc.is-flowing .htl-arc-line {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+
+/* A linked event out of view: its line ends here, and a click scrolls to it. */
+.htl-link-edge {
+  position: absolute;
+  z-index: 4;
+  /* Low in the arc band, so the arrow into an event's number above it stays clear. */
+  bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--ui-ink-2);
+  background: var(--ui-surface);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.htl-link-edge.is-outgoing {
+  color: var(--tone-accent);
+}
+
+.htl-link-edge.is-left {
+  left: 2px;
+}
+
+.htl-link-edge.is-right {
+  right: 2px;
+}
+
+.htl-link-edge:hover {
+  background: var(--ui-hover);
+}
+
+.htl-link-edge:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 1px;
+}
+
+.htl-link-edge-more {
+  margin-left: 3px;
+  color: var(--ui-ink-3);
 }
 
 /* What the run is doing now, beside the newest event; clicking it selects that event. */

@@ -23,10 +23,12 @@ import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
   formatElapsedDuration,
+  timelineRelatedEventGroup,
+  type TimelineLink,
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { ChevronRight, RotateCcw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
 import { flowStatusLabel } from '@/lib/semantic';
 import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { useTimezonePreference } from '../../providers';
@@ -68,6 +70,14 @@ import {
 import { TimelineEventFilterMenu } from './TimelineEventFilterMenu';
 
 const arcBandHeight = 28;
+/** A link line meets an event's number from below at this height in the arc band. */
+const linkLineEndY = 2;
+/** The selection's incoming and outgoing lines meet it this far left and right of its center. */
+const linkLineSelectionOffset = 3;
+/** A line to an event out of view ends this far inside the lane edge, under its edge marker. */
+const linkLineEdgeInset = 6;
+const linkArrowHalfWidth = 3.5;
+const linkArrowLength = 5;
 const axisBandHeight = 18;
 const dotBandHeight = 30;
 /** Dense: each event's label slants up at this angle, like angled parking, so long names fit side by side. */
@@ -413,6 +423,83 @@ function EventKindLegend() {
   );
 }
 
+/** A line between the selection and an event it came from (incoming) or leads to (outgoing). */
+export interface TimelineSelectionLink {
+  direction: 'incoming' | 'outgoing';
+  kind: TimelineLink['kind'];
+  linkedEventId: number;
+}
+
+/**
+ * Returns the selection's lines, one per linked event: the event panel's From events come in and its
+ * To events go out. Page links whose other end the panel lists elsewhere fill in the rest.
+ */
+export function timelineSelectionLinks(
+  relations: TimelineSelectedRelations,
+  selectedEventId: number | null,
+): TimelineSelectionLink[] {
+  if (selectedEventId === null) return [];
+  const linksByEventId = new Map<number, TimelineSelectionLink>();
+  for (const related of relations.related) {
+    if (related.eventId === undefined || related.location !== 'loaded' || related.eventId === selectedEventId) continue;
+    linksByEventId.set(related.eventId, {
+      direction: timelineRelatedEventGroup(related) === 'From' ? 'incoming' : 'outgoing',
+      kind: related.kind,
+      linkedEventId: related.eventId,
+    });
+  }
+  for (const link of relations.links) {
+    const isIncoming = link.toEventId === selectedEventId;
+    if (!isIncoming && link.fromEventId !== selectedEventId) continue;
+    const linkedEventId = isIncoming ? link.fromEventId : link.toEventId;
+    if (linksByEventId.has(linkedEventId)) continue;
+    linksByEventId.set(linkedEventId, { direction: isIncoming ? 'incoming' : 'outgoing', kind: link.kind, linkedEventId });
+  }
+  return [...linksByEventId.values()];
+}
+
+/** One end of a link line: an event's number in view, or the lane edge when the event is out of view. */
+interface LinkLineEnd {
+  x: number;
+  isAtEdge: boolean;
+}
+
+/** Returns a line that dips into the arc band and flows from source to target; edge ends stay at its depth. */
+function linkLinePath(source: LinkLineEnd, target: LinkLineEnd, depth: number): string {
+  const sourceY = source.isAtEdge ? depth : linkLineEndY;
+  const targetY = target.isAtEdge ? depth : linkLineEndY;
+  return `M ${source.x} ${sourceY} C ${source.x} ${depth}, ${target.x} ${depth}, ${target.x} ${targetY}`;
+}
+
+/** Returns the arrowhead at the target: up into an event's number, or sideways into the lane edge. */
+function linkArrowPoints(source: LinkLineEnd, target: LinkLineEnd, depth: number): string {
+  if (!target.isAtEdge) {
+    const baseY = linkLineEndY + linkArrowLength;
+    return `${target.x},${linkLineEndY} ${target.x - linkArrowHalfWidth},${baseY} ${target.x + linkArrowHalfWidth},${baseY}`;
+  }
+  const pointsRight = target.x > source.x;
+  const baseX = pointsRight ? target.x - linkArrowLength : target.x + linkArrowLength;
+  return `${target.x},${depth} ${baseX},${depth - linkArrowHalfWidth} ${baseX},${depth + linkArrowHalfWidth}`;
+}
+
+const reducedMotionQuery = '(prefers-reduced-motion: reduce)';
+
+/** Follows the reduced motion setting; without matchMedia, such as in tests, motion is allowed. */
+function usePrefersReducedMotion(): boolean {
+  const [isReduced, setIsReduced] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(reducedMotionQuery).matches
+  ));
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia(reducedMotionQuery);
+    const update = () => setIsReduced(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+  return isReduced;
+}
+
 /** How a retried Step event states its failed attempts after the subject; only a normal event succeeded. */
 function retriedSpoken(event: FlowHistoryEvent, status: EventStatus): string {
   if (status !== 'normal') return 'after a failed attempt';
@@ -611,17 +698,36 @@ export function HorizontalTimeline({
     [compiledEventFilter, pageKindCounts],
   );
   const selectedEventId = selectedEvent?.eventId ?? null;
-  /** The lane: events the filter shows, plus the selected and the jumped-to event, which always show. */
+  const computedRelations = useMemo(
+    () => relations ?? buildSelectedTimelineRelations(events, selectedEvent, {
+      hasOlder: paging?.hasOlder ?? false,
+      hasNewer: paging?.hasNewer ?? false,
+      prunedEventIdRange,
+    }),
+    [events, paging?.hasNewer, paging?.hasOlder, prunedEventIdRange, relations, selectedEvent],
+  );
+  const selectionLinks = useMemo(
+    () => timelineSelectionLinks(computedRelations, selectedEventId),
+    [computedRelations, selectedEventId],
+  );
+  const linkedEventIds = useMemo(
+    () => new Set(selectionLinks.map((link) => link.linkedEventId)),
+    [selectionLinks],
+  );
+  /** The lane: events the filter shows, plus the selected, linked, and jumped-to events, which always show. */
   const { laneEvents, laneToPage } = useMemo(() => {
     const lane: FlowHistoryEvent[] = [];
     const pageIndexes: number[] = [];
     pageEvents.forEach((event, pageIndex) => {
-      if (!pageShownFlags[pageIndex] && event.eventId !== selectedEventId && event.eventId !== highlightedEventId) return;
+      const isAlwaysShown = event.eventId === selectedEventId
+        || event.eventId === highlightedEventId
+        || linkedEventIds.has(event.eventId);
+      if (!pageShownFlags[pageIndex] && !isAlwaysShown) return;
       lane.push(event);
       pageIndexes.push(pageIndex);
     });
     return { laneEvents: lane, laneToPage: pageIndexes };
-  }, [highlightedEventId, pageEvents, pageShownFlags, selectedEventId]);
+  }, [highlightedEventId, linkedEventIds, pageEvents, pageShownFlags, selectedEventId]);
   /** Lane event IDs at the last commit, so a filter change fades in only added events. */
   const previousLaneEventIds = useRef<ReadonlySet<number>>(new Set());
   useEffect(() => {
@@ -778,18 +884,7 @@ export function HorizontalTimeline({
     // Only a selection change recenters, so dragging the overview never snaps back.
   }, [selectedIndex, revealRequest]);
 
-  const computedRelations = useMemo(
-    () => relations ?? buildSelectedTimelineRelations(events, selectedEvent, {
-      hasOlder: paging?.hasOlder ?? false,
-      hasNewer: paging?.hasNewer ?? false,
-      prunedEventIdRange,
-    }),
-    [events, paging?.hasNewer, paging?.hasOlder, prunedEventIdRange, relations, selectedEvent],
-  );
-  const selectedLinks = computedRelations.links.filter((link) => (
-    link.fromEventId === selectedEvent?.eventId || link.toEventId === selectedEvent?.eventId
-  ));
-  const linkedEventIds = new Set(selectedLinks.flatMap((link) => [link.fromEventId, link.toEventId]));
+  const isLinkFlowReduced = usePrefersReducedMotion();
 
   const selectEvent = useCallback((event: FlowHistoryEvent) => {
     setRevealRequest((request) => request + 1);
@@ -976,6 +1071,39 @@ export function HorizontalTimeline({
   const isIndexInView = (index: number) => xOf(index) >= 0 && xOf(index) <= stripWidth;
   // The lane overview draws only what is in view; the whole-page overview marks every event.
   const isOverviewMarkShown = (index: number) => !isLaneOverview || isIndexInView(index);
+  const isLinkEndInView = (index: number) => index >= firstRendered && index <= lastRendered && isIndexInView(index);
+  /** Where a lane index meets a link line: its number in view, or the lane edge on its side. */
+  const linkLineEndAt = (index: number, offset: number): LinkLineEnd => {
+    if (isLinkEndInView(index)) return { x: xOf(index) + offset, isAtEdge: false };
+    return { x: xOf(index) < 0 ? linkLineEdgeInset : stripWidth - linkLineEdgeInset, isAtEdge: true };
+  };
+  const linkLines = selectedIndex < 0 || !selectedEvent ? [] : selectionLinks.flatMap((link) => {
+    const linkedIndex = indexByEventId.get(link.linkedEventId);
+    if (linkedIndex === undefined) return [];
+    const isIncoming = link.direction === 'incoming';
+    const selectedLineEnd = linkLineEndAt(selectedIndex, isIncoming ? -linkLineSelectionOffset : linkLineSelectionOffset);
+    const linkedLineEnd = linkLineEndAt(linkedIndex, 0);
+    // Both ends past the same edge leave nothing in view to draw.
+    if (selectedLineEnd.isAtEdge && linkedLineEnd.isAtEdge && selectedLineEnd.x === linkedLineEnd.x) return [];
+    return [{
+      link,
+      linkedIndex,
+      fromEventId: isIncoming ? link.linkedEventId : selectedEvent.eventId,
+      toEventId: isIncoming ? selectedEvent.eventId : link.linkedEventId,
+      source: isIncoming ? linkedLineEnd : selectedLineEnd,
+      target: isIncoming ? selectedLineEnd : linkedLineEnd,
+      depth: Math.min(arcBandHeight - 4, 10 + Math.abs(linkedIndex - selectedIndex) * 2),
+      isLinkedOutOfView: linkedLineEnd.isAtEdge,
+      isLinkedFilteredOut: !pageShownFlags[laneToPage[linkedIndex]],
+    }];
+  });
+  /** Linked events out of view, per lane edge, nearest first; a marker there scrolls to the nearest. */
+  const linkEdgeMarkers = (['left', 'right'] as const).flatMap((side) => {
+    const lines = linkLines
+      .filter((line) => line.isLinkedOutOfView && (line.linkedIndex < selectedIndex) === (side === 'left'))
+      .sort((left, right) => (side === 'left' ? right.linkedIndex - left.linkedIndex : left.linkedIndex - right.linkedIndex));
+    return lines.length ? [{ side, lines }] : [];
+  });
   const barSlotWidth = plotWidth / bucketCount;
   const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
   /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
@@ -1254,11 +1382,15 @@ export function HorizontalTimeline({
           const isSelected = index === selectedIndex;
           const isRetried = status !== 'failed' && retriedFlags[laneToPage[index]];
           const isFilteredOut = !pageShownFlags[laneToPage[index]];
+          const isLinked = linkedEventIds.has(event.eventId) && !isSelected;
+          const filteredOutReason = isLinked
+            ? 'hidden by the filter, shown because it is linked to the selected event'
+            : 'hidden by the filter, shown because it is selected';
           const classes = [
             'htl-event',
             `kind-${kind}`,
             isSelected ? 'selected' : '',
-            linkedEventIds.has(event.eventId) && !isSelected ? 'linked' : '',
+            isLinked ? 'linked' : '',
             highlightedEventId === event.eventId ? 'jump-highlighted' : '',
             isFilteredOut ? 'is-filtered-out' : '',
             isFilterChanging && !previousLaneEventIds.current.has(event.eventId) ? 'is-entering' : '',
@@ -1270,7 +1402,7 @@ export function HorizontalTimeline({
                 subject !== eventTitle(event) ? subject : '',
                 state.spoken,
                 isRetried ? retriedSpoken(event, status) : '',
-                isFilteredOut ? 'hidden by the filter, shown because it is selected' : '',
+                isFilteredOut ? filteredOutReason : '',
                 `#${event.eventId}`,
               ].filter(Boolean).join(', ')}
               aria-selected={isSelected}
@@ -1282,7 +1414,7 @@ export function HorizontalTimeline({
               onClick={() => selectIndex(index)}
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
-              title={`${subject} · #${event.eventId}${isFilteredOut ? ' · hidden by the filter, shown because it is selected' : ''}`}
+              title={`${subject} · #${event.eventId}${isFilteredOut ? ` · ${filteredOutReason}` : ''}`}
             >
               {/* An event whose dot scrolled past the left edge shows no label, so no label is cut. */}
               {xOf(index) >= 0 && (
@@ -1318,21 +1450,23 @@ export function HorizontalTimeline({
           })}
         </div>
         <svg aria-hidden="true" className="htl-arcs" height={arcBandHeight} width={stripWidth}>
-          {selectedLinks.flatMap((link) => {
-            const fromIndex = indexByEventId.get(link.fromEventId);
-            const toIndex = indexByEventId.get(link.toEventId);
-            if (fromIndex === undefined || toIndex === undefined) return [];
-            const fromX = xOf(fromIndex);
-            const toX = xOf(toIndex);
-            const depth = Math.min(arcBandHeight - 4, 10 + Math.abs(toIndex - fromIndex) * 2);
-            return [(
-              <path
-                className={`htl-arc kind-${link.kind}`}
-                d={`M ${fromX} 2 C ${fromX} ${depth}, ${toX} ${depth}, ${toX} 2`}
-                key={`${link.kind}-${link.fromEventId}-${link.toEventId}`}
-              />
-            )];
-          })}
+          {linkLines.map((line) => (
+            <g
+              className={[
+                'htl-arc',
+                `is-${line.link.direction}`,
+                `kind-${line.link.kind}`,
+                isLinkFlowReduced ? '' : 'is-flowing',
+                line.isLinkedFilteredOut ? 'is-filtered-out' : '',
+              ].filter(Boolean).join(' ')}
+              data-from-event-id={line.fromEventId}
+              data-to-event-id={line.toEventId}
+              key={`${line.link.direction}-${line.link.linkedEventId}`}
+            >
+              <path className="htl-arc-line" d={linkLinePath(line.source, line.target, line.depth)} />
+              <polygon className="htl-arc-arrow" points={linkArrowPoints(line.source, line.target, line.depth)} />
+            </g>
+          ))}
         </svg>
       </div>
       {laneEvents.length === 0 && (
@@ -1350,6 +1484,28 @@ export function HorizontalTimeline({
           onShowEvent={onShowEndNoteEvent}
         />
       )}
+      {linkEdgeMarkers.map(({ side, lines }) => {
+        const eventNumbers = lines.map((line) => `#${line.link.linkedEventId}`);
+        const label = lines.length === 1
+          ? `Show linked event ${eventNumbers[0]}`
+          : `Show linked event ${eventNumbers[0]}; also ${eventNumbers.slice(1).join(', ')}`;
+        const EdgeChevron = side === 'left' ? ChevronLeft : ChevronRight;
+        return (
+          <button
+            aria-label={label}
+            className={`htl-link-edge is-${side} is-${lines[0].link.direction}`}
+            key={side}
+            onClick={() => centerOn(lines[0].linkedIndex)}
+            title={label}
+            type="button"
+          >
+            {side === 'left' && <EdgeChevron aria-hidden="true" size={12} strokeWidth={2.5} />}
+            {eventNumbers[0]}
+            {lines.length > 1 && <span className="htl-link-edge-more">+{lines.length - 1}</span>}
+            {side === 'right' && <EdgeChevron aria-hidden="true" size={12} strokeWidth={2.5} />}
+          </button>
+        );
+      })}
       </div>
 
       <p className="sr-only" id={helpId}>
