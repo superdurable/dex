@@ -295,6 +295,31 @@ describe('Folded Graph', () => {
     expect(shownNodeIDs()).toEqual(expect.arrayContaining(['SyncBatch-1', 'SyncBatch-2', 'SyncBatch-3', 'SyncBatch-4']));
   });
 
+  it('opens a ×N run when its execution is selected outside the Graph after a Graph selection', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    const events = syncBatchRunHistory(4);
+    const executeOf = (id: string) => events.find((event) => (event.payload.context as Record<string, unknown> | undefined)?.stepExecutionId === id)!;
+    const { rerender } = render(graph(events));
+    fireEvent.click(stepNodeElement('SyncBatch-4').querySelector('.graph-method-execute')!);
+    rerender(graph(events, executeOf('SyncBatch-4')));
+    expect(shownNodeIDs()).not.toContain('__frame:run:SyncBatch-1');
+    rerender(graph(events, executeOf('Checkpoint-1')));
+    rerender(graph(events, executeOf('SyncBatch-4')));
+    await waitFor(() => expect(shownNodeIDs()).toContain('__frame:run:SyncBatch-1'));
+  });
+
+  it('moves focus between Show and Hide as a keyboard activation opens and folds the run', async () => {
+    storedValues.set(graphViewStorageKeys.isFolded, 'true');
+    render(graph(syncBatchRunHistory(4)));
+    const show = screen.getByRole('button', { name: 'Show 4 SyncBatch executions' });
+    show.focus();
+    // Enter and Space on a focused button dispatch a click.
+    fireEvent.click(show);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Hide 4 SyncBatch executions' })));
+    fireEvent.click(document.activeElement!);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show 4 SyncBatch executions' })));
+  });
+
   it('keeps a ×N run folded when its shown execution is selected in the Graph', () => {
     storedValues.set(graphViewStorageKeys.isFolded, 'true');
     const events = syncBatchRunHistory(4);

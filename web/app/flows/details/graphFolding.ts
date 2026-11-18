@@ -433,30 +433,35 @@ function addStepRuns(context: FoldingContext, steps: StepGraphNode[], frameKeys:
   }
 }
 
-/** An opened ×N run: each execution as a node, eliding the middle of a long run except failed or selected ones. */
+/** An opened ×N run: one node per execution, with a long run's middle elided. */
 function addOpenedStepRun(context: FoldingContext, run: StepGraphNode[], frameKeys: string[]): void {
-  const selectedID = context.options.selectedStepExecutionID;
-  const isElided = run.length > maximumUnelidedStepRunSize;
-  const isShown = (step: StepGraphNode, index: number) => !isElided
-    || index < shownFirstStepRunSteps || index >= run.length - shownLastStepRunSteps
-    || step.id === selectedID || step.status === 'Failed';
-  let gap: StepGraphNode[] = [];
-  const closeGap = () => {
-    if (gap.length === 0) return;
-    const id = `__run-more:${frameKeys.at(-1) ?? ''}:${gap[0].id}`;
-    for (const hidden of gap) context.displayIDByNodeID.set(hidden.id, id);
-    context.itemByID.set(id, { display: 'more', id, hiddenCount: gap.length, unit: 'Steps', frameKeys });
-    gap = [];
-  };
-  run.forEach((step, index) => {
-    if (!isShown(step, index)) {
-      gap.push(step);
-      return;
+  for (const segment of stepRunSegments(run, context.options.selectedStepExecutionID)) {
+    if (segment.kind === 'shown') {
+      addShownStep(context, segment.step, frameKeys);
+      continue;
     }
-    closeGap();
-    addShownStep(context, step, frameKeys);
+    const id = `__run-more:${frameKeys.at(-1) ?? ''}:${segment.hiddenSteps[0].id}`;
+    for (const hidden of segment.hiddenSteps) context.displayIDByNodeID.set(hidden.id, id);
+    context.itemByID.set(id, { display: 'more', id, hiddenCount: segment.hiddenSteps.length, unit: 'Steps', frameKeys });
+  }
+}
+
+type StepRunSegment = { kind: 'shown'; step: StepGraphNode } | { kind: 'gap'; hiddenSteps: StepGraphNode[] };
+
+/** Splits an opened run into shown executions and gaps; first, last, failed and selected ones show. */
+function stepRunSegments(run: StepGraphNode[], selectedStepExecutionID: string): StepRunSegment[] {
+  const isElided = run.length > maximumUnelidedStepRunSize;
+  const segments: StepRunSegment[] = [];
+  run.forEach((step, index) => {
+    const isShown = !isElided
+      || index < shownFirstStepRunSteps || index >= run.length - shownLastStepRunSteps
+      || step.id === selectedStepExecutionID || step.status === 'Failed';
+    const previous = segments.at(-1);
+    if (isShown) segments.push({ kind: 'shown', step });
+    else if (previous?.kind === 'gap') previous.hiddenSteps.push(step);
+    else segments.push({ kind: 'gap', hiddenSteps: [step] });
   });
-  closeGap();
+  return segments;
 }
 
 function addShownStep(context: FoldingContext, step: StepGraphNode, frameKeys: string[]): void {

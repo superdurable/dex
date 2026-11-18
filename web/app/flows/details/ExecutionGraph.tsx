@@ -396,6 +396,7 @@ export function StepNodeLabel({
   onSelect,
   selectedEventId = null,
   repeatCount = 1,
+  stepRunKey,
   onShowStepRun,
 }: {
   node: StepGraphNode;
@@ -404,6 +405,8 @@ export function StepNodeLabel({
   selectedEventId?: number | null;
   /** Consecutive executions of this Step type the node stands for; above 1 it shows a ×N badge. */
   repeatCount?: number;
+  /** The folded run the node stands for; its Show button carries this key. */
+  stepRunKey?: string;
   /** Opens the folded run in place; given, the ×N badge is a button. */
   onShowStepRun?: () => void;
 }) {
@@ -429,6 +432,8 @@ export function StepNodeLabel({
             aria-expanded={false}
             aria-label={stepRunActionName('Show', repeatCount, node.label)}
             className="graph-step-repeat graph-step-repeat-action nodrag nopan"
+            data-step-run-action="Show"
+            data-step-run-key={stepRunKey}
             onClick={(clickEvent) => {
               clickEvent.stopPropagation();
               onShowStepRun();
@@ -657,8 +662,13 @@ export function RoundFrameLabel({ round, onHide }: { round: StepRoundGroup; onHi
   );
 }
 
+type StepRunAction = 'Show' | 'Hide';
+
+/** Animation frames to keep trying to focus a ×N run's Show or Hide button after rendering. */
+const stepRunFocusAttempts = 10;
+
 /** The accessible name of a ×N run's open or hide button, such as "Show 9 SyncBatch executions". */
-function stepRunActionName(action: 'Show' | 'Hide', count: number, stepType: string): string {
+function stepRunActionName(action: StepRunAction, count: number, stepType: string): string {
   return `${action} ${count.toLocaleString('en-US')} ${stepType} executions`;
 }
 
@@ -674,6 +684,8 @@ export function StepRunFrameLabel({ stepRun, onHide }: { stepRun: FoldedStepRun;
         aria-expanded
         aria-label={stepRunActionName('Hide', stepRun.stepCount, stepRun.stepType)}
         className="graph-round-action nodrag nopan"
+        data-step-run-action="Hide"
+        data-step-run-key={stepRun.key}
         onClick={(clickEvent) => {
           clickEvent.stopPropagation();
           onHide(stepRun.key);
@@ -1030,16 +1042,19 @@ export function ExecutionGraph({
   // Each newly selected event opens the groups that hold its Step; Hide can fold them again.
   // A ×N node clicked in the Graph stays folded, so it does not move under the pointer.
   const selectedEventId = selectedEvent?.eventId ?? null;
-  const graphSelectedEventId = useRef<number | null>(null);
+  // Marks the next selection as made in the Graph; the effect below consumes it once.
+  const graphSelection = useRef<{ flowId: string; eventId: number } | null>(null);
   const selectEventInGraph = (event: FlowHistoryEvent | null) => {
-    graphSelectedEventId.current = event?.eventId ?? null;
+    graphSelection.current = event ? { flowId, eventId: event.eventId } : null;
     onSelectEvent(event);
   };
   useEffect(() => {
+    const marker = graphSelection.current;
+    graphSelection.current = null;
     if (!isFolded || selectedEventId === null || !selectedStepExecutionID) return;
-    const isStepRunOpened = graphSelectedEventId.current !== selectedEventId;
+    const isStepRunOpened = marker?.flowId !== flowId || marker.eventId !== selectedEventId;
     setOpenIntents((current) => withStepExecutionOpened(current, selectedStepExecutionID, { isStepRunOpened }));
-  }, [isFolded, selectedEventId, selectedStepExecutionID]);
+  }, [flowId, isFolded, selectedEventId, selectedStepExecutionID]);
 
   const revealedRoundKey = useRef('');
   const setRoundOpen = (key: string, isOpen: boolean) => {
@@ -1048,10 +1063,13 @@ export function ExecutionGraph({
     if (isOpen) revealedRoundKey.current = key;
     setOpenIntents((current) => withGroupOpenChoice(current, group, isOpen));
   };
+  // Show and Hide unmount the focused button, so focus moves to its counterpart after rendering.
+  const stepRunFocusTarget = useRef<{ key: string; action: StepRunAction } | null>(null);
   const setStepRunOpen = (key: string, isOpen: boolean) => {
     const stepRun = folded.stepRuns.find((candidate) => candidate.key === key);
     if (!stepRun) return;
     if (isOpen) revealedRoundKey.current = key;
+    stepRunFocusTarget.current = { key, action: isOpen ? 'Hide' : 'Show' };
     setOpenIntents((current) => withStepRunOpenChoice(current, stepRun, isOpen));
   };
 
@@ -1150,6 +1168,7 @@ export function ExecutionGraph({
               node={node}
               onSelect={selectEventInGraph}
               onShowStepRun={stepRunKey ? () => setStepRunOpen(stepRunKey, true) : undefined}
+              stepRunKey={stepRunKey}
               repeatCount={item.repeatCount}
               selectedEventId={selectedEvent?.eventId ?? null}
             />
@@ -1284,6 +1303,27 @@ export function ExecutionGraph({
     const shown = viewportShowingBox(viewport, canvasSize, box);
     if (shown) void flowInstance.setViewport(shown, { duration: viewportTransitionDuration() });
   }, [canvasSize, flowInstance, nodes]);
+
+  // React Flow may show a new node a few frames late, so focusing retries briefly.
+  useEffect(() => {
+    const target = stepRunFocusTarget.current;
+    if (!target) return undefined;
+    let attemptsLeft = stepRunFocusAttempts;
+    let frame = 0;
+    const focusTarget = () => {
+      const button = [...(graphCanvas.current?.querySelectorAll<HTMLButtonElement>('[data-step-run-key]') ?? [])]
+        .find((candidate) => candidate.dataset.stepRunKey === target.key && candidate.dataset.stepRunAction === target.action);
+      button?.focus({ preventScroll: true });
+      attemptsLeft -= 1;
+      if ((button && document.activeElement === button) || attemptsLeft <= 0) {
+        stepRunFocusTarget.current = null;
+        return;
+      }
+      frame = window.requestAnimationFrame(focusTarget);
+    };
+    focusTarget();
+    return () => window.cancelAnimationFrame(frame);
+  }, [nodes]);
 
   const wholeGraphZoom = fittingGraphZoom(bounds, { width: canvasWidth * fitPadding, height: canvasSize.height * fitPadding });
   /** Fits the whole graph into the box, however small, since Fit View must show everything. */
