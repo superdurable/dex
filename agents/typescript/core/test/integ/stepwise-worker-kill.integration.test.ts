@@ -234,7 +234,7 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
   ] as const) {
     test(`an idempotent write whose retry finds the tool ${deploy} records outcome_unknown`, async () => {
       const markerDirectory = newMarkerDirectory();
-      const firstWorker = await startWorker(markerDirectory);
+      const firstWorker = await startWorker(markerDirectory, { refundToolDeploy: "original" });
       const token = newToken();
       const sessionId = `stepwise-kill-deploy-${deploy}-${token}`;
       await sessions.startSession(sessionId, `idempotent-refund ${token} then pause`);
