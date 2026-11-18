@@ -28,9 +28,11 @@ import (
 //
 // Open, Registering, Busy, and Idle count Step-and-RPC streams only, the streams
 // that accept both Steps and RPCs. RPCOnlyOpen counts the reserved RPC-only streams.
-// The Worker keeps Open between Floor and EffectiveCeiling when it is adaptive, that
-// is when PullWorkerOptions.MinOpenSlots is below MaxConcurrentTasks. A fixed Worker
-// keeps every slot open, so Open equals EffectiveCeiling once it has registered.
+// While every stream is registered and no handler outlives its stream, an adaptive Worker,
+// whose PullWorkerOptions.MinOpenSlots is below MaxConcurrentTasks, keeps Open between
+// Floor and EffectiveCeiling, and a fixed Worker keeps Open equal to EffectiveCeiling.
+// Reconnects, orphaned handlers, and a lowered Server cap move Open outside that range
+// until the Worker converges again.
 //
 // Open of zero with OrphanedHandlers above zero means that the Worker holds no live
 // Step-and-RPC stream and waits for running handlers to return, for example after a
@@ -136,10 +138,12 @@ type pullSlotAttempt struct {
 	isOpenedAfterReadiness bool
 	hasEnded               bool
 	hasReceivedRegistered  bool
-	isOrphaned             bool
-	isClosedOnPurpose      bool
-	isSoftRejected         bool
-	isReopenGranted        bool
+	// isRegisterSent is set when the attempt passes its last capacity check; it may then reach the Server.
+	isRegisterSent    bool
+	isOrphaned        bool
+	isClosedOnPurpose bool
+	isSoftRejected    bool
+	isReopenGranted   bool
 }
 
 // pullSlotPhase is the phase of one attempt; untracked attempts count in no total.
@@ -447,24 +451,72 @@ func (worker *pullWorker) shrinkSlotStreamsLocked() {
 	worker.recomputeSlotCapacityLocked()
 }
 
-// closeSurplusSlotStreamsLocked half-closes idle streams above a lowered cap; RPC-only surplus goes first.
+// closeSurplusSlotStreamsLocked releases capacity above a lowered cap; RPC-only surplus goes first.
+// An attempt whose Register has not left yet is revoked first, because it costs the Server nothing.
 func (worker *pullWorker) closeSurplusSlotStreamsLocked() {
-	for worker.rpcOnlySlotUsageLocked() > worker.slots.rpcOnlySlots {
-		stream := worker.newestIdleStreamLocked(dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY)
-		if stream == nil {
-			break
+	for _, slotKind := range []dexpb.PollWorkerSlotKind{dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY, dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC} {
+		for worker.isSlotKindOverQuotaLocked(slotKind) {
+			if pending := worker.unsentSlotAttemptLocked(slotKind); pending != nil {
+				worker.revokeSlotAttemptLocked(pending)
+				continue
+			}
+			stream := worker.newestIdleStreamLocked(slotKind)
+			if stream == nil {
+				break
+			}
+			worker.halfCloseSlotStreamLocked(stream, true)
+			worker.slots.streamsShrunk++
 		}
-		worker.halfCloseSlotStreamLocked(stream, true)
-		worker.slots.streamsShrunk++
 	}
-	for worker.stepSlotUsageLocked() > max(0, worker.slots.totalCapacity-worker.slots.rpcOnlySlots) {
-		stream := worker.newestIdleStreamLocked(dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC)
-		if stream == nil {
-			break
-		}
-		worker.halfCloseSlotStreamLocked(stream, true)
-		worker.slots.streamsShrunk++
+}
+
+// admitSlotRegistration is the last check before a Register leaves. An attempt granted before the
+// Worker learned a lower cap is revoked when it no longer fits, so no Register exceeds a known cap (F5).
+func (worker *pullWorker) admitSlotRegistration(stream *pullStream) bool {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	if worker.isStopping || stream.slot.phase != pullSlotPhaseRegistering || stream.slot.hasEnded {
+		return false
 	}
+	if !worker.isSlotAttemptOverCapacityLocked(stream) {
+		stream.slot.isRegisterSent = true
+		return true
+	}
+	worker.revokeSlotAttemptLocked(stream)
+	worker.recomputeSlotCapacityLocked()
+	worker.maybeReopenSlotStreamsLocked(nil)
+	if worker.slots.stepPhaseCounts[pullSlotPhaseRegistering] == 0 {
+		worker.settleGrowthBatchLocked()
+	}
+	return false
+}
+
+// isSlotAttemptOverCapacityLocked checks one registering attempt, which the totals already count.
+func (worker *pullWorker) isSlotAttemptOverCapacityLocked(stream *pullStream) bool {
+	if worker.stepSlotUsageLocked()+worker.rpcOnlySlotUsageLocked() > worker.slots.totalCapacity {
+		return true
+	}
+	if stream.slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY {
+		return worker.rpcOnlySlotUsageLocked() > worker.slots.rpcOnlySlots
+	}
+	// F5 gives the first Step-and-RPC stream any free slot, so only later ones need the Step quota.
+	return worker.stepSlotOpenLocked() > 1 && worker.stepSlotUsageLocked() > worker.slots.effectiveCeiling
+}
+
+// isSlotKindOverQuotaLocked reports surplus of a kind after a lowered cap: RPC-only above R_eff,
+// or Step-and-RPC above C - R_eff.
+func (worker *pullWorker) isSlotKindOverQuotaLocked(slotKind dexpb.PollWorkerSlotKind) bool {
+	if slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY {
+		return worker.rpcOnlySlotUsageLocked() > worker.slots.rpcOnlySlots
+	}
+	return worker.stepSlotUsageLocked() > max(0, worker.slots.totalCapacity-worker.slots.rpcOnlySlots)
+}
+
+// revokeSlotAttemptLocked takes back an attempt whose Register has not left; its runner then exits.
+func (worker *pullWorker) revokeSlotAttemptLocked(stream *pullStream) {
+	stream.slot.isClosedOnPurpose = true
+	stream.slot.hasEnded = true
+	worker.setSlotPhaseLocked(stream, pullSlotPhaseUntracked)
 }
 
 // settleGrowthBatchLocked runs when no stream registers; a rejected batch clamps G until the window ends.
@@ -632,6 +684,16 @@ func (worker *pullWorker) idleStepStreamsNewestFirstLocked() []*pullStream {
 	}
 	sort.Slice(idleStreams, func(i, j int) bool { return idleStreams[i].slot.idleSequence > idleStreams[j].slot.idleSequence })
 	return idleStreams
+}
+
+// unsentSlotAttemptLocked returns a registering attempt of the kind whose Register has not left, or nil.
+func (worker *pullWorker) unsentSlotAttemptLocked(slotKind dexpb.PollWorkerSlotKind) *pullStream {
+	for stream := range worker.streams {
+		if stream.slotKind == slotKind && stream.slot.phase == pullSlotPhaseRegistering && !stream.slot.isRegisterSent {
+			return stream
+		}
+	}
+	return nil
 }
 
 func (worker *pullWorker) newestIdleStreamLocked(slotKind dexpb.PollWorkerSlotKind) *pullStream {

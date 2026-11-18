@@ -67,11 +67,30 @@ type pullSlotProxy struct {
 	registers []pullSlotProxyRegister
 	// acknowledgements lists every Registered frame forwarded to a Worker, in order.
 	acknowledgements []pullSlotProxyRegister
-	// stepRegisterGate, when set, holds STEP_AND_RPC Registers until an RPC_ONLY stream is acknowledged.
-	stepRegisterGate chan struct{}
+	// rejections lists every Register that the server answered with RESOURCE_EXHAUSTED.
+	rejections []pullSlotProxyRegister
+	// workerResets lists every stream that the Worker reset instead of ending cleanly.
+	workerResets []pullSlotProxyRegister
+	// stepRegisterGate, when set, holds STEP_AND_RPC Registers until it is released.
+	stepRegisterGate *pullSlotProxyGate
 	// acknowledgementGate, when set, holds every acknowledgement until it closes.
 	acknowledgementGate chan struct{}
+	// failStepRegisters, when set, answers STEP_AND_RPC Registers with UNAVAILABLE without reaching the server.
+	failStepRegisters bool
+	// passStepRegisters lets this many Registers through while failStepRegisters is set.
+	passStepRegisters int
+	// halfCloseGate, when set, holds every Worker half-close until it closes.
+	halfCloseGate chan struct{}
+	// heldHalfCloses receives one value for each half-close that halfCloseGate holds.
+	heldHalfCloses      chan struct{}
 	firstAckForwardedAt time.Time
+}
+
+// pullSlotProxyGate holds STEP_AND_RPC Registers; isReleasedByRPCOnly releases it at the first RPC_ONLY acknowledgement.
+type pullSlotProxyGate struct {
+	release             chan struct{}
+	isReleasedByRPCOnly bool
+	held                []*pullSlotProxyStream
 }
 
 type pullSlotProxyStream struct {
@@ -81,6 +100,11 @@ type pullSlotProxyStream struct {
 	hasEnded     bool
 	isReset      atomic.Bool
 	cancel       context.CancelFunc
+	// upstreamAnswered closes when the server sends the first frame or ends the stream.
+	upstreamAnswered chan struct{}
+	answerOnce       sync.Once
+	// stage names how far the proxy forwarded this stream, for failure messages.
+	stage atomic.Value
 }
 
 type pullSlotProxyRegister struct {
@@ -318,25 +342,39 @@ func (proxy *pullSlotProxy) forwardPollWorkerTask(ctx context.Context, cancel co
 	if err := proto.Unmarshal(first.payload, request); err != nil {
 		return status.Errorf(codes.InvalidArgument, "proxy: decode first frame: %v", err)
 	}
-	stream := &pullSlotProxyStream{appWorkerID: request.GetRegister().GetAppWorkerId(), slotKind: request.GetRegister().GetSlotKind(), cancel: cancel}
+	stream := &pullSlotProxyStream{appWorkerID: request.GetRegister().GetAppWorkerId(), slotKind: request.GetRegister().GetSlotKind(), cancel: cancel, upstreamAnswered: make(chan struct{})}
+	register := pullSlotProxyRegister{appWorkerID: stream.appWorkerID, slotKind: stream.slotKind, at: time.Now()}
+	isStep := stream.slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC
 	proxy.mu.Lock()
-	proxy.registers = append(proxy.registers, pullSlotProxyRegister{appWorkerID: stream.appWorkerID, slotKind: stream.slotKind, at: time.Now()})
+	proxy.registers = append(proxy.registers, register)
 	proxy.streams[stream] = struct{}{}
 	gate := proxy.stepRegisterGate
-	conn := proxy.upstream
+	if isStep && gate != nil {
+		gate.held = append(gate.held, stream)
+	}
+	shouldFail := isStep && proxy.failStepRegisters && proxy.passStepRegisters == 0
+	if isStep && proxy.failStepRegisters && proxy.passStepRegisters > 0 {
+		proxy.passStepRegisters--
+	}
 	proxy.mu.Unlock()
 	defer proxy.markEnded(stream)
-	if gate != nil && stream.slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_STEP_AND_RPC {
+	defer stream.markUpstreamAnswered()
+	if shouldFail {
+		return status.Error(codes.Unavailable, "pull slot proxy failed the Register")
+	}
+	stream.stage.Store("arrived")
+	if isStep && gate != nil {
+		stream.stage.Store("gated")
 		select {
-		case <-gate:
-		case <-time.After(15 * time.Second):
+		case <-gate.release:
 		case <-ctx.Done():
 			return status.FromContextError(ctx.Err()).Err()
 		}
-		proxy.mu.Lock()
-		conn = proxy.upstream
-		proxy.mu.Unlock()
 	}
+	proxy.mu.Lock()
+	conn := proxy.upstream
+	proxy.mu.Unlock()
+	stream.stage.Store("opening upstream")
 	upstream, err := conn.NewStream(ctx, &dexpb.WorkerTaskService_ServiceDesc.Streams[0], dexpb.WorkerTaskService_PollWorkerTask_FullMethodName)
 	if err != nil {
 		return err
@@ -344,14 +382,17 @@ func (proxy *pullSlotProxy) forwardPollWorkerTask(ctx context.Context, cancel co
 	if err := upstream.SendMsg(first); err != nil {
 		return proxy.resetStatusOr(stream, err)
 	}
-	go pumpDownstreamFrames(downstream, upstream, nil)
+	stream.stage.Store("register sent upstream")
+	go proxy.pumpPollDownstreamFrames(ctx, stream, downstream, upstream)
 	err = pumpUpstreamFrames(upstream, downstream, func(frame *rawProxyFrame) {
+		stream.markUpstreamAnswered()
 		response := &dexpb.PollWorkerTaskResponse{}
 		if decodeErr := proto.Unmarshal(frame.payload, response); decodeErr != nil || response.GetRegistered() == nil {
 			return
 		}
 		proxy.recordAcknowledgement(stream)
 	})
+	proxy.recordStreamEnd(stream, register, downstream, err)
 	return proxy.resetStatusOr(stream, err)
 }
 
@@ -368,16 +409,34 @@ func (proxy *pullSlotProxy) recordAcknowledgement(stream *pullSlotProxyStream) {
 	if proxy.firstAckForwardedAt.IsZero() {
 		proxy.firstAckForwardedAt = time.Now()
 	}
-	stepRegisterGate := proxy.stepRegisterGate
-	isReleasingStepRegisters := stepRegisterGate != nil && stream.slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY
+	gate := proxy.stepRegisterGate
+	isReleasingStepRegisters := gate != nil && gate.isReleasedByRPCOnly && stream.slotKind == dexpb.PollWorkerSlotKind_POLL_WORKER_SLOT_KIND_RPC_ONLY
 	if isReleasingStepRegisters {
 		proxy.stepRegisterGate = nil
 	}
 	proxy.mu.Unlock()
 	if isReleasingStepRegisters {
-		close(stepRegisterGate)
-		// The held Registers reach the server before the Worker sees this acknowledgement, so the cap rejects them.
-		time.Sleep(200 * time.Millisecond)
+		close(gate.release)
+		// The Worker sees this acknowledgement only after the server answered every held Register.
+		for _, held := range gate.held {
+			select {
+			case <-held.upstreamAnswered:
+			case <-time.After(10 * time.Second):
+				proxy.t.Errorf("a held Register got no answer from the server")
+			}
+		}
+	}
+}
+
+// recordStreamEnd logs a cap rejection and a reset that came from the Worker.
+func (proxy *pullSlotProxy) recordStreamEnd(stream *pullSlotProxyStream, register pullSlotProxyRegister, downstream grpc.ServerStream, err error) {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	if status.Code(err) == codes.ResourceExhausted {
+		proxy.rejections = append(proxy.rejections, register)
+	}
+	if err != nil && !stream.isReset.Load() && downstream.Context().Err() != nil {
+		proxy.workerResets = append(proxy.workerResets, pullSlotProxyRegister{appWorkerID: stream.appWorkerID, slotKind: stream.slotKind, at: time.Now()})
 	}
 }
 
@@ -395,11 +454,147 @@ func (proxy *pullSlotProxy) markEnded(stream *pullSlotProxyStream) {
 	delete(proxy.streams, stream)
 }
 
+func (stream *pullSlotProxyStream) markUpstreamAnswered() {
+	stream.answerOnce.Do(func() { close(stream.upstreamAnswered) })
+}
+
 // holdStepRegistersUntilRPCOnlyAcknowledged forces the reconnect order of design Test 17.
 func (proxy *pullSlotProxy) holdStepRegistersUntilRPCOnlyAcknowledged() {
 	proxy.mu.Lock()
 	defer proxy.mu.Unlock()
-	proxy.stepRegisterGate = make(chan struct{})
+	proxy.stepRegisterGate = &pullSlotProxyGate{release: make(chan struct{}), isReleasedByRPCOnly: true}
+}
+
+// holdStepRegisters holds STEP_AND_RPC Registers until release is called.
+func (proxy *pullSlotProxy) holdStepRegisters() (release func()) {
+	gate := &pullSlotProxyGate{release: make(chan struct{})}
+	proxy.mu.Lock()
+	proxy.stepRegisterGate = gate
+	proxy.mu.Unlock()
+	return func() {
+		proxy.mu.Lock()
+		if proxy.stepRegisterGate == gate {
+			proxy.stepRegisterGate = nil
+		}
+		proxy.mu.Unlock()
+		close(gate.release)
+	}
+}
+
+// heldStepRegisters counts the STEP_AND_RPC Registers that the manual gate holds now.
+func (proxy *pullSlotProxy) heldStepRegisters() int {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	if proxy.stepRegisterGate == nil {
+		return 0
+	}
+	count := 0
+	for _, held := range proxy.stepRegisterGate.held {
+		if !held.hasEnded {
+			count++
+		}
+	}
+	return count
+}
+
+// failStepRegistersFromNow answers every later STEP_AND_RPC Register with UNAVAILABLE until stopFailingStepRegisters.
+func (proxy *pullSlotProxy) failStepRegistersFromNow() {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	proxy.failStepRegisters = true
+	proxy.passStepRegisters = 0
+}
+
+// passNextStepRegister lets one STEP_AND_RPC Register through while Registers fail.
+func (proxy *pullSlotProxy) passNextStepRegister() {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	proxy.passStepRegisters++
+}
+
+func (proxy *pullSlotProxy) stopFailingStepRegisters() {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	proxy.failStepRegisters = false
+}
+
+// holdHalfCloses keeps every Worker half-close from reaching the server until release is called.
+func (proxy *pullSlotProxy) holdHalfCloses() (held <-chan struct{}, release func()) {
+	gate := make(chan struct{})
+	heldHalfCloses := make(chan struct{}, 64)
+	proxy.mu.Lock()
+	proxy.halfCloseGate = gate
+	proxy.heldHalfCloses = heldHalfCloses
+	proxy.mu.Unlock()
+	return heldHalfCloses, func() {
+		proxy.mu.Lock()
+		proxy.halfCloseGate = nil
+		proxy.mu.Unlock()
+		close(gate)
+	}
+}
+
+// pumpPollDownstreamFrames forwards a slot stream's frames; its half-close may wait at halfCloseGate.
+func (proxy *pullSlotProxy) pumpPollDownstreamFrames(ctx context.Context, stream *pullSlotProxyStream, downstream grpc.ServerStream, upstream grpc.ClientStream) {
+	pumpDownstreamFrames(downstream, upstream, func() {
+		proxy.mu.Lock()
+		gate := proxy.halfCloseGate
+		heldHalfCloses := proxy.heldHalfCloses
+		proxy.mu.Unlock()
+		if gate == nil {
+			return
+		}
+		heldHalfCloses <- struct{}{}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	})
+}
+
+func (proxy *pullSlotProxy) rejectionsSince(appWorkerID string, since time.Time) []pullSlotProxyRegister {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	return filterProxyRegisters(proxy.rejections, appWorkerID, since)
+}
+
+func (proxy *pullSlotProxy) workerResetsSince(appWorkerID string, since time.Time) []pullSlotProxyRegister {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	return filterProxyRegisters(proxy.workerResets, appWorkerID, since)
+}
+
+// describe summarizes what the proxy saw of appWorkerID, for failure messages.
+func (proxy *pullSlotProxy) describe(appWorkerID string) string {
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	var builder strings.Builder
+	for _, entry := range []struct {
+		name   string
+		events []pullSlotProxyRegister
+	}{{"registers", proxy.registers}, {"acknowledgements", proxy.acknowledgements}, {"rejections", proxy.rejections}, {"workerResets", proxy.workerResets}} {
+		fmt.Fprintf(&builder, "%s:", entry.name)
+		for _, event := range filterProxyRegisters(entry.events, appWorkerID, time.Time{}) {
+			fmt.Fprintf(&builder, " %s@%s", strings.TrimPrefix(event.slotKind.String(), "POLL_WORKER_SLOT_KIND_"), event.at.Format("15:04:05.000"))
+		}
+		builder.WriteString("\n")
+	}
+	for stream := range proxy.streams {
+		if stream.appWorkerID == appWorkerID {
+			fmt.Fprintf(&builder, "live %s registered=%t stage=%v\n", stream.slotKind, stream.isRegistered, stream.stage.Load())
+		}
+	}
+	return builder.String()
+}
+
+func filterProxyRegisters(registers []pullSlotProxyRegister, appWorkerID string, since time.Time) []pullSlotProxyRegister {
+	var matching []pullSlotProxyRegister
+	for _, register := range registers {
+		if register.appWorkerID == appWorkerID && !register.at.Before(since) {
+			matching = append(matching, register)
+		}
+	}
+	return matching
 }
 
 // holdAcknowledgements delays every acknowledgement until release is called.
@@ -475,21 +670,21 @@ func (proxy *pullSlotProxy) firstAcknowledgementAt() time.Time {
 	return proxy.firstAckForwardedAt
 }
 
-// pumpDownstreamFrames forwards the client's frames and its half-close to the server.
-func pumpDownstreamFrames(downstream grpc.ServerStream, upstream grpc.ClientStream, observe func(*rawProxyFrame)) {
+// pumpDownstreamFrames forwards the client's frames and its half-close to the server; beforeHalfClose may delay the half-close.
+func pumpDownstreamFrames(downstream grpc.ServerStream, upstream grpc.ClientStream, beforeHalfClose func()) {
 	for {
 		frame := &rawProxyFrame{}
 		if err := downstream.RecvMsg(frame); err != nil {
 			if errors.Is(err, io.EOF) {
+				if beforeHalfClose != nil {
+					beforeHalfClose()
+				}
 				// CloseSend only fails after the stream already ended, which the other pump reports.
 				if closeErr := upstream.CloseSend(); closeErr != nil {
 					return
 				}
 			}
 			return
-		}
-		if observe != nil {
-			observe(frame)
 		}
 		if err := upstream.SendMsg(frame); err != nil {
 			return

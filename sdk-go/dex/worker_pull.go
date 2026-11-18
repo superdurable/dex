@@ -484,6 +484,10 @@ func (stream *pullStream) run() {
 		if isStopping {
 			return
 		}
+		// The grant may be older than the cap that another stream reported during the backoff.
+		if !stream.worker.admitSlotRegistration(stream) {
+			return
+		}
 		observer := &rejectedTokenObserver{}
 		wasRegistered, err := stream.poll(observer)
 		if wasRegistered {

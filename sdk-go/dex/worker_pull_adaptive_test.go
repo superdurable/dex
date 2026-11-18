@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
@@ -67,6 +68,7 @@ type adaptiveSlotHandlers struct {
 	mu      sync.Mutex
 	// stubbornReleases releases handlers that ignore cancellation, keyed by Flow ID or "rpc".
 	stubbornReleases map[string]chan struct{}
+	releasedStubborn map[string]bool
 	isRPCStubborn    bool
 }
 
@@ -173,12 +175,9 @@ func TestWorkerPullAdaptiveGrowShrinkWithRealServer(t *testing.T) {
 	// reopens, for longer than two maximum reconnect backoffs (2 x 7.5 s).
 	requireRegisteredStreams(t, proxy, appWorkerID, 2, 1)
 	since := time.Now()
-	for time.Since(since) < 16*time.Second {
-		state = run.worker.PullSlotStreamState()
-		require.Equal(t, 2, state.Open, "streams rose above the floor at rest: %+v", state)
-		time.Sleep(100 * time.Millisecond)
-	}
-	require.Empty(t, proxy.registersSince(appWorkerID, since), "a stream closed on purpose registered again")
+	require.Never(t, func() bool {
+		return run.worker.PullSlotStreamState().Open != 2 || len(proxy.registersSince(appWorkerID, since)) != 0
+	}, 16*time.Second, 50*time.Millisecond, "streams rose above the floor at rest, or a stream closed on purpose registered again")
 }
 
 // TestWorkerPullAdaptiveRPCBurstWithRealServer covers the RPC variant of design Test 3, where S + R serve the burst.
@@ -244,11 +243,10 @@ func TestWorkerPullAdaptiveSoftRejectionAtNodeLimitWithRealServer(t *testing.T) 
 
 	// At most one growth batch per window while rejections continue: a batch is min(E - S, S) = 5.
 	since := time.Now()
-	time.Sleep(3 * window)
-	registers := proxy.registersSince(appWorkerID, since)
-	require.NotEmpty(t, registers, "the Worker never retried growth")
-	require.LessOrEqual(t, len(registers), 4*5)
-	requireRegisterBatchesPerWindow(t, registers, window, 5)
+	require.Eventually(t, func() bool {
+		return countRegisterBatches(proxy.registersSince(appWorkerID, since), window) >= 3
+	}, 6*window, 20*time.Millisecond, "the Worker did not retry growth once per window")
+	requireRegisterBatchesPerWindow(t, proxy.registersSince(appWorkerID, since), window, 5)
 	requireNoPermanentRegistrationError(t, run)
 
 	// Room returns: growth resumes after the next window, and G returns to E.
@@ -284,17 +282,18 @@ func TestWorkerPullAdaptiveFloorRetryLatchWithRealServer(t *testing.T) {
 	requireSlotStateWithin(t, run.worker, "the reset stream ended", 5*time.Second, func(state PullSlotStreamState) bool {
 		return state.Open-state.Registering == 1
 	})
-	observeUntil := since.Add(3*window + window/2)
-	for time.Now().Before(observeUntil) {
+	// One reconnect after the reset, then one retry per window: wait for three window retries.
+	violation := ""
+	require.Eventually(t, func() bool {
 		state := run.worker.PullSlotStreamState()
-		require.LessOrEqual(t, state.Open-state.Registering, 1)
-		require.True(t, run.worker.PullRegistrationState().IsReady)
-		time.Sleep(20 * time.Millisecond)
-	}
+		if state.Open-state.Registering > 1 || !run.worker.PullRegistrationState().IsReady {
+			violation = fmt.Sprintf("a stream registered at the node limit, or readiness dropped: %+v", state)
+			return true
+		}
+		return len(stepRegisters(proxy.registersSince(appWorkerID, since))) >= 4
+	}, 6*window, 10*time.Millisecond, "the Worker did not retry at each window")
+	require.Empty(t, violation)
 	registers := stepRegisters(proxy.registersSince(appWorkerID, since))
-	// One reconnect after the reset, then at most one Register per window.
-	require.GreaterOrEqual(t, len(registers), 2, "the Worker never retried at the window")
-	require.LessOrEqual(t, len(registers), 5)
 	for index := 1; index+1 < len(registers); index++ {
 		require.GreaterOrEqual(t, registers[index+1].at.Sub(registers[index].at), window*8/10, "a Register followed a rejected stream's end at once")
 	}
@@ -303,10 +302,15 @@ func TestWorkerPullAdaptiveFloorRetryLatchWithRealServer(t *testing.T) {
 	requireNoPermanentRegistrationError(t, run)
 
 	// A competitor stream that ends does not clear this Worker's latch.
+	beforeClose := stepRegisters(proxy.registersSince(appWorkerID, since))
+	lastRegisterBeforeClose := beforeClose[len(beforeClose)-1]
 	competitorClosedAt := time.Now()
 	competitor.closeOneStream()
-	time.Sleep(window / 2)
-	require.LessOrEqual(t, len(stepRegisters(proxy.registersSince(appWorkerID, competitorClosedAt))), 1)
+	require.Eventually(t, func() bool {
+		return len(stepRegisters(proxy.registersSince(appWorkerID, competitorClosedAt))) >= 1
+	}, 3*window, 10*time.Millisecond, "the Worker stopped retrying at the window")
+	nextRegister := stepRegisters(proxy.registersSince(appWorkerID, competitorClosedAt))[0]
+	require.GreaterOrEqual(t, nextRegister.at.Sub(lastRegisterBeforeClose.at), window*8/10, "the competitor's close triggered a Register")
 
 	// When the competitor leaves, the floor comes back within one window.
 	competitor.stop()
@@ -328,8 +332,8 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 		run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{AppWorkerID: appWorkerID}, time.Hour, logger)
 		// F4: only the probe stream registers before the first acknowledgement.
 		require.Eventually(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) == 1 }, 10*time.Second, 10*time.Millisecond)
-		time.Sleep(300 * time.Millisecond)
-		require.Len(t, proxy.registersSince(appWorkerID, time.Time{}), 1)
+		require.Never(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) > 1 }, 300*time.Millisecond, 10*time.Millisecond,
+			"a stream registered before the probe's acknowledgement")
 		releaseAcknowledgements()
 		requireCapOfOneWorkerServes(t, server, proxy, run, appWorkerID)
 		if runtime.NumCPU() > 1 {
@@ -505,8 +509,8 @@ func TestWorkerPullFixedCapDropToOneWithRealServer(t *testing.T) {
 			require.False(t, run.worker.PullRegistrationState().IsReady)
 			// Today's permanent-error backoff is one minute, so no Step-and-RPC stream registers again soon.
 			rejectedAt := time.Now()
-			time.Sleep(5 * time.Second)
-			require.Empty(t, stepRegisters(proxy.registersSince(appWorkerID, rejectedAt)))
+			require.Never(t, func() bool { return len(stepRegisters(proxy.registersSince(appWorkerID, rejectedAt))) != 0 }, 5*time.Second, 50*time.Millisecond,
+				"a Step-and-RPC stream retried before the permanent-error backoff")
 			require.False(t, run.worker.PullSlotStreamState().IsAdaptive)
 			require.Zero(t, run.worker.PullSlotStreamState().GrowRejectedAtCap)
 		})
@@ -526,9 +530,9 @@ func TestWorkerPullAdaptiveOrphanedHandlersAcrossRestartWithRealServer(t *testin
 		requireSlotStateWithin(t, run.worker, "every handler orphaned", 10*time.Second, func(state PullSlotStreamState) bool {
 			return state.Open == 0 && state.RPCOnlyOpen == 0 && state.OrphanedHandlers == 3 && state.OrphanedRPCOnlyHandlers == 1
 		})
-		time.Sleep(time.Second)
-		require.Empty(t, proxy.registersSince(appWorkerID, killedAt))
-		require.True(t, run.worker.PullRegistrationState().IsReady)
+		require.Never(t, func() bool {
+			return len(proxy.registersSince(appWorkerID, killedAt)) != 0 || !run.worker.PullRegistrationState().IsReady
+		}, time.Second, 10*time.Millisecond, "a stream registered while orphaned handlers filled the capacity, or readiness dropped")
 
 		// Freed capacity goes to one Step-and-RPC stream first, then to the RPC-only stream.
 		handlers.releaseStubborn(flowIDs[0])
@@ -566,21 +570,106 @@ func TestWorkerPullAdaptiveOrphanedHandlersAcrossRestartWithRealServer(t *testin
 			return state.TotalCapacity == 2 && state.Open == 0 && state.Registering == 0
 		})
 		handlers.releaseStubborn(flowIDs[1])
-		time.Sleep(time.Second)
-		require.Empty(t, proxy.registersSince(appWorkerID, acknowledgedAt.Add(time.Millisecond)), "a Register went out while usage exceeded the new cap")
+		requireSlotStateWithin(t, run.worker, "the second handler returned", 10*time.Second, func(state PullSlotStreamState) bool {
+			return state.OrphanedHandlers == 1
+		})
+		// Usage is still 2 of 2 with one Step and one RPC-only handler running.
+		require.Never(t, func() bool { return len(proxy.registersSince(appWorkerID, acknowledgedAt.Add(time.Millisecond))) != 0 }, time.Second, 10*time.Millisecond,
+			"a Register went out while usage reached the new cap")
 		handlers.releaseStubborn(flowIDs[2], stubbornRPCKey)
 		requireSlotStateWithin(t, run.worker, "usage converged to the new cap", 20*time.Second, func(state PullSlotStreamState) bool {
 			return state.Open == 1 && state.RPCOnlyOpen == 1 && state.Registering == 0 && state.OrphanedHandlers == 0 && state.OrphanedRPCOnlyHandlers == 0
 		})
 		state := run.worker.PullSlotStreamState()
 		require.LessOrEqual(t, state.Open+state.RPCOnlyOpen, state.TotalCapacity)
-		require.Equal(t, 1, proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind))
-		require.Equal(t, 1, proxy.registeredStreams(appWorkerID, rpcOnlySlotKind))
+		requireRegisteredStreams(t, proxy, appWorkerID, 1, 1)
 		// F5 allows the transient excess, so this case asserts convergence instead of a bound at every sample.
 		t.Logf("samples above the new cap while old handlers ran: %d", len(scenario.sampler.stopSampling()))
 		awaitRPCAfterRestart(t, scenario.rpcResult)
 		restartedClient := server.newClient(t, run.worker.registry)
 		requireAdaptiveSlotFlowsCompleted(t, context.Background(), restartedClient, flowIDs)
+	})
+	t.Run("failover while a growth batch registers", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		proxy := startPullSlotProxy(t, server.address)
+		handlers := newAdaptiveSlotHandlers()
+		appWorkerID := "adaptive-growth-failover-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{MaxConcurrentTasks: 8, MinOpenSlots: 3, AppWorkerID: appWorkerID}, time.Hour, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, run.worker.WaitPullRegistered(ctx))
+		requireRegisteredStreams(t, proxy, appWorkerID, 2, 1)
+		releaseGrowth := proxy.holdStepRegisters()
+		client := server.newClient(t, run.worker.registry)
+		flowIDs := startAdaptiveSlotFlows(t, ctx, client, &adaptiveSlotFlow{handlers: handlers}, adaptiveSlotModeStubborn, 2)
+		// Both floor streams are busy, so a growth batch of 2 waits at the proxy.
+		require.Eventually(t, func() bool { return proxy.heldStepRegisters() == 2 }, 20*time.Second, 10*time.Millisecond)
+		requireSlotState(t, run.worker, "a growth batch registering", func(state PullSlotStreamState) bool {
+			return state.Busy == 2 && state.Registering == 2
+		})
+		sampler := startSlotUsageSampler(t, run.worker)
+		killedAt := time.Now()
+		server.kill()
+		server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		proxy.setUpstream(server.address)
+		requireSlotStateWithin(t, run.worker, "the busy streams orphaned", 10*time.Second, func(state PullSlotStreamState) bool {
+			return state.OrphanedHandlers == 2 && state.Registering == 2 && state.RPCOnlyOpen == 1
+		})
+		requireRegisteredStreams(t, proxy, appWorkerID, 0, 1)
+		// The in-flight batch already holds the floor, so no other Step-and-RPC stream opens.
+		require.Empty(t, stepRegisters(proxy.registersSince(appWorkerID, killedAt)))
+		releasedAt := time.Now()
+		releaseGrowth()
+		// The held batch registers on the new server; retried Steps may then grow the Worker further.
+		require.Eventually(t, func() bool {
+			return len(stepRegisters(proxy.acknowledgementsSince(appWorkerID, releasedAt))) >= 2 && proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) >= 2
+		}, 20*time.Second, 10*time.Millisecond, "the growth batch did not register after the failover")
+		handlers.releaseStubborn(flowIDs...)
+		restartedClient := server.newClient(t, run.worker.registry)
+		requireAdaptiveSlotFlowsCompleted(t, ctx, restartedClient, flowIDs)
+		requireSlotState(t, run.worker, "no orphaned handlers", func(state PullSlotStreamState) bool {
+			return state.OrphanedHandlers == 0 && state.Registering == 0
+		})
+		sampler.requireWithinCapacity(t)
+		requireNoPermanentRegistrationError(t, run)
+	})
+	t.Run("failover while a shrink half-close is in flight", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		proxy := startPullSlotProxy(t, server.address)
+		handlers := newAdaptiveSlotHandlers()
+		appWorkerID := "adaptive-shrink-failover-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{MaxConcurrentTasks: 8, MinOpenSlots: 3, AppWorkerID: appWorkerID}, time.Second, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, run.worker.WaitPullRegistered(ctx))
+		client := server.newClient(t, run.worker.registry)
+		flowIDs := startAdaptiveSlotFlows(t, ctx, client, &adaptiveSlotFlow{handlers: handlers}, adaptiveSlotModeBlock, 4)
+		requireSlotState(t, run.worker, "four busy Steps", func(state PullSlotStreamState) bool { return state.Busy == 4 && state.Registering == 0 })
+		heldHalfCloses, releaseHalfCloses := proxy.holdHalfCloses()
+		close(handlers.release)
+		requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
+		select {
+		case <-heldHalfCloses:
+		case <-time.After(20 * time.Second):
+			t.Fatal("the Worker never shrank")
+		}
+		// The server still holds the half-closing stream when it crashes.
+		sampler := startSlotUsageSampler(t, run.worker)
+		server.kill()
+		server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		// Registers that reached the dead server were retries of the same runners, so count from the switch.
+		switchedAt := time.Now()
+		proxy.setUpstream(server.address)
+		releaseHalfCloses()
+		requireRegisteredStreams(t, proxy, appWorkerID, 2, 1)
+		require.Never(t, func() bool {
+			return len(stepRegisters(proxy.registersSince(appWorkerID, switchedAt))) > 2 || proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) > 2
+		}, 3*time.Second, 20*time.Millisecond, "a stream closed by shrink reopened after the failover")
+		requireSlotState(t, run.worker, "the floor after the failover", func(state PullSlotStreamState) bool {
+			return state.Open == 2 && state.RPCOnlyOpen == 1 && state.Registering == 0
+		})
+		sampler.requireWithinCapacity(t)
+		requireNoPermanentRegistrationError(t, run)
 	})
 }
 
@@ -611,7 +700,9 @@ func TestWorkerPullFixedModeUnchangedWithRealServer(t *testing.T) {
 	close(handlers.release)
 	requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
 	since := time.Now()
-	time.Sleep(3 * time.Second)
+	require.Never(t, func() bool {
+		return run.worker.PullSlotStreamState().Open != 3 || len(proxy.registersSince(appWorkerID, since)) != 0
+	}, 3*time.Second, 20*time.Millisecond, "a fixed Worker changed its stream count at rest")
 	state := run.worker.PullSlotStreamState()
 	require.False(t, state.IsAdaptive)
 	require.Equal(t, 3, state.Open)
@@ -632,6 +723,107 @@ type orphanedHandlerScenario struct {
 	flowIDs     []string
 	rpcResult   <-chan error
 	sampler     *slotUsageSampler
+}
+
+// TestWorkerPullAdaptiveGrantRevokedAfterCapDropWithRealServer checks F5 for an attempt granted under the
+// old cap: when another stream reports a lower cap during its backoff, it sends no Register above that cap.
+func TestWorkerPullAdaptiveGrantRevokedAfterCapDropWithRealServer(t *testing.T) {
+	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+	proxy := startPullSlotProxy(t, server.address)
+	appWorkerID := "adaptive-revoke-" + uuid.NewString()[:8]
+	run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{
+		MaxConcurrentTasks: 8, MinOpenSlots: 3, ReservedRPCTasks: ptr.Any(0), AppWorkerID: appWorkerID,
+	}, time.Hour, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, run.worker.WaitPullRegistered(ctx))
+	requireRegisteredStreams(t, proxy, appWorkerID, 3, 0)
+
+	// Every floor stream breaks and gets a reconnect grant under the last known cap of 8.
+	server.kill()
+	proxy.failStepRegistersFromNow()
+	server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 2})
+	proxy.setUpstream(server.address)
+	// One runner registers and learns cap 2 while the other two wait in their backoff.
+	proxy.passNextStepRegister()
+	requireSlotStateWithin(t, run.worker, "the lower cap is known", 30*time.Second, func(state PullSlotStreamState) bool {
+		return state.TotalCapacity == 2
+	})
+	proxy.stopFailingStepRegisters()
+	capKnownAt := time.Now()
+	// One registered stream leaves room for exactly one more; the other old grant must be revoked.
+	require.Never(t, func() bool {
+		return len(stepRegisters(proxy.registersSince(appWorkerID, capKnownAt))) > 1 || len(proxy.rejectionsSince(appWorkerID, capKnownAt)) != 0
+	}, 8*time.Second, 20*time.Millisecond, "a Register granted under the old cap went out above the new cap")
+	requireSlotState(t, run.worker, "two streams at cap 2", func(state PullSlotStreamState) bool {
+		return state.Open == 2 && state.Registering == 0
+	})
+	requireRegisteredStreams(t, proxy, appWorkerID, 2, 0)
+	requireNoPermanentRegistrationError(t, run)
+}
+
+// TestWorkerPullAdaptiveCapDropWithoutOrphansWithRealServer covers design Test 7 for a cap above and below the floor.
+func TestWorkerPullAdaptiveCapDropWithoutOrphansWithRealServer(t *testing.T) {
+	t.Run("new cap above the floor", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		proxy := startPullSlotProxy(t, server.address)
+		handlers := newAdaptiveSlotHandlers()
+		appWorkerID := "adaptive-drop-above-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{MaxConcurrentTasks: 8, MinOpenSlots: 3, AppWorkerID: appWorkerID}, time.Second, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, run.worker.WaitPullRegistered(ctx))
+		client := server.newClient(t, run.worker.registry)
+		flow := &adaptiveSlotFlow{handlers: handlers}
+		flowIDs := startAdaptiveSlotFlows(t, ctx, client, flow, adaptiveSlotModeBlock, 6)
+		requireSlotState(t, run.worker, "six busy Steps", func(state PullSlotStreamState) bool { return state.Busy == 6 })
+		sampler := startSlotUsageSampler(t, run.worker)
+		server.kill()
+		restartedAt := time.Now()
+		server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 4})
+		proxy.setUpstream(server.address)
+		// C = 4 and R = 1 leave E = 3; the retried Steps grow the Worker back to E.
+		requireSlotStateWithin(t, run.worker, "growth up to the lower cap", 30*time.Second, func(state PullSlotStreamState) bool {
+			return state.TotalCapacity == 4 && state.EffectiveCeiling == 3 && state.Busy == 3 && state.Open == 3 && state.RPCOnlyOpen == 1 && state.Registering == 0
+		})
+		requireRegisteredStreams(t, proxy, appWorkerID, 3, 1)
+		require.Empty(t, proxy.rejectionsSince(appWorkerID, restartedAt))
+		require.Empty(t, proxy.workerResetsSince(appWorkerID, restartedAt), "cap convergence reset a stream")
+		requireNoPermanentRegistrationError(t, run)
+		close(handlers.release)
+		restartedClient := server.newClient(t, run.worker.registry)
+		requireAdaptiveSlotFlowsCompleted(t, ctx, restartedClient, flowIDs)
+		sampler.requireWithinCapacity(t)
+		require.Empty(t, proxy.workerResetsSince(appWorkerID, restartedAt), "cap convergence reset a stream")
+	})
+	t.Run("new cap below the floor", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 8})
+		proxy := startPullSlotProxy(t, server.address)
+		handlers := newAdaptiveSlotHandlers()
+		appWorkerID := "adaptive-drop-below-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{
+			MaxConcurrentTasks: 8, MinOpenSlots: 5, AppWorkerID: appWorkerID, StopOnPermanentStreamRejection: true,
+		}, time.Second, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, run.worker.WaitPullRegistered(ctx))
+		requireRegisteredStreams(t, proxy, appWorkerID, 4, 1)
+		server.kill()
+		restartedAt := time.Now()
+		server.restart(adaptiveSlotServerLimits{maxConcurrentTasksCap: 3})
+		proxy.setUpstream(server.address)
+		// C = 3 and R = 1 leave E = 2, so the floor of 4 becomes L_eff = 2.
+		requireSlotStateWithin(t, run.worker, "the floor limited by the lower cap", 30*time.Second, func(state PullSlotStreamState) bool {
+			return state.TotalCapacity == 3 && state.Floor == 2 && state.Open == 2 && state.RPCOnlyOpen == 1 && state.Registering == 0
+		})
+		requireRegisteredStreams(t, proxy, appWorkerID, 2, 1)
+		require.Empty(t, proxy.workerResetsSince(appWorkerID, restartedAt), "cap convergence reset a stream")
+		requireNoPermanentRegistrationError(t, run)
+		restartedClient := server.newClient(t, run.worker.registry)
+		flow := &adaptiveSlotFlow{handlers: handlers}
+		quickIDs := startAdaptiveSlotFlows(t, ctx, restartedClient, flow, adaptiveSlotModeQuick, 3)
+		requireAdaptiveSlotFlowsCompleted(t, ctx, restartedClient, quickIDs)
+	})
 }
 
 // TestWorkerPullAdaptiveGracefulStopDuringGrowthWithRealServer covers design Test 12.
@@ -777,10 +969,13 @@ func awaitRPCAfterRestart(t *testing.T, rpcResult <-chan error) {
 
 func requireRegisteredStreams(t *testing.T, proxy *pullSlotProxy, appWorkerID string, stepStreams int, rpcOnlyStreams int) {
 	t.Helper()
-	require.Eventually(t, func() bool {
+	isReached := assert.Eventually(t, func() bool {
 		return proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind) == stepStreams && proxy.registeredStreams(appWorkerID, rpcOnlySlotKind) == rpcOnlyStreams
-	}, 20*time.Second, 10*time.Millisecond, "server streams of %s: want %d Step-and-RPC and %d RPC-only, have %d and %d", appWorkerID, stepStreams, rpcOnlyStreams,
-		proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind), proxy.registeredStreams(appWorkerID, rpcOnlySlotKind))
+	}, 20*time.Second, 10*time.Millisecond)
+	if !isReached {
+		t.Fatalf("server streams of %s: want %d Step-and-RPC and %d RPC-only, have %d and %d\n%s", appWorkerID, stepStreams, rpcOnlyStreams,
+			proxy.registeredStreams(appWorkerID, stepAndRPCSlotKind), proxy.registeredStreams(appWorkerID, rpcOnlySlotKind), proxy.describe(appWorkerID))
+	}
 }
 
 func requireSlotState(t *testing.T, worker *Worker, description string, condition func(PullSlotStreamState) bool) {
@@ -790,16 +985,13 @@ func requireSlotState(t *testing.T, worker *Worker, description string, conditio
 
 func requireSlotStateWithin(t *testing.T, worker *Worker, description string, timeout time.Duration, condition func(PullSlotStreamState) bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		state := worker.PullSlotStreamState()
-		if condition(state) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("slot streams never reached %s: %+v", description, state)
-		}
-		time.Sleep(10 * time.Millisecond)
+	var last PullSlotStreamState
+	isReached := assert.Eventually(t, func() bool {
+		last = worker.PullSlotStreamState()
+		return condition(last)
+	}, timeout, 10*time.Millisecond)
+	if !isReached {
+		t.Fatalf("slot streams never reached %s: %+v", description, last)
 	}
 }
 
@@ -832,6 +1024,19 @@ func requireRegisterBatchesPerWindow(t *testing.T, registers []pullSlotProxyRegi
 		batchCount++
 		require.LessOrEqual(t, batchCount, batchSize)
 	}
+}
+
+// countRegisterBatches groups Registers that arrive within half a window of a batch's first one.
+func countRegisterBatches(registers []pullSlotProxyRegister, window time.Duration) int {
+	batches := 0
+	var batchStart time.Time
+	for _, register := range registers {
+		if batches == 0 || register.at.Sub(batchStart) > window/2 {
+			batches++
+			batchStart = register.at
+		}
+	}
+	return batches
 }
 
 func stepRegisters(registers []pullSlotProxyRegister) []pullSlotProxyRegister {
@@ -898,7 +1103,10 @@ func (sampler *slotUsageSampler) stopSampling() []PullSlotStreamState {
 }
 
 func newAdaptiveSlotHandlers() *adaptiveSlotHandlers {
-	return &adaptiveSlotHandlers{entered: make(chan adaptiveSlotEntry, 1024), release: make(chan struct{}), stubbornReleases: make(map[string]chan struct{})}
+	return &adaptiveSlotHandlers{
+		entered: make(chan adaptiveSlotEntry, 1024), release: make(chan struct{}),
+		stubbornReleases: make(map[string]chan struct{}), releasedStubborn: make(map[string]bool),
+	}
 }
 
 func (handlers *adaptiveSlotHandlers) stubbornRelease(key string) chan struct{} {
@@ -914,8 +1122,25 @@ func (handlers *adaptiveSlotHandlers) stubbornRelease(key string) chan struct{} 
 
 func (handlers *adaptiveSlotHandlers) releaseStubborn(keys ...string) {
 	for _, key := range keys {
-		close(handlers.stubbornRelease(key))
+		release := handlers.stubbornRelease(key)
+		handlers.mu.Lock()
+		if !handlers.releasedStubborn[key] {
+			handlers.releasedStubborn[key] = true
+			close(release)
+		}
+		handlers.mu.Unlock()
 	}
+}
+
+// releaseAllStubborn lets every handler that ignores cancellation return, so a failed test can stop its Worker.
+func (handlers *adaptiveSlotHandlers) releaseAllStubborn() {
+	handlers.mu.Lock()
+	keys := make([]string, 0, len(handlers.stubbornReleases))
+	for key := range handlers.stubbornReleases {
+		keys = append(keys, key)
+	}
+	handlers.mu.Unlock()
+	handlers.releaseStubborn(append(keys, stubbornRPCKey)...)
 }
 
 func (flow *adaptiveSlotFlow) GetSteps() []StepDef {
@@ -990,16 +1215,16 @@ func (adaptiveSlotParkedStep) Execute(Context, None) (*StepDecision, error) {
 func startAdaptiveSlotWorker(t *testing.T, address string, handlers *adaptiveSlotHandlers, pull PullWorkerOptions, shrinkWindow time.Duration, logger Logger) *adaptiveSlotWorkerRun {
 	t.Helper()
 	flows := []Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}}
-	return startAdaptiveSlotWorkerWithFlows(t, address, flows, pull, shrinkWindow, logger)
+	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, flows, pull, shrinkWindow, logger)
 }
 
 // startAdaptiveSlotParkedOnlyWorker serves only the parked Flow, so it never takes the other Flow's Steps.
 func startAdaptiveSlotParkedOnlyWorker(t *testing.T, address string, handlers *adaptiveSlotHandlers, pull PullWorkerOptions) *adaptiveSlotWorkerRun {
 	t.Helper()
-	return startAdaptiveSlotWorkerWithFlows(t, address, []Flow{&adaptiveSlotParkedFlow{handlers: handlers}}, pull, time.Hour, nil)
+	return startAdaptiveSlotWorkerWithFlows(t, address, handlers, []Flow{&adaptiveSlotParkedFlow{handlers: handlers}}, pull, time.Hour, nil)
 }
 
-func startAdaptiveSlotWorkerWithFlows(t *testing.T, address string, flows []Flow, pull PullWorkerOptions, shrinkWindow time.Duration, logger Logger) *adaptiveSlotWorkerRun {
+func startAdaptiveSlotWorkerWithFlows(t *testing.T, address string, handlers *adaptiveSlotHandlers, flows []Flow, pull PullWorkerOptions, shrinkWindow time.Duration, logger Logger) *adaptiveSlotWorkerRun {
 	t.Helper()
 	registry, err := NewRegistry(flows)
 	require.NoError(t, err)
@@ -1011,6 +1236,8 @@ func startAdaptiveSlotWorkerWithFlows(t *testing.T, address string, flows []Flow
 	run := &adaptiveSlotWorkerRun{worker: worker, started: make(chan error, 1)}
 	go func() { run.started <- worker.Start() }()
 	t.Cleanup(func() {
+		// A failed test may leave handlers that ignore cancellation; Stop waits for every handler.
+		handlers.releaseAllStubborn()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := worker.Stop(stopCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
