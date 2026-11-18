@@ -501,7 +501,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The check resolves release tags such as agents/v0.6.0, so it needs every tag.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       # Maven Central can take many minutes to show a new release, so it retries for up to 20 minutes.
       - name: Check every version the compatibility file lists
         env:
