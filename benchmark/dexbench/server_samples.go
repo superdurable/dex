@@ -32,6 +32,20 @@ func SampleServerProcess(ctx context.Context, processID int) ServerSamples {
 	return ServerSamples{Cores: runtime.NumCPU(), CPUMethod: resourceSamplingMethod(), Samples: <-output}
 }
 
+// SampleServerProcessFromPIDFile is SampleServerProcess with the root re-read from pidFile at every sample.
+// It keeps sampling the new process after the server restarts and rewrites the file.
+func SampleServerProcessFromPIDFile(ctx context.Context, pidFile string) (ServerSamples, error) {
+	processID, err := readPIDFile(pidFile)
+	if err != nil {
+		return ServerSamples{}, fmt.Errorf("read server PID file: %w", err)
+	}
+	sampler := newResourceSampler([]int{processID})
+	sampler.rootPIDFile = pidFile
+	output := make(chan []ResourceSample, 1)
+	sampleResources(ctx, sampler, output)
+	return ServerSamples{Cores: runtime.NumCPU(), CPUMethod: resourceSamplingMethod(), Samples: <-output}, nil
+}
+
 func WriteServerSamples(path string, samples ServerSamples) error {
 	data, err := json.MarshalIndent(samples, "", "  ")
 	if err != nil {
@@ -76,5 +90,6 @@ func MergeServerSamples(result *Result, samples ServerSamples) error {
 	result.Resources = kept
 	result.ServerCores = samples.Cores
 	result.CPUMethod = samples.CPUMethod
+	summarizeIdleStreamCost(result)
 	return nil
 }

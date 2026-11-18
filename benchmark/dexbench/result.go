@@ -47,6 +47,8 @@ type Config struct {
 	AttributeBytes int               `json:"attribute_bytes"`
 	Mode           string            `json:"mode"`
 	GitCommit      string            `json:"git_commit,omitempty"`
+	// SlotStreams holds the slot stream scenario settings; nil for the other scenarios.
+	SlotStreams *SlotStreamConfig `json:"slot_streams,omitempty"`
 }
 
 type MachineInfo struct {
@@ -103,6 +105,7 @@ type Result struct {
 	MeasurementStartedAt  time.Time           `json:"measurement_started_at"`
 	MeasurementEndedAt    time.Time           `json:"measurement_ended_at"`
 	ObjectStore           *ObjectStoreMetrics `json:"object_store,omitempty"`
+	SlotStreams           *SlotStreamResult   `json:"slot_streams,omitempty"`
 }
 
 type latencyCollector struct {

@@ -173,6 +173,9 @@ func expandScenarios(scenarios string) ([]string, error) {
 		case "attribute-read":
 			selected = []string{"attribute-read-direct"}
 		}
+		if slotVariants := benchmark.SlotStreamVariants(selected[0]); slotVariants != nil {
+			selected = slotVariants
+		}
 		for _, scenario := range selected {
 			if !isKnownScenario(scenario) {
 				return nil, fmt.Errorf("unknown scenario %q", scenario)
@@ -213,7 +216,12 @@ func run(args []string) error {
 	flags.StringVar(&config.MetricsURL, "metrics-url", "", "server-zd /metrics URL")
 	flags.StringVar(&outputDirectory, "out", "results", "result directory")
 	flags.BoolVar(&isShort, "short", false, "ten-second low-concurrency smoke mode")
+	slotFlags := registerSlotStreamFlags(flags)
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	slotStreamConfig, err := slotFlags.slotStreamConfig()
+	if err != nil {
 		return err
 	}
 	if isShort {
@@ -260,7 +268,7 @@ func run(args []string) error {
 			if config.WorkerPool == 0 {
 				config.WorkerPool = concurrency
 			}
-			runner, err := benchmark.NewRunner(config)
+			runner, err := newPointRunner(config, slotStreamConfig)
 			if err != nil {
 				return err
 			}
@@ -275,6 +283,22 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+// pointRunner measures one point; Run returns a complete result even with an error.
+type pointRunner interface {
+	Run(ctx context.Context) (benchmark.Result, error)
+	Close() error
+}
+
+// newPointRunner returns the runner of config's scenario. Each slot stream point gets its own copy of slotStreamConfig.
+func newPointRunner(config benchmark.Config, slotStreamConfig *benchmark.SlotStreamConfig) (pointRunner, error) {
+	if benchmark.IsSlotStreamScenario(config.Scenario) {
+		pointSlotConfig := *slotStreamConfig
+		config.SlotStreams = &pointSlotConfig
+		return benchmark.NewSlotStreamRunner(config)
+	}
+	return benchmark.NewRunner(config)
 }
 
 func report(paths []string) error {
@@ -318,7 +342,7 @@ func isKnownScenario(scenario string) bool {
 	case "start-complete", "sequential-steps", "sequential-steps-async", "rpc-plain", "rpc-locking", "channel-wake", "attribute-read-direct":
 		return true
 	default:
-		return false
+		return benchmark.IsSlotStreamScenario(scenario)
 	}
 }
 
@@ -341,18 +365,27 @@ func parseServerTunables(value string) (map[string]string, error) {
 func sampleServer(args []string) error {
 	flags := flag.NewFlagSet("sample", flag.ContinueOnError)
 	var processID int
+	var pidFile string
 	var outputPath string
 	flags.IntVar(&processID, "pid", 0, "root server PID; its whole process tree is sampled")
+	flags.StringVar(&pidFile, "pid-file", "", "file holding the root server PID, re-read every second so a restarted server is followed; replaces -pid")
 	flags.StringVar(&outputPath, "out", "", "JSON samples path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if processID < 1 || outputPath == "" {
-		return fmt.Errorf("positive pid and out are required")
+	if (processID < 1 && pidFile == "") || outputPath == "" {
+		return fmt.Errorf("a positive pid or a pid-file, and out, are required")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return benchmark.WriteServerSamples(outputPath, benchmark.SampleServerProcess(ctx, processID))
+	if pidFile == "" {
+		return benchmark.WriteServerSamples(outputPath, benchmark.SampleServerProcess(ctx, processID))
+	}
+	samples, err := benchmark.SampleServerProcessFromPIDFile(ctx, pidFile)
+	if err != nil {
+		return err
+	}
+	return benchmark.WriteServerSamples(outputPath, samples)
 }
 
 // mergeServer replaces a result's resources with the server-host samples from its measurement window.

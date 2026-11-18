@@ -24,6 +24,10 @@ workers="${DEXBENCH_WORKERS:-0}"
 connections="${DEXBENCH_CONNECTIONS:-1}"
 steps="${DEXBENCH_STEPS:-10}"
 scenarios="${DEXBENCH_SCENARIOS:-start-complete,sequential-steps,sequential-steps-async,rpc,attribute-read,channel-wake}"
+# Extra dexbench run flags for the slot stream scenarios, such as "-flow-types 4 -probe-rate 20".
+read -ra slot_args <<< "${DEXBENCH_SLOT_ARGS:-}"
+# idle-slots restarts the server after its probe unless this is 0.
+slot_restart="${DEXBENCH_SLOT_RESTART:-1}"
 # Output defaults to a new directory outside the repository; committed result sets set DEXBENCH_OUT.
 output_dir="${DEXBENCH_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/dexbench-XXXXXX")}"
 run_dir="$(mktemp -d)"
@@ -70,18 +74,48 @@ stop_server() {
   current_pid=""
 }
 
+is_slot_variant() {
+  case "$1" in idle-slots-*|burst-*|fairness|periodic|backlog-one-partition-*) return 0 ;; esac
+  return 1
+}
+
+# supervise_server runs dexcli dev and restarts it on SIGHUP with the same data directory.
+# Its PID is the sampling root, so CPU and RSS sampling follows the server across a restart.
+supervise_server() {
+  local state_dir="$1" child="" restart_requested=0 status=0
+  trap 'restart_requested=1; [[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null' HUP
+  trap '[[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT
+  while :; do
+    nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
+      --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >>"$state_dir/server.log" 2>&1 &
+    child=$!
+    # A trapped signal ends wait early, so keep waiting until the child is gone.
+    while :; do
+      wait "$child" && status=0 || status=$?
+      kill -0 "$child" 2>/dev/null || break
+    done
+    if (( restart_requested )); then
+      restart_requested=0
+      echo "== restart requested" >>"$state_dir/server.log"
+      continue
+    fi
+    exit "$status"
+  done
+}
+
 # Every scenario variant and concurrency step gets a newly started server with empty state.
 start_server() {
-  local state_dir="$1"
+  local state_dir="$1" variant="$2"
   mkdir -p "$state_dir"
-  cat > "$state_dir/zd-quick.yaml" <<'YAML'
-metrics:
-  listen: "127.0.0.1:9901"
-dev:
-  durabilityMode: processCrashSafe
-YAML
-  nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
-    --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &
+  {
+    printf 'metrics:\n  listen: "127.0.0.1:9901"\n'
+    # dexzd_worker_stream_events is a verbose family.
+    if is_slot_variant "$variant"; then printf '  level: verbose\n'; fi
+    printf 'dev:\n  durabilityMode: processCrashSafe\n'
+    # Flow IDs cannot be pinned without the cluster's secret hash key, so the backlog runs on one partition.
+    if [[ "$variant" == backlog-one-partition-* ]]; then printf 'cluster:\n  partitionCount: 1\n'; fi
+  } > "$state_dir/zd-quick.yaml"
+  supervise_server "$state_dir" &
   current_pid=$!
   if ! "$benchmark_binary" wait-ready --pid "$current_pid" --timeout 180s; then
     tail -50 "$state_dir/server.log" >&2
@@ -90,14 +124,21 @@ YAML
 }
 
 run_step() {
-  local variant="$1" step_concurrency="$2"
+  local variant="$1" step_concurrency="$2" variant_args=()
   wait_for_load
-  # The dexcli PID is the sampling root, so its children (server-zd, s3local) are included.
+  if is_slot_variant "$variant"; then
+    variant_args=(${slot_args[@]+"${slot_args[@]}"})
+    if [[ "$variant" == idle-slots-* && "$slot_restart" != 0 ]]; then
+      variant_args+=(--restart-command "kill -HUP $current_pid")
+    fi
+  fi
+  # The supervisor PID is the sampling root, so its children (dexcli, server-zd, s3local) are included.
   DEXBENCH_SERVER_VERSION="$server_version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target zd --engine zd \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \
     --workers "$workers" --connections "$connections" --steps "$steps" --scenarios "$variant" --mode quick \
-    --out "$output_dir" --server-pid "$current_pid" --metrics-url http://127.0.0.1:9901/metrics
+    --out "$output_dir" --server-pid "$current_pid" --metrics-url http://127.0.0.1:9901/metrics \
+    ${variant_args[@]+"${variant_args[@]}"}
 }
 
 IFS=, read -ra requested_concurrency <<< "$concurrency"
@@ -105,7 +146,7 @@ for variant in $variant_list; do
   for step_concurrency in "${requested_concurrency[@]}"; do
     step_dir="$run_dir/$variant-c$step_concurrency"
     wait_for_load
-    start_server "$step_dir"
+    start_server "$step_dir" "$variant"
     run_step "$variant" "$step_concurrency"
     stop_server
     rm -rf "$step_dir"

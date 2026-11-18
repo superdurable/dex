@@ -76,7 +76,48 @@ func writeScenarioReport(output *strings.Builder, results []Result) {
 		}
 	}
 	writeTrialSummary(output, results)
+	writeSlotStreamReport(output, results)
 	output.WriteString("\n")
+}
+
+// writeSlotStreamReport adds each slot stream point's summary and phase table; latency there is schedule-to-start.
+func writeSlotStreamReport(output *strings.Builder, results []Result) {
+	for _, result := range results {
+		slot := result.SlotStreams
+		if slot == nil {
+			continue
+		}
+		options := result.Config.SlotStreams
+		fmt.Fprintf(output, "\n**C=%d:** %d Workers, %d slots, %d Flow types, %g ms handlers, %s Steps. Latency is schedule-to-start.",
+			result.Config.Concurrency, slot.Workers, slot.TotalSlots, options.FlowTypes, options.HandlerMilliseconds, options.StepDurability)
+		if slot.StartsSkipped > 0 {
+			fmt.Fprintf(output, " %d open-loop starts were skipped because the load generator fell behind.", slot.StartsSkipped)
+		}
+		if slot.PartitionPinning != "" {
+			fmt.Fprintf(output, " Partition: %s.", slot.PartitionPinning)
+		}
+		output.WriteString("\n")
+		if idle := slot.Idle; idle != nil {
+			fmt.Fprintf(output, "- Idle cost: %.0f streams registered in %.1f s; %.0f bytes RSS and %.3f%% CPU per 1,000 streams over the baseline (%d samples); %.0f derived Pings/s.\n",
+				idle.RegisteredStreams, idle.OpenSeconds, idle.RSSBytesPerStream, idle.CPUPercentPer1000, idle.ResourceSamples, idle.DerivedPingsPerSecond)
+		}
+		if restart := slot.Restart; restart != nil {
+			fmt.Fprintf(output, "- Restart: ready %.2f s and all %.0f streams back %.2f s after the restart command.\n",
+				restart.ReadySeconds, restart.ExpectedStreams, restart.ReregisteredSeconds)
+		}
+		if backlog := slot.Backlog; backlog != nil {
+			fmt.Fprintf(output, "- Backlog: %d queued Steps (%.0f seen in the queue) drained in %.2f s at %.1f starts/s; peak %d busy handlers and %.0f streams.\n",
+				backlog.QueuedSteps, backlog.ObservedQueueEntries, backlog.DrainSeconds, backlog.StartsPerSecond, backlog.MaxBusyHandlers, backlog.MaxServerStreams)
+		}
+		output.WriteString("\n| Phase | Seconds | Offered/s | Steps | p50 ms | p99 ms | Server streams | Busy max | Jain index |\n")
+		output.WriteString("| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |\n")
+		for _, phase := range slot.Phases {
+			fmt.Fprintf(output, "| %s | %.1f | %.1f | %d | %.2f | %.2f | %.0f–%.0f | %d | %.3f |\n",
+				phase.Name, phase.EndedAt.Sub(phase.StartedAt).Seconds(), phase.OfferedRatePerSecond, phase.StepsStarted,
+				phase.ScheduleToStart.P50, phase.ScheduleToStart.P99, phase.MinServerStreams, phase.MaxServerStreams,
+				phase.MaxBusyHandlers, phase.JainFairnessIndex)
+		}
+	}
 }
 
 // writeTrialSummary adds the median and maximum throughput of each repeated point.
