@@ -176,7 +176,8 @@ use the mixed header. Preserve applicable notices when copying smaller excerpts.
 
 ## Contributor License Agreement
 
-All contributors must sign an [individual or corporate CLA](.github/CLA.md).
+Every contribution must be covered by an
+[individual or corporate CLA](.github/CLA.md). Bot accounts are exempt.
 On your first pull request, CLA Assistant comments with a link to sign the
 individual CLA with your GitHub account. The required `license/cla` check fails
 until you sign; comment `recheck` if it does not update. For a corporate CLA,

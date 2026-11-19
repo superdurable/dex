@@ -1,7 +1,7 @@
 # Super Durable Individual Contributor License Agreement
 
 This Individual Contributor License Agreement ("Agreement") is between the
-individual identified in the signature block ("You") and Super Durable, Inc.
+individual who accepts it as described under Signature ("You") and Super Durable, Inc.
 ("Super Durable"). It covers every contribution You submit to this repository.
 
 ## Agreement

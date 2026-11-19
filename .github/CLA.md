@@ -1,10 +1,12 @@
 # Contributor License Agreements
 
-Every human contributor must execute one of these agreements before a pull
+Every contribution must be covered by one of these agreements before a pull
 request can be accepted:
 
 - [Individual Contributor License Agreement](CLA-INDIVIDUAL.md)
 - [Corporate Contributor License Agreement](CLA-CORPORATE.md)
+
+Bot accounts are exempt.
 
 Use the individual agreement when you own the contribution personally. Use the
 corporate agreement when an employer or other organization owns or controls the
