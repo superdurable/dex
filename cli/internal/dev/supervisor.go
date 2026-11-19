@@ -186,11 +186,30 @@ func (s *supervisor) openServerLogs() (*serverLogRouter, string, error) {
 		// dex-server-zd writes this file itself through --log-dir.
 		return newServerLogRouter(nil, s.stderr, s.cfg.ServerLogLevel), filepath.Join(s.cfg.LogDirectory, zdLogFileName), nil
 	}
-	logFile, logPath, err := createServerLogFile(s.cfg.ServerLogFileDirectory, s.cfg.DexPort)
+	fallbackDirectory := ""
+	if s.cfg.ServerLogFileDirectory == defaultServerLogFileDirectory {
+		// A /tmp/dexcli owned by another user, or a read-only /tmp, falls back to the per-user temporary directory.
+		fallbackDirectory = filepath.Join(os.TempDir(), "dexcli")
+	}
+	logFile, logPath, err := createServerLogFileWithFallback(s.cfg.ServerLogFileDirectory, fallbackDirectory, s.cfg.DexPort)
 	if err != nil {
 		return nil, "", err
 	}
 	return newServerLogRouter(logFile, s.stderr, s.cfg.ServerLogLevel), logPath, nil
+}
+
+// createServerLogFileWithFallback creates the log in directory, else in fallbackDirectory when it is non-empty.
+// It returns the open file and its path.
+func createServerLogFileWithFallback(directory string, fallbackDirectory string, dexPort int) (*os.File, string, error) {
+	logFile, logPath, err := createServerLogFile(directory, dexPort)
+	if err == nil || fallbackDirectory == "" {
+		return logFile, logPath, err
+	}
+	logFile, logPath, fallbackErr := createServerLogFile(fallbackDirectory, dexPort)
+	if fallbackErr != nil {
+		return nil, "", errors.Join(err, fallbackErr)
+	}
+	return logFile, logPath, nil
 }
 
 func (s *supervisor) printServerLogTailAfterExit(exited componentExit, serverLogs *serverLogRouter, serverLogPath string) {

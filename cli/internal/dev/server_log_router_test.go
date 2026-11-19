@@ -139,6 +139,27 @@ func TestCreateServerLogFileRefusesASymlink(t *testing.T) {
 	}
 }
 
+func TestCreateServerLogFileFallsBackWhenTheDirectoryIsUnusable(t *testing.T) {
+	unusableDirectory := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(unusableDirectory, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fallbackDirectory := filepath.Join(t.TempDir(), "dexcli")
+	file, path, err := createServerLogFileWithFallback(unusableDirectory, fallbackDirectory, 18801)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(fallbackDirectory, "dev-18801.log") {
+		t.Fatalf("log path = %s", path)
+	}
+	if _, _, err := createServerLogFileWithFallback(unusableDirectory, "", 18801); err == nil {
+		t.Fatal("an unusable directory without a fallback did not fail")
+	}
+}
+
 func TestServerLogLevelFlag(t *testing.T) {
 	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
 	config, err := parseConfig([]string{"--server-log-level", "INFO"}, &bytes.Buffer{})
@@ -152,7 +173,7 @@ func TestServerLogLevelFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaults.ServerLogLevel != "warn" || defaults.ServerLogFileDirectory != filepath.Join(os.TempDir(), "dexcli") {
+	if defaults.ServerLogLevel != "warn" || defaults.ServerLogFileDirectory != "/tmp/dexcli" {
 		t.Fatalf("defaults = %q in %q", defaults.ServerLogLevel, defaults.ServerLogFileDirectory)
 	}
 	if _, err := parseConfig([]string{"--server-log-level", "verbose"}, &bytes.Buffer{}); err == nil ||

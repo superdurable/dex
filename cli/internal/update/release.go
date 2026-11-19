@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ const dexReleasesURL = "https://api.github.com/repos/superdurable/dex/releases?p
 type releaseChecker struct {
 	httpClient  *http.Client
 	releasesURL string
+	// githubToken is sent as a Bearer token when non-empty, for the higher authenticated rate limit.
+	githubToken string
 }
 
 type Release struct {
@@ -38,11 +41,24 @@ type Release struct {
 // releasesPageSize matches per_page in dexReleasesURL; a shorter page is the last one.
 const releasesPageSize = 100
 
-func newReleaseChecker() *releaseChecker {
+// errGitHubRateLimit is returned for HTTP 403 and 429, which GitHub sends when anonymous requests hit the limit.
+var errGitHubRateLimit = errors.New("GitHub rate limit reached. Read the release notes at " + cliChangeLogURL +
+	", or set GITHUB_TOKEN and retry.")
+
+func newReleaseChecker(githubToken string) *releaseChecker {
 	return &releaseChecker{
 		httpClient:  &http.Client{Timeout: 2 * time.Second},
 		releasesURL: dexReleasesURL,
+		githubToken: githubToken,
 	}
+}
+
+// githubTokenFromEnvironment returns GITHUB_TOKEN, else GH_TOKEN, else "" for anonymous requests.
+func githubTokenFromEnvironment() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
 func (checker *releaseChecker) Releases(ctx context.Context) ([]Release, error) {
@@ -95,6 +111,9 @@ func (checker *releaseChecker) releasesPage(ctx context.Context, pageURL string)
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "dexcli")
+	if checker.githubToken != "" {
+		request.Header.Set("Authorization", "Bearer "+checker.githubToken)
+	}
 	response, err := checker.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch GitHub releases: %w", err)
@@ -102,6 +121,9 @@ func (checker *releaseChecker) releasesPage(ctx context.Context, pageURL string)
 	defer func() {
 		returnErr = errors.Join(returnErr, response.Body.Close())
 	}()
+	if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
+		return nil, errGitHubRateLimit
+	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch GitHub releases: unexpected status %s", response.Status)
 	}

@@ -81,7 +81,8 @@ type Config struct {
 	// log file of its own. When empty, dexcli writes the full server output to dev-<dex-port>.log in
 	// ServerLogFileDirectory.
 	LogDirectory string
-	// ServerLogFileDirectory defaults to <os.TempDir()>/dexcli and holds dev-<dex-port>.log, truncated on each start.
+	// ServerLogFileDirectory defaults to /tmp/dexcli and holds dev-<dex-port>.log, truncated on each start. When the
+	// default cannot be used, such as a /tmp/dexcli owned by another user, dexcli falls back to <os.TempDir()>/dexcli.
 	ServerLogFileDirectory string
 	// ServerLogLevel defaults to warn: the least severe server log level shown in the terminal. One of trace, debug,
 	// info, warn, or error. Lines that are not log lines, such as panics, are always shown.
@@ -188,7 +189,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		&cfg.LogDirectory,
 		"server-log-folder",
 		"",
-		"keep server logs in this folder as dex-server-zd.log (default <temp dir>/dexcli/dev-<dex-port>.log)",
+		"keep server logs in this folder as dex-server-zd.log (default /tmp/dexcli/dev-<dex-port>.log)",
 	)
 	flags.StringVar(
 		&cfg.ServerLogLevel,
@@ -230,7 +231,7 @@ func defaultConfig() (*Config, error) {
 	return &Config{
 		Engine:                    "zd",
 		Durability:                defaultDurability,
-		ServerLogFileDirectory:    filepath.Join(os.TempDir(), "dexcli"),
+		ServerLogFileDirectory:    defaultServerLogFileDirectory,
 		ServerLogLevel:            defaultServerLogLevel,
 		ZDBinary:                  os.Getenv("DEX_SERVER_ZD_BINARY"),
 		BindAddress:               defaultBindAddress,

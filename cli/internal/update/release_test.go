@@ -221,6 +221,53 @@ func newEndlessReleasesChecker(t *testing.T) (*releaseChecker, *[]string) {
 	return &releaseChecker{httpClient: server.Client(), releasesURL: server.URL + "/releases?per_page=100"}, requestedPages
 }
 
+func TestReleaseNotesExplainsTheGitHubRateLimit(t *testing.T) {
+	for _, statusCode := range []int{http.StatusForbidden, http.StatusTooManyRequests} {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			writer.WriteHeader(statusCode)
+			if _, err := writer.Write([]byte(`{"message":"API rate limit exceeded"}`)); err != nil {
+				t.Error(err)
+			}
+		}))
+		checker := &releaseChecker{httpClient: server.Client(), releasesURL: server.URL + "/releases?per_page=100"}
+		err := executeReleaseNotes(context.Background(), nil, &bytes.Buffer{}, "v0.1.10", false, checker)
+		server.Close()
+		expected := "GitHub rate limit reached. Read the release notes at https://docs.superdurable.io/reference/cli/changelog, or set GITHUB_TOKEN and retry."
+		if err == nil || err.Error() != expected {
+			t.Fatalf("status %d error = %v", statusCode, err)
+		}
+	}
+}
+
+func TestReleaseCheckerSendsTheGitHubToken(t *testing.T) {
+	var authorizations []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorizations = append(authorizations, request.Header.Get("Authorization"))
+		if _, err := writer.Write([]byte(`[]`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	for _, token := range []string{"test-token", ""} {
+		checker := &releaseChecker{httpClient: server.Client(), releasesURL: server.URL, githubToken: token}
+		if _, err := checker.Releases(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(authorizations) != 2 || authorizations[0] != "Bearer test-token" || authorizations[1] != "" {
+		t.Fatalf("Authorization headers = %q", authorizations)
+	}
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "gh-token")
+	if token := githubTokenFromEnvironment(); token != "gh-token" {
+		t.Fatalf("token from GH_TOKEN = %q", token)
+	}
+	t.Setenv("GITHUB_TOKEN", "github-token")
+	if token := githubTokenFromEnvironment(); token != "github-token" {
+		t.Fatalf("token from GITHUB_TOKEN = %q", token)
+	}
+}
+
 func TestPrintNoticeSaysWhenTheReleaseListIsTruncated(t *testing.T) {
 	checker, _ := newEndlessReleasesChecker(t)
 	var output bytes.Buffer
@@ -245,7 +292,7 @@ func TestReleaseNotesSaysWhenOlderReleasesAreOmitted(t *testing.T) {
 
 func TestPrintNoticeSkipsDevelopmentVersionsAndReleaseFailures(t *testing.T) {
 	var output bytes.Buffer
-	printNotice(context.Background(), &output, "dev", newReleaseChecker())
+	printNotice(context.Background(), &output, "dev", newReleaseChecker(""))
 	if output.Len() != 0 {
 		t.Fatalf("development version output = %q", output.String())
 	}

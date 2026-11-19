@@ -23,6 +23,8 @@ import (
 )
 
 const (
+	// defaultServerLogFileDirectory is fixed, not os.TempDir(), so the log is easy to find on macOS too.
+	defaultServerLogFileDirectory = "/tmp/dexcli"
 	// defaultServerLogLevel shows only server warnings and errors in the terminal.
 	defaultServerLogLevel = "warn"
 	// serverLogTailLines is how many recent server lines a startup failure prints.

@@ -32,7 +32,7 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--dex-port** | **8801**; Dex gRPC port. |
 | **--web-port** | **8802**; embedded Dex Web port. |
 | **--open** | **true**; opens Dex Web in the browser when stdout is a terminal and **CI** is unset or empty. Without the flag, a script, a test, or CI keeps the browser closed. **--open=true** always opens it, and **--open=false** always keeps it closed. Changed in 1.47.10: without the flag, dexcli dev no longer opens the browser when stdout is not a terminal or **CI** is non-empty. |
-| **--server-log-folder** | Empty; dexcli writes the full server log to **dexcli/dev-&lt;dex-port&gt;.log** in the system temporary directory. When set, server-zd writes **dex-server-zd.log** in that directory instead. See [Server logs](#server-logs). |
+| **--server-log-folder** | Empty; dexcli writes the full server log to **/tmp/dexcli/dev-&lt;dex-port&gt;.log**. When set, server-zd writes **dex-server-zd.log** in that directory instead. See [Server logs](#server-logs). |
 | **--server-log-level** | **warn**; the least severe server log level shown in the terminal: **trace**, **debug**, **info**, **warn**, or **error**. Pass **info** to see what earlier releases showed. Since 1.47.17. |
 | **--flow-rendering-dir** | Empty; optional Flow Definition Graph JSON directory. Leave it empty when Workers or **dexcli flow-definition upload** store the definitions on the server. |
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
@@ -77,9 +77,11 @@ not a log line, such as a crash message. The ready message names the log file
 on the **Logs** line.
 
 - Without **--server-log-folder**, dexcli writes every line that server-zd
-  prints, crash messages included, to **dexcli/dev-&lt;dex-port&gt;.log** in the
-  system temporary directory: **$TMPDIR** on macOS, usually **/tmp** on Linux.
-  dexcli creates it readable only by you and truncates it on each start.
+  prints, crash messages included, to **/tmp/dexcli/dev-&lt;dex-port&gt;.log**.
+  dexcli creates it readable only by you and truncates it on each start. When
+  **/tmp/dexcli** cannot be used, for example because another user owns it,
+  dexcli uses **dexcli** in the per-user temporary directory (**$TMPDIR**)
+  instead.
 - With **--server-log-folder**, server-zd writes its log records to
   **dex-server-zd.log** in that folder and appends on each start. Output that
   is not a log record, such as a crash message, appears only in the terminal.
@@ -108,6 +110,11 @@ The release list on GitHub holds every Dex component. The reminder reads its
 first 100 entries and says **N+ releases** when they end before your version.
 **dexcli release-notes** reads up to 500 entries and ends with
 **Older releases omitted** and the change-log link when that is not enough.
+Both send **GITHUB_TOKEN**, or else **GH_TOKEN**, to the GitHub API as a
+Bearer token when it is set, which raises GitHub's rate limit. When GitHub
+rate-limits the request, **dexcli release-notes** fails with "GitHub rate limit
+reached", the change-log link, and a hint to set **GITHUB_TOKEN**. The reminder
+stays silent.
 Since 1.47.17; earlier releases printed every skipped release's notes in the
 reminder.
 

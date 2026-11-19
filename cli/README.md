@@ -57,6 +57,12 @@ first in each release; sections that say only "None." are left out, and the
 change-log link is printed once at the end. Colors are used only when stdout
 is a terminal. A development build prints the newest release.
 
+When `GITHUB_TOKEN` (or else `GH_TOKEN`) is set, the reminder and
+`dexcli release-notes` send it to the GitHub API as a Bearer token, which
+raises GitHub's rate limit. When GitHub rate-limits the request,
+`dexcli release-notes` fails with "GitHub rate limit reached", the change-log
+link, and a hint to set `GITHUB_TOKEN`.
+
 ## Start locally
 
 ```bash
@@ -167,9 +173,10 @@ Stream messages use server-zd storage and retention settings. Pass
 
 The terminal shows only the server's warnings and errors, plus any output that
 is not a log line, such as a crash message. By default, dexcli writes every
-line the server prints to `dexcli/dev-<dex-port>.log` in the system temporary
-directory (`$TMPDIR` on macOS, usually `/tmp` on Linux). Each start truncates
-it, and the ready message prints its path on the `Logs:` line. When the server
+line the server prints to `/tmp/dexcli/dev-<dex-port>.log`, falling back to
+`$TMPDIR/dexcli` when `/tmp/dexcli` cannot be used (for example, another user
+owns it). Each start truncates it, and the ready message prints its path on
+the `Logs:` line. When the server
 cannot start, exits before Dex is ready, or stops later, dexcli prints its last
 20 output lines and the log path.
 
@@ -224,7 +231,7 @@ must exist and be reachable before startup.
 --engine string                    compatibility option; server-zd is the only engine (default zd)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files (optional)
 --open                             open Dex Web after readiness (default true)
---server-log-folder string         keep server logs in this folder as dex-server-zd.log (default <temp dir>/dexcli/dev-<dex-port>.log)
+--server-log-folder string         keep server logs in this folder as dex-server-zd.log (default /tmp/dexcli/dev-<dex-port>.log)
 --server-log-level string          least severe server log level shown in the terminal (default warn)
 --web-port int                     Dex Web port (default 8802)
 --zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)

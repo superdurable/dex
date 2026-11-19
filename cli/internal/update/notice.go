@@ -25,7 +25,7 @@ const (
 // PrintNotice writes available dexcli updates to output. Failures to contact GitHub are intentionally silent.
 // It points to dexcli release-notes instead of printing the notes.
 func PrintNotice(ctx context.Context, output io.Writer, currentVersion string) {
-	printNotice(ctx, output, currentVersion, newReleaseChecker())
+	printNotice(ctx, output, currentVersion, newReleaseChecker(githubTokenFromEnvironment()))
 }
 
 func printNotice(ctx context.Context, output io.Writer, currentVersion string, checker *releaseChecker) {

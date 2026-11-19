@@ -46,7 +46,7 @@ type parsedReleaseNotes struct {
 
 // ExecuteReleaseNotes runs dexcli release-notes. It prints the dexcli releases after a version, newest first.
 func ExecuteReleaseNotes(ctx context.Context, args []string, stdout io.Writer, currentVersion string, isStdoutTerminal bool) error {
-	checker := newReleaseChecker()
+	checker := newReleaseChecker(githubTokenFromEnvironment())
 	checker.httpClient.Timeout = releaseNotesHTTPTimeout
 	return executeReleaseNotes(ctx, args, stdout, currentVersion, isStdoutTerminal, checker)
 }
