@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 )
 
 const (
@@ -24,6 +23,7 @@ const (
 )
 
 // PrintNotice writes available dexcli updates to output. Failures to contact GitHub are intentionally silent.
+// It points to dexcli release-notes instead of printing the notes.
 func PrintNotice(ctx context.Context, output io.Writer, currentVersion string) {
 	printNotice(ctx, output, currentVersion, newReleaseChecker())
 }
@@ -43,10 +43,14 @@ func printNotice(ctx context.Context, output io.Writer, currentVersion string, c
 	latestRelease := newerReleases[len(newerReleases)-1]
 	fmt.Fprintf(output, "\n%sA new dexcli version is available: %s (you have %s).%s\n", ansiWarning, latestRelease.TagName, currentVersion, ansiReset)
 	fmt.Fprintf(output, "%sUpgrade with: brew update && brew upgrade dexcli%s\n", ansiInformation, ansiReset)
+	releaseSummary := countReleases(len(newerReleases))
 	for _, release := range newerReleases {
-		fmt.Fprintf(output, "\n%sRelease notes for %s:%s\n", ansiInformation, release.TagName, ansiReset)
-		writeReleaseNotes(output, release.Body)
+		if hasBreakingChanges(release.Body) {
+			releaseSummary += ", " + ansiBreaking + "includes breaking changes" + ansiReset
+			break
+		}
 	}
+	fmt.Fprintf(output, "What's new since %s (%s): run dexcli release-notes\n", currentVersion, releaseSummary)
 }
 
 func releasesNewerThan(releases []Release, currentVersion string) []Release {
@@ -61,25 +65,4 @@ func releasesNewerThan(releases []Release, currentVersion string) []Release {
 		return isNewerVersion(newerReleases[rightIndex].TagName, newerReleases[leftIndex].TagName)
 	})
 	return newerReleases
-}
-
-func writeReleaseNotes(output io.Writer, releaseNotes string) {
-	if strings.TrimSpace(releaseNotes) == "" {
-		fmt.Fprintln(output, "No release notes were provided.")
-		return
-	}
-	isBreakingChanges := false
-	for _, line := range strings.Split(strings.ReplaceAll(releaseNotes, "\x1b", ""), "\n") {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "## Breaking Changes" {
-			isBreakingChanges = true
-		} else if strings.HasPrefix(trimmedLine, "## ") {
-			isBreakingChanges = false
-		}
-		if isBreakingChanges {
-			fmt.Fprintf(output, "%s%s%s\n", ansiBreaking, line, ansiReset)
-			continue
-		}
-		fmt.Fprintln(output, line)
-	}
 }

@@ -1,0 +1,5 @@
+---
+section: Changed
+---
+- **dexcli dev shows only server warnings and errors** in the terminal. Lines that are not log lines, such as a crash message, still show. Every server line goes to a log file named after the Dex port, such as dexcli/dev-8801.log in the system temporary directory, truncated on each start, and the ready message prints its path on the new Logs line. When the server fails to start, dexcli prints its last lines and the log path. Pass --server-log-level info to see every info line as before. With --server-log-folder, server-zd keeps writing dex-server-zd.log in that folder. See [Server logs](https://docs.superdurable.io/reference/cli/#server-logs). Since 1.47.17.
+- **The update reminder is three lines**: the newest version, the upgrade command, and how many releases you skipped, with "includes breaking changes" when one of them lists one. The new dexcli release-notes command prints the notes of those releases on demand, newest first, without empty "None." sections, with one change-log link at the end. See [Update reminder and release notes](https://docs.superdurable.io/reference/cli/#release-notes). Since 1.47.17.

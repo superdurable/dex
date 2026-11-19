@@ -52,6 +52,7 @@ var flagOrder = []string{
 	"flow-rendering-dir",
 	"open",
 	"server-log-folder",
+	"server-log-level",
 	"web-port",
 	"zd-binary",
 	"zd-config",
@@ -76,8 +77,15 @@ type Config struct {
 	DexPort int
 	// WebPort defaults to 8802 for Dex Web.
 	WebPort int
-	// LogDirectory defaults empty; server-zd logs to stderr unless a directory is supplied.
+	// LogDirectory defaults empty. When set, server-zd also writes dex-server-zd.log there, and dexcli writes no
+	// log file of its own. When empty, dexcli writes the full server output to dev-<dex-port>.log in
+	// ServerLogFileDirectory.
 	LogDirectory string
+	// ServerLogFileDirectory defaults to <os.TempDir()>/dexcli and holds dev-<dex-port>.log, truncated on each start.
+	ServerLogFileDirectory string
+	// ServerLogLevel defaults to warn: the least severe server log level shown in the terminal. One of trace, debug,
+	// info, warn, or error. Lines that are not log lines, such as panics, are always shown.
+	ServerLogLevel string
 	// StateDirectory defaults to $HOME/.dex and stores server-zd data.
 	StateDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
@@ -180,7 +188,14 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		&cfg.LogDirectory,
 		"server-log-folder",
 		"",
-		"keep server logs in this folder (default stderr)",
+		"keep server logs in this folder as dex-server-zd.log (default <temp dir>/dexcli/dev-<dex-port>.log)",
+	)
+	flags.StringVar(
+		&cfg.ServerLogLevel,
+		"server-log-level",
+		cfg.ServerLogLevel,
+		"least severe server log level shown in the terminal: trace, debug, info, warn, or error; "+
+			"the log file keeps every line",
 	)
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage: dexcli dev [flags]")
@@ -215,6 +230,8 @@ func defaultConfig() (*Config, error) {
 	return &Config{
 		Engine:                    "zd",
 		Durability:                defaultDurability,
+		ServerLogFileDirectory:    filepath.Join(os.TempDir(), "dexcli"),
+		ServerLogLevel:            defaultServerLogLevel,
 		ZDBinary:                  os.Getenv("DEX_SERVER_ZD_BINARY"),
 		BindAddress:               defaultBindAddress,
 		DexPort:                   defaultDexPort,
@@ -283,6 +300,10 @@ func (c *Config) validate() error {
 		if !slices.Contains(zdDurabilities, c.Durability) {
 			return fmt.Errorf("durability must be one of %s: %q", strings.Join(zdDurabilities, ", "), c.Durability)
 		}
+	}
+	c.ServerLogLevel = strings.ToLower(strings.TrimSpace(c.ServerLogLevel))
+	if serverLogLevelRank(c.ServerLogLevel) < 0 {
+		return fmt.Errorf("server log level must be one of %s: %q", strings.Join(serverLogLevels, ", "), c.ServerLogLevel)
 	}
 	if c.isExplicit("attribute-store-config") {
 		configPath, err := resolveRegularFilePath(c.AttributeStoreConfigPath, "Attribute Store config file")

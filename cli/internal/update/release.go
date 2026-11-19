@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,11 @@ type Release struct {
 	Body         string `json:"body"`
 	IsDraft      bool   `json:"draft"`
 	IsPrerelease bool   `json:"prerelease"`
+	PublishedAt  string `json:"published_at"`
 }
+
+// releasesPageSize matches per_page in dexReleasesURL; a shorter page is the last one.
+const releasesPageSize = 100
 
 func newReleaseChecker() *releaseChecker {
 	return &releaseChecker{
@@ -40,8 +45,45 @@ func newReleaseChecker() *releaseChecker {
 	}
 }
 
-func (checker *releaseChecker) Releases(ctx context.Context) (_ []Release, returnErr error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, checker.releasesURL, nil)
+func (checker *releaseChecker) Releases(ctx context.Context) ([]Release, error) {
+	return checker.releasesPage(ctx, checker.releasesURL)
+}
+
+// ReleasesAfter returns releases page by page until a page reaches a dexcli release not newer than baselineVersion.
+// It reads at most maxPages pages, since the list holds the releases of every Dex component.
+func (checker *releaseChecker) ReleasesAfter(ctx context.Context, baselineVersion string, maxPages int) ([]Release, error) {
+	pageURL, err := url.Parse(checker.releasesURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse GitHub releases URL: %w", err)
+	}
+	var releases []Release
+	for page := 1; page <= maxPages; page++ {
+		query := pageURL.Query()
+		query.Set("page", strconv.Itoa(page))
+		pageURL.RawQuery = query.Encode()
+		pageReleases, err := checker.releasesPage(ctx, pageURL.String())
+		if err != nil {
+			return nil, err
+		}
+		releases = append(releases, pageReleases...)
+		if len(pageReleases) < releasesPageSize || !isReleaseVersion(baselineVersion) || hasCLIReleaseAtOrBefore(pageReleases, baselineVersion) {
+			break
+		}
+	}
+	return releases, nil
+}
+
+func hasCLIReleaseAtOrBefore(releases []Release, baselineVersion string) bool {
+	for _, release := range releases {
+		if isCLIReleaseTag(release.TagName) && !isNewerVersion(release.TagName, baselineVersion) {
+			return true
+		}
+	}
+	return false
+}
+
+func (checker *releaseChecker) releasesPage(ctx context.Context, pageURL string) (_ []Release, returnErr error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create GitHub releases request: %w", err)
 	}

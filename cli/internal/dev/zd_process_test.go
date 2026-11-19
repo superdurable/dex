@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -357,11 +358,24 @@ func TestZDSupervisorFailsWhenChildExitsBeforeReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.StateDirectory = t.TempDir()
+	config.ServerLogFileDirectory = t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = newSupervisor(config, &bytes.Buffer{}, &bytes.Buffer{}).Run(ctx)
+	stderr := &bytes.Buffer{}
+	err = newSupervisor(config, &bytes.Buffer{}, stderr).Run(ctx)
 	if err == nil || !strings.Contains(err.Error(), "exited before readiness") {
 		t.Fatalf("expected early child exit, got %v", err)
+	}
+	logPath := filepath.Join(config.ServerLogFileDirectory, fmt.Sprintf("dev-%d.log", dexPort))
+	expectedTail := "Last dex-server-zd output (full log: " + logPath + "):\n" +
+		"2026-11-19T10:00:00.000001Z  INFO dexzd_server: hidden startup detail\n" +
+		"fatal: cannot open the state directory\n"
+	if strings.Count(stderr.String(), "fatal: cannot open the state directory") != 2 || !strings.HasSuffix(stderr.String(), expectedTail) {
+		t.Fatalf("startup failure output:\n%s", stderr.String())
+	}
+	logContent, readErr := os.ReadFile(logPath)
+	if readErr != nil || !strings.Contains(string(logContent), "hidden startup detail") {
+		t.Fatalf("server log file %s: %v\n%s", logPath, readErr, logContent)
 	}
 	if config.LogDirectory != "" || strings.Contains(err.Error(), "server log folder") {
 		t.Fatalf("zd without --server-log-folder reported an empty log folder: %v", err)
@@ -607,7 +621,11 @@ func main() {
 	if path := os.Getenv("DEX_ZD_TEST_ARGUMENTS"); path != "" {
 		if err := os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600); err != nil { panic(err) }
 	}
-	if os.Getenv("DEX_ZD_TEST_EXIT_EARLY") == "1" { os.Exit(17) }
+	if os.Getenv("DEX_ZD_TEST_EXIT_EARLY") == "1" {
+		os.Stderr.WriteString("2026-11-19T10:00:00.000001Z  INFO dexzd_server: hidden startup detail\n")
+		os.Stderr.WriteString("fatal: cannot open the state directory")
+		os.Exit(17)
+	}
 	var address string
 	for index := 2; index < len(os.Args)-1; index += 2 {
 		if os.Args[index] == "--listen" { address = os.Args[index+1] }
