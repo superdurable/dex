@@ -73,13 +73,20 @@ Temporal SQLite files cannot be used as server-zd state.
 ### Server logs {#server-logs}
 
 The terminal shows the server's warnings and errors and every line that is
-not a log line, such as a crash message. Each server line goes to the log
-file. The ready message names it on the **Logs** line. Without
-**--server-log-folder**, the file is **dexcli/dev-&lt;dex-port&gt;.log** in the
-system temporary directory: **$TMPDIR** on macOS, usually **/tmp** on Linux.
-dexcli creates it readable only by you and truncates it on each start. When
-server-zd fails to start or stops, dexcli prints its last 20 lines and the log
-path. **RUST_LOG** still sets which levels server-zd writes at all.
+not a log line, such as a crash message. The ready message names the log file
+on the **Logs** line.
+
+- Without **--server-log-folder**, dexcli writes every line that server-zd
+  prints, crash messages included, to **dexcli/dev-&lt;dex-port&gt;.log** in the
+  system temporary directory: **$TMPDIR** on macOS, usually **/tmp** on Linux.
+  dexcli creates it readable only by you and truncates it on each start.
+- With **--server-log-folder**, server-zd writes its log records to
+  **dex-server-zd.log** in that folder and appends on each start. Output that
+  is not a log record, such as a crash message, appears only in the terminal.
+
+When server-zd cannot start, exits before Dex is ready, or stops later, dexcli
+prints its last 20 output lines and the log path. **RUST_LOG** still sets which
+levels server-zd writes at all.
 Changed in 1.47.17: the terminal showed every server line at info level and
 above.
 
@@ -97,6 +104,10 @@ prints the releases after v1.47.0. A development build prints the newest
 release. Releases are newest first, each with its date. Breaking changes come
 first, and sections that say only "None." are left out. The change-log link
 is printed once at the end. Colors are used only when stdout is a terminal.
+The release list on GitHub holds every Dex component. The reminder reads its
+first 100 entries and says **N+ releases** when they end before your version.
+**dexcli release-notes** reads up to 500 entries and ends with
+**Older releases omitted** and the change-log link when that is not enough.
 Since 1.47.17; earlier releases printed every skipped release's notes in the
 reminder.
 

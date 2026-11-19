@@ -27,6 +27,7 @@ const (
 	ansiBold             = "\033[1m"
 	breakingSectionTitle = "Breaking Changes"
 	fullChangeLogPrefix  = "Full change log:"
+	cliChangeLogURL      = "https://docs.superdurable.io/reference/cli/changelog"
 )
 
 var markdownLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
@@ -72,7 +73,7 @@ func executeReleaseNotes(
 		}
 		baselineVersion = args[0]
 	}
-	releases, err := checker.ReleasesAfter(ctx, baselineVersion, releaseNotesMaxPages)
+	releases, isComplete, err := checker.ReleasesAfter(ctx, baselineVersion, releaseNotesMaxPages)
 	if err != nil {
 		return err
 	}
@@ -89,6 +90,10 @@ func executeReleaseNotes(
 		return nil
 	}
 	writeReleaseNotesReport(stdout, selectedReleases, baselineVersion, isStdoutTerminal)
+	if !isComplete {
+		fmt.Fprintln(stdout)
+		fmt.Fprintf(stdout, "Older releases omitted: see %s\n", cliChangeLogURL)
+	}
 	return nil
 }
 

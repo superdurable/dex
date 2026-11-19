@@ -96,6 +96,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	resources.serverLogs = serverLogs
 	process, err := startZDProcess(s.cfg, dataDirectory, dexAddress, serverLogs)
 	if err != nil {
+		s.printServerLogTail(serverLogs, serverLogPath)
 		return err
 	}
 	resources.process = process
@@ -151,7 +152,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return err
+		return s.reportWebReadinessFailure(err, process, serverLogs, serverLogPath)
 	}
 	select {
 	case exited := <-componentExits:
@@ -196,6 +197,16 @@ func (s *supervisor) printServerLogTailAfterExit(exited componentExit, serverLog
 	if exited.name == "Dex Server" {
 		s.printServerLogTail(serverLogs, serverLogPath)
 	}
+}
+
+// reportWebReadinessFailure returns readinessErr, first printing the server log tail when Dex Server has exited.
+func (s *supervisor) reportWebReadinessFailure(readinessErr error, process *zdProcess, serverLogs *serverLogRouter, serverLogPath string) error {
+	select {
+	case <-process.Done():
+		s.printServerLogTail(serverLogs, serverLogPath)
+	default:
+	}
+	return readinessErr
 }
 
 // printServerLogTail shows the latest server lines, including those the terminal filter hid.

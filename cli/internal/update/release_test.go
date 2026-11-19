@@ -189,12 +189,57 @@ func TestReleasesAfterPagesUntilTheBaselineRelease(t *testing.T) {
 	}))
 	defer server.Close()
 	checker := &releaseChecker{httpClient: server.Client(), releasesURL: server.URL + "/releases?per_page=100"}
-	releases, err := checker.ReleasesAfter(context.Background(), "v0.1.10", 5)
+	releases, isComplete, err := checker.ReleasesAfter(context.Background(), "v0.1.10", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(releases) != 2*releasesPageSize || strings.Join(requestedPages, ",") != "1,2" {
-		t.Fatalf("read %d releases from pages %q", len(releases), requestedPages)
+	if len(releases) != 2*releasesPageSize || strings.Join(requestedPages, ",") != "1,2" || !isComplete {
+		t.Fatalf("read %d releases from pages %q, complete %t", len(releases), requestedPages, isComplete)
+	}
+}
+
+// newEndlessReleasesChecker serves full pages that never reach the running version; page 1 has two dexcli releases.
+func newEndlessReleasesChecker(t *testing.T) (*releaseChecker, *[]string) {
+	t.Helper()
+	requestedPages := &[]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		page := request.URL.Query().Get("page")
+		*requestedPages = append(*requestedPages, page)
+		releases := make([]string, 0, releasesPageSize)
+		for index := 0; index < releasesPageSize; index++ {
+			releases = append(releases, `{"tag_name":"server/v0.1.`+strconv.Itoa(index)+`"}`)
+		}
+		if page == "" || page == "1" {
+			releases[0] = `{"tag_name":"cli-v0.2.1","body":"## Fixed\n\n- Newest."}`
+			releases[1] = `{"tag_name":"cli-v0.2.0","body":"## Fixed\n\n- Older."}`
+		}
+		if _, err := writer.Write([]byte("[" + strings.Join(releases, ",") + "]")); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return &releaseChecker{httpClient: server.Client(), releasesURL: server.URL + "/releases?per_page=100"}, requestedPages
+}
+
+func TestPrintNoticeSaysWhenTheReleaseListIsTruncated(t *testing.T) {
+	checker, _ := newEndlessReleasesChecker(t)
+	var output bytes.Buffer
+	printNotice(context.Background(), &output, "v0.1.10", checker)
+	if !strings.HasSuffix(output.String(), "What's new since v0.1.10 (2+ releases): run dexcli release-notes\n") {
+		t.Fatalf("notice = %q", output.String())
+	}
+}
+
+func TestReleaseNotesSaysWhenOlderReleasesAreOmitted(t *testing.T) {
+	checker, requestedPages := newEndlessReleasesChecker(t)
+	var output bytes.Buffer
+	if err := executeReleaseNotes(context.Background(), nil, &output, "v0.1.10", false, checker); err != nil {
+		t.Fatal(err)
+	}
+	if len(*requestedPages) != releaseNotesMaxPages ||
+		!strings.HasSuffix(output.String(), "\nOlder releases omitted: see "+cliChangeLogURL+"\n") ||
+		!strings.Contains(output.String(), "- Newest.") {
+		t.Fatalf("pages %q, release notes:\n%s", *requestedPages, output.String())
 	}
 }
 

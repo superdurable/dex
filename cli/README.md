@@ -166,11 +166,12 @@ Stream messages use server-zd storage and retention settings. Pass
 `--zd-config` to override them.
 
 The terminal shows only the server's warnings and errors, plus any output that
-is not a log line, such as a crash message. Every server line goes to
-`dexcli/dev-<dex-port>.log` in the system temporary directory (`$TMPDIR` on
-macOS, usually `/tmp` on Linux). Each start truncates it, and the ready message
-prints its path on the `Logs:` line. When the server fails to start, dexcli
-prints its last lines and the log path.
+is not a log line, such as a crash message. By default, dexcli writes every
+line the server prints to `dexcli/dev-<dex-port>.log` in the system temporary
+directory (`$TMPDIR` on macOS, usually `/tmp` on Linux). Each start truncates
+it, and the ready message prints its path on the `Logs:` line. When the server
+cannot start, exits before Dex is ready, or stops later, dexcli prints its last
+20 output lines and the log path.
 
 Show more server log levels in the terminal:
 
@@ -178,7 +179,10 @@ Show more server log levels in the terminal:
 dexcli dev --server-log-level info
 ```
 
-Keep the server log in a folder of your choice, as `dex-server-zd.log`, with:
+Keep the server log in a folder of your choice instead. server-zd then writes
+its log records to `dex-server-zd.log` there and appends on each start; output
+that is not a log record, such as a crash message, appears only in the
+terminal:
 
 ```bash
 dexcli dev --server-log-folder ./dex-logs

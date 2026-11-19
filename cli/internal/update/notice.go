@@ -44,6 +44,10 @@ func printNotice(ctx context.Context, output io.Writer, currentVersion string, c
 	fmt.Fprintf(output, "\n%sA new dexcli version is available: %s (you have %s).%s\n", ansiWarning, latestRelease.TagName, currentVersion, ansiReset)
 	fmt.Fprintf(output, "%sUpgrade with: brew update && brew upgrade dexcli%s\n", ansiInformation, ansiReset)
 	releaseSummary := countReleases(len(newerReleases))
+	if !isLastNeededReleasesPage(releases, currentVersion) {
+		// The first page ended before the running version, so more releases were skipped.
+		releaseSummary = fmt.Sprintf("%d+ releases", len(newerReleases))
+	}
 	for _, release := range newerReleases {
 		if hasBreakingChanges(release.Body) {
 			releaseSummary += ", " + ansiBreaking + "includes breaking changes" + ansiReset

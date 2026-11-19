@@ -51,10 +51,11 @@ func (checker *releaseChecker) Releases(ctx context.Context) ([]Release, error) 
 
 // ReleasesAfter returns releases page by page until a page reaches a dexcli release not newer than baselineVersion.
 // It reads at most maxPages pages, since the list holds the releases of every Dex component.
-func (checker *releaseChecker) ReleasesAfter(ctx context.Context, baselineVersion string, maxPages int) ([]Release, error) {
+// The bool is false when maxPages ended the reading, so older releases after baselineVersion may be missing.
+func (checker *releaseChecker) ReleasesAfter(ctx context.Context, baselineVersion string, maxPages int) ([]Release, bool, error) {
 	pageURL, err := url.Parse(checker.releasesURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse GitHub releases URL: %w", err)
+		return nil, false, fmt.Errorf("parse GitHub releases URL: %w", err)
 	}
 	var releases []Release
 	for page := 1; page <= maxPages; page++ {
@@ -63,14 +64,19 @@ func (checker *releaseChecker) ReleasesAfter(ctx context.Context, baselineVersio
 		pageURL.RawQuery = query.Encode()
 		pageReleases, err := checker.releasesPage(ctx, pageURL.String())
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		releases = append(releases, pageReleases...)
-		if len(pageReleases) < releasesPageSize || !isReleaseVersion(baselineVersion) || hasCLIReleaseAtOrBefore(pageReleases, baselineVersion) {
-			break
+		if isLastNeededReleasesPage(pageReleases, baselineVersion) {
+			return releases, true, nil
 		}
 	}
-	return releases, nil
+	return releases, false, nil
+}
+
+// isLastNeededReleasesPage reports whether no later page can hold a dexcli release newer than baselineVersion.
+func isLastNeededReleasesPage(pageReleases []Release, baselineVersion string) bool {
+	return len(pageReleases) < releasesPageSize || !isReleaseVersion(baselineVersion) || hasCLIReleaseAtOrBefore(pageReleases, baselineVersion)
 }
 
 func hasCLIReleaseAtOrBefore(releases []Release, baselineVersion string) bool {
