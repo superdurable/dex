@@ -387,7 +387,7 @@ class AdkAgentRunner:
         removed replays through an undeclared stand-in of the old name, which
         the model never sees.
 
-        .. versionchanged:: 0.6.16
+        .. versionchanged:: 0.6.15
             A paused call whose tool is gone replays its record instead of
             failing the turn with "Tool ... is not registered".
 

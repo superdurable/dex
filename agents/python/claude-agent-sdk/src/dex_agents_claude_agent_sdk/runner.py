@@ -456,7 +456,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             only what the turn has not stored yet, and every segment answers
             the open tool uses of ended turns.
 
-        .. versionchanged:: 0.6.16
+        .. versionchanged:: 0.6.15
             A custom tool that the turn deferred but this Worker no longer
             has, such as one a deploy renamed, is served replay-only, so the
             resumed CLI receives the call's recorded result.

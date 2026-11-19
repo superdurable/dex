@@ -475,7 +475,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    *
    * A custom tool that the turn deferred but this Worker no longer has, such as one a deploy renamed, is served
    * replay-only, so the resumed CLI receives the call's recorded result and the model sees the new tool list. Changed
-   * in 0.6.16: before, the resumed CLI could not find the old tool and the segment failed.
+   * in 0.6.15: before, the resumed CLI could not find the old tool and the segment failed.
    *
    * @param turn - Committed session state for this segment.
    * @returns `ToolCallsRequested` with the one call the CLI deferred, the Claude session ID as run state, and the
