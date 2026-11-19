@@ -15,7 +15,8 @@ The scripted model reads commands from the latest user message:
 * ``call <tool> <json>`` asks for tool calls; join parallel calls with `` && ``
   and later model steps with `` then ``. Once every step has its responses,
   the model answers ``<tool>: <result>`` for each, joined with ``; ``. A
-  ``then fail`` step raises instead of calling tools.
+  ``then fail`` step raises instead of calling tools. A ``then await <gate>``
+  step calls no tool: the next model call waits at that ``FileGate`` first.
 * ``stall <gate>`` calls ``lookup``, then waits at a ``FileGate`` in the next
   model call before answering.
 * ``fail`` raises on every attempt.
@@ -24,13 +25,20 @@ Every complete response reports model version ``scripted-model-2026-11`` and
 finish reason ``STOP``. Every model call records ``model`` in the
 ``InvocationLog``, and every tool run records its tool name. ``lookup`` and
 ``charge`` wait at the ``FileGate`` named by a ``gate`` argument.
+
+``SCRIPTED_ADK_RENAMED_TOOLS`` renames tools on one Worker, as a deploy would:
+``lookup=find,slow_write=save`` serves ``lookup`` as ``find`` and
+``slow_write`` as ``save``, with the same policies. Each tool still records its
+original name in the ``InvocationLog``.
 """
 
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import os
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +62,7 @@ REVIEWER_ANSWER = "reviewed the draft"
 FORBIDDEN_MESSAGE = "forbidden"
 GUARDRAIL_ERROR = "blocked by the message guardrail"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_ADK_AGENT_STATE_DIR"
+RENAMED_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_ADK_RENAMED_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 SLOW_WRITE_GATE = "slow_write"
 MODEL_CALL_LOG_NAME = "model"
@@ -89,7 +98,7 @@ class ScriptedModel(BaseLlm):
             earlier = [text for _, text in user_texts[:-1]]
             yield _text_response("history: " + " | ".join(earlier))
         elif command.startswith("call "):
-            yield _tool_step_response(command, later_contents)
+            yield await _tool_step_response(command, later_contents)
         elif command.startswith("stall "):
             yield await _stall_response(command.removeprefix("stall "), later_contents)
         elif command == "fail":
@@ -162,21 +171,54 @@ def build_scripted_adk_agent(name: str = "assistant") -> LlmAgent:
         instruction="Follow the scripted commands.",
         before_tool_callback=block_forbidden_messages,
         tools=[
-            lookup,
-            publish,
-            charge,
-            FunctionTool(refund, require_confirmation=True),
-            slow_write,
+            _renamed(lookup),
+            _renamed(publish),
+            _renamed(charge),
+            FunctionTool(_renamed(refund), require_confirmation=True),
+            _renamed(slow_write),
             exit_loop,
         ],
     )
+
+
+def _renamed_tools() -> dict[str, str]:
+    """Return the new name of each tool this Worker renames, by its original name."""
+    renames = os.environ.get(RENAMED_TOOLS_ENVIRONMENT_VARIABLE, "")
+    return dict(rename.split("=", 1) for rename in renames.split(",") if rename)
+
+
+def _renamed(function: Callable[..., Any]) -> Callable[..., Any]:
+    new_name = _renamed_tools().get(function.__name__)
+    if new_name is None:
+        return function
+
+    renamed_function: Callable[..., Any]
+    if inspect.iscoroutinefunction(function):
+
+        @functools.wraps(function)
+        async def renamed_function(*args: Any, **kwargs: Any) -> Any:
+            return await function(*args, **kwargs)
+
+    else:
+
+        @functools.wraps(function)
+        def renamed_function(*args: Any, **kwargs: Any) -> Any:
+            return function(*args, **kwargs)
+
+    renamed_function.__name__ = renamed_function.__qualname__ = new_name
+    return renamed_function
+
+
+def _tool_policies() -> dict[str, ToolPolicy]:
+    renamed_tools = _renamed_tools()
+    return {renamed_tools.get(name, name): policy for name, policy in TOOL_POLICIES.items()}
 
 
 def build_scripted_adk_flow() -> AgentSessionFlow:
     return adk_agent_session_flow(
         build_scripted_adk_agent(),
         flow_type=SCRIPTED_ADK_AGENT_FLOW_TYPE,
-        tool_policies=TOOL_POLICIES,
+        tool_policies=_tool_policies(),
     )
 
 
@@ -188,21 +230,35 @@ def build_scripted_adk_pipeline_flow() -> AgentSessionFlow:
             name="pipeline", sub_agents=[build_scripted_adk_agent("drafter"), reviewer]
         ),
         flow_type=SCRIPTED_ADK_PIPELINE_FLOW_TYPE,
-        tool_policies=TOOL_POLICIES,
+        tool_policies=_tool_policies(),
     )
 
 
-def _tool_step_response(command: str, later_contents: Sequence[types.Content]) -> LlmResponse:
-    steps = command.split(" then ")
+async def _tool_step_response(command: str, later_contents: Sequence[types.Content]) -> LlmResponse:
     finished_steps = sum(
         1
         for content in later_contents
         if content.role == "model" and any(part.function_call for part in content.parts or [])
     )
-    if finished_steps < len(steps) and steps[finished_steps] == "fail":
+    # Await steps call no tool: they gate the model call that follows the steps before them.
+    awaited_gates: list[str] = []
+    next_step: str | None = None
+    seen_steps = 0
+    for step in command.split(" then "):
+        if step.startswith("await "):
+            if seen_steps == finished_steps:
+                awaited_gates.append(step.removeprefix("await "))
+            continue
+        if seen_steps == finished_steps:
+            next_step = step
+            break
+        seen_steps += 1
+    for gate in awaited_gates:
+        await _wait_at_gate(gate)
+    if next_step == "fail":
         raise RuntimeError("scripted model failure")
-    if finished_steps < len(steps):
-        return _function_call_response(_parse_tool_requests(steps[finished_steps]))
+    if next_step is not None:
+        return _function_call_response(_parse_tool_requests(next_step))
     summaries = [
         f"{response.name}: {_describe_tool_response(response.response or {})}"
         for response in _function_responses(later_contents)

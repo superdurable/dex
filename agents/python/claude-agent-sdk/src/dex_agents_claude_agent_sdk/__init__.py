@@ -15,7 +15,6 @@ tool calls that write run in their own Dex Steps. See the package README.
 """
 
 from dex_agents_claude_agent_sdk.runner import (
-    APPROVED_CLI_TOOL_OUTPUT,
     DEFAULT_CUSTOM_TOOL_SERVER_NAME,
     ClaudeAgentOptionsContext,
     ClaudeAgentOptionsFactory,
@@ -24,6 +23,7 @@ from dex_agents_claude_agent_sdk.runner import (
 )
 from dex_agents_claude_agent_sdk.session_flow import claude_agent_session_flow
 from dex_agents_claude_agent_sdk.tool_gate import (
+    APPROVED_CLI_TOOL_OUTPUT,
     CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
     ClaudeCodeToolDenial,
     ClaudeCodeToolPermission,

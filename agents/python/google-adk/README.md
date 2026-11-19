@@ -267,6 +267,18 @@ recorded result instead of running the tool:
 | `rejected` | `{"error": "<rejection message>"}` |
 | `outcome_unknown` | `{"error": "<OUTCOME_UNKNOWN_TOOL_RESULT>"}` |
 
+A deploy can rename or remove a tool while its call is paused, for example
+when a Worker restarts during the tool Step or the next `RunModel`. ADK
+re-executes a confirmed call only with a tool the calling agent has, so while
+`RunModel` resumes the turn, the adapter gives each `LlmAgent` a stand-in tool
+for every paused call's name. The stand-in has no declaration, so the model
+never sees it, and the agent's own tool of that name takes its place. The
+plugin answers the call from its record, as in the table above, and the next
+model call uses the new tool list. A single-attempt call that was in flight
+keeps its `outcome_unknown` record and never runs again. A retry of an
+`idempotent_write` whose tool is gone fails its attempts, so the record
+becomes `outcome_unknown`.
+
 Raise `dex_agents.ToolExecutionError` from a tool to report a failure the
 model should see without a retry; the record becomes `failed`. Any other
 exception, a timeout, or a Worker crash fails the tool Step: a `read` or

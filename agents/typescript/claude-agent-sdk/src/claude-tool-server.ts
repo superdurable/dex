@@ -29,6 +29,7 @@ import {
 import type { ClaudeCustomTool, ToolCallGate, ToolCatalog } from "./claude-tool-call-gate.js";
 
 const replayOnlyToolDescription = "Not available now: its tool source does not offer it.";
+const removedCustomToolDescription = "Not available now: this agent does not offer it.";
 const emptyObjectJsonSchema: Tool["inputSchema"] = { type: "object", properties: {} };
 
 /** Serves custom, source, and replay-only tools; `createSdkMcpServer` would accept only zod schemas. */
@@ -49,7 +50,7 @@ export function createClaudeToolServer(
     // Served so the CLI can resume a recorded call; the gate refuses new calls.
     ...toolCatalog.replayOnlyToolNames.map((toolName) => ({
       name: toolName,
-      description: replayOnlyToolDescription,
+      description: toolCatalog.isRemovedCustomTool(toolName) ? removedCustomToolDescription : replayOnlyToolDescription,
       inputSchema: { type: "object" as const },
     })),
   ];

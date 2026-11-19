@@ -30,6 +30,7 @@ from dex_agents_claude_agent_sdk.tool_gate import (
 )
 
 REPLAY_ONLY_TOOL_DESCRIPTION = "Not available now: its tool source does not offer it."
+REMOVED_CUSTOM_TOOL_DESCRIPTION = "Not available now: this agent does not offer it."
 
 
 def build_custom_tool_server(
@@ -64,7 +65,9 @@ def build_custom_tool_server(
         Tool.model_validate(
             {
                 "name": tool_name,
-                "description": REPLAY_ONLY_TOOL_DESCRIPTION,
+                "description": REMOVED_CUSTOM_TOOL_DESCRIPTION
+                if tool_catalog.is_removed_custom_tool(tool_name)
+                else REPLAY_ONLY_TOOL_DESCRIPTION,
                 "inputSchema": {"type": "object"},
             }
         )

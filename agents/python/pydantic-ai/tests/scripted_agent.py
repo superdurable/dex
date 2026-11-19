@@ -16,8 +16,9 @@ The scripted model reads the latest user prompt:
 * ``report <title>`` answers with a structured ``Report`` through the output tool.
 * ``call <tool> <json>`` asks for tool calls. Join calls of one response with
   `` && `` and later responses with `` then ``. A response item may also be
-  ``report <title>``, and a ``then fail`` response raises. After the last
-  response the model summarizes every tool result of the turn.
+  ``report <title>``, and a ``then fail`` response raises. An ``await <gate>``
+  round waits at a ``FileGate`` before the next response is returned. After
+  the last response the model summarizes every tool result of the turn.
 * ``stall <gate>`` calls ``lookup``, then streams text and waits at a ``FileGate``.
 * ``fail`` raises on every model request.
 
@@ -29,6 +30,8 @@ validation, so the tool body raises ``UnexpectedModelBehavior`` after a write.
 
 With ``SCRIPTED_AGENT_BUILT_IN_TOOLS=ask_user``, the agent also offers the
 session's ``ask_user`` built-in as an external tool, and the session enables it.
+With ``SCRIPTED_AGENT_RENAMED_TOOLS=lookup=find,slow_write=save``, the Worker
+registers those tools under the new names, as a deploy that renamed them would.
 
 The Flow serves the agent through a ``WrapperAgent``. The agent has an output
 validator, so its ``output_type`` lists ``DeferredToolRequests``. It also has
@@ -41,7 +44,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -88,15 +91,19 @@ SCRIPTED_AGENT_FLOW_TYPE = "ScriptedPydanticAIAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
+RENAMED_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_RENAMED_TOOLS"
 INVOCATION_LOG_NAME = "invocations.log"
 SYSTEM_PROMPT = "You are the Dex test agent."
 CONNECTION_LOST_AMOUNT = 999
 TOOL_POLICIES = {
     "lookup": ToolPolicy(ToolEffect.READ),
+    "find": ToolPolicy(ToolEffect.READ),
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "charge": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
+    "bill": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
     "charge_once": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+    "save": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "start_export": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "archive": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE),
     "book_room": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
@@ -148,12 +155,16 @@ class ScriptedResponse:
     text: str | None = None
     tool_calls: tuple[ToolCallPart, ...] = ()
     stall_gate: str | None = None
+    await_gate: str | None = None
 
 
 def build_scripted_agent(
-    state_dir: Path, built_in_tools: frozenset[BuiltInTool] = frozenset()
+    state_dir: Path,
+    built_in_tools: frozenset[BuiltInTool] = frozenset(),
+    renamed_tools: Mapping[str, str] | None = None,
 ) -> Agent[str, Any]:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+    renames = dict(renamed_tools or {})
 
     async def wait_at_gate(gate_name: str | None) -> None:
         if gate_name is not None:
@@ -176,6 +187,7 @@ def build_scripted_agent(
     ) -> AsyncIterator[str | DeltaToolCalls]:
         invocations.record(scripted_model_call_name(messages))
         response = plan_scripted_response(messages, info)
+        await wait_at_gate(response.await_gate)
         if response.tool_calls:
             yield {
                 index: DeltaToolCall(
@@ -221,7 +233,7 @@ def build_scripted_agent(
             raise ModelRetry("a report needs items")
         return output
 
-    @agent.tool_plain
+    @agent.tool_plain(name=renames.get("lookup", "lookup"))
     async def lookup(query: str, gate: str | None = None) -> str:
         """Look up a document."""
         invocations.record("lookup")
@@ -234,7 +246,7 @@ def build_scripted_agent(
         invocations.record("publish")
         return f"published {message}"
 
-    @agent.tool
+    @agent.tool(name=renames.get("charge", "charge"))
     async def charge(ctx: RunContext[str], amount: int, gate: str | None = None) -> str:
         """Charge an amount."""
         invocations.record("charge")
@@ -253,7 +265,7 @@ def build_scripted_agent(
             raise ModelRetry("amount must be positive")
         return f"charged {amount} once"
 
-    @agent.tool_plain
+    @agent.tool_plain(name=renames.get("slow_write", "slow_write"))
     async def slow_write(message: str, gate: str | None = None) -> str:
         """Write slowly."""
         invocations.record("slow_write")
@@ -330,11 +342,12 @@ def build_scripted_agent_flow(
     state_dir: Path,
     interrupt_deadline: timedelta | None = None,
     built_in_tools: frozenset[BuiltInTool] = frozenset(),
+    renamed_tools: Mapping[str, str] | None = None,
 ) -> AgentSessionFlow:
     if built_in_tools:
         return AgentSessionFlow(
             PydanticAIRunner(
-                WrapperAgent(build_scripted_agent(state_dir, built_in_tools)),
+                WrapperAgent(build_scripted_agent(state_dir, built_in_tools, renamed_tools)),
                 deps_factory=lambda session_id: f"deps-{session_id}",
             ),
             flow_type=SCRIPTED_AGENT_FLOW_TYPE,
@@ -345,7 +358,7 @@ def build_scripted_agent_flow(
             ),
         )
     return pydantic_ai_session_flow(
-        WrapperAgent(build_scripted_agent(state_dir)),
+        WrapperAgent(build_scripted_agent(state_dir, renamed_tools=renamed_tools)),
         flow_type=SCRIPTED_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
         interrupt_deadline=interrupt_deadline,
@@ -356,10 +369,12 @@ def build_scripted_agent_flow(
 def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
     built_in_tool_names = os.environ.get(BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE, "")
+    renamed_tools = os.environ.get(RENAMED_TOOLS_ENVIRONMENT_VARIABLE, "")
     return build_scripted_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
         frozenset(BuiltInTool(name) for name in built_in_tool_names.split(",") if name),
+        dict(rename.split("=", 1) for rename in renamed_tools.split(",") if rename),
     )
 
 
@@ -390,14 +405,19 @@ def plan_scripted_response(messages: list[ModelMessage], info: AgentInfo) -> Scr
             tool_calls=(_report_call(output_tool_name, prompt.removeprefix("report "), "report"),)
         )
     if prompt.startswith("call "):
-        stages = prompt.split(" then ")
+        rounds = prompt.split(" then ")
+        stages = [text for text in rounds if not text.startswith("await ")]
+        await_gate = _awaited_gate(rounds, stage)
         if stage < len(stages) and stages[stage] == "fail":
             raise RuntimeError("scripted model failure")
         if stage < len(stages):
             return ScriptedResponse(
-                tool_calls=_parse_tool_calls(stages[stage], len(prompts), stage, output_tool_name)
+                tool_calls=_parse_tool_calls(stages[stage], len(prompts), stage, output_tool_name),
+                await_gate=await_gate,
             )
-        return ScriptedResponse(text=_summarize_tool_results(messages[prompt_index + 1 :]))
+        return ScriptedResponse(
+            text=_summarize_tool_results(messages[prompt_index + 1 :]), await_gate=await_gate
+        )
     if prompt.startswith("stall "):
         if stage == 0:
             lookup = ToolCallPart("lookup", json.dumps({"query": "stall"}), "stall-lookup")
@@ -407,6 +427,21 @@ def plan_scripted_response(messages: list[ModelMessage], info: AgentInfo) -> Scr
     if prompt == "fail":
         raise RuntimeError("scripted model failure")
     raise ValueError(f"unknown scripted command {prompt!r}")
+
+
+def _awaited_gate(rounds: list[str], stage: int) -> str | None:
+    """Return the gate of an ``await <gate>`` round right before response ``stage``."""
+    responses_before = 0
+    awaited: str | None = None
+    for text in rounds:
+        if text.startswith("await "):
+            awaited = text.removeprefix("await ")
+            continue
+        if responses_before == stage:
+            return awaited
+        responses_before += 1
+        awaited = None
+    return awaited if responses_before == stage else None
 
 
 def _user_prompts(messages: list[ModelMessage]) -> list[tuple[int, str]]:

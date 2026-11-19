@@ -44,6 +44,10 @@ from dex_agents import (
 )
 from dex_agents_claude_agent_sdk.tool_sources import ListedSourceTool
 
+#: Output recorded for an approved tool that runs inside the Claude Code CLI.
+#: The model never sees it; the CLI runs the tool when the turn resumes.
+APPROVED_CLI_TOOL_OUTPUT = "approved; Claude Code runs this tool when the turn resumes"
+
 #: Names of tools that run inside the Claude Code 2.1 CLI. A custom tool may not
 #: use one: records and policies name a custom tool by its own name, so a shared
 #: name would confuse the two. ``ClaudeAgentRunner`` rejects such names, and a
@@ -115,6 +119,7 @@ ORDERED_WRITE_DEFERRAL_MESSAGE = (
 UNLISTED_SOURCE_TOOL_MESSAGE = (
     "{tool_name} did not run: its tool source does not offer this tool now."
 )
+REMOVED_CUSTOM_TOOL_MESSAGE = "{tool_name} did not run: this agent does not offer this tool now."
 BUILT_IN_TOOL_NAME_COLLISION_MESSAGE = (
     "{tool_name} did not run: a custom tool and a Claude Code tool share this name."
 )
@@ -183,6 +188,7 @@ class ToolCatalog:
         custom_tool_server_name: str,
         source_tools: Mapping[str, ListedSourceTool] | None = None,
         replay_only_tool_names: Collection[str] = (),
+        removed_custom_tool_names: Collection[str] = (),
     ) -> None:
         self.custom_tool_server_name = custom_tool_server_name
         self._custom_tool_prefix = f"mcp__{custom_tool_server_name}__"
@@ -192,8 +198,12 @@ class ToolCatalog:
         # Recorded source tools this listing lacks: served only to replay their records.
         self._replay_only_tool_names = frozenset(
             tool_name
-            for tool_name in replay_only_tool_names
+            for tool_name in [*replay_only_tool_names, *removed_custom_tool_names]
             if tool_name not in self._custom_tools and tool_name not in self._source_tools
+        )
+        # Recorded custom tools a deploy renamed or removed: served only to replay their records.
+        self._removed_custom_tool_names = self._replay_only_tool_names & frozenset(
+            removed_custom_tool_names
         )
         if len(self._custom_tools) != len(custom_tools):
             raise ValueError("custom tool names must be unique")
@@ -211,9 +221,14 @@ class ToolCatalog:
         self,
         source_tools: Mapping[str, ListedSourceTool],
         replay_only_tool_names: Collection[str] = (),
+        removed_custom_tool_names: Collection[str] = (),
     ) -> ToolCatalog:
         return ToolCatalog(
-            self.custom_tools, self.custom_tool_server_name, source_tools, replay_only_tool_names
+            self.custom_tools,
+            self.custom_tool_server_name,
+            source_tools,
+            replay_only_tool_names,
+            removed_custom_tool_names,
         )
 
     @property
@@ -240,6 +255,12 @@ class ToolCatalog:
 
     def is_replay_only_tool(self, tool_name: str) -> bool:
         return tool_name in self._replay_only_tool_names
+
+    def is_removed_custom_tool(self, tool_name: str) -> bool:
+        return tool_name in self._removed_custom_tool_names
+
+    def cli_tool_name_of_custom_tool(self, custom_tool_name: str) -> str:
+        return f"{self._custom_tool_prefix}{custom_tool_name}"
 
     def is_served_tool_name(self, tool_name: str) -> bool:
         return (
@@ -399,9 +420,12 @@ class ToolCallGate:
             served_tool_name
         ):
             # A new call would run under a new Call ID; only the source's listing permits that.
-            return _pre_tool_use_decision(
-                "deny", UNLISTED_SOURCE_TOOL_MESSAGE.format(tool_name=policy_tool_name)
+            message = (
+                REMOVED_CUSTOM_TOOL_MESSAGE
+                if self._tool_catalog.is_removed_custom_tool(served_tool_name)
+                else UNLISTED_SOURCE_TOOL_MESSAGE
             )
+            return _pre_tool_use_decision("deny", message.format(tool_name=policy_tool_name))
         source_tool = (
             None if served_tool_name is None else self._tool_catalog.source_tool(served_tool_name)
         )
@@ -601,6 +625,12 @@ class ToolCallGate:
             )
         # The CLI prefixes a hook denial, so a custom tool returns even its rejection itself.
         # Application hooks are skipped on replay, so every allow carries the approved input.
+        if served_tool_name is not None and self._is_unrun_removed_custom_tool_call(record):
+            # The tool Step took the gone tool for a CLI tool; an earlier attempt may have run it.
+            record = replace(record, status=ToolCallStatus.OUTCOME_UNKNOWN, output=None)
+            self._turn.events.write_tool_call_finished(
+                call_id, record.tool_name, ToolCallStatus.OUTCOME_UNKNOWN
+            )
         if served_tool_name is not None:
             recorded_input = _recorded_tool_input(record)
             self._custom_tool_call_plans[call_id] = _CustomToolCallPlan(served_tool_name, record)
@@ -610,6 +640,13 @@ class ToolCallGate:
             self._running_tool_names[call_id] = record.tool_name
             return _pre_tool_use_decision("allow", updated_input=_recorded_tool_input(record))
         return _pre_tool_use_decision("ask", _claude_code_tool_refusal(record))
+
+    def _is_unrun_removed_custom_tool_call(self, record: AgentToolCall) -> bool:
+        return (
+            self._tool_catalog.is_removed_custom_tool(record.tool_name)
+            and record.status is ToolCallStatus.SUCCEEDED
+            and record.output == APPROVED_CLI_TOOL_OUTPUT
+        )
 
     def _permit_inline_tool_call(
         self, tool_use_id: str, policy_tool_name: str, custom_tool_name: str | None

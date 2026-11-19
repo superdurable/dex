@@ -98,6 +98,10 @@ from dex_agents_google_adk._images import (
     image_placeholder_part,
     image_references_in_parts,
 )
+from dex_agents_google_adk._paused_call_tools import (
+    install_paused_call_toolset,
+    offer_paused_call_tools,
+)
 from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from dex_agents_google_adk._session_service import TurnSessionService
 from dex_agents_google_adk._tool_deferral import (
@@ -305,6 +309,7 @@ class AdkAgentRunner:
         )
         if tool_sources:
             install_source_toolset(app.root_agent, self._tool_sources)
+        self._paused_call_toolset = install_paused_call_toolset(app.root_agent)
         self._app = app
         self._root_agent: BaseAgent = app.root_agent
         self._run_config = run_config or RunConfig(streaming_mode=StreamingMode.SSE)
@@ -378,7 +383,13 @@ class AdkAgentRunner:
         invocation: it answers every ``adk_request_confirmation`` call, one
         message per ADK branch, with ``confirmed`` set to whether the call was
         approved. ADK re-executes the confirmed calls, and the plugin returns
-        each recorded result.
+        each recorded result. A paused call whose tool a deploy renamed or
+        removed replays through an undeclared stand-in of the old name, which
+        the model never sees.
+
+        .. versionchanged:: 0.6.16
+            A paused call whose tool is gone replays its record instead of
+            failing the turn with "Tool ... is not registered".
 
         An ``LlmAgent`` makes one model call per ``RunModel``. Agents that
         continue without tools, such as the next agent of a ``SequentialAgent``,
@@ -455,7 +466,12 @@ class AdkAgentRunner:
             memory_service=self._memory_service,
             credential_service=self._credential_service,
         )
-        with offer_source_tools(self._tool_sources, source_tools):
+        with (
+            offer_source_tools(self._tool_sources, source_tools),
+            offer_paused_call_tools(
+                self._paused_call_toolset, _paused_call_tool_names(turn, suspended)
+            ),
+        ):
             for new_message in new_messages:
                 async for event in runner.run_async(
                     user_id=self._user_id,
@@ -1044,6 +1060,16 @@ def _confirmation_response_messages(
     if not parts_by_branch:
         raise RuntimeError(f"turn {turn.turn_id} resumed without a tool call")
     return [types.Content(role="user", parts=parts) for parts in parts_by_branch.values()]
+
+
+def _paused_call_tool_names(turn: AgentTurnContext, suspended: SuspendedAdkTurn | None) -> set[str]:
+    if suspended is None:
+        return set()
+    return {
+        record.tool_name
+        for tool_call_id in suspended.confirmation_request_ids
+        if (record := turn.recorded_tool_call(tool_call_id)) is not None
+    }
 
 
 def _unfinished_tool_response_events(

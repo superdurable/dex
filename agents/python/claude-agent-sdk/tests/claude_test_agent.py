@@ -10,7 +10,8 @@
 
 * ``lookup`` is READ through its ``readOnlyHint`` annotation and runs inline.
 * ``publish`` is a non-idempotent write that needs approval.
-* ``charge`` is an idempotent write through its ``idempotentHint`` annotation.
+* ``charge`` is an idempotent write through its ``idempotentHint`` annotation; with a
+  ``gate`` argument it waits at that gate first.
 * ``slow_write`` is a non-idempotent write without approval that waits at a gate.
 * ``Bash`` runs inside the CLI and needs approval, the default for unknown tools.
   The Claude Code tool permission runs ``INLINE_BASH_COMMAND`` without
@@ -39,7 +40,9 @@ application hooks for a resumed call that has a final record. Another denies
 CLI with that JSON object as extra CLI environment. A JSON object in
 ``EXTRA_CLI_ENVIRONMENT_VARIABLE`` then changes the CLI environment: a string
 sets a variable, and ``null`` removes it, such as ``CLAUDE_CONFIG_DIR``. A comma-separated
-``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``.
+``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``. Comma-separated
+``old=new`` pairs in ``RENAMED_TOOLS_ENVIRONMENT_VARIABLE`` rename custom tools on
+that Worker, as a deploy would; a renamed tool keeps its policy.
 
 With ``MEDIA_STORE_ENVIRONMENT_VARIABLE`` set, the agent takes images from a
 ``LocalDirectoryMediaStore`` under the state directory and adds two tools:
@@ -120,6 +123,8 @@ REAL_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_REAL_CLI_ENV"
 EXTRA_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_EXTRA_CLI_ENV"
 PERMISSION_MODE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_PERMISSION_MODE"
 ALLOWED_TOOLS_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_ALLOWED_TOOLS"
+# Comma-separated ``old=new`` pairs: this Worker serves each custom tool under its new name.
+RENAMED_TOOLS_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RENAMED_TOOLS"
 RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RUN_MODEL_LIMIT"
 SPEND_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_SPEND_LIMIT"
 SPEND_REFUSAL_FILE_NAME = "spend-refusal"
@@ -219,7 +224,9 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_options,
         custom_tools,
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
-        tool_policies=TOOL_POLICIES,
+        tool_policies={
+            _renamed_tools().get(name, name): policy for name, policy in TOOL_POLICIES.items()
+        },
         tool_sources=tool_sources,
         claude_code_tool_permission=decide_claude_code_tool_permission,
         run_model_limit=_run_model_limit_from_environment(),
@@ -650,7 +657,11 @@ def build_custom_tools(state_dir: Path) -> list[SdkMcpTool[Any]]:
         "Charge an amount",
         {
             "type": "object",
-            "properties": {"amount": {"type": "integer"}, "fail_attempts": {"type": "integer"}},
+            "properties": {
+                "amount": {"type": "integer"},
+                "fail_attempts": {"type": "integer"},
+                "gate": {"type": "string"},
+            },
             "required": ["amount"],
         },
         annotations=ToolAnnotations(idempotentHint=True),
@@ -660,6 +671,10 @@ def build_custom_tools(state_dir: Path) -> list[SdkMcpTool[Any]]:
         execution = current_deferred_tool_execution()
         if execution is None:
             raise RuntimeError("charge must run in a deferred tool Step")
+        if "gate" in arguments:
+            gate = FileGate(state_dir, arguments["gate"])
+            gate.mark_reached()
+            await gate.wait_for_release()
         if execution.attempt <= int(arguments.get("fail_attempts", 0)):
             raise RuntimeError(f"charge attempt {execution.attempt} lost its connection")
         if int(arguments["amount"]) <= 0:
@@ -674,7 +689,16 @@ def build_custom_tools(state_dir: Path) -> list[SdkMcpTool[Any]]:
         await gate.wait_for_release()
         return _text_result(f"wrote {arguments['message']}")
 
-    return [lookup, publish, charge, slow_write]
+    renamed_tools = _renamed_tools()
+    return [
+        dataclasses.replace(custom_tool, name=renamed_tools.get(custom_tool.name, custom_tool.name))
+        for custom_tool in [lookup, publish, charge, slow_write]
+    ]
+
+
+def _renamed_tools() -> dict[str, str]:
+    pairs = os.environ.get(RENAMED_TOOLS_ENVIRONMENT_VARIABLE, "").split(",")
+    return dict(pair.split("=", 1) for pair in pairs if pair)
 
 
 def _text_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
