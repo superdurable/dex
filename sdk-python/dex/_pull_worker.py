@@ -143,7 +143,7 @@ class PullWorkerRuntime:
         self._permanent_error: RuntimeError | None = None
         self._rejection_stop_task: asyncio.Task[None] | None = None
         self._streams: set[PullStream] = set()
-        self._stopping: asyncio.Event | None = None
+        self._stopping = asyncio.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stub: Any = None
         self._slot_streams = PullSlotStreams(self, options)
@@ -209,6 +209,8 @@ class PullWorkerRuntime:
         return None
 
     async def run(self) -> None:
+        if self.is_stopping:
+            return
         if self._should_warn_rpc_capacity:
             _LOGGER.warning(
                 "RPCs may wait behind long-running Steps; use max_concurrent_tasks >= 2 or set reserved_rpc_tasks explicitly"
@@ -220,7 +222,6 @@ class PullWorkerRuntime:
         self._loop = asyncio.get_running_loop()
         self._loop_thread_id = threading.get_ident()
         self._wake = asyncio.Event()
-        self._stopping = asyncio.Event()
         self._stop_completed = asyncio.Event()
         self._started.set()
         channel: grpc.aio.Channel | None = None
@@ -256,7 +257,7 @@ class PullWorkerRuntime:
             self._wake.set()
 
     def _reconcile(self, stub: Any) -> None:
-        if self._stopping is None or self._stopping.is_set():
+        if self._stopping.is_set():
             return
         self._stub = stub
         self._slot_streams.reconcile()
@@ -324,8 +325,6 @@ class PullWorkerRuntime:
 
     async def stop(self) -> None:
         self.registration.record_stopping()
-        if self._stopping is None:
-            return
         if self._stopping.is_set():
             if self._stop_completed is not None:
                 await self._stop_completed.wait()
@@ -408,7 +407,7 @@ class PullWorkerRuntime:
 
     @property
     def is_stopping(self) -> bool:
-        return self._stopping is not None and self._stopping.is_set()
+        return self._stopping.is_set()
 
 
 class PullStream:
@@ -538,14 +537,13 @@ class PullStream:
             # Only the reopen rule continues this runner; a stream closed on purpose never reopens.
             if not slot_streams.take_reopen_grant(self):
                 return
-            if self.runtime._stopping is not None:
-                try:
-                    await asyncio.wait_for(
-                        self.runtime._stopping.wait(),
-                        timeout=backoff + random.uniform(0, backoff / 2),
-                    )
-                except asyncio.TimeoutError:
-                    pass
+            try:
+                await asyncio.wait_for(
+                    self.runtime._stopping.wait(),
+                    timeout=backoff + random.uniform(0, backoff / 2),
+                )
+            except asyncio.TimeoutError:
+                pass
             if code not in _PERMANENT_CODES and task_queue_mismatch is None:
                 backoff = min(backoff * 2, 5)
 
@@ -741,8 +739,6 @@ class PullStream:
         loop = asyncio.get_running_loop()
         reconnect_deadline = loop.time() + self.runtime.stop_drain_timeout
         stopping = self.runtime._stopping
-        if stopping is None:
-            raise RuntimeError("pull Worker Stop event is unavailable")
         stop_wait: asyncio.Task[bool] | None = None
         try:
             while True:
