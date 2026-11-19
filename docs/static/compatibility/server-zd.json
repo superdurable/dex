@@ -12,19 +12,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -131,19 +131,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -250,19 +250,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -369,19 +369,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -488,19 +488,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -607,19 +607,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -726,19 +726,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -845,19 +845,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -961,19 +961,19 @@
       "sdks": {
         "go": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "python": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "typescript": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         },
         "rust": {
           "oldest": "0.9.0",
