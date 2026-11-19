@@ -10,10 +10,14 @@ Use the individual agreement when you own the contribution personally. Use the
 corporate agreement when an employer or other organization owns or controls the
 contribution or will authorize multiple contributors.
 
-Email the executed agreement to licensing@superdurable.io. Include the legal
-name, GitHub handle, agreement type, and, for an organization, the authorized
-contributor schedule. Super Durable retains executed agreements privately and
-records only the minimum verification data in `.github/cla-signatures.json`.
+Sign the individual agreement through CLA Assistant. On your first pull
+request, CLA Assistant comments with a signing link. Open it, sign in with
+GitHub, and accept the agreement. The `license/cla` check on the pull request
+then passes. If it does not update, comment `recheck` on the pull request.
 
-These agreement forms and the licensing policy require intellectual-property
-counsel approval before publication or acceptance of contributions.
+Corporate agreements still go by email. Email the executed corporate agreement
+to licensing@superdurable.io. Include the legal name of the organization and
+the authorized contributor schedule with each contributor's legal name and
+GitHub handle. Super Durable retains executed agreements privately and
+allowlists the authorized contributors in CLA Assistant, so they do not sign
+the individual agreement.

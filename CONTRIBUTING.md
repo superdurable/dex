@@ -176,10 +176,12 @@ use the mixed header. Preserve applicable notices when copying smaller excerpts.
 
 ## Contributor License Agreement
 
-All contributors must sign an [individual or corporate CLA](.github/CLA.md). Email the
-signed agreement and GitHub handle to licensing@superdurable.io. Pull
-requests from handles absent from `.github/cla-signatures.json` fail the CLA
-check until the record is updated.
+All contributors must sign an [individual or corporate CLA](.github/CLA.md).
+On your first pull request, CLA Assistant comments with a link to sign the
+individual CLA with your GitHub account. The required `license/cla` check fails
+until you sign; comment `recheck` if it does not update. For a corporate CLA,
+email the executed agreement to licensing@superdurable.io; its authorized
+contributors are then allowlisted in CLA Assistant.
 
 ## Skills mirror
 
@@ -205,7 +207,7 @@ Pushes to `main` run no test suites, because the pull request already ran them; 
 
 Release workflows run no test suites by default, and a published GitHub Release never runs them. To run them on the release commit first, set the `run_tests` input when you dispatch the release workflow; a failing suite then stops publishing. **Release changed components** with `run_tests` runs the suite of each selected component before it creates any release, so the publishers it calls skip their own copy.
 
-Check Gate CI is the only required check. It waits for every workflow whose paths a pull request touches. Each of its path filters must list exactly the `on.pull_request.paths` of the workflow it waits for; `python3 .github/scripts/workflow_paths.py check-paths` checks this, and the gate runs it. The SDK suites list the `cli/internal` packages that `dexcli dev` builds one by one, so a new package there must be added to each SDK suite and its gate filter. A pull request with the `ci:fast-merge` label does not wait for the SDK, CLI, Web, and examples suites; they still run on the pull request and in the next **Main CI (all)** run, and a failure there must be fixed forward right away. Generated Code CI, Server ZD CI, Server Integration against server-zd, S3local CI, Rust Rules CI, Copyright, CLA, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
+Two checks are required: Check Gate CI and `license/cla`, which CLA Assistant reports. Check Gate CI waits for every workflow whose paths a pull request touches. Each of its path filters must list exactly the `on.pull_request.paths` of the workflow it waits for; `python3 .github/scripts/workflow_paths.py check-paths` checks this, and the gate runs it. The SDK suites list the `cli/internal` packages that `dexcli dev` builds one by one, so a new package there must be added to each SDK suite and its gate filter. A pull request with the `ci:fast-merge` label does not wait for the SDK, CLI, Web, and examples suites; they still run on the pull request and in the next **Main CI (all)** run, and a failure there must be fixed forward right away. Generated Code CI, Server ZD CI, Server Integration against server-zd, S3local CI, Rust Rules CI, Copyright, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
 
 ## Releases (monorepo tags)
 
