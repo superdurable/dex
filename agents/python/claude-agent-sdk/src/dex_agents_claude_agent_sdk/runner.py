@@ -67,6 +67,7 @@ from dex_agents.builtin_loop import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSou
 from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_server
 from dex_agents_claude_agent_sdk.session_store import TurnSegmentSessionStore
 from dex_agents_claude_agent_sdk.tool_gate import (
+    APPROVED_CLI_TOOL_OUTPUT,
     CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
     ClaudeCodeToolPermission,
     ToolCallGate,
@@ -80,6 +81,7 @@ from dex_agents_claude_agent_sdk.transcript import (
     build_resume_transcript,
     build_turn_prompt_content,
     build_unfinished_tool_result_entries,
+    cli_tool_names_by_tool_use_id,
     decode_run_state,
     encode_run_state,
     encode_user_prompt_item,
@@ -94,10 +96,6 @@ from dex_agents_claude_agent_sdk.transcript_images import (
 
 #: Name of the in-process MCP server that serves custom tools unless you pass another.
 DEFAULT_CUSTOM_TOOL_SERVER_NAME = "tools"
-
-#: Output recorded for an approved tool that runs inside the Claude Code CLI.
-#: The model never sees it; the CLI runs the tool when the turn resumes.
-APPROVED_CLI_TOOL_OUTPUT = "approved; Claude Code runs this tool when the turn resumes"
 
 _PERMISSION_MODES_THAT_SKIP_THE_ADAPTER = ("acceptEdits", "auto", "bypassPermissions")
 AWAIT_INITIALIZE_CLI_FLAG = "await-initialize"
@@ -458,6 +456,11 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             only what the turn has not stored yet, and every segment answers
             the open tool uses of ended turns.
 
+        .. versionchanged:: 0.6.15
+            A custom tool that the turn deferred but this Worker no longer
+            has, such as one a deploy renamed, is served replay-only, so the
+            resumed CLI receives the call's recorded result.
+
         Args:
             turn: Committed session state for this segment.
 
@@ -499,6 +502,12 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         stored_entries = resume_transcript.entries
         image_codec = self._transcript_image_codec(turn, [stored_entries, prompt_content])
         session_store = TurnSegmentSessionStore(session_id, stored_entries, image_codec)
+        running_turn_entries = [
+            *load_session_transcript(
+                message for message in turn.messages if message.turn_id == turn.turn_id
+            ).entries,
+            *earlier_turn_entries,
+        ]
         # A source's listing may lack a tool the turn already called; its record must still replay.
         tool_catalog = self._tool_catalog.with_source_tools(
             await self._tool_sources.list_source_tools(),
@@ -507,19 +516,14 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 for record in turn.tool_calls.values()
                 if self._tool_sources.is_source_call(record)
             },
+            removed_custom_tool_names=self._removed_custom_tool_names(turn, running_turn_entries),
         )
         tool_call_gate = ToolCallGate(
             turn,
             tool_catalog,
             # Records belong to the running turn; an earlier turn's result answers none of them.
             answered_running_turn_tool_use_ids(
-                committed_transcript.session_id,
-                [
-                    *load_session_transcript(
-                        message for message in turn.messages if message.turn_id == turn.turn_id
-                    ).entries,
-                    *earlier_turn_entries,
-                ],
+                committed_transcript.session_id, running_turn_entries
             ),
             self._claude_code_tool_permission,
             await self._load_recorded_tool_images(turn),
@@ -649,12 +653,13 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 for record in turn.tool_calls.values()
                 if self._tool_sources.is_source_call(record)
             },
+            removed_custom_tool_names=self._removed_custom_tool_names(turn, turn_entries),
         )
         result_entries = build_unfinished_tool_result_entries(
             session_id,
             turn_entries,
             lambda tool_use: self._describe_unfinished_tool_result(
-                turn.recorded_tool_call(tool_use.tool_use_id)
+                turn.recorded_tool_call(tool_use.tool_use_id), tool_catalog
             ),
         )
         return project_turn_entries(
@@ -664,8 +669,22 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             stored_turn_transcript.entries,
         )
 
+    def _removed_custom_tool_names(
+        self, turn: AgentTurnContext, running_turn_entries: Sequence[TranscriptEntry]
+    ) -> set[str]:
+        """Return the custom tools the turn called that this Worker no longer has, by record."""
+        cli_tool_names = cli_tool_names_by_tool_use_id(running_turn_entries)
+        return {
+            record.tool_name
+            for record in turn.tool_calls.values()
+            if not self._tool_sources.is_source_call(record)
+            and self._tool_catalog.custom_tool(record.tool_name) is None
+            and cli_tool_names.get(record.tool_call_id)
+            == self._tool_catalog.cli_tool_name_of_custom_tool(record.tool_name)
+        }
+
     def _describe_unfinished_tool_result(
-        self, record: AgentToolCall | None
+        self, record: AgentToolCall | None, tool_catalog: ToolCatalog
     ) -> UnfinishedToolResult:
         if record is None or not record.status.is_final:
             return UnfinishedToolResult(OUTCOME_UNKNOWN_TOOL_RESULT, is_error=True)
@@ -674,6 +693,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         is_cli_tool_call = (
             self._tool_sources.route(record) is None
             and self._tool_catalog.custom_tool(record.tool_name) is None
+            and not (
+                tool_catalog.is_removed_custom_tool(record.tool_name)
+                and record.output != APPROVED_CLI_TOOL_OUTPUT
+            )
         )
         # An approved CLI tool runs only in the resumed CLI, which may have run it before failing.
         if is_cli_tool_call:

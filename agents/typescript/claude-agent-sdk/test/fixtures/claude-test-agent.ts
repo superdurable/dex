@@ -91,6 +91,9 @@ function decideClaudeCodeToolPermission(
 
 /** Flow type of the Claude agent under test. */
 export const claudeTestAgentFlowType = "ScriptedClaudeAgent";
+/** Comma-separated `old=new` pairs: the Worker serves each custom tool under its new name, as after a deploy. */
+export const renamedToolsVariable = "CLAUDE_TEST_AGENT_RENAMED_TOOLS";
+
 /** Gate at which `slow_write` waits. */
 export const slowWriteGateName = "slow_write";
 /** The amount the application hook gives a `payout_checked` call whose memo is `raise`. */
@@ -227,7 +230,9 @@ export function createClaudeTestAgentFlow(
     {
       options: buildOptions,
       customTools,
-      toolPolicies: testToolPolicies,
+      toolPolicies: Object.fromEntries(
+        Object.entries(testToolPolicies).map(([toolName, policy]) => [renamedTools().get(toolName) ?? toolName, policy]),
+      ),
       claudeCodeToolPermission: decideClaudeCodeToolPermission,
       toolSources,
       ...(mediaStore === undefined ? {} : { mediaStore }),
@@ -558,12 +563,17 @@ function createTestCustomTools(stateDirectory: string): ClaudeCustomTool[] {
   const charge = tool(
     "charge",
     "Charge an amount",
-    { amount: z.number().int(), fail_attempts: z.number().int().default(0) },
+    { amount: z.number().int(), fail_attempts: z.number().int().default(0), gate: z.string().optional() },
     async (toolArguments) => {
       invocations.record("charge");
       const execution = currentDeferredToolExecution();
       if (execution === undefined) {
         throw new Error("charge must run in a deferred tool Step");
+      }
+      if (toolArguments.gate !== undefined) {
+        const gate = new FileGate(stateDirectory, toolArguments.gate);
+        gate.markReached();
+        await gate.waitForRelease();
       }
       if (execution.attempt <= toolArguments.fail_attempts) {
         throw new Error(`charge attempt ${execution.attempt} lost its connection`);
@@ -582,7 +592,16 @@ function createTestCustomTools(stateDirectory: string): ClaudeCustomTool[] {
     await gate.waitForRelease();
     return textResult(`wrote ${toolArguments.message}`);
   });
-  return [lookup, publish, charge, slowWrite];
+  const newNames = renamedTools();
+  return [lookup, publish, charge, slowWrite].map((customTool) => ({
+    ...customTool,
+    name: newNames.get(customTool.name) ?? customTool.name,
+  }));
+}
+
+function renamedTools(): ReadonlyMap<string, string> {
+  const pairs = (process.env[renamedToolsVariable] ?? "").split(",").filter((pair) => pair !== "");
+  return new Map(pairs.map((pair) => pair.split("=", 2) as [string, string]));
 }
 
 function textResult(text: string, isError = false): { content: { type: "text"; text: string }[]; isError: boolean } {

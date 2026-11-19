@@ -502,6 +502,11 @@ def answered_running_turn_tool_use_ids(
     )
 
 
+def cli_tool_names_by_tool_use_id(entries: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """Return the CLI tool name of each main-conversation tool use, by tool use ID."""
+    return {tool_use.tool_use_id: tool_use.cli_tool_name for tool_use in _main_tool_uses(entries)}
+
+
 @dataclass(frozen=True)
 class _ToolUseInstance(_MainToolUse):
     is_answered: bool

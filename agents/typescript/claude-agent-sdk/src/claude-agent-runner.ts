@@ -50,6 +50,7 @@ import * as zodV4 from "zod/v4";
 import {
   ToolCallGate,
   ToolCatalog,
+  approvedCliToolOutput,
   cliToolNames,
   type ClaudeCodeToolPermission,
   type ClaudeCustomTool,
@@ -63,6 +64,7 @@ import {
 } from "./claude-tool-sources.js";
 import {
   answeredRunningTurnToolUseIds,
+  cliToolNamesByToolUseId,
   buildResumeTranscript,
   buildUnfinishedToolResultEntries,
   decodeRunState,
@@ -97,13 +99,7 @@ const claudeProvidersWithoutGenAIProvider: ReadonlySet<string> = new Set(["gatew
  */
 export const defaultCustomToolServerName = "tools";
 
-/**
- * Output recorded for an approved tool that runs inside the Claude Code CLI, such as `Bash`.
- *
- * The model never sees it: the CLI runs the real tool when the turn resumes. It appears only as the
- * `output` of the tool call record while the turn is active. The text matches the Python adapter.
- */
-export const approvedCliToolOutput = "approved; Claude Code runs this tool when the turn resumes";
+export { approvedCliToolOutput };
 
 /**
  * Identifies the turn segment that asks an options factory for Claude Agent SDK `Options`.
@@ -477,6 +473,10 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * answer before its own messages. The CLI always gets each answer right after its tool use, and no deferral
    * attachment of an answered call. Since 0.6.12.
    *
+   * A custom tool that the turn deferred but this Worker no longer has, such as one a deploy renamed, is served
+   * replay-only, so the resumed CLI receives the call's recorded result and the model sees the new tool list. Changed
+   * in 0.6.15: before, the resumed CLI could not find the old tool and the segment failed.
+   *
    * @param turn - Committed session state for this segment.
    * @returns `ToolCallsRequested` with the one call the CLI deferred, the Claude session ID as run state, and the
    * segment's transcript entries grouped into `newMessages`; otherwise `TurnCompleted` with the segment's
@@ -513,15 +513,16 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const imageCodec = this.transcriptImageCodec(turn, [resumedEntries, promptContent]);
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries, imageCodec);
-    const toolCatalog = await this.listSegmentTools(turn);
+    const runningTurnEntries = [
+      ...loadSessionTranscript(turn.messages.filter((message) => message.turnId === turn.turnId)).entries,
+      ...earlierTurnEntries,
+    ];
+    const toolCatalog = await this.listSegmentTools(turn, runningTurnEntries);
     const toolCallGate = new ToolCallGate(
       turn,
       toolCatalog,
       // Records belong to the running turn; an earlier turn's result for a reused ID answers none.
-      answeredRunningTurnToolUseIds(committedTranscript.sessionId, [
-        ...loadSessionTranscript(turn.messages.filter((message) => message.turnId === turn.turnId)).entries,
-        ...earlierTurnEntries,
-      ]),
+      answeredRunningTurnToolUseIds(committedTranscript.sessionId, runningTurnEntries),
       this.claudeCodeToolPermission,
       await this.loadRecordedToolImages(turn),
     );
@@ -629,9 +630,10 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       turn.toolCalls
         .filter((toolCall) => this.toolSourceRouter.isSourceCall(toolCall))
         .map((toolCall) => toolCall.toolName),
+      this.removedCustomToolNames(turn, turnEntries),
     );
     const resultEntries = buildUnfinishedToolResultEntries(sessionId, turnEntries, (toolUse) =>
-      this.describeUnfinishedToolResult(turn.recordedToolCall(toolUse.toolUseId)),
+      this.describeUnfinishedToolResult(turn.recordedToolCall(toolUse.toolUseId), toolCatalog),
     );
     return projectTurnEntries(
       sessionId,
@@ -817,7 +819,23 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     return routed;
   }
 
-  private describeUnfinishedToolResult(record: AgentToolCall | undefined): UnfinishedToolResult {
+  // Custom tools the turn called that this Worker no longer has, found by the transcript's CLI tool name.
+  private removedCustomToolNames(
+    turn: AgentTurnContext,
+    runningTurnEntries: readonly ClaudeTranscriptEntry[],
+  ): string[] {
+    const cliToolNames = cliToolNamesByToolUseId(runningTurnEntries);
+    return turn.toolCalls
+      .filter(
+        (toolCall) =>
+          !this.toolSourceRouter.isSourceCall(toolCall) &&
+          this.toolCatalog.customTool(toolCall.toolName) === undefined &&
+          cliToolNames.get(toolCall.toolCallId) === this.toolCatalog.cliToolNameOfCustomTool(toolCall.toolName),
+      )
+      .map((toolCall) => toolCall.toolName);
+  }
+
+  private describeUnfinishedToolResult(record: AgentToolCall | undefined, toolCatalog: ToolCatalog): UnfinishedToolResult {
     if (record === undefined || !isFinalToolCallStatus(record.status)) {
       return { text: outcomeUnknownToolResult, isError: true, images: [] };
     }
@@ -825,7 +843,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       return { text: describeToolCallOutcome(record), isError: true, images: [] };
     }
     const isCliToolCall =
-      this.toolSourceRouter.route(record) === undefined && this.toolCatalog.customTool(record.toolName) === undefined;
+      this.toolSourceRouter.route(record) === undefined &&
+      this.toolCatalog.customTool(record.toolName) === undefined &&
+      !(toolCatalog.isRemovedCustomTool(record.toolName) && record.output !== approvedCliToolOutput);
     // An approved CLI tool runs only in the resumed CLI, which may have run it before failing.
     if (isCliToolCall) {
       return { text: outcomeUnknownToolResult, isError: true, images: [] };
@@ -852,14 +872,24 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
   }
 
   // A source's listing may lack a tool the turn already called; its record must still replay.
-  private async listSegmentTools(turn: AgentTurnContext): Promise<ToolCatalog> {
+  private async listSegmentTools(
+    turn: AgentTurnContext,
+    runningTurnEntries: readonly ClaudeTranscriptEntry[],
+  ): Promise<ToolCatalog> {
+    const removedCustomToolNames = this.removedCustomToolNames(turn, runningTurnEntries);
     if (!this.toolSourceRouter.hasToolSources) {
-      return this.toolCatalog;
+      return removedCustomToolNames.length === 0
+        ? this.toolCatalog
+        : this.toolCatalog.withSourceTools(new Map(), [], removedCustomToolNames);
     }
     const replayOnlyToolNames = turn.toolCalls
       .filter((toolCall) => this.toolSourceRouter.isSourceCall(toolCall))
       .map((toolCall) => toolCall.toolName);
-    return this.toolCatalog.withSourceTools(await this.toolSourceRouter.listSourceTools(), replayOnlyToolNames);
+    return this.toolCatalog.withSourceTools(
+      await this.toolSourceRouter.listSourceTools(),
+      replayOnlyToolNames,
+      removedCustomToolNames,
+    );
   }
 
   private readApplicationOptions(

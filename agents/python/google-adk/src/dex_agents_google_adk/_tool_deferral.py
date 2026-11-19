@@ -42,6 +42,10 @@ from dex_agents import (
 )
 from dex_agents.builtin_loop import FrameworkToolSourceRouter, SourceToolListing
 from dex_agents_google_adk._images import inline_image_references, with_tool_result_images
+from dex_agents_google_adk._paused_call_tools import (
+    PAUSED_CALL_TOOL_NOT_OFFERED_RESULT,
+    PausedCallTool,
+)
 from dex_agents_google_adk._tool_sources import SourceTool, SourceToolset
 
 TOOL_DEFERRAL_PLUGIN_NAME = "dex_tool_deferral"
@@ -145,6 +149,9 @@ class ToolDeferralPlugin(BasePlugin):
             if self._media_store is None:
                 return response
             return with_tool_result_images(response, record)
+        if isinstance(tool, PausedCallTool):
+            # A deploy removed the tool; only its paused call's record answers.
+            return {"error": PAUSED_CALL_TOOL_NOT_OFFERED_RESULT.format(tool_name=tool.name)}
         if isinstance(tool, SourceTool) and self._source_tools.is_replay_only(tool.name):
             # Its source no longer lists the tool; the model reads why, and nothing runs.
             return {"error": self._source_tools.not_offered_result(tool.name)}
@@ -349,7 +356,7 @@ async def find_agent_tool(
             continue
         invocation_context.agent = agent
         for tool in await agent.canonical_tools(ReadonlyContext(invocation_context)):
-            if tool.name == tool_name:
+            if tool.name == tool_name and not isinstance(tool, PausedCallTool):
                 return agent, tool
     return None
 

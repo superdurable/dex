@@ -68,6 +68,16 @@ const unpermittedToolCallMessage = (toolName: string): string =>
 const orderedWriteDeferralMessage = (toolName: string): string =>
   `${toolName} did not run. Writes run one at a time in your order, and an earlier call of this reply ` +
   `runs first. Read its result, then call ${toolName} again by itself if it should still run.`;
+/**
+ * Output recorded for an approved tool that runs inside the Claude Code CLI, such as `Bash`.
+ *
+ * The model never sees it: the CLI runs the real tool when the turn resumes. It appears only as the
+ * `output` of the tool call record while the turn is active. The text matches the Python adapter.
+ */
+export const approvedCliToolOutput = "approved; Claude Code runs this tool when the turn resumes";
+
+const removedCustomToolMessage = (toolName: string): string =>
+  `${toolName} did not run: this agent does not offer this tool now.`;
 const unlistedSourceToolMessage = (toolName: string): string =>
   `${toolName} did not run: its tool source does not offer this tool now.`;
 const mismatchedReplayMessage = (toolName: string, toolUseId: string, recordedToolName: string): string =>
@@ -145,13 +155,16 @@ export class ToolCatalog {
   private readonly customToolsByName: ReadonlyMap<string, ClaudeCustomTool>;
   private readonly sourceToolsByName: ReadonlyMap<string, ListedSourceTool>;
   private readonly replayOnlyToolNameSet: ReadonlySet<string>;
+  private readonly removedCustomToolNameSet: ReadonlySet<string>;
 
   // replayOnlyToolNames: recorded source tools this listing lacks, served only to replay their records.
+  // removedCustomToolNames: recorded custom tools a deploy renamed or removed, served the same way.
   public constructor(
     customTools: readonly ClaudeCustomTool[],
     public readonly customToolServerName: string,
     sourceTools: ReadonlyMap<string, ListedSourceTool> = new Map(),
     replayOnlyToolNames: Iterable<string> = [],
+    removedCustomToolNames: Iterable<string> = [],
   ) {
     this.customToolPrefix = `mcp__${customToolServerName}__`;
     this.customToolsByName = new Map(customTools.map((customTool) => [customTool.name, customTool]));
@@ -167,19 +180,29 @@ export class ToolCatalog {
       }
     }
     this.sourceToolsByName = sourceTools;
-    this.replayOnlyToolNameSet = new Set(
-      [...replayOnlyToolNames].filter(
-        (toolName) => !this.customToolsByName.has(toolName) && !sourceTools.has(toolName),
-      ),
-    );
+    const isUnservedName = (toolName: string): boolean =>
+      !this.customToolsByName.has(toolName) && !sourceTools.has(toolName);
+    const removedCustomToolNameList = [...removedCustomToolNames].filter(isUnservedName);
+    this.removedCustomToolNameSet = new Set(removedCustomToolNameList);
+    this.replayOnlyToolNameSet = new Set([
+      ...[...replayOnlyToolNames].filter(isUnservedName),
+      ...removedCustomToolNameList,
+    ]);
   }
 
   /** Returns this catalog's custom tools with the tools that the sources listed for one segment. */
   public withSourceTools(
     sourceTools: ReadonlyMap<string, ListedSourceTool>,
     replayOnlyToolNames: Iterable<string>,
+    removedCustomToolNames: Iterable<string> = [],
   ): ToolCatalog {
-    return new ToolCatalog(this.customTools, this.customToolServerName, sourceTools, replayOnlyToolNames);
+    return new ToolCatalog(
+      this.customTools,
+      this.customToolServerName,
+      sourceTools,
+      replayOnlyToolNames,
+      removedCustomToolNames,
+    );
   }
 
   public get customTools(): ClaudeCustomTool[] {
@@ -208,6 +231,14 @@ export class ToolCatalog {
 
   public isReplayOnlyTool(policyToolName: string): boolean {
     return this.replayOnlyToolNameSet.has(policyToolName);
+  }
+
+  public isRemovedCustomTool(policyToolName: string): boolean {
+    return this.removedCustomToolNameSet.has(policyToolName);
+  }
+
+  public cliToolNameOfCustomTool(customToolName: string): string {
+    return `${this.customToolPrefix}${customToolName}`;
   }
 
   /** Whether the in-process server serves a tool of this bare name: custom, source, or replay-only. */
@@ -346,7 +377,10 @@ export class ToolCallGate {
     }
     if (servedToolName !== undefined && this.toolCatalog.isReplayOnlyTool(servedToolName)) {
       // A new call would run under a new Call ID; only the source's listing permits that.
-      return preToolUseDecision("deny", unlistedSourceToolMessage(policyToolName));
+      const message = this.toolCatalog.isRemovedCustomTool(servedToolName)
+        ? removedCustomToolMessage
+        : unlistedSourceToolMessage;
+      return preToolUseDecision("deny", message(policyToolName));
     }
     const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
     let policy: ResolvedToolPolicy | undefined;
@@ -517,6 +551,12 @@ export class ToolCallGate {
     // The handler returns a custom or source tool's rejection, so the model sees the text without a hook prefix.
     // Application hooks are skipped on replay, so every allow carries the recorded, approved input.
     const recordedInput = recordedToolInput(record);
+    if (servedToolName !== undefined && this.isUnrunRemovedCustomToolCall(record)) {
+      // The tool Step took the gone tool for a CLI tool; an earlier attempt may have run it.
+      this.turn.events.writeToolCallFinished(record.toolCallId, record.toolName, "outcome_unknown");
+      this.planCustomToolCall(record.toolCallId, servedToolName, { ...record, status: "outcome_unknown", output: null });
+      return preToolUseDecision("allow", undefined, recordedInput);
+    }
     if (servedToolName !== undefined) {
       this.planCustomToolCall(record.toolCallId, servedToolName, record);
       return preToolUseDecision("allow", undefined, recordedInput);
@@ -527,6 +567,14 @@ export class ToolCallGate {
       return preToolUseDecision("allow", undefined, recordedInput);
     }
     return preToolUseDecision("ask", claudeCodeToolRefusal(record));
+  }
+
+  private isUnrunRemovedCustomToolCall(record: AgentToolCall): boolean {
+    return (
+      this.toolCatalog.isRemovedCustomTool(record.toolName) &&
+      record.status === "succeeded" &&
+      record.output === approvedCliToolOutput
+    );
   }
 
   private permitInlineToolCall(toolUseId: string, policyToolName: string): void {

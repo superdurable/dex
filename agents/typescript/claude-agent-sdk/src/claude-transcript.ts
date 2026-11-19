@@ -393,6 +393,11 @@ export function answeredRunningTurnToolUseIds(
   );
 }
 
+/** Returns the CLI tool name of each main-conversation tool use, by tool use ID. */
+export function cliToolNamesByToolUseId(entries: readonly ClaudeTranscriptEntry[]): ReadonlyMap<string, string> {
+  return new Map(mainToolUsesOf(entries).map((toolUse) => [toolUse.toolUseId, toolUse.cliToolName]));
+}
+
 interface ToolUseInstance extends MainToolUse {
   readonly isAnswered: boolean;
 }
