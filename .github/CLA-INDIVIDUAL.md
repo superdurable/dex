@@ -1,7 +1,7 @@
 # Super Durable Individual Contributor License Agreement
 
 This Individual Contributor License Agreement ("Agreement") is between the
-individual identified in the signature block ("You") and Super Durable, Inc.
+individual who accepts it as described under Signature ("You") and Super Durable, Inc.
 ("Super Durable"). It covers every contribution You submit to this repository.
 
 ## Agreement
@@ -31,8 +31,10 @@ individual identified in the signature block ("You") and Super Durable, Inc.
 
 ## Signature
 
-- Legal name:
-- GitHub handle:
-- Email:
-- Signature:
-- Date:
+You sign this Agreement by accepting it through CLA Assistant with Your GitHub
+account. CLA Assistant records Your GitHub handle, the legal name and email You
+enter, and the date of acceptance.
+
+If an employer or another organization owns or controls Your contribution, ask
+it to execute the Corporate Contributor License Agreement in
+`.github/CLA-CORPORATE.md` and email it to licensing@superdurable.io instead.

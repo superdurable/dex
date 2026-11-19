@@ -423,7 +423,7 @@ jobs:
           set -euo pipefail
 
           # Main CI (all) checks main; this gate checks only pull requests.
-          expected=("CLA")
+          expected=()
           [[ "$FILTER_AGENTS" == "true" ]] && expected+=("Agents CI")
           [[ "$FILTER_AGENTS_TERMINAL_UI" == "true" ]] && expected+=("Agents terminal UI e2e CI")
           [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
