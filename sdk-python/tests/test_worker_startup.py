@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterator, cast
+from contextlib import asynccontextmanager
+from typing import Any, Iterator, cast
 
 import grpc
 import pytest
@@ -55,13 +57,13 @@ class HardDeleteFlow(Flow[None]):
 class MemoryBlobCache:
     config = BlobCacheConfig("memory", 1_024)
 
-    def get(self, _blob_id: str) -> bytes | None:
+    def get(self, blob_id: str) -> bytes | None:
         return None
 
-    def put(self, _blob_id: str, _payload: bytes) -> bool:
+    def put(self, blob_id: str, payload: bytes) -> bool:
         return True
 
-    def delete(self, _blob_id: str) -> None:
+    def delete(self, blob_id: str) -> None:
         return None
 
     def delete_all(self) -> None:
@@ -80,6 +82,7 @@ class SyncService(
         server_info: pb.ServerInfo | None = None,
         server_info_failure: grpc.StatusCode | None = None,
         poll_rejection: grpc.StatusCode | None = None,
+        delayed_rpc: str | None = None,
     ) -> None:
         self.failure = failure
         self.poll_rejection = poll_rejection
@@ -98,6 +101,9 @@ class SyncService(
         self.calls: list[str] = []
         self.poll_calls: list[str] = []
         self.polling_during_sync = False
+        self.delayed_rpc = delayed_rpc
+        self.rpc_started = threading.Event()
+        self.release_rpc = threading.Event()
 
     def GetServerInfo(  # noqa: N802
         self,
@@ -105,6 +111,7 @@ class SyncService(
         context: grpc.ServicerContext,
     ) -> pb.ServerInfo:
         self.calls.append("GetServerInfo")
+        self._wait_for_release("GetServerInfo")
         if self.server_info_failure is not None:
             context.abort(self.server_info_failure, "server info failed")
         return self.server_info
@@ -116,6 +123,7 @@ class SyncService(
     ) -> pb.SyncAttributeIndexResponse:
         self.polling_during_sync = bool(self.poll_calls)
         self.calls.append("SyncAttributeIndexes")
+        self._wait_for_release("SyncAttributeIndexes")
         self.received = request
         self.called.set()
         if self.failure:
@@ -134,6 +142,12 @@ class SyncService(
         yield pb.PollWorkerTaskResponse(registered=pb.PollWorkerTaskRegistered())
         for request in request_iterator:
             pass
+
+    def _wait_for_release(self, rpc_name: str) -> None:
+        if self.delayed_rpc == rpc_name:
+            self.rpc_started.set()
+            if not self.release_rpc.wait(timeout=10):
+                raise TimeoutError("startup RPC was not released")
 
 
 def test_worker_synchronizes_indexes_before_polling() -> None:
@@ -317,6 +331,200 @@ async def _test_async_worker_synchronizes_indexes_before_polling() -> None:
         await worker.stop()
         await asyncio.wait_for(worker_task, timeout=5)
         flow_server.stop(grace=None).wait(timeout=5)
+
+
+class StartupResponseGate:
+    def __init__(
+        self, call: Callable[..., Awaitable[Any]], should_fail: bool = False
+    ) -> None:
+        self.call = call
+        self.should_fail = should_fail
+        self.received = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        response = await self.call(*args, **kwargs)
+        self.received.set()
+        await self.release.wait()
+        if self.should_fail:
+            raise RuntimeError("startup RPC failed")
+        return response
+
+
+@pytest.mark.parametrize("rpc_name", ["GetServerInfo", "SyncAttributeIndexes"])
+@pytest.mark.parametrize("shutdown", ["stop", "close"])
+@pytest.mark.parametrize("should_fail", [False, True])
+def test_async_worker_shutdown_during_start(
+    rpc_name: str, shutdown: str, should_fail: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asyncio.run(
+        _async_worker_shutdown_during_start(
+            rpc_name, shutdown, should_fail, monkeypatch
+        )
+    )
+
+
+async def _async_worker_shutdown_during_start(
+    rpc_name: str, shutdown: str, should_fail: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = SyncService()
+    server, port = _start_flow_server(service)
+    worker = AsyncWorker(
+        Registry((IndexedFlow(),), allow_async_handlers=True),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=f"127.0.0.1:{port}",
+        ),
+    )
+    gate = StartupResponseGate(getattr(worker._flow_service, rpc_name), should_fail)
+    monkeypatch.setattr(worker._flow_service, rpc_name, gate)
+    worker_task = asyncio.create_task(worker.start())
+    readiness = asyncio.create_task(worker.wait_pull_registered(timeout=5))
+    try:
+        await asyncio.wait_for(gate.received.wait(), timeout=5)
+        await asyncio.wait_for(getattr(worker, shutdown)(), timeout=5)
+        with pytest.raises(RuntimeError, match="stopped"):
+            await readiness
+        gate.release.set()
+        await asyncio.wait_for(worker_task, timeout=2)
+        assert worker._state == ("closed" if shutdown == "close" else "stopped")
+        assert service.poll_calls == []
+    finally:
+        gate.release.set()
+        await worker.close()
+        if not worker_task.done():
+            worker_task.cancel()
+        await asyncio.gather(worker_task, readiness, return_exceptions=True)
+        server.stop(grace=None).wait(timeout=5)
+
+
+def test_async_worker_explicit_cancel_after_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(_async_worker_explicit_cancel_after_close(monkeypatch))
+
+
+async def _async_worker_explicit_cancel_after_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SyncService()
+    server, port = _start_flow_server(service)
+    worker = AsyncWorker(
+        Registry([], allow_async_handlers=True),
+        MemoryBlobCache(),
+        WorkerOptions(server_address=f"127.0.0.1:{port}"),
+    )
+    gate = StartupResponseGate(worker._flow_service.GetServerInfo)
+    monkeypatch.setattr(worker._flow_service, "GetServerInfo", gate)
+    worker_task = asyncio.create_task(worker.start())
+    try:
+        await asyncio.wait_for(gate.received.wait(), timeout=5)
+        await worker.close()
+        worker_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(worker_task, timeout=5)
+        assert worker._state == "closed"
+        assert service.poll_calls == []
+    finally:
+        gate.release.set()
+        await worker.close()
+        if not worker_task.done():
+            worker_task.cancel()
+        await asyncio.gather(worker_task, return_exceptions=True)
+        server.stop(grace=None).wait(timeout=5)
+
+
+@asynccontextmanager
+async def _worker_with_pending_startup_rpc(
+    rpc_name: str,
+) -> AsyncIterator[tuple[AsyncWorker, asyncio.Task[None], SyncService]]:
+    service = SyncService(delayed_rpc=rpc_name)
+    server, port = _start_flow_server(service)
+    worker = AsyncWorker(
+        Registry((IndexedFlow(),), allow_async_handlers=True),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+            server_address=f"127.0.0.1:{port}",
+        ),
+    )
+    worker_task = asyncio.create_task(worker.start())
+    try:
+        assert await asyncio.to_thread(service.rpc_started.wait, 5)
+        yield worker, worker_task, service
+    finally:
+        service.release_rpc.set()
+        await worker.close()
+        if not worker_task.done():
+            worker_task.cancel()
+        await asyncio.gather(worker_task, return_exceptions=True)
+        server.stop(grace=None).wait(timeout=5)
+
+
+@pytest.mark.parametrize("rpc_name", ["GetServerInfo", "SyncAttributeIndexes"])
+@pytest.mark.parametrize("shutdown", ["stop", "close"])
+def test_async_worker_shutdown_cancels_pending_start_rpc(
+    rpc_name: str, shutdown: str
+) -> None:
+    asyncio.run(_async_worker_shutdown_cancels_pending_start_rpc(rpc_name, shutdown))
+
+
+async def _async_worker_shutdown_cancels_pending_start_rpc(
+    rpc_name: str, shutdown: str
+) -> None:
+    async with _worker_with_pending_startup_rpc(rpc_name) as (
+        worker,
+        worker_task,
+        service,
+    ):
+        await asyncio.wait_for(getattr(worker, shutdown)(), timeout=5)
+        await asyncio.wait_for(worker_task, timeout=5)
+        with pytest.raises(RuntimeError, match="stopped"):
+            await worker.wait_pull_registered(timeout=5)
+        assert worker._state == ("closed" if shutdown == "close" else "stopped")
+        assert worker._flow_channel.get_state() == grpc.ChannelConnectivity.SHUTDOWN
+        assert service.poll_calls == []
+
+
+@pytest.mark.parametrize("rpc_name", ["GetServerInfo", "SyncAttributeIndexes"])
+def test_async_worker_cancel_during_start_releases_resources(rpc_name: str) -> None:
+    asyncio.run(_async_worker_cancel_during_start_releases_resources(rpc_name))
+
+
+async def _async_worker_cancel_during_start_releases_resources(rpc_name: str) -> None:
+    async with _worker_with_pending_startup_rpc(rpc_name) as (
+        worker,
+        worker_task,
+        service,
+    ):
+        worker_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(worker_task, timeout=5)
+        assert worker._state == "stopped"
+        assert worker._flow_channel.get_state() == grpc.ChannelConnectivity.SHUTDOWN
+        assert service.poll_calls == []
+
+
+def test_async_worker_concurrent_close_during_start() -> None:
+    asyncio.run(_async_worker_concurrent_close_during_start())
+
+
+async def _async_worker_concurrent_close_during_start() -> None:
+    async with _worker_with_pending_startup_rpc("GetServerInfo") as (
+        worker,
+        worker_task,
+        service,
+    ):
+        await asyncio.wait_for(
+            asyncio.gather(worker.close(), worker.stop(), worker.close()), timeout=5
+        )
+        await asyncio.wait_for(worker_task, timeout=5)
+        with pytest.raises(RuntimeError, match="stopped"):
+            await worker.wait_pull_registered(timeout=5)
+        assert worker._state == "closed"
+        assert worker._flow_channel.get_state() == grpc.ChannelConnectivity.SHUTDOWN
+        assert service.poll_calls == []
 
 
 @pytest.mark.parametrize("is_async", [False, True])

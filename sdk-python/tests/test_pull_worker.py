@@ -54,6 +54,28 @@ from dex.flow import Registry
 _UNKNOWN_TASK_REASON = PullWorkerRuntime.unknown_task_reason
 
 
+def test_pull_worker_stopped_before_run_opens_no_channel() -> None:
+    asyncio.run(_pull_worker_stopped_before_run_opens_no_channel())
+
+
+async def _pull_worker_stopped_before_run_opens_no_channel() -> None:
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        None,
+        PullWorkerOptions(max_concurrent_tasks=2),
+        "unused",
+        None,
+    )
+    with patch(
+        "dex._pull_worker.outbound_worker_task_channel",
+        side_effect=AssertionError("a stopped Worker must not open a channel"),
+    ):
+        await runtime.stop()
+        await runtime.run()
+        await runtime.stop()
+    assert runtime.is_stopping
+
+
 @pytest.fixture(autouse=True)
 def accept_mock_worker_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(

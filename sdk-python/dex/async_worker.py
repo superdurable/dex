@@ -184,6 +184,10 @@ class AsyncWorker:
            clamped to the cap with a warning instead. See
            ``PullWorkerOptions.min_open_slots``.
 
+        .. versionchanged:: 1.45.9
+           If ``stop`` or ``close`` occurs during startup, no task stream opens.
+           Cancellation of the start task also releases resources.
+
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
             RuntimeError: If lifecycle state is invalid, Server protocol 4 is
@@ -198,12 +202,22 @@ class AsyncWorker:
         start_error: BaseException | None = None
         try:
             await self._start()
+        except asyncio.CancelledError as failure:
+            # Channel shutdown cancels RPCs without a cancellation request on the start task.
+            task = asyncio.current_task()
+            if (task is not None and task.cancelling()) or self._state not in (
+                "stopping",
+                "stopped",
+                "closed",
+            ):
+                start_error = failure
+                raise
         except BaseException as failure:
             start_error = failure
             raise
         finally:
             self._pull.registration.finish_start(start_error)
-            if self._state == "running":
+            if self._state in ("starting", "uploading", "running"):
                 await self.stop()
 
     async def wait_pull_registered(self, timeout: float | None = None) -> None:
@@ -310,33 +324,28 @@ class AsyncWorker:
     async def _start(self) -> None:
         if self._state != "created":
             raise RuntimeError(f"AsyncWorker cannot start from state {self._state}")
+        self._state = "starting"
         try:
             server_info = await self._flow_service.GetServerInfo(
                 empty_pb2.Empty(),
                 timeout=self.options.attribute_index_sync_timeout.total_seconds(),
             )
         except grpc.RpcError as failure:
-            self._state = "stopped"
-            await self._close_failed_start_channel()
-            self._stopped.set()
+            if self._state != "starting":
+                return
             raise server_info_request_error(self._sdk_version, failure) from failure
         except Exception as failure:
-            self._state = "stopped"
-            await self._close_failed_start_channel()
-            self._stopped.set()
+            if self._state != "starting":
+                return
             raise RuntimeError("cannot get Dex server info") from failure
-        try:
-            self._server_protocol.record_version(
-                negotiate_server_protocol(server_info, self._sdk_version)
-            )
-            self._server_protocol.require_named_task_queue_support(
-                self.options.pull.task_queue
-            )
-        except RuntimeError:
-            self._state = "stopped"
-            await self._close_failed_start_channel()
-            self._stopped.set()
-            raise
+        if self._state != "starting":
+            return
+        self._server_protocol.record_version(
+            negotiate_server_protocol(server_info, self._sdk_version)
+        )
+        self._server_protocol.require_named_task_queue_support(
+            self.options.pull.task_queue
+        )
         try:
             await self._flow_service.SyncAttributeIndexes(
                 pb.SyncAttributeIndexRequest(
@@ -344,16 +353,12 @@ class AsyncWorker:
                 ),
                 timeout=self.options.attribute_index_sync_timeout.total_seconds(),
             )
-        except grpc.RpcError as failure:
-            self._state = "stopped"
-            await self._close_failed_start_channel()
-            self._stopped.set()
-            raise RuntimeError("cannot synchronize Attribute indexes") from failure
         except Exception as failure:
-            self._state = "stopped"
-            await self._close_failed_start_channel()
-            self._stopped.set()
+            if self._state != "starting":
+                return
             raise RuntimeError("cannot synchronize Attribute indexes") from failure
+        if self._state != "starting":
+            return
         self._state = "uploading"
         self._upload_task = asyncio.ensure_future(
             upload_worker_flow_definitions_async(
@@ -368,10 +373,6 @@ class AsyncWorker:
         )
         try:
             await self._upload_task
-        except asyncio.CancelledError:
-            # Stop cancels the upload; any other cancellation belongs to start.
-            if self._state == "uploading":
-                raise
         finally:
             self._upload_task = None
         if self._state != "uploading":
@@ -436,10 +437,3 @@ class AsyncWorker:
             if self._credential_runner is not None:
                 self._credential_runner.close()
             self._state = "closed"
-
-    async def _close_failed_start_channel(self) -> None:
-        try:
-            await self._flow_channel.close(None)
-        finally:
-            if self._credential_runner is not None:
-                self._credential_runner.close()
