@@ -4,6 +4,72 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.15 (2026-11-18)
+
+### Changed
+
+- Connector tools in the Python and TypeScript cores classify a call only from
+  the branch the connector returns. They no longer read the connector's
+  single-dispatch fence records. **uncertain** and a branch listed as
+  **unknown** record **outcome_unknown**, a success branch records
+  **succeeded**, and every other branch records **failed**, for a Query and a
+  Mutation alike. A Mutation's **defect** and its unlisted optional branches
+  now record **failed** instead of **outcome_unknown**. A branch listed as
+  **rejected** records **failed** also after an earlier attempt.
+- A connector Retry always goes to the tool Step's retry policy. A
+  single-attempt write that asks to retry now records **outcome_unknown**,
+  also when the fence recorded that nothing was sent, instead of **failed**
+  with the not-sent text.
+- Arguments a Worker refuses before the operation runs record **failed** on
+  every attempt, also after an earlier attempt's claim.
+- **classify_connector_branch** ignores **may_have_dispatched** and
+  **classifyConnectorBranch** ignores **mayHaveDispatched**; both are
+  deprecated. **CONNECTOR_NOT_SENT_RETRY_LATER** and
+  **connectorNotSentRetryLater** are deprecated and no call records them.
+- The Python agents packages and CLI commands depend on **dex-python-sdk**
+  1.45.8, and the TypeScript ones depend on, and peer-depend on,
+  **@superdurable/dex** 1.45.8. In these releases a Python Worker serves an
+  RPC declared without input when a TypeScript Client leaves the input unset,
+  and the TypeScript Client sends a null input for such an RPC. Before, the
+  call failed with **Value has no concrete kind**. (#2034)
+
+### Fixed
+
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk**:
+  a turn no longer fails, or gives the model a "belongs to a recorded call"
+  denial, when a Worker restarts on a deploy that renamed or removed a custom
+  tool whose call the turn deferred. The resumed segment serves the old tool
+  name replay-only, so the CLI receives the call's recorded result. A renamed
+  single-attempt call that was in flight keeps its **outcome_unknown** record
+  and never runs again. A retried **idempotent_write** whose tool is gone now
+  records **outcome_unknown** instead of reporting the "approved" placeholder
+  as its result. The next model call uses the new tool list.
+- **dex-agents-google-adk**: a turn no longer fails with "Tool ... is not
+  registered" when a Worker restarts on a deploy that renamed or removed a
+  tool whose call the turn paused on. While **RunModel** resumes the ADK
+  invocation, each agent gets an undeclared stand-in for every paused call's
+  tool, so ADK accepts the confirmation and the call replays its record. The
+  next model call uses the new tool list. A renamed single-attempt call that
+  was in flight keeps its **outcome_unknown** record and never runs again.
+- A `ToolExecutionError` on a later attempt of a tool call that is not a
+  **read** records **outcome_unknown** instead of **failed**, in the Python
+  and TypeScript cores. An earlier attempt reached a Worker and ended without
+  a result, so it may have taken effect. This covers an **idempotent_write**
+  whose Worker stopped while the tool ran, when the retry runs on a deploy
+  that renamed the tool (`unknown tool <name>`) or changed its schema
+  (`invalid arguments for <name>: ...`). Before, the model read a failure and
+  could call the write again under a new tool call ID. A first attempt, a
+  **read**, and a call that a tool source built, such as a Connector or MCP
+  tool, still record **failed**.
+- **dex-agents-openai-agents** and **@superdurable/dex-agents-openai-agents**:
+  a turn no longer fails with "Tool ... not found" when a Worker restarts on
+  a deploy that renamed or removed a tool the turn already called. The SDK
+  cannot resume such a **RunState**, so the runner rebuilds the turn from the
+  session's records: it stores the turn's calls with their recorded results
+  as history, and the next model call uses the new tool list. A renamed
+  single-attempt call that was in flight keeps its **outcome_unknown** record
+  and never runs again.
+
 ## 0.6.14 (2026-11-16)
 
 ### Added
