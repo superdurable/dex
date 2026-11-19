@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/constant"
+	"go/token"
 	"go/types"
 	"math"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -105,7 +107,7 @@ func (analyzer *goAnalyzer) startInputSchema(
 		if err != nil {
 			return StartInputSchema{}, err
 		}
-		schema.EnumValues = startInputEnumValues(named)
+		schema.EnumValues = startInputEnumValues(analyzer.fileSet, named)
 		return schema, nil
 	}
 	switch underlying := valueType.Underlying().(type) {
@@ -252,7 +254,7 @@ func validJSONTagName(name string) bool {
 	return true
 }
 
-func startInputEnumValues(named *types.Named) []StartInputEnumValue {
+func startInputEnumValues(fileSet *token.FileSet, named *types.Named) []StartInputEnumValue {
 	object := named.Obj()
 	if object == nil || object.Pkg() == nil {
 		return nil
@@ -268,9 +270,7 @@ func startInputEnumValues(named *types.Named) []StartInputEnumValue {
 			constants = append(constants, constantObject)
 		}
 	}
-	sort.SliceStable(constants, func(left int, right int) bool {
-		return constants[left].Pos() < constants[right].Pos()
-	})
+	sortConstantsBySourcePosition(fileSet, constants)
 	values := make([]StartInputEnumValue, 0, len(constants))
 	seenValues := make(map[string]bool)
 	for _, constantObject := range constants {
@@ -282,6 +282,32 @@ func startInputEnumValues(named *types.Named) []StartInputEnumValue {
 		values = append(values, StartInputEnumValue{Name: constantObject.Name(), Value: value})
 	}
 	return values
+}
+
+// Token.Pos order across files follows loader insertion order, which varies between runs.
+func sortConstantsBySourcePosition(fileSet *token.FileSet, constants []*types.Const) {
+	sort.SliceStable(constants, func(left int, right int) bool {
+		leftPosition := fileSet.Position(constants[left].Pos())
+		rightPosition := fileSet.Position(constants[right].Pos())
+		leftBase := filepath.Base(leftPosition.Filename)
+		rightBase := filepath.Base(rightPosition.Filename)
+		if leftBase != rightBase {
+			return leftBase < rightBase
+		}
+		if leftPosition.Filename != rightPosition.Filename {
+			return leftPosition.Filename < rightPosition.Filename
+		}
+		if leftPosition.Line != rightPosition.Line {
+			return leftPosition.Line < rightPosition.Line
+		}
+		if leftPosition.Column != rightPosition.Column {
+			return leftPosition.Column < rightPosition.Column
+		}
+		if leftPosition.Offset != rightPosition.Offset {
+			return leftPosition.Offset < rightPosition.Offset
+		}
+		return constants[left].Name() < constants[right].Name()
+	})
 }
 
 func startInputEnumValue(value constant.Value, underlying *types.Basic) (any, string, bool) {
