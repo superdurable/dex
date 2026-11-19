@@ -10,20 +10,49 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 ## 1.45 {#v1-45}
 
-Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0).
+Released 2026-11-11 as [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0); 1.45.1 released 2026-11-14 as [sdk-python/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.1); 1.45.2 released 2026-11-14 as [sdk-python/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.2); 1.45.3 released 2026-11-15 as [sdk-python/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.3); 1.45.4 released 2026-11-16 as [sdk-python/v1.45.4](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.4); 1.45.7 released 2026-11-18 as [sdk-python/v1.45.7](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.7); 1.45.8 released 2026-11-18 as [sdk-python/v1.45.8](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.8).
 
 ### Added
 
 - **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/python/1.45.x/workers#flow-definitions).
 - **Client.upload_flow_definitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. **AsyncClient** has the same coroutine. [Reference](/reference/python/1.45.x/workers#flow-definitions).
+- Named task queues. **PullWorkerOptions.task_queue** makes a Worker poll one named task queue,
+  and **StartFlowOptions.task_queue** starts a Flow on one. Only Workers on that task queue
+  receive the Flow's Steps and RPCs. **SubFlowOptions.task_queue** moves a SubFlow to another
+  task queue, or to the default one with **dex.default**; empty inherits the parent's task queue.
+  Empty everywhere keeps the default task queue, so existing code works as before. See
+  [Named task queues](/reference/python/1.45.x/workers#named-task-queues). Since 1.45.1.
+- A named task queue needs Dex Server protocol version 5. Against an older Server, the
+  Worker's **start** raises **RuntimeError** before it opens task streams, and **start_flow**
+  raises it before it sends the request. A stream that the Server registers under another task
+  queue is closed and reported as a permanent rejection through **PullRegistrationError** and
+  **pull_registration_state**, whose entries and errors now carry **task_queue**. Since 1.45.1.
+- **Client.get_flow_state** and **AsyncClient.get_flow_state** read the open Step executions of the current or latest Flow run and return a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). **FlowState.task_queue** names the Flow's task queue; an empty string means the default task queue. Use it to tell a Flow that is still running from one whose active Step is failing and retrying, or to see which Workers must serve a Flow from a Client without a Worker. Since 1.45.2.
+- **Client.clone_fork_flow** and **AsyncClient.clone_fork_flow** create a new Flow whose first run starts from a copy of another Flow run's state. **CloneForkFlowOptions** selects the copied point, by default the current state, and sets the new Flow's request ID, ID reuse policy, Flow configuration, task queue, Attribute writes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the copied source run, run attempt, and history event ID. The call requires Dex server-zd 0.1.33 or later; an older Server raises **CloneForkFlowUnsupportedError** before the request is sent. Since 1.45.3.
+- **TimeTravelType.EVENT_ID** with **TimeTravelOptions.event_id** time travels to the point right after one history event, and **TimeTravelOptions.sub_flow_reset_policy** takes a **SubFlowResetPolicy** that decides what happens to the SubFlow conditions of restored Steps. Since 1.45.3.
+- The SDK supports Dex Server protocol version 6. Since 1.45.3.
+- **FlowErrorType.SUB_FLOW_ABANDONED** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **execute** reads it from **SubFlow.get_condition_results** like any other failed child. Since 1.45.3.
+- **graceful_completion_requested** creates a wait Condition that completes once the Flow has a graceful completion request, from **StopType.GRACEFUL_COMPLETE** or a **graceful_complete** Step decision. The function **is_graceful_completion_condition_completed** reports it in **execute**; it takes the Context, so the Context protocol gains no member. In **Wait.any_of** it comes after Timers, Channels, and SubFlows. A Wait accepts at most one. It needs Dex Server 0.1.34 or newer; with an older Server, **wait_for** fails with **GracefulCompletionConditionUnsupportedError**. The SDK now supports Server protocol 7. Since 1.45.4.
+- **StopType.GRACEFUL_COMPLETE**, **StopType.FORCE_COMPLETE**, and **StopFlowOptions.output** let **Client.stop_flow** and **AsyncClient.stop_flow** complete a Flow with a result, like the **graceful_complete** and **force_complete** Step decisions. They need Dex Server 0.1.34 or newer. Since 1.45.4.
+- The function **supports_graceful_completion_condition** reports whether the connected Server supports **graceful_completion_requested**, from the protocol version the Worker negotiated, without a request. **wait_for** can add the condition only when it returns True and keep working with Servers older than protocol 7. It returns False for a Context that Dex did not create. [Reference](/reference/python/1.45.x/waits#graceful-completion-requests). Since 1.45.4.
+- **PullWorkerOptions.min_open_slots** makes a pull Worker adaptive when it is below **max_concurrent_tasks**. The Worker keeps between the two counts of slot streams open, both including the reserved RPC slots: it doubles its Step-and-RPC streams when a task takes the last idle one, and every 30 seconds it half-closes half of the idle surplus. An idle adaptive Worker holds only its floor of Server streams. The default equals **max_concurrent_tasks**, which keeps the Worker fixed with unchanged behavior. Since 1.45.7.
+- An adaptive Worker clamps **max_concurrent_tasks** above the Server's **matching.maxConcurrentTasksCap** to the cap with a WARNING log. It treats a **RESOURCE_EXHAUSTED** registration of a growth stream, or of a reconnect after readiness, as a soft limit, without a **PullRegistrationError**. After a soft rejection, the Worker waits until another of its registered streams ends or the next 30-second shrink window starts, and then retries. A growth batch that keeps being rejected grows at most once per window. A synchronous handler that outlives its stream keeps its slot until it returns. Since 1.45.7.
+- **Worker.pull_slot_stream_state** and **AsyncWorker.pull_slot_stream_state** return a **PullSlotStreamState** snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters. [API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots). Since 1.45.7.
 
 ### Breaking
 
 - A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. When such a Step returns a Wait that contains **SubFlow.run**, the server rejects the result as an invalid Worker response and fails the attempt without retry. The Worker logs a warning first. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/1.45.x/subflow#step-types-that-start-subflows).
 
+### Changed
+
+- A fixed pull Worker with **max_concurrent_tasks** unset now opens one stream first, learns the Server's **matching.maxConcurrentTasksCap** from its registration, and clamps its CPU-count default to the cap with a WARNING log instead of failing to start. Its other streams open after that first registration. An explicit **max_concurrent_tasks** above the cap still fails to start, and a fixed Worker with an explicit value still opens all its streams at once. Since 1.45.7.
+- When **reserved_rpc_tasks** is None, it now reserves an RPC-only slot only when both **max_concurrent_tasks** and **min_open_slots** are at least two. With the default **min_open_slots** the reserve is unchanged. Since 1.45.7.
+
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/python/1.45.x/waits).
+- Reading a SubFlow result with an error type this SDK version does not recognize no longer raises **ValueError**. **FlowResult.error_type** is then **None**. Since 1.45.3.
+- A Worker serves an RPC declared without input when the request leaves the input unset, as TypeScript Clients before 1.45.8 send it. Before, the Worker failed the call with **ValueError: Value has no concrete kind**. An RPC declared with an input still needs one; an unset input fails the call with **ValueMappingError**. (#2034) Since 1.45.8.
 
 ## 1.44 {#v1-44}
 
