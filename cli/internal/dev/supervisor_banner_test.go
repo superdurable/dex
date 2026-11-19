@@ -113,7 +113,10 @@ func TestPrintReadyShowsTheServerVersionOnlyWhenKnown(t *testing.T) {
 	}{{"0.1.34 (protocol 1-7)", true}, {"", false}} {
 		stdout := &bytes.Buffer{}
 		banner := &supervisor{cfg: &Config{}, stdout: stdout, stderr: &bytes.Buffer{}}
-		banner.printReady("http://127.0.0.1:8802", "127.0.0.1:8801", testCase.serverVersion, "/tmp/state")
+		banner.printReady("http://127.0.0.1:8802", "127.0.0.1:8801", testCase.serverVersion, "/tmp/state", "/tmp/dexcli/dev-8801.log")
+		if !strings.Contains(stdout.String(), "Logs:          /tmp/dexcli/dev-8801.log\n") {
+			t.Fatalf("banner does not name the server log:\n%s", stdout.String())
+		}
 		line := "Server version: " + testCase.serverVersion
 		if strings.Contains(stdout.String(), "Server version:") != testCase.isShown ||
 			(testCase.isShown && !strings.Contains(stdout.String(), line)) {

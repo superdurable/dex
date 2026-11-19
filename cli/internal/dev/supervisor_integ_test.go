@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,7 +70,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		cancel()
 		t.Fatalf("search response: status=%d body=%s", searchResponse.StatusCode, body)
 	}
-	if !strings.Contains(output.String(), "Server log folder: "+cfg.LogDirectory) {
+	if !strings.Contains(output.String(), "Logs:          "+filepath.Join(cfg.LogDirectory, zdLogFileName)) {
 		t.Fatalf("missing server log directory: %s", output.String())
 	}
 	cliOutput := &bytes.Buffer{}

@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +26,8 @@ const dexReleasesURL = "https://api.github.com/repos/superdurable/dex/releases?p
 type releaseChecker struct {
 	httpClient  *http.Client
 	releasesURL string
+	// githubToken is sent as a Bearer token when non-empty, for the higher authenticated rate limit.
+	githubToken string
 }
 
 type Release struct {
@@ -31,22 +35,85 @@ type Release struct {
 	Body         string `json:"body"`
 	IsDraft      bool   `json:"draft"`
 	IsPrerelease bool   `json:"prerelease"`
+	PublishedAt  string `json:"published_at"`
 }
 
-func newReleaseChecker() *releaseChecker {
+// releasesPageSize matches per_page in dexReleasesURL; a shorter page is the last one.
+const releasesPageSize = 100
+
+// errGitHubRateLimit is returned for HTTP 403 and 429, which GitHub sends when anonymous requests hit the limit.
+var errGitHubRateLimit = errors.New("GitHub rate limit reached. Read the release notes at " + cliChangeLogURL +
+	", or set GITHUB_TOKEN and retry.")
+
+func newReleaseChecker(githubToken string) *releaseChecker {
 	return &releaseChecker{
 		httpClient:  &http.Client{Timeout: 2 * time.Second},
 		releasesURL: dexReleasesURL,
+		githubToken: githubToken,
 	}
 }
 
-func (checker *releaseChecker) Releases(ctx context.Context) (_ []Release, returnErr error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, checker.releasesURL, nil)
+// githubTokenFromEnvironment returns GITHUB_TOKEN, else GH_TOKEN, else "" for anonymous requests.
+func githubTokenFromEnvironment() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
+}
+
+func (checker *releaseChecker) Releases(ctx context.Context) ([]Release, error) {
+	return checker.releasesPage(ctx, checker.releasesURL)
+}
+
+// ReleasesAfter returns releases page by page until a page reaches a dexcli release not newer than baselineVersion.
+// It reads at most maxPages pages, since the list holds the releases of every Dex component.
+// The bool is false when maxPages ended the reading, so older releases after baselineVersion may be missing.
+func (checker *releaseChecker) ReleasesAfter(ctx context.Context, baselineVersion string, maxPages int) ([]Release, bool, error) {
+	pageURL, err := url.Parse(checker.releasesURL)
+	if err != nil {
+		return nil, false, fmt.Errorf("parse GitHub releases URL: %w", err)
+	}
+	var releases []Release
+	for page := 1; page <= maxPages; page++ {
+		query := pageURL.Query()
+		query.Set("page", strconv.Itoa(page))
+		pageURL.RawQuery = query.Encode()
+		pageReleases, err := checker.releasesPage(ctx, pageURL.String())
+		if err != nil {
+			return nil, false, err
+		}
+		releases = append(releases, pageReleases...)
+		if isLastNeededReleasesPage(pageReleases, baselineVersion) {
+			return releases, true, nil
+		}
+	}
+	return releases, false, nil
+}
+
+// isLastNeededReleasesPage reports whether no later page can hold a dexcli release newer than baselineVersion.
+func isLastNeededReleasesPage(pageReleases []Release, baselineVersion string) bool {
+	return len(pageReleases) < releasesPageSize || !isReleaseVersion(baselineVersion) || hasCLIReleaseAtOrBefore(pageReleases, baselineVersion)
+}
+
+func hasCLIReleaseAtOrBefore(releases []Release, baselineVersion string) bool {
+	for _, release := range releases {
+		if isCLIReleaseTag(release.TagName) && !isNewerVersion(release.TagName, baselineVersion) {
+			return true
+		}
+	}
+	return false
+}
+
+func (checker *releaseChecker) releasesPage(ctx context.Context, pageURL string) (_ []Release, returnErr error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create GitHub releases request: %w", err)
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "dexcli")
+	if checker.githubToken != "" {
+		request.Header.Set("Authorization", "Bearer "+checker.githubToken)
+	}
 	response, err := checker.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch GitHub releases: %w", err)
@@ -54,6 +121,9 @@ func (checker *releaseChecker) Releases(ctx context.Context) (_ []Release, retur
 	defer func() {
 		returnErr = errors.Join(returnErr, response.Body.Close())
 	}()
+	if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
+		return nil, errGitHubRateLimit
+	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch GitHub releases: unexpected status %s", response.Status)
 	}

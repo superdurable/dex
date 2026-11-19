@@ -89,8 +89,14 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	listeners.dex = nil
-	process, err := startZDProcess(s.cfg, dataDirectory, dexAddress, s.stderr)
+	serverLogs, serverLogPath, err := s.openServerLogs()
 	if err != nil {
+		return err
+	}
+	resources.serverLogs = serverLogs
+	process, err := startZDProcess(s.cfg, dataDirectory, dexAddress, serverLogs)
+	if err != nil {
+		s.printServerLogTail(serverLogs, serverLogPath)
 		return err
 	}
 	resources.process = process
@@ -102,6 +108,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		if ctx.Err() != nil {
 			return nil
 		}
+		s.printServerLogTail(serverLogs, serverLogPath)
 		return err
 	}
 	resources.connection = dexConnection
@@ -145,14 +152,15 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return err
+		return s.reportWebReadinessFailure(err, process, serverLogs, serverLogPath)
 	}
 	select {
 	case exited := <-componentExits:
+		s.printServerLogTailAfterExit(exited, serverLogs, serverLogPath)
 		return formatComponentExit(exited, "stopped before readiness")
 	default:
 	}
-	s.printReady(webURL, dexAddress, serverVersion.versionIfAnswered(), dataDirectory)
+	s.printReady(webURL, dexAddress, serverVersion.versionIfAnswered(), dataDirectory, serverLogPath)
 	if connectorsMCP != nil {
 		connectorsMCP.Start(ctx)
 		resources.connectorsMCP = connectorsMCP
@@ -167,7 +175,65 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	case <-ctx.Done():
 		return nil
 	case exited := <-componentExits:
+		s.printServerLogTailAfterExit(exited, serverLogs, serverLogPath)
 		return formatComponentExit(exited, "stopped unexpectedly")
+	}
+}
+
+// openServerLogs returns the router for dex-server-zd output and the path of the full server log.
+func (s *supervisor) openServerLogs() (*serverLogRouter, string, error) {
+	if s.cfg.isExplicit("server-log-folder") {
+		// dex-server-zd writes this file itself through --log-dir.
+		return newServerLogRouter(nil, s.stderr, s.cfg.ServerLogLevel), filepath.Join(s.cfg.LogDirectory, zdLogFileName), nil
+	}
+	fallbackDirectory := ""
+	if s.cfg.ServerLogFileDirectory == defaultServerLogFileDirectory {
+		// A /tmp/dexcli owned by another user, or a read-only /tmp, falls back to the per-user temporary directory.
+		fallbackDirectory = filepath.Join(os.TempDir(), "dexcli")
+	}
+	logFile, logPath, err := createServerLogFileWithFallback(s.cfg.ServerLogFileDirectory, fallbackDirectory, s.cfg.DexPort)
+	if err != nil {
+		return nil, "", err
+	}
+	return newServerLogRouter(logFile, s.stderr, s.cfg.ServerLogLevel), logPath, nil
+}
+
+// createServerLogFileWithFallback creates the log in directory, else in fallbackDirectory when it is non-empty.
+// It returns the open file and its path.
+func createServerLogFileWithFallback(directory string, fallbackDirectory string, dexPort int) (*os.File, string, error) {
+	logFile, logPath, err := createServerLogFile(directory, dexPort)
+	if err == nil || fallbackDirectory == "" {
+		return logFile, logPath, err
+	}
+	logFile, logPath, fallbackErr := createServerLogFile(fallbackDirectory, dexPort)
+	if fallbackErr != nil {
+		return nil, "", errors.Join(err, fallbackErr)
+	}
+	return logFile, logPath, nil
+}
+
+func (s *supervisor) printServerLogTailAfterExit(exited componentExit, serverLogs *serverLogRouter, serverLogPath string) {
+	if exited.name == "Dex Server" {
+		s.printServerLogTail(serverLogs, serverLogPath)
+	}
+}
+
+// reportWebReadinessFailure returns readinessErr, first printing the server log tail when Dex Server has exited.
+func (s *supervisor) reportWebReadinessFailure(readinessErr error, process *zdProcess, serverLogs *serverLogRouter, serverLogPath string) error {
+	select {
+	case <-process.Done():
+		s.printServerLogTail(serverLogs, serverLogPath)
+	default:
+	}
+	return readinessErr
+}
+
+// printServerLogTail shows the latest server lines, including those the terminal filter hid.
+func (s *supervisor) printServerLogTail(serverLogs *serverLogRouter, serverLogPath string) {
+	recentLines := serverLogs.RecentLines()
+	fmt.Fprintf(s.stderr, "\nLast dex-server-zd output (full log: %s):\n", serverLogPath)
+	for _, line := range recentLines {
+		fmt.Fprintln(s.stderr, line)
 	}
 }
 
@@ -230,7 +296,7 @@ func formatServerVersion(serverInfo *dexpb.ServerInfo) string {
 	}
 }
 
-func (s *supervisor) printReady(webURL string, dexAddress string, serverVersion string, serverDataDirectory string) {
+func (s *supervisor) printReady(webURL string, dexAddress string, serverVersion string, serverDataDirectory string, serverLogPath string) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
@@ -246,9 +312,7 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverVersion 
 		fmt.Fprintf(s.stdout, "Server version: %s\n", serverVersion)
 	}
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
-	if s.cfg.LogDirectory != "" {
-		fmt.Fprintf(s.stdout, "Server log folder: %s\n", s.cfg.LogDirectory)
-	}
+	fmt.Fprintf(s.stdout, "Logs:          %s\n", serverLogPath)
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
 }

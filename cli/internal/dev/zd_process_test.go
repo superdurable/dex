@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -357,14 +358,92 @@ func TestZDSupervisorFailsWhenChildExitsBeforeReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.StateDirectory = t.TempDir()
+	config.ServerLogFileDirectory = t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = newSupervisor(config, &bytes.Buffer{}, &bytes.Buffer{}).Run(ctx)
+	stderr := &bytes.Buffer{}
+	err = newSupervisor(config, &bytes.Buffer{}, stderr).Run(ctx)
 	if err == nil || !strings.Contains(err.Error(), "exited before readiness") {
 		t.Fatalf("expected early child exit, got %v", err)
 	}
+	logPath := filepath.Join(config.ServerLogFileDirectory, fmt.Sprintf("dev-%d.log", dexPort))
+	expectedTail := "Last dex-server-zd output (full log: " + logPath + "):\n" +
+		"2026-11-19T10:00:00.000001Z  INFO dexzd_server: hidden startup detail\n" +
+		"fatal: cannot open the state directory\n"
+	if strings.Count(stderr.String(), "fatal: cannot open the state directory") != 2 || !strings.HasSuffix(stderr.String(), expectedTail) {
+		t.Fatalf("startup failure output:\n%s", stderr.String())
+	}
+	logContent, readErr := os.ReadFile(logPath)
+	if readErr != nil || !strings.Contains(string(logContent), "hidden startup detail") {
+		t.Fatalf("server log file %s: %v\n%s", logPath, readErr, logContent)
+	}
 	if config.LogDirectory != "" || strings.Contains(err.Error(), "server log folder") {
 		t.Fatalf("zd without --server-log-folder reported an empty log folder: %v", err)
+	}
+}
+
+func TestZDSupervisorPrintsLogPathWhenTheChildCannotStart(t *testing.T) {
+	binary := buildFakeZDBinary(t)
+	dexPort, webPort := freeZDTestPorts(t)
+	config, err := parseConfig([]string{
+		"--zd-binary", binary,
+		"--dex-port", strconv.Itoa(dexPort),
+		"--web-port", strconv.Itoa(webPort),
+		"--open=false",
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.StateDirectory = t.TempDir()
+	config.ServerLogFileDirectory = t.TempDir()
+	config.ZDBinary = filepath.Join(t.TempDir(), "not-executable")
+	if err := os.WriteFile(config.ZDBinary, []byte("not a program"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr := &bytes.Buffer{}
+	err = newSupervisor(config, &bytes.Buffer{}, stderr).Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "start dex-server-zd") {
+		t.Fatalf("expected start failure, got %v", err)
+	}
+	logPath := filepath.Join(config.ServerLogFileDirectory, fmt.Sprintf("dev-%d.log", dexPort))
+	if !strings.Contains(stderr.String(), "Last dex-server-zd output (full log: "+logPath+"):\n") {
+		t.Fatalf("start failure output:\n%s", stderr.String())
+	}
+}
+
+func TestZDSupervisorPrintsLogTailWhenTheChildExitsBeforeDexWebIsReady(t *testing.T) {
+	binary := buildFakeZDBinary(t)
+	t.Setenv("DEX_ZD_TEST_EXIT_EARLY", "1")
+	logPath := filepath.Join(t.TempDir(), "dev.log")
+	stderr := &bytes.Buffer{}
+	serverLogs := newServerLogRouter(nil, stderr, defaultServerLogLevel)
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(freeZDTestPort(t)))
+	process, err := startZDProcess(&Config{ZDBinary: binary}, t.TempDir(), address, serverLogs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	componentExits := make(chan componentExit, 1)
+	go func() {
+		<-process.Done()
+		componentExits <- componentExit{name: "Dex Server", err: process.Err()}
+	}()
+	// Nothing listens on this port, so only the server exit ends the wait.
+	unreachableHealthURL := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(freeZDTestPort(t))) + "/healthz"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	readinessErr := waitForComponentHTTP(ctx, unreachableHealthURL, componentExits)
+	if readinessErr == nil || !strings.Contains(readinessErr.Error(), "Dex Server exited before readiness") {
+		t.Fatalf("expected Dex Server exit, got %v", readinessErr)
+	}
+	supervisor := &supervisor{cfg: &Config{}, stdout: &bytes.Buffer{}, stderr: stderr}
+	if err := supervisor.reportWebReadinessFailure(readinessErr, process, serverLogs, logPath); err != readinessErr {
+		t.Fatalf("reported error = %v", err)
+	}
+	expectedTail := "Last dex-server-zd output (full log: " + logPath + "):\n" +
+		"2026-11-19T10:00:00.000001Z  INFO dexzd_server: hidden startup detail\n" +
+		"fatal: cannot open the state directory\n"
+	if !strings.HasSuffix(stderr.String(), expectedTail) {
+		t.Fatalf("readiness failure output:\n%s", stderr.String())
 	}
 }
 
@@ -607,7 +686,11 @@ func main() {
 	if path := os.Getenv("DEX_ZD_TEST_ARGUMENTS"); path != "" {
 		if err := os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600); err != nil { panic(err) }
 	}
-	if os.Getenv("DEX_ZD_TEST_EXIT_EARLY") == "1" { os.Exit(17) }
+	if os.Getenv("DEX_ZD_TEST_EXIT_EARLY") == "1" {
+		os.Stderr.WriteString("2026-11-19T10:00:00.000001Z  INFO dexzd_server: hidden startup detail\n")
+		os.Stderr.WriteString("fatal: cannot open the state directory")
+		os.Exit(17)
+	}
 	var address string
 	for index := 2; index < len(os.Args)-1; index += 2 {
 		if os.Args[index] == "--listen" { address = os.Args[index+1] }

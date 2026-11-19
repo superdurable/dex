@@ -66,6 +66,8 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 		return dev.ExecuteConnectors(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "agents-tui":
 		return agentsterminal.Execute(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr, version)
+	case "release-notes":
+		return update.ExecuteReleaseNotes(ctx, args[1:], os.Stdout, version, term.IsTerminal(os.Stdout.Fd()))
 	case "codec-server":
 		return fmt.Errorf("dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories")
 	case "version":
@@ -99,6 +101,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
 	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(output, "  version   Print version information or check Server compatibility")
+	fmt.Fprintln(output, "  release-notes  Print the notes of the dexcli releases after this version")
 	fmt.Fprintln(output, "  admin     Describe or step down the active server process (admin credential)")
 	fmt.Fprintln(output, "  web       Serve Dex Web against the existing server given by --server")
 	fmt.Fprintln(output)

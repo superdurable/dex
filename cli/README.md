@@ -32,17 +32,36 @@ When a released `dexcli` starts a local development environment, it checks the
 published `cli-v*` GitHub Releases in the background. Every version entry point
 also checks: `dexcli version`, `dexcli --version`, `dexcli -v`, and
 `dexcli version check`. If newer versions are available, the terminal shows a
-colored upgrade reminder and the release notes for every skipped version:
+short colored upgrade reminder: the newest version, the upgrade command, and
+how many releases you skipped, with "includes breaking changes" when one of
+them lists a breaking change:
 
 ```bash
 brew update && brew upgrade dexcli
 ```
 
-The update reminder and release notes are written to stderr, so version output
-and the JSON returned by `dexcli version check` remain script-safe. The
-`Breaking Changes` section is displayed in bold bright red. The `dev` check
-never delays startup. Checks are skipped for development builds and when GitHub
+The update reminder is written to stderr, so version output and the JSON
+returned by `dexcli version check` remain script-safe. The `dev` check never
+delays startup. Checks are skipped for development builds and when GitHub
 cannot be reached.
+
+Read the notes of the skipped releases on demand:
+
+```bash
+dexcli release-notes          # releases after the running version
+dexcli release-notes v1.47.0  # releases after v1.47.0
+```
+
+It prints the newest release first, with its date. Breaking changes come
+first in each release; sections that say only "None." are left out, and the
+change-log link is printed once at the end. Colors are used only when stdout
+is a terminal. A development build prints the newest release.
+
+When `GITHUB_TOKEN` (or else `GH_TOKEN`) is set, the reminder and
+`dexcli release-notes` send it to the GitHub API as a Bearer token, which
+raises GitHub's rate limit. When GitHub rate-limits the request,
+`dexcli release-notes` fails with "GitHub rate limit reached", the change-log
+link, and a hint to set `GITHUB_TOKEN`.
 
 ## Start locally
 
@@ -152,7 +171,25 @@ default release path.
 Stream messages use server-zd storage and retention settings. Pass
 `--zd-config` to override them.
 
-Server logs go to stderr by default. Keep a copy in `dex-server-zd.log` with:
+The terminal shows only the server's warnings and errors, plus any output that
+is not a log line, such as a crash message. By default, dexcli writes every
+line the server prints to `/tmp/dexcli/dev-<dex-port>.log`, falling back to
+`$TMPDIR/dexcli` when `/tmp/dexcli` cannot be used (for example, another user
+owns it). Each start truncates it, and the ready message prints its path on
+the `Logs:` line. When the server
+cannot start, exits before Dex is ready, or stops later, dexcli prints its last
+20 output lines and the log path.
+
+Show more server log levels in the terminal:
+
+```bash
+dexcli dev --server-log-level info
+```
+
+Keep the server log in a folder of your choice instead. server-zd then writes
+its log records to `dex-server-zd.log` there and appends on each start; output
+that is not a log record, such as a crash message, appears only in the
+terminal:
 
 ```bash
 dexcli dev --server-log-folder ./dex-logs
@@ -194,7 +231,8 @@ must exist and be reachable before startup.
 --engine string                    compatibility option; server-zd is the only engine (default zd)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files (optional)
 --open                             open Dex Web after readiness (default true)
---server-log-folder string         keep server logs (default stderr)
+--server-log-folder string         keep server logs in this folder as dex-server-zd.log (default /tmp/dexcli/dev-<dex-port>.log)
+--server-log-level string          least severe server log level shown in the terminal (default warn)
 --web-port int                     Dex Web port (default 8802)
 --zd-binary string                 dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)
 --zd-config string                 dex-server-zd YAML file with configuration overrides

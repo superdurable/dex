@@ -25,6 +25,9 @@ import (
 
 const defaultZDGRPCMaxMessageBytes = 32 << 20
 
+// zdLogFileName is the file dex-server-zd writes inside its --log-dir.
+const zdLogFileName = "dex-server-zd.log"
+
 type zdProcess = childProcess
 
 type zdRunResources struct {
@@ -34,6 +37,8 @@ type zdRunResources struct {
 	process         *zdProcess
 	connection      *grpc.ClientConn
 	web             *dexweb.Server
+	// serverLogs receives the process output; it closes after the process exits.
+	serverLogs *serverLogRouter
 	// webListener serves the Dex Web listener when /mcp is mounted on it.
 	webListener *webListenerServer
 	// connectorsMCP keeps the Connectors MCP server behind /mcp running.
@@ -65,6 +70,9 @@ func (resources *zdRunResources) closeInto(runErr *error) {
 	}
 	if resources.process != nil {
 		*runErr = errors.Join(*runErr, resources.process.Stop(resources.shutdownTimeout))
+	}
+	if resources.serverLogs != nil {
+		*runErr = errors.Join(*runErr, resources.serverLogs.Close())
 	}
 	if resources.listeners != nil {
 		*runErr = errors.Join(*runErr, resources.listeners.Close())
