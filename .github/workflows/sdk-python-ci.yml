@@ -118,6 +118,7 @@ jobs:
             dex/_grpc_errors.py \
             dex/_invocation_context.py \
             dex/_native.pyi \
+            dex/_payload_message_codec.py \
             dex/_pull_slot_streams.py \
             dex/_pull_worker.py \
             dex/_server_protocol.py \
@@ -144,6 +145,7 @@ jobs:
             dex/flow_options.py \
             dex/flow_state.py \
             dex/join.py \
+            dex/payload_encryption.py \
             dex/runtime_errors.py \
             dex/step.py \
             dex/step_execution.py \

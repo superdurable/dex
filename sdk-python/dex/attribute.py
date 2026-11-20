@@ -190,6 +190,18 @@ class Attribute(Generic[ValueT]):
             and permanently deleted when the Attribute is deleted or set to
             ``None``. Defaults to ``False``. Requires a string or object
             ``value_type`` and no ``index`` or ``sync_to_attribute_store``.
+        plaintext: Whether payload encryption leaves this Attribute's values
+            in plaintext. Defaults to ``False``. It matters only when the
+            Client or Worker configures ``payload_encryption``; the SDK reads
+            it locally and never sends it. Declare it for an Attribute that
+            ``wait_for_attribute_match`` or an Action condition reads, or that
+            an external system reads from an Attribute Store column in
+            plaintext. An indexed Attribute is always written in plaintext.
+            An encrypted Attribute with ``sync_to_attribute_store`` syncs its
+            ciphertext and needs a ``bytea`` column. The Server logs and skips
+            a value for any other column type, and the writer gets no error.
+
+            .. versionadded:: 1.45.10
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is
@@ -199,6 +211,7 @@ class Attribute(Generic[ValueT]):
 
     Examples:
         >>> status = Attribute("status", str, sync_to_attribute_store=True)
+        >>> review_state = Attribute("review-state", str, plaintext=True)
         >>> status.set(context, "paid")
         >>> status.get(context)
         'paid'
@@ -238,6 +251,7 @@ class Attribute(Generic[ValueT]):
     index: AttributeIndex | None = None
     sync_to_attribute_store: bool = False
     hard_delete_on_null: bool = False
+    plaintext: bool = False
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
@@ -329,6 +343,13 @@ class AttributeMap(Generic[ValueT]):
             Dex blob store and permanently deleted when the instance is deleted or
             set to ``None``. Defaults to ``False``. Requires a string or object
             ``value_type`` and no ``index`` or ``sync_to_attribute_store``.
+        plaintext: Whether payload encryption leaves every instance value in
+            plaintext. Defaults to ``False``. It matters only when the Client
+            or Worker configures ``payload_encryption``; the SDK reads it
+            locally and never sends it. See :class:`Attribute` for when to
+            declare it.
+
+            .. versionadded:: 1.45.10
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is
@@ -387,6 +408,7 @@ class AttributeMap(Generic[ValueT]):
     index: AttributeIndex | None = None
     sync_to_attribute_store: bool = False
     hard_delete_on_null: bool = False
+    plaintext: bool = False
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)

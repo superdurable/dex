@@ -16,6 +16,7 @@ from dex._task_queue_names import registered_task_queue_name_error
 from dex.credential import Credential
 from dex.flow_definition import FlowDefinitionDocument
 from dex.flow_service_tls_options import FlowServiceTlsOptions
+from dex.payload_encryption import PayloadEncryptionOptions
 
 
 def _default_reserved_rpc_tasks(max_concurrent_tasks: int, min_open_slots: int) -> int:
@@ -312,6 +313,15 @@ class WorkerOptions:
             its graph in code. See ``FlowDefinitionDocument``.
 
             .. versionadded:: 1.45.0
+        payload_encryption: Client-side payload encryption. Defaults to
+            ``None``, which sends Values as they are and fails a handler that
+            reads an encrypted Value with ``value is encrypted; configure a
+            PayloadCodec``. ``Worker`` needs a synchronous ``PayloadCodec``;
+            ``AsyncWorker`` also accepts an ``AsyncPayloadCodec``. See
+            ``PayloadEncryptionOptions`` for what is encrypted. A Worker with
+            a codec also runs plaintext Flows.
+
+            .. versionadded:: 1.45.10
 
     Flow definitions:
         Dex Web draws a run's graph from the Flow definition that the Server
@@ -357,6 +367,7 @@ class WorkerOptions:
     grpc_max_message_bytes: int = 0
     flow_definition_paths: Sequence[str | os.PathLike[str]] = ()
     flow_definitions: Sequence[FlowDefinitionDocument] = ()
+    payload_encryption: PayloadEncryptionOptions | None = None
 
     def __post_init__(self) -> None:
         validate_grpc_max_message_bytes(self.grpc_max_message_bytes)

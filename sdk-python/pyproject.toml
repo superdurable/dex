@@ -14,6 +14,12 @@ dependencies = [
     "protobuf>=7.35.1",
 ]
 
+[project.optional-dependencies]
+# AesGcmPayloadCodec needs AES-GCM, which the standard library lacks.
+encryption = [
+    "cryptography>=42.0.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/sdk-python"
 Repository = "https://github.com/superdurable/dex"
@@ -22,6 +28,7 @@ Repository = "https://github.com/superdurable/dex"
 dev = [
     "anyio>=4.9,<5",
     "black==24.10.0",
+    "cryptography>=42.0.0",
     "googleapis-common-protos-stubs>=2.3.1",
     "grpcio-tools==1.83.0",
     "isort>=6.0.1,<7",

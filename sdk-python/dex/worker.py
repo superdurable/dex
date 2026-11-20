@@ -33,6 +33,7 @@ from dex._server_protocol import (
     sdk_version,
     server_info_request_error,
 )
+from dex._payload_message_codec import AsyncPayloadMessageCodec, PayloadMessageCodec
 from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
@@ -83,11 +84,18 @@ class Worker:
             ValueError: If the pull Worker ID or configured TLS address, server
                 name, or CA bundle is invalid, or default roots cannot be loaded.
                 Also raised when a configured Flow definition cannot be loaded
-                or two Flow definitions describe the same Flow type.
+                or two Flow definitions describe the same Flow type. Also raised
+                when ``payload_encryption`` would encrypt the Attribute of an
+                Action condition.
+            TypeError: If ``options.payload_encryption`` holds an
+                ``AsyncPayloadCodec``; use ``AsyncWorker`` for it.
 
         .. versionchanged:: 1.45.0
            Loads ``flow_definition_paths`` and ``flow_definitions`` and raises
            ``ValueError`` for an invalid or duplicate Flow definition.
+
+        .. versionchanged:: 1.45.10
+           Applies ``options.payload_encryption``.
         """
         self.registry = registry
         self.blob_cache = blob_cache
@@ -118,10 +126,13 @@ class Worker:
         self._sdk_version = sdk_version()
         self._server_protocol = NegotiatedServerProtocol()
         values = ValueMapper(registry.codec_registry)
+        payload_encryption = self.options.payload_encryption
+        payloads = PayloadMessageCodec(payload_encryption, registry)
+        payloads.transformer.require_plaintext_action_conditions()
         dispatcher = WorkerDispatcher(
             registry,
             values,
-            ValueHydrator(self._flow_service, blob_cache),
+            ValueHydrator(self._flow_service, blob_cache, payloads),
             self._server_protocol,
         )
         concurrency = self.options.pull.max_concurrent_tasks or os.cpu_count() or 1
@@ -140,6 +151,8 @@ class Worker:
             self._credential_runner,
             transport=transport,
             grpc_max_message_bytes=self.options.grpc_max_message_bytes,
+            frame_payloads=AsyncPayloadMessageCodec(payload_encryption, registry),
+            handler_thread_frame_payloads=payloads,
         )
 
     def __enter__(self) -> Worker:
