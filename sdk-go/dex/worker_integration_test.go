@@ -1095,6 +1095,7 @@ func TestBufferedTextStreamFlushesOnTimerAndInvocationFinish(t *testing.T) {
 		nil,
 		nil,
 		&negotiatedServerProtocol{},
+		newDisabledPayloadEncryption(),
 	)
 	require.NoError(t, err)
 	writer, err := NewBufferedTextStream(
@@ -1138,6 +1139,7 @@ func TestInvocationContextExposesRecoveryError(t *testing.T) {
 		nil,
 		nil,
 		&negotiatedServerProtocol{},
+		newDisabledPayloadEncryption(),
 	)
 	require.NoError(t, err)
 	require.Equal(t, &RecoveryErrorInfo{
@@ -1485,11 +1487,11 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	}}
 
 	first := request
-	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow("flow-1", []**dexpb.Value{&first}))
+	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&first}))
 	require.NoError(t, err)
 	require.Equal(t, "loaded-blob-1", first.GetStringValue())
 	second := request
-	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow("flow-1", []**dexpb.Value{&second}))
+	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&second}))
 	require.NoError(t, err)
 	require.Equal(t, "loaded-blob-1", second.GetStringValue())
 	require.Equal(t, 1, flowService.callCount())
@@ -1501,7 +1503,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 		InternalBlobIdForStringValue: "corrupt",
 	}}
 	loaded := corruptRequest
-	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow("flow-1", []**dexpb.Value{&loaded}))
+	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&loaded}))
 	require.NoError(t, err)
 	require.Equal(t, "loaded-corrupt", loaded.GetStringValue())
 	require.Equal(t, 2, flowService.callCount())
@@ -1545,7 +1547,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 		InternalBlobIdForStringValue: wrongID,
 	}}
 	wrongValue := wrongRequest
-	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow("flow-1", []**dexpb.Value{&wrongValue}))
+	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&wrongValue}))
 	require.ErrorContains(t, err, "hydrated to")
 	require.Same(t, wrongRequest, wrongValue)
 
@@ -1555,7 +1557,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 		InternalBlobIdForStringValue: omittedID,
 	}}
 	omittedValue := omittedRequest
-	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow("flow-1", []**dexpb.Value{&omittedValue}))
+	err = hydrator.HydrateValuesInPlace(context.Background(), valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&omittedValue}))
 	require.ErrorContains(t, err, "omitted blob")
 	require.Same(t, omittedRequest, omittedValue)
 
@@ -1572,7 +1574,7 @@ func TestWorkerHydrationUsesLoadBlobsAndDiskCache(t *testing.T) {
 	uncached := request
 	err = uncachedHydrator.HydrateValuesInPlace(
 		context.Background(),
-		valuePointersForFlow("flow-1", []**dexpb.Value{&uncached}),
+		valuePointersForFlow(PayloadContext{FlowID: "flow-1"}, []**dexpb.Value{&uncached}),
 	)
 	require.NoError(t, err)
 	require.Equal(t, "loaded-blob-1", uncached.GetStringValue())
@@ -2059,7 +2061,7 @@ func newWorkerClientForServerProtocol(
 	}
 	registered, err := NewRegistry(flows)
 	require.NoError(t, err)
-	return &workerDispatchTestClient{service: newWorkerService(registered, hydrator, nil, serverProtocol)}, func() {}
+	return &workerDispatchTestClient{service: newWorkerService(registered, hydrator, nil, serverProtocol, newDisabledPayloadEncryption())}, func() {}
 }
 
 func invokeWaitForResult(

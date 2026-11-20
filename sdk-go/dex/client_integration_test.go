@@ -1173,6 +1173,7 @@ func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {
 		cache,
 		connection,
 		nil,
+		newDisabledPayloadEncryption(),
 	)
 	t.Cleanup(func() {
 		require.NoError(t, client.Close())

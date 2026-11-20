@@ -266,7 +266,8 @@ func (flow *registeredFlow) compileAction(definition ActionDef) (*registeredActi
 	if registered.valueType != condition.valueType ||
 		!reflect.DeepEqual(registered.index, condition.attribute.attributeIndex()) ||
 		registered.syncToAttributeStore != condition.attribute.attributeSyncToAttributeStore() ||
-		registered.isHardDeleteOnNull != condition.attribute.attributeIsHardDeleteOnNull() {
+		registered.isHardDeleteOnNull != condition.attribute.attributeIsHardDeleteOnNull() ||
+		registered.isPlaintext != condition.attribute.attributeIsPlaintext() {
 		return nil, fmt.Errorf(
 			"Action condition Attribute %q does not match its registered definition",
 			condition.attribute.attributeName(),
@@ -376,6 +377,24 @@ func (flow *registeredFlow) actionPermissionMappings() *dexpb.ActionPermissionMa
 		})
 	}
 	return &dexpb.ActionPermissionMappings{Mappings: mappings}
+}
+
+// requirePlaintextActionAttributes rejects Action conditions whose Attribute would be encrypted.
+// The server compares the stored value with ActionPermissionMapping.equal_values.
+func (registry *Registry) requirePlaintextActionAttributes(encryption *payloadEncryption) error {
+	if !encryption.isEnabled() {
+		return nil
+	}
+	for _, flow := range registry.flows {
+		for _, action := range flow.actions {
+			attribute := flow.attributes[action.condition.attribute.attributeName()]
+			usage := fmt.Sprintf("Action %q of Flow %q", action.label, flow.flowType)
+			if err := encryption.requirePlaintextAttribute(attribute, usage); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func supportsActionAttributeType(valueType reflect.Type) bool {

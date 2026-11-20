@@ -90,7 +90,75 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 	)
 }
 
+// sdkGeneratedWorkerError marks SDK-written failures, such as blob hydration and decryption
+// errors, whose detail stays plaintext. The server matches hydration error text.
+type sdkGeneratedWorkerError struct {
+	cause error
+}
+
+func markSDKGeneratedWorkerError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &sdkGeneratedWorkerError{cause: err}
+}
+
+func (generated *sdkGeneratedWorkerError) Error() string {
+	return generated.cause.Error()
+}
+
+func (generated *sdkGeneratedWorkerError) Unwrap() error {
+	return generated.cause
+}
+
+// workerErrorTextEncryptionFailure prefixes the category that replaces error text that could not be encrypted.
+const workerErrorTextEncryptionFailure = "dex: the Worker could not encrypt this error text: "
+
+// encodeWorkerErrorText encrypts detail and stack_trace unless the SDK wrote them.
+// When encryption fails, it sends a generic text instead of the original.
+func encodeWorkerErrorText(
+	ctx context.Context,
+	logger Logger,
+	encryption *payloadEncryption,
+	payloadContext PayloadContext,
+	cause error,
+	workerError *dexpb.WorkerErrorResponse,
+) {
+	var generated *sdkGeneratedWorkerError
+	if errors.As(cause, &generated) {
+		return
+	}
+	detail, detailErr := encryption.encodeErrorText(ctx, payloadContext, workerError.Detail)
+	stackTrace, stackTraceErr := encryption.encodeErrorText(ctx, payloadContext, workerError.StackTrace)
+	if encodeErr := errors.Join(detailErr, stackTraceErr); encodeErr != nil {
+		logger.Error("encrypt Worker error text", "flowID", payloadContext.FlowID, "error", encodeErr)
+		workerError.Detail = workerErrorTextEncryptionFailure + payloadFailureSummary(encodeErr, "encrypt_failed")
+		workerError.StackTrace = ""
+		return
+	}
+	workerError.Detail = detail
+	workerError.StackTrace = stackTrace
+}
+
+// workerTaskPayloadContext returns the Flow that a polled task belongs to.
+func workerTaskPayloadContext(task *dexpb.PollWorkerTask) PayloadContext {
+	switch request := task.GetRequest().(type) {
+	case *dexpb.PollWorkerTask_WaitFor:
+		return PayloadContext{FlowType: request.WaitFor.GetFlowType(), FlowID: request.WaitFor.GetContext().GetFlowId()}
+	case *dexpb.PollWorkerTask_Execute:
+		return PayloadContext{FlowType: request.Execute.GetFlowType(), FlowID: request.Execute.GetContext().GetFlowId()}
+	case *dexpb.PollWorkerTask_Rpc:
+		return PayloadContext{FlowType: request.Rpc.GetFlowType(), FlowID: request.Rpc.GetContext().GetFlowId()}
+	default:
+		return PayloadContext{}
+	}
+}
+
 func workerErrorType(reported error) string {
+	var generated *sdkGeneratedWorkerError
+	if errors.As(reported, &generated) {
+		reported = generated.cause
+	}
 	var failure *workerFailure
 	if errors.As(reported, &failure) {
 		reported = failure.cause

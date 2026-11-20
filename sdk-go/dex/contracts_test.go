@@ -658,6 +658,22 @@ var _ = dex.GracefulComplete("done")
 var _ = dex.ForceFail("failed")
 var _ = dex.DeadEnd()
 var _ = dex.DefineAttribute[string]("contract-secret", dex.HardDeleteOnNull())
+var _ = dex.DefineAttributeMap[string]("contract-plaintext", dex.Plaintext())
+var _ dex.PayloadCodec = (*dex.AESGCMPayloadCodec)(nil)
+var _ dex.PayloadEncryptionKeyProvider = (*dex.FilePayloadEncryptionKeyProvider)(nil)
+var _ func(dex.PayloadEncryptionKeyProvider, dex.AESGCMPayloadCodecOptions) (*dex.AESGCMPayloadCodec, error) = dex.NewAESGCMPayloadCodec
+var _ func(string) (*dex.FilePayloadEncryptionKeyProvider, error) = dex.NewFilePayloadEncryptionKeyProvider
+var _ = dex.ClientOptions{PayloadEncryption: dex.PayloadEncryptionOptions{
+	PlaintextStringValues:    true,
+	PlaintextPrimitiveValues: true,
+	PlaintextErrorText:       true,
+	MaxEnvelopeBytes:         1 << 20,
+	MaxPlaintextBytes:        1 << 22,
+}}
+var _ = dex.WorkerOptions{PayloadEncryption: dex.PayloadEncryptionOptions{}}
+var _ = dex.PayloadContext{FlowType: "OrderFlow", FlowID: "order-1"}
+var _ error = &dex.PayloadDecodeError{Category: dex.PayloadErrorUnknownKey, KeyID: "k1"}
+var _ = dex.ErrPayloadCodecNotConfigured
 var _ error = &dex.HardDeleteAttributeUnsupportedError{
 	AttributeName:                 "contract-secret",
 	NegotiatedServerProtocol:      2,

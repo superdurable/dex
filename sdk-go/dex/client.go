@@ -55,6 +55,12 @@ type ClientOptions struct {
 	// The Dex server applies its own api.grpcMaxMessageBytes, and the smaller limit wins.
 	// Keep it above the largest application value plus headroom for the message envelope.
 	GrpcMaxMessageBytes int
+	// PayloadEncryption encrypts the values this Client sends and decrypts the encrypted values it
+	// reads. The zero value turns encryption off. See PayloadEncryptionOptions for what is
+	// encrypted and for an example. NewClient returns an error when a limit is negative.
+	//
+	// Since 1.45.9.
+	PayloadEncryption PayloadEncryptionOptions
 }
 
 // Client calls FlowService with registered typed definitions.
@@ -86,6 +92,8 @@ type Client struct {
 	hydrator   valueHydrator
 	connection *grpc.ClientConn
 	logger     Logger
+	// payloadEncryption seals outgoing values and decrypts values after hydration.
+	payloadEncryption *payloadEncryption
 	// serverProtocol is negotiated lazily before the first request.
 	serverProtocol negotiatedServerProtocol
 	protocolMu     sync.Mutex
@@ -124,6 +132,10 @@ func NewClient(
 	if err != nil {
 		return nil, err
 	}
+	payloadEncryption, err := newPayloadEncryption(options.PayloadEncryption)
+	if err != nil {
+		return nil, err
+	}
 	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
 	if err != nil {
 		return nil, err
@@ -140,6 +152,7 @@ func NewClient(
 		cache,
 		connection,
 		resolveLogger(options.Logger, cache.Logger()),
+		payloadEncryption,
 	), nil
 }
 
@@ -148,16 +161,21 @@ func newClient(
 	cache *blobcache.Cache,
 	connection *grpc.ClientConn,
 	logger Logger,
+	payloadEncryption *payloadEncryption,
 ) *Client {
+	if payloadEncryption == nil {
+		panic("dex: Client requires payload encryption settings")
+	}
 	logger = resolveLogger(logger, cache.Logger())
 	service := dexpb.NewFlowServiceClient(connection)
 	return &Client{
-		registry:   registry,
-		cache:      cache,
-		service:    service,
-		hydrator:   newValueHydrator(service, cache, logger, connection.Target()),
-		connection: connection,
-		logger:     logger,
+		registry:          registry,
+		cache:             cache,
+		service:           service,
+		hydrator:          newValueHydrator(service, cache, logger, connection.Target()),
+		connection:        connection,
+		logger:            logger,
+		payloadEncryption: payloadEncryption,
 	}
 }
 
@@ -315,12 +333,13 @@ func (client *Client) negotiateProtocolWithinRequestBudget(
 
 func (client *Client) hydrateValues(
 	ctx context.Context,
-	flowID string,
+	payloadContext PayloadContext,
 	valuePointers []**dexpb.Value,
 ) error {
-	return client.hydrateFlowValues(ctx, valuePointersForFlow(flowID, valuePointers))
+	return client.hydrateFlowValues(ctx, valuePointersForFlow(payloadContext, valuePointers))
 }
 
+// hydrateFlowValues loads blob references, then decrypts encrypted values in place.
 func (client *Client) hydrateFlowValues(ctx context.Context, targets []flowValuePointer) error {
 	if err := client.hydrator.HydrateValuesInPlace(ctx, targets); err != nil {
 		var failure *workerFailure
@@ -329,7 +348,42 @@ func (client *Client) hydrateFlowValues(ctx context.Context, targets []flowValue
 		}
 		return translateRPCError(err, "LoadBlobs", "", flowTargetNone)
 	}
-	return nil
+	return client.payloadEncryption.decryptFlowValues(ctx, targets)
+}
+
+// decryptValues decrypts values that the server returns inline, without blob references.
+func (client *Client) decryptValues(
+	ctx context.Context,
+	payloadContext PayloadContext,
+	valuePointers []**dexpb.Value,
+) error {
+	return client.payloadEncryption.decryptFlowValues(ctx, valuePointersForFlow(payloadContext, valuePointers))
+}
+
+// decodeServiceErrorText decodes "dex-encoded:" Worker error text that the server copied into a
+// ServiceError. Only a status with Dex error details is a read point; transport messages stay
+// unchanged. Text that fails to decode is replaced by a fixed category, never shown as is.
+func (client *Client) decodeServiceErrorText(ctx context.Context, payloadContext PayloadContext, err error) {
+	decode := func(text string) string {
+		decoded, decodeErr := client.payloadEncryption.decodeErrorText(ctx, payloadContext, text)
+		if decodeErr != nil {
+			return "dex: the Worker error text could not be decoded: " + payloadFailureSummary(decodeErr, "decrypt_failed")
+		}
+		return decoded
+	}
+	var serviceError *ServiceError
+	if errors.As(err, &serviceError) && serviceError.hasDexErrorDetails {
+		serviceError.Detail = decode(serviceError.Detail)
+	}
+	var invocationError *WorkerInvocationError
+	if errors.As(err, &invocationError) && invocationError.Worker != nil {
+		invocationError.Worker.Detail = decode(invocationError.Worker.Detail)
+	}
+}
+
+// sealValues encrypts the value fields of one request just before it is sent.
+func (client *Client) sealValues(ctx context.Context, slots *outgoingPayloadSlots) error {
+	return slots.seal(ctx, client.payloadEncryption)
 }
 
 // FlowStatus describes the current or terminal state of a Flow run.
@@ -583,7 +637,7 @@ func (client *Client) StartFlow(
 	if err != nil {
 		return "", err
 	}
-	response, err := client.service.StartFlow(ctx, &dexpb.StartFlowRequest{
+	request := &dexpb.StartFlowRequest{
 		FlowId:             flowID,
 		FlowType:           registered.flowType,
 		FlowTimeoutSeconds: timeout,
@@ -593,7 +647,15 @@ func (client *Client) StartFlow(
 		StepOptions:        stepOptions,
 		FlowStartOptions:   flowOptions,
 		RequestId:          requestID,
-	})
+	}
+	payloadContext := PayloadContext{FlowType: registered.flowType, FlowID: flowID}
+	slots := newOutgoingPayloadSlots(client.registry)
+	slots.addValue(payloadContext, "start Step input", &request.StepInput)
+	slots.addAttributeWrites(payloadContext, registered, request.FlowStartOptions.Attributes)
+	if err := client.sealValues(ctx, slots); err != nil {
+		return "", err
+	}
+	response, err := client.service.StartFlow(ctx, request)
 	if err != nil {
 		return "", translateRPCError(err, "StartFlow", flowID, flowTargetNone)
 	}
@@ -807,6 +869,16 @@ func (client *Client) StopFlow(
 	if err != nil {
 		return err
 	}
+	payloadContext := PayloadContext{FlowID: flowID}
+	request.Reason, err = client.payloadEncryption.encodeErrorText(ctx, payloadContext, request.Reason)
+	if err != nil {
+		return err
+	}
+	slots := newOutgoingPayloadSlots(client.registry)
+	slots.addValue(payloadContext, "StopFlow output", &request.Output)
+	if err := client.sealValues(ctx, slots); err != nil {
+		return err
+	}
 	_, err = client.service.StopFlow(ctx, request)
 	return translateRPCError(err, "StopFlow", flowID, flowTargetActive)
 }
@@ -842,7 +914,11 @@ func (client *Client) WaitForFlow(
 			flowTargetExisting,
 		)
 	}
-	if err := client.hydrateValues(ctx, flowID, waitForFlowValuePointers(response)); err != nil {
+	payloadContext := PayloadContext{FlowID: flowID}
+	if err := client.hydrateValues(ctx, payloadContext, waitForFlowValuePointers(response)); err != nil {
+		return FlowResult{}, err
+	}
+	if err := client.payloadEncryption.decodeFlowResultErrorText(ctx, payloadContext, response); err != nil {
 		return FlowResult{}, err
 	}
 	result, err := mapFlowResult(response)
@@ -928,6 +1004,7 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []flowValuePoi
 			if attribute != nil {
 				pointers = append(pointers, flowValuePointer{
 					flowID:       flow.GetFlowId(),
+					flowType:     flow.GetFlowType(),
 					valuePointer: &attribute.Value,
 				})
 			}
@@ -969,6 +1046,10 @@ func (client *Client) TimeTravel(
 		return "", err
 	}
 	request.FlowId = flowID
+	request.Reason, err = client.payloadEncryption.encodeErrorText(ctx, PayloadContext{FlowID: flowID}, request.Reason)
+	if err != nil {
+		return "", err
+	}
 	response, err := client.service.ResetFlow(ctx, request)
 	if err != nil {
 		return "", translateRPCError(err, "TimeTravel", flowID, flowTargetExisting)
@@ -1067,6 +1148,16 @@ func (client *Client) CloneForkFlow(
 	}
 	request.SourceFlowId = sourceFlowID
 	request.FlowId = flowID
+	payloadContext := PayloadContext{FlowType: registered.flowType, FlowID: flowID}
+	request.Reason, err = client.payloadEncryption.encodeErrorText(ctx, payloadContext, request.Reason)
+	if err != nil {
+		return CloneForkFlowResult{}, err
+	}
+	slots := newOutgoingPayloadSlots(client.registry)
+	slots.addAttributeWrites(payloadContext, registered, request.Attributes)
+	if err := client.sealValues(ctx, slots); err != nil {
+		return CloneForkFlowResult{}, err
+	}
 	response, err := client.service.CloneForkFlow(ctx, request)
 	if err != nil {
 		return CloneForkFlowResult{}, translateCloneForkFlowError(err, sourceFlowID, flowID)
@@ -1344,14 +1435,20 @@ func (client *Client) WriteStream(
 	if err != nil {
 		return err
 	}
-	_, err = client.service.WriteStream(ctx, &dexpb.WriteStreamRequest{
+	request := &dexpb.WriteStreamRequest{
 		FlowId:              flowID,
 		FlowType:            flow.flowType,
 		StreamName:          registered.definition.name,
 		StreamCapacityBytes: registered.definition.streamCapacityBytes,
 		Value:               encoded,
 		Source:              source,
-	})
+	}
+	slots := newOutgoingPayloadSlots(client.registry)
+	slots.addValue(PayloadContext{FlowType: flow.flowType, FlowID: flowID}, "Stream value", &request.Value)
+	if err := client.sealValues(ctx, slots); err != nil {
+		return err
+	}
+	_, err = client.service.WriteStream(ctx, request)
 	return translateRPCError(err, "WriteStream", flowID, flowTargetNone)
 }
 
@@ -1397,6 +1494,13 @@ func (client *Client) ReadStream(
 	}
 	if err := response.Message.CreatedTime.CheckValid(); err != nil {
 		return StreamMessage{}, fmt.Errorf("dex: ReadStream created time is invalid: %w", err)
+	}
+	if err := client.decryptValues(
+		ctx,
+		PayloadContext{FlowType: flow.flowType, FlowID: flowID},
+		[]**dexpb.Value{&response.Message.Value},
+	); err != nil {
+		return StreamMessage{}, err
 	}
 	if err := decodeValue(response.Message.Value, valuePtr); err != nil {
 		return StreamMessage{}, err
@@ -1461,7 +1565,7 @@ func (client *Client) ListStreamMessages(
 		}
 		valuePointers = append(valuePointers, &message.Value)
 	}
-	if err := client.hydrateValues(ctx, flowID, valuePointers); err != nil {
+	if err := client.hydrateValues(ctx, PayloadContext{FlowType: flow.flowType, FlowID: flowID}, valuePointers); err != nil {
 		return err
 	}
 	messagesTarget := pageTarget.FieldByName("Messages")
@@ -1604,6 +1708,9 @@ func (client *Client) waitForAttributeMatch(
 	if registered.isHardDeleteOnNull {
 		return fmt.Errorf("dex: attribute %q uses HardDeleteOnNull and cannot be waited on", registered.name)
 	}
+	if err := client.payloadEncryption.requirePlaintextAttribute(registered, "WaitForAttributeMatch"); err != nil {
+		return err
+	}
 	name, err := physicalName(registered.name, instance, isMap)
 	if err != nil {
 		return err
@@ -1645,6 +1752,11 @@ func (client *Client) waitForAttributeMatch(
 		if waitErr == nil {
 			if response.GetMatchedValue() == nil {
 				return fmt.Errorf("dex: WaitForAttribute response is incomplete")
+			}
+			if err := client.decryptValues(
+				ctx, PayloadContext{FlowID: flowID}, []**dexpb.Value{&response.MatchedValue},
+			); err != nil {
+				return err
 			}
 			return decodeValue(response.GetMatchedValue(), valuePtr)
 		}
@@ -1932,7 +2044,7 @@ func (client *Client) doInvokeRPC(
 	if err != nil {
 		return err
 	}
-	response, err := client.service.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+	request := &dexpb.InvokeRPCRequest{
 		FlowId:                    flowID,
 		RpcName:                   registered.durableName,
 		Input:                     encoded,
@@ -1943,16 +2055,25 @@ func (client *Client) doInvokeRPC(
 		LoadAttributeMapInstances: attributeMapInstances,
 		LoadChannelNames:          channelNames,
 		LoadChannelMapInstances:   channelMapInstances,
-	})
+	}
+	payloadContext := PayloadContext{FlowType: flow.flowType, FlowID: flowID}
+	slots := newOutgoingPayloadSlots(client.registry)
+	slots.addValue(payloadContext, "RPC input", &request.Input)
+	if err := client.sealValues(ctx, slots); err != nil {
+		return err
+	}
+	response, err := client.service.InvokeRPC(ctx, request)
 	if err != nil {
-		return translateRPCError(err, "InvokeRPC", flowID, flowTargetActive)
+		translated := translateRPCError(err, "InvokeRPC", flowID, flowTargetActive)
+		client.decodeServiceErrorText(ctx, payloadContext, translated)
+		return translated
 	}
 	if response == nil {
 		return fmt.Errorf("dex: InvokeRPC response is nil")
 	}
 	if err := client.hydrateValues(
 		ctx,
-		flowID,
+		payloadContext,
 		[]**dexpb.Value{&response.Output},
 	); err != nil {
 		return err

@@ -32,6 +32,16 @@ type flowValuePointer struct {
 	flowID           string
 	valueDescription string
 	valuePointer     **dexpb.Value
+	// payloadContext overrides the decryption context; zero uses flowID with flowType.
+	payloadContext PayloadContext
+	flowType       string
+}
+
+func (target flowValuePointer) resolvedPayloadContext() PayloadContext {
+	if target.payloadContext != (PayloadContext{}) {
+		return target.payloadContext
+	}
+	return PayloadContext{FlowType: target.flowType, FlowID: target.flowID}
 }
 
 type valueHydratorImpl struct {
@@ -367,12 +377,23 @@ func flowBlobCacheKey(flowID string, blobID string) string {
 	return fmt.Sprintf("%d:%s%s", len(flowID), flowID, blobID)
 }
 
-func valuePointersForFlow(flowID string, valuePointers []**dexpb.Value) []flowValuePointer {
+func valuePointersForFlow(payloadContext PayloadContext, valuePointers []**dexpb.Value) []flowValuePointer {
 	targets := make([]flowValuePointer, 0, len(valuePointers))
 	for _, valuePointer := range valuePointers {
-		targets = append(targets, flowValuePointer{flowID: flowID, valuePointer: valuePointer})
+		targets = append(targets, flowValuePointer{
+			flowID:       payloadContext.FlowID,
+			flowType:     payloadContext.FlowType,
+			valuePointer: valuePointer,
+		})
 	}
 	return targets
+}
+
+// setFlowTypeOfValuePointers records flowType for decryption contexts that do not override it.
+func setFlowTypeOfValuePointers(targets []flowValuePointer, flowType string) {
+	for index := range targets {
+		targets[index].flowType = flowType
+	}
 }
 
 func marshalBlobCachePayload(

@@ -379,6 +379,8 @@ type ServiceError struct {
 	// Detail is the most specific server or transport message available.
 	Detail string
 	cause  error
+	// hasDexErrorDetails reports a status that carried a ServiceErrorResponse.
+	hasDexErrorDetails bool
 }
 
 // Error formats operation, Flow identity, gRPC code, and detail.
@@ -611,6 +613,7 @@ func translateRPCError(
 	if response == nil {
 		return serviceError
 	}
+	serviceError.hasDexErrorDetails = true
 	serviceError.SubStatus = mapErrorSubStatus(response.SubStatus)
 	if response.Detail != "" {
 		serviceError.Detail = response.Detail

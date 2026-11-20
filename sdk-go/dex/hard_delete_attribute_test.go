@@ -239,7 +239,7 @@ func newHardDeleteTestClient(t *testing.T, serverProtocolVersion uint32) (*Clien
 		}),
 	)
 	require.NoError(t, err)
-	client := newClient(registry, cache, connection, nil)
+	client := newClient(registry, cache, connection, nil, newDisabledPayloadEncryption())
 	t.Cleanup(func() {
 		require.NoError(t, client.Close())
 		server.Stop()
