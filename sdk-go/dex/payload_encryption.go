@@ -31,7 +31,7 @@ import (
 //		return fmt.Errorf("configure ClientOptions.PayloadEncryption: %w", err)
 //	}
 //
-// Since 1.45.9.
+// Since 1.45.16.
 var ErrPayloadCodecNotConfigured = errors.New("value is encrypted; configure a PayloadCodec")
 
 // PayloadContext identifies the Flow that stores the payloads of one PayloadCodec call.
@@ -61,7 +61,7 @@ var ErrPayloadCodecNotConfigured = errors.New("value is encrypted; configure a P
 //		return provider.keys[keyID], nil
 //	}
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadContext struct {
 	// FlowType is the Flow type that stores the payloads, or empty when the SDK does not know it.
 	FlowType string
@@ -121,7 +121,7 @@ type PayloadContext struct {
 //
 // See protos/payload-encryption.md in the Dex repository for the envelope format.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadCodec interface {
 	// Encode returns one envelope per plaintext, in order. ctx carries the calling request's
 	// deadline and cancellation. payloadContext identifies the Flow that will store the values.
@@ -154,7 +154,7 @@ type PayloadCodec interface {
 //		return provider.secrets.Version(ctx, "dex-payload-key", keyID)
 //	}
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadEncryptionKeyProvider interface {
 	// CurrentKeyID returns the key ID that new encryptions for payloadContext use.
 	CurrentKeyID(ctx context.Context, payloadContext PayloadContext) (string, error)
@@ -198,7 +198,7 @@ type PayloadEncryptionKeyProvider interface {
 //		PayloadEncryption: dex.PayloadEncryptionOptions{Codec: codec},
 //	})
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadEncryptionOptions struct {
 	// Codec encrypts and decrypts values. Nil turns encryption off; encrypted values that the
 	// Client or Worker reads then fail with ErrPayloadCodecNotConfigured.
@@ -232,7 +232,7 @@ type PayloadEncryptionOptions struct {
 // The categories and the order of the checks that produce them are shared by every Dex SDK and
 // codec server. Read it from a *PayloadDecodeError with errors.As.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadErrorCategory string
 
 const (
@@ -266,7 +266,7 @@ const (
 //		log.Printf("payload key %q is missing from the key file", decodeErr.KeyID)
 //	}
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type PayloadDecodeError struct {
 	// Category is the first check that failed.
 	Category PayloadErrorCategory

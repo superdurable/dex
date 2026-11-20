@@ -86,7 +86,7 @@ class AsyncWorker:
            Loads ``flow_definition_paths`` and ``flow_definitions`` and raises
            ``ValueError`` for an invalid or duplicate Flow definition.
 
-        .. versionchanged:: 1.45.10
+        .. versionchanged:: 1.45.16
            Applies ``options.payload_encryption`` with a ``PayloadCodec`` or an
            ``AsyncPayloadCodec``.
         """

@@ -14,7 +14,7 @@ every Value it receives. The Server stores only ciphertext and never holds
 keys. The wire format is ``dex/1``, specified in ``protos/payload-encryption.md``
 of the Dex repository.
 
-.. versionadded:: 1.45.10
+.. versionadded:: 1.45.16
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _LOGGER = logging.getLogger(__name__)
 #: headroom for the envelope. Change it with
 #: ``PayloadEncryptionOptions.max_envelope_bytes``.
 #:
-#: .. versionadded:: 1.45.10
+#: .. versionadded:: 1.45.16
 DEFAULT_MAX_PAYLOAD_ENVELOPE_BYTES = 16_842_752
 
 #: The default largest decrypted or decompressed plaintext, 64 MiB.
@@ -53,7 +53,7 @@ DEFAULT_MAX_PAYLOAD_ENVELOPE_BYTES = 16_842_752
 #: ``PayloadEncryptionOptions.max_plaintext_bytes`` and
 #: ``AesGcmPayloadCodec(max_decompressed_bytes=...)``.
 #:
-#: .. versionadded:: 1.45.10
+#: .. versionadded:: 1.45.16
 DEFAULT_MAX_PAYLOAD_PLAINTEXT_BYTES = 67_108_864
 
 _AES_GCM_KEY_BYTES = 32
@@ -74,7 +74,7 @@ class PayloadErrorCategory(Enum):
     failure reads the same everywhere. The value is the category text of the
     ``dex/1`` format specification.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Attributes:
         MALFORMED: The envelope, its base64 text, or its gzip data is invalid.
@@ -118,7 +118,7 @@ class PayloadEncryptionError(ValueMappingError):
     failures also handles it. A Worker reports it as a failed Step or RPC and
     keeps its text in plaintext, because the text holds no payload content.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> try:
@@ -175,7 +175,7 @@ class PayloadContext:
     fork, and reset copy Values into another run or Flow ID, and they still
     decrypt there.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> context = PayloadContext(flow_type="OrderFlow", flow_id="order-42")
@@ -221,7 +221,7 @@ class PayloadCodec(Protocol):
     decompresses must stop as soon as its output exceeds that limit. The SDK
     checks each returned plaintext against the same limit in any case.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> from dex.dexpb import dex_pb2 as pb
@@ -293,7 +293,7 @@ class AsyncPayloadCodec(Protocol):
     apply, including the replaced exceptions and the optional
     ``max_plaintext_bytes`` keyword of ``decode``.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> class AsyncKmsPayloadCodec:
@@ -358,7 +358,7 @@ class PayloadEncryptionKeyProvider(Protocol):
     belong to the context's tenant. The Server could otherwise move another
     tenant's ciphertext into this tenant's Flow, and it would decrypt.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> class TenantKeyProvider:
@@ -410,7 +410,7 @@ class PayloadCompression(Enum):
     mix attacker-controlled content with secrets; an attacker who sees the
     lengths can learn the secrets, as in the CRIME and BREACH attacks.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Attributes:
         NONE: Encrypt the serialized Value as is. The default.
@@ -433,7 +433,7 @@ class AesGcmPayloadCodec:
     It needs the ``cryptography`` package. Install the SDK with the
     ``encryption`` extra: ``pip install 'dex-python-sdk[encryption]'``.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> key_provider = FilePayloadEncryptionKeyProvider("/etc/dex/payload-keys.json")
@@ -694,7 +694,7 @@ class FilePayloadEncryptionKeyProvider:
     restart. The provider ignores the context, so Values cloned into another
     Flow still decrypt.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> key_provider = FilePayloadEncryptionKeyProvider("/etc/dex/payload-keys.json")
@@ -828,7 +828,7 @@ class PayloadEncryptionOptions:
 
     Java and Rust SDKs cannot read encrypted Flows yet.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> key_provider = FilePayloadEncryptionKeyProvider("/etc/dex/payload-keys.json")
@@ -888,7 +888,7 @@ def is_valid_payload_key_id(key_id: object) -> bool:
     A key ID is 1 to 64 bytes, each printable ASCII from ``0x21`` to ``0x7e``.
     Spaces are not allowed.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> is_valid_payload_key_id("k2")
@@ -914,7 +914,7 @@ def payload_envelope_aad(cipher: int, compression: int, key_id: str) -> bytes:
     with the enum numbers as ASCII decimal digits. Use it in a custom codec
     that interoperates with the built-in one.
 
-    .. versionadded:: 1.45.10
+    .. versionadded:: 1.45.16
 
     Examples:
         >>> payload_envelope_aad(1, 0, "k1")

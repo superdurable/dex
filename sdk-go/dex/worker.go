@@ -88,7 +88,7 @@ type WorkerOptions struct {
 	// encrypted and for an example. NewWorker returns an error when a limit is negative, or when
 	// a codec is set and an Action condition reads an Attribute that would be encrypted.
 	//
-	// Since 1.45.9.
+	// Since 1.45.16.
 	PayloadEncryption PayloadEncryptionOptions
 }
 

@@ -46,7 +46,7 @@ class ClientOptions:
             ``AsyncClient`` also accepts an ``AsyncPayloadCodec``. See
             ``PayloadEncryptionOptions`` for what is encrypted.
 
-            .. versionadded:: 1.45.10
+            .. versionadded:: 1.45.16
     """
 
     server_address: str = "localhost:8801"
