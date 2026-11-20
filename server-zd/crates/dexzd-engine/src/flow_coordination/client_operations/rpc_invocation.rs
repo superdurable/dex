@@ -28,7 +28,6 @@ use dexzd_request_validation::{
 use prost::Message;
 
 use crate::flow_coordination::client_operations::hard_delete_uploads::hard_delete_references;
-use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
 use crate::flow_coordination::client_operations::rpc_requests::RpcRequestGuard;
 use crate::flow_coordination::client_operations::unstamped_flow_command;
 use crate::flow_coordination::read_operations::state_rows::{
@@ -96,16 +95,14 @@ impl FlowCoordinatorRegistry {
                 .invoke_rpc_once(flow, run_id, request, is_transactional)
                 .await;
         }
-        let admission = self.inner.rpc_requests.join_or_insert(
-            &flow,
-            run_id,
-            &request.request_id,
-            request_fingerprint(&request),
-        );
+        let admission = self
+            .inner
+            .rpc_requests
+            .join_or_insert(&flow, run_id, &request.request_id);
         let (mut result, guard) = match admission {
             Ok(admission) => admission,
             Err(error) => {
-                // A commit can land between the snapshot and a conflicting in-flight admission.
+                // A commit can land between the snapshot and a rejected admission.
                 let committed = self.inner.dependencies.committer.committed_view()?;
                 if let Some(response) = replay_recorded_rpc(
                     committed.as_ref(),
@@ -346,7 +343,6 @@ impl FlowCoordinatorRegistry {
         result: WorkerRpcResult,
         is_transactional: bool,
     ) -> Result<InvokeRpcResponse, FlowCoordinationError> {
-        let fingerprint = request_fingerprint(&request);
         let mut response = result.response;
         // Apply cannot mint IDs, so every publication gets a new one, as Go's AssignIDs does.
         for message in &mut response.publish_to_channel {
@@ -368,7 +364,7 @@ impl FlowCoordinatorRegistry {
                 response: Some(response),
                 app_worker_id: result.app_worker_id,
                 hard_delete_objects: hard_delete_references(uploads.as_ref()),
-                request_fingerprint: fingerprint,
+                request_fingerprint: Vec::new(),
                 pull_routing: result.pull_routing,
                 is_transactional,
             }),
@@ -436,12 +432,6 @@ fn replay_recorded_rpc(
     let Some(recorded) = recorded else {
         return Ok(None);
     };
-    if recorded.request_fingerprint != request_fingerprint(request) {
-        return Err(FlowCoordinationError::invalid_argument(format!(
-            "request ID {} was already used for a different request",
-            request.request_id
-        )));
-    }
     match recorded.reply.and_then(|reply| reply.reply) {
         Some(command_reply::Reply::Rpc(reply)) => {
             let output = match reply.output {

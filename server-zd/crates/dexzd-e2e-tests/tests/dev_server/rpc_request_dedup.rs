@@ -77,8 +77,9 @@ async fn concurrent_rpc_request_ids_share_one_worker_result() {
             server.flow_client().invoke_rpc(changed_request),
         )
         .await
-        .expect_err("reusing a request ID with changed input is rejected");
-        assert_eq!(changed.code(), tonic::Code::InvalidArgument);
+        .expect("a request ID reused with changed input replays the recorded reply")
+        .into_inner();
+        assert_eq!(changed, first_response);
         let replay = without_worker_call(
             &mut worker,
             &mut idle_worker,
@@ -102,17 +103,17 @@ async fn first_rpc_caller_disconnect_preserves_the_worker_call() {
     let first = tokio::spawn(async move { first_client.invoke_rpc(first_request).await });
     let task = worker.next_task().await;
     let mut idle_worker = ScriptedWorker::start(server.worker_client(), "RequestDedupFlow").await;
-    let changed = without_worker_call(
+    // A pending request ID reused with changed input joins the in-flight call.
+    assert_duplicate_stays_pending(
+        &mut server.flow_client(),
         &mut worker,
         &mut idle_worker,
-        server.flow_client().invoke_rpc(InvokeRpcRequest {
+        &InvokeRpcRequest {
             input: Some(string_value("changed while in flight")),
             ..request.clone()
-        }),
+        },
     )
-    .await
-    .expect_err("a pending request ID cannot be reused with changed input");
-    assert_eq!(changed.code(), tonic::Code::InvalidArgument);
+    .await;
     first.abort();
     assert!(
         first

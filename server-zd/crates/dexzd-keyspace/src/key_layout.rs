@@ -130,7 +130,7 @@ pub enum RunTable {
     Outbox = 0x0b,
     /// Deduplication of delivered cross-Flow messages.
     InboxDedup = 0x0c,
-    /// Request ID deduplication with request fingerprints.
+    /// Request ID deduplication with recorded replies.
     RequestDedup = 0x0d,
     /// Results of completed child Flows.
     SubFlowResult = 0x0e,

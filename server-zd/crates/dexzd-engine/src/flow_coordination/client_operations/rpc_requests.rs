@@ -32,7 +32,6 @@ pub(crate) struct RpcRequestTable {
 }
 
 struct PendingRpcRequest {
-    fingerprint: Vec<u8>,
     result: RpcResultReceiver,
 }
 
@@ -58,19 +57,14 @@ impl RpcRequestTable {
         flow: &FlowAddress,
         run_id: RunId,
         request_id: &str,
-        fingerprint: Vec<u8>,
     ) -> Result<(RpcResultReceiver, Option<RpcRequestGuard>), FlowCoordinationError> {
         let mut requests = self
             .requests
             .lock()
             .expect("RPC request table lock is not poisoned");
         let key = (flow.clone(), run_id, request_id.to_owned());
+        // A repeated request ID joins the in-flight call whatever its content.
         if let Some(pending) = requests.get(&key) {
-            if pending.fingerprint != fingerprint {
-                return Err(FlowCoordinationError::invalid_argument(format!(
-                    "request ID {request_id} was already used for a different request"
-                )));
-            }
             return Ok((pending.result.clone(), None));
         }
         if self.tasks.is_closed() {
@@ -92,7 +86,6 @@ impl RpcRequestTable {
         requests.insert(
             key.clone(),
             PendingRpcRequest {
-                fingerprint,
                 result: receiver.clone(),
             },
         );

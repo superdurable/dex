@@ -168,6 +168,7 @@ message FlowStartCommand {
   dex.WorkerTarget worker_target = 5;
   repeated HardDeleteObjectReference hard_delete_objects = 6;
   // xxh3-128 of the canonical request encoding, for request ID deduplication.
+  // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 7;
   // Flow configuration after applying server defaults and request overrides.
   dex.FlowConfig effective_flow_config = 8;
@@ -184,6 +185,7 @@ message FlowConfigUpdateCommand {
 message AttributesSetCommand {
   dex.SetAttributesRequest request = 1;
   repeated HardDeleteObjectReference hard_delete_objects = 2;
+  // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 3;
 }
 
@@ -194,6 +196,7 @@ message ChannelPublishCommand {
 
 message ChannelMessageDeleteCommand {
   dex.DeleteChannelMessageRequest request = 1;
+  // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 2;
 }
 
@@ -333,6 +336,7 @@ message RpcCommittedCommand {
   dex.InvokeWorkerRPCResponse response = 2;
   string app_worker_id = 3;
   repeated HardDeleteObjectReference hard_delete_objects = 4;
+  // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 5;
   dex.PullRouting pull_routing = 6;
   // Owner-resolved RPC mode, including locks and server configuration.

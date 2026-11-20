@@ -2257,7 +2257,7 @@ impl Workload<'_> {
     }
 }
 
-/// Returns the 16-byte big-endian xxh3-128 of the request, as the runtime computes it.
+/// Returns the 16-byte big-endian xxh3-128 of the request, as older engines computed it.
 fn request_fingerprint(request: &impl Message) -> Vec<u8> {
     xxh3_128(&request.encode_to_vec()).to_be_bytes().to_vec()
 }

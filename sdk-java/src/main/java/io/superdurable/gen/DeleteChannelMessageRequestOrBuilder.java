@@ -59,11 +59,21 @@ public interface DeleteChannelMessageRequestOrBuilder extends
       getMessageIdBytes();
 
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+   * Dex compares only the ID, not the Channel name or message ID.
+   * </pre>
+   *
    * <code>string request_id = 5;</code>
    * @return The requestId.
    */
   java.lang.String getRequestId();
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+   * Dex compares only the ID, not the Channel name or message ID.
+   * </pre>
+   *
    * <code>string request_id = 5;</code>
    * @return The bytes for requestId.
    */

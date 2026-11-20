@@ -4985,12 +4985,14 @@ func (x *GetChannelMessagesResponse) GetMessages() []*ChannelMessage {
 }
 
 type DeleteChannelMessageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	ChannelName   string                 `protobuf:"bytes,3,opt,name=channel_name,json=channelName,proto3" json:"channel_name,omitempty"`
-	MessageId     string                 `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	RequestId     string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	FlowId      string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	RunId       string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	ChannelName string                 `protobuf:"bytes,3,opt,name=channel_name,json=channelName,proto3" json:"channel_name,omitempty"`
+	MessageId   string                 `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	// Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+	// Dex compares only the ID, not the Channel name or message ID.
+	RequestId     string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5703,10 +5705,12 @@ func (x *GetAttributesResponse) GetAttributes() []*KV {
 }
 
 type SetAttributesRequest struct {
-	state                    protoimpl.MessageState    `protogen:"open.v1"`
-	FlowId                   string                    `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	RunId                    string                    `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Attributes               []*AttributeWrite         `protobuf:"bytes,3,rep,name=attributes,proto3" json:"attributes,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	FlowId     string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	RunId      string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Attributes []*AttributeWrite      `protobuf:"bytes,3,rep,name=attributes,proto3" json:"attributes,omitempty"`
+	// Optional. A repeat of a recorded request ID gets the first request's reply and writes nothing.
+	// Dex compares only the ID, not the Attributes or permission mappings.
 	RequestId                string                    `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	ActionPermissionMappings *ActionPermissionMappings `protobuf:"bytes,5,opt,name=action_permission_mappings,json=actionPermissionMappings,proto3" json:"action_permission_mappings,omitempty"`
 	unknownFields            protoimpl.UnknownFields
@@ -9782,6 +9786,7 @@ type InvokeRPCRequest struct {
 	LockAttributeKeys []string `protobuf:"bytes,6,rep,name=lock_attribute_keys,json=lockAttributeKeys,proto3" json:"lock_attribute_keys,omitempty"`
 	// Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
 	// Dex deduplicates it for the whole run.
+	// Dex compares only the ID, not the input or options: a repeat never applies the second request.
 	RequestId string `protobuf:"bytes,7,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Requests transactional reads and writes. Attribute locking enables it
 	// automatically. Channel deletion alone does not; callers must opt in.

@@ -1421,6 +1421,11 @@ fn large_attribute_values_go_to_the_value_table_and_reach_the_snapshot_as_refere
     assert_eq!(value_rows, 1);
     let repeated = harness.apply(Command::AttributesSet(AttributesSetCommand {
         request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "report".to_owned(),
+                value: Some(string_value("replaced")),
+                ..AttributeWrite::default()
+            }],
             request_id: "set-1".to_owned(),
             ..SetAttributesRequest::default()
         }),
@@ -1428,8 +1433,14 @@ fn large_attribute_values_go_to_the_value_table_and_reach_the_snapshot_as_refere
         request_fingerprint: vec![2],
     }));
     assert!(
-        is_error(&repeated.reply, 3),
-        "a reused request ID with different content is rejected"
+        matches!(repeated.reply.reply, Some(command_reply::Reply::Ok(_))),
+        "a reused request ID with different content replays the recorded reply: {:?}",
+        repeated.reply
+    );
+    assert!(
+        repeated.writes.is_empty(),
+        "the repeat writes nothing: {:?}",
+        repeated.writes
     );
 }
 

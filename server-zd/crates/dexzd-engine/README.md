@@ -39,8 +39,9 @@ Every Attribute-carrying command passes the same hard-delete reference check bef
 While a shared task is active, transactional and locking RPCs share one node-owned task for
 each tenant, Flow, resolved run, and request ID. Concurrent identical requests receive the
 same result or error. A duplicate locking RPC waits for the original result instead of
-returning ABORTED for the original call's locks. Conflicting payloads retain the existing
-fingerprint rejection. A committed reply takes precedence over an in-flight entry.
+returning ABORTED for the original call's locks. A repeated request ID joins the shared task
+whatever its payload, as StartFlow compares only the request ID. A committed reply takes
+precedence over an in-flight entry.
 
 A caller disconnect or transport deadline ends only that caller's wait. It does not release
 the RPC's locks or let natural Flow close proceed. The RPC timeout starts at the Worker

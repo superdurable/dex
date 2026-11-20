@@ -62,12 +62,6 @@ pub(crate) fn apply_rpc_committed(
                 .rows
                 .request_dedup(transaction, RequestKind::InvokeRpc, &request.request_id)?
     {
-        if record.request_fingerprint != command.request_fingerprint {
-            return Ok(reject_invalid(format!(
-                "request ID {} was already used for a different request",
-                request.request_id
-            )));
-        }
         let reply = record.reply.ok_or_else(|| ApplyError::InvariantViolation {
             detail: format!("RPC dedup entry {} has no reply", request.request_id),
         })?;
@@ -372,6 +366,7 @@ fn remember_reply(
         RequestKind::InvokeRpc,
         request_id,
         &RequestDedupRecord {
+            // Older commands carry an ignored fingerprint; copying it keeps their replay identical.
             request_fingerprint: command.request_fingerprint.clone(),
             reply: Some(reply.clone()),
             recorded_seq: cursor.seq,

@@ -19,9 +19,7 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, CommandReply, FlowCommand, StartFlowReply, command_reply, flow_command,
 };
-use prost::Message;
 use tokio::sync::Notify;
-use xxhash_rust::xxh3::xxh3_128;
 
 use crate::flow_coordination::tests::fixtures::{
     TENANT, flow, set_attribute_request, start_flow, start_request, string_value,
@@ -156,7 +154,7 @@ async fn start_flow_uploads_hard_delete_values_under_the_new_run_before_proposin
     let request = hard_delete_start_request("order-1");
 
     let response = harness
-        .drive(harness.registry.start_flow(TENANT, request.clone()))
+        .drive(harness.registry.start_flow(TENANT, request))
         .await
         .unwrap();
 
@@ -185,11 +183,6 @@ async fn start_flow_uploads_hard_delete_values_under_the_new_run_before_proposin
         attributes[1].value,
         placeholder_value(),
         "the uploaded value never enters the log"
-    );
-    assert_eq!(
-        start.request_fingerprint,
-        xxh3_128(&request.encode_to_vec()).to_be_bytes().to_vec(),
-        "the fingerprint covers the original values"
     );
     let finished = harness.hard_delete_uploader.finished();
     assert_eq!(finished.len(), 1);
@@ -232,12 +225,6 @@ async fn set_attributes_uploads_hard_delete_values_for_the_run_it_targets() {
     let request = set.request.unwrap();
     assert_eq!(request.attributes[0].value, Some(string_value("paid")));
     assert_eq!(request.attributes[1].value, placeholder_value());
-    assert_eq!(
-        set.request_fingerprint,
-        xxh3_128(&hard_delete_set_request("order-1").encode_to_vec())
-            .to_be_bytes()
-            .to_vec()
-    );
     assert_eq!(
         finished_outcomes(&harness),
         vec![HardDeleteUploadOutcome::Committed]

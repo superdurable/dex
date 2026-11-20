@@ -14,14 +14,14 @@ use dexzd_apply::{
     ApplyContext, ApplyOutcome, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
     is_unstaged_time_travel_for_test, stage_computed_time_travel_for_test,
 };
-use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
+use dexzd_keyspace::row_keys::{RequestKind, request_dedup_key, run_singleton_key, value_row_key};
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    CommandErrorReply, CommandReply, FlowCommand, MethodSnapshotRecord, RunRecord,
-    StepInvocationKey, ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
-    inbox_message_command, stored_value,
+    CommandErrorReply, CommandReply, FlowCommand, MethodSnapshotRecord, RequestDedupRecord,
+    RunRecord, StepInvocationKey, ValueRecord, ValueReviveCommand, command_reply,
+    flow_command::Command, inbox_message_command, stored_value,
 };
 use prost::Message;
 
@@ -271,6 +271,11 @@ impl ApplyChecker {
         command: &FlowCommand,
     ) -> Result<ApplyOutcome, InvariantViolation> {
         let context = self.context(&command.flow_id);
+        let invalid_input_class = invalid_client_input(command);
+        let recorded_request = match invalid_input_class {
+            Some(_) => self.recorded_set_attributes_request(command)?,
+            None => None,
+        };
         let apply = |state: &MemoryFlowState| {
             apply_flow_command(&context, state, command)
                 .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))
@@ -281,8 +286,8 @@ impl ApplyChecker {
         compare_outcomes("A2-apply-twice", &outcome, &repeated)?;
         let redecoded = apply(&self.redecoded_state)?;
         compare_outcomes("A2-apply-redecoded", &outcome, &redecoded)?;
-        if let Some(class) = invalid_client_input(command)
-            && check_invalid_client_input_rejected(class, &outcome)?
+        if let Some(class) = invalid_input_class
+            && check_invalid_client_input_rejected(class, recorded_request.as_ref(), &outcome)?
         {
             *self.size_rejections.entry(class).or_default() += 1;
         }
@@ -803,6 +808,39 @@ impl ApplyChecker {
         })?;
         RunRecord::decode(bytes)
             .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))
+    }
+
+    /// Returns the deduplication row of an AttributesSet's request ID in the target run, if any.
+    fn recorded_set_attributes_request(
+        &self,
+        command: &FlowCommand,
+    ) -> Result<Option<RequestDedupRecord>, InvariantViolation> {
+        let Some(Command::AttributesSet(set)) = &command.command else {
+            return Ok(None);
+        };
+        let request_id = set
+            .request
+            .as_ref()
+            .map_or("", |request| request.request_id.as_str());
+        if request_id.is_empty() {
+            return Ok(None);
+        }
+        let Ok(run_id) = RunId::from_slice(&command.run_id) else {
+            return Ok(None);
+        };
+        let key = request_dedup_key(
+            self.context(&command.flow_id).flow_hash,
+            run_id,
+            RequestKind::SetAttributes,
+            request_id,
+        );
+        self.state
+            .row(ColumnFamily::Flow, &key)
+            .map(|bytes| {
+                RequestDedupRecord::decode(bytes)
+                    .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))
+            })
+            .transpose()
     }
 }
 

@@ -21,7 +21,6 @@ use tokio::sync::Notify;
 
 use super::fixtures::{TENANT, attributes_set_command, flow, start_flow, string_value};
 use super::test_support::FlowCoordinationHarness;
-use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
 use crate::flow_coordination::client_operations::rpc_requests::RpcRequestGuard;
 use crate::flow_coordination::{
     CommitUrgency, FlowCoordinationConfig, FlowCoordinationError, WorkerRpcResult, grpc_code,
@@ -66,7 +65,43 @@ async fn rpc_joiners_share_dispatch_and_replay_during_commit_handoff() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn rpc_committed_replay_precedes_a_conflicting_pending_entry() {
+async fn rpc_joiners_with_different_inputs_share_the_first_dispatch() {
+    let harness = FlowCoordinationHarness::new();
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
+    start_flow(&harness, "shared-input-rpc").await.unwrap();
+    let request = rpc_request("shared-input-rpc");
+    let gate = hold_worker(&harness);
+    script_result(&harness);
+    let mut first = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+    tokio::select! {
+        result = &mut first => panic!("Worker is gated: {result:?}"),
+        () = harness.rpc_invoker.entered.notified() => {}
+    }
+    let mut joiners = Box::pin(join_all((0..4).map(|index| {
+        let different = InvokeRpcRequest {
+            input: Some(string_value(&format!("different-{index}"))),
+            ..request.clone()
+        };
+        harness.registry.invoke_rpc(TENANT, different)
+    })));
+    assert!(poll!(joiners.as_mut()).is_pending());
+    assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 1);
+    gate.notify_one();
+    harness.committer.submitted.notified().await;
+    assert!(harness.commit_next());
+    let (first, joiners) = tokio::join!(first, joiners);
+    let first = first.unwrap();
+    for result in joiners {
+        assert_eq!(result.unwrap(), first);
+    }
+    assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rpc_committed_replay_or_pending_entry_answers_a_different_input() {
     let harness = Arc::new(FlowCoordinationHarness::new());
     harness
         .applier
@@ -79,7 +114,7 @@ async fn rpc_committed_replay_precedes_a_conflicting_pending_entry() {
         .drive(harness.registry.invoke_rpc(TENANT, request.clone()))
         .await
         .unwrap();
-    let conflicting = InvokeRpcRequest {
+    let different = InvokeRpcRequest {
         input: Some(string_value("different")),
         ..request.clone()
     };
@@ -103,7 +138,7 @@ async fn rpc_committed_replay_precedes_a_conflicting_pending_entry() {
         let transition = CommittedReplayRace {
             harness: Arc::clone(&harness),
             run_id,
-            request: conflicting.clone(),
+            request: different.clone(),
             record_key,
             record,
             pending: Arc::clone(&pending),
@@ -114,22 +149,32 @@ async fn rpc_committed_replay_precedes_a_conflicting_pending_entry() {
                 key: transition.record_key.clone(),
             }]);
             *harness.committer.view_hook.lock().unwrap() =
-                Some(Box::new(move || transition.commit_and_insert_conflict()));
+                Some(Box::new(move || transition.commit_and_insert_pending()));
+            // The snapshot missed the commit, so the caller joins the pending entry by request ID.
+            let mut joined = Box::pin(harness.registry.invoke_rpc(TENANT, request.clone()));
+            assert!(poll!(joined.as_mut()).is_pending());
+            let guard = pending
+                .lock()
+                .unwrap()
+                .take()
+                .expect("the view hook inserted the pending entry");
+            guard.finish(Ok(response.clone()));
+            assert_eq!(joined.await.unwrap(), response);
         } else {
-            transition.commit_and_insert_conflict();
+            transition.commit_and_insert_pending();
+            let replay = harness
+                .registry
+                .invoke_rpc(TENANT, request.clone())
+                .await
+                .unwrap();
+            assert_eq!(replay, response);
         }
-        let replay = harness
+        let different_replay = harness
             .registry
-            .invoke_rpc(TENANT, request.clone())
+            .invoke_rpc(TENANT, different.clone())
             .await
             .unwrap();
-        assert_eq!(replay, response);
-        let error = harness
-            .registry
-            .invoke_rpc(TENANT, conflicting.clone())
-            .await
-            .unwrap_err();
-        assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT);
+        assert_eq!(different_replay, response);
         assert_eq!(harness.rpc_invoker.invocations.lock().unwrap().len(), 1);
         drop(pending.lock().unwrap().take());
     }
@@ -738,7 +783,7 @@ struct CommittedReplayRace {
 }
 
 impl CommittedReplayRace {
-    fn commit_and_insert_conflict(self) {
+    fn commit_and_insert_pending(self) {
         self.harness
             .store
             .put(ColumnFamily::Flow, self.record_key, self.record);
@@ -751,10 +796,9 @@ impl CommittedReplayRace {
                 &flow(&self.request.flow_id),
                 self.run_id,
                 &self.request.request_id,
-                request_fingerprint(&self.request),
             )
             .unwrap();
         *self.pending.lock().unwrap() =
-            Some(guard.expect("conflicting task inserted after the successful task finished"));
+            Some(guard.expect("pending task inserted after the successful task finished"));
     }
 }
