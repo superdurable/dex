@@ -219,13 +219,20 @@ test("adaptive Worker retries a soft-rejected floor stream at most once per wind
   requireNoPermanentRegistrationError(run);
 
   // A competitor stream that ends does not clear this Worker's latch.
+  // Close it only after the server rejected every Register; one still in flight could win the freed slot.
+  await eventually(() => stepRegisters(proxy.rejectionsSince(appWorkerID, sinceMs)).length
+    === stepRegisters(proxy.registersSince(appWorkerID, sinceMs)).length && run.state().registering === 0, 3 * windowMs,
+  () => `a Register got no rejection: ${JSON.stringify(run.state())}\n${proxy.describe(appWorkerID)}`);
   const beforeClose = stepRegisters(proxy.registersSince(appWorkerID, sinceMs));
   const lastRegisterBeforeClose = beforeClose[beforeClose.length - 1]!;
-  const competitorClosedAtMs = Date.now();
+  const competitorRegistrations = competitor.registrations();
   competitor.closeOneStream();
-  await eventually(() => stepRegisters(proxy.registersSince(appWorkerID, competitorClosedAtMs)).length >= 1, 3 * windowMs,
-    () => "the Worker stopped retrying at the window");
-  const nextRegister = stepRegisters(proxy.registersSince(appWorkerID, competitorClosedAtMs))[0]!;
+  await eventually(() => competitor.registrations() > competitorRegistrations, 3 * windowMs,
+    () => `the competitor did not retake its slot\n${proxy.describe(appWorkerID)}`);
+  // Index the next Register: a millisecond timestamp cannot tell it from the last one before the close.
+  await eventually(() => stepRegisters(proxy.registersSince(appWorkerID, sinceMs)).length > beforeClose.length, 3 * windowMs,
+    () => `the Worker stopped retrying at the window: ${JSON.stringify(run.state())}\n${proxy.describe(appWorkerID)}`);
+  const nextRegister = stepRegisters(proxy.registersSince(appWorkerID, sinceMs))[beforeClose.length]!;
   assert.ok(nextRegister.atMs - lastRegisterBeforeClose.atMs >= windowMs * 0.8, "the competitor's close triggered a Register");
 
   // When the competitor leaves, the floor comes back within one window.

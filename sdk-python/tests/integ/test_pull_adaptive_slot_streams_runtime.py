@@ -595,21 +595,44 @@ def test_adaptive_floor_retry_latch(harness: AdaptiveSlotHarness) -> None:
     require_no_permanent_registration_error(run)
 
     # A competitor stream that ends does not clear this Worker's latch.
-    before_close = step_registers(proxy.registers_since(worker_id, since))
-    last_register_before_close = before_close[-1]
-    competitor_closed_at = time.monotonic()
-    competitor.close_one_stream()
-    eventually(
-        lambda: len(
-            step_registers(proxy.registers_since(worker_id, competitor_closed_at))
+    # A Register reaching the server before the competitor retakes the freed slot would win it.
+    # So the proxy holds new Registers, and every earlier one must be rejected before the close.
+    release_step_registers = proxy.hold_step_registers()
+    try:
+
+        def has_every_unheld_register_rejected() -> bool:
+            registers = step_registers(proxy.registers_since(worker_id, since))
+            rejections = step_registers(proxy.rejections_since(worker_id, since))
+            return len(rejections) + proxy.held_step_registers() == len(registers)
+
+        eventually(
+            has_every_unheld_register_rejected,
+            3 * window,
+            lambda: f"a Register got no rejection: {run.state()}\n"
+            + proxy.describe(worker_id),
         )
-        >= 1,
+        before_close = step_registers(proxy.registers_since(worker_id, since))
+        last_register_before_close = before_close[-1]
+        competitor_registrations = competitor.registrations()
+        competitor.close_one_stream()
+        eventually(
+            lambda: competitor.registrations() > competitor_registrations,
+            3 * window,
+            lambda: "the competitor did not retake its slot\n"
+            + proxy.describe(worker_id),
+        )
+    finally:
+        release_step_registers()
+    eventually(
+        lambda: len(step_registers(proxy.registers_since(worker_id, since)))
+        > len(before_close),
         3 * window,
-        "the Worker stopped retrying at the window",
+        lambda: f"the Worker stopped retrying at the window: {run.state()}\n"
+        + proxy.describe(worker_id),
     )
-    next_register = step_registers(
-        proxy.registers_since(worker_id, competitor_closed_at)
-    )[0]
+    next_register = step_registers(proxy.registers_since(worker_id, since))[
+        len(before_close)
+    ]
     assert (
         next_register.at - last_register_before_close.at >= window * 0.8
     ), "the competitor's close triggered a Register"
@@ -757,10 +780,15 @@ def test_cap_of_one_first_acknowledgement_snapshot_is_consistent(
             and state.open == 1
             and state.registering == 0,
         )
+        # The sampler thread may not have run since the transition; wait for its first new-cap sample.
+        eventually(
+            lambda: 1 in sampler.capacities,
+            10,
+            lambda: f"the sampler never read cap 1: {sampler.capacities}",
+        )
     finally:
         violations = sampler.stop_sampling()
     assert not violations, f"inconsistent snapshots: {violations}"
-    assert 1 in sampler.capacities
     print(f"snapshot samples: {sampler.sample_count}")
 
 

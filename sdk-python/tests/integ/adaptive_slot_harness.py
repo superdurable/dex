@@ -75,6 +75,8 @@ MODE_QUICK = "quick"
 STUBBORN_RPC_KEY = "rpc"
 _EOF = getattr(grpc.aio, "EOF")
 _FORWARDED_METADATA_EXCLUDED = {"user-agent", "content-type", "te", "grpc-timeout"}
+_LAUNCH_ATTEMPTS = 5
+_ADDRESS_IN_USE = "Address already in use"
 
 
 def eventually(
@@ -134,6 +136,23 @@ class AdaptiveSlotTestServer:
         self.launch(limits)
 
     def launch(self, limits: ServerLimits) -> None:
+        # The probed port is free only until the server binds it; another bind can take it first.
+        for attempt in range(1, _LAUNCH_ATTEMPTS + 1):
+            if self._launch_on_probed_port(limits):
+                return
+            if attempt < _LAUNCH_ATTEMPTS:
+                print(f"dex-server-zd lost its probed port {self.address}; relaunching")
+        raise RuntimeError(
+            f"dex-server-zd lost its probed port in all {_LAUNCH_ATTEMPTS} launches:\n"
+            + self.log_tail()
+        )
+
+    def _launch_on_probed_port(self, limits: ServerLimits) -> bool:
+        """Start the server on a newly probed port.
+
+        Returns True once it serves, or False when the port was taken before
+        the server bound it. Raises RuntimeError on any other start failure.
+        """
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
@@ -149,6 +168,9 @@ class AdaptiveSlotTestServer:
             configuration += f"  maxStreams: {limits.max_streams}\n"
         configuration_path = self._directory / "adaptive-slot-config.yaml"
         configuration_path.write_text(configuration)
+        launch_log_offset = (
+            self._log_path.stat().st_size if self._log_path.exists() else 0
+        )
         with self._log_path.open("ab") as log:
             self._process = subprocess.Popen(
                 [
@@ -166,9 +188,21 @@ class AdaptiveSlotTestServer:
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-        self._wait_until_serving()
+        if self._wait_until_serving():
+            return True
+        with self._log_path.open("rb") as log:
+            log.seek(launch_log_offset)
+            launch_output = log.read().decode(errors="replace")
+        if _ADDRESS_IN_USE in launch_output:
+            return False
+        raise RuntimeError("dex-server-zd did not serve:\n" + self.log_tail())
 
-    def _wait_until_serving(self) -> None:
+    def _wait_until_serving(self) -> bool:
+        """Wait for the launched process to serve.
+
+        Returns True once it serves, or False when it exited first. Raises
+        RuntimeError when it neither serves nor exits within 60 seconds.
+        """
         process = self._process
         if process is None:
             raise RuntimeError("dex-server-zd was not launched")
@@ -179,9 +213,11 @@ class AdaptiveSlotTestServer:
             while True:
                 try:
                     service.GetServerInfo(Empty(), timeout=1)
-                    return
+                    return True
                 except grpc.RpcError:
-                    if process.poll() is not None or time.monotonic() >= deadline:
+                    if process.poll() is not None:
+                        return False
+                    if time.monotonic() >= deadline:
                         raise RuntimeError(
                             "dex-server-zd did not serve:\n" + self.log_tail()
                         ) from None
@@ -740,6 +776,7 @@ class PullSlotCompetitor:
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._held: list[Any] = []
+        self._registrations = 0
         self._threads = [
             threading.Thread(
                 target=self._hold_slot,
@@ -788,6 +825,7 @@ class PullSlotCompetitor:
                 if self._stopped.is_set():
                     return
                 self._held.append(call)
+                self._registrations += 1
                 is_held = True
             for response in call:
                 if response.HasField("ping"):
@@ -804,6 +842,11 @@ class PullSlotCompetitor:
     def held_streams(self) -> int:
         with self._lock:
             return len(self._held)
+
+    def registrations(self) -> int:
+        """Count the streams this competitor has had acknowledged since it started."""
+        with self._lock:
+            return self._registrations
 
     def close_one_stream(self) -> None:
         """End one held stream; its loop re-registers into the freed slot at once."""
