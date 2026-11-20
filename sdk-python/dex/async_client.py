@@ -165,7 +165,7 @@ class AsyncClient:
             ValueError: If the configured TLS address, server name, or CA bundle
                 is invalid, or default roots cannot be loaded.
 
-        .. versionchanged:: 1.45.10
+        .. versionchanged:: 1.45.16
            Applies ``options.payload_encryption`` with a ``PayloadCodec`` or an
            ``AsyncPayloadCodec``.
         """
@@ -1375,7 +1375,7 @@ class AsyncClient:
             DexServiceError: If FlowService cannot perform the wait.
             RuntimeError: If the Server reports a protocol range without protocol 4.
 
-        .. versionchanged:: 1.45.10
+        .. versionchanged:: 1.45.16
            Rejects an Attribute that payload encryption would encrypt.
         """
         instance, match, options = self._attribute_wait_arguments(

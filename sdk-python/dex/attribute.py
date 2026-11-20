@@ -201,7 +201,7 @@ class Attribute(Generic[ValueT]):
             ciphertext and needs a ``bytea`` column. The Server logs and skips
             a value for any other column type, and the writer gets no error.
 
-            .. versionadded:: 1.45.10
+            .. versionadded:: 1.45.16
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is
@@ -349,7 +349,7 @@ class AttributeMap(Generic[ValueT]):
             locally and never sends it. See :class:`Attribute` for when to
             declare it.
 
-            .. versionadded:: 1.45.10
+            .. versionadded:: 1.45.16
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is

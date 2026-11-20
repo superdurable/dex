@@ -59,7 +59,7 @@ type ClientOptions struct {
 	// reads. The zero value turns encryption off. See PayloadEncryptionOptions for what is
 	// encrypted and for an example. NewClient returns an error when a limit is negative.
 	//
-	// Since 1.45.9.
+	// Since 1.45.16.
 	PayloadEncryption PayloadEncryptionOptions
 }
 

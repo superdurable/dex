@@ -38,7 +38,7 @@ const (
 //
 // The zero value encrypts without compression and uses the default size limits.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type AESGCMPayloadCodecOptions struct {
 	// Compression is applied to each serialized value before encryption.
 	// Default dexpb.PayloadCompression_PAYLOAD_COMPRESSION_NONE does not compress.
@@ -87,7 +87,7 @@ type AESGCMPayloadCodecOptions struct {
 //		PayloadEncryption: dex.PayloadEncryptionOptions{Codec: codec},
 //	})
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type AESGCMPayloadCodec struct {
 	keyProvider          PayloadEncryptionKeyProvider
 	compression          dexpb.PayloadCompression
@@ -104,7 +104,7 @@ type AESGCMPayloadCodec struct {
 // Returns the codec, or an error when keyProvider is nil, Compression is unknown, or a limit is
 // negative.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 func NewAESGCMPayloadCodec(
 	keyProvider PayloadEncryptionKeyProvider,
 	options AESGCMPayloadCodecOptions,
@@ -318,7 +318,7 @@ func withPayloadPlaintextLimit(ctx context.Context, maxPlaintextBytes int) conte
 // Returns the limit and true inside a Decode call made by a Client or Worker, and 0 and false
 // otherwise, for example when an application calls Decode directly.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 func PayloadPlaintextLimitFromContext(ctx context.Context) (int, bool) {
 	limit, found := ctx.Value(payloadPlaintextLimitContextKey{}).(int)
 	return limit, found
@@ -448,7 +448,7 @@ func isKnownPayloadCompression(compression dexpb.PayloadCompression) bool {
 //	}
 //	codec, err := dex.NewAESGCMPayloadCodec(keys, dex.AESGCMPayloadCodecOptions{})
 //
-// Since 1.45.9.
+// Since 1.45.16.
 type FilePayloadEncryptionKeyProvider struct {
 	currentKeyID string
 	keys         map[string][]byte
@@ -461,7 +461,7 @@ type FilePayloadEncryptionKeyProvider struct {
 // holds a key that is not 32 bytes of standard padded base64, or names a current_key_id that is
 // not in keys. Errors never contain key bytes.
 //
-// Since 1.45.9.
+// Since 1.45.16.
 func NewFilePayloadEncryptionKeyProvider(path string) (*FilePayloadEncryptionKeyProvider, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {

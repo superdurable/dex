@@ -167,7 +167,7 @@ class Client:
             TypeError: If ``options.payload_encryption`` holds an
                 ``AsyncPayloadCodec``; use ``AsyncClient`` for it.
 
-        .. versionchanged:: 1.45.10
+        .. versionchanged:: 1.45.16
            Applies ``options.payload_encryption``.
         """
         self.registry = registry
@@ -1399,7 +1399,7 @@ class Client:
             DexServiceError: If FlowService cannot perform the wait.
             RuntimeError: If the Server reports a protocol range without protocol 4.
 
-        .. versionchanged:: 1.45.10
+        .. versionchanged:: 1.45.16
            Rejects an Attribute that payload encryption would encrypt.
         """
         instance, match, options = self._attribute_wait_arguments(

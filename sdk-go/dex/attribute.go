@@ -418,7 +418,7 @@ func HardDeleteOnNull() AttributeOption {
 //		dex.ActionRequiresPermission("refund.approve"),
 //	)
 //
-// Since 1.45.9.
+// Since 1.45.16.
 func Plaintext() AttributeOption {
 	return plaintextAttributeOption{}
 }

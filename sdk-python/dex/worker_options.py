@@ -321,7 +321,7 @@ class WorkerOptions:
             ``PayloadEncryptionOptions`` for what is encrypted. A Worker with
             a codec also runs plaintext Flows.
 
-            .. versionadded:: 1.45.10
+            .. versionadded:: 1.45.16
 
     Flow definitions:
         Dex Web draws a run's graph from the Flow definition that the Server
