@@ -201,8 +201,9 @@ Before each release, the release cutter runs
 on a fresh branch from `origin/main`, opens the pull request with the
 `release-prep` label, and merges it before creating the tag. The entry is then
 on main when the release snapshots the reference. **Release changed
-components** fails its plan when a selected component's change log does not
-record the release yet. See `changelog.d/README.md`.
+components** selects only components with a version input and fails its plan
+when none is set, a selected change log lacks that version, or a selected
+component is unchanged without `allow_unchanged`. See `changelog.d/README.md`.
 
 Each component's change log and release notes list only that component's own
 changes. A component that embeds another, such as dexcli with Dex Web and
@@ -226,7 +227,8 @@ needs a newer server, edit
 ### Release Versions
 
 Choose the version of each SDK, cli, web, and agents release by what it
-ships. Prefer patch releases:
+ships. Dispatch each component with its own version input; leave the input
+empty to skip it. Prefer patch releases:
 
 - A patch release ships improvements, fixes, UI and UX work, performance
   work, and docs. It may also add optional fields, optional configuration, a

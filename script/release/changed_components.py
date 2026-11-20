@@ -32,8 +32,6 @@ class Component:
     tag_prefix: str
     baseline_patterns: tuple[str, ...]
     paths: tuple[str, ...]
-    # Releases from its own version argument instead of the shared release version.
-    is_independently_versioned: bool = False
 
 
 SHARED_RUST_PATHS = (
@@ -96,7 +94,6 @@ COMPONENTS = (
             ".github/workflows/agents-python-publish.yml",
             ".github/workflows/agents-typescript-publish.yml",
         ),
-        is_independently_versioned=True,
     ),
 )
 
@@ -176,35 +173,38 @@ def append_summary(lines: list[str]) -> None:
             summary.write("\n".join(lines) + "\n")
 
 
-def write_outputs(output_path: Path, version: str, agents_version: str | None) -> int:
+def write_outputs(output_path: Path, versions: dict[str, str], allow_unchanged: bool) -> int:
     selections: list[tuple[Component, str | None, bool, str, str]] = []
     collisions: list[str] = []
     preflight_errors: list[str] = []
+    if not versions:
+        print("Select at least one component version", file=sys.stderr)
+        return 1
 
     for component in COMPONENTS:
-        baseline = latest_reachable_tag(component)
-        is_changed = has_changes(component, baseline)
-        component_version = agents_version if component.is_independently_versioned else version
-        selected = is_changed and component_version is not None
-        target = f"{component.tag_prefix}{component_version}" if component_version is not None else ""
-        if not selected and is_changed:
-            skip_reason = "skip (changed; pass --agents-version to release)"
-        else:
-            skip_reason = "skip (no changes)"
-        selections.append((component, baseline, selected, target, skip_reason))
+        component_version = versions.get(component.key)
+        selected = component_version is not None
+        baseline = latest_reachable_tag(component) if selected else None
+        target = f"{component.tag_prefix}{component_version}" if selected else ""
+        selections.append((component, baseline, selected, target, "skip (no version)"))
         if selected and tag_exists(target):
             collisions.append(target)
         if selected:
+            if not has_changes(component, baseline) and not allow_unchanged:
+                preflight_errors.append(
+                    f"{component.name} has no changes since {baseline}; pass --allow-unchanged to release it"
+                )
             # The release snapshots the reference from main, so its change-log entry must already be there.
             preflight_errors.extend(release_readiness_errors(TreeReader(Path.cwd(), None), component.key, component_version))
             preflight_errors.extend(release_notes_errors(component, component_version))
 
-    summary = ["### Changed-component release plan", "", "| Component | Baseline | Result |", "|---|---|---|"]
-    output_lines = [f"version={version}", f"agents_version={agents_version or ''}"]
+    summary = ["### Component release plan", "", f"Allow unchanged: {'yes' if allow_unchanged else 'no'}", "", "| Component | Baseline | Result |", "|---|---|---|"]
+    output_lines = [f"agents_version={versions.get('agents', '')}"]
     for component, baseline, selected, target, skip_reason in selections:
         output_lines.extend(
             (
                 f"{component.key}={'true' if selected else 'false'}",
+                f"{component.key}_version={versions.get(component.key, '')}",
                 f"{component.key}_tag={target}",
                 f"{component.key}_baseline={baseline or ''}",
             )
@@ -230,18 +230,22 @@ def write_outputs(output_path: Path, version: str, agents_version: str | None) -
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("version")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--agents-version", help="Agents packages version; omit to skip them")
+    for component in COMPONENTS:
+        parser.add_argument(f"--{component.key}-version", help=f"{component.name} version; omit to skip")
+    parser.add_argument("--allow-unchanged", action="store_true")
     arguments = parser.parse_args()
-    agents_version = arguments.agents_version or None
-
-    for candidate in (arguments.version, agents_version):
-        if candidate is not None and not VERSION_PATTERN.fullmatch(candidate):
-            print(f"Invalid semantic version: {candidate}", file=sys.stderr)
+    versions = {
+        component.key: version
+        for component in COMPONENTS
+        if (version := getattr(arguments, f"{component.key}_version"))
+    }
+    for component, version in versions.items():
+        if not VERSION_PATTERN.fullmatch(version):
+            print(f"Invalid semantic version for {component}: {version}", file=sys.stderr)
             return 1
 
-    return write_outputs(arguments.output, arguments.version, agents_version)
+    return write_outputs(arguments.output, versions, arguments.allow_unchanged)
 
 
 if __name__ == "__main__":
