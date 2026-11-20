@@ -29,6 +29,15 @@ export type { Flow } from "./flow.js";
 export type { FlowResult, StepCompletion } from "./flow-result.js";
 export { DEFAULT_GRPC_MAX_MESSAGE_BYTES } from "./message-size.js";
 export * from "./options.js";
+export { PayloadCipher, PayloadCompression, PayloadEnvelope } from "./gen/dex.js";
+export { AesGcmPayloadCodec, FilePayloadEncryptionKeyProvider } from "./payload-encryption.js";
+export type {
+  AesGcmPayloadCodecOptions,
+  PayloadCodec,
+  PayloadCodecDecodeOptions,
+  PayloadContext,
+  PayloadEncryptionKeyProvider,
+} from "./payload-encryption.js";
 export * from "./persistence.js";
 export * from "./retry-after.js";
 export { declareRPCMethod, rpc } from "./rpc.js";

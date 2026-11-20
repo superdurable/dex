@@ -38,7 +38,15 @@ import {
   type PollWorkerTaskFrame,
   type StepStreamWrite,
   type Value,
+  WorkerErrorResponse,
 } from "./gen/dex.js";
+import {
+  disabledPayloadEncryption,
+  isPayloadEncryptionErrorWithoutThrowing,
+  isSdkHydrationError,
+  payloadWorkerErrorResponse,
+  type PayloadEncryption,
+} from "./payload-value-encryption.js";
 import { Timestamp } from "./gen/google/protobuf/timestamp.js";
 import { workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
@@ -135,6 +143,7 @@ export class PullWorker implements PullSlotStreamHost {
     private readonly options: PullWorkerOptions,
     credential?: Credential,
     private readonly onPermanentRejection: () => void = () => {},
+    private readonly payloadEncryption: PayloadEncryption = disabledPayloadEncryption(),
   ) {
     const maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
     const minOpenSlots = positiveOption(options.minOpenSlots, maxConcurrentTasks, "minOpenSlots");
@@ -633,8 +642,10 @@ export class PullWorker implements PullSlotStreamHost {
         try {
           const grpcStatus = poll.task?.deadlineCancellation?.hasExpired === true
             ? status.DEADLINE_EXCEEDED : signal.aborted ? status.CANCELLED : status.UNKNOWN;
+          const response = await this.workerErrorResponseForServer(task, failure, grpcStatus);
+          if (poll.isDisconnected) return;
           this.sendTaskFrame(poll, { taskId: task.taskId, output: {
-            $case: "workerError", value: workerErrorResponse(failure, grpcStatus),
+            $case: "workerError", value: response,
           } });
         } catch (sendFailure) {
           console.error("send Worker error", sendFailure);
@@ -644,6 +655,56 @@ export class PullWorker implements PullSlotStreamHost {
     } finally {
       emitter?.close();
     }
+  }
+
+  /**
+   * Encrypts the detail and stack trace of a Worker error in the `dex-encoded:` format.
+   * SDK blob-loading and payload errors stay in clear; Dex matches blob-loading text.
+   * @returns The response to send; never plaintext application text when encryption fails.
+   */
+  private async workerErrorResponseForServer(
+    task: PollWorkerTask,
+    failure: unknown,
+    grpcStatus: status,
+  ): Promise<WorkerErrorResponse> {
+    try {
+      if (isPayloadEncryptionErrorWithoutThrowing(failure)) {
+        // Built before reading name, message, or stack, so no codec or handler text reaches the Server.
+        return payloadWorkerErrorResponse(failure, grpcStatus);
+      }
+      return await this.sealWorkerErrorResponse(task, failure, workerErrorResponse(failure, grpcStatus));
+    } catch {
+      return fixedWorkerErrorResponse("Dex TypeScript SDK could not read or encrypt the Worker error", grpcStatus);
+    }
+  }
+
+  private async sealWorkerErrorResponse(
+    task: PollWorkerTask,
+    failure: unknown,
+    response: WorkerErrorResponse,
+  ): Promise<WorkerErrorResponse> {
+    const request = task.request?.value;
+    const flowId = request?.context?.flowId ?? "";
+    if (request === undefined || flowId === "") {
+      return response;
+    }
+    // Only the hydration stage's own errors, raised before any handler ran, keep Dex-matched text in clear.
+    const encrypt = this.payloadEncryption.settings.encryptErrorText && !isSdkHydrationError(failure);
+    const sealed = { ...response };
+    const batch = this.payloadEncryption.createSealBatch();
+    const flow = { flowId, flowType: request.flowType };
+    batch.sealText(flow, response.detail, encrypt, (text) => {
+      sealed.detail = text;
+    });
+    batch.sealText(flow, response.stackTrace, encrypt, (text) => {
+      sealed.stackTrace = text;
+    });
+    try {
+      await batch.run();
+    } catch {
+      return fixedWorkerErrorResponse("Dex TypeScript SDK could not encrypt the Worker error text", response.grpcStatus);
+    }
+    return sealed;
   }
 
   private finishTask(poll: PollStream): void {
@@ -920,6 +981,11 @@ export class PullWorker implements PullSlotStreamHost {
       poll.retryTimer = undefined;
     }
   }
+}
+
+/** @returns A Worker failure made only of SDK text and the gRPC status. */
+function fixedWorkerErrorResponse(detail: string, grpcStatus: number): WorkerErrorResponse {
+  return WorkerErrorResponse.create({ detail, errorType: "Error", stackTrace: "", retryAfterSeconds: 0, grpcStatus });
 }
 
 class PullStepOutputEmitter implements StepOutputEmitter {

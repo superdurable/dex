@@ -16,6 +16,11 @@ import {
   type LoadBlobsResponse,
 } from "./gen/dex.js";
 import { isGrpcMessageSizeError } from "./grpc-status.js";
+import {
+  codecNotConfiguredError,
+  isReservedPayloadEncoding,
+  markSdkHydrationError,
+} from "./payload-value-encryption.js";
 
 // The server rejects more than 1000 entries while history offload is on.
 const maxLoadBlobsEntries = 1000;
@@ -114,6 +119,9 @@ export function decodeUnknown(value: ProtoValue): unknown {
       return kind.value;
     case "objValue": {
       const object = kind.value;
+      if (isReservedPayloadEncoding(object.encoding)) {
+        throw codecNotConfiguredError();
+      }
       if (object.encoding === "raw") {
         return object.payload;
       }
@@ -157,26 +165,26 @@ export class ValueHydrator {
 
   public async hydrate(flowId: string, value: ProtoValue | undefined): Promise<ProtoValue> {
     if (flowId.length === 0) {
-      throw new ValueMappingError("hydrate", "Flow ID is required");
+      throw hydrationError("Flow ID is required");
     }
     if (value?.kind === undefined) {
-      throw new ValueMappingError("hydrate", "Value has no concrete kind");
+      throw hydrationError("Value has no concrete kind");
     }
     const blobId = blobIdOf(value);
     if (blobId === undefined) {
       return value;
     }
     const cacheKey = flowBlobCacheKey(flowId, blobId);
-    const cached = this.blobCache.get(cacheKey);
+    const cached = this.readCachedValue(cacheKey);
     if (cached !== undefined) {
-      return ProtoValue.decode(cached);
+      return cached;
     }
     const values = await this.loadBlobValues(flowId, [{ blobId, value }]);
     const hydrated = values[blobId];
     if (hydrated?.kind === undefined || blobIdOf(hydrated) !== undefined) {
-      throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
+      throw hydrationError(`Dex did not hydrate blob ${blobId}`);
     }
-    this.blobCache.put(cacheKey, ProtoValue.encode(hydrated).finish());
+    this.writeCachedValue(cacheKey, hydrated);
     return hydrated;
   }
 
@@ -185,23 +193,23 @@ export class ValueHydrator {
     values: readonly (ProtoValue | undefined)[],
   ): Promise<ProtoValue[]> {
     if (flowId.length === 0) {
-      throw new ValueMappingError("hydrate", "Flow ID is required");
+      throw hydrationError("Flow ID is required");
     }
     const hydrated: Array<ProtoValue | undefined> = new Array(values.length);
     const missing = new Map<string, PendingBlob & { indexes: number[] }>();
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index];
       if (value?.kind === undefined) {
-        throw new ValueMappingError("hydrate", "Value has no concrete kind");
+        throw hydrationError("Value has no concrete kind");
       }
       const blobId = blobIdOf(value);
       if (blobId === undefined) {
         hydrated[index] = value;
         continue;
       }
-      const cached = this.blobCache.get(flowBlobCacheKey(flowId, blobId));
+      const cached = this.readCachedValue(flowBlobCacheKey(flowId, blobId));
       if (cached !== undefined) {
-        hydrated[index] = ProtoValue.decode(cached);
+        hydrated[index] = cached;
         continue;
       }
       const pending = missing.get(blobId);
@@ -216,9 +224,9 @@ export class ValueHydrator {
       for (const [blobId, pending] of missing) {
         const value = values[blobId];
         if (value?.kind === undefined || blobIdOf(value) !== undefined) {
-          throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
+          throw hydrationError(`Dex did not hydrate blob ${blobId}`);
         }
-        this.blobCache.put(flowBlobCacheKey(flowId, blobId), ProtoValue.encode(value).finish());
+        this.writeCachedValue(flowBlobCacheKey(flowId, blobId), value);
         for (const index of pending.indexes) {
           hydrated[index] = value;
         }
@@ -226,10 +234,35 @@ export class ValueHydrator {
     }
     return hydrated.map((value) => {
       if (value === undefined) {
-        throw new ValueMappingError("hydrate", "Value hydration left an unresolved entry");
+        throw hydrationError("Value hydration left an unresolved entry");
       }
       return value;
     });
+  }
+
+  /**
+   * Reads one cached ciphertext or plaintext Value.
+   * An application BlobCache failure becomes fixed SDK text, so its message never reaches Dex.
+   * @returns The cached Value, or `undefined` on a cache miss.
+   */
+  private readCachedValue(cacheKey: string): ProtoValue | undefined {
+    let cached: Uint8Array | undefined;
+    try {
+      cached = this.blobCache.get(cacheKey);
+    } catch {
+      throw hydrationError("the BlobCache failed");
+    }
+    return cached === undefined ? undefined : ProtoValue.decode(cached);
+  }
+
+  /** Stores one hydrated Value; an application BlobCache failure becomes fixed SDK text. */
+  private writeCachedValue(cacheKey: string, value: ProtoValue): void {
+    const encoded = ProtoValue.encode(value).finish();
+    try {
+      this.blobCache.put(cacheKey, encoded);
+    } catch {
+      throw hydrationError("the BlobCache failed");
+    }
   }
 
   /**
@@ -263,7 +296,9 @@ export class ValueHydrator {
       }
       const [onlyBlob] = blobs;
       if (blobs.length === 1 && onlyBlob !== undefined) {
-        throw new BlobMessageTooLargeError(flowId, onlyBlob.blobId, failure.details || failure.message, { cause: failure });
+        throw markSdkHydrationError(
+          new BlobMessageTooLargeError(flowId, onlyBlob.blobId, failure.details || failure.message, { cause: failure }),
+        );
       }
       const half = Math.floor(blobs.length / 2);
       const firstValues = await this.loadBlobValues(flowId, blobs.slice(0, half));
@@ -294,6 +329,9 @@ function toCodecValue(value: ProtoValue): CodecValue {
     case "doubleValue":
       return { kind: "double", data: kind.value };
     case "objValue":
+      if (isReservedPayloadEncoding(kind.value.encoding)) {
+        throw codecNotConfiguredError();
+      }
       if (kind.value.encoding === "raw") {
         return { kind: "bytes", data: kind.value.payload };
       }
@@ -335,6 +373,15 @@ function unary<Response>(
       resolve(response);
     });
   });
+}
+
+/**
+ * Builds a hydration failure and registers it as the SDK's own, so the Worker sends its text in clear.
+ * Dex matches this text, such as "did not hydrate blob", to find omitted values.
+ * @returns The new error.
+ */
+function hydrationError(detail: string): ValueMappingError {
+  return markSdkHydrationError(new ValueMappingError("hydrate", detail)) as ValueMappingError;
 }
 
 function mappingError(

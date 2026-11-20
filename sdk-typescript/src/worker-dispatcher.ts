@@ -37,6 +37,7 @@ import {
   type ChannelMessage,
   type ChannelValues,
   type ConditionResults,
+  type Context as ProtoContext,
   type InvokeExecuteMethodRequest,
   type InvokeWaitForMethodRequest,
   type InvokeWorkerRPCRequest,
@@ -97,6 +98,14 @@ import {
 } from "./value-mapper.js";
 import { Channel, ChannelMap, type Condition, type Wait } from "./wait.js";
 import { requireMapInstance } from "./validation.js";
+import {
+  disabledPayloadEncryption,
+  isPlaintextAttributeKey,
+  subFlowPayloadFlowId,
+  type PayloadEncryption,
+  type PayloadFlowReference,
+  type PayloadSealBatch,
+} from "./payload-value-encryption.js";
 
 const timeoutHandlerStepType = "sys:timeout_handler";
 
@@ -105,6 +114,7 @@ export class WorkerDispatcher {
     private readonly registry: Registry,
     private readonly hydrator: ValueHydrator,
     private readonly negotiatedServerProtocolVersion: () => number,
+    private readonly payloadEncryption: PayloadEncryption = disabledPayloadEncryption(),
   ) {}
 
   public async invokeWaitFor(
@@ -133,6 +143,7 @@ export class WorkerDispatcher {
       request.loadedChannelMapInstances,
       deadline,
       this.negotiatedServerProtocolVersion(),
+      this.payloadEncryption,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -146,7 +157,7 @@ export class WorkerDispatcher {
       let response: InvokeWaitForMethodResponse;
       try {
         response = InvokeWaitForMethodResponse.create({
-          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
+          ...this.attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           waitingCondition: mapWait(this.registry, flow, step.name, wait),
           upsertStepExeLocals: [...context.getLocalWrites()],
           recordEvents: [...context.getEvents()],
@@ -172,13 +183,11 @@ export class WorkerDispatcher {
           `SubFlow ${condition.subFlowType}`,
         );
       }
-      const finalizationFailure = context.finalizeStepOutputs();
-      if (finalizationFailure !== undefined) {
-        throw finalizationFailure;
-      }
+      await this.finalizeStepOutputs(context);
+      await this.sealStepResponse(flow, context, response);
       return response;
     } catch (failure) {
-      throw context.finalizeStepOutputs(failure);
+      return await this.throwAfterFailedStepOutputs(context, failure);
     }
   }
 
@@ -211,6 +220,7 @@ export class WorkerDispatcher {
       request.loadedChannelMapInstances,
       deadline,
       this.negotiatedServerProtocolVersion(),
+      this.payloadEncryption,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -222,7 +232,7 @@ export class WorkerDispatcher {
       try {
         response = InvokeExecuteMethodResponse.create({
           stepDecision: mapDecision(flow, decision),
-          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
+          ...this.attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           recordEvents: [...context.getEvents()],
           upsertStepExeLocals: [...context.getLocalWrites()],
           publishToChannel: [...context.getPublications()],
@@ -232,13 +242,11 @@ export class WorkerDispatcher {
         throw invalidStepResult(flow.name, step.name, "execute", failure);
       }
       this.requireHardDeleteAttributeWriteSupport(response.upsertAttributes);
-      const finalizationFailure = context.finalizeStepOutputs();
-      if (finalizationFailure !== undefined) {
-        throw finalizationFailure;
-      }
+      await this.finalizeStepOutputs(context);
+      await this.sealStepResponse(flow, context, response);
       return response;
     } catch (failure) {
-      throw context.finalizeStepOutputs(failure);
+      return await this.throwAfterFailedStepOutputs(context, failure);
     }
   }
 
@@ -272,25 +280,24 @@ export class WorkerDispatcher {
         request.loadedChannelMapInstances,
         deadline,
         this.negotiatedServerProtocolVersion(),
+        this.payloadEncryption,
       );
       try {
         const decision = await flow.flow.handleTimeout(context);
         const response = InvokeExecuteMethodResponse.create({
           stepDecision: mapDecision(flow, decision),
-          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
+          ...this.attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           recordEvents: [...context.getEvents()],
           upsertStepExeLocals: [...context.getLocalWrites()],
           publishToChannel: [...context.getPublications()],
           deleteFromChannel: [...context.getChannelDeletions()],
         });
         this.requireHardDeleteAttributeWriteSupport(response.upsertAttributes);
-        const finalizationFailure = context.finalizeStepOutputs();
-        if (finalizationFailure !== undefined) {
-          throw finalizationFailure;
-        }
+        await this.finalizeStepOutputs(context);
+        await this.sealStepResponse(flow, context, response);
         return response;
       } catch (failure) {
-        throw context.finalizeStepOutputs(failure);
+        return await this.throwAfterFailedStepOutputs(context, failure);
       }
     } catch (failure) {
       throw invalidStepResult(flow.name, timeoutHandlerStepType, "execute", failure);
@@ -321,6 +328,7 @@ export class WorkerDispatcher {
       request.loadedChannelMapInstances,
       undefined,
       this.negotiatedServerProtocolVersion(),
+      this.payloadEncryption,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
     let response: InvokeWorkerRPCResponse;
@@ -332,7 +340,7 @@ export class WorkerDispatcher {
             ? encodeUnknown(undefined)
             : encodeValue(codecOrJson(rpc.options.outputCodec), result.output),
         stepDecision: rpcDecision(flow, result),
-        ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
+        ...this.attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
         recordEvents: [...context.getEvents()],
         publishToChannel: [...context.getPublications()],
         deleteFromChannel: [...context.getChannelDeletions()],
@@ -341,7 +349,158 @@ export class WorkerDispatcher {
       throw invalidStepResult(flow.name, undefined, "rpc", failure);
     }
     this.requireHardDeleteAttributeWriteSupport(response.upsertAttributes);
+    const batch = this.payloadEncryption.createSealBatch();
+    const payloadFlow = context.payloadFlow();
+    batch.sealValue(payloadFlow, response.output, (sealed) => {
+      response.output = sealed;
+    });
+    this.sealCommonResponseFields(batch, flow, payloadFlow, response);
+    await batch.run();
     return response;
+  }
+
+  private async finalizeStepOutputs(context: InvocationContext): Promise<void> {
+    const finalizationFailure = context.finalizeStepOutputs();
+    if (finalizationFailure !== undefined) {
+      throw finalizationFailure;
+    }
+    const { failure: sendFailure } = await context.drainEncryptedStepOutputs();
+    if (sendFailure !== undefined) {
+      throw sendFailure;
+    }
+  }
+
+  /**
+   * Finalizes outputs after a handler failure and rethrows the final failure.
+   * A failure is never returned through a Promise, which would read its `then` property.
+   */
+  private async throwAfterFailedStepOutputs(context: InvocationContext, failure: unknown): Promise<never> {
+    const finalFailure = context.finalizeStepOutputs(failure);
+    await context.drainEncryptedStepOutputs();
+    throw finalFailure;
+  }
+
+  private async sealStepResponse(
+    flow: RegisteredFlow,
+    context: InvocationContext,
+    response: InvokeWaitForMethodResponse | InvokeExecuteMethodResponse,
+  ): Promise<void> {
+    const batch = this.payloadEncryption.createSealBatch();
+    const payloadFlow = context.payloadFlow();
+    response.upsertStepExeLocals = response.upsertStepExeLocals.map((local) => ({ ...local }));
+    for (const local of response.upsertStepExeLocals) {
+      batch.sealValue(payloadFlow, local.value, (sealed) => {
+        local.value = sealed;
+      });
+    }
+    if ("waitingCondition" in response) {
+      for (const condition of response.waitingCondition?.subFlowConditions ?? []) {
+        const target = registeredFlowByName(this.registry, condition.subFlowType);
+        const child = {
+          flowId: subFlowPayloadFlowId(context.flowId, context.stepExecutionId, condition.subFlowIndex),
+          flowType: target.name,
+        };
+        batch.sealValue(child, condition.stepInput, (sealed) => {
+          condition.stepInput = sealed;
+        });
+        if (condition.options !== undefined) {
+          batch.sealAttributeWrites(
+            child,
+            condition.options.attributes,
+            (key) => isPlaintextAttributeKey(target.persistence, key),
+          );
+        }
+      }
+    }
+    this.sealCommonResponseFields(batch, flow, payloadFlow, response);
+    await batch.run();
+  }
+
+  /** Queues the Attribute writes, events, Channel publications, and Step decision of a response. */
+  private sealCommonResponseFields(
+    batch: PayloadSealBatch,
+    flow: RegisteredFlow,
+    payloadFlow: PayloadFlowReference,
+    response: {
+      upsertAttributes: AttributeWrite[];
+      recordEvents: KV[];
+      publishToChannel: ChannelMessage[];
+      stepDecision?: ProtoStepDecision | undefined;
+    },
+  ): void {
+    batch.sealAttributeWrites(
+      payloadFlow,
+      response.upsertAttributes,
+      (key) => isPlaintextAttributeKey(flow.persistence, key),
+    );
+    response.recordEvents = response.recordEvents.map((event) => ({ ...event }));
+    for (const event of response.recordEvents) {
+      batch.sealValue(payloadFlow, event.value, (sealed) => {
+        event.value = sealed;
+      });
+    }
+    response.publishToChannel = response.publishToChannel.map((message) => ({ ...message }));
+    for (const message of response.publishToChannel) {
+      batch.sealValue(payloadFlow, message.value, (sealed) => {
+        message.value = sealed;
+      });
+    }
+    const decision = response.stepDecision;
+    for (const movement of decision?.nextSteps ?? []) {
+      batch.sealValue(payloadFlow, movement.stepInput, (sealed) => {
+        movement.stepInput = sealed;
+      });
+    }
+    const close = decision?.closeDecision;
+    if (close === undefined) {
+      return;
+    }
+    const closeInput = close.closeInput;
+    if (
+      close.closeDecisionType === CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_FAIL
+      && closeInput?.kind?.$case === "stringValue"
+    ) {
+      batch.sealText(
+        payloadFlow,
+        closeInput.kind.value,
+        this.payloadEncryption.settings.encryptErrorText,
+        (sealed) => {
+          close.closeInput = { kind: { $case: "stringValue", value: sealed } };
+        },
+      );
+      return;
+    }
+    batch.sealValue(payloadFlow, closeInput, (sealed) => {
+      close.closeInput = sealed;
+    });
+  }
+
+  /**
+   * Adds Action permission mappings when a write changes a condition Attribute.
+   * @throws {TypeError} With a codec, when a condition Attribute would be encrypted, because the
+   * Server could never match ciphertext against the mapping's values.
+   */
+  private attributeWritesWithActionPermissionMappings(
+    flow: RegisteredFlow,
+    writes: readonly AttributeWrite[],
+  ): { upsertAttributes: AttributeWrite[]; actionPermissionMappings: ActionPermissionMappings | undefined } {
+    const result = attributeWritesWithActionPermissionMappings(flow, writes);
+    if (!this.payloadEncryption.hasCodec) {
+      return result;
+    }
+    for (const mapping of result.actionPermissionMappings?.mappings ?? []) {
+      const definition = flow.persistence.get(mapping.attributeKey);
+      if (
+        !(definition instanceof Attribute)
+        || this.payloadEncryption.encryptsAttributeDefinition(definition)
+      ) {
+        throw new TypeError(
+          `Action condition Attribute ${mapping.attributeKey} of Flow ${flow.name} would be encrypted, `
+            + "so Dex could not match it; index the Attribute or declare it with plaintext()",
+        );
+      }
+    }
+    return result;
   }
 
   private requireHardDeleteAttributeWriteSupport(writes: readonly AttributeWrite[]): void {
@@ -353,7 +512,7 @@ export class WorkerDispatcher {
   ): Promise<InvokeWaitForMethodRequest> {
     const lastHeartbeatValue = request.context?.lastHeartbeatValue;
     const hasLastHeartbeatValue = lastHeartbeatValue !== undefined;
-    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
+    const values = await this.hydrateValues(request.context?.flowId ?? "", [
       ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       request.stepInput,
       ...request.attributes.map((entry) => entry.value),
@@ -364,7 +523,7 @@ export class WorkerDispatcher {
       request.loadedChannelMessages,
       values.slice(offset + 1 + request.attributes.length),
     );
-    return {
+    return this.openHydratedRequest({
       ...request,
       context: hasLastHeartbeatValue
         ? { ...request.context!, lastHeartbeatValue: values[0] }
@@ -375,7 +534,7 @@ export class WorkerDispatcher {
         values.slice(offset + 1, offset + 1 + request.attributes.length),
       ),
       loadedChannelMessages,
-    };
+    });
   }
 
   private async hydrateExecute(
@@ -390,7 +549,7 @@ export class WorkerDispatcher {
       (result) => result.results.map((completion) => completion.completedStepOutput),
     ) ?? [];
     const hasInput = request.stepInput !== undefined;
-    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
+    const values = await this.hydrateValues(request.context?.flowId ?? "", [
       ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       ...(hasInput ? [request.stepInput] : []),
       ...request.attributes.map((entry) => entry.value),
@@ -418,7 +577,7 @@ export class WorkerDispatcher {
       request.loadedChannelMessages,
       values.slice(offset),
     );
-    return {
+    return this.openHydratedRequest({
       ...request,
       context: hasLastHeartbeatValue
         ? { ...request.context!, lastHeartbeatValue: values[0] }
@@ -428,13 +587,13 @@ export class WorkerDispatcher {
       stepExeLocals,
       conditionResults,
       loadedChannelMessages,
-    };
+    });
   }
 
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
     const hasInput = request.input !== undefined;
     const channelMessages = loadedMessageValues(request.loadedChannelMessages);
-    const values = await this.hydrator.hydrateAll(request.context?.flowId ?? "", [
+    const values = await this.hydrateValues(request.context?.flowId ?? "", [
       ...(hasInput ? [request.input] : []),
       ...request.attributes.map((entry) => entry.value),
       ...channelMessages,
@@ -448,13 +607,100 @@ export class WorkerDispatcher {
       request.loadedChannelMessages,
       values.slice(offset),
     );
-    return {
+    return this.openHydratedRequest({
       ...request,
       input: hasInput ? values[0] : undefined,
       attributes,
       loadedChannelMessages,
-    };
+    });
   }
+
+  /**
+   * Hydrates request values before any handler runs.
+   * Only errors the hydrator constructs are registered for clear text; BlobCache and transport errors are not.
+   * @returns The hydrated values, in order.
+   */
+  private async hydrateValues(flowId: string, values: readonly (Value | undefined)[]): Promise<Value[]> {
+    return this.hydrator.hydrateAll(flowId, values);
+  }
+
+  /**
+   * Decrypts every envelope Value and encoded text of a hydrated request copy in place.
+   * SubFlow results use the child Flow as their context, because the child stored them.
+   * @returns The same request, now holding plaintext Values.
+   */
+  private async openHydratedRequest<Request extends HydratedWorkerRequest>(request: Request): Promise<Request> {
+    const metadata = request.context;
+    if (metadata === undefined) {
+      return request;
+    }
+    const flow: PayloadFlowReference = { flowId: metadata.flowId, flowType: request.flowType };
+    const batch = this.payloadEncryption.createOpenBatch();
+    const context = { ...metadata };
+    request.context = context;
+    batch.openValue(flow, context.lastHeartbeatValue, (opened) => {
+      context.lastHeartbeatValue = opened;
+    });
+    const recoveryError = context.recoveryError;
+    if (recoveryError !== undefined) {
+      batch.openText(flow, recoveryError.detail, (opened) => {
+        context.recoveryError = { ...recoveryError, detail: opened };
+      });
+    }
+    batch.openValue(flow, request.stepInput, (opened) => {
+      request.stepInput = opened;
+    });
+    batch.openValue(flow, request.input, (opened) => {
+      request.input = opened;
+    });
+    for (const entry of [...request.attributes, ...(request.stepExeLocals ?? [])]) {
+      batch.openValue(flow, entry.value, (opened) => {
+        entry.value = opened;
+      });
+    }
+    for (const channelValues of Object.values(request.loadedChannelMessages)) {
+      for (const message of channelValues.messages) {
+        batch.openValue(flow, message.value, (opened) => {
+          message.value = opened;
+        });
+      }
+    }
+    for (const result of request.conditionResults?.channelResults ?? []) {
+      result.values.forEach((value, index) => {
+        batch.openValue(flow, value, (opened) => {
+          result.values[index] = opened;
+        });
+      });
+    }
+    request.conditionResults?.subFlowResults.forEach((result, index) => {
+      const child: PayloadFlowReference = {
+        flowId: subFlowPayloadFlowId(metadata.flowId, metadata.stepExecutionId, index),
+        flowType: undefined,
+      };
+      batch.openText(child, result.errorMessage, (opened) => {
+        result.errorMessage = opened;
+      });
+      for (const completion of result.results) {
+        batch.openValue(child, completion.completedStepOutput, (opened) => {
+          completion.completedStepOutput = opened;
+        });
+      }
+    });
+    await batch.run();
+    return request;
+  }
+}
+
+/** The Value-bearing fields shared by hydrated WaitFor, Execute, and RPC requests. */
+interface HydratedWorkerRequest {
+  readonly flowType: string;
+  context?: ProtoContext | undefined;
+  stepInput?: Value | undefined;
+  input?: Value | undefined;
+  readonly attributes: KV[];
+  readonly stepExeLocals?: KV[];
+  readonly loadedChannelMessages: { [key: string]: ChannelValues };
+  readonly conditionResults?: ConditionResults | undefined;
 }
 
 function invokeRPC(

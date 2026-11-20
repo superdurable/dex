@@ -8,6 +8,7 @@
 
 import { isHardDeleteOnNullDefinition } from "./attribute-hard-delete.js";
 import { AttributeMatch } from "./attribute-match.js";
+import { isPlaintextAttributeDefinition } from "./attribute-plaintext.js";
 import { isAttributeStoreSynced } from "./attribute-store-sync.js";
 import {
   AttributeMatchOperator as ProtoAttributeMatchOperator,
@@ -270,7 +271,8 @@ function isSameAttributeDefinition(left: Attribute<unknown>, right: Attribute<un
   return (
     left.codec === right.codec &&
     JSON.stringify(left.index ?? null) === JSON.stringify(right.index ?? null) &&
-    isAttributeStoreSynced(left) === isAttributeStoreSynced(right)
+    isAttributeStoreSynced(left) === isAttributeStoreSynced(right) &&
+    isPlaintextAttributeDefinition(left) === isPlaintextAttributeDefinition(right)
   );
 }
 

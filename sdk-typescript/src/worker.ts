@@ -29,6 +29,7 @@ import { negotiateServerProtocol } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
 import { requireNamedTaskQueueSupport } from "./task-queue.js";
 import { ValueHydrator } from "./value-mapper.js";
+import { PayloadEncryption, payloadEncryptionSettings } from "./payload-value-encryption.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
 import { PullWorker } from "./pull-worker.js";
 
@@ -84,12 +85,18 @@ export class Worker {
    * @throws {RangeError} When a pull capacity or drain timeout is invalid, or `grpcMaxMessageBytes` is negative or not an integer.
    * @throws {Error} When a configured Flow definition cannot be loaded or two Flow definitions describe the same Flow type.
    * Changed in 1.45.0: loads `flowDefinitionPaths` and `flowDefinitions` and throws for an invalid or duplicate Flow definition.
+   * Changed in 1.45.16: with `options.payloadCodec`, handlers receive decrypted Values, and the Worker
+   * encrypts the Values, heartbeats, Stream messages, and error text it sends; see
+   * {@link PayloadEncryptionOptions}. A decryption failure, or a handler result that sends an
+   * Action permission mapping for an encrypted Attribute, fails the attempt. The constructor throws
+   * {@link RangeError} when a payload encryption size limit is not a positive safe integer.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: WorkerOptions = {},
   ) {
+    const payloadSettings = payloadEncryptionSettings(options);
     this.flowDefinitions = prepareFlowDefinitions(options.flowDefinitionPaths ?? [], options.flowDefinitions ?? []);
     const channel = createFlowServiceChannel(
       options.serverAddress ?? "localhost:8801",
@@ -101,15 +108,18 @@ export class Worker {
       channel.channelCredentials,
       { ...channel.channelOptions, interceptors: credentialInterceptors(options.credential) },
     );
+    const payloadEncryption = new PayloadEncryption(payloadSettings);
     const dispatcher = new WorkerDispatcher(
       registry,
       new ValueHydrator(this.flowService, blobCache),
       () => this.negotiatedProtocolVersion,
+      payloadEncryption,
     );
     try {
       this.pullWorker = new PullWorker(
         registry, dispatcher, channel, options.pull ?? {},
         options.credential, () => this.stopAfterPermanentRejection(),
+        payloadEncryption,
       );
     } catch (failure) {
       this.flowService.close();

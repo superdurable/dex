@@ -85,6 +85,7 @@ import {
   LongPollTimeoutError,
   RequestTimeoutError,
   ValueMappingError,
+  WorkerInvocationError,
   type FlowErrorType as FlowErrorTypeValue,
 } from "./errors.js";
 import {
@@ -102,7 +103,7 @@ import {
   createFlowResultFromProto,
   type FlowResult,
 } from "./flow-result.js";
-import { translateServiceError } from "./grpc-status.js";
+import { translateServiceError, translateServiceErrorOpeningText } from "./grpc-status.js";
 import {
   FlowTimeoutPolicy,
   IdReusePolicy,
@@ -165,6 +166,12 @@ import {
 } from "./value-mapper.js";
 import { Channel, ChannelMap } from "./wait.js";
 import type { Stream, StreamMessage, StreamMessagesPage } from "./stream.js";
+import {
+  isPlaintextAttributeKey,
+  PayloadEncryption,
+  payloadEncryptionSettings,
+  type PayloadFlowReference,
+} from "./payload-value-encryption.js";
 
 const defaultServerAddress = "localhost:8801";
 
@@ -194,6 +201,7 @@ const defaultServerAddress = "localhost:8801";
 export class Client {
   private readonly service: FlowServiceClientType;
   private readonly hydrator: ValueHydrator;
+  private readonly payloadEncryption: PayloadEncryption;
   private serverInfoRequest: Promise<ServerInfo> | undefined;
 
   /**
@@ -205,13 +213,20 @@ export class Client {
    * @param blobCache - Open cache used to hydrate large response values.
    * @param options - Service address, optional bearer credential, optional TLS settings, and optional gRPC message size limit.
    * @throws {TypeError} When `flowServiceTls` is set and the address or TLS settings are invalid.
-   * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer.
+   * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer, or a payload
+   * encryption size limit is not a positive safe integer.
+   * Changed in 1.45.16: with `options.payloadCodec`, every method encrypts the Values and reasons it
+   * sends and decrypts the Values and error text it returns; see {@link PayloadEncryptionOptions}.
+   * A method then rejects with {@link PayloadEncryptionError} when encryption or decryption fails.
+   * Without a codec, reading an encrypted value rejects with that error and category
+   * `codec_not_configured`.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: ClientOptions = {},
   ) {
+    const payloadSettings = payloadEncryptionSettings(options);
     const channel = createFlowServiceChannel(
       options.serverAddress ?? defaultServerAddress,
       options.flowServiceTls,
@@ -223,6 +238,7 @@ export class Client {
       { ...channel.channelOptions, interceptors: credentialInterceptors(options.credential) },
     );
     this.hydrator = new ValueHydrator(this.service, blobCache);
+    this.payloadEncryption = new PayloadEncryption(payloadSettings);
   }
 
   /**
@@ -312,6 +328,19 @@ export class Client {
     if (taskQueue !== "") {
       requireNamedTaskQueueSupport(await this.negotiateServerProtocol(), taskQueue, "startFlow");
     }
+    const payloadFlow = { flowId: request.flowId, flowType: registered.name };
+    const batch = this.payloadEncryption.createSealBatch();
+    batch.sealValue(payloadFlow, request.stepInput, (sealed) => {
+      request.stepInput = sealed;
+    });
+    if (request.flowStartOptions !== undefined) {
+      batch.sealAttributeWrites(
+        payloadFlow,
+        request.flowStartOptions.attributes,
+        (key) => isPlaintextAttributeKey(registered.persistence, key),
+      );
+    }
+    await batch.run();
     return (await this.unary<StartFlowResponse>(
       { operation: "startFlow", flowId, requirement: "none" },
       (callback) => this.service.startFlow(request, callback),
@@ -379,7 +408,7 @@ export class Client {
     invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
   ): Promise<Response> {
     await this.negotiateServerProtocol();
-    return unary(target, invoke);
+    return unary(target, invoke, this.payloadEncryption);
   }
 
   private getServerInfo(): Promise<ServerInfo> {
@@ -672,6 +701,14 @@ export class Client {
         return physicalName(load.channelMap.name, load.instance);
       },
     );
+    const payloadFlow = { flowId, flowType: flow.name };
+    // An input-free RPC sends null, like the other SDK Clients; some Workers reject an unset input.
+    const encodedInput = await this.payloadEncryption.sealValue(
+      payloadFlow,
+      rpc.hasInput
+        ? encodeValue(codecOrJson(rpc.options.inputCodec), input)
+        : encodeValue(codecOrJson<null>(), null),
+    );
     const response = await this.unary<InvokeRPCResponse>(
       { operation: "invokeRPC", flowId, requirement: "active" },
       (callback) =>
@@ -680,10 +717,7 @@ export class Client {
           flowId: requireName(flowId),
           runId,
           rpcName: rpc.name,
-          // An input-free RPC sends null, like the other SDK Clients; some Workers reject an unset input.
-          input: rpc.hasInput
-            ? encodeValue(codecOrJson(rpc.options.inputCodec), input)
-            : encodeValue(codecOrJson<null>(), null),
+          input: encodedInput,
           timeoutSeconds: seconds(rpc.options.timeoutMs),
           lockAttributeKeys: uniqueSorted([
             ...(rpc.options.lockAttributes ?? []).map((lock) =>
@@ -719,8 +753,59 @@ export class Client {
     }
     return decodeValue(
       codecOrJson(rpc.options.outputCodec),
-      await this.hydrator.hydrate(flowId, response.output),
+      await this.openValue(payloadFlow, await this.hydrator.hydrate(flowId, response.output)),
     );
+  }
+
+  /**
+   * With a codec, rejects an Attribute whose stored value would be ciphertext the Server cannot compare.
+   * @throws {TypeError} When the definition is not registered, or is neither indexed nor Plaintext
+   * and its value kind is encrypted.
+   */
+  private requireComparableAttribute(attribute: Attribute<unknown> | AttributeMap<unknown>): void {
+    if (!this.payloadEncryption.hasCodec) {
+      return;
+    }
+    try {
+      registeredAttributeFlow(this.registry, attribute);
+    } catch (failure) {
+      throw new TypeError(
+        `waitForAttributeMatch with a payloadCodec requires Attribute ${attribute.name} to be registered `
+          + "so the Client can tell whether its value is encrypted",
+        { cause: failure },
+      );
+    }
+    if (this.payloadEncryption.encryptsAttributeDefinition(attribute)) {
+      throw new TypeError(
+        `waitForAttributeMatch cannot compare Attribute ${attribute.name} because its value is encrypted; `
+          + "index the Attribute or declare it with plaintext()",
+      );
+    }
+  }
+
+  /** @returns A stop, time travel, or clone reason in the `dex-encoded:` format when it applies. */
+  private async sealReason(flow: PayloadFlowReference, reason: string): Promise<string> {
+    let sealed = reason;
+    const batch = this.payloadEncryption.createSealBatch();
+    batch.sealText(flow, reason, this.payloadEncryption.settings.encryptErrorText, (text) => {
+      sealed = text;
+    });
+    await batch.run();
+    return sealed;
+  }
+
+  /**
+   * Decrypts one hydrated Value when it is an envelope.
+   * @returns The plaintext Value, or `value` unchanged.
+   */
+  private async openValue(flow: PayloadFlowReference, value: ProtoValue): Promise<ProtoValue> {
+    let opened = value;
+    const batch = this.payloadEncryption.createOpenBatch();
+    batch.openValue(flow, value, (result) => {
+      opened = result;
+    });
+    await batch.run();
+    return opened;
   }
 
   /**
@@ -741,6 +826,10 @@ export class Client {
       throw new TypeError("Stream source is required");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
+    const encoded = await this.payloadEncryption.sealValue(
+      { flowId, flowType: flow.name },
+      encodeValue(stream.codec, value),
+    );
     await this.unary<Empty>(
       { operation: "writeStream", flowId, requirement: "none" },
       (callback) => this.service.writeStream({
@@ -748,7 +837,7 @@ export class Client {
         flowType: flow.name,
         streamName: stream.name,
         streamCapacityBytes: BigInt(stream.streamCapacityBytes),
-        value: encodeValue(stream.codec, value),
+        value: encoded,
         source,
       }, callback),
     );
@@ -785,7 +874,7 @@ export class Client {
       throw new TypeError("Dex returned an incomplete Stream message");
     }
     return {
-      value: decodeValue(stream.codec, message.value),
+      value: decodeValue(stream.codec, await this.openValue({ flowId, flowType: flow.name }, message.value)),
       resumeToken: message.resumeToken,
       createdTime: message.createdTime,
       source: message.source,
@@ -825,13 +914,20 @@ export class Client {
         beforePageToken,
       }, callback),
     );
+    const payloadFlow = { flowId, flowType: flow.name };
+    const openedValues = new Map<number, ProtoValue>();
+    const batch = this.payloadEncryption.createOpenBatch();
+    response.messages.forEach((message, index) => {
+      batch.openValue(payloadFlow, message.value, (opened) => openedValues.set(index, opened));
+    });
+    await batch.run();
     return {
-      messages: response.messages.map((message) => {
+      messages: response.messages.map((message, index) => {
         if (message.value === undefined || message.createdTime === undefined || message.resumeToken === "") {
           throw new TypeError("Dex returned an incomplete Stream message");
         }
         return {
-          value: decodeValue(stream.codec, message.value),
+          value: decodeValue(stream.codec, openedValues.get(index) ?? message.value),
           resumeToken: message.resumeToken,
           createdTime: message.createdTime,
           source: message.source,
@@ -874,7 +970,19 @@ export class Client {
       flowId,
       response.results.map((result) => result.completedStepOutput),
     );
-    return createFlowResultFromProto(response, values);
+    const payloadFlow = { flowId, flowType: undefined };
+    const opened = { ...response };
+    const batch = this.payloadEncryption.createOpenBatch();
+    values.forEach((value, index) => {
+      batch.openValue(payloadFlow, value, (plaintext) => {
+        values[index] = plaintext;
+      });
+    });
+    batch.openText(payloadFlow, response.errorMessage, (text) => {
+      opened.errorMessage = text;
+    });
+    await batch.run();
+    return createFlowResultFromProto(opened, values);
   }
 
   /**
@@ -903,6 +1011,15 @@ export class Client {
    */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
     const request = mapStopFlowRequest(flowId, options);
+    const payloadFlow = { flowId, flowType: undefined };
+    const batch = this.payloadEncryption.createSealBatch();
+    batch.sealValue(payloadFlow, request.output, (sealed) => {
+      request.output = sealed;
+    });
+    batch.sealText(payloadFlow, request.reason, this.payloadEncryption.settings.encryptErrorText, (sealed) => {
+      request.reason = sealed;
+    });
+    await batch.run();
     await this.unary<Empty>(
       { operation: "stopFlow", flowId, requirement: "active" },
       (callback) => this.service.stopFlow(request, callback),
@@ -981,6 +1098,24 @@ export class Client {
       { operation: "getFlowState", flowId, requirement: "existing" },
       (callback) => this.service.getFlowState({ flowId: requireName(flowId), runId: "" }, callback),
     );
+    const payloadFlow = { flowId, flowType: undefined };
+    const batch = this.payloadEncryption.createOpenBatch();
+    for (const step of response.activeStepExecutions) {
+      const details = step.lastFailureInfo?.details;
+      if (details === undefined) {
+        continue;
+      }
+      batch.openText(payloadFlow, details.detail, (text) => {
+        details.detail = text;
+      });
+      batch.openText(payloadFlow, details.originalWorkerErrorDetail, (text) => {
+        details.originalWorkerErrorDetail = text;
+      });
+      batch.openText(payloadFlow, details.originalWorkerErrorStackTrace, (text) => {
+        details.originalWorkerErrorStackTrace = text;
+      });
+    }
+    await batch.run();
     return {
       activeStepExecutions: response.activeStepExecutions.map(
         (step) => mapActiveStepExecution(flowId, step),
@@ -1064,7 +1199,9 @@ export class Client {
    * @throws {@link Error} when Dex returns an invalid response, or the BlobCache fails while large
    * values are hydrated.
    * Every error message names the Flow ID. An error about one read or value also names its
-   * Attribute name or physical key.
+   * Attribute name or physical key. The exception is a {@link PayloadEncryptionError} from
+   * decryption, which carries only its category and key ID.
+   * Changed in 1.45.16: rejects with {@link PayloadEncryptionError} when a value cannot be decrypted.
    * @since 1.29.0
    */
   public async getAttributes<
@@ -1172,6 +1309,14 @@ export class Client {
       const detail = failure instanceof Error ? failure.message : String(failure);
       throw new Error(`${context}: ${detail}`, { cause: failure });
     }
+    const payloadFlow = { flowId, flowType: undefined };
+    const batch = this.payloadEncryption.createOpenBatch();
+    hydrated.forEach((value, index) => {
+      batch.openValue(payloadFlow, value, (opened) => {
+        hydrated[index] = opened;
+      });
+    });
+    await batch.run();
     return new Map(returnedKeys.map((key, index) => [key, hydrated[index] as ProtoValue]));
   }
 
@@ -1208,10 +1353,11 @@ export class Client {
       throw new TypeError(`Dex returned a search entry without a start time for Flow ${entry.flowId}`);
     }
     const indexedAttributes = new Map<string, unknown>();
+    const payloadFlow = { flowId: entry.flowId, flowType: entry.flowType || undefined };
     for (const attribute of entry.indexedAttributes) {
       indexedAttributes.set(
         attribute.key,
-        decodeUnknown(await this.hydrator.hydrate(entry.flowId, attribute.value)),
+        decodeUnknown(await this.openValue(payloadFlow, await this.hydrator.hydrate(entry.flowId, attribute.value))),
       );
     }
     return {
@@ -1246,6 +1392,7 @@ export class Client {
     }
     const eventId = timeTravelEventId(options);
     const subFlowResetPolicy = mapSubFlowResetPolicy(options.subFlowResetPolicy);
+    const reason = await this.sealReason({ flowId, flowType: undefined }, options.reason ?? "");
     const response = await this.unary<ResetFlowResponse>(
       { operation: "timeTravel", flowId, requirement: "existing" },
       (callback) =>
@@ -1254,7 +1401,7 @@ export class Client {
           flowId: requireName(flowId),
           runId: "",
           resetType,
-          reason: options.reason ?? "",
+          reason,
           historyEventTime: options.historyEventTime?.toISOString() ?? "",
           stepType: options.stepType ?? "",
           stepExecutionId: options.stepExecutionId ?? "",
@@ -1339,6 +1486,17 @@ export class Client {
     }
     const request = mapCloneForkFlowRequest(registered, sourceFlowId, flowId, options);
     requireCloneForkFlowSupport(await this.negotiateServerProtocol());
+    const payloadFlow = { flowId, flowType: registered.name };
+    const batch = this.payloadEncryption.createSealBatch();
+    batch.sealAttributeWrites(
+      payloadFlow,
+      request.attributes,
+      (key) => isPlaintextAttributeKey(registered.persistence, key),
+    );
+    batch.sealText(payloadFlow, request.reason, this.payloadEncryption.settings.encryptErrorText, (sealed) => {
+      request.reason = sealed;
+    });
+    await batch.run();
     try {
       const response = await this.unary<CloneForkFlowResponse>(
         { operation: "cloneForkFlow", flowId, requirement: "none" },
@@ -1420,6 +1578,7 @@ export class Client {
               callback,
             );
           },
+          this.payloadEncryption,
         );
         return;
       } catch (error) {
@@ -1459,6 +1618,10 @@ export class Client {
    * @param options - Optional request ID and request timeout.
    * @returns The matched current Attribute value.
    * @throws {@link TypeError} when `attribute` uses {@link Attribute.hardDeleteOnNull}; no request is sent.
+   * @throws {@link TypeError} when the Client has a `payloadCodec` and `attribute` is not registered,
+   * or is neither indexed nor declared {@link Attribute.plaintext} while its value kind is encrypted.
+   * Dex cannot compare ciphertext, so no request is sent.
+   * Changed in 1.45.16: rejects encrypted Attributes when a `payloadCodec` is set.
    */
   public waitForAttributeMatch<T>(
     flowId: string,
@@ -1478,6 +1641,8 @@ export class Client {
    * @param options - Optional request ID and request timeout.
    * @returns The matched current AttributeMap value.
    * @throws {@link TypeError} when `attribute` uses {@link AttributeMap.hardDeleteOnNull}; no request is sent.
+   * @throws {@link TypeError} when the Client has a `payloadCodec` and the AttributeMap would be
+   * encrypted, as for the singleton overload. Changed in 1.45.16.
    */
   public waitForAttributeMatch<T>(
     flowId: string,
@@ -1538,6 +1703,7 @@ export class Client {
       throw new TypeError("waitForAttributeMatch requires an AttributeMatch");
     }
     const encoded = match.encode(attribute.codec);
+    this.requireComparableAttribute(attribute);
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
     while (true) {
       await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForAttributeMatch", flowId);
@@ -1566,11 +1732,15 @@ export class Client {
               callback,
             );
           },
+          this.payloadEncryption,
         );
         if (response.matchedValue === undefined) {
           throw new Error("waitForAttributeMatch response is incomplete");
         }
-        return decodeValue(attribute.codec, response.matchedValue);
+        return decodeValue(
+          attribute.codec,
+          await this.openValue({ flowId, flowType: undefined }, response.matchedValue),
+        );
       } catch (error) {
         if (error instanceof LongPollTimeoutError) {
           continue;
@@ -2487,17 +2657,12 @@ function unary<Response>(
     readonly messagePrefix?: string;
   },
   invoke: (callback: (error: ServiceError | null, response: Response) => void) => unknown,
+  payloadEncryption?: PayloadEncryption,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     invoke((error, response) => {
       if (error !== null) {
-        reject(translateServiceError(
-          error,
-          target.operation,
-          target.flowId,
-          target.requirement,
-          target.messagePrefix,
-        ));
+        translateServiceErrorOpeningText(error, target, payloadEncryption).then(reject, reject);
         return;
       }
       resolve(response);

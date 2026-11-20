@@ -9,11 +9,13 @@
 import type { Join } from "./join.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import {
+  isHardDeleteOnNullDefinition,
   markHardDeleteOnNull,
   requireHardDeleteOnNullCompatible,
   requireNotHardDeleteOnNull,
 } from "./attribute-hard-delete.js";
-import { markAttributeStoreSynced } from "./attribute-store-sync.js";
+import { carryPlaintextAttribute, markPlaintextAttribute } from "./attribute-plaintext.js";
+import { isAttributeStoreSynced, markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
@@ -168,7 +170,36 @@ export class Attribute<T> {
    */
   public syncToAttributeStore(): Attribute<T> {
     requireNotHardDeleteOnNull(this, "syncToAttributeStore");
-    return markAttributeStoreSynced(new Attribute(this.name, this.codec, this.index));
+    return markAttributeStoreSynced(carryPlaintextAttribute(this, new Attribute(this.name, this.codec, this.index)));
+  }
+
+  /**
+   * Returns an immutable Attribute definition whose values the SDK never encrypts.
+   *
+   * Use it when a Client or Worker has a `payloadCodec` and the Dex Server must read this value.
+   * `Client.waitForAttributeMatch` and Action conditions compare the stored value on the Server,
+   * so they accept only an indexed or Plaintext Attribute. External readers of an Attribute Store
+   * column also see the value in clear. Indexed Attributes are never encrypted, so they need no
+   * declaration.
+   *
+   * The declaration is local to the SDK and is never sent to the Server. Register the returned
+   * definition in the Flow's PersistenceSchema. The option keeps the index, Attribute Store
+   * synchronization, and hard-delete options of this definition. Without a `payloadCodec`, it has
+   * no effect.
+   *
+   * @example
+   * ```ts
+   * const caseStatus = new Attribute("case-status", stringCodec).plaintext();
+   * const persistence: PersistenceSchema = { attributes: [caseStatus] };
+   * ```
+   * @returns A new Plaintext definition; this definition remains unchanged.
+   * @since 1.45.16
+   */
+  public plaintext(): Attribute<T> {
+    return markPlaintextAttribute(copyAttributeDefinitionOptions(
+      this,
+      new Attribute(this.name, this.codec, this.index),
+    ));
   }
 
   /**
@@ -259,7 +290,7 @@ export class Attribute<T> {
    */
   public hardDeleteOnNull(): Attribute<T> {
     requireHardDeleteOnNullCompatible(this as Attribute<unknown>);
-    return markHardDeleteOnNull(new Attribute(this.name, this.codec, this.index));
+    return markHardDeleteOnNull(carryPlaintextAttribute(this, new Attribute(this.name, this.codec, this.index)));
   }
 
   /**
@@ -386,7 +417,32 @@ export class AttributeMap<T> {
    */
   public syncToAttributeStore(): AttributeMap<T> {
     requireNotHardDeleteOnNull(this, "syncToAttributeStore");
-    return markAttributeStoreSynced(new AttributeMap(this.name, this.codec, this.index));
+    return markAttributeStoreSynced(carryPlaintextAttribute(this, new AttributeMap(this.name, this.codec, this.index)));
+  }
+
+  /**
+   * Returns an immutable AttributeMap definition whose instance values the SDK never encrypts.
+   *
+   * Use it when a Client or Worker has a `payloadCodec` and the Dex Server must read these values,
+   * for example for `Client.waitForAttributeMatch` on an instance. Indexed AttributeMaps are never
+   * encrypted, so they need no declaration. The declaration is local to the SDK and is never sent
+   * to the Server. Register the returned definition in the Flow's PersistenceSchema. The option
+   * keeps the index, Attribute Store synchronization, and hard-delete options of this definition.
+   * Without a `payloadCodec`, it has no effect.
+   *
+   * @example
+   * ```ts
+   * const reviewStates = new AttributeMap("review-states", stringCodec).plaintext();
+   * const persistence: PersistenceSchema = { attributes: [reviewStates] };
+   * ```
+   * @returns A new Plaintext definition; this definition remains unchanged.
+   * @since 1.45.16
+   */
+  public plaintext(): AttributeMap<T> {
+    return markPlaintextAttribute(copyAttributeDefinitionOptions(
+      this,
+      new AttributeMap(this.name, this.codec, this.index),
+    ));
   }
 
   /**
@@ -483,7 +539,7 @@ export class AttributeMap<T> {
    */
   public hardDeleteOnNull(): AttributeMap<T> {
     requireHardDeleteOnNullCompatible(this as AttributeMap<unknown>);
-    return markHardDeleteOnNull(new AttributeMap(this.name, this.codec, this.index));
+    return markHardDeleteOnNull(carryPlaintextAttribute(this, new AttributeMap(this.name, this.codec, this.index)));
   }
 
   /**
@@ -587,4 +643,14 @@ export interface PersistenceSchema {
   readonly channels?: readonly (Channel<unknown> | ChannelMap<unknown> | Join<unknown>)[];
   /** Best-effort Stream definitions with unique names. */
   readonly streams?: readonly Stream<unknown>[];
+}
+
+function copyAttributeDefinitionOptions<Definition extends object>(source: object, copy: Definition): Definition {
+  if (isAttributeStoreSynced(source)) {
+    markAttributeStoreSynced(copy);
+  }
+  if (isHardDeleteOnNullDefinition(source)) {
+    markHardDeleteOnNull(copy);
+  }
+  return copy;
 }

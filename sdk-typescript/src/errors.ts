@@ -365,6 +365,95 @@ export class ValueMappingError extends Error {
 }
 
 /**
+ * Names why the SDK could not encrypt or decrypt a payload.
+ *
+ * The first eight categories are the decoding categories of the Dex payload encryption format.
+ * The last two are the SDK's own.
+ *
+ * - `malformed`: the envelope, its key ID, its base64 text, or its gzip data is invalid.
+ * - `unsupported_marker`: the object encoding starts with `dex/` but is not `dex/1`.
+ * - `unsupported_cipher`: the configured codec does not support the envelope's cipher.
+ * - `unsupported_compression`: the envelope names an unknown compression.
+ * - `unknown_key`: the key provider does not know, or refuses, the key ID.
+ * - `authentication_failed`: AES-GCM decryption failed, so the data or its header was changed.
+ * - `limit_exceeded`: a size limit was exceeded.
+ * - `invalid_plaintext`: the decrypted bytes are not an encryptable Dex Value.
+ * - `codec_not_configured`: a payload is encrypted and no codec is configured.
+ * - `codec_failed`: a custom {@link PayloadCodec} failed without naming one of the categories
+ *   above. The SDK discards the codec's own error, because its text could contain secrets.
+ *
+ * @example
+ * ```ts
+ * if (failure instanceof PayloadEncryptionError && failure.category === "unknown_key") {
+ *   console.error(`add key ${failure.keyId ?? "?"} to the key file`);
+ * }
+ * ```
+ * @since 1.45.16
+ */
+export type PayloadEncryptionErrorCategory =
+  | "malformed"
+  | "unsupported_marker"
+  | "unsupported_cipher"
+  | "unsupported_compression"
+  | "unknown_key"
+  | "authentication_failed"
+  | "limit_exceeded"
+  | "invalid_plaintext"
+  | "codec_not_configured"
+  | "codec_failed";
+
+/**
+ * Reports that the SDK could not encrypt or decrypt a payload.
+ *
+ * The SDK throws it when a {@link PayloadCodec} or the SDK's own envelope checks fail. It extends
+ * {@link ValueMappingError}, so code that already handles value mapping failures also handles it.
+ * The message names the category and, when known, the key ID. It never contains payload bytes,
+ * plaintext, or key bytes.
+ *
+ * A Client method rejects with it. A Worker reports it as the attempt's failure and Dex retries
+ * the attempt by its retry policy. Fix the key file or codec configuration and the retry succeeds.
+ *
+ * Without a codec, reading an encrypted value fails with category `codec_not_configured` and a
+ * message that contains `value is encrypted; configure a PayloadCodec`.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   const [status] = await client.getAttributes("order-42", orderStatus);
+ * } catch (failure) {
+ *   if (failure instanceof PayloadEncryptionError) {
+ *     console.error(failure.category, failure.keyId);
+ *   }
+ *   throw failure;
+ * }
+ * ```
+ * @since 1.45.16
+ */
+export class PayloadEncryptionError extends ValueMappingError {
+  /**
+   * Creates a payload encryption error.
+   * @param operation - `encode` when encrypting failed, or `decode` when decrypting failed.
+   * @param category - Why it failed; see {@link PayloadEncryptionErrorCategory}.
+   * @param detail - Description without payload bytes, plaintext, or key bytes.
+   * @param keyId - Key ID of the envelope, when known. Key IDs are not secret.
+   * @param options - Standard Error construction options.
+   */
+  public constructor(
+    operation: "encode" | "decode",
+    public readonly category: PayloadEncryptionErrorCategory,
+    detail: string,
+    public readonly keyId?: string,
+    options?: ErrorOptions,
+  ) {
+    super(
+      operation,
+      `${detail} (payload encryption category ${category}${keyId === undefined ? "" : `, key ID ${keyId}`})`,
+      options,
+    );
+  }
+}
+
+/**
  * Creates a consistent error for an API planned in a later implementation phase.
  * @param component - Human-readable unavailable component name.
  * @returns A new PhaseNotImplementedError.

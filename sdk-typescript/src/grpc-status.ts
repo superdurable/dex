@@ -28,6 +28,7 @@ import {
   WorkerInvocationError,
   type ErrorSubStatus as ErrorSubStatusValue,
 } from "./errors.js";
+import type { PayloadEncryption } from "./payload-value-encryption.js";
 import { RetryAfterError } from "./retry-after.js";
 
 const statusDetailsKey = "grpc-status-details-bin";
@@ -97,7 +98,9 @@ export function translateServiceError(
   flowId: string | undefined,
   requirement: FlowTargetRequirement,
   messagePrefix?: string,
+  openedTexts?: ReadonlyMap<string, string>,
 ): DexServiceError {
+  const open = (text: string): string => openedTexts?.get(text) ?? text;
   let response: ServiceErrorResponse | undefined;
   try {
     response = serviceErrorResponse(error);
@@ -112,7 +115,7 @@ export function translateServiceError(
       { cause: error, ...(messagePrefix === undefined ? {} : { message: `${messagePrefix}: ${detail}` }) },
     );
   }
-  const detail = response?.detail || error.details || error.message;
+  const detail = open(response?.detail || error.details || error.message);
   const options = {
     cause: error,
     ...(messagePrefix === undefined ? {} : { message: `${messagePrefix}: ${detail}` }),
@@ -152,7 +155,7 @@ export function translateServiceError(
         flowId,
         workerCode(response),
         response?.originalWorkerErrorType ?? "",
-        response?.originalWorkerErrorDetail ?? "",
+        open(response?.originalWorkerErrorDetail ?? ""),
         options,
       );
     case ErrorSubStatus.LONG_POLL_TIMEOUT:
@@ -207,7 +210,64 @@ export function isGrpcMessageSizeError(failure: unknown): failure is GrpcService
   }
 }
 
-function serviceErrorResponse(error: GrpcServiceError): ServiceErrorResponse | undefined {
+/**
+ * Translates a gRPC status, first decrypting `dex-encoded:` text when it carries Dex details.
+ * A status without a `ServiceErrorResponse`, such as a transport error, keeps its text unchanged.
+ * @returns The translated error.
+ * @throws {@link PayloadEncryptionError} When prefixed text does not decode; readers never fall back to plaintext.
+ */
+export async function translateServiceErrorOpeningText(
+  error: GrpcServiceError,
+  target: {
+    readonly operation: string;
+    readonly flowId?: string | undefined;
+    readonly requirement: FlowTargetRequirement;
+    readonly messagePrefix?: string | undefined;
+  },
+  payloadEncryption: PayloadEncryption | undefined,
+): Promise<DexServiceError> {
+  const translate = (openedTexts?: ReadonlyMap<string, string>): DexServiceError => translateServiceError(
+    error,
+    target.operation,
+    target.flowId,
+    target.requirement,
+    target.messagePrefix,
+    openedTexts,
+  );
+  if (payloadEncryption === undefined) {
+    return translate();
+  }
+  let response: ServiceErrorResponse | undefined;
+  try {
+    response = serviceErrorResponse(error);
+  } catch {
+    return translate();
+  }
+  if (response === undefined) {
+    return translate();
+  }
+  const openedTexts = new Map<string, string>();
+  const batch = payloadEncryption.createOpenBatch();
+  const flow = { flowId: target.flowId ?? "", flowType: undefined };
+  const texts = new Set([
+    response.detail,
+    response.originalWorkerErrorDetail,
+    response.originalWorkerErrorStackTrace,
+    error.details,
+  ]);
+  for (const text of texts) {
+    batch.openText(flow, text, (opened) => openedTexts.set(text, opened));
+  }
+  await batch.run();
+  return translate(openedTexts);
+}
+
+/**
+ * Parses the Dex `ServiceErrorResponse` detail of a gRPC status.
+ * @returns The detail, or `undefined` for a status without one, such as a transport error.
+ * @throws When the status details are malformed.
+ */
+export function serviceErrorResponse(error: GrpcServiceError): ServiceErrorResponse | undefined {
   const encoded = error.metadata.get(statusDetailsKey)[0];
   if (!(encoded instanceof Buffer)) {
     return undefined;
