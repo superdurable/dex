@@ -23,6 +23,7 @@ on:
       - "examples/python/dex_examples/production/payload_encryption.py"
       - "examples/typescript/src/production/payload-encryption.ts"
       - "cli/internal/payloadcodec/**"
+      - "cli/internal/dev/**"
       - "sdk-go/dex/payload_encryption*"
       - "sdk-python/dex/payload_encryption.py"
       - "sdk-python/dex/_payload_message_codec.py"
