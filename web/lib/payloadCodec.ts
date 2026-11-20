@@ -23,8 +23,17 @@ import {
   type PayloadValueJSON,
 } from './payloadEncryption';
 
-/** The local storage key of the viewer's codec endpoint choice. It never holds a token or a payload. */
+/**
+ * The local storage key of the viewer's codec endpoint choice. It never holds a token or a payload; a Custom mode
+ * bearer token is kept under CODEC_BEARER_TOKEN_STORAGE_KEY instead.
+ */
 export const CODEC_SETTINGS_STORAGE_KEY = 'dex-web-codec-endpoint';
+
+/**
+ * The storage key of the Custom mode bearer token and its endpoint URL. It is in local storage when
+ * rememberBearerToken is set, and in the tab's session storage otherwise; never in both.
+ */
+export const CODEC_BEARER_TOKEN_STORAGE_KEY = 'dex-web-codec-bearer-token';
 
 /** auto uses the local dev codec server when Dex Web reports one; custom uses the saved URL; off decrypts nothing. */
 export type CodecEndpointMode = 'auto' | 'custom' | 'off';
@@ -35,6 +44,8 @@ export interface CodecEndpointPreference {
   endpoint: string;
   /** Sends cookies, such as an SSO proxy session, with codec requests. */
   includeCredentials: boolean;
+  /** Keeps the Custom mode bearer token in local storage, shared by tabs; otherwise in this tab's session storage. */
+  rememberBearerToken: boolean;
 }
 
 /** What GET /api/codec-server reports about a local codec server, such as the one dexcli dev starts. */
@@ -49,7 +60,7 @@ export interface CodecEndpoint {
   /** The base URL without a trailing slash; requests go to /encode and /decode under it. */
   endpoint: string;
   includeCredentials: boolean;
-  /** Only the local dev codec server has one; it is kept in memory and sent only to that endpoint. */
+  /** The local dev codec server's token, or the Custom mode token; sent only to this endpoint. Empty sends none. */
   bearerToken: string;
   source: 'local' | 'custom';
 }
@@ -63,7 +74,8 @@ export interface PayloadFlowContext {
 export const DEFAULT_CODEC_ENDPOINT_PREFERENCE: CodecEndpointPreference = {
   mode: 'auto',
   endpoint: '',
-  includeCredentials: true,
+  includeCredentials: false,
+  rememberBearerToken: true,
 };
 
 const maxEntriesPerRequest = 500;
@@ -77,10 +89,13 @@ export function readCodecEndpointPreference(storage: Pick<Storage, 'getItem'> | 
     const saved = JSON.parse(storage?.getItem(CODEC_SETTINGS_STORAGE_KEY) ?? 'null') as Partial<CodecEndpointPreference> | null;
     if (!saved || typeof saved !== 'object') return DEFAULT_CODEC_ENDPOINT_PREFERENCE;
     const mode = saved.mode === 'custom' || saved.mode === 'off' ? saved.mode : 'auto';
+    const endpoint = typeof saved.endpoint === 'string' ? saved.endpoint : '';
     return {
       mode,
-      endpoint: typeof saved.endpoint === 'string' ? saved.endpoint : '',
-      includeCredentials: saved.includeCredentials !== false,
+      endpoint,
+      // Without a saved Custom URL there is no cookie choice yet; a new Custom configuration starts without cookies.
+      includeCredentials: endpoint !== '' && saved.includeCredentials !== false,
+      rememberBearerToken: saved.rememberBearerToken !== false,
     };
   } catch {
     return DEFAULT_CODEC_ENDPOINT_PREFERENCE;
@@ -93,10 +108,87 @@ export function saveCodecEndpointPreference(storage: Pick<Storage, 'setItem'> | 
       mode: preference.mode,
       endpoint: preference.endpoint,
       includeCredentials: preference.includeCredentials,
+      rememberBearerToken: preference.rememberBearerToken,
     }));
   } catch (storageError) {
     console.warn('Unable to save the codec endpoint preference.', storageError);
   }
+}
+
+/** The two places a Custom mode bearer token can be kept: local storage and the tab's session storage. */
+export interface CodecBearerTokenStorages {
+  local: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined;
+  session: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined;
+}
+
+/** A saved Custom mode bearer token and the canonical codec endpoint URL it belongs to. */
+export interface CodecBearerTokenRecord {
+  endpoint: string;
+  token: string;
+}
+
+function readStoredTokenRecord(storage: Pick<Storage, 'getItem'> | undefined): CodecBearerTokenRecord | null {
+  try {
+    const saved = JSON.parse(storage?.getItem(CODEC_BEARER_TOKEN_STORAGE_KEY) ?? 'null') as Partial<CodecBearerTokenRecord> | null;
+    if (!saved || typeof saved.endpoint !== 'string' || typeof saved.token !== 'string' || !saved.token) return null;
+    return { endpoint: saved.endpoint, token: saved.token };
+  } catch {
+    return null;
+  }
+}
+
+/** Returns whether the write or removal succeeded; removing from a missing storage succeeds. */
+function writeStoredTokenRecord(
+  storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined,
+  record: CodecBearerTokenRecord | null,
+): boolean {
+  if (!storage) return record === null;
+  try {
+    if (record) storage.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, JSON.stringify({ endpoint: record.endpoint, token: record.token }));
+    else storage.removeItem(CODEC_BEARER_TOKEN_STORAGE_KEY);
+    return true;
+  } catch {
+    // The error is not logged, so it cannot carry the token.
+    return false;
+  }
+}
+
+/**
+ * Reads the saved Custom mode bearer token record; null when none is saved or it cannot be read.
+ *
+ * It reads the storage that remember selects first, then the other one, so a token saved before is kept.
+ */
+export function readCodecBearerTokenRecord(storages: CodecBearerTokenStorages, remember: boolean): CodecBearerTokenRecord | null {
+  const [preferred, other] = remember ? [storages.local, storages.session] : [storages.session, storages.local];
+  return readStoredTokenRecord(preferred) ?? readStoredTokenRecord(other);
+}
+
+/**
+ * Saves the record in the storage that remember selects, then removes it from the other; null removes both.
+ *
+ * Returns false when the record could not be written, when the other storage keeps a copy it could not remove, or
+ * when null could not be removed from both storages. A failed write leaves the other storage unchanged, so a record
+ * that was moving keeps its old place.
+ */
+export function saveCodecBearerTokenRecord(
+  storages: CodecBearerTokenStorages,
+  record: CodecBearerTokenRecord | null,
+  remember: boolean,
+): boolean {
+  const [target, other] = remember ? [storages.local, storages.session] : [storages.session, storages.local];
+  if (record) {
+    if (!writeStoredTokenRecord(target, record)) return false;
+    // A copy left in shared local storage would outlive a tab-only choice, so that counts as a failure.
+    return writeStoredTokenRecord(other, null);
+  }
+  const removedTarget = writeStoredTokenRecord(target, null);
+  const removedOther = writeStoredTokenRecord(other, null);
+  return removedTarget && removedOther;
+}
+
+/** Removes the tab's session storage record; true when it is gone. */
+export function removeSessionCodecBearerTokenRecord(storages: CodecBearerTokenStorages): boolean {
+  return writeStoredTokenRecord(storages.session, null);
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -124,16 +216,38 @@ export function parseCodecEndpointURL(text: string): { endpoint: string } | { er
   return { endpoint: `${url.origin}${url.pathname}`.replace(/\/+$/, '') };
 }
 
-/** Combines the viewer's choice with the local dev codec server; null means no codec is configured. */
+/**
+ * Returns the mode in effect: a saved auto mode acts as custom when Dex Web provides no local codec server.
+ *
+ * Pass null as local while Dex Web has not answered yet; auto then stays auto. The saved choice is not changed, so
+ * a Dex Web that provides a local codec server shows auto again.
+ */
+export function effectiveCodecEndpointMode(mode: CodecEndpointMode, local: LocalCodecServer | null): CodecEndpointMode {
+  return mode === 'auto' && local !== null && !local.configured ? 'custom' : mode;
+}
+
+/**
+ * Combines the viewer's choice with the local codec server; null means no codec is configured.
+ *
+ * Pass null as local while Dex Web has not answered yet; auto mode then has no codec. savedToken applies only in
+ * custom mode, and only when its endpoint equals the Custom URL. Auto mode uses the local server's own token.
+ */
 export function resolveCodecEndpoint(
   preference: CodecEndpointPreference,
   local: LocalCodecServer | null,
+  savedToken: CodecBearerTokenRecord | null = null,
 ): CodecEndpoint | null {
-  if (preference.mode === 'off') return null;
-  if (preference.mode === 'custom') {
+  const mode = effectiveCodecEndpointMode(preference.mode, local);
+  if (mode === 'off') return null;
+  if (mode === 'custom') {
     const parsed = parseCodecEndpointURL(preference.endpoint);
     if ('error' in parsed) return null;
-    return { endpoint: parsed.endpoint, includeCredentials: preference.includeCredentials, bearerToken: '', source: 'custom' };
+    return {
+      endpoint: parsed.endpoint,
+      includeCredentials: preference.includeCredentials,
+      bearerToken: savedToken?.endpoint === parsed.endpoint ? savedToken.token : '',
+      source: 'custom',
+    };
   }
   if (!local?.configured || !local.endpoint) return null;
   const parsed = parseCodecEndpointURL(local.endpoint);
@@ -163,8 +277,13 @@ export class PayloadCodecError extends Error {
   readonly status: number;
   readonly index: number | undefined;
 
-  constructor(category: EncryptedPayloadProblem, status: number, index?: number) {
-    super(payloadCodecErrorMessage(category));
+  constructor(
+    category: EncryptedPayloadProblem,
+    status: number,
+    index?: number,
+    codec?: Pick<CodecEndpoint, 'source' | 'bearerToken' | 'includeCredentials'> | null,
+  ) {
+    super(payloadCodecErrorMessage(category, codec));
     this.name = 'PayloadCodecError';
     this.category = category;
     this.status = status;
@@ -177,12 +296,29 @@ const protocolCategories = new Set<EncryptedPayloadProblem>([
   'unsupported_compression', 'unknown_key', 'authentication_failed', 'invalid_plaintext', 'internal',
 ]);
 
-/** A fixed message per category; codec server messages are not shown, so they cannot leak into the page. */
-export function payloadCodecErrorMessage(category: EncryptedPayloadProblem): string {
+/**
+ * A fixed message per category; codec server messages are not shown, so they cannot leak into the page.
+ *
+ * The optional endpoint names a likely cause; the message never contains its token.
+ */
+export function payloadCodecErrorMessage(
+  category: EncryptedPayloadProblem,
+  codec?: Pick<CodecEndpoint, 'source' | 'bearerToken' | 'includeCredentials'> | null,
+): string {
   switch (category) {
     case 'unavailable':
+      if (codec?.source === 'custom' && codec.includeCredentials) {
+        return 'The codec endpoint could not be reached. If it does not allow cookies, clear Send cookies.';
+      }
       return 'The codec endpoint could not be reached.';
     case 'unauthenticated':
+      if (codec?.source === 'custom' && codec.bearerToken) {
+        return 'The codec endpoint refused the request (unauthenticated). The bearer token is likely wrong; enter it again.';
+      }
+      if (codec?.source === 'custom') {
+        return 'The codec endpoint refused the request (unauthenticated). It likely needs a bearer token; enter it, '
+          + 'or sign in to it.';
+      }
       return 'The codec endpoint refused the request (unauthenticated). Sign in to it or check its credentials.';
     case 'forbidden':
       return 'The codec endpoint does not allow this request (forbidden).';
@@ -208,12 +344,14 @@ async function postCodecRequest<T>(
       headers,
       body: JSON.stringify(body),
       cache: 'no-store',
-      credentials: codec.includeCredentials && !codec.bearerToken ? 'include' : 'omit',
+      credentials: codec.includeCredentials ? 'include' : 'omit',
       referrerPolicy: 'no-referrer',
+      // A same-origin redirect would keep the Authorization header, so redirects fail instead.
+      redirect: 'error',
       signal: AbortSignal.timeout(codecRequestTimeoutMilliseconds),
     });
   } catch {
-    throw new PayloadCodecError('unavailable', 0);
+    throw new PayloadCodecError('unavailable', 0, undefined, codec);
   }
   if (!response.ok) {
     let category: EncryptedPayloadProblem = response.status === 401 ? 'unauthenticated'
@@ -221,14 +359,16 @@ async function postCodecRequest<T>(
     let index: number | undefined;
     try {
       const failure = (await response.json() as { error?: { category?: unknown; index?: unknown } }).error;
-      if (typeof failure?.category === 'string' && protocolCategories.has(failure.category as EncryptedPayloadProblem)) {
+      // A 401 stays unauthenticated, so its hint always names the credentials.
+      if (response.status !== 401 && typeof failure?.category === 'string'
+        && protocolCategories.has(failure.category as EncryptedPayloadProblem)) {
         category = failure.category as EncryptedPayloadProblem;
       }
       if (typeof failure?.index === 'number' && Number.isInteger(failure.index)) index = failure.index;
     } catch {
       // A body that is not the protocol error keeps the status category.
     }
-    throw new PayloadCodecError(category, response.status, index);
+    throw new PayloadCodecError(category, response.status, index, codec);
   }
   try {
     return await response.json() as T;
