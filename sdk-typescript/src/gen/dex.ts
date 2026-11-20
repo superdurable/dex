@@ -497,6 +497,26 @@ export enum FlowDefinitionUploadOutcome {
   UNRECOGNIZED = -1,
 }
 
+/** The encryption algorithm of a PayloadEnvelope. The Server never reads it. */
+export enum PayloadCipher {
+  /** PAYLOAD_CIPHER_UNSPECIFIED - Invalid. SDKs reject envelopes with this value. */
+  PAYLOAD_CIPHER_UNSPECIFIED = 0,
+  /** PAYLOAD_CIPHER_AES256_GCM - AES-256-GCM with a 12-byte nonce and a 16-byte tag. */
+  PAYLOAD_CIPHER_AES256_GCM = 1,
+  /** PAYLOAD_CIPHER_CUSTOM - A custom codec; its parameters live in metadata. */
+  PAYLOAD_CIPHER_CUSTOM = 2,
+  UNRECOGNIZED = -1,
+}
+
+/** The compression of a PayloadEnvelope plaintext. The Server never reads it. */
+export enum PayloadCompression {
+  /** PAYLOAD_COMPRESSION_NONE - The plaintext is not compressed. */
+  PAYLOAD_COMPRESSION_NONE = 0,
+  /** PAYLOAD_COMPRESSION_GZIP - The plaintext is gzip-compressed (RFC 1952) before encryption. */
+  PAYLOAD_COMPRESSION_GZIP = 1,
+  UNRECOGNIZED = -1,
+}
+
 /** Describes the Dex Server release and the inclusive protocol range it supports. */
 export interface ServerInfo {
   /** Identifies the Server artifact for diagnostics. Compatibility uses only the protocol range. */
@@ -2486,6 +2506,28 @@ export interface GetFlowDefinitionsResponse {
    * Flow types without a stored definition are left out.
    */
   definitions: FlowDefinition[];
+}
+
+/**
+ * An SDK-encrypted Value, stored as EncodedObject.payload with encoding "dex/1".
+ * The Server never reads it.
+ */
+export interface PayloadEnvelope {
+  /** The algorithm that produced data. */
+  cipher: PayloadCipher;
+  /** The key that encrypted data. Visible in clear; 1 to 64 bytes, each 0x21 to 0x7e. */
+  keyId: string;
+  /** For PAYLOAD_CIPHER_AES256_GCM: nonce, then ciphertext, then tag. */
+  data: Uint8Array;
+  /** The compression applied before encryption. */
+  compression: PayloadCompression;
+  /** Custom codec parameters; the codec must authenticate or reject them. Empty for PAYLOAD_CIPHER_AES256_GCM. */
+  metadata: { [key: string]: Uint8Array };
+}
+
+export interface PayloadEnvelope_MetadataEntry {
+  key: string;
+  value: Uint8Array;
 }
 
 function createBaseServerInfo(): ServerInfo {
@@ -17726,6 +17768,171 @@ export const GetFlowDefinitionsResponse: MessageFns<GetFlowDefinitionsResponse> 
   fromPartial<I extends Exact<DeepPartial<GetFlowDefinitionsResponse>, I>>(object: I): GetFlowDefinitionsResponse {
     const message = createBaseGetFlowDefinitionsResponse();
     message.definitions = object.definitions?.map((e) => FlowDefinition.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBasePayloadEnvelope(): PayloadEnvelope {
+  return { cipher: 0, keyId: "", data: new Uint8Array(0), compression: 0, metadata: {} };
+}
+
+export const PayloadEnvelope: MessageFns<PayloadEnvelope> = {
+  encode(message: PayloadEnvelope, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.cipher !== 0) {
+      writer.uint32(8).int32(message.cipher);
+    }
+    if (message.keyId !== "") {
+      writer.uint32(18).string(message.keyId);
+    }
+    if (message.data.length !== 0) {
+      writer.uint32(26).bytes(message.data);
+    }
+    if (message.compression !== 0) {
+      writer.uint32(32).int32(message.compression);
+    }
+    globalThis.Object.entries(message.metadata).forEach(([key, value]: [string, Uint8Array]) => {
+      PayloadEnvelope_MetadataEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).join();
+    });
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PayloadEnvelope {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePayloadEnvelope();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.cipher = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.data = reader.bytes();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.compression = reader.int32() as any;
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          const entry5 = PayloadEnvelope_MetadataEntry.decode(reader, reader.uint32());
+          if (entry5.value !== undefined) {
+            message.metadata[entry5.key] = entry5.value;
+          }
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<PayloadEnvelope>, I>>(base?: I): PayloadEnvelope {
+    return PayloadEnvelope.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PayloadEnvelope>, I>>(object: I): PayloadEnvelope {
+    const message = createBasePayloadEnvelope();
+    message.cipher = object.cipher ?? 0;
+    message.keyId = object.keyId ?? "";
+    message.data = object.data ?? new Uint8Array(0);
+    message.compression = object.compression ?? 0;
+    message.metadata = (globalThis.Object.entries(object.metadata ?? {}) as [string, Uint8Array][]).reduce(
+      (acc: { [key: string]: Uint8Array }, [key, value]: [string, Uint8Array]) => {
+        if (value !== undefined) {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {},
+    );
+    return message;
+  },
+};
+
+function createBasePayloadEnvelope_MetadataEntry(): PayloadEnvelope_MetadataEntry {
+  return { key: "", value: new Uint8Array(0) };
+}
+
+export const PayloadEnvelope_MetadataEntry: MessageFns<PayloadEnvelope_MetadataEntry> = {
+  encode(message: PayloadEnvelope_MetadataEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value.length !== 0) {
+      writer.uint32(18).bytes(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PayloadEnvelope_MetadataEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePayloadEnvelope_MetadataEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.bytes();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<PayloadEnvelope_MetadataEntry>, I>>(base?: I): PayloadEnvelope_MetadataEntry {
+    return PayloadEnvelope_MetadataEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PayloadEnvelope_MetadataEntry>, I>>(
+    object: I,
+  ): PayloadEnvelope_MetadataEntry {
+    const message = createBasePayloadEnvelope_MetadataEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? new Uint8Array(0);
     return message;
   },
 };

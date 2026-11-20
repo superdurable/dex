@@ -2363,3 +2363,43 @@ message GetFlowDefinitionsResponse {
   // Flow types without a stored definition are left out.
   repeated FlowDefinition definitions = 1;
 }
+
+// ---------------------------------------------------------------------------
+// Client-side payload encryption
+//
+// SDKs serialize these types themselves. The Server never reads them.
+// Format and rules: protos/payload-encryption.md.
+// ---------------------------------------------------------------------------
+
+// An SDK-encrypted Value, stored as EncodedObject.payload with encoding "dex/1".
+// The Server never reads it.
+message PayloadEnvelope {
+  // The algorithm that produced data.
+  PayloadCipher cipher = 1;
+  // The key that encrypted data. Visible in clear; 1 to 64 bytes, each 0x21 to 0x7e.
+  string key_id = 2;
+  // For PAYLOAD_CIPHER_AES256_GCM: nonce, then ciphertext, then tag.
+  bytes data = 3;
+  // The compression applied before encryption.
+  PayloadCompression compression = 4;
+  // Custom codec parameters; the codec must authenticate or reject them. Empty for PAYLOAD_CIPHER_AES256_GCM.
+  map<string, bytes> metadata = 5;
+}
+
+// The encryption algorithm of a PayloadEnvelope. The Server never reads it.
+enum PayloadCipher {
+  // Invalid. SDKs reject envelopes with this value.
+  PAYLOAD_CIPHER_UNSPECIFIED = 0;
+  // AES-256-GCM with a 12-byte nonce and a 16-byte tag.
+  PAYLOAD_CIPHER_AES256_GCM = 1;
+  // A custom codec; its parameters live in metadata.
+  PAYLOAD_CIPHER_CUSTOM = 2;
+}
+
+// The compression of a PayloadEnvelope plaintext. The Server never reads it.
+enum PayloadCompression {
+  // The plaintext is not compressed.
+  PAYLOAD_COMPRESSION_NONE = 0;
+  // The plaintext is gzip-compressed (RFC 1952) before encryption.
+  PAYLOAD_COMPRESSION_GZIP = 1;
+}
