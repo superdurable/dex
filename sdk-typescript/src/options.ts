@@ -7,14 +7,89 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { Credential } from "./credential.js";
+import type { PayloadEncryptionError } from "./errors.js";
 import type { FlowDefinitionDocument } from "./flow-definition.js";
+import type { AesGcmPayloadCodec, AesGcmPayloadCodecOptions, PayloadCodec } from "./payload-encryption.js";
 import type { Attribute, AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { RetryPolicy, StepDurability, StepOptions, StepTarget } from "./step.js";
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
 import { requireMapInstance, requireName } from "./validation.js";
 
-/** Configures FlowService connectivity and bearer credentials. */
-export interface ClientOptions {
+/**
+ * Configures client-side payload encryption for a Client or a Worker.
+ *
+ * Without `payloadCodec`, nothing is encrypted and the other fields have no effect. With a codec,
+ * the SDK encrypts every Value it sends: Step inputs and outputs, Attribute values, Channel
+ * messages, Stream messages, RPC inputs and outputs, Step execution locals, recorded events, and
+ * heartbeat values. It also encrypts Worker error text and the reasons of `stopFlow`,
+ * `timeTravel`, and `cloneForkFlow`. The Dex Server stores only ciphertext and never sees a key.
+ *
+ * These values stay in clear:
+ * - `null`, which deletes an Attribute.
+ * - Attribute values written with an index, so that Flow search works.
+ * - Attributes and AttributeMaps declared with {@link Attribute.plaintext}.
+ * - String or primitive values when `encryptStringValues` or `encryptPrimitiveValues` is `false`.
+ * - Names and IDs, such as Flow IDs, Attribute keys, map instances, and Channel names. Do not put
+ *   sensitive data into them.
+ *
+ * The SDK decrypts only values that carry the Dex envelope marker. Other values pass through, so
+ * one Worker can serve encrypted and plaintext Flows, and encryption can roll out gradually. Use
+ * the same codec and keys in every Client and Worker of the application. The Go, Python, and
+ * TypeScript SDKs share the format. The Java and Rust SDKs cannot read encrypted Flows yet.
+ *
+ * With a codec, `Client.waitForAttributeMatch` and Action permission mappings reject an Attribute
+ * that would be encrypted, because the Server cannot compare ciphertext. Index the Attribute or
+ * declare it {@link Attribute.plaintext}.
+ *
+ * Every Client and Worker that reads encrypted values needs the codec. Without one, reading an
+ * encrypted value fails with {@link PayloadEncryptionError} and the message
+ * `value is encrypted; configure a PayloadCodec`.
+ *
+ * @example
+ * ```ts
+ * const provider = await FilePayloadEncryptionKeyProvider.fromFile("/etc/dex/payload-keys.json");
+ * const payloadCodec = new AesGcmPayloadCodec(provider);
+ * const client = new Client(registry, cache, { serverAddress, payloadCodec });
+ * const worker = new Worker(registry, cache, { serverAddress, payloadCodec });
+ * ```
+ * @since 1.45.16
+ */
+export interface PayloadEncryptionOptions {
+  /**
+   * The codec that encrypts and decrypts payloads. Omitted disables encryption and decryption.
+   * Use {@link AesGcmPayloadCodec} or a custom {@link PayloadCodec}.
+   */
+  readonly payloadCodec?: PayloadCodec;
+  /** Whether string Values are encrypted. Defaults to `true` when a codec is set. */
+  readonly encryptStringValues?: boolean;
+  /** Whether integer, number, and Boolean Values are encrypted. Defaults to `true` when a codec is set. */
+  readonly encryptPrimitiveValues?: boolean;
+  /**
+   * Whether Worker error text and Client reasons are encrypted. Defaults to `true` when a codec is set.
+   *
+   * Client reasons are the `reason` of `stopFlow`, `timeTravel`, and `cloneForkFlow`.
+   * Error types, empty error text, and the SDK's own blob-loading and decryption errors stay in
+   * clear. Text that begins with `dex-encoded:` is always encrypted when a codec is set, and gets
+   * one leading space without a codec, so readers never mistake it for encrypted text.
+   */
+  readonly encryptErrorText?: boolean;
+  /**
+   * Largest serialized envelope the SDK writes or reads, in bytes.
+   *
+   * Defaults to 16,842,752 (16 MiB plus 64 KiB), which fits the Server's default maximum Value size.
+   * Raise it, and {@link AesGcmPayloadCodecOptions.maxDataBytes}, for a Server with a larger limit.
+   */
+  readonly maxPayloadEnvelopeBytes?: number;
+  /** Largest decrypted plaintext the SDK writes or reads, in bytes. Defaults to 67,108,864 (64 MiB). */
+  readonly maxPayloadPlaintextBytes?: number;
+}
+
+/**
+ * Configures FlowService connectivity, bearer credentials, and payload encryption.
+ *
+ * Changed in 1.45.16: extends {@link PayloadEncryptionOptions}.
+ */
+export interface ClientOptions extends PayloadEncryptionOptions {
   /** Dex gRPC target, plaintext unless `flowServiceTls` is set; defaults to `localhost:8801`. */
   readonly serverAddress?: string;
   /** Bearer token provider for every FlowService call; omitted sends no authorization metadata. */
@@ -1152,6 +1227,7 @@ export interface StopFlowOptions {
  * type, or two definitions for the same Flow type from any sources.
  *
  * Changed in 1.45.0: added `flowDefinitionPaths` and `flowDefinitions`.
+ * Changed in 1.45.16: extends {@link PayloadEncryptionOptions} for client-side payload encryption.
  *
  * @example
  * ```ts
@@ -1161,7 +1237,7 @@ export interface StopFlowOptions {
  * });
  * ```
  */
-export interface WorkerOptions {
+export interface WorkerOptions extends PayloadEncryptionOptions {
   /** Task capacity and shutdown settings; omitted uses the defaults in {@link PullWorkerOptions}. */
   readonly pull?: PullWorkerOptions;
   /** Dex FlowService target; defaults to `localhost:8801`. */

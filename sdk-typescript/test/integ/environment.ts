@@ -20,7 +20,9 @@ import {
   Registry,
   Worker,
   openBlobCache,
+  type ClientOptions,
   type Flow,
+  type WorkerOptions,
   type StepExecutionId,
   type TimerId,
 } from "../../src/index.js";
@@ -32,6 +34,19 @@ export interface TestEnvironment {
 }
 
 export async function startEnvironment(...flows: readonly Flow<any>[]): Promise<TestEnvironment> {
+  return startEnvironmentWithOptions(flows, {});
+}
+
+/** Extra Client and Worker options, such as a payload codec, for one test environment. */
+export interface EnvironmentOptions {
+  readonly client?: ClientOptions;
+  readonly worker?: WorkerOptions;
+}
+
+export async function startEnvironmentWithOptions(
+  flows: readonly Flow<any>[],
+  options: EnvironmentOptions,
+): Promise<TestEnvironment> {
   const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
   const registry = new Registry(flows);
   const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-typescript-integration-cache-"));
@@ -40,12 +55,12 @@ export async function startEnvironment(...flows: readonly Flow<any>[]): Promise<
     maxBytes: 64 * 1_024 * 1_024,
   });
   const worker = new Worker(registry, blobCache, {
-    serverAddress, pull: { appWorkerID: flowId("integ-worker") },
+    serverAddress, pull: { appWorkerID: flowId("integ-worker") }, ...options.worker,
   });
   await worker.start();
   await worker.waitPullRegistered({ timeoutMs: 30_000 });
   const client = new Client(registry, blobCache, {
-    serverAddress,
+    serverAddress, ...options.client,
   });
   return {
     client,

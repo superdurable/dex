@@ -45,6 +45,11 @@ Each invocation starts its own `dexcli dev` environment on server-zd. Set
 - `Client.getAttributes` integration covers typed scalar, object, falsy, unset,
   AttributeMap instance, hard-delete, and LoadBlobs-backed values, closed-run
   reads with a fresh BlobCache, and missing-Flow and definition errors.
+- Payload encryption integration covers ciphertext storage on every Value path,
+  blob-offloaded ciphertext, indexed and Plaintext Attributes, encrypted error
+  text and reasons, SubFlow contexts, clone and time travel, key rotation,
+  mixed plaintext and encrypted Flows, the attribute-match and Action rejection
+  rule, tenant key refusal, and codec-less readers.
 - Step streaming covers repeated and cross-Stream writes, duplicate source
   metadata, heartbeat detail recovery and clearing, local-activity fallback, and
   buffered text timer/final-result ordering.

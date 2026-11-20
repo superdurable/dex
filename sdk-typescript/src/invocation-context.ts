@@ -34,6 +34,11 @@ import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
 import {
+  subFlowPayloadFlowId,
+  type PayloadEncryption,
+  type PayloadFlowReference,
+} from "./payload-value-encryption.js";
+import {
   AttributeMapNotLoadedError,
   ChannelMessagesNotLoadedError,
 } from "./errors.js";
@@ -82,6 +87,8 @@ export class InvocationContext implements AsyncContext {
   private readonly lastHeartbeatValue: Value | undefined;
   private readonly stepOutputFinalizers: StepOutputFinalizer[] = [];
   private stepOutputsFinalized = false;
+  private encryptedStepOutputs: Promise<void> = Promise.resolve();
+  private encryptedStepOutputFailure: unknown;
 
   public constructor(
     private readonly method: InvocationMethod,
@@ -99,6 +106,7 @@ export class InvocationContext implements AsyncContext {
     loadedChannelMapInstances: readonly string[] = [],
     deadline?: Date,
     private readonly negotiatedServerProtocolVersion: number = 0,
+    private readonly payloadEncryption?: PayloadEncryption,
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -143,24 +151,70 @@ export class InvocationContext implements AsyncContext {
   }
 
   public async recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void> {
-    if (this.stepOutput === undefined) {
+    const stepOutput = this.stepOutput;
+    if (stepOutput === undefined) {
       throw new TypeError("Heartbeats require an async Step Context");
     }
-    return this.stepOutput.recordHeartbeat(
-      value === undefined ? undefined : encodeValue(codecOrJson(codec), value),
-    );
+    const encoded = value === undefined ? undefined : encodeValue(codecOrJson(codec), value);
+    if (this.payloadEncryption?.hasCodec !== true) {
+      return stepOutput.recordHeartbeat(encoded);
+    }
+    const sent = this.enqueueEncryptedStepOutput(async (encryption) => {
+      await stepOutput.recordHeartbeat(await encryption.sealValue(this.payloadFlow(), encoded));
+    }, false);
+    return sent;
   }
 
   public writeStream<T>(stream: Stream<T>, value: T): void {
-    if (this.stepOutput === undefined) {
+    const stepOutput = this.stepOutput;
+    if (stepOutput === undefined) {
       throw new TypeError("Stream writes require a Step Context");
     }
     requireFlowStream(this.flow, stream as Stream<unknown>);
-    this.stepOutput.writeStream({
+    const write: StepStreamWrite = {
       streamName: stream.name,
       streamCapacityBytes: BigInt(stream.streamCapacityBytes),
       value: encodeValue(stream.codec, value),
+    };
+    if (this.payloadEncryption?.hasCodec !== true) {
+      stepOutput.writeStream(write);
+      return;
+    }
+    this.enqueueEncryptedStepOutput(async (encryption) => {
+      stepOutput.writeStream({ ...write, value: await encryption.sealValue(this.payloadFlow(), write.value) });
+    }, true).catch(() => undefined);
+  }
+
+  /**
+   * Waits until every encrypted heartbeat and Stream write of this invocation was sent.
+   * @returns The first encryption or send failure, boxed so a thenable failure is never resolved.
+   */
+  public async drainEncryptedStepOutputs(): Promise<{ readonly failure: unknown }> {
+    await this.encryptedStepOutputs;
+    return { failure: this.encryptedStepOutputFailure };
+  }
+
+  /**
+   * Encrypts and sends step outputs one at a time, so frames keep the handler's order.
+   * A Stream write has no caller to reject, so its failure fails the invocation instead.
+   */
+  private enqueueEncryptedStepOutput(
+    send: (encryption: PayloadEncryption) => Promise<void>,
+    failsInvocation: boolean,
+  ): Promise<void> {
+    const encryption = this.payloadEncryption!;
+    const sent = this.encryptedStepOutputs.then(() => send(encryption));
+    this.encryptedStepOutputs = sent.catch((failure: unknown) => {
+      if (failsInvocation) {
+        this.encryptedStepOutputFailure ??= failure;
+      }
     });
+    return sent;
+  }
+
+  /** @returns The Flow that stores this invocation's values. */
+  public payloadFlow(): PayloadFlowReference {
+    return { flowId: this.flowId, flowType: this.flow.name };
   }
 
   public prepareBufferedStream(stream: Stream<unknown>): void {
@@ -257,7 +311,7 @@ export class InvocationContext implements AsyncContext {
 
   public subFlowId(index = 0): string {
     this.subFlowResult(index);
-    return `SubFlow:${this.flowId}-${this.stepExecutionId}-${index}`;
+    return subFlowPayloadFlowId(this.flowId, this.stepExecutionId, index);
   }
 
   public setStepExecutionLocal<T>(key: string, value: T, codec: Codec<T>): void {
