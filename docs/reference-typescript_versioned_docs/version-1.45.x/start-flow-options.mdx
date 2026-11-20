@@ -21,6 +21,7 @@ cannot change after the Flow starts.
 | **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values. |
 | **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
+| **TaskQueue** | Task queue whose Workers execute the Flow. See [TaskQueue](#task-queue). Since 1.45.2. |
 
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
@@ -311,3 +312,27 @@ work, start the Flow without a delay and begin the start Step with a durable
 
 **Attributes** sets initial Attribute values. Each one must match an
 Attribute or AttributeMap in the Flow persistence schema.
+
+## TaskQueue {#task-queue}
+
+Since 1.45.2. **taskQueue** names the task queue whose Workers execute the
+Flow. Only Workers whose **PullWorkerOptions.taskQueue** equals it run the
+Flow's Steps and RPCs. Omit it, or set the empty string, to use the default
+task queue. See
+[StartFlowOptions.taskQueue](pathname:///api/typescript/latest/interfaces/StartFlowOptions.html#taskqueue)
+in the API reference.
+
+- The Flow keeps its task queue for its whole run. **updateFlowConfig** does
+  not change it.
+- The Flow's SubFlows inherit the task queue. See
+  [SubFlow task queue](./subflow.mdx#task-queue).
+- **dex.default** explicitly selects the default task queue. Other names that
+  start with **dex.** are reserved.
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  **startFlow** throws **TypeError** for an invalid name.
+- A non-empty name requires Server protocol 5. **startFlow** throws **Error**
+  before it sends the request to an older Server.
+- When no Worker pulls the task queue, the Flow's Steps wait durably for one,
+  and an RPC fails after the Server's Worker dispatch wait.
+
+[Task queues](./workers.mdx#task-queues) describes the Worker side.
