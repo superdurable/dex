@@ -15,7 +15,9 @@ import type {
   V2ValueType,
 } from '@superdurable/flow-definition-renderer';
 import { displayValue } from '@/lib/format';
-import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
+import { definitionRevisionHeaders, DexAPIError, readResponseJSON } from '@/lib/http';
+import { readableErrorMessage } from '@/lib/payloadCodec';
+import { usePayloadCodec } from '../payloadCodecContext';
 import type { V2Display } from '@/lib/types';
 import { parseTypedValue, v2ActionUserFields, v2ActionUserInput, visibleV2Actions } from '../catalog/definitionContract';
 import { SESSION_COPY } from '../agents/copy';
@@ -70,6 +72,7 @@ export function SelectedRunPanel({
   workQueuePermissions?: readonly string[];
 }) {
   const { revisionFor, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
+  const { codec } = usePayloadCodec();
   const definitionRevision = revisionFor([flowType]);
   const [held, setHeld] = useState(() => nothingHeld<V2Display>());
   /** A write that failed is not a stale read, so it does not touch held. */
@@ -166,7 +169,10 @@ export function SelectedRunPanel({
       onActed?.();
     } catch (actionError) {
       if (handleDefinitionError(actionError)) return;
-      setActionError(readFailureReason(actionError));
+      const encrypted = actionError instanceof DexAPIError && actionError.encodedMessage;
+      setActionError(encrypted
+        ? await readableErrorMessage(actionError, codec, { flowId, flowType }, readFailureReason(actionError))
+        : readFailureReason(actionError));
     } finally {
       setBusyKey('');
     }

@@ -85,6 +85,8 @@ import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor }
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { FLOWS_PATH, RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
 import { webURL } from '@/lib/basePath';
+import { useDecryptedPayloads } from '../payloadCodecContext';
+import { containsEncryptedPayload } from '@/lib/payloadEncryption';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
 
@@ -299,7 +301,12 @@ export function RunDetailsPage({
   }, [summary]);
   const now = useSecondClock(summary !== null && !terminalStatuses.has(summary.flowStatusCode));
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
-  const history = runHistory.newest?.events ?? noHistoryEvents;
+  const payloadFlow = useMemo(
+    () => (summary ? { flowId: summary.flowId, flowType: summary.flowType } : null),
+    [summary],
+  );
+  const history = useDecryptedPayloads(payloadFlow, runHistory.newest?.events ?? noHistoryEvents);
+  const displayedState = useDecryptedPayloads(payloadFlow, state);
   const isViewingEarlierRunAttempt = summary !== null
     && requestedRunAttempt > 0
     && requestedRunAttempt < positiveRunAttempt(summary.runAttempt);
@@ -350,7 +357,7 @@ export function RunDetailsPage({
   const [stateWriteKind, setStateWriteKind] = useState<StateWriteKind | null>(null);
   const [waitCycle, setWaitCycle] = useState(0);
   const [runDataRequest, setRunDataRequest] = useState(0);
-  const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
+  const [rawHydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const [sidebarWidths, setSidebarWidths] = useState<Record<SidebarKind, number>>(() => ({
     graph: storedSidebarWidth('graph'),
@@ -691,8 +698,9 @@ export function RunDetailsPage({
     { id: 'stream', label: 'Streams', Icon: Waves },
   ];
   const timelineWindow = runHistory.timelineWindow;
-  const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
-  const flowStartEvent = runHistory.flowStartEvent;
+  const timelineEvents = useDecryptedPayloads(payloadFlow, timelineWindow?.events ?? noHistoryEvents);
+  const flowStartEvent = useDecryptedPayloads(payloadFlow, runHistory.flowStartEvent);
+  const hydratedEvents = useDecryptedPayloads(payloadFlow, rawHydratedEvents);
   const prunedEventIdRange = runHistory.prunedEventIdRange;
   const latestEvent = history.at(-1);
   const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
@@ -860,13 +868,21 @@ export function RunDetailsPage({
       )),
     };
 
+  // Blob loading reads the events as loaded, so placeholders shown while decrypting are never stored.
+  const loadedEvents = useMemo(() => {
+    const byId = new Map<number, FlowHistoryEvent>();
+    for (const event of [...(runHistory.newest?.events ?? []), ...(timelineWindow?.events ?? [])]) byId.set(event.eventId, event);
+    if (runHistory.flowStartEvent) byId.set(runHistory.flowStartEvent.eventId, runHistory.flowStartEvent);
+    return byId;
+  }, [runHistory.flowStartEvent, runHistory.newest, timelineWindow]);
+
   useEffect(() => {
-    if (selectedRaw) void hydrateEvent(selectedRaw);
+    if (selectedRaw) void hydrateEvent(loadedEvents.get(selectedRaw.eventId) ?? selectedRaw);
   }, [hydrateEvent, selectedRaw?.eventId]);
 
   useEffect(() => {
-    if (shownTab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
-  }, [flowStartEvent, hydrateEvent, shownTab]);
+    if (shownTab === 'overview' && runHistory.flowStartEvent) void hydrateEvent(runHistory.flowStartEvent);
+  }, [runHistory.flowStartEvent, hydrateEvent, shownTab]);
 
   // Live state is not loaded for a closed run, so State reads its Flow config once.
   const isClosedRunShown = summary !== null && terminalStatuses.has(summary.flowStatusCode);
@@ -1280,7 +1296,7 @@ export function RunDetailsPage({
                     flowId={flowId}
                     events={pageEventsWithFlowStart}
                     hasEarlierEvents={pageHasEarlierEvents}
-                    state={state}
+                    state={displayedState}
                     selectedEvent={selectedRaw}
                     onSelectEvent={setSelectedEvent}
                     direction="lr"
@@ -1341,7 +1357,7 @@ export function RunDetailsPage({
             <FlowOverview
               summary={summary}
               events={displayedHistory}
-              state={state}
+              state={displayedState}
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
@@ -1465,6 +1481,8 @@ export function RunDetailsPage({
           key={stateWriteKind ?? 'closed'}
           kind={stateWriteKind}
           summary={summary}
+          storesEncryptedPayloads={stateWriteKind !== null
+            && (containsEncryptedPayload(displayedState) || containsEncryptedPayload(history))}
           onClose={() => setStateWriteKind(null)}
           onWritten={() => loadState(summary.flowStatusCode)}
         />

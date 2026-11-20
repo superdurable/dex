@@ -17,6 +17,9 @@ import {
   type StartInputError,
 } from './startInput';
 import { webURL } from '@/lib/basePath';
+import { encodeStoredValue } from '@/lib/payloadCodec';
+import { startInputValue } from '@/lib/payloadWrites';
+import { usePayloadCodec } from '../payloadCodecContext';
 
 interface StartFlowResult {
   flowId: string;
@@ -45,6 +48,7 @@ export function StartFlowDialog({
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const requestController = useRef<AbortController | null>(null);
+  const { codec } = usePayloadCodec();
 
   useEffect(() => {
     if (dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
@@ -81,7 +85,13 @@ export function StartFlowDialog({
         workerTargetPull: true,
         ...(trimmedTaskQueue ? { workerTargetTaskQueue: trimmedTaskQueue } : {}),
       });
-      const body = `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
+      // With a codec, the browser encrypts the checked input; a null input is never encrypted.
+      const plaintextInput = codec ? startInputValue(definition.input.kind, input.json) : null;
+      const body = codec && plaintextInput
+        ? `${requestPrefix.slice(0, -1)},"encodedInput":${JSON.stringify(await encodeStoredValue(
+          codec, { flowId: flowID.trim(), flowType }, plaintextInput,
+        ))}}`
+        : `${requestPrefix.slice(0, -1)},"input":${input.json}}`;
       const headers = {
         'Content-Type': 'application/json', ...definitionRevisionHeaders(definitionRevision),
       };

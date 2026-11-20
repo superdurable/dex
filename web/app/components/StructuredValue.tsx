@@ -26,6 +26,8 @@ import { generatedSubFlowID } from '@/lib/subflows';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import { usePreferences } from '@/app/providers';
 import { webURL } from '@/lib/basePath';
+import { encryptedPayloadDisplayValue, escapeApplicationJSON, escapedObjectContent } from '@/lib/payloadEncryption';
+import { PayloadLockBadge, payloadEncryptionStateOf } from './PayloadLockBadge';
 
 type Data = Record<string, unknown>;
 
@@ -53,6 +55,7 @@ const dexValueKeys = new Set(['stringValue', 'intValue', 'doubleValue', 'boolVal
 /** Whether a value is one Dex Value envelope, such as a Channel message or a stored blob reference. */
 export function isDexValue(value: unknown): boolean {
   if (isBlobReferenceValue(value) || isStoredValueUnavailable(value)) return true;
+  if (payloadEncryptionStateOf(value) !== null) return true;
   const keys = Object.keys(asData(value));
   return keys.length === 1 && dexValueKeys.has(keys[0]);
 }
@@ -65,6 +68,7 @@ export interface UndecodedPayload {
 
 /** The encoding and byte size of a Dex Value whose payload is neither JSON nor text; null for any other value. */
 export function undecodedPayloadOf(value: unknown): UndecodedPayload | null {
+  if (payloadEncryptionStateOf(value) !== null) return null;
   const object = asData(asData(value).objValue);
   if (typeof object.payload !== 'string' || object.encoding === 'json' || object.encoding === 'text') return null;
   try {
@@ -78,6 +82,8 @@ export function undecodedPayloadOf(value: unknown): UndecodedPayload | null {
 export function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
+  const encryptedDisplay = encryptedPayloadDisplayValue(value);
+  if (encryptedDisplay !== undefined) return encryptedDisplay;
   const message = asData(value);
   if ('stringValue' in message) return message.stringValue;
   if ('intValue' in message) return message.intValue;
@@ -93,7 +99,7 @@ export function decodedValue(value: unknown): unknown {
     const decoded = new TextDecoder().decode(bytes);
     if (object.encoding === 'json') {
       try {
-        return JSON.parse(decoded) as unknown;
+        return escapeApplicationJSON(JSON.parse(decoded));
       } catch {
         return decoded;
       }
@@ -179,7 +185,7 @@ function parsedJSONText(value: unknown): unknown {
   const trimmed = value.trim();
   if (!(trimmed.startsWith('{') && trimmed.endsWith('}')) && !(trimmed.startsWith('[') && trimmed.endsWith(']'))) return value;
   try {
-    return JSON.parse(trimmed);
+    return escapeApplicationJSON(JSON.parse(trimmed));
   } catch {
     return value;
   }
@@ -211,6 +217,7 @@ export function EventValueBlock({ name, value }: { name: string; value: unknown 
     <div className="event-value">
       <div className="event-value-head">
         <strong className="event-value-name">{name}</strong>
+        <PayloadLockBadge value={value} />
         {isInline && (isEmpty
           ? <span className="event-value-none">none</span>
           : <code className="event-value-inline" title={text}>{text}</code>)}
@@ -264,13 +271,19 @@ export function InlineValue({
 }) {
   const decoded = isDexValue(value) ? decodedValue(value) : value;
   if (isShortFlatValue(decoded)) {
-    return <span className="inline-value"><code>{JSON.stringify(decoded, storedValueJSONReplacer)}</code></span>;
+    return (
+      <span className="inline-value">
+        <PayloadLockBadge value={value} />
+        <code>{JSON.stringify(decoded, storedValueJSONReplacer)}</code>
+      </span>
+    );
   }
   if (decoded && typeof decoded === 'object') {
     const preview = JSON.stringify(decoded, storedValueJSONReplacer) ?? '';
     return (
       <details className="inline-value-object" open={expandValues || undefined}>
         <summary>
+          <PayloadLockBadge value={value} />
           <code>{preview.length > inlinePreviewCharacters ? `${preview.slice(0, inlinePreviewCharacters)}…` : preview}</code>
         </summary>
         <StructuredValue value={decoded} expandValues={expandValues} />
@@ -279,6 +292,7 @@ export function InlineValue({
   }
   return (
     <span className="inline-value">
+      <PayloadLockBadge value={value} />
       <LongValue characterLimit={characterLimit} text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />
     </span>
   );
@@ -287,9 +301,19 @@ export function InlineValue({
 function ValueChip({ value, expandValues = false }: { value: unknown; expandValues?: boolean }) {
   const decoded = decodedValue(value);
   if (decoded && typeof decoded === 'object') {
-    return <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock isForcedOpen={expandValues} />;
+    return (
+      <>
+        <PayloadLockBadge value={value} />
+        <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock isForcedOpen={expandValues} />
+      </>
+    );
   }
-  return <LongValue text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />;
+  return (
+    <>
+      <PayloadLockBadge value={value} />
+      <LongValue text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />
+    </>
+  );
 }
 
 function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {
@@ -472,7 +496,7 @@ function TimerListStructured({ value }: { value: unknown }) {
 }
 
 function ObjectStructured({ value, expandValues = false }: { value: Data; expandValues?: boolean }) {
-  const entries = Object.entries(value);
+  const entries = Object.entries(escapedObjectContent(value) ?? value);
   if (entries.length === 0) return <p className="muted">Empty object</p>;
   return (
     <div className="structured-value">
@@ -486,6 +510,7 @@ function ObjectStructured({ value, expandValues = false }: { value: Data; expand
             <div className="semantic-field-wide" key={key}>
               <dt>{key}</dt>
               <dd>
+                <PayloadLockBadge value={entry} />
                 {labeled !== null
                   ? labeled
                   : decoded && typeof decoded === 'object'
@@ -535,11 +560,14 @@ export function StructuredValue({
   if (value === undefined || value === null) {
     return <p className="muted">No value</p>;
   }
+  // Escaped application JSON renders as its own fields; its object is never a marker.
+  const escaped = escapedObjectContent(value);
+  if (escaped) return <ObjectStructured value={escaped} expandValues={expandValues} />;
   if (isDexValue(value)) {
     const decoded = decodedValue(value);
     // A decoded object renders structurally; a primitive renders as one truncatable value.
     if (decoded && typeof decoded === 'object' && !isDexValue(decoded)) {
-      return (
+      const structured = (
         <StructuredValue
           value={decoded}
           parentFlowId={parentFlowId}
@@ -547,6 +575,8 @@ export function StructuredValue({
           expandValues={expandValues}
         />
       );
+      if (payloadEncryptionStateOf(value) === null) return structured;
+      return <div className="payload-decrypted-object"><PayloadLockBadge value={value} />{structured}</div>;
     }
     return <div className="structured-value semantic-value"><ValueChip value={value} expandValues={expandValues} /></div>;
   }

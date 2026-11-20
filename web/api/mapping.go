@@ -295,10 +295,13 @@ func dexValue(value *dexpb.Value) interface{} {
 	case *dexpb.Value_NullValue:
 		return nil
 	case *dexpb.Value_ObjValue:
+		if isEncryptedValue(value) {
+			return mappedEncryptedEnvelope(kind.ObjValue.GetEncoding(), base64.StdEncoding.EncodeToString(kind.ObjValue.GetPayload()))
+		}
 		if kind.ObjValue.GetEncoding() == "json" {
 			var decoded interface{}
 			if err := json.Unmarshal(kind.ObjValue.GetPayload(), &decoded); err == nil {
-				return decoded
+				return escapeApplicationJSON(decoded)
 			}
 			return map[string]interface{}{
 				"encoding": kind.ObjValue.GetEncoding(),
@@ -344,6 +347,9 @@ func normalizeBlobReferences(value interface{}) interface{} {
 			}
 			if id, ok := current["internalBlobIdForObjValue"].(string); ok {
 				return mappedBlobReference(id, "object")
+			}
+			if envelope := protoJSONEncryptedEnvelope(current); envelope != nil {
+				return envelope
 			}
 		}
 		for key, entry := range current {

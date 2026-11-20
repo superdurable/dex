@@ -21,6 +21,8 @@ import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 import { SESSION_FORK_DELETED_ATTRIBUTES, SESSION_TASK_QUEUE_PREFIX, sessionTaskQueue } from '../../agents/sessionFork';
 import { useModalFocus } from '../../components/useModalFocus';
+import { usePayloadCodec } from '../../payloadCodecContext';
+import { encodeReasonText } from '@/lib/payloadCodec';
 import { startTaskQueueError } from '../../start/StartFlowDialog';
 import {
   HistoryPointFields,
@@ -104,6 +106,7 @@ export function CloneForkDialog({
   const [idReusePolicy, setIdReusePolicy] = useState<number>(ID_REUSE_POLICY.SERVER_DEFAULT);
   const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
   const [reason, setReason] = useState('');
+  const { codec } = usePayloadCodec();
   const [requestId, setRequestId] = useState(newCloneForkRequestId);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -218,6 +221,8 @@ export function CloneForkDialog({
     // The current state always belongs to the current run attempt.
     if (pointKind !== 'current' && runAttempt > 0) payload.runAttempt = runAttempt;
     try {
+      // The reason belongs to the new Flow, which keeps the source's Flow type.
+      payload.reason = await encodeReasonText(codec, { flowId: trimmedFlowId, flowType: summary.flowType }, reason);
       const response = await fetch(webURL('/api/flows/clone-fork'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

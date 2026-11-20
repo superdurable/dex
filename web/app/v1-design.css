@@ -5115,6 +5115,34 @@ html:has(.v1-page .stream-scroll--entries) {
   gap: 8px;
 }
 
+.payload-lock-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin: 0 4px;
+  vertical-align: -1px;
+}
+
+.payload-lock-badge.is-decrypted {
+  color: var(--tone-accent-ink);
+}
+
+.payload-lock-badge.is-encrypted {
+  color: var(--ui-ink);
+  opacity: 0.7;
+}
+
+.payload-decrypted-object {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.payload-decrypted-object > .structured-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .event-value-name {
   flex: 0 0 auto;
   max-width: 50%;

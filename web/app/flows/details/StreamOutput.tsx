@@ -12,6 +12,7 @@ import { ArrowDown, ArrowUp, CircleAlert, CircleStop, Radio } from 'lucide-react
 import { storedValueJSONReplacer } from '@/lib/blobs';
 import { formatDate } from '@/lib/format';
 import type { TimezonePreference } from '@/lib/format';
+import { unescapeApplicationJSON } from '@/lib/payloadEncryption';
 import type { StreamMessage } from '@/lib/types';
 import { CopyButton } from '../../components/CopyButton';
 import { decodedValue, isDexValue, undecodedPayloadOf } from '../../components/StructuredValue';
@@ -108,13 +109,22 @@ export function streamEntryContentOf(value: unknown, declaredValueType = ''): St
   if (typeof decoded === 'string') return { kind: 'text', text: decoded };
   if (typeof decoded === 'number' || typeof decoded === 'boolean') return { kind: 'scalar', text: String(decoded) };
   if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
-    const progress = progressContentOf(decoded as Record<string, unknown>, isProgressUpdateValueType(declaredValueType));
+    // Progress fields are read from the application's own JSON; the escaped value is kept for display and Copy.
+    const progress = progressContentOf(
+      unescapeApplicationJSON(decoded) as Record<string, unknown>, isProgressUpdateValueType(declaredValueType),
+      decoded as Record<string, unknown>,
+    );
     if (progress) return progress;
   }
   return { kind: 'structured', value: decoded };
 }
 
-function progressContentOf(record: Record<string, unknown>, isDeclaredProgressUpdate: boolean): StreamProgressContent | null {
+/** Reads progress fields from record; storedValue is the value as received, kept for display. */
+function progressContentOf(
+  record: Record<string, unknown>,
+  isDeclaredProgressUpdate: boolean,
+  storedValue: Record<string, unknown>,
+): StreamProgressContent | null {
   const label = firstText(record.message, record.status, record.label);
   const phase = firstText(record.phase, record.stage, record.step);
   const hasPhaseAndSequence = phase !== '' && 'sequence' in record;
@@ -140,7 +150,7 @@ function progressContentOf(record: Record<string, unknown>, isDeclaredProgressUp
     isComputedFromTotal,
     label,
     phase,
-    value: record,
+    value: storedValue,
   };
 }
 

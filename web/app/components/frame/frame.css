@@ -355,6 +355,43 @@ body {
   font-weight: 600;
 }
 
+.app-bar-codec-setting {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  border-top: 1px solid var(--ui-hairline);
+  padding-top: 8px;
+}
+
+.app-bar-codec-setting > small {
+  flex: 1 1 100%;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.app-bar-codec-setting > small.field-error {
+  color: var(--tone-fail-ink);
+}
+
+.app-bar-codec-form {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 6px;
+  font-weight: 400;
+}
+
+.app-bar-codec-credentials {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ui-text-xs);
+}
+
+.app-bar-codec-form button {
+  justify-self: end;
+}
+
 .app-bar-server-info {
   display: grid;
   gap: 4px;

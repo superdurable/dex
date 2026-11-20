@@ -9,6 +9,12 @@
 import { readResponseJSON } from './http';
 import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
 import { webURL } from './basePath';
+import {
+  encryptedPayloadDisplayValue,
+  ESCAPED_OBJECT_KEY,
+  escapedObjectContent,
+  markApplicationContent,
+} from './payloadEncryption';
 
 export type BlobKind = 'string' | 'object';
 
@@ -45,9 +51,13 @@ export function isStoredValueUnavailable(value: unknown): boolean {
 }
 
 export function storedValueJSONReplacer(_key: string, value: unknown): unknown {
+  // Escaped application JSON shows as itself; its own object is never read as a marker.
+  const escaped = escapedObjectContent(value);
+  if (escaped) return escaped;
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
-  return value;
+  const encrypted = encryptedPayloadDisplayValue(value);
+  return encrypted === undefined ? value : encrypted;
 }
 
 export function collectBlobReferences(value: unknown): BlobReference[] {
@@ -101,6 +111,11 @@ export async function hydrateBlobs<T>(
 }
 
 function collect(value: unknown, references: Map<string, BlobReference>) {
+  const escaped = escapedObjectContent(value);
+  if (escaped) {
+    Object.values(escaped).forEach((entry) => collect(entry, references));
+    return;
+  }
   if (isBlobReferenceValue(value)) {
     const reference = value.__dexBlobReference;
     references.set(blobReferenceKey(reference), reference);
@@ -121,9 +136,22 @@ function replaceBlobReferences(
   cache: Map<string, unknown>,
   unavailableWhenMissing: boolean,
 ): unknown {
+  const escaped = escapedObjectContent(value);
+  if (escaped) {
+    return {
+      [ESCAPED_OBJECT_KEY]: Object.fromEntries(Object.entries(escaped).map(([key, entry]) => [
+        key,
+        replaceBlobReferences(flowId, entry, cache, unavailableWhenMissing),
+      ])),
+    };
+  }
   if (isBlobReferenceValue(value)) {
     const key = blobCacheKey(flowId, value.__dexBlobReference);
-    if (cache.has(key)) return cache.get(key);
+    if (cache.has(key)) {
+      const loaded = cache.get(key);
+      markApplicationContent(loaded);
+      return loaded;
+    }
     return unavailableWhenMissing ? unavailableValue : value;
   }
   if (Array.isArray(value)) {

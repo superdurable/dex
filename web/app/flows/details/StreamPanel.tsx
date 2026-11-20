@@ -27,6 +27,7 @@ import {
 } from './StreamOutput';
 import type { StreamEntriesState, StreamListeningStatus } from './StreamOutput';
 import { webURL } from '@/lib/basePath';
+import { usePayloadCodec } from '../../payloadCodecContext';
 
 interface StreamPanelProps {
   flowId: string;
@@ -118,6 +119,10 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const [blobWarning, setBlobWarning] = useState('');
   const [session, setSession] = useState(0);
   const blobCache = useRef(new Map<string, unknown>());
+  const { store } = usePayloadCodec();
+  // A ref, so choosing another codec endpoint does not restart the listener.
+  const payloadStore = useRef(store);
+  payloadStore.current = store;
 
   useEffect(() => {
     if (!activeStream || isStopped) return;
@@ -138,6 +143,10 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
               rawMessage.value,
               blobCache.current,
               controller.signal,
+            );
+            // A Stream message is application data, so only its encrypted Values decode.
+            hydrated.value = await payloadStore.current.decryptTree(
+              { flowId, flowType }, hydrated.value, { textReadPoints: false },
             );
             if (!isActive) return;
             // Classify once on arrival, outside the updater, so a re-render never repeats it.

@@ -626,6 +626,87 @@ and Actions. A stale request receives `409 FLOW_DEFINITION_CHANGED`; the UI
 reloads the catalog, clears stale operation state, and requires Action
 confirmation again.
 
+## Encrypted payloads
+
+Applications can encrypt Values with the `dex/1` format; see
+[`protos/payload-encryption.md`](../protos/payload-encryption.md). The browser
+talks to a codec server directly. The Dex Web server never receives keys or
+plaintext: it passes envelopes through in both directions.
+
+**Settings > Codec endpoint** chooses the codec server. The choice lives in the
+browser's local storage, which holds only the mode, the URL, and the cookie
+switch:
+
+- **Auto** uses the local codec server that `GET /api/codec-server` reports.
+  `dexcli dev -codec-key-file <file>` starts one and gives Dex Web its endpoint
+  and per-start token. The browser keeps the token in memory and sends it as
+  `Authorization: Bearer` to that endpoint only.
+- **Custom** uses a codec server URL. It must use HTTPS, or HTTP on a loopback
+  host. **Send cookies (SSO proxy)** sends requests with
+  `credentials: "include"`, so an SSO proxy in front of the codec server can
+  authenticate the viewer. Dex Web has no bearer-token setting for it. The
+  codec server must allow the Dex Web origin in its CORS settings, with
+  credentials when cookies are sent.
+- **Off** decrypts nothing.
+
+Reading: the Dex Web server sends every stored Value whose encoding starts with
+`dex/` as `{"__dexEnvelope": {"encoding", "payload"}}`, also from
+`POST /api/blobs/load`. So that application JSON can never forge such a marker,
+the server wraps every parsed JSON object that has a key starting with `__dex`
+as `{"__dexEscapedObject": object}`; the page shows the object unchanged, and
+Action conditions and inputs read the unwrapped object. The browser decodes only those Values and the
+`dex-encoded:` texts of protocol error and reason fields, such as `detail`,
+`stackTrace`, `reason`, `errorMessage`, and a ForceFail `closeInput`. It never
+decodes application data that looks like an envelope or has a field with such a
+name. Malformed or oversized texts show as placeholders. It decodes them with
+`POST /decode`, in batches of at most 500 envelopes per Flow, with the Flow's
+ID and type as context. Decrypted values render like plaintext with an open
+lock. They stay in the page's memory and are never stored or sent to the Dex
+Web server. A value the browser cannot decrypt shows a closed lock and
+"Encrypted (key id: …)", never the ciphertext; the lock's tooltip names the
+reason, such as no codec endpoint or `unknown_key`.
+
+Writing: with a codec endpoint, the browser encodes the value with
+`POST /encode` and sends the `dex/1` Value in a pass-through field:
+
+| Request | Plaintext fields | Encoded field |
+| --- | --- | --- |
+| `POST /api/flows/channels/messages` | `valueType`, `value` | `encodedValue` |
+| `PUT /api/flows/attributes` | `valueType`, `value` | `encodedValue` |
+| `POST /api/flows/stop` | `output` | `encodedOutput` |
+| `POST /api/v2/start` | `input` | `encodedInput` |
+
+A request sends one form, not both. Dex Web cannot check an `encodedInput`
+against the Start input schema; the browser checks the input before it encodes
+it. Stop, reset, and clone fork reasons use the `dex-encoded:` format. Without
+a codec endpoint, a reason that starts with `dex-encoded:` gets one leading
+space, so readers never try to decode it.
+
+Dex Web has no Flow Registry, so it does not know which Attributes an
+application declares plaintext. Set attribute therefore writes a new Attribute
+in plaintext. An update keeps the stored form: Dex Web encrypts an update of an
+encrypted Attribute again, and refuses it without a codec endpoint. Display
+edits write plaintext and refuse to replace an encrypted Attribute.
+
+These features read plaintext on the Dex Web server or in the browser, so they
+do not work with encrypted values. Declare the Attributes they use plaintext:
+
+- Action conditions and Action inputs read from Attributes. Dex Web answers
+  that the Attribute is encrypted. Action RPC inputs are sent in plaintext.
+- Display and Summary view RPCs whose output is encrypted. Dex Web answers that
+  the RPC returned an encrypted value.
+- Agent sessions and the agent inbox. They report the encrypted Attributes.
+
+`web/scripts/run-payload-encryption-e2e.sh` runs the Playwright test of this
+feature. It starts `dexcli dev -codec-key-file` and the
+`web/scripts/local-demo/encrypted-payloads` Worker, which encrypts every value.
+Set `DEX_SERVER_ZD_BINARY`, build `web/assets/dist`, and install Chromium with
+`npx playwright install chromium` first.
+
+Dex Web pages set no `connect-src` Content-Security-Policy, so the browser can
+reach any codec endpoint. An operator that adds a Content-Security-Policy in a
+reverse proxy must add the codec endpoint's origin to `connect-src`.
+
 ## Run standalone Dex Web against server-zd
 
 Use the standalone `dex-web` binary or `superdurable/dex-web` image described

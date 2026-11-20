@@ -11,6 +11,9 @@ import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 import { useModalFocus } from '../../components/useModalFocus';
+import { usePayloadCodec } from '../../payloadCodecContext';
+import { encodeReasonText, encodeStoredValue } from '@/lib/payloadCodec';
+import { naturalJSONValue } from '@/lib/payloadWrites';
 
 const stopTypes = [
   { value: 1, label: 'Cancel', needsReason: false, completes: false, hint: 'Requests cooperative cancellation, so running Steps can clean up.' },
@@ -48,6 +51,7 @@ export function StopFlowDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [wasOpen, setWasOpen] = useState(open);
+  const { codec } = usePayloadCodec();
   // The dialog stays mounted, so a reopen must not resend an earlier output.
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -68,6 +72,13 @@ export function StopFlowDialog({
     setSubmitting(true);
     setError('');
     try {
+      const context = { flowId: summary.flowId, flowType: summary.flowType };
+      const trimmedOutput = selected.completes ? output.trim() : '';
+      // With a codec, the browser encrypts the output and the reason; Dex Web passes them through.
+      const outputFields = trimmedOutput !== '' && codec
+        ? { encodedOutput: await encodeStoredValue(codec, context, naturalJSONValue(trimmedOutput)) }
+        : { output: trimmedOutput };
+      const encodedReason = await encodeReasonText(codec, context, selected.completes ? '' : reason);
       // The raw text keeps large integers exact; the server decodes it.
       const response = await fetch(webURL('/api/flows/stop'), {
         method: 'POST',
@@ -76,8 +87,8 @@ export function StopFlowDialog({
           flowId: summary.flowId,
           runId: summary.runId,
           stopType,
-          reason: selected.completes ? '' : reason,
-          output: selected.completes ? output.trim() : '',
+          reason: encodedReason,
+          ...outputFields,
         }),
       });
       await readResponseJSON(response);
@@ -132,6 +143,11 @@ export function StopFlowDialog({
             Reason{reasonRequired ? '' : ' (optional)'}
             <textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
+        )}
+        {codec && (
+          <small className="muted payload-write-note">
+            The {selected.completes ? 'output' : 'reason'} is encrypted in your browser with the codec endpoint.
+          </small>
         )}
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">

@@ -18,6 +18,8 @@ import {
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 import { useModalFocus } from '../../components/useModalFocus';
+import { usePayloadCodec } from '../../payloadCodecContext';
+import { encodeReasonText } from '@/lib/payloadCodec';
 import {
   HistoryPointFields,
   historyPointRequestFields,
@@ -80,6 +82,7 @@ export function TimeTravelDialog({
   const [stepMethod, setStepMethod] = useState<number>(() => initialTarget?.stepMethod ?? 0);
   const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
   const [reason, setReason] = useState('');
+  const { codec } = usePayloadCodec();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const stepTypes = useStepTypesOf(events);
@@ -113,6 +116,7 @@ export function TimeTravelDialog({
     if (supportsRunHistoryForks) payload.subFlowResetPolicy = subFlowResetPolicy;
     if (runAttempt > 0) payload.runAttempt = runAttempt;
     try {
+      payload.reason = await encodeReasonText(codec, { flowId: summary.flowId, flowType: summary.flowType }, reason);
       const response = await fetch(webURL('/api/flows/time-travel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
