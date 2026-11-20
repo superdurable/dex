@@ -1,0 +1,264 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+// Package payloadencryptioninterop defines the Flow that the cross-SDK payload
+// encryption interoperability test runs in Go, Python, and TypeScript.
+//
+// Every SDK defines the same Flow shape under its own Flow type. Each SDK's
+// Worker serves only its own Flow type, and every SDK's Client starts and reads
+// all three. Each Flow type lives in its own file, so dexcli visualize can render
+// it. Keep this package in sync with examples/python/tests/interop/ and
+// examples/typescript/test/interop/.
+package payloadencryptioninterop
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	"github.com/superdurable/dex/sdk-go/dex"
+)
+
+// Owner names one SDK in the interop test.
+type Owner string
+
+const (
+	OwnerGo         Owner = "go"
+	OwnerPython     Owner = "python"
+	OwnerTypeScript Owner = "typescript"
+)
+
+// Owners lists every SDK whose Worker takes part in the interop test.
+var Owners = []Owner{OwnerGo, OwnerPython, OwnerTypeScript}
+
+// FailInputPrefix makes the Step fail with an error that names the rest of the input.
+const FailInputPrefix = "fail:"
+
+// SecretText holds Worker-written text, so payload encryption stores it as ciphertext.
+var SecretText = dex.DefineAttribute[string]("payload-interop-secret")
+
+// StatusText stays plaintext, so a Client without a codec can read it.
+var StatusText = dex.DefineAttribute[string]("payload-interop-status", dex.Plaintext())
+
+// DocumentObject holds the input's JSON object, so it is stored as an encrypted obj_value.
+var DocumentObject = dex.DefineAttribute[PayloadInteropDocument]("payload-interop-document")
+
+// CountInteger holds the input's count, so it is stored as an encrypted int_value.
+var CountInteger = dex.DefineAttribute[int64]("payload-interop-count")
+
+// RatioDouble holds the input's ratio, so it is stored as an encrypted double_value.
+var RatioDouble = dex.DefineAttribute[float64]("payload-interop-ratio")
+
+// PayloadInteropInput is the start input of the interop Flow.
+type PayloadInteropInput struct {
+	Text     string                 `json:"text"`
+	Count    int64                  `json:"count"`
+	Ratio    float64                `json:"ratio"`
+	Document PayloadInteropDocument `json:"document"`
+}
+
+// PayloadInteropDocument is a JSON object with nested fields, arrays, and non-ASCII text.
+type PayloadInteropDocument struct {
+	Title  string               `json:"title"`
+	Tags   []string             `json:"tags"`
+	Nested PayloadInteropNested `json:"nested"`
+}
+
+// PayloadInteropNested is the nested object of PayloadInteropDocument.
+type PayloadInteropNested struct {
+	Level  int64   `json:"level"`
+	Weight float64 `json:"weight"`
+	Flags  []bool  `json:"flags"`
+	Note   string  `json:"note"`
+}
+
+// ExpectedCount is the int64 every Client sends; it needs more than 32 bits.
+const ExpectedCount int64 = -1234567890123
+
+// ExpectedRatio is the double every Client sends.
+const ExpectedRatio = 3.141592653589793
+
+// ExpectedDocument returns the JSON object every Client sends.
+func ExpectedDocument() PayloadInteropDocument {
+	return PayloadInteropDocument{
+		Title: "naïve café ✓ Grüße €",
+		Tags:  []string{"alpha", "beta ✓", ""},
+		Nested: PayloadInteropNested{
+			Level:  3,
+			Weight: 1.25,
+			Flags:  []bool{true, false},
+			Note:   "ü ß ✓",
+		},
+	}
+}
+
+// NewPayloadInteropInput returns the start input with text and the expected typed values.
+func NewPayloadInteropInput(text string) PayloadInteropInput {
+	return PayloadInteropInput{Text: text, Count: ExpectedCount, Ratio: ExpectedRatio, Document: ExpectedDocument()}
+}
+
+// ExpectedSecretText returns the encrypted Attribute value the Owner's Worker writes for input.
+func ExpectedSecretText(owner Owner, input string) string {
+	return input + " | stored by " + string(owner)
+}
+
+// ExpectedStatusText returns the plaintext Attribute value the Owner's Worker writes.
+func ExpectedStatusText(owner Owner) string {
+	return "stored by " + string(owner)
+}
+
+// ExpectedOutput returns the Flow output the Owner's Worker completes with for input.
+func ExpectedOutput(owner Owner, input string) string {
+	return "completed by " + string(owner) + ": " + input
+}
+
+// ExpectedFailureText returns the Step error text the Owner's Worker fails with for input.
+// The input is the text after FailInputPrefix.
+func ExpectedFailureText(owner Owner, input string) string {
+	return "payload interop failure in " + string(owner) + ": " + input
+}
+
+// NewPayloadInteropFlow returns the interop Flow that the Owner's Worker serves.
+func NewPayloadInteropFlow(owner Owner) dex.Flow {
+	switch owner {
+	case OwnerGo:
+		return &GoPayloadInteropFlow{}
+	case OwnerPython:
+		return &PythonPayloadInteropFlow{}
+	case OwnerTypeScript:
+		return &TypeScriptPayloadInteropFlow{}
+	}
+	panic(fmt.Sprintf("unknown payload interop owner %q", owner))
+}
+
+func payloadInteropPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{
+		SecretText, StatusText, DocumentObject, CountInteger, RatioDouble,
+	}}
+}
+
+// NewClientRegistry returns a Registry with every Owner's Flow, so one Client can start them all.
+func NewClientRegistry() (*dex.Registry, error) {
+	flows := make([]dex.Flow, 0, len(Owners))
+	for _, owner := range Owners {
+		flows = append(flows, NewPayloadInteropFlow(owner))
+	}
+	return dex.NewRegistry(flows)
+}
+
+// payloadInteropStepOptions disables retries, so a failing Step fails the Flow at once.
+func payloadInteropStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
+}
+
+// storePayloadInteropValues writes the Owner's Attributes for input. It returns the
+// Step error for an input that starts with FailInputPrefix.
+func storePayloadInteropValues(ctx dex.Context, owner Owner, input PayloadInteropInput) error {
+	if failureInput, isFailure := strings.CutPrefix(input.Text, FailInputPrefix); isFailure {
+		return errors.New(ExpectedFailureText(owner, failureInput))
+	}
+	if err := SecretText.Set(ctx, ExpectedSecretText(owner, input.Text)); err != nil {
+		return err
+	}
+	if err := StatusText.Set(ctx, ExpectedStatusText(owner)); err != nil {
+		return err
+	}
+	if err := DocumentObject.Set(ctx, input.Document); err != nil {
+		return err
+	}
+	if err := CountInteger.Set(ctx, input.Count); err != nil {
+		return err
+	}
+	return RatioDouble.Set(ctx, input.Ratio)
+}
+
+// NewFilePayloadEncryption reads a key file, such as one from dexcli codec-server keygen.
+func NewFilePayloadEncryption(keyFilePath string) (dex.PayloadEncryptionOptions, error) {
+	keys, err := dex.NewFilePayloadEncryptionKeyProvider(keyFilePath)
+	if err != nil {
+		return dex.PayloadEncryptionOptions{}, err
+	}
+	codec, err := dex.NewAESGCMPayloadCodec(keys, dex.AESGCMPayloadCodecOptions{})
+	if err != nil {
+		return dex.PayloadEncryptionOptions{}, err
+	}
+	return dex.PayloadEncryptionOptions{Codec: codec}, nil
+}
+
+// WorkerConfig configures RunGoPayloadInteropWorker.
+type WorkerConfig struct {
+	ServerAddress string
+	KeyFilePath   string
+	CacheDir      string
+}
+
+// RunGoPayloadInteropWorker serves the Go interop Flow until ctx ends.
+// It calls onReady once the Worker is registered for pull tasks.
+func RunGoPayloadInteropWorker(ctx context.Context, config WorkerConfig, onReady func()) error {
+	encryption, err := NewFilePayloadEncryption(config.KeyFilePath)
+	if err != nil {
+		return err
+	}
+	registry, err := dex.NewRegistry([]dex.Flow{&GoPayloadInteropFlow{}})
+	if err != nil {
+		return err
+	}
+	cache, err := blobcache.New(&blobcache.Config{Dir: config.CacheDir, MaxBytes: 64 << 20})
+	if err != nil {
+		return err
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: config.ServerAddress,
+		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
+		PayloadEncryption:  encryption,
+	})
+	if err != nil {
+		return errors.Join(err, cache.Close())
+	}
+	workerResult := make(chan error, 1)
+	go func() { workerResult <- worker.Start() }()
+	startupContext, cancelStartup := context.WithTimeout(ctx, time.Minute)
+	defer cancelStartup()
+	if err := worker.WaitPullRegistered(startupContext); err != nil {
+		return errors.Join(err, stopPayloadInteropWorker(worker, workerResult), cache.Close())
+	}
+	onReady()
+	select {
+	case <-ctx.Done():
+		return errors.Join(stopPayloadInteropWorker(worker, workerResult), cache.Close())
+	case err := <-workerResult:
+		return errors.Join(err, cache.Close())
+	}
+}
+
+func stopPayloadInteropWorker(worker *dex.Worker, workerResult <-chan error) error {
+	stopContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stopErr := worker.Stop(stopContext)
+	select {
+	case runErr := <-workerResult:
+		return errors.Join(stopErr, runErr)
+	case <-stopContext.Done():
+		return errors.Join(stopErr, stopContext.Err())
+	}
+}

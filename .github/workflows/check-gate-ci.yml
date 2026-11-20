@@ -284,6 +284,32 @@ jobs:
               - 'examples/typescript/**'
               - '.github/workflows/examples-typescript-ci.yml'
               - 'examples/entity-store/**'
+            payload_encryption_interop:
+              - 'examples/run-payload-encryption-interop-tests.sh'
+              - 'examples/go/interop/**'
+              - 'examples/python/tests/interop/**'
+              - 'examples/typescript/test/interop/**'
+              - 'examples/go/codec-server/**'
+              - 'examples/python/codec-server/**'
+              - 'examples/typescript/codec-server/**'
+              - 'examples/go/go.mod'
+              - 'examples/go/go.sum'
+              - 'examples/python/pyproject.toml'
+              - 'examples/python/uv.lock'
+              - 'examples/typescript/package.json'
+              - 'examples/typescript/package-lock.json'
+              - 'examples/go/production/payload-encryption/**'
+              - 'examples/python/dex_examples/production/payload_encryption.py'
+              - 'examples/typescript/src/production/payload-encryption.ts'
+              - 'cli/internal/payloadcodec/**'
+              - 'cli/internal/dev/**'
+              - 'sdk-go/dex/payload_encryption*'
+              - 'sdk-python/dex/payload_encryption.py'
+              - 'sdk-python/dex/_payload_message_codec.py'
+              - 'sdk-typescript/src/payload-*'
+              - 'protos/payload-encryption.md'
+              - 'protos/conformance/payload-encryption/**'
+              - '.github/workflows/payload-encryption-interop-ci.yml'
             generated_code:
               - 'protos/**'
               - 'sdk-go/gen/dexpb/**'
@@ -419,6 +445,7 @@ jobs:
           FILTER_SERVER_ZD_BINARY: ${{ steps.filter.outputs.server_zd_binary }}
           FILTER_SERVER_ZD_MINIO: ${{ steps.filter.outputs.server_zd_minio }}
           FILTER_EXAMPLES_TYPESCRIPT: ${{ steps.filter.outputs.examples_typescript }}
+          FILTER_PAYLOAD_ENCRYPTION_INTEROP: ${{ steps.filter.outputs.payload_encryption_interop }}
           FILTER_GENERATED_CODE: ${{ steps.filter.outputs.generated_code }}
           FILTER_RELEASE_TOOLING: ${{ steps.filter.outputs.release_tooling }}
           FILTER_SKILLS: ${{ steps.filter.outputs.skills }}
@@ -450,6 +477,7 @@ jobs:
           [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
           [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
           [[ "$FILTER_EXAMPLES_TYPESCRIPT" == "true" ]] && expected+=("TypeScript examples CI")
+          [[ "$FILTER_PAYLOAD_ENCRYPTION_INTEROP" == "true" ]] && expected+=("Payload encryption interop CI")
           [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
           [[ "$FILTER_RELEASE_TOOLING" == "true" ]] && expected+=("Release Tooling CI")
           [[ "$FILTER_SKILLS" == "true" ]] && expected+=("Skills CI")
@@ -475,6 +503,7 @@ jobs:
               "Python examples CI"
               "Rust examples CI"
               "TypeScript examples CI"
+              "Payload encryption interop CI"
             )
             blocking=()
             for name in "${expected[@]}"; do

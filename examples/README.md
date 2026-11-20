@@ -137,3 +137,25 @@ implemented across all five language SDK examples.
 
 Each language README has setup, env overrides, and verify steps. CI workflows
 are `.github/workflows/examples-*-ci.yml`.
+
+# Cross-SDK payload encryption test
+
+[`run-payload-encryption-interop-tests.sh`](run-payload-encryption-interop-tests.sh)
+checks that Go, Python, and TypeScript read each other's encrypted values. It
+starts one Dex server and writes one key file with `dexcli codec-server keygen`.
+It then runs one Worker per SDK. Each Worker serves the same Flow under its own
+Flow type, and each SDK's Client starts and reads all three. The Go test also
+reads and writes through the dexcli codec server and the three example codec
+servers. It checks their authentication and CORS too.
+
+The test code lives in [go/interop/](go/interop/),
+[python/tests/interop/](python/tests/interop/), and
+[typescript/test/interop/](typescript/test/interop/). It uses the same released
+SDK versions as the other examples. Install the dependencies the script lists,
+then run it from the repository root:
+
+```bash
+./examples/run-payload-encryption-interop-tests.sh
+```
+
+CI runs it in `.github/workflows/payload-encryption-interop-ci.yml`.
