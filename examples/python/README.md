@@ -90,6 +90,7 @@ test scripts already run them separately.
 - [AI Agent](./ai-agent/) (Python only; an agent on the Dex Agents built-in agent loop with MCP tools, approvals, questions, durable waits, plans, queued messages, Steer, and context compaction; UI assets in [`ai-agent/`](./ai-agent))
 - [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate uv project)
 - [Agent harnesses](./agent-harnesses/) (Python only; one order support agent on each of the Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, LangChain, and Google ADK, as durable Dex agent sessions with an approval-gated write; a separate uv project)
+- [Codec server](./codec-server/) (a deployable payload-encryption codec server for Dex Web and dexcli, not a Worker; a separate uv project)
 
 ## Patterns
 

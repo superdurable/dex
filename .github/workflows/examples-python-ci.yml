@@ -130,3 +130,43 @@ jobs:
           name: python-examples-integ-services-zd
           path: /tmp/test-python-examples-integ-services.log
           if-no-files-found: ignore
+
+  codec-server:
+    name: Codec server (type check, tests, image)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/python/codec-server
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: examples/python/codec-server
+          enable-cache: true
+      - name: Install codec server dependencies
+        run: uv sync --locked
+      - name: Type-check codec server
+        run: uv run --frozen mypy --strict .
+      - name: Test codec server
+        run: uv run --frozen pytest -v
+      - name: Verify codec server uses published dex-python-sdk
+        run: |
+          set -euo pipefail
+          uv run --frozen --no-sync python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          package = next(
+              package
+              for package in tomllib.loads(Path("uv.lock").read_text())["package"]
+              if package["name"] == "dex-python-sdk"
+          )
+          if "registry" not in package.get("source", {}):
+              raise SystemExit("the codec server must depend on published dex-python-sdk, not a path dependency")
+          print(f"dex-python-sdk {package['version']}")
+          PY
+      - name: Build codec server image
+        run: docker build -t dex-codec-server-python:ci .
