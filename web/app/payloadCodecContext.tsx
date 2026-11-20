@@ -10,13 +10,16 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
+  CODEC_BEARER_TOKEN_STORAGE_KEY,
   fetchLocalCodecServer,
   PayloadDecodeStore,
-  readCodecBearerToken,
+  readCodecBearerTokenRecord,
   readCodecEndpointPreference,
   resolveCodecEndpoint,
-  saveCodecBearerToken,
+  saveCodecBearerTokenRecord,
   saveCodecEndpointPreference,
+  type CodecBearerTokenRecord,
+  type CodecBearerTokenStorages,
   type CodecEndpoint,
   type CodecEndpointPreference,
   type LocalCodecServer,
@@ -27,10 +30,17 @@ import { collectPayloadEnvelopes, containsEncryptedPayload, replaceEncryptedPayl
 interface PayloadCodecState {
   preference: CodecEndpointPreference;
   setPreference: (next: CodecEndpointPreference) => void;
-  /** The Custom mode bearer token; kept in session storage only and sent only to the custom codec endpoint. */
-  customBearerToken: string;
-  /** Sets the Custom mode bearer token; an empty token removes it. */
-  setCustomBearerToken: (token: string) => void;
+  /** The Custom URL the saved bearer token belongs to; null when no token is saved. The token is never exposed. */
+  savedBearerTokenEndpoint: string | null;
+  /**
+   * Saves a Custom configuration with its canonical URL.
+   *
+   * A typed token replaces the saved one. An empty typedToken keeps the saved token only for the same URL; a new
+   * URL drops it. The token goes to local storage when rememberBearerToken is set, or to session storage otherwise.
+   */
+  saveCustomCodecEndpoint: (next: CodecEndpointPreference, typedToken: string) => void;
+  /** Deletes the saved bearer token from local and session storage. */
+  deleteCustomBearerToken: () => void;
   /** The local dev codec server Dex Web reports; null until read or when the read fails. */
   localServer: LocalCodecServer | null;
   /** The endpoint in use; null when no codec is configured. */
@@ -43,10 +53,11 @@ interface PayloadCodecState {
 const unconfiguredStore = new PayloadDecodeStore(null);
 
 const PayloadCodecContext = createContext<PayloadCodecState>({
-  preference: { mode: 'off', endpoint: '', includeCredentials: false },
+  preference: { mode: 'off', endpoint: '', includeCredentials: false, rememberBearerToken: true },
   setPreference: () => undefined,
-  customBearerToken: '',
-  setCustomBearerToken: () => undefined,
+  savedBearerTokenEndpoint: null,
+  saveCustomCodecEndpoint: () => undefined,
+  deleteCustomBearerToken: () => undefined,
   localServer: null,
   codec: null,
   store: unconfiguredStore,
@@ -69,11 +80,28 @@ function tabSessionStorage(): Storage | undefined {
   }
 }
 
+function bearerTokenStorages(): CodecBearerTokenStorages {
+  return { local: browserStorage(), session: tabSessionStorage() };
+}
+
 /** Holds the codec endpoint choice and the in-memory decode results of this page. */
 export function PayloadCodecProvider({ children }: { children: React.ReactNode }) {
   const [preference, setPreferenceState] = useState(() => readCodecEndpointPreference(browserStorage()));
-  const [customBearerToken, setCustomBearerTokenState] = useState(() => readCodecBearerToken(tabSessionStorage()));
+  const [tokenRecord, setTokenRecord] = useState(
+    () => readCodecBearerTokenRecord(bearerTokenStorages(), preference.rememberBearerToken),
+  );
   const [localServer, setLocalServer] = useState<LocalCodecServer | null>(null);
+
+  // Another tab that saves or clears the token changes local storage; follow it so a cleared token is dropped.
+  const rememberBearerToken = preference.rememberBearerToken;
+  useEffect(() => {
+    const followOtherTab = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== CODEC_BEARER_TOKEN_STORAGE_KEY) return;
+      setTokenRecord(readCodecBearerTokenRecord(bearerTokenStorages(), rememberBearerToken));
+    };
+    window.addEventListener('storage', followOtherTab);
+    return () => window.removeEventListener('storage', followOtherTab);
+  }, [rememberBearerToken]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,8 +112,8 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const codec = useMemo(
-    () => resolveCodecEndpoint(preference, localServer, customBearerToken),
-    [customBearerToken, preference, localServer],
+    () => resolveCodecEndpoint(preference, localServer, tokenRecord),
+    [tokenRecord, preference, localServer],
   );
   const [retryCount, setRetryCount] = useState(0);
   // A new endpoint or a retry starts with an empty store, so earlier results and failures are dropped.
@@ -93,22 +121,33 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
     void retryCount;
     return new PayloadDecodeStore(codec);
   }, [codec, retryCount]);
-  const value = useMemo<PayloadCodecState>(() => ({
-    retryDecoding: () => setRetryCount((count) => count + 1),
-    preference,
-    setPreference: (next) => {
+  const value = useMemo<PayloadCodecState>(() => {
+    const setPreference = (next: CodecEndpointPreference) => {
       setPreferenceState(next);
       saveCodecEndpointPreference(browserStorage(), next);
-    },
-    customBearerToken,
-    setCustomBearerToken: (token) => {
-      setCustomBearerTokenState(token);
-      saveCodecBearerToken(tabSessionStorage(), token);
-    },
-    localServer,
-    codec,
-    store,
-  }), [codec, customBearerToken, localServer, preference, store]);
+    };
+    const saveTokenRecord = (record: CodecBearerTokenRecord | null, remember: boolean) => {
+      setTokenRecord(record);
+      saveCodecBearerTokenRecord(bearerTokenStorages(), record, remember);
+    };
+    return {
+      retryDecoding: () => setRetryCount((count) => count + 1),
+      preference,
+      setPreference,
+      savedBearerTokenEndpoint: tokenRecord?.endpoint ?? null,
+      saveCustomCodecEndpoint: (next, typedToken) => {
+        let record: CodecBearerTokenRecord | null = null;
+        if (typedToken) record = { endpoint: next.endpoint, token: typedToken };
+        else if (tokenRecord?.endpoint === next.endpoint) record = tokenRecord;
+        saveTokenRecord(record, next.rememberBearerToken);
+        setPreference(next);
+      },
+      deleteCustomBearerToken: () => saveTokenRecord(null, preference.rememberBearerToken),
+      localServer,
+      codec,
+      store,
+    };
+  }, [codec, localServer, preference, store, tokenRecord]);
   return <PayloadCodecContext.Provider value={value}>{children}</PayloadCodecContext.Provider>;
 }
 

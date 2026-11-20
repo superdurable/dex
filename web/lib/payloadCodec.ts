@@ -23,10 +23,16 @@ import {
   type PayloadValueJSON,
 } from './payloadEncryption';
 
-/** The local storage key of the viewer's codec endpoint choice. It never holds a token or a payload. */
+/**
+ * The local storage key of the viewer's codec endpoint choice. It never holds a token or a payload; a Custom mode
+ * bearer token is kept under CODEC_BEARER_TOKEN_STORAGE_KEY instead.
+ */
 export const CODEC_SETTINGS_STORAGE_KEY = 'dex-web-codec-endpoint';
 
-/** The session storage key of the Custom mode bearer token; it is never written to local storage. */
+/**
+ * The storage key of the Custom mode bearer token and its endpoint URL. It is in local storage when
+ * rememberBearerToken is set, and in the tab's session storage otherwise; never in both.
+ */
 export const CODEC_BEARER_TOKEN_STORAGE_KEY = 'dex-web-codec-bearer-token';
 
 /** auto uses the local dev codec server when Dex Web reports one; custom uses the saved URL; off decrypts nothing. */
@@ -38,6 +44,8 @@ export interface CodecEndpointPreference {
   endpoint: string;
   /** Sends cookies, such as an SSO proxy session, with codec requests. */
   includeCredentials: boolean;
+  /** Keeps the Custom mode bearer token in local storage, shared by tabs; otherwise in this tab's session storage. */
+  rememberBearerToken: boolean;
 }
 
 /** What GET /api/codec-server reports about a local codec server, such as the one dexcli dev starts. */
@@ -66,7 +74,8 @@ export interface PayloadFlowContext {
 export const DEFAULT_CODEC_ENDPOINT_PREFERENCE: CodecEndpointPreference = {
   mode: 'auto',
   endpoint: '',
-  includeCredentials: true,
+  includeCredentials: false,
+  rememberBearerToken: true,
 };
 
 const maxEntriesPerRequest = 500;
@@ -80,10 +89,13 @@ export function readCodecEndpointPreference(storage: Pick<Storage, 'getItem'> | 
     const saved = JSON.parse(storage?.getItem(CODEC_SETTINGS_STORAGE_KEY) ?? 'null') as Partial<CodecEndpointPreference> | null;
     if (!saved || typeof saved !== 'object') return DEFAULT_CODEC_ENDPOINT_PREFERENCE;
     const mode = saved.mode === 'custom' || saved.mode === 'off' ? saved.mode : 'auto';
+    const endpoint = typeof saved.endpoint === 'string' ? saved.endpoint : '';
     return {
       mode,
-      endpoint: typeof saved.endpoint === 'string' ? saved.endpoint : '',
-      includeCredentials: saved.includeCredentials !== false,
+      endpoint,
+      // Without a saved Custom URL there is no cookie choice yet; a new Custom configuration starts without cookies.
+      includeCredentials: endpoint !== '' && saved.includeCredentials !== false,
+      rememberBearerToken: saved.rememberBearerToken !== false,
     };
   } catch {
     return DEFAULT_CODEC_ENDPOINT_PREFERENCE;
@@ -96,29 +108,65 @@ export function saveCodecEndpointPreference(storage: Pick<Storage, 'setItem'> | 
       mode: preference.mode,
       endpoint: preference.endpoint,
       includeCredentials: preference.includeCredentials,
+      rememberBearerToken: preference.rememberBearerToken,
     }));
   } catch (storageError) {
     console.warn('Unable to save the codec endpoint preference.', storageError);
   }
 }
 
-/** Reads the Custom mode bearer token; a missing or unreadable entry returns an empty token. */
-export function readCodecBearerToken(storage: Pick<Storage, 'getItem'> | undefined): string {
+/** The two places a Custom mode bearer token can be kept: local storage and the tab's session storage. */
+export interface CodecBearerTokenStorages {
+  local: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined;
+  session: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | undefined;
+}
+
+/** A saved Custom mode bearer token and the canonical codec endpoint URL it belongs to. */
+export interface CodecBearerTokenRecord {
+  endpoint: string;
+  token: string;
+}
+
+function readStoredTokenRecord(storage: Pick<Storage, 'getItem'> | undefined): CodecBearerTokenRecord | null {
   try {
-    return storage?.getItem(CODEC_BEARER_TOKEN_STORAGE_KEY) ?? '';
+    const saved = JSON.parse(storage?.getItem(CODEC_BEARER_TOKEN_STORAGE_KEY) ?? 'null') as Partial<CodecBearerTokenRecord> | null;
+    if (!saved || typeof saved.endpoint !== 'string' || typeof saved.token !== 'string' || !saved.token) return null;
+    return { endpoint: saved.endpoint, token: saved.token };
   } catch {
-    return '';
+    return null;
   }
 }
 
-/** Saves the Custom mode bearer token for this tab; an empty token removes the entry. */
-export function saveCodecBearerToken(storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined, token: string) {
+function writeStoredTokenRecord(
+  storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined,
+  record: CodecBearerTokenRecord | null,
+) {
   try {
-    if (token) storage?.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, token);
+    if (record) storage?.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, JSON.stringify({ endpoint: record.endpoint, token: record.token }));
     else storage?.removeItem(CODEC_BEARER_TOKEN_STORAGE_KEY);
   } catch {
     // The token stays in page memory; the error is not logged, so it cannot carry the token.
   }
+}
+
+/**
+ * Reads the saved Custom mode bearer token record; null when none is saved or it cannot be read.
+ *
+ * It reads the storage that remember selects first, then the other one, so a token saved before is kept.
+ */
+export function readCodecBearerTokenRecord(storages: CodecBearerTokenStorages, remember: boolean): CodecBearerTokenRecord | null {
+  const [preferred, other] = remember ? [storages.local, storages.session] : [storages.session, storages.local];
+  return readStoredTokenRecord(preferred) ?? readStoredTokenRecord(other);
+}
+
+/** Saves the record in the storage that remember selects and removes it from the other; null removes both. */
+export function saveCodecBearerTokenRecord(
+  storages: CodecBearerTokenStorages,
+  record: CodecBearerTokenRecord | null,
+  remember: boolean,
+) {
+  writeStoredTokenRecord(remember ? storages.local : storages.session, record);
+  writeStoredTokenRecord(remember ? storages.session : storages.local, null);
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -149,12 +197,13 @@ export function parseCodecEndpointURL(text: string): { endpoint: string } | { er
 /**
  * Combines the viewer's choice with the local dev codec server; null means no codec is configured.
  *
- * customBearerToken applies only in custom mode; auto mode uses the local server's own token.
+ * savedToken applies only in custom mode, and only when its endpoint equals the Custom URL. Auto mode uses the local
+ * server's own token.
  */
 export function resolveCodecEndpoint(
   preference: CodecEndpointPreference,
   local: LocalCodecServer | null,
-  customBearerToken = '',
+  savedToken: CodecBearerTokenRecord | null = null,
 ): CodecEndpoint | null {
   if (preference.mode === 'off') return null;
   if (preference.mode === 'custom') {
@@ -163,7 +212,7 @@ export function resolveCodecEndpoint(
     return {
       endpoint: parsed.endpoint,
       includeCredentials: preference.includeCredentials,
-      bearerToken: customBearerToken,
+      bearerToken: savedToken?.endpoint === parsed.endpoint ? savedToken.token : '',
       source: 'custom',
     };
   }
@@ -264,6 +313,8 @@ async function postCodecRequest<T>(
       cache: 'no-store',
       credentials: codec.includeCredentials ? 'include' : 'omit',
       referrerPolicy: 'no-referrer',
+      // A same-origin redirect would keep the Authorization header, so redirects fail instead.
+      redirect: 'error',
       signal: AbortSignal.timeout(codecRequestTimeoutMilliseconds),
     });
   } catch {
@@ -275,7 +326,9 @@ async function postCodecRequest<T>(
     let index: number | undefined;
     try {
       const failure = (await response.json() as { error?: { category?: unknown; index?: unknown } }).error;
-      if (typeof failure?.category === 'string' && protocolCategories.has(failure.category as EncryptedPayloadProblem)) {
+      // A 401 stays unauthenticated, so its hint always names the credentials.
+      if (response.status !== 401 && typeof failure?.category === 'string'
+        && protocolCategories.has(failure.category as EncryptedPayloadProblem)) {
         category = failure.category as EncryptedPayloadProblem;
       }
       if (typeof failure?.index === 'number' && Number.isInteger(failure.index)) index = failure.index;

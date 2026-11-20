@@ -14,10 +14,10 @@ import {
   payloadCodecErrorMessage,
   PayloadDecodeStore,
   readableErrorMessage,
-  readCodecBearerToken,
+  readCodecBearerTokenRecord,
   readCodecEndpointPreference,
   resolveCodecEndpoint,
-  saveCodecBearerToken,
+  saveCodecBearerTokenRecord,
   saveCodecEndpointPreference,
   type CodecEndpoint,
 } from './payloadCodec';
@@ -41,11 +41,11 @@ async function settle() {
 
 describe('codec endpoint settings', () => {
   it('uses the local dev codec server in auto mode and sends its token only there', () => {
-    const auto = { mode: 'auto' as const, endpoint: '', includeCredentials: true };
+    const auto = { mode: 'auto' as const, endpoint: '', includeCredentials: true, rememberBearerToken: true };
     expect(resolveCodecEndpoint(auto, local)).toEqual(localCodec);
     expect(resolveCodecEndpoint(auto, { configured: false, endpoint: '', token: '' })).toBeNull();
     expect(resolveCodecEndpoint({ ...auto, mode: 'off' }, local)).toBeNull();
-    expect(resolveCodecEndpoint({ mode: 'custom', endpoint: 'https://codec.example.com/', includeCredentials: true }, local))
+    expect(resolveCodecEndpoint({ ...auto, mode: 'custom', endpoint: 'https://codec.example.com/' }, local))
       .toEqual({ endpoint: 'https://codec.example.com', includeCredentials: true, bearerToken: '', source: 'custom' });
   });
 
@@ -56,47 +56,124 @@ describe('codec endpoint settings', () => {
     expect(parseCodecEndpointURL('https://user:pass@codec.example.com')).toHaveProperty('error');
   });
 
-  it('saves only the mode, URL, and credentials choice', () => {
+  it('saves only the mode, URL, credentials, and remember choices, never a token', () => {
     const storage = new Map<string, string>();
     const fake = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) };
-    saveCodecEndpointPreference(fake, { mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: false });
-    expect(JSON.parse(storage.get('dex-web-codec-endpoint') ?? '')).toEqual({
-      mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: false,
+    saveCodecEndpointPreference(fake, {
+      mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: false, rememberBearerToken: false,
     });
-    expect(readCodecEndpointPreference(fake).mode).toBe('custom');
+    expect(JSON.parse(storage.get('dex-web-codec-endpoint') ?? '')).toEqual({
+      mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: false, rememberBearerToken: false,
+    });
+    expect(readCodecEndpointPreference(fake)).toMatchObject({ mode: 'custom', rememberBearerToken: false });
     expect(readCodecEndpointPreference(undefined).mode).toBe('auto');
   });
 
-  it('uses the custom bearer token only in custom mode', () => {
-    const custom = { mode: 'custom' as const, endpoint: 'https://codec.example.com', includeCredentials: false };
-    expect(resolveCodecEndpoint(custom, local, 'custom-token')?.bearerToken).toBe('custom-token');
-    expect(resolveCodecEndpoint({ ...custom, mode: 'auto' }, local, 'custom-token')?.bearerToken).toBe('secret-token');
+  it('remembers the bearer token when an older saved preference has no remember field', () => {
+    const saved = JSON.stringify({ mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: false });
+    expect(readCodecEndpointPreference({ getItem: () => saved }).rememberBearerToken).toBe(true);
+    expect(readCodecEndpointPreference(undefined).rememberBearerToken).toBe(true);
   });
 
-  it('keeps the bearer token in its own storage entry and removes it when cleared', () => {
-    const storage = new Map<string, string>();
-    const fake = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-      removeItem: (key: string) => storage.delete(key),
+  it('starts a new Custom configuration without cookies and keeps a saved choice', () => {
+    expect(readCodecEndpointPreference(undefined).includeCredentials).toBe(false);
+    const autoBefore = JSON.stringify({ mode: 'auto', endpoint: '', includeCredentials: true });
+    expect(readCodecEndpointPreference({ getItem: () => autoBefore }).includeCredentials).toBe(false);
+    const savedCustom = JSON.stringify({ mode: 'custom', endpoint: 'https://codec.example.com', includeCredentials: true });
+    expect(readCodecEndpointPreference({ getItem: () => savedCustom }).includeCredentials).toBe(true);
+  });
+
+  it('uses the saved bearer token only in custom mode and only for its own URL', () => {
+    const custom = { mode: 'custom' as const, endpoint: 'https://codec.example.com/', includeCredentials: false, rememberBearerToken: true };
+    const saved = { endpoint: 'https://codec.example.com', token: 'custom-token' };
+    expect(resolveCodecEndpoint(custom, local, saved)?.bearerToken).toBe('custom-token');
+    expect(resolveCodecEndpoint({ ...custom, endpoint: 'https://other.example.com' }, local, saved)?.bearerToken).toBe('');
+    expect(resolveCodecEndpoint({ ...custom, mode: 'auto' }, local, saved)?.bearerToken).toBe('secret-token');
+    expect(resolveCodecEndpoint({ ...custom, mode: 'off' }, local, saved)).toBeNull();
+  });
+});
+
+describe('bearer token storage', () => {
+  const tokenKey = 'dex-web-codec-bearer-token';
+
+  function fakeStorage() {
+    const entries = new Map<string, string>();
+    return {
+      entries,
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => { entries.set(key, value); },
+      removeItem: (key: string) => { entries.delete(key); },
     };
-    saveCodecBearerToken(fake, 'custom-token');
-    expect(readCodecBearerToken(fake)).toBe('custom-token');
-    saveCodecBearerToken(fake, '');
-    expect(storage.has('dex-web-codec-bearer-token')).toBe(false);
-    expect(readCodecBearerToken(undefined)).toBe('');
+  }
+
+  const record = { endpoint: 'https://codec.example.com', token: 'custom-token' };
+  const stored = (endpoint: string, token: string) => JSON.stringify({ endpoint, token });
+
+  it('keeps a remembered token record in local storage only', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    saveCodecBearerTokenRecord(storages, record, true);
+    expect(JSON.parse(storages.local.entries.get(tokenKey) ?? '')).toEqual(record);
+    expect(storages.session.entries.has(tokenKey)).toBe(false);
+    expect(readCodecBearerTokenRecord(storages, true)).toEqual(record);
+  });
+
+  it('keeps a tab-only token record in session storage only', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    saveCodecBearerTokenRecord(storages, record, false);
+    expect(JSON.parse(storages.session.entries.get(tokenKey) ?? '')).toEqual(record);
+    expect(storages.local.entries.has(tokenKey)).toBe(false);
+    expect(readCodecBearerTokenRecord(storages, false)).toEqual(record);
+  });
+
+  it('moves the record when the remember choice changes', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    saveCodecBearerTokenRecord(storages, record, false);
+    saveCodecBearerTokenRecord(storages, record, true);
+    expect(storages.local.entries.has(tokenKey)).toBe(true);
+    expect(storages.session.entries.has(tokenKey)).toBe(false);
+    saveCodecBearerTokenRecord(storages, record, false);
+    expect(storages.session.entries.has(tokenKey)).toBe(true);
+    expect(storages.local.entries.has(tokenKey)).toBe(false);
+  });
+
+  it('reads the other storage when the preferred one has no record', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    storages.session.entries.set(tokenKey, stored('https://a.example.com', 'tab-token'));
+    expect(readCodecBearerTokenRecord(storages, true)?.token).toBe('tab-token');
+    storages.local.entries.set(tokenKey, stored('https://a.example.com', 'browser-token'));
+    expect(readCodecBearerTokenRecord(storages, true)?.token).toBe('browser-token');
+    expect(readCodecBearerTokenRecord(storages, false)?.token).toBe('tab-token');
+  });
+
+  it('removes the record from both storages when deleted', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    storages.local.entries.set(tokenKey, stored('https://a.example.com', 'browser-token'));
+    storages.session.entries.set(tokenKey, stored('https://a.example.com', 'tab-token'));
+    saveCodecBearerTokenRecord(storages, null, true);
+    expect(storages.local.entries.has(tokenKey)).toBe(false);
+    expect(storages.session.entries.has(tokenKey)).toBe(false);
+  });
+
+  it('ignores an unreadable record and survives missing or throwing storage', () => {
+    const storages = { local: fakeStorage(), session: fakeStorage() };
+    storages.local.entries.set(tokenKey, 'not-json');
+    expect(readCodecBearerTokenRecord(storages, true)).toBeNull();
     const throwing = {
       getItem: () => { throw new Error('blocked'); },
       setItem: () => { throw new Error('blocked'); },
       removeItem: () => { throw new Error('blocked'); },
     };
-    expect(readCodecBearerToken(throwing)).toBe('');
-    expect(() => saveCodecBearerToken(throwing, 'custom-token')).not.toThrow();
+    expect(readCodecBearerTokenRecord({ local: undefined, session: undefined }, true)).toBeNull();
+    expect(readCodecBearerTokenRecord({ local: throwing, session: throwing }, true)).toBeNull();
+    expect(() => saveCodecBearerTokenRecord({ local: throwing, session: throwing }, record, true)).not.toThrow();
   });
 });
 
 describe('codec request headers', () => {
-  const customPreference = { mode: 'custom' as const, endpoint: 'https://codec.example.com', includeCredentials: false };
+  const customPreference = {
+    mode: 'custom' as const, endpoint: 'https://codec.example.com', includeCredentials: false, rememberBearerToken: true,
+  };
+  const savedToken = { endpoint: 'https://codec.example.com', token: 'custom-token' };
 
   async function decodeWith(codec: CodecEndpoint | null) {
     const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => (
@@ -106,11 +183,31 @@ describe('codec request headers', () => {
     store.request(context, ['AAAA']);
     await settle();
     const init = fetcher.mock.calls[0][1];
-    return { headers: init?.headers as Record<string, string>, credentials: init?.credentials };
+    return { headers: init?.headers as Record<string, string>, credentials: init?.credentials, redirect: init?.redirect };
   }
 
+  it('refuses redirects, so a token cannot follow one', async () => {
+    expect((await decodeWith(resolveCodecEndpoint(customPreference, null, savedToken))).redirect).toBe('error');
+    const failing = vi.fn(async () => { throw new TypeError('redirect'); });
+    const failure = await encodeReasonText(resolveCodecEndpoint(customPreference, null, savedToken), context, 'why', failing as typeof fetch)
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ category: 'unavailable' });
+  });
+
+  it('keeps a 401 unauthenticated whatever category its body names', async () => {
+    const fetcher = vi.fn(async () => jsonResponse(401, { error: { category: 'forbidden', message: 'no' } }));
+    const codec = resolveCodecEndpoint(customPreference, null, savedToken);
+    const encodeFailure = await encodeReasonText(codec, context, 'why', fetcher as typeof fetch).catch((error: unknown) => error);
+    expect(encodeFailure).toMatchObject({ category: 'unauthenticated' });
+    expect((encodeFailure as Error).message).toContain('bearer token');
+    const store = new PayloadDecodeStore(codec, fetcher as typeof fetch);
+    store.request(context, ['AAAA']);
+    await settle();
+    expect(store.failure()).toBe('unauthenticated');
+  });
+
   it('sends the custom bearer token to /decode and /encode', async () => {
-    const codec = resolveCodecEndpoint(customPreference, null, 'custom-token');
+    const codec = resolveCodecEndpoint(customPreference, null, savedToken);
     expect((await decodeWith(codec)).headers.Authorization).toBe('Bearer custom-token');
     const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse(200, { envelopes: ['RU5W'] }));
     await encodeReasonText(codec, context, 'why', fetcher as typeof fetch);
@@ -120,21 +217,21 @@ describe('codec request headers', () => {
 
   it('sends no Authorization header without a token or after the token is cleared', async () => {
     expect((await decodeWith(resolveCodecEndpoint(customPreference, null))).headers).not.toHaveProperty('Authorization');
-    expect((await decodeWith(resolveCodecEndpoint(customPreference, null, ''))).headers).not.toHaveProperty('Authorization');
+    expect((await decodeWith(resolveCodecEndpoint(customPreference, null, null))).headers).not.toHaveProperty('Authorization');
   });
 
   it('sends the token together with cookies when Send cookies is selected', async () => {
-    const withCookies = await decodeWith(resolveCodecEndpoint({ ...customPreference, includeCredentials: true }, null, 'custom-token'));
+    const withCookies = await decodeWith(resolveCodecEndpoint({ ...customPreference, includeCredentials: true }, null, savedToken));
     expect(withCookies.headers.Authorization).toBe('Bearer custom-token');
     expect(withCookies.credentials).toBe('include');
-    const withoutCookies = await decodeWith(resolveCodecEndpoint(customPreference, null, 'custom-token'));
+    const withoutCookies = await decodeWith(resolveCodecEndpoint(customPreference, null, savedToken));
     expect(withoutCookies.credentials).toBe('omit');
   });
 
   it('names the bearer token in a custom 401 message without echoing it', () => {
     const missing = payloadCodecErrorMessage('unauthenticated', resolveCodecEndpoint(customPreference, null));
     expect(missing).toContain('bearer token');
-    const wrong = payloadCodecErrorMessage('unauthenticated', resolveCodecEndpoint(customPreference, null, 'custom-token'));
+    const wrong = payloadCodecErrorMessage('unauthenticated', resolveCodecEndpoint(customPreference, null, savedToken));
     expect(wrong).toContain('bearer token');
     expect(wrong).not.toContain('custom-token');
     expect(payloadCodecErrorMessage('unauthenticated', localCodec)).not.toContain('bearer token');
@@ -142,7 +239,7 @@ describe('codec request headers', () => {
 
   it('names the bearer token when /encode answers 401, without echoing it', async () => {
     const fetcher = vi.fn(async () => jsonResponse(401, { error: { category: 'unauthenticated', message: 'no' } }));
-    const codec = resolveCodecEndpoint(customPreference, null, 'custom-token');
+    const codec = resolveCodecEndpoint(customPreference, null, savedToken);
     const failure = await encodeReasonText(codec, context, 'why', fetcher as typeof fetch).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toContain('bearer token');

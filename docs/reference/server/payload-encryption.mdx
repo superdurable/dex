@@ -603,11 +603,15 @@ to Dex Web. It hands the endpoint and token to its Dex Web and to the
 Set the codec server in **Settings** > **Codec endpoint**:
 
 - **Auto** uses the local codec server of `dexcli dev -codec-key-file`.
-- **Custom** uses the codec server URL you enter. Select
-  **Send cookies (SSO proxy)** when an SSO proxy in front of the codec server
-  authenticates the browser by cookie. The codec server must then allow
-  credentials in its CORS response.
+- **Custom** uses the codec server URL you enter.
 - **Off** leaves encrypted values encrypted.
+
+**Send cookies (SSO proxy)** sends your browser's cookies with each request
+to the codec server. Turn it on only when an SSO proxy in front of the codec
+server signs you in by cookie. The codec server must allow credentials in its
+CORS response. Leave it off for `dexcli codec-server` and for a bearer token.
+Changed in Dex Web 1.45.17: it is off for a new Custom configuration. A saved
+Custom configuration keeps its choice.
 
 Since Dex Web 1.45.17, **Custom** also takes an optional bearer token. Use it
 for a codec server that requires one, such as `dexcli codec-server` next to a
@@ -617,15 +621,21 @@ hosted Dex Web calls. Dex Web sends the token as `Authorization: Bearer
 sends the token to the Dex Web server. An empty token sends no
 `Authorization` header.
 
-- The token stays in the browser tab's session storage. A reload of the same
-  tab keeps it. A new tab or a closed tab does not.
-- **Clear token** removes it.
-- The token and **Send cookies (SSO proxy)** work together. A codec server
-  that does not allow credentials in its CORS response, such as
-  `dexcli codec-server`, needs **Send cookies (SSO proxy)** cleared.
-  Otherwise the browser blocks its responses.
+- The token belongs to the URL you saved it with. Saving a different URL
+  deletes it. A token is used only while the Custom URL is the URL it was
+  saved with.
+- **Remember on this browser** is on by default. The token then stays in this
+  browser's local storage, shared by all tabs, until you delete it. Scripts
+  on the Dex Web origin can read it. Turn it off on a shared computer.
+- With **Remember on this browser** off, the token is kept for this tab and a
+  reload of it. A tab opened from it, or a duplicated tab, may inherit it.
+- The delete button next to the token field deletes the token from this
+  browser. Other open tabs stop using it too.
+- The token and **Send cookies (SSO proxy)** work together.
 - When the codec server answers 401, Dex Web says the bearer token is likely
   missing or wrong.
+- Dex Web does not follow redirects from the codec server, so the token never
+  goes to another URL.
 
 The endpoint choice stays in your browser. If you serve Dex Web behind a Content
 Security Policy, allow connections to the codec server URL.

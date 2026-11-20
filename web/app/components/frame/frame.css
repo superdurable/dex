@@ -362,7 +362,8 @@ body {
   padding-top: 8px;
 }
 
-.app-bar-codec-setting > small {
+.app-bar-codec-setting > small,
+.app-bar-codec-form > small {
   flex: 1 1 100%;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
@@ -370,7 +371,8 @@ body {
   overflow-wrap: anywhere;
 }
 
-.app-bar-codec-setting > small.field-error {
+.app-bar-codec-setting > small.field-error,
+.app-bar-codec-form > small.field-error {
   color: var(--tone-fail-ink);
 }
 
@@ -381,6 +383,13 @@ body {
   font-weight: 400;
 }
 
+/* The chip fill disappears on the raised popover in dark theme, so fields get a well and a hairline. */
+.app-bar-codec-form .app-bar-jump-input {
+  margin-bottom: 0;
+  border: 1px solid var(--ui-hairline);
+  background: var(--ui-well);
+}
+
 .app-bar-codec-credentials {
   display: flex;
   align-items: center;
@@ -388,26 +397,41 @@ body {
   font-size: var(--ui-text-xs);
 }
 
-.app-bar-codec-form button {
+.app-bar-codec-save {
   justify-self: end;
 }
 
-.app-bar-codec-token-state {
+.app-bar-codec-token-row,
+.app-bar-codec-option {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
 }
 
-.app-bar-codec-token-state small {
+.app-bar-codec-token-row input {
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-bar-codec-small-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
+  font-weight: 600;
 }
 
-.app-bar-codec-token-state button {
-  flex: none;
-  white-space: nowrap;
+.app-bar-codec-small-button:hover,
+.app-bar-codec-small-button[aria-expanded='true'] {
+  color: var(--ui-ink);
+  background: var(--ui-hover);
+}
+
+.app-bar-codec-small-button:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 0;
 }
 
 .app-bar-server-info {
