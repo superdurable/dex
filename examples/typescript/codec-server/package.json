@@ -13,7 +13,7 @@
     "test": "node --test --test-force-exit test/*.test.ts"
   },
   "dependencies": {
-    "@superdurable/dex": "file:../../../sdk-typescript"
+    "@superdurable/dex": "1.45.16"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

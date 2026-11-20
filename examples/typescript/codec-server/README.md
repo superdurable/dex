@@ -93,10 +93,6 @@ npm start -- \
 For a local-only setup, `dexcli dev` can also start a built-in codec server.
 This example is for shared and production deployments.
 
-Until `@superdurable/dex` 1.45.9 is on npm, `package.json` links the SDK in
-this repository. Build it first with `npm ci && npm run build` in
-`sdk-typescript/`.
-
 ## Configuration
 
 Each flag defaults to its environment variable. Secrets are read only from
@@ -179,8 +175,8 @@ docker run --rm -p 127.0.0.1:8080:8080 \
   dex-codec-server
 ```
 
-The image installs `@superdurable/dex` from npm, so it builds only once
-`package.json` names a released SDK version.
+The image installs the `@superdurable/dex` version that `package-lock.json`
+pins from npm.
 
 In production, mount the key file or inject `DEX_CODEC_SERVER_KEYS_JSON`
 from your secret manager. Do not bake keys into the image.
