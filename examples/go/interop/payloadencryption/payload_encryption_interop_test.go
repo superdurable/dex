@@ -40,6 +40,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -63,6 +64,8 @@ func TestGoClientReadsEveryWorkerPayload(t *testing.T) {
 			input := "Go Client input for " + string(owner) + ": naïve café ✓"
 			flowID := requireCompletedFlowPayloads(t, client, owner, input)
 			requireStoredAttributeEncrypted(t, flowService, flowID, interop.SecretText.AttributeName())
+			requireStoredOutputEncrypted(t, flowService, flowID)
+			requireHistoryHidesPlaintext(t, flowService, flowID, input)
 
 			var status string
 			_, err := clientWithoutCodec.GetAttributes(
@@ -169,16 +172,121 @@ func requireStoredAttributeEncrypted(
 	})
 	require.NoError(t, err)
 	require.Len(t, response.GetAttributes(), 1)
-	stored := response.GetAttributes()[0].GetValue()
-	if stored.GetInternalBlobIdForObjValue() != "" {
-		loaded, err := flowService.LoadBlobs(integrationContext(t), &dexpb.LoadBlobsRequest{
-			Entries: []*dexpb.LoadBlobRequestEntry{{FlowId: flowID, BlobValue: stored}},
-		})
+	requireEnvelope(t, loadStoredValues(t, flowService, flowID, response.GetAttributes()[0].GetValue())[0])
+}
+
+// requireStoredOutputEncrypted reads the raw Flow result and checks that the Step
+// output is a dex/1 envelope.
+func requireStoredOutputEncrypted(t *testing.T, flowService dexpb.FlowServiceClient, flowID string) {
+	t.Helper()
+	result, err := flowService.WaitForFlow(integrationContext(t), &dexpb.WaitForFlowRequest{
+		FlowId:       flowID,
+		NeedsResults: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, result.GetResults(), 1)
+	requireEnvelope(t, loadStoredValues(t, flowService, flowID, result.GetResults()[0].GetCompletedStepOutput())[0])
+}
+
+// requireHistoryHidesPlaintext reads every Value in the Flow's raw history, including
+// the Client-encrypted start input, and checks that none of them holds plaintext.
+func requireHistoryHidesPlaintext(
+	t *testing.T, flowService dexpb.FlowServiceClient, flowID string, plaintexts ...string,
+) {
+	t.Helper()
+	var values []*dexpb.Value
+	request := &dexpb.GetHistoryEventsRequest{FlowId: flowID}
+	for {
+		response, err := flowService.GetHistoryEvents(integrationContext(t), request)
 		require.NoError(t, err)
-		stored = loaded.GetValues()[stored.GetInternalBlobIdForObjValue()]
+		for _, event := range response.GetEvents() {
+			values = appendNestedValues(values, event.ProtoReflect())
+		}
+		if len(response.GetNextPageToken()) == 0 {
+			break
+		}
+		request.NextPageToken = response.GetNextPageToken()
 	}
-	require.Equal(t, envelopeEncoding, stored.GetObjValue().GetEncoding(), "stored Value: %v", stored)
-	require.NotEmpty(t, stored.GetObjValue().GetPayload())
+	envelopeCount := 0
+	for _, value := range loadStoredValues(t, flowService, flowID, values...) {
+		if value.GetObjValue().GetEncoding() == envelopeEncoding {
+			envelopeCount++
+			continue
+		}
+		storedText := value.GetStringValue() + string(value.GetObjValue().GetPayload())
+		for _, plaintext := range plaintexts {
+			require.NotContains(t, storedText, plaintext, "history stores plaintext")
+		}
+	}
+	t.Logf("history holds %d Values, %d of them dex/1 envelopes", len(values), envelopeCount)
+	require.Positive(t, envelopeCount, "history holds no dex/1 envelope")
+}
+
+// appendNestedValues appends every dex.Value inside message, at any depth.
+func appendNestedValues(values []*dexpb.Value, message protoreflect.Message) []*dexpb.Value {
+	if value, isValue := message.Interface().(*dexpb.Value); isValue {
+		return append(values, value)
+	}
+	message.Range(func(field protoreflect.FieldDescriptor, fieldValue protoreflect.Value) bool {
+		if field.Message() == nil {
+			return true
+		}
+		switch {
+		case field.IsList():
+			for index := 0; index < fieldValue.List().Len(); index++ {
+				values = appendNestedValues(values, fieldValue.List().Get(index).Message())
+			}
+		case field.IsMap():
+			fieldValue.Map().Range(func(_ protoreflect.MapKey, entry protoreflect.Value) bool {
+				values = appendNestedValues(values, entry.Message())
+				return true
+			})
+		default:
+			values = appendNestedValues(values, fieldValue.Message())
+		}
+		return true
+	})
+	return values
+}
+
+// loadStoredValues replaces each Blob reference with the Value the server stored for it.
+func loadStoredValues(
+	t *testing.T, flowService dexpb.FlowServiceClient, flowID string, values ...*dexpb.Value,
+) []*dexpb.Value {
+	t.Helper()
+	var entries []*dexpb.LoadBlobRequestEntry
+	for _, value := range values {
+		if storedBlobID(value) != "" {
+			entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: value})
+		}
+	}
+	if len(entries) == 0 {
+		return values
+	}
+	response, err := flowService.LoadBlobs(integrationContext(t), &dexpb.LoadBlobsRequest{Entries: entries})
+	require.NoError(t, err)
+	loaded := make([]*dexpb.Value, 0, len(values))
+	for _, value := range values {
+		if blobID := storedBlobID(value); blobID != "" {
+			value = response.GetValues()[blobID]
+			require.NotNil(t, value, "blob %s was not loaded", blobID)
+		}
+		loaded = append(loaded, value)
+	}
+	return loaded
+}
+
+func storedBlobID(value *dexpb.Value) string {
+	if blobID := value.GetInternalBlobIdForObjValue(); blobID != "" {
+		return blobID
+	}
+	return value.GetInternalBlobIdForStringValue()
+}
+
+func requireEnvelope(t *testing.T, value *dexpb.Value) {
+	t.Helper()
+	require.Equal(t, envelopeEncoding, value.GetObjValue().GetEncoding(), "stored Value: %v", value)
+	require.NotEmpty(t, value.GetObjValue().GetPayload())
 }
 
 // requireStoredErrorTextEncoded reads the raw Flow result and checks that the error
