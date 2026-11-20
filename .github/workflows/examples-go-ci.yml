@@ -32,6 +32,7 @@ jobs:
           cache-dependency-path: |
             examples/go/go.sum
             examples/go/quick-start/go.sum
+            examples/go/codec-server/go.sum
       - name: Verify released module dependencies
         env:
           GOWORK: "off"
@@ -99,6 +100,29 @@ jobs:
         run: |
           go build ./...
           go vet ./...
+      - name: Check codec server formatting
+        working-directory: examples/go/codec-server
+        run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }
+      - name: Build, vet, and test codec server
+        working-directory: examples/go/codec-server
+        env:
+          GOWORK: "off"
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Build codec server image
+        working-directory: examples/go/codec-server
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          # The standalone image build needs a released sdk-go; skip while go.mod still has a replace.
+          if go mod edit -json | jq -e '(.Replace // []) | length > 0' >/dev/null; then
+            echo "::notice::Skipping the codec server image build: go.mod still replaces sdk-go"
+            exit 0
+          fi
+          docker build -t dex-codec-server:ci .
 
   e2e:
     name: End-to-end tests (pull, zd)

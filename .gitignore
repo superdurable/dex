@@ -16,6 +16,8 @@ dex-server
 examples/go/dex-samples
 examples/go/dex-deal-dsl
 examples/go/deepverify
+examples/go/codec-server/dex-codec-server
+examples/go/codec-server/codec-server
 cli/dexcli
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage

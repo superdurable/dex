@@ -118,6 +118,7 @@ client-apis.
 | Path | Role |
 |------|------|
 | [go/](go/) | Go Worker + HTTP (`8080` / `8803`) |
+| [go/codec-server/](go/codec-server/) | Deployable codec server for encrypted payloads in Dex Web and dexcli (not a Worker) |
 | [java/](java/) | Java Worker + HTTP (`8080` / `8803`) |
 | [python/](python/) | Python async Worker + HTTP (`8080` / `8803`) |
 | [python/sync-python/](python/sync-python/) | Python sync Worker + HTTP (`8081` / `8804`) |

@@ -1,0 +1,4 @@
+/dex-codec-server
+# Default output of `go build` in this directory.
+/codec-server
+*.test
