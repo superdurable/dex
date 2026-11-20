@@ -1,0 +1,743 @@
+---
+title: Payload encryption
+sidebar_label: Payload encryption
+description: "Payload encryption encrypts application values in your Workers and Clients before they reach Dex Server. The server stores those values as ciphertext and never holds a key. This page covers the SDK setup, the key file, what stays plaintext, codec servers for Dex Web and dexcli, rollout, key rotation, and limits."
+---
+
+# Payload encryption
+
+Payload encryption encrypts application values in your Workers and Clients
+before they reach Dex Server. The server stores those values as ciphertext
+and never holds a key. You keep and manage the keys.
+
+A value that an SDK with a codec writes, and that is eligible for encryption,
+stays ciphertext in Flow history, in the server's local store, in object
+storage, in the blob store, and in Attribute Store tables. Some values stay
+plaintext on purpose, such as indexed and plaintext Attributes; see
+[Values that stay plaintext](#plaintext-values) and
+[Fields that are not values](#fields-not-values). TLS protects values only on the network; payload
+encryption also protects them at rest and from anyone with access to the
+server. See [Run Dex in Production](/components/production#payload-encryption)
+for how the two compare.
+
+Support by component:
+
+| Component | Support |
+| --- | --- |
+| Go, Python, and TypeScript SDKs | Encrypt and decrypt. Since SDK 1.45.16 |
+| Java and Rust SDKs | Not supported. A Worker or Client of these SDKs fails when it reads an encrypted value |
+| dexcli | Decrypts and encrypts through a codec. Since dexcli 1.47.18 |
+| Dex Web | Decrypts and encrypts in the browser through a codec server. Since Dex Web 1.45.16 |
+| Dex Server | Needs no change. Any server stores encrypted values as ordinary values. Use server-zd 0.1.37 or later; see [Request IDs](#request-ids) |
+
+## How it works {#how-it-works}
+
+A **codec** turns a serialized value into an encrypted envelope and back.
+Each Worker and Client has at most one codec. Codecs do not chain.
+
+- The SDK encrypts a value after it encodes the value with its type codec,
+  and before it sends the value.
+- The SDK decrypts a value after it loads the value from the blob store, and
+  before it decodes the value into your type.
+- An encrypted value is an object value with the encoding `dex/1`. Its
+  payload is a serialized `PayloadEnvelope`. Encodings that start with `dex/`
+  are reserved for Dex, and the SDKs reject them in application objects.
+- A reader decrypts only values marked `dex/1`. Every other value passes
+  through unchanged. One Worker can therefore serve plaintext and encrypted
+  Flows, and you can turn encryption on gradually.
+- The blob caches of Workers and Clients hold ciphertext. The SDKs never write
+  decrypted values to a cache or to disk.
+
+The **built-in codec** is AES-256-GCM:
+
+- Each key is 32 bytes.
+- Each encryption uses a new random 12-byte nonce.
+- The envelope names the key by its key ID. The key ID is visible in clear.
+- The additional authenticated data binds the marker, the cipher, the
+  compression, and the key ID to the ciphertext.
+- It can gzip each value before it encrypts it. See [Size impact](#size).
+
+The envelope format is a persistent format. Later releases keep decoding every
+value that earlier releases wrote.
+
+### Payload context {#payload-context}
+
+Each codec call carries a **payload context**: the Flow type and the Flow ID
+of the Flow that stores the values. A key provider can use it to choose keys,
+for example one key per tenant.
+
+- The Flow type is empty when the SDK knows only the Flow ID. This happens,
+  for example, in Client calls that name a Flow only by its Flow ID, such as
+  waiting for a Flow or reading its Attributes. The same value can therefore
+  be encrypted with a Flow type and decrypted without one. Choose and check
+  keys by Flow ID.
+- SubFlow input uses the context of the child Flow. The child Flow ID is
+  `SubFlow:{parentFlowID}-{stepExecutionID}-{index}`, where `index` is the
+  zero-based SubFlow index in the Step's result. A key provider that maps Flow
+  IDs to tenants must handle the `SubFlow:` prefix.
+- The context is not part of the ciphertext's authenticated data. Clone, fork,
+  and Time Travel copy values into another run or another Flow ID, and those
+  values must still decrypt there.
+
+## Configure Workers and Clients {#configure}
+
+Give every Worker and Client of the application the same codec and keys. This
+example reads a key file, builds the built-in codec, and passes it to a Worker
+and a Client. Runnable examples:
+[Go](https://github.com/superdurable/dex/tree/main/examples/go/production/payload-encryption),
+[Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/payload_encryption.py),
+and
+[TypeScript](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/payload-encryption.ts).
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/production/payload_encryption.py', go: 'examples/go/production/payload-encryption/encryption.go', typescript: 'examples/typescript/src/production/payload-encryption.ts' }}>
+<SdkSnippet lang="python">
+
+```python
+def new_file_payload_encryption(key_file_path: str) -> PayloadEncryptionOptions:
+    """Reads a key file, such as one from dexcli codec-server keygen."""
+    key_provider = FilePayloadEncryptionKeyProvider(key_file_path)
+    return PayloadEncryptionOptions(AesGcmPayloadCodec(key_provider))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func NewFilePayloadEncryption(keyFilePath string) (dex.PayloadEncryptionOptions, error) {
+	keys, err := dex.NewFilePayloadEncryptionKeyProvider(keyFilePath)
+	if err != nil {
+		return dex.PayloadEncryptionOptions{}, err
+	}
+	codec, err := dex.NewAESGCMPayloadCodec(keys, dex.AESGCMPayloadCodecOptions{})
+	if err != nil {
+		return dex.PayloadEncryptionOptions{}, err
+	}
+	return dex.PayloadEncryptionOptions{Codec: codec}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function newFilePayloadCodec(keyFilePath: string): Promise<PayloadCodec> {
+  const keyProvider = await FilePayloadEncryptionKeyProvider.fromFile(keyFilePath);
+  return new AesGcmPayloadCodec(keyProvider);
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Pass the same encryption settings to the Worker and the Client:
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/production/payload_encryption.py', go: 'examples/go/production/payload-encryption/encryption.go', typescript: 'examples/typescript/src/production/payload-encryption.ts' }}>
+<SdkSnippet lang="python">
+
+```python
+encryption = new_file_payload_encryption(key_file_path)
+worker = AsyncWorker(
+    registry,
+    cache,
+    WorkerOptions(
+        server_address=server_address,
+        pull=PullWorkerOptions(max_concurrent_tasks=8),
+        payload_encryption=encryption,
+    ),
+)
+client = AsyncClient(
+    registry,
+    cache,
+    ClientOptions(server_address=server_address, payload_encryption=encryption),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+encryption, err := NewFilePayloadEncryption(keyFilePath)
+if err != nil {
+	return nil, nil, nil, nil, err
+}
+worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	FlowServiceAddress: serverAddress,
+	Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 8},
+	PayloadEncryption:  encryption,
+})
+if err != nil {
+	return nil, nil, nil, nil, err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+	FlowServiceAddress: serverAddress,
+	PayloadEncryption:  encryption,
+})
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const payloadCodec = await newFilePayloadCodec(keyFilePath);
+const worker = new Worker(registry, cache, {
+  serverAddress,
+  pull: { maxConcurrentTasks: 8 },
+  payloadCodec,
+});
+const client = new Client(registry, cache, { serverAddress, payloadCodec });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Python built-in codec needs the `encryption` extra, which installs the
+`cryptography` package:
+
+```bash
+pip install 'dex-python-sdk[encryption]'
+```
+
+### Options {#options}
+
+With a codec, every switch below encrypts by default. Each SDK names the
+options in its own style. The doc comments of these types describe each
+option in full.
+
+- Go: a `PayloadEncryptionOptions` in the `PayloadEncryption` field of
+  `ClientOptions` and `WorkerOptions`.
+- Python: a `PayloadEncryptionOptions` in the `payload_encryption` field of
+  `ClientOptions` and `WorkerOptions`.
+- TypeScript: fields of the `Client` and `Worker` options object.
+
+| Setting | Go | Python | TypeScript |
+| --- | --- | --- | --- |
+| Codec | `Codec`. Nil turns encryption off | `codec` | `payloadCodec`. Omitted turns encryption off |
+| String values | `PlaintextStringValues: true` sends them in clear | `encrypt_string_values=False` sends them in clear | `encryptStringValues: false` sends them in clear |
+| Integer, floating-point, and Boolean values | `PlaintextPrimitiveValues` | `encrypt_primitive_values` | `encryptPrimitiveValues` |
+| Error text and reasons | `PlaintextErrorText` | `encrypt_error_text` | `encryptErrorText` |
+| Largest envelope | `MaxEnvelopeBytes`. Default 16 MiB plus 64 KiB | `max_envelope_bytes` | `maxPayloadEnvelopeBytes` |
+| Largest decrypted value | `MaxPlaintextBytes`. Default 64 MiB | `max_plaintext_bytes` | `maxPayloadPlaintextBytes` |
+
+The default envelope limit fits the server's default
+[**values.maxValueBytes**](/reference/server/configuration#limits) of 16 MiB.
+Raise the envelope limit only for a server configured with a larger maximum
+value size. In Go and TypeScript, raise the built-in codec's data limit with
+it.
+
+### Plaintext Attributes {#plaintext-attributes}
+
+Some server features compare a stored Attribute value itself: Attribute-match
+waits, Action conditions, and Attribute Store columns of a typed SQL kind.
+Keep such an Attribute plaintext. Declare it **plaintext**, or give it an
+index, which also keeps it plaintext. The declaration is a local SDK setting.
+The SDK never sends it, and it has no effect without a codec. Every Worker and
+Client must register the same definition.
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/production/payload_encryption.py', go: 'examples/go/production/payload-encryption/ticket.go', typescript: 'examples/typescript/src/production/payload-encryption.ts' }}>
+<SdkSnippet lang="python">
+
+```python
+# The customer's text, so payload encryption stores it as ciphertext.
+TICKET_MESSAGE = Attribute("support-ticket-message", str)
+# Stays plaintext, so wait_for_attribute_match and Action conditions can compare it.
+TICKET_STATUS = Attribute("support-ticket-status", str, plaintext=True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// TicketMessage holds the customer's text, so payload encryption stores it as ciphertext.
+var TicketMessage = dex.DefineAttribute[string]("support-ticket-message")
+
+// TicketStatus stays plaintext, so WaitForAttributeMatch and Action conditions can compare it.
+var TicketStatus = dex.DefineAttribute[string]("support-ticket-status", dex.Plaintext())
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+/** The customer's text, so payload encryption stores it as ciphertext. */
+export const ticketMessage = new Attribute("support-ticket-message", stringCodec);
+/** Stays plaintext, so waitForAttributeMatch and Action conditions can compare it. */
+export const ticketStatus = new Attribute("support-ticket-status", stringCodec).plaintext();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+With a codec, the SDK rejects an Attribute-match wait or an Action condition
+on an Attribute that it would encrypt. It rejects it before any request
+reaches the server. The Go SDK rejects such an Action when you create the
+Worker. A dynamic Attribute that the Registry does not define is rejected too.
+
+## Interfaces and the built-in codec {#interfaces}
+
+The SDKs share these types. Go is synchronous and takes a `context.Context`.
+Python has a synchronous and an asynchronous codec interface. TypeScript
+returns promises.
+
+- **Codec interface:** `PayloadCodec` in every SDK. Python also has
+  `AsyncPayloadCodec`.
+- **Payload context:** `PayloadContext` in every SDK.
+- **Key provider:** `PayloadEncryptionKeyProvider` in every SDK.
+- **Built-in codec:** `NewAESGCMPayloadCodec` in Go. `AesGcmPayloadCodec` in
+  Python and TypeScript.
+- **File key provider:** `NewFilePayloadEncryptionKeyProvider` in Go.
+  `FilePayloadEncryptionKeyProvider` in Python.
+  `FilePayloadEncryptionKeyProvider.fromFile` in TypeScript.
+
+- A codec encodes and decodes in batches, so a codec that calls a key
+  management service can make one call for many values. It returns exactly one
+  result per input, in order. One failure fails the whole batch.
+- A key provider has two methods. The current key ID method chooses the key
+  for new encryptions. The key method returns the 32-byte key for a key ID
+  that an envelope names. It receives the payload context, so it can refuse a
+  key that does not belong to the Flow's tenant.
+- Implement a key provider to read keys from a secret manager. Implement a
+  codec to call a key management service directly. A custom codec writes the
+  cipher `PAYLOAD_CIPHER_CUSTOM` and keeps its own parameters in the envelope
+  metadata. It must authenticate every metadata entry that affects decoding,
+  or reject metadata it does not authenticate.
+- A custom codec that decompresses must stop once the output exceeds the
+  SDK's plaintext limit. Go passes the limit in the context; read it with
+  `PayloadPlaintextLimitFromContext`. Python passes it to a `decode` method
+  that declares the keyword-only parameter `max_plaintext_bytes`. TypeScript
+  passes `PayloadCodecDecodeOptions` as the third argument of `decode`.
+- The Python synchronous Client and Worker accept a `PayloadCodec`. The async
+  Client and Worker also accept an `AsyncPayloadCodec`. They run a synchronous
+  codec in a thread, so it never blocks the event loop.
+
+A decoding failure names one category and may name the key ID. It never
+contains payload bytes, plaintext, or keys. The categories are `malformed`,
+`unsupported_marker`, `unsupported_cipher`, `unsupported_compression`,
+`unknown_key`, `authentication_failed`, `limit_exceeded`, and
+`invalid_plaintext`. A Worker or Client without a codec that reads an
+encrypted value fails with the message
+`value is encrypted; configure a PayloadCodec`. The Worker reports it as a
+Step failure, so the Step's retry policy applies, and a retry succeeds once
+the Worker has the codec. An RPC call fails to its caller.
+
+For each type's methods, parameters, and errors, see the doc comments in the
+SDK source or the generated API references:
+[Go](pathname:///api/go/latest/), [Python](pathname:///api/python/latest/),
+and [TypeScript](pathname:///api/typescript/latest/).
+
+## Key file {#key-file}
+
+dexcli, the example codec servers, and the file key provider of every SDK read
+one JSON format:
+
+```json
+{
+  "current_key_id": "k2",
+  "keys": {
+    "k1": "<standard base64 of 32 bytes>",
+    "k2": "<standard base64 of 32 bytes>"
+  }
+}
+```
+
+- `current_key_id` names the key for new encryptions. It must appear in
+  `keys`.
+- `keys` maps each key ID to its key in standard padded base64. Each key is
+  exactly 32 bytes.
+- A key ID has 1 to 64 printable ASCII characters, from `!` to `~`. Spaces are
+  not allowed. Key IDs are visible in every envelope, so keep sensitive data
+  out of them.
+- Keep old keys in `keys` after a rotation. Values that name them stay
+  readable only while their key is in the file.
+- The file key provider reads the file once, when it is created. Restart the
+  process to pick up a changed file.
+- The provider warns when other users can read the file. Give the file mode
+  `0600` and protect it like any secret.
+
+Create a key file with one random key:
+
+```bash
+dexcli codec-server keygen -o payload-keys.json
+```
+
+The command writes the file with mode `0600`. `-key-id` sets the key ID; the
+default is `k1`. It refuses to replace an existing file unless you pass
+`-force`. dexcli never creates a key on its own: give the same file to your
+Workers, your Clients, and dexcli. Back the file up. Values encrypted with a
+lost key cannot be read again.
+
+## What is encrypted {#what-is-encrypted}
+
+The codec sees only values. It encrypts a value wherever the value appears,
+whether it is an input, an output, or an Attribute.
+
+### Encrypted values {#encrypted-values}
+
+With a codec and the default options, the SDK encrypts:
+
+- Step inputs and Step outputs, including Flow outputs, and SubFlow inputs.
+- Attribute values, including initial Attributes and hard-delete Attributes,
+  except the Attributes listed in [Values that stay plaintext](#plaintext-values).
+- Channel messages, Stream messages, RPC inputs and outputs, and the output
+  of a Stop.
+- Heartbeat values, Step execution locals, and recorded event values.
+- Error text and reasons: the detail and stack trace of a Worker error, the
+  reason of a ForceFail, and the reasons of Stop, Time Travel, and clone or
+  fork.
+
+Error text and reasons are plain text fields, not values. The SDK encrypts
+them into text that starts with `dex-encoded:`. A reader decrypts such text
+only in the protocol's error and reason fields, and in the fields the server
+copies them into, such as a Flow result's error message. It leaves every other
+string unchanged, even when it starts with the prefix. The
+[read points](https://github.com/superdurable/dex/blob/main/protos/payload-encryption.md#read-points)
+of the format specification list these fields. Writers never send plaintext that starts with
+the prefix: with a codec they encrypt it, even when error text encryption is
+off; without one they add one leading space.
+
+### Values that stay plaintext {#plaintext-values}
+
+| Value or feature | Rule | Reason |
+| --- | --- | --- |
+| Attribute writes with an index | The SDK writes them in clear, and Flow search keeps working | The server builds the search index from the plaintext value |
+| Attributes declared plaintext | The SDK writes them in clear. The server can read them | Your choice, for Attribute-match waits, Action conditions, or typed Attribute Store columns |
+| String values, or integer, floating-point, and Boolean values, with their switch off | The SDK writes them in clear | Your choice |
+| Null values | Never encrypted | In an Attribute write, null deletes the Attribute, so the server must recognize it. Null carries no data |
+| Attribute-match waits | The SDK rejects the wait when the Attribute would be encrypted. Otherwise it sends the match operand in clear | The server compares the stored value with the operand |
+| Action conditions and permission mappings | The SDK rejects them when the Attribute would be encrypted. Otherwise the condition values are in clear | The server compares the Attribute value with the condition values to grant permissions |
+| Attribute Store sync, including AttributeMap tables | Encrypted as usual. Sync an encrypted Attribute to a `bytea` column, then read and decrypt it with the same codec. An encrypted AttributeMap value is one envelope, so the server cannot spread its JSON over several columns. For a column of another type, the server logs an error and skips the value, and the writer sees no error | The server converts each value to its column type, and the SDK does not know the table's column types |
+| Values that the server writes: Work Queue permissions, built-in and indexed Attribute values in search results, and hard-delete placeholders | They never pass through a codec. Readers pass them through because they carry no `dex/1` marker | The server creates them |
+| Blob references | The reference is plaintext. The value it loads is still the envelope, which the SDK then decrypts | The server creates the reference |
+| Dex Web views that read values on the Dex Web server, and external tools that read Streams directly | They cannot use encrypted values. See [Dex Web](#dex-web) | They read plaintext outside your Workers and Clients. Declare the Attributes they need plaintext |
+
+### Fields that are not values {#fields-not-values}
+
+Fields that are not values stay plaintext. The exceptions are the error text
+and reason fields above.
+
+| Field | Rule | Reason |
+| --- | --- | --- |
+| Type names and names: Flow type, Step type, RPC name, Attribute key, AttributeMap key and instance, index key, Channel name, Stream name, task queue | Plaintext | The server routes, stores, and indexes by them |
+| IDs: Flow ID, Run ID, Step execution ID, request ID, Channel message ID, Stream source | Plaintext | The server routes and deduplicates by them |
+| Worker identity: Worker ID, SDK name, SDK version | Plaintext | The server tracks Workers by them |
+| Configuration: retry policy, timeouts, Step options, ID reuse policy, Flow configuration, Worker target | Plaintext | The server enforces them |
+| Wait conditions: Timer durations, Channel names and counts, SubFlow condition IDs | Plaintext | The server evaluates them |
+| RPC options: locked Attribute keys, loaded Attribute keys | Plaintext | The server locks and loads by them |
+| Permission mappings: Attribute key and required permission | Plaintext | The server evaluates them |
+| Error metadata: error type, gRPC status, retry-after seconds | Plaintext | The server passes them on and applies retry delays |
+| Error text that the SDK generates for blob-loading and decryption failures, and an empty error detail | Plaintext | The server matches the blob-loading text, and an empty detail has its own meaning. These texts contain no payload |
+| Flow search query strings | Plaintext | The server parses and runs them |
+| Flow definition graphs | Plaintext | The server parses them as JSON |
+| States and times the server records: Flow and Step status, start and close times, attempt counts, history event types and order | Plaintext | The server produces them |
+
+Names and IDs that your application chooses stay plaintext. This includes Flow
+IDs, Attribute keys, AttributeMap instances, Channel message IDs, and Stream
+sources. Never put sensitive data, such as email addresses or ID numbers,
+into them.
+
+### What remains visible {#remains-visible}
+
+Encryption hides the content of a value. The server and anyone with access to
+its storage can still see:
+
+- The envelope header: the marker and its format version, the key ID, the
+  cipher, and whether the value is compressed.
+- The ciphertext length. It is about the plaintext length plus 50 bytes.
+  Compression makes it shorter, but the compressed length reveals how well the
+  content compresses.
+- Whether a value exists, when it was written, and how often, such as the
+  number of Channel messages.
+- The kind and content of values whose encryption switch is off.
+
+The server cannot read plaintext. It cannot forge or change a ciphertext
+either: decryption detects the change and fails.
+
+The server can still move a valid ciphertext to another place or another
+Flow, or replay an old one, because ciphertext is not bound to a Flow. A
+reader with the same key decrypts it normally. An application that must
+detect this includes its own business identifiers in the value and checks
+them. A multi-tenant application uses one key per tenant; see
+[Multi-tenant applications](#multi-tenancy).
+
+## Security notes {#security}
+
+- Keys stay in the memory of your processes. The SDKs never write them to
+  logs, errors, or metrics. Keep your own key provider to the same rule.
+- Each encryption uses a new random nonce. Encrypt at most 2^32 values with
+  one key, and rotate keys regularly. See [Rotate keys](#rotate-keys).
+- Decryption fails with an error when a key is missing, the ciphertext was
+  changed, or the envelope is malformed. A marked value is never treated as
+  plaintext. An unknown cipher, compression, or marker version is an error
+  too, so an older SDK fails clearly on a newer format.
+- Size limits stop malicious envelopes from exhausting memory. The SDK checks
+  each limit before the work it protects, including a limit on decompressed
+  size.
+- A codec server can decrypt everything encrypted with its keys, and it can
+  create valid ciphertext. Protect it like the keys. See
+  [Codec servers](#codec-server).
+- Turn compression on only for values that contain no mix of
+  attacker-controlled content and secrets. Ciphertext length reveals how well
+  the content compresses, as in the CRIME and BREACH attacks.
+
+## Size impact {#size}
+
+Encryption makes each value larger, and the server counts the encrypted size.
+
+- **Envelope overhead.** Each encrypted value grows by about 50 bytes.
+  AES-GCM adds 28 bytes; the marker, the key ID, and the envelope fields add
+  the rest. For example, the integer `42` with key ID `k1` grows from 2 bytes
+  to about 49 bytes.
+- **More blob references.** Dex Server stores a value larger than 100 bytes in
+  its blob store and passes a reference, which Workers and Clients load
+  through their blob cache. Values above about 50 bytes cross that threshold
+  once encrypted, so more short values become blob references.
+- **Stream limits.** Stream message limits and Stream capacity count the
+  encrypted size. See
+  [Stream capacity and trimming](/reference/server/runtime-data#stream-capacity)
+  and [Streams configuration](/reference/server/configuration#streams).
+- **Value size limit.** The server's maximum value size counts the encrypted
+  size. See [Limits](/reference/server/configuration#limits).
+- **Compression.** Ciphertext does not compress, so compression after
+  encryption gains nothing. The built-in codec compresses before it encrypts.
+  Turn it on with the gzip compression option: `Compression` in Go,
+  `compression` in Python and TypeScript. A custom codec that wants
+  compression compresses inside its own encode step, because codecs do not
+  chain. Read the CRIME and BREACH note in [Security notes](#security) first.
+
+## Codec servers {#codec-server}
+
+A **codec server** encodes and decodes envelopes over HTTP. Dex Web and dexcli
+use one to show and write encrypted values without holding keys. The browser
+calls the codec server directly. The Dex Web server only passes envelopes
+through, and it never receives keys or plaintext.
+
+### Protocol {#codec-server-protocol}
+
+Both endpoints take `POST` with a JSON body and return JSON.
+
+`POST /decode` turns envelopes into values:
+
+```json
+{
+  "context": { "flow_type": "OrderFlow", "flow_id": "order-1001" },
+  "envelopes": ["<base64 PayloadEnvelope>"]
+}
+```
+
+```json
+{ "values": [{ "stringValue": "hello" }] }
+```
+
+`POST /encode` turns values into envelopes:
+
+```json
+{
+  "context": { "flow_type": "OrderFlow", "flow_id": "order-1001" },
+  "values": [{ "stringValue": "hello" }]
+}
+```
+
+```json
+{ "envelopes": ["<base64 PayloadEnvelope>"] }
+```
+
+- `context` is required. `flow_id` is not empty. `flow_type` can be empty.
+- The response has one entry per request entry, in the same order.
+- Envelopes are serialized `PayloadEnvelope` messages in standard padded
+  base64. The caller adds the outer layer: the `dex/1` object for a value, or
+  the `dex-encoded:` prefix for text.
+- Values use the proto3 JSON form of a Dex value, such as `stringValue`,
+  `intValue`, or `objValue`.
+- A batch succeeds or fails as a whole. A failure returns a status and the
+  body `{"error": {"category", "message", "index"}}`: 400 `malformed`, 401
+  `unauthenticated`, 403 `forbidden`, 413 `limit_exceeded`, 422 with a
+  decoding category and the index of the first failing entry, or 500
+  `internal`.
+
+### Production codec servers {#production-codec-server}
+
+Deployable codec servers for Go, Python, and TypeScript are in
+[examples/go/codec-server](https://github.com/superdurable/dex/tree/main/examples/go/codec-server),
+[examples/python/codec-server](https://github.com/superdurable/dex/tree/main/examples/python/codec-server),
+and
+[examples/typescript/codec-server](https://github.com/superdurable/dex/tree/main/examples/typescript/codec-server).
+Each reads the key file, uses its SDK's built-in codec, and includes a
+Dockerfile and a health check. Before you deploy one:
+
+- **Authenticate and authorize every request.** `/decode` decrypts any
+  ciphertext that a caller submits, and `/encode` creates valid ciphertext.
+  Dex Web view rights do not limit it: a caller who holds a ciphertext from a
+  Flow they cannot view can still decrypt it here. Allow only callers who may
+  read all data encrypted with the server's keys. Otherwise, authorize each
+  request in the codec server by the authenticated identity, the tenant or
+  Flow, and the key. The request `context` comes from the browser, so it is no
+  basis for authorization.
+- **Replace the example's authentication.** Each example checks a bearer token
+  or trusts the identity header of an SSO proxy.
+- **Serve it only over HTTPS**, behind a reverse proxy that terminates TLS.
+- **Allow only your Dex Web origins** in CORS. Never allow `*`.
+- **Keep limits on** the request body size and the entries per request.
+- **Keep payloads and keys out of logs.**
+- **Move keys to your key store.** Each example marks where to replace the
+  key file with a key management service.
+
+### Local codec server in dexcli {#dexcli-codec-server}
+
+For local development, dexcli runs a codec server:
+
+```bash
+dexcli codec-server -key-file payload-keys.json
+```
+
+It is for local development only. It listens only on `127.0.0.1`, port 8805
+by default, and accepts only localhost `Host` headers. It requires the random
+bearer token that it prints at each start. CORS allows only the Dex Web
+origins `http://127.0.0.1:8802` and `http://localhost:8802` unless you pass
+`-web-origin`. `-token-file` also writes the token to a file with mode `0600`.
+
+`dexcli dev -codec-key-file payload-keys.json` starts this codec server next
+to Dex Web. It hands the endpoint and token to its Dex Web and to the
+`dexcli flow` commands that target the same local server.
+
+### Dex Web {#dex-web}
+
+Set the codec server in **Settings** > **Codec endpoint**:
+
+- **Auto** uses the local codec server of `dexcli dev -codec-key-file`.
+- **Custom** uses the codec server URL you enter. Select
+  **Send cookies (SSO proxy)** when an SSO proxy in front of the codec server
+  authenticates the browser by cookie. The codec server must then allow
+  credentials in its CORS response.
+- **Off** leaves encrypted values encrypted.
+
+The setting stays in your browser. If you serve Dex Web behind a Content
+Security Policy, allow connections to the codec server URL.
+
+With a codec endpoint, Dex Web decrypts values, error texts, and reasons in
+the browser and keeps them only in page memory. A decrypted value shows like
+plaintext, with an open lock. A value that cannot be decrypted shows a lock
+and its key ID, never the ciphertext.
+
+Dex Web encrypts in the browser before it sends Channel messages, Start
+inputs, Stop outputs, and Stop, reset, and clone or fork reasons.
+
+These Dex Web features read values on the Dex Web server, so they work only
+with plaintext values. They say so when a value is encrypted:
+
+- Display edits.
+- Action conditions, and Action inputs that Dex Web reads from Attributes.
+- Outputs of view RPCs, such as Work Queue cards and Summary columns.
+- Agent sessions and the agent inbox.
+
+Declare the Attributes these features need plaintext. An RPC output has no
+plaintext declaration, so a view RPC whose Worker encrypts cannot feed these
+views.
+
+### dexcli flow commands {#dexcli-flow}
+
+`dexcli flow` commands decrypt stored values and `dex-encoded:` texts before
+they print them. They encrypt the `flow start` input, the `flow stop --result`
+output, and the Stop, Time Travel, and clone or fork reasons. Choose one
+source of the codec:
+
+| Flag | Environment variable | Use |
+| --- | --- | --- |
+| `--codec-key-file` | `DEX_CODEC_KEY_FILE` | Encrypt and decrypt in the dexcli process with a key file |
+| `--codec-endpoint` | `DEX_CODEC_ENDPOINT` | Use a codec server. HTTPS, or HTTP only on a loopback address |
+| `--codec-token-file` | `DEX_CODEC_TOKEN_FILE`, or `DEX_CODEC_TOKEN` for the token value | Bearer token for `--codec-endpoint` |
+
+dexcli has no flag for the token value, so the token stays out of shell
+history and process lists. A value that dexcli cannot decrypt prints as a
+placeholder with its key ID, never as ciphertext.
+
+## Roll out encryption {#roll-out}
+
+Readers must be able to decrypt before any writer encrypts. Roll out in two
+steps:
+
+1. **Make every reader able to decode.** Upgrade every Worker and Client of
+   the application to an SDK that supports encryption, give each the codec and
+   keys, and deploy. Configure your codec server and Dex Web too. Every
+   process that has the codec also encrypts what it writes, so give the codec
+   first to the processes that only read, or deploy all of them together.
+2. **Start encrypting.** Once every reader has the codec, every writer can
+   encrypt. New values are encrypted. Values written before stay plaintext and
+   remain readable, because readers pass unmarked values through.
+
+Declare plaintext, before step 1, every Attribute that an Attribute-match
+wait, an Action condition, or a typed Attribute Store column uses. Move
+Attribute Store columns of encrypted Attributes to `bytea`.
+
+A Worker without the codec that receives an encrypted value fails the Step
+attempt. The Step's retry policy applies, and a retry succeeds once the Worker
+has the codec. Keep the retry window long enough to finish the rollout.
+
+## Rotate keys {#rotate-keys}
+
+Every reader must have a new key before any writer uses it:
+
+1. Add the new key to the key file under a new key ID. Keep `current_key_id`
+   on the old key.
+2. Deploy the file to every Worker, Client, and codec server, and restart
+   them.
+3. Set `current_key_id` to the new key ID, deploy, and restart again. New
+   values use the new key.
+4. Keep the old key in the file. Values written with it still name it.
+
+Removing a key makes every value encrypted with it unreadable. That includes
+copies outside Dex Server, such as `bytea` columns in an Attribute Store and
+values your application copied into its own database. Flow retention does not
+delete those copies. Remove an old key only when no copy anywhere still needs
+it.
+
+A custom key provider follows the same order: make the new key available to
+the key method everywhere before the current key ID method returns it.
+
+## Multi-tenant applications {#multi-tenancy}
+
+- Use one key per tenant. Let the current key ID method choose the tenant's
+  key from the payload context.
+- In the key method, refuse a key ID that does not belong to the context's
+  tenant. Otherwise a ciphertext moved from tenant B's Flow into tenant A's
+  Flow decrypts for tenant A. The SDK then fails with `unknown_key` instead of
+  returning data.
+- Map Flow IDs to tenants, because the Flow type can be empty. Handle the
+  `SubFlow:` prefix of child Flow IDs.
+- Authenticate codec server requests per tenant. The request `context` comes
+  from the browser and is not trusted. Choose the tenant from the
+  authenticated identity, never from `context`.
+
+## Agents packages {#agents}
+
+Your application builds the Dex Worker and Client that the
+[agents packages](/reference/agents/) run on, and passes them in. Configure
+payload encryption on that Worker and Client as on any other. The Dex Web
+agent session pages cannot show encrypted values; see
+[What Dex Web shows](/reference/agents/dex-web#what-dex-web-shows).
+
+## Request IDs {#request-ids}
+
+A request that your application sends again with the same request ID is
+encrypted again, and the new ciphertext differs from the first. Since server-zd
+0.1.37, `SetAttributes`, `DeleteChannelMessage`, and `InvokeRPC` compare only
+the request ID, so the server deduplicates such a repeat instead of rejecting
+it. Older servers reject it with INVALID_ARGUMENT "request ID ... was already
+used for a different request". [RPC request IDs](/reference/server/runtime-data#rpc-request-ids)
+describes how the server answers a repeat.
+
+## Known limitations {#limitations}
+
+- Only the Go, Python, and TypeScript SDKs read and write encrypted values.
+  Do not let Java or Rust Workers or Clients handle encrypted Flows.
+- Attributes that Dex Web or dexcli create are plaintext, and the server can
+  read them. Neither tool knows which Attributes your application declares
+  plaintext. An update of an existing Attribute keeps its stored form: Dex Web
+  encrypts an update of an encrypted Attribute again, and refuses it without a
+  codec endpoint. The `dexcli flow start` initial Attributes are plaintext
+  too.
+- Dex Web sends Action inputs and agent session fork reasons in plaintext.
+- Some Dex Web views work only with plaintext values. See [Dex Web](#dex-web).
+- Text that the server composes around an encrypted error text, such as a
+  recovery message that starts with its own words, does not start with
+  `dex-encoded:`. Readers show it as is, with the encrypted part unreadable.
+- A ciphertext can be moved to another Flow or replayed. See
+  [What remains visible](#remains-visible).

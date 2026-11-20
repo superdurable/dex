@@ -20,6 +20,7 @@ The [minimal configuration](#minimal-configuration) below covers authentication,
 | Item | What to do | Details |
 | --- | --- | --- |
 | Authentication and TLS | Public API authentication is off by default, so any client that reaches the server can call it. Configure an authenticator before you expose the port. The API port serves plaintext gRPC: put TLS in front of it, or keep it on a private network. | [Authentication](/reference/server/authentication), [TLS](/reference/server/authentication#tls) |
+| Payload encryption | TLS protects values on the network. To keep the server and its storage from reading your values, turn on payload encryption in every Worker and Client. See [Payload encryption](#payload-encryption). | [Payload encryption reference](/reference/server/payload-encryption) |
 | Topology | One active node serves the cluster. Add a hot standby if you need fast failover. | [Self-Host Dex](/components/self-host), [Lease, hot standby, and step down](/reference/server/high-availability) |
 | Storage and backup | One object storage bucket and prefix holds all server state for the cluster. db9 can replace it; stock PostgreSQL is not supported. The bucket prefix is the only source of truth: version or replicate it, and practice a restore. | [Object storage and backup](/reference/server/object-storage), [Backup and restore](/reference/server/object-storage#backup-and-restore) |
 | Retention | Closed runs, with their Step history, are deleted after 7 days by default. A deleted run frees its Flow ID. Set `retention.closedFlowDuration` to cover your longest client retry window, and copy data you must keep longer to [your own database](/components/your-database). Each run keeps the value it started with; a new value applies to runs started after the restart. | [Retention reference](/reference/server/configuration#retention) |
@@ -90,6 +91,39 @@ a file credential rereads the token file, so you can rotate tokens without a
 restart. [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)
 lists the option in each SDK, and [TLS](/reference/server/authentication#tls)
 lists the SDK option for a TLS connection.
+
+## Payload encryption {#payload-encryption}
+
+TLS and payload encryption protect different things.
+
+- **TLS** protects values on the network between your processes and the
+  server. The server decrypts them on arrival. It then stores and reads them
+  as plaintext.
+- **Payload encryption** encrypts values in your Workers and Clients before
+  they are sent. A value that is eligible for encryption stays ciphertext in
+  Flow history, in object storage, in the blob store, and in Attribute Store
+  tables. Some values stay plaintext; see the list below. The server never
+  holds a key. You keep the keys.
+
+Use both in production when the server, its storage, or its operators must
+not see your data. Payload encryption does not replace TLS. Names, IDs, and
+Flow structure still travel in each request.
+
+Some data stays plaintext even with payload encryption, because the server
+needs it:
+
+- Names and IDs, such as Flow types, Flow IDs, Attribute keys, and Channel
+  names. Keep sensitive data out of them.
+- Attributes that you index or declare plaintext, so search, Attribute-match
+  waits, and Action conditions keep working.
+- Configuration, Step and Flow states, times, and error types.
+
+Every Worker and Client that reads encrypted values needs the same keys. Dex
+Web shows encrypted values through a codec server that you run. dexcli uses
+either the key file or a codec server. The
+[Payload encryption reference](/reference/server/payload-encryption) lists
+everything the server can see, the setup for each SDK, rollout and key
+rotation steps, and the limits.
 
 ## Next
 

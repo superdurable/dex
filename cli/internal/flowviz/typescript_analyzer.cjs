@@ -173,8 +173,9 @@ class TypeScriptAnalyzer {
   indexResource(name,expression) {
     expression = this.unwrap(expression);
     // syncToAttributeStore and hardDeleteOnNull return the Attribute they configure.
+    // plaintext returns a copy with the same name, codec, and index.
     const configuredBy = [];
-    while (expression && this.ts.isCallExpression(expression) && this.ts.isPropertyAccessExpression(expression.expression) && ["syncToAttributeStore","hardDeleteOnNull"].includes(expression.expression.name.text)) {
+    while (expression && this.ts.isCallExpression(expression) && this.ts.isPropertyAccessExpression(expression.expression) && ["syncToAttributeStore","hardDeleteOnNull","plaintext"].includes(expression.expression.name.text)) {
       configuredBy.push(expression);
       expression = this.unwrap(expression.expression.expression);
     }

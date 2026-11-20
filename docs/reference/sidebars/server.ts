@@ -12,6 +12,7 @@ const sidebars: SidebarsConfig = {
     'high-availability',
     'object-storage',
     'authentication',
+    'payload-encryption',
     'workers',
     'search',
     'attribute-store-sync',
