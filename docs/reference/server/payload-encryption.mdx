@@ -607,9 +607,10 @@ Set the codec server in **Settings** > **Codec endpoint**:
 - **Off** leaves encrypted values encrypted.
 
 **Send cookies (SSO proxy)** sends your browser's cookies with each request
-to the codec server. Turn it on only when an SSO proxy in front of the codec
-server signs you in by cookie. The codec server must allow credentials in its
-CORS response. Leave it off for `dexcli codec-server` and for a bearer token.
+to the codec server. Turn it on when an SSO proxy in front of the codec server
+requires its cookie. It can be sent together with a bearer token. The codec
+server must allow credentials in its CORS response. Leave it off for
+`dexcli codec-server` and for any codec server that needs only a token.
 Changed in Dex Web 1.45.17: it is off for a new Custom configuration. A saved
 Custom configuration keeps its choice.
 
@@ -627,10 +628,15 @@ sends the token to the Dex Web server. An empty token sends no
 - **Remember on this browser** is on by default. The token then stays in this
   browser's local storage, shared by all tabs, until you delete it. Scripts
   on the Dex Web origin can read it. Turn it off on a shared computer.
-- With **Remember on this browser** off, the token is kept for this tab and a
-  reload of it. A tab opened from it, or a duplicated tab, may inherit it.
+- With **Remember on this browser** off, the token is kept in this tab's
+  session storage, and a reload keeps it. A tab opened from it, or a
+  duplicated tab, may inherit it.
 - The delete button next to the token field deletes the token from this
-  browser. Other open tabs stop using it too.
+  browser. Other open tabs stop using it too. A duplicated tab can keep its
+  own copy until you delete the token in that tab.
+- When browser storage refuses a save or a delete, the setting says so. A
+  token that could not be deleted is no longer used by that page; delete it
+  again to remove it from storage.
 - The token and **Send cookies (SSO proxy)** work together.
 - When the codec server answers 401, Dex Web says the bearer token is likely
   missing or wrong.

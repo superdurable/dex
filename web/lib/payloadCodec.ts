@@ -137,15 +137,19 @@ function readStoredTokenRecord(storage: Pick<Storage, 'getItem'> | undefined): C
   }
 }
 
+/** Returns whether the write or removal succeeded; removing from a missing storage succeeds. */
 function writeStoredTokenRecord(
   storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined,
   record: CodecBearerTokenRecord | null,
-) {
+): boolean {
+  if (!storage) return record === null;
   try {
-    if (record) storage?.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, JSON.stringify({ endpoint: record.endpoint, token: record.token }));
-    else storage?.removeItem(CODEC_BEARER_TOKEN_STORAGE_KEY);
+    if (record) storage.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, JSON.stringify({ endpoint: record.endpoint, token: record.token }));
+    else storage.removeItem(CODEC_BEARER_TOKEN_STORAGE_KEY);
+    return true;
   } catch {
-    // The token stays in page memory; the error is not logged, so it cannot carry the token.
+    // The error is not logged, so it cannot carry the token.
+    return false;
   }
 }
 
@@ -159,14 +163,32 @@ export function readCodecBearerTokenRecord(storages: CodecBearerTokenStorages, r
   return readStoredTokenRecord(preferred) ?? readStoredTokenRecord(other);
 }
 
-/** Saves the record in the storage that remember selects and removes it from the other; null removes both. */
+/**
+ * Saves the record in the storage that remember selects, then removes it from the other; null removes both.
+ *
+ * Returns false when the record could not be written, or when null could not be removed from both storages. A failed
+ * write leaves the other storage unchanged, so a record that was moving keeps its old place.
+ */
 export function saveCodecBearerTokenRecord(
   storages: CodecBearerTokenStorages,
   record: CodecBearerTokenRecord | null,
   remember: boolean,
-) {
-  writeStoredTokenRecord(remember ? storages.local : storages.session, record);
-  writeStoredTokenRecord(remember ? storages.session : storages.local, null);
+): boolean {
+  const [target, other] = remember ? [storages.local, storages.session] : [storages.session, storages.local];
+  if (record) {
+    if (!writeStoredTokenRecord(target, record)) return false;
+    // A copy left in the other storage only shadows the same token, so its removal failure is not reported.
+    writeStoredTokenRecord(other, null);
+    return true;
+  }
+  const removedTarget = writeStoredTokenRecord(target, null);
+  const removedOther = writeStoredTokenRecord(other, null);
+  return removedTarget && removedOther;
+}
+
+/** Removes the tab's session storage record; true when it is gone. */
+export function removeSessionCodecBearerTokenRecord(storages: CodecBearerTokenStorages): boolean {
+  return writeStoredTokenRecord(storages.session, null);
 }
 
 function isLoopbackHost(hostname: string): boolean {

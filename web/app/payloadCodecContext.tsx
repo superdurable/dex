@@ -15,6 +15,7 @@ import {
   PayloadDecodeStore,
   readCodecBearerTokenRecord,
   readCodecEndpointPreference,
+  removeSessionCodecBearerTokenRecord,
   resolveCodecEndpoint,
   saveCodecBearerTokenRecord,
   saveCodecEndpointPreference,
@@ -39,8 +40,10 @@ interface PayloadCodecState {
    * URL drops it. The token goes to local storage when rememberBearerToken is set, or to session storage otherwise.
    */
   saveCustomCodecEndpoint: (next: CodecEndpointPreference, typedToken: string) => void;
-  /** Deletes the saved bearer token from local and session storage. */
+  /** Deletes the saved bearer token from local and session storage; this page stops using it even if that fails. */
   deleteCustomBearerToken: () => void;
+  /** The last bearer token save or delete that browser storage refused; null when the last one succeeded. */
+  bearerTokenStorageProblem: 'save' | 'delete' | null;
   /** The local dev codec server Dex Web reports; null until read or when the read fails. */
   localServer: LocalCodecServer | null;
   /** The endpoint in use; null when no codec is configured. */
@@ -58,6 +61,7 @@ const PayloadCodecContext = createContext<PayloadCodecState>({
   savedBearerTokenEndpoint: null,
   saveCustomCodecEndpoint: () => undefined,
   deleteCustomBearerToken: () => undefined,
+  bearerTokenStorageProblem: null,
   localServer: null,
   codec: null,
   store: unconfiguredStore,
@@ -90,14 +94,18 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
   const [tokenRecord, setTokenRecord] = useState(
     () => readCodecBearerTokenRecord(bearerTokenStorages(), preference.rememberBearerToken),
   );
+  const [bearerTokenStorageProblem, setBearerTokenStorageProblem] = useState<'save' | 'delete' | null>(null);
   const [localServer, setLocalServer] = useState<LocalCodecServer | null>(null);
 
-  // Another tab that saves or clears the token changes local storage; follow it so a cleared token is dropped.
+  // Another tab that saves or deletes the shared token changes local storage. A session copy this tab inherited
+  // from it is dropped too, so a deleted token is not read back from that copy.
   const rememberBearerToken = preference.rememberBearerToken;
   useEffect(() => {
     const followOtherTab = (event: StorageEvent) => {
       if (event.key !== null && event.key !== CODEC_BEARER_TOKEN_STORAGE_KEY) return;
-      setTokenRecord(readCodecBearerTokenRecord(bearerTokenStorages(), rememberBearerToken));
+      const storages = bearerTokenStorages();
+      removeSessionCodecBearerTokenRecord(storages);
+      setTokenRecord(readCodecBearerTokenRecord(storages, rememberBearerToken));
     };
     window.addEventListener('storage', followOtherTab);
     return () => window.removeEventListener('storage', followOtherTab);
@@ -126,9 +134,12 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
       setPreferenceState(next);
       saveCodecEndpointPreference(browserStorage(), next);
     };
-    const saveTokenRecord = (record: CodecBearerTokenRecord | null, remember: boolean) => {
+    // This page uses the new record even when storage refuses it; the problem tells the viewer it was not kept.
+    const saveTokenRecord = (record: CodecBearerTokenRecord | null, remember: boolean): boolean => {
       setTokenRecord(record);
-      saveCodecBearerTokenRecord(bearerTokenStorages(), record, remember);
+      const saved = saveCodecBearerTokenRecord(bearerTokenStorages(), record, remember);
+      setBearerTokenStorageProblem(saved ? null : record ? 'save' : 'delete');
+      return saved;
     };
     return {
       retryDecoding: () => setRetryCount((count) => count + 1),
@@ -139,15 +150,20 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
         let record: CodecBearerTokenRecord | null = null;
         if (typedToken) record = { endpoint: next.endpoint, token: typedToken };
         else if (tokenRecord?.endpoint === next.endpoint) record = tokenRecord;
-        saveTokenRecord(record, next.rememberBearerToken);
-        setPreference(next);
+        const saved = saveTokenRecord(record, next.rememberBearerToken);
+        const isFailedMove = !saved && record !== null && record === tokenRecord;
+        // A token that could not move stays where it was, so the saved choice stays the old one too.
+        setPreference(isFailedMove ? { ...next, rememberBearerToken: preference.rememberBearerToken } : next);
       },
-      deleteCustomBearerToken: () => saveTokenRecord(null, preference.rememberBearerToken),
+      deleteCustomBearerToken: () => {
+        saveTokenRecord(null, preference.rememberBearerToken);
+      },
+      bearerTokenStorageProblem,
       localServer,
       codec,
       store,
     };
-  }, [codec, localServer, preference, store, tokenRecord]);
+  }, [bearerTokenStorageProblem, codec, localServer, preference, store, tokenRecord]);
   return <PayloadCodecContext.Provider value={value}>{children}</PayloadCodecContext.Provider>;
 }
 

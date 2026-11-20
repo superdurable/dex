@@ -263,6 +263,62 @@ describe('CodecEndpointSetting token and URL', () => {
   });
 });
 
+describe('CodecEndpointSetting storage failures and inherited copies', () => {
+  function failingStorage(fail: 'setItem' | 'removeItem'): Storage {
+    const storage = memoryStorage();
+    return { ...storage, [fail]: () => { throw new Error('blocked'); } } as Storage;
+  }
+
+  it('keeps the saved token in place when it cannot move to session storage', async () => {
+    window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
+    vi.stubGlobal('sessionStorage', failingStorage('setItem'));
+    renderSetting();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
+    save();
+
+    expect(window.localStorage.getItem(tokenKey)).toBe(tokenRecord(endpointA));
+    expect(JSON.parse(window.localStorage.getItem(preferenceKey) ?? '{}').rememberBearerToken).toBe(true);
+    expect(screen.getByText('Could not save the token in this browser.')).toBeTruthy();
+    expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+  });
+
+  it('stops using the token when it cannot be deleted from storage, and offers a retry', async () => {
+    const local = failingStorage('removeItem');
+    local.setItem(tokenKey, tokenRecord(endpointA));
+    vi.stubGlobal('localStorage', local);
+    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false });
+    renderSetting();
+    expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+    const requestsBefore = codecRequests().length;
+    fireEvent.click(screen.getByRole('button', { name: 'Delete saved bearer token' }));
+
+    expect(screen.getByText('Could not delete the saved token. Try again.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete saved bearer token' })).toBeTruthy();
+    expect(await nextDecodeHeaders(requestsBefore)).not.toHaveProperty('Authorization');
+  });
+
+  it('drops an inherited session copy when another tab deletes the shared token', async () => {
+    // Tab A saved with Remember off; tab B was duplicated from it and inherited the session copy.
+    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: false });
+    window.sessionStorage.setItem(tokenKey, tokenRecord(endpointA));
+    renderSetting();
+    expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+
+    // Tab A saves with Remember on, so the shared record appears, and then deletes it.
+    let requestsBefore = codecRequests().length;
+    window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: tokenKey })); });
+    expect(window.sessionStorage.getItem(tokenKey)).toBeNull();
+    expect(await nextDecodeHeaders(requestsBefore)).toMatchObject({ Authorization: `Bearer ${token}` });
+
+    requestsBefore = codecRequests().length;
+    window.localStorage.removeItem(tokenKey);
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: tokenKey })); });
+    expect(await nextDecodeHeaders(requestsBefore)).not.toHaveProperty('Authorization');
+    expect(screen.queryByRole('button', { name: 'Delete saved bearer token' })).toBeNull();
+  });
+});
+
 describe('CodecEndpointSetting cookies and help', () => {
   it('starts a new Custom configuration with Send cookies cleared', () => {
     window.localStorage.removeItem(preferenceKey);
@@ -289,18 +345,25 @@ describe('CodecEndpointSetting cookies and help', () => {
     const rememberHelp = screen.getByRole('button', { name: 'What is Remember on this browser?' });
     expect(cookiesHelp.getAttribute('aria-expanded')).toBe('false');
 
+    const cookiesText = screen.getByText(/Leave it off for dexcli codec-server/);
+    const rememberText = screen.getByText(/Turn it off on a shared computer/);
+    // aria-controls always points at an element that exists, hidden while closed.
+    expect(document.getElementById(cookiesHelp.getAttribute('aria-controls') ?? '')).toBe(cookiesText);
+    expect(document.getElementById(rememberHelp.getAttribute('aria-controls') ?? '')).toBe(rememberText);
+    expect(cookiesText.hidden).toBe(true);
+
     fireEvent.click(cookiesHelp);
     expect(cookiesHelp.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText(/Leave it off for dexcli codec-server/)).toBeTruthy();
+    expect(cookiesText.hidden).toBe(false);
     fireEvent.click(cookiesHelp);
     expect(cookiesHelp.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText(/Leave it off for dexcli codec-server/)).toBeNull();
+    expect(cookiesText.hidden).toBe(true);
 
     fireEvent.click(rememberHelp);
-    expect(screen.getByText(/Turn it off on a shared computer/)).toBeTruthy();
+    expect(rememberText.hidden).toBe(false);
     fireEvent.keyDown(rememberHelp, { key: 'Escape' });
     expect(rememberHelp.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText(/Turn it off on a shared computer/)).toBeNull();
+    expect(rememberText.hidden).toBe(true);
   });
 
   it('names the bearer token when the codec endpoint answers 401, without echoing it', async () => {

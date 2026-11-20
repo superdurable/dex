@@ -16,6 +16,7 @@ import {
   readableErrorMessage,
   readCodecBearerTokenRecord,
   readCodecEndpointPreference,
+  removeSessionCodecBearerTokenRecord,
   resolveCodecEndpoint,
   saveCodecBearerTokenRecord,
   saveCodecEndpointPreference,
@@ -165,7 +166,26 @@ describe('bearer token storage', () => {
     };
     expect(readCodecBearerTokenRecord({ local: undefined, session: undefined }, true)).toBeNull();
     expect(readCodecBearerTokenRecord({ local: throwing, session: throwing }, true)).toBeNull();
-    expect(() => saveCodecBearerTokenRecord({ local: throwing, session: throwing }, record, true)).not.toThrow();
+    expect(saveCodecBearerTokenRecord({ local: throwing, session: throwing }, record, true)).toBe(false);
+    expect(saveCodecBearerTokenRecord({ local: undefined, session: undefined }, record, true)).toBe(false);
+    expect(saveCodecBearerTokenRecord({ local: undefined, session: undefined }, null, true)).toBe(true);
+  });
+
+  it('keeps the old place when the move target refuses the write', () => {
+    const storages = { local: fakeStorage(), session: { ...fakeStorage(), setItem: () => { throw new Error('quota'); } } };
+    storages.local.entries.set(tokenKey, stored(record.endpoint, record.token));
+    expect(saveCodecBearerTokenRecord(storages, record, false)).toBe(false);
+    expect(readCodecBearerTokenRecord(storages, true)).toEqual(record);
+    expect(saveCodecBearerTokenRecord(storages, record, true)).toBe(true);
+  });
+
+  it('reports a delete that one storage refuses, and removes what it can', () => {
+    const storages = { local: { ...fakeStorage(), removeItem: () => { throw new Error('blocked'); } }, session: fakeStorage() };
+    storages.local.entries.set(tokenKey, stored(record.endpoint, record.token));
+    storages.session.entries.set(tokenKey, stored(record.endpoint, record.token));
+    expect(saveCodecBearerTokenRecord(storages, null, true)).toBe(false);
+    expect(storages.session.entries.has(tokenKey)).toBe(false);
+    expect(removeSessionCodecBearerTokenRecord(storages)).toBe(true);
   });
 });
 

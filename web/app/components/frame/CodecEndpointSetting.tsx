@@ -14,11 +14,12 @@ import { usePayloadCodec } from '../../payloadCodecContext';
 const MODE_LABEL: Record<CodecEndpointMode, string> = { auto: 'Auto', custom: 'Custom', off: 'Off' };
 
 const REMEMBER_HELP = 'Keeps the bearer token in this browser’s local storage, shared by all tabs, until you delete it. '
-  + 'Scripts on this Dex Web origin can read it. Turn it off on a shared computer; the token is then kept only for '
-  + 'this tab.';
-const COOKIES_HELP = 'Sends your browser’s cookies with each request to the codec endpoint. Turn it on only when an '
-  + 'SSO proxy in front of the codec server signs you in by cookie. The codec server must allow credentials in its '
-  + 'CORS response. Leave it off for dexcli codec-server and for a bearer token.';
+  + 'Scripts on this Dex Web origin can read it. Turn it off on a shared computer. When it is off, the token is kept '
+  + 'in this tab’s session storage; a tab opened from it or a duplicated tab may inherit it.';
+const COOKIES_HELP = 'Sends your browser’s cookies with each request to the codec endpoint. Turn it on when an SSO '
+  + 'proxy in front of the codec server requires its cookie; it can be sent together with a bearer token. The codec '
+  + 'server must allow credentials in its CORS response. Leave it off for dexcli codec-server and for any codec server '
+  + 'that needs only a token.';
 
 type HelpTopic = 'remember' | 'cookies';
 
@@ -53,7 +54,7 @@ function CodecOption({ checked, onChange, label, helpLabel, help, isHelpOpen, on
           ?
         </button>
       </div>
-      {isHelpOpen && <small className="app-bar-codec-help" id={helpId}>{help}</small>}
+      <small className="app-bar-codec-help" hidden={!isHelpOpen} id={helpId}>{help}</small>
     </>
   );
 }
@@ -62,7 +63,7 @@ function CodecOption({ checked, onChange, label, helpLabel, help, isHelpOpen, on
 export function CodecEndpointSetting() {
   const {
     preference, setPreference, savedBearerTokenEndpoint, saveCustomCodecEndpoint, deleteCustomBearerToken,
-    localServer, codec, store, retryDecoding,
+    bearerTokenStorageProblem, localServer, codec, store, retryDecoding,
   } = usePayloadCodec();
   const [draftEndpoint, setDraftEndpoint] = useState(preference.endpoint);
   const [draftCredentials, setDraftCredentials] = useState(preference.includeCredentials);
@@ -112,8 +113,11 @@ export function CodecEndpointSetting() {
   const isTokenForThisURL = savedBearerTokenEndpoint !== null && 'endpoint' in savedEndpoint
     && savedBearerTokenEndpoint === savedEndpoint.endpoint;
   let tokenState = '';
-  if (isTokenForThisURL) tokenState = preference.rememberBearerToken ? 'Token saved in this browser.' : 'Token saved for this tab.';
+  if (bearerTokenStorageProblem === 'delete') tokenState = 'Could not delete the saved token. Try again.';
+  else if (bearerTokenStorageProblem === 'save') tokenState = 'Could not save the token in this browser.';
+  else if (isTokenForThisURL) tokenState = preference.rememberBearerToken ? 'Token saved in this browser.' : 'Token saved for this tab.';
   else if (savedBearerTokenEndpoint !== null) tokenState = 'The saved token is for another URL.';
+  const canDeleteToken = savedBearerTokenEndpoint !== null || bearerTokenStorageProblem === 'delete';
 
   let status: string;
   if (codec?.source === 'local') status = `Local dev codec server · ${codec.endpoint}`;
@@ -181,7 +185,7 @@ export function CodecEndpointSetting() {
               spellCheck={false}
               type="password"
             />
-            {savedBearerTokenEndpoint !== null && (
+            {canDeleteToken && (
               <button
                 aria-label="Delete saved bearer token"
                 className="app-bar-icon-button app-bar-codec-small-button"
