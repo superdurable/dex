@@ -170,8 +170,8 @@ export function PayloadCodecProvider({ children, browserTab = window }: PayloadC
         if (typedToken) record = { endpoint: next.endpoint, token: typedToken };
         else if (tokenRecord?.endpoint === next.endpoint) record = tokenRecord;
         const saved = saveTokenRecord(record, next.rememberBearerToken);
-        const isFailedMove = !saved && record !== null && record === tokenRecord;
-        // A token that could not move stays where it was, so the saved choice stays the old one too.
+        const isFailedMove = !saved && record !== null;
+        // A token that could not be saved or moved keeps the old store, so the saved choice stays the old one too.
         setPreference(isFailedMove ? { ...next, rememberBearerToken: preference.rememberBearerToken } : next);
       },
       deleteCustomBearerToken: () => {

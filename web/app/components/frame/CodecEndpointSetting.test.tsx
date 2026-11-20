@@ -324,6 +324,20 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
   });
 
+  it('keeps the saved Remember choice when a replacement token fails to move', async () => {
+    const local = failingStorage('removeItem');
+    local.setItem(tokenKey, tokenRecord(endpointA));
+    vi.stubGlobal('localStorage', local);
+    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: true });
+    await renderSetting();
+    typeToken('replacement-token');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
+    save();
+
+    expect(screen.getByText('Could not save the token in this browser.')).toBeTruthy();
+    expect(JSON.parse(window.localStorage.getItem(preferenceKey) ?? '{}').rememberBearerToken).toBe(true);
+  });
+
   it('keeps a token whose delete failed revoked when other tabs change storage', async () => {
     const local = failingStorage('removeItem');
     local.setItem(tokenKey, tokenRecord(endpointA));
