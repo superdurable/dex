@@ -15,6 +15,7 @@ examples/go/deepverify
 examples/go/codec-server/dex-codec-server
 examples/go/codec-server/codec-server
 sdk-typescript/node_modules/
+examples/typescript/codec-server/node_modules/
 sdk-rust/target/
 sdk-rust/coverage/
 examples/rust/target/

@@ -35,6 +35,7 @@ jobs:
             examples/typescript/package-lock.json
             examples/typescript/quick-start/package-lock.json
             examples/typescript/slack-thread-agent/package-lock.json
+            examples/typescript/codec-server/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -70,6 +71,37 @@ jobs:
       - name: Typecheck Slack thread agent example
         working-directory: examples/typescript/slack-thread-agent
         run: npm run typecheck
+      - name: Install codec server example dependencies
+        working-directory: examples/typescript/codec-server
+        run: npm ci
+      - name: Verify codec server published SDK dependency
+        working-directory: examples/typescript/codec-server
+        run: |
+          set -euo pipefail
+          declared_version="$(node -p "require('./package.json').dependencies['@superdurable/dex']")"
+          resolved_version="$(npm ls --json --depth=0 @superdurable/dex | jq -r '.dependencies["@superdurable/dex"].version')"
+          resolved_source="$(node -p "require('./package-lock.json').packages['node_modules/@superdurable/dex'].resolved")"
+          if [[ -z "$declared_version" || "$declared_version" == "undefined" ]]; then
+            echo "examples/typescript/codec-server must depend on @superdurable/dex"
+            exit 1
+          fi
+          if [[ "$resolved_version" != "$declared_version" ]]; then
+            echo "examples/typescript/codec-server resolves @superdurable/dex $resolved_version, expected $declared_version"
+            exit 1
+          fi
+          expected_source="https://registry.npmjs.org/@superdurable/dex/-/dex-${declared_version}.tgz"
+          if [[ "$resolved_source" != "$expected_source" ]]; then
+            echo "examples/typescript/codec-server must use published @superdurable/dex, not $resolved_source"
+            exit 1
+          fi
+      - name: Typecheck and test codec server example
+        working-directory: examples/typescript/codec-server
+        run: |
+          npm run typecheck
+          npm test
+      - name: Build codec server image
+        working-directory: examples/typescript/codec-server
+        run: docker build -t dex-codec-server-typescript:ci .
       - name: Unit tests
         run: npm test
 
