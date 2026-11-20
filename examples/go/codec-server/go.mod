@@ -3,7 +3,7 @@ module github.com/superdurable/dex/examples/go/codec-server
 go 1.24.0
 
 require (
-	github.com/superdurable/dex/sdk-go v1.45.9
+	github.com/superdurable/dex/sdk-go v1.45.16
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -19,6 +19,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 )
-
-// Remove this replace once sdk-go 1.45.9 is released.
-replace github.com/superdurable/dex/sdk-go => ../../../sdk-go

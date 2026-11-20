@@ -100,6 +100,29 @@ jobs:
         run: |
           go build ./...
           go vet ./...
+      - name: Verify codec server released module dependencies
+        working-directory: examples/go/codec-server
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          go mod verify
+          module=github.com/superdurable/dex/sdk-go
+          required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
+          resolved_version="$(go list -m -f '{{.Version}}' "$module")"
+          replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"
+          if [[ -z "$required_version" ]]; then
+            echo "::error::Codec server $module must be a direct dependency"
+            exit 1
+          fi
+          if [[ -n "$replacement" ]]; then
+            echo "::error::Codec server $module must use a released version, not $replacement"
+            exit 1
+          fi
+          if [[ "$resolved_version" != "$required_version" ]]; then
+            echo "::error::Codec server $module resolves to $resolved_version, expected $required_version"
+            exit 1
+          fi
       - name: Check codec server formatting
         working-directory: examples/go/codec-server
         run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }
@@ -115,14 +138,7 @@ jobs:
         working-directory: examples/go/codec-server
         env:
           GOWORK: "off"
-        run: |
-          set -euo pipefail
-          # The standalone image build needs a released sdk-go; skip while go.mod still has a replace.
-          if go mod edit -json | jq -e '(.Replace // []) | length > 0' >/dev/null; then
-            echo "::notice::Skipping the codec server image build: go.mod still replaces sdk-go"
-            exit 0
-          fi
-          docker build -t dex-codec-server:ci .
+        run: docker build -t dex-codec-server:ci .
 
   e2e:
     name: End-to-end tests (pull, zd)
