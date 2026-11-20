@@ -20,6 +20,7 @@ import base64
 import gzip
 import json
 import logging
+import math
 import os
 import tracemalloc
 from collections.abc import AsyncIterator, Sequence
@@ -104,6 +105,57 @@ async def test_python_sdk_codec_decodes_envelopes_from_encode(key_file_path: Pat
     plaintexts = sdk_codec_from_key_file(key_file_path).decode(SDK_CONTEXT, envelopes)
     for plaintext, want in zip(plaintexts, values):
         assert_same_value(pb.Value.FromString(plaintext), want)
+
+
+async def test_encode_keeps_the_sign_of_negative_zero(key_file_path: Path) -> None:
+    # Raw text: json.dumps writes -0.0, but the protocol and other clients write -0.
+    request_text = (
+        '{"context":{"flow_type":"OrderFlow","flow_id":"order-1001"},"values":['
+        '{"doubleValue":-0},'
+        '{"doubleValue":0},'
+        '{"intValue":"0"},'
+        '{"intValue":-0},'
+        '{"intValue":0},'
+        '{"intValue":"9223372036854775807"},'
+        '{"intValue":"-9223372036854775808"},'
+        '{"intValue":9007199254740993}'
+        "]}"
+    )
+    async with serve_test_server(build_test_server(default_test_config(key_file_path))) as client:
+        status, _, body = await post_json(client, "/encode", request_text)
+        assert status == 200, body
+        status, _, decoded = await post_json(
+            client, "/decode", {"context": TEST_CONTEXT, "envelopes": body["envelopes"]}
+        )
+    assert status == 200, decoded
+    envelopes = [pb.PayloadEnvelope.FromString(base64.b64decode(t)) for t in body["envelopes"]]
+    values = [
+        pb.Value.FromString(plaintext)
+        for plaintext in sdk_codec_from_key_file(key_file_path).decode(SDK_CONTEXT, envelopes)
+    ]
+    assert values[0].WhichOneof("kind") == "double_value"
+    assert values[0].double_value == 0.0
+    assert math.copysign(1, values[0].double_value) == -1
+    assert math.copysign(1, values[1].double_value) == 1
+    assert [value.WhichOneof("kind") for value in values[2:]] == ["int_value"] * 6
+    assert [value.int_value for value in values[2:]] == [
+        0,
+        0,
+        0,
+        9223372036854775807,
+        -9223372036854775808,
+        9007199254740993,
+    ]
+    assert decoded["values"][0] == {"doubleValue": -0.0}
+    assert math.copysign(1, decoded["values"][0]["doubleValue"]) == -1
+    assert decoded["values"][2:] == [
+        {"intValue": "0"},
+        {"intValue": "0"},
+        {"intValue": "0"},
+        {"intValue": "9223372036854775807"},
+        {"intValue": "-9223372036854775808"},
+        {"intValue": "9007199254740993"},
+    ]
 
 
 async def test_empty_flow_type_is_accepted(key_file_path: Path) -> None:

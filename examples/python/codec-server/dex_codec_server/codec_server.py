@@ -110,6 +110,13 @@ class CodecRequestError(Exception):
         return self
 
 
+def _parse_json_integer(text: str) -> int | float:
+    # The protocol writes negative zero as -0; int("-0") would drop its sign.
+    if text == "-0":
+        return -0.0
+    return int(text)
+
+
 def _malformed_request(message: str) -> CodecRequestError:
     return CodecRequestError(400, "malformed", message)
 
@@ -239,7 +246,7 @@ class PayloadCodecHttpServer:
         codec = await self._select_codec(caller)
         content = await self._read_body(request)
         try:
-            body = json.loads(content)
+            body = json.loads(content, parse_int=_parse_json_integer)
         except (ValueError, RecursionError):
             raise _malformed_request("request body is not valid protocol JSON") from None
         if not isinstance(body, dict):
