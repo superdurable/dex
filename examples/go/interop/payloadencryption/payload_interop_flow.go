@@ -60,6 +60,63 @@ var SecretText = dex.DefineAttribute[string]("payload-interop-secret")
 // StatusText stays plaintext, so a Client without a codec can read it.
 var StatusText = dex.DefineAttribute[string]("payload-interop-status", dex.Plaintext())
 
+// DocumentObject holds the input's JSON object, so it is stored as an encrypted obj_value.
+var DocumentObject = dex.DefineAttribute[PayloadInteropDocument]("payload-interop-document")
+
+// CountInteger holds the input's count, so it is stored as an encrypted int_value.
+var CountInteger = dex.DefineAttribute[int64]("payload-interop-count")
+
+// RatioDouble holds the input's ratio, so it is stored as an encrypted double_value.
+var RatioDouble = dex.DefineAttribute[float64]("payload-interop-ratio")
+
+// PayloadInteropInput is the start input of the interop Flow.
+type PayloadInteropInput struct {
+	Text     string                 `json:"text"`
+	Count    int64                  `json:"count"`
+	Ratio    float64                `json:"ratio"`
+	Document PayloadInteropDocument `json:"document"`
+}
+
+// PayloadInteropDocument is a JSON object with nested fields, arrays, and non-ASCII text.
+type PayloadInteropDocument struct {
+	Title  string               `json:"title"`
+	Tags   []string             `json:"tags"`
+	Nested PayloadInteropNested `json:"nested"`
+}
+
+// PayloadInteropNested is the nested object of PayloadInteropDocument.
+type PayloadInteropNested struct {
+	Level  int64   `json:"level"`
+	Weight float64 `json:"weight"`
+	Flags  []bool  `json:"flags"`
+	Note   string  `json:"note"`
+}
+
+// ExpectedCount is the int64 every Client sends; it needs more than 32 bits.
+const ExpectedCount int64 = -1234567890123
+
+// ExpectedRatio is the double every Client sends.
+const ExpectedRatio = 3.141592653589793
+
+// ExpectedDocument returns the JSON object every Client sends.
+func ExpectedDocument() PayloadInteropDocument {
+	return PayloadInteropDocument{
+		Title: "naïve café ✓ Grüße €",
+		Tags:  []string{"alpha", "beta ✓", ""},
+		Nested: PayloadInteropNested{
+			Level:  3,
+			Weight: 1.25,
+			Flags:  []bool{true, false},
+			Note:   "ü ß ✓",
+		},
+	}
+}
+
+// NewPayloadInteropInput returns the start input with text and the expected typed values.
+func NewPayloadInteropInput(text string) PayloadInteropInput {
+	return PayloadInteropInput{Text: text, Count: ExpectedCount, Ratio: ExpectedRatio, Document: ExpectedDocument()}
+}
+
 // FlowTypeOf returns the Flow type that the Owner's Worker serves.
 func FlowTypeOf(owner Owner) string {
 	switch owner {
@@ -114,7 +171,9 @@ func (flow *PayloadInteropFlow) GetSteps() []dex.StepDef {
 }
 
 func (*PayloadInteropFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{SecretText, StatusText}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{
+		SecretText, StatusText, DocumentObject, CountInteger, RatioDouble,
+	}}
 }
 
 // NewClientRegistry returns a Registry with every Owner's Flow, so one Client can start them all.
@@ -127,7 +186,7 @@ func NewClientRegistry() (*dex.Registry, error) {
 }
 
 type storePayloadInteropSecretStep struct {
-	dex.StepDefaultsNoWaitFor[string]
+	dex.StepDefaultsNoWaitFor[PayloadInteropInput]
 	owner Owner
 }
 
@@ -140,17 +199,26 @@ func (storePayloadInteropSecretStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
 }
 
-func (step storePayloadInteropSecretStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if failureInput, isFailure := strings.CutPrefix(input, FailInputPrefix); isFailure {
+func (step storePayloadInteropSecretStep) Execute(ctx dex.Context, input PayloadInteropInput) (*dex.StepDecision, error) {
+	if failureInput, isFailure := strings.CutPrefix(input.Text, FailInputPrefix); isFailure {
 		return nil, errors.New(ExpectedFailureText(step.owner, failureInput))
 	}
-	if err := SecretText.Set(ctx, ExpectedSecretText(step.owner, input)); err != nil {
+	if err := SecretText.Set(ctx, ExpectedSecretText(step.owner, input.Text)); err != nil {
 		return nil, err
 	}
 	if err := StatusText.Set(ctx, ExpectedStatusText(step.owner)); err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(ExpectedOutput(step.owner, input)), nil
+	if err := DocumentObject.Set(ctx, input.Document); err != nil {
+		return nil, err
+	}
+	if err := CountInteger.Set(ctx, input.Count); err != nil {
+		return nil, err
+	}
+	if err := RatioDouble.Set(ctx, input.Ratio); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(ExpectedOutput(step.owner, input.Text)), nil
 }
 
 // NewFilePayloadEncryption reads a key file, such as one from dexcli codec-server keygen.

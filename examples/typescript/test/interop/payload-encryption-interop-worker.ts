@@ -22,7 +22,7 @@ import { Registry, Worker, openBlobCache } from "@superdurable/dex";
 
 import {
   PayloadInteropFlow,
-  newFilePayloadCodec,
+  newFilePayloadEncryption,
   requiredEnv,
 } from "./payload-encryption-interop-flow.js";
 
@@ -33,7 +33,7 @@ const cache = openBlobCache({
 const worker = new Worker(new Registry([new PayloadInteropFlow("typescript")]), cache, {
   serverAddress: requiredEnv("DEX_FLOW_SERVICE_ADDRESS"),
   pull: { maxConcurrentTasks: 16 },
-  payloadCodec: await newFilePayloadCodec(requiredEnv("DEX_PAYLOAD_INTEROP_KEY_FILE")),
+  ...(await newFilePayloadEncryption(requiredEnv("DEX_PAYLOAD_INTEROP_KEY_FILE"))),
 });
 try {
   await worker.start();

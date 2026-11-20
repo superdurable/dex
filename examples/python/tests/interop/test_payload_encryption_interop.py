@@ -37,8 +37,14 @@ from dex import (
 )
 
 from tests.interop.payload_encryption_interop_flow import (
+    COUNT_INTEGER,
+    DOCUMENT_OBJECT,
+    EXPECTED_COUNT,
+    EXPECTED_DOCUMENT,
+    EXPECTED_RATIO,
     FAIL_INPUT_PREFIX,
     OWNERS,
+    RATIO_DOUBLE,
     SECRET_TEXT,
     STATUS_TEXT,
     PayloadInteropFlow,
@@ -49,6 +55,7 @@ from tests.interop.payload_encryption_interop_flow import (
     new_client_flows,
     new_client_registry,
     new_file_payload_encryption,
+    new_payload_interop_input,
 )
 
 WAIT_TIMEOUT = timedelta(seconds=45)
@@ -95,12 +102,19 @@ async def test_python_client_reads_worker_payload(
     client = interop_clients.client
     input = f"Python Client input for {owner}: naïve café ✓"
     flow_id = new_flow_id(f"payload-interop-{owner}")
-    await client.start_flow(flow, flow_id, input, StartFlowOptions())
+    await client.start_flow(flow, flow_id, new_payload_interop_input(input), StartFlowOptions())
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED, result.error_message
     assert result.single_output(str) == expected_output(owner, input)
-    secret = await client.get_attributes(flow_id, SECRET_TEXT)
-    assert secret[SECRET_TEXT] == expected_secret_text(owner, input)
+    stored = await client.get_attributes(
+        flow_id, SECRET_TEXT, DOCUMENT_OBJECT, COUNT_INTEGER, RATIO_DOUBLE
+    )
+    assert stored[SECRET_TEXT] == expected_secret_text(owner, input)
+    assert stored[DOCUMENT_OBJECT] == EXPECTED_DOCUMENT
+    assert stored[COUNT_INTEGER] == EXPECTED_COUNT
+    assert type(stored[COUNT_INTEGER]) is int
+    assert stored[RATIO_DOUBLE] == EXPECTED_RATIO
+    assert type(stored[RATIO_DOUBLE]) is float
 
     status = await interop_clients.client_without_codec.get_attributes(flow_id, STATUS_TEXT)
     assert status[STATUS_TEXT] == expected_status_text(owner)
@@ -116,7 +130,9 @@ async def test_python_client_reads_worker_error_text(
     client = interop_clients.client
     failure_input = "Python Client failure input ✓"
     flow_id = new_flow_id(f"payload-interop-failure-{owner}")
-    await client.start_flow(flow, flow_id, FAIL_INPUT_PREFIX + failure_input, StartFlowOptions())
+    await client.start_flow(
+        flow, flow_id, new_payload_interop_input(FAIL_INPUT_PREFIX + failure_input), StartFlowOptions()
+    )
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.FAILED
     assert result.error_message is not None

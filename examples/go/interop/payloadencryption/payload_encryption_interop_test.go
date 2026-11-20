@@ -25,6 +25,7 @@ package payloadencryptioninterop_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -40,6 +41,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -66,6 +68,7 @@ func TestGoClientReadsEveryWorkerPayload(t *testing.T) {
 			requireStoredAttributeEncrypted(t, flowService, flowID, interop.SecretText.AttributeName())
 			requireStoredOutputEncrypted(t, flowService, flowID)
 			requireHistoryHidesPlaintext(t, flowService, flowID, input)
+			requireStoredTypedValueMapping(t, flowService, encryption.Codec, flowID)
 
 			var status string
 			_, err := clientWithoutCodec.GetAttributes(
@@ -91,12 +94,13 @@ func TestGoClientReadsEveryWorkerPayload(t *testing.T) {
 func TestCodecServersDecodeAndEncodeEveryWorkerPayload(t *testing.T) {
 	environment := loadInteropEnvironment(t)
 	require.NotEmpty(t, environment.codecServers)
+	localEncryption, err := interop.NewFilePayloadEncryption(environment.keyFilePath)
+	require.NoError(t, err)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	for _, endpoint := range environment.codecServers {
 		t.Run(endpoint.Name, func(t *testing.T) {
-			client := environment.newClient(t, dex.PayloadEncryptionOptions{
-				Codec: codecServerPayloadCodec{endpoint: endpoint, httpClient: httpClient},
-			})
+			serverCodec := codecServerPayloadCodec{endpoint: endpoint, httpClient: httpClient}
+			client := environment.newClient(t, dex.PayloadEncryptionOptions{Codec: serverCodec})
 			for _, owner := range interop.Owners {
 				t.Run(string(owner), func(t *testing.T) {
 					input := endpoint.Name + " codec server input for " + string(owner) + " ✓"
@@ -104,6 +108,10 @@ func TestCodecServersDecodeAndEncodeEveryWorkerPayload(t *testing.T) {
 					requireFailedFlowErrorText(t, client, owner, endpoint.Name+" codec server failure ✓")
 				})
 			}
+			t.Run("round-trips every Value kind with the SDK codec", func(t *testing.T) {
+				requireCodecRoundTrip(t, serverCodec, localEncryption.Codec)
+				requireCodecRoundTrip(t, localEncryption.Codec, serverCodec)
+			})
 			t.Run("rejects a request without credentials", func(t *testing.T) {
 				request, err := http.NewRequestWithContext(integrationContext(t), http.MethodPost,
 					endpoint.URL+"/decode", strings.NewReader(`{"context":{"flow_type":"","flow_id":"f"},"envelopes":[]}`))
@@ -129,8 +137,8 @@ func TestCodecServersDecodeAndEncodeEveryWorkerPayload(t *testing.T) {
 func requireCompletedFlowPayloads(t *testing.T, client *dex.Client, owner interop.Owner, input string) string {
 	t.Helper()
 	flowID := newFlowID("payload-interop-" + string(owner))
-	_, err := client.StartFlow(integrationContext(t), interop.NewPayloadInteropFlow(owner), flowID, input,
-		dex.StartFlowOptions{})
+	_, err := client.StartFlow(integrationContext(t), interop.NewPayloadInteropFlow(owner), flowID,
+		interop.NewPayloadInteropInput(input), dex.StartFlowOptions{})
 	require.NoError(t, err)
 	result, err := client.WaitForFlow(integrationContext(t), flowID, dex.WaitForFlowOptions{NeedsResults: true})
 	require.NoError(t, err)
@@ -139,10 +147,125 @@ func requireCompletedFlowPayloads(t *testing.T, client *dex.Client, owner intero
 	require.NoError(t, result.DecodeSingleOutput(&output))
 	require.Equal(t, interop.ExpectedOutput(owner, input), output)
 	var secret string
-	_, err = client.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(interop.SecretText, &secret))
+	var document interop.PayloadInteropDocument
+	var count int64
+	var ratio float64
+	_, err = client.GetAttributes(integrationContext(t), flowID,
+		dex.ReadAttribute(interop.SecretText, &secret),
+		dex.ReadAttribute(interop.DocumentObject, &document),
+		dex.ReadAttribute(interop.CountInteger, &count),
+		dex.ReadAttribute(interop.RatioDouble, &ratio),
+	)
 	require.NoError(t, err)
 	require.Equal(t, interop.ExpectedSecretText(owner, input), secret)
+	require.Equal(t, interop.ExpectedDocument(), document)
+	require.Equal(t, interop.ExpectedCount, count)
+	require.Equal(t, interop.ExpectedRatio, ratio)
 	return flowID
+}
+
+// requireStoredTypedValueMapping decrypts the raw typed Attributes with the local codec and
+// checks the Value kind each Worker chose: obj_value "json", int_value, and double_value.
+func requireStoredTypedValueMapping(
+	t *testing.T, flowService dexpb.FlowServiceClient, codec dex.PayloadCodec, flowID string,
+) {
+	t.Helper()
+	names := []string{
+		interop.DocumentObject.AttributeName(),
+		interop.CountInteger.AttributeName(),
+		interop.RatioDouble.AttributeName(),
+	}
+	response, err := flowService.GetAttributes(integrationContext(t), &dexpb.GetAttributesRequest{
+		FlowId: flowID,
+		Keys:   names,
+	})
+	require.NoError(t, err)
+	storedByName := make(map[string]*dexpb.Value, len(names))
+	for _, attribute := range response.GetAttributes() {
+		storedByName[attribute.GetKey()] = loadStoredValues(t, flowService, flowID, attribute.GetValue())[0]
+	}
+	decrypt := func(name string) *dexpb.Value {
+		stored := storedByName[name]
+		require.NotNil(t, stored, "Attribute %s is missing", name)
+		requireEnvelope(t, stored)
+		envelope := &dexpb.PayloadEnvelope{}
+		require.NoError(t, proto.Unmarshal(stored.GetObjValue().GetPayload(), envelope))
+		plaintexts, err := codec.Decode(integrationContext(t), dex.PayloadContext{FlowID: flowID},
+			[]*dexpb.PayloadEnvelope{envelope})
+		require.NoError(t, err)
+		value := &dexpb.Value{}
+		require.NoError(t, proto.Unmarshal(plaintexts[0], value))
+		return value
+	}
+
+	document := decrypt(interop.DocumentObject.AttributeName())
+	require.Equal(t, "json", document.GetObjValue().GetEncoding(), "document Value: %v", document)
+	var storedDocument, expectedDocument map[string]any
+	require.NoError(t, json.Unmarshal(document.GetObjValue().GetPayload(), &storedDocument))
+	expectedJSON, err := json.Marshal(interop.ExpectedDocument())
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(expectedJSON, &expectedDocument))
+	require.Equal(t, expectedDocument, storedDocument)
+
+	count := decrypt(interop.CountInteger.AttributeName())
+	_, isInt := count.GetKind().(*dexpb.Value_IntValue)
+	require.True(t, isInt, "count Value: %v", count)
+	require.Equal(t, interop.ExpectedCount, count.GetIntValue())
+
+	ratio := decrypt(interop.RatioDouble.AttributeName())
+	_, isDouble := ratio.GetKind().(*dexpb.Value_DoubleValue)
+	require.True(t, isDouble, "ratio Value: %v", ratio)
+	require.Equal(t, interop.ExpectedRatio, ratio.GetDoubleValue())
+}
+
+// requireCodecRoundTrip encodes every encryptable Value kind with encoder, decodes the
+// envelopes with decoder, and checks that each Value comes back bit for bit.
+func requireCodecRoundTrip(t *testing.T, encoder dex.PayloadCodec, decoder dex.PayloadCodec) {
+	t.Helper()
+	documentJSON, err := json.Marshal(interop.ExpectedDocument())
+	require.NoError(t, err)
+	values := []*dexpb.Value{
+		{Kind: &dexpb.Value_StringValue{StringValue: "naïve café ✓"}},
+		{Kind: &dexpb.Value_StringValue{StringValue: ""}},
+		{Kind: &dexpb.Value_ObjValue{ObjValue: &dexpb.EncodedObject{Encoding: "json", Payload: documentJSON}}},
+		{Kind: &dexpb.Value_IntValue{IntValue: interop.ExpectedCount}},
+		{Kind: &dexpb.Value_IntValue{IntValue: math.MaxInt64}},
+		{Kind: &dexpb.Value_IntValue{IntValue: math.MinInt64}},
+		{Kind: &dexpb.Value_IntValue{IntValue: 0}},
+		{Kind: &dexpb.Value_DoubleValue{DoubleValue: interop.ExpectedRatio}},
+		{Kind: &dexpb.Value_DoubleValue{DoubleValue: math.Copysign(0, -1)}},
+		{Kind: &dexpb.Value_DoubleValue{DoubleValue: math.Inf(1)}},
+		{Kind: &dexpb.Value_DoubleValue{DoubleValue: math.Inf(-1)}},
+		{Kind: &dexpb.Value_DoubleValue{DoubleValue: math.NaN()}},
+		{Kind: &dexpb.Value_BoolValue{BoolValue: true}},
+		{Kind: &dexpb.Value_BoolValue{BoolValue: false}},
+	}
+	plaintexts := make([][]byte, 0, len(values))
+	for _, value := range values {
+		plaintext, err := proto.MarshalOptions{Deterministic: true}.Marshal(value)
+		require.NoError(t, err)
+		plaintexts = append(plaintexts, plaintext)
+	}
+	payloadContext := dex.PayloadContext{FlowType: "", FlowID: newFlowID("payload-interop-round-trip")}
+	envelopes, err := encoder.Encode(integrationContext(t), payloadContext, plaintexts)
+	require.NoError(t, err)
+	decoded, err := decoder.Decode(integrationContext(t), payloadContext, envelopes)
+	require.NoError(t, err)
+	require.Len(t, decoded, len(values))
+	for index, value := range values {
+		roundTripped := &dexpb.Value{}
+		require.NoError(t, proto.Unmarshal(decoded[index], roundTripped))
+		if _, isDouble := value.GetKind().(*dexpb.Value_DoubleValue); isDouble && math.IsNaN(value.GetDoubleValue()) {
+			// NaN payload bits carry no meaning and differ between languages.
+			_, isRoundTrippedDouble := roundTripped.GetKind().(*dexpb.Value_DoubleValue)
+			require.True(t, isRoundTrippedDouble && math.IsNaN(roundTripped.GetDoubleValue()),
+				"Value %d: sent NaN, got %v", index, roundTripped)
+			continue
+		}
+		roundTrippedBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(roundTripped)
+		require.NoError(t, err)
+		require.Equal(t, plaintexts[index], roundTrippedBytes, "Value %d: sent %v, got %v", index, value, roundTripped)
+	}
 }
 
 // requireFailedFlowErrorText starts the Owner's Flow with a failing input and checks
@@ -151,7 +274,7 @@ func requireFailedFlowErrorText(t *testing.T, client *dex.Client, owner interop.
 	t.Helper()
 	flowID := newFlowID("payload-interop-failure-" + string(owner))
 	_, err := client.StartFlow(integrationContext(t), interop.NewPayloadInteropFlow(owner), flowID,
-		interop.FailInputPrefix+failureInput, dex.StartFlowOptions{})
+		interop.NewPayloadInteropInput(interop.FailInputPrefix+failureInput), dex.StartFlowOptions{})
 	require.NoError(t, err)
 	result, err := client.WaitForFlow(integrationContext(t), flowID, dex.WaitForFlowOptions{NeedsResults: true})
 	require.NoError(t, err)

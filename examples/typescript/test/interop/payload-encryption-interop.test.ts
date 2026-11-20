@@ -28,15 +28,22 @@ import test from "node:test";
 import { Client, PayloadEncryptionError, openBlobCache, stringCodec } from "@superdurable/dex";
 
 import {
+  countInteger,
+  documentObject,
+  expectedCount,
+  expectedDocument,
   expectedFailureText,
   expectedOutput,
+  expectedRatio,
   expectedSecretText,
   expectedStatusText,
   failInputPrefix,
   newClientFlows,
   newClientRegistry,
-  newFilePayloadCodec,
+  newFilePayloadEncryption,
+  newPayloadInteropInput,
   payloadInteropOwners,
+  ratioDouble,
   requiredEnv,
   secretText,
   statusText,
@@ -46,11 +53,11 @@ const waitTimeoutMs = 45_000;
 
 test("TypeScript Client reads every Worker's payloads", async (context) => {
   const serverAddress = requiredEnv("DEX_FLOW_SERVICE_ADDRESS");
-  const payloadCodec = await newFilePayloadCodec(requiredEnv("DEX_PAYLOAD_INTEROP_KEY_FILE"));
+  const encryption = await newFilePayloadEncryption(requiredEnv("DEX_PAYLOAD_INTEROP_KEY_FILE"));
   const directory = await mkdtemp(join(tmpdir(), "dex-payload-interop-"));
   const cache = openBlobCache({ directory: join(directory, "cache"), maxBytes: 64 * 1024 * 1024 });
   const flows = newClientFlows();
-  const client = new Client(newClientRegistry(flows), cache, { serverAddress, payloadCodec });
+  const client = new Client(newClientRegistry(flows), cache, { serverAddress, ...encryption });
   const clientWithoutCodec = new Client(newClientRegistry(flows), cache, { serverAddress });
   try {
     for (const owner of payloadInteropOwners) {
@@ -60,12 +67,17 @@ test("TypeScript Client reads every Worker's payloads", async (context) => {
       await context.test(`${owner} Worker output and encrypted Attribute`, async () => {
         const input = `TypeScript Client input for ${owner}: naïve café ✓`;
         const flowId = `payload-interop-${owner}-${randomUUID()}`;
-        await client.startFlow(flow, flowId, input);
+        await client.startFlow(flow, flowId, newPayloadInteropInput(input));
         const result = await client.waitForFlow(flowId, waitTimeoutMs);
         assert.equal(result.status, "completed", result.errorMessage);
         assert.equal(result.singleOutput(stringCodec), expectedOutput(owner, input));
-        const [secret] = await client.getAttributes(flowId, secretText);
+        const [secret, document, count, ratio] = await client.getAttributes(
+          flowId, secretText, documentObject, countInteger, ratioDouble,
+        );
         assert.equal(secret, expectedSecretText(owner, input));
+        assert.deepStrictEqual(document, expectedDocument);
+        assert.equal(count, expectedCount);
+        assert.equal(ratio, expectedRatio);
 
         const [status] = await clientWithoutCodec.getAttributes(flowId, statusText);
         assert.equal(status, expectedStatusText(owner));
@@ -79,7 +91,7 @@ test("TypeScript Client reads every Worker's payloads", async (context) => {
       await context.test(`${owner} Worker error text`, async () => {
         const failureInput = "TypeScript Client failure input ✓";
         const flowId = `payload-interop-failure-${owner}-${randomUUID()}`;
-        await client.startFlow(flow, flowId, failInputPrefix + failureInput);
+        await client.startFlow(flow, flowId, newPayloadInteropInput(failInputPrefix + failureInput));
         const result = await client.waitForFlow(flowId, waitTimeoutMs);
         assert.equal(result.status, "failed");
         assert.ok(result.errorMessage?.includes(expectedFailureText(owner, failureInput)),

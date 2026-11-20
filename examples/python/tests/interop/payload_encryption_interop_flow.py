@@ -23,6 +23,8 @@ examples/typescript/test/interop/payload-encryption-interop-flow.ts.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from dex import (
     AesGcmPayloadCodec,
     Attribute,
@@ -46,8 +48,54 @@ OWNERS = ("go", "python", "typescript")
 FAIL_INPUT_PREFIX = "fail:"
 """Makes the Step fail with an error that names the rest of the input."""
 
+
+@dataclass(frozen=True)
+class PayloadInteropNested:
+    level: int
+    weight: float
+    flags: list[bool]
+    note: str
+
+
+@dataclass(frozen=True)
+class PayloadInteropDocument:
+    """A JSON object with nested fields, arrays, and non-ASCII text."""
+
+    title: str
+    tags: list[str]
+    nested: PayloadInteropNested
+
+
+@dataclass(frozen=True)
+class PayloadInteropInput:
+    text: str
+    count: int
+    ratio: float
+    document: PayloadInteropDocument
+
+
 SECRET_TEXT = Attribute("payload-interop-secret", str)
 STATUS_TEXT = Attribute("payload-interop-status", str, plaintext=True)
+DOCUMENT_OBJECT = Attribute("payload-interop-document", PayloadInteropDocument)
+COUNT_INTEGER = Attribute("payload-interop-count", int)
+RATIO_DOUBLE = Attribute("payload-interop-ratio", float)
+
+EXPECTED_COUNT = -1234567890123
+"""The int64 every Client sends; it needs more than 32 bits."""
+
+EXPECTED_RATIO = 3.141592653589793
+
+EXPECTED_DOCUMENT = PayloadInteropDocument(
+    title="naïve café ✓ Grüße €",
+    tags=["alpha", "beta ✓", ""],
+    nested=PayloadInteropNested(level=3, weight=1.25, flags=[True, False], note="ü ß ✓"),
+)
+
+
+def new_payload_interop_input(text: str) -> PayloadInteropInput:
+    return PayloadInteropInput(
+        text=text, count=EXPECTED_COUNT, ratio=EXPECTED_RATIO, document=EXPECTED_DOCUMENT
+    )
 
 _FLOW_TYPES = {
     "go": "GoPayloadInteropFlow",
@@ -73,7 +121,7 @@ def expected_failure_text(owner: str, input: str) -> str:
     return f"payload interop failure in {owner}: {input}"
 
 
-class StorePayloadInteropSecretStep(Step[str]):
+class StorePayloadInteropSecretStep(Step[PayloadInteropInput]):
     def __init__(self, owner: str) -> None:
         self._owner = owner
 
@@ -84,17 +132,20 @@ class StorePayloadInteropSecretStep(Step[str]):
         # One attempt, so a failing Step fails the Flow at once.
         return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
 
-    def execute(self, context: Context, input: str) -> StepDecision:
-        if input.startswith(FAIL_INPUT_PREFIX):
+    def execute(self, context: Context, input: PayloadInteropInput) -> StepDecision:
+        if input.text.startswith(FAIL_INPUT_PREFIX):
             raise RuntimeError(
-                expected_failure_text(self._owner, input.removeprefix(FAIL_INPUT_PREFIX))
+                expected_failure_text(self._owner, input.text.removeprefix(FAIL_INPUT_PREFIX))
             )
-        SECRET_TEXT.set(context, expected_secret_text(self._owner, input))
+        SECRET_TEXT.set(context, expected_secret_text(self._owner, input.text))
         STATUS_TEXT.set(context, expected_status_text(self._owner))
-        return graceful_complete(expected_output(self._owner, input))
+        DOCUMENT_OBJECT.set(context, input.document)
+        COUNT_INTEGER.set(context, input.count)
+        RATIO_DOUBLE.set(context, input.ratio)
+        return graceful_complete(expected_output(self._owner, input.text))
 
 
-class PayloadInteropFlow(Flow[str]):
+class PayloadInteropFlow(Flow[PayloadInteropInput]):
     def __init__(self, owner: str) -> None:
         self.owner = owner
         self.store_payload_interop_secret_step = StorePayloadInteropSecretStep(owner)
@@ -102,11 +153,13 @@ class PayloadInteropFlow(Flow[str]):
     def get_flow_type(self) -> str:
         return _FLOW_TYPES[self.owner]
 
-    def get_steps(self) -> StepList[str]:
+    def get_steps(self) -> StepList[PayloadInteropInput]:
         return StepList.start_step(self.store_payload_interop_secret_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(SECRET_TEXT, STATUS_TEXT)
+        return PersistenceSchema.of(
+            SECRET_TEXT, STATUS_TEXT, DOCUMENT_OBJECT, COUNT_INTEGER, RATIO_DOUBLE
+        )
 
 
 def new_client_flows() -> dict[str, PayloadInteropFlow]:
@@ -121,5 +174,7 @@ def new_client_registry(flows: dict[str, PayloadInteropFlow]) -> Registry:
 def new_file_payload_encryption(key_file_path: str) -> PayloadEncryptionOptions:
     """Reads a key file, such as one from dexcli codec-server keygen."""
     return PayloadEncryptionOptions(
-        AesGcmPayloadCodec(FilePayloadEncryptionKeyProvider(key_file_path))
+        AesGcmPayloadCodec(FilePayloadEncryptionKeyProvider(key_file_path)),
+        encrypt_string_values=True,
+        encrypt_primitive_values=True,
     )

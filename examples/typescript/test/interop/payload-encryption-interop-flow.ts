@@ -27,11 +27,14 @@ import {
   FilePayloadEncryptionKeyProvider,
   Registry,
   StepList,
+  doubleCodec,
   gracefulComplete,
+  int64Codec,
+  jsonCodec,
   stringCodec,
   type Context,
   type Flow,
-  type PayloadCodec,
+  type PayloadEncryptionOptions,
   type PersistenceSchema,
   type Step,
   type StepDecision,
@@ -47,8 +50,43 @@ export const payloadInteropOwners: readonly PayloadInteropOwner[] = ["go", "pyth
 /** Makes the Step fail with an error that names the rest of the input. */
 export const failInputPrefix = "fail:";
 
+/** A JSON object with nested fields, arrays, and non-ASCII text. */
+export interface PayloadInteropDocument {
+  readonly title: string;
+  readonly tags: readonly string[];
+  readonly nested: {
+    readonly level: number;
+    readonly weight: number;
+    readonly flags: readonly boolean[];
+    readonly note: string;
+  };
+}
+
+export interface PayloadInteropInput {
+  readonly text: string;
+  readonly count: number;
+  readonly ratio: number;
+  readonly document: PayloadInteropDocument;
+}
+
 export const secretText = new Attribute("payload-interop-secret", stringCodec);
 export const statusText = new Attribute("payload-interop-status", stringCodec).plaintext();
+export const documentObject = new Attribute("payload-interop-document", jsonCodec<PayloadInteropDocument>());
+export const countInteger = new Attribute("payload-interop-count", int64Codec);
+export const ratioDouble = new Attribute("payload-interop-ratio", doubleCodec);
+
+/** The int64 every Client sends; it needs more than 32 bits. */
+export const expectedCount = -1234567890123n;
+export const expectedRatio = 3.141592653589793;
+export const expectedDocument: PayloadInteropDocument = {
+  title: "naïve café ✓ Grüße €",
+  tags: ["alpha", "beta ✓", ""],
+  nested: { level: 3, weight: 1.25, flags: [true, false], note: "ü ß ✓" },
+};
+
+export function newPayloadInteropInput(text: string): PayloadInteropInput {
+  return { text, count: Number(expectedCount), ratio: expectedRatio, document: expectedDocument };
+}
 
 const flowTypes: Record<PayloadInteropOwner, string> = {
   go: "GoPayloadInteropFlow",
@@ -73,8 +111,8 @@ export function expectedFailureText(owner: PayloadInteropOwner, input: string): 
   return `payload interop failure in ${owner}: ${input}`;
 }
 
-class StorePayloadInteropSecretStep implements Step<string> {
-  public readonly inputCodec = stringCodec;
+class StorePayloadInteropSecretStep implements Step<PayloadInteropInput> {
+  public readonly inputCodec = jsonCodec<PayloadInteropInput>();
 
   public constructor(private readonly owner: PayloadInteropOwner) {}
 
@@ -87,17 +125,20 @@ class StorePayloadInteropSecretStep implements Step<string> {
     return { executeRetry: { maximumAttempts: 1 } };
   }
 
-  public execute(context: Context, input: string): StepDecision {
-    if (input.startsWith(failInputPrefix)) {
-      throw new Error(expectedFailureText(this.owner, input.slice(failInputPrefix.length)));
+  public execute(context: Context, input: PayloadInteropInput): StepDecision {
+    if (input.text.startsWith(failInputPrefix)) {
+      throw new Error(expectedFailureText(this.owner, input.text.slice(failInputPrefix.length)));
     }
-    secretText.set(context, expectedSecretText(this.owner, input));
+    secretText.set(context, expectedSecretText(this.owner, input.text));
     statusText.set(context, expectedStatusText(this.owner));
-    return gracefulComplete(expectedOutput(this.owner, input));
+    documentObject.set(context, input.document);
+    countInteger.set(context, BigInt(input.count));
+    ratioDouble.set(context, input.ratio);
+    return gracefulComplete(expectedOutput(this.owner, input.text));
   }
 }
 
-export class PayloadInteropFlow implements Flow<string> {
+export class PayloadInteropFlow implements Flow<PayloadInteropInput> {
   private readonly storePayloadInteropSecretStep: StorePayloadInteropSecretStep;
 
   public constructor(public readonly owner: PayloadInteropOwner) {
@@ -113,7 +154,7 @@ export class PayloadInteropFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [secretText, statusText] };
+    return { attributes: [secretText, statusText, documentObject, countInteger, ratioDouble] };
   }
 }
 
@@ -126,9 +167,10 @@ export function newClientRegistry(flows: Map<PayloadInteropOwner, PayloadInterop
   return new Registry([...flows.values()]);
 }
 
-/** Reads a key file, such as one from dexcli codec-server keygen. */
-export async function newFilePayloadCodec(keyFilePath: string): Promise<PayloadCodec> {
-  return new AesGcmPayloadCodec(await FilePayloadEncryptionKeyProvider.fromFile(keyFilePath));
+/** Reads a key file, such as one from dexcli codec-server keygen, and encrypts every Value kind. */
+export async function newFilePayloadEncryption(keyFilePath: string): Promise<PayloadEncryptionOptions> {
+  const payloadCodec = new AesGcmPayloadCodec(await FilePayloadEncryptionKeyProvider.fromFile(keyFilePath));
+  return { payloadCodec, encryptStringValues: true, encryptPrimitiveValues: true };
 }
 
 export function requiredEnv(name: string): string {
