@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,6 +69,8 @@ export const STEP_AND_RPC = PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_STEP_AND_RP
 export const RPC_ONLY = PollWorkerSlotKind.POLL_WORKER_SLOT_KIND_RPC_ONLY;
 const POLL_WORKER_TASK_PATH = WorkerTaskServiceService.pollWorkerTask.path;
 const PROXY_RESET_MESSAGE = "pull slot proxy reset the stream";
+const LAUNCH_ATTEMPTS = 5;
+const ADDRESS_IN_USE = "Address already in use";
 
 /** Collects cleanups of one test and runs them in reverse order after it. */
 export class TestScope {
@@ -134,12 +136,27 @@ export class AdaptiveSlotTestServer {
 
   /** Starts a process on the same data directory, on a new address. */
   public async launch(limits: ServerLimits): Promise<void> {
+    // The probed port is free only until the server binds it; another bind can take it first.
+    for (let attempt = 1; attempt <= LAUNCH_ATTEMPTS; attempt++) {
+      if (await this.launchOnProbedPort(limits)) return;
+      if (attempt < LAUNCH_ATTEMPTS) console.warn(`dex-server-zd lost its probed port ${this.address}; relaunching`);
+    }
+    throw new Error(`dex-server-zd lost its probed port in all ${LAUNCH_ATTEMPTS} launches:\n${this.logTail()}`);
+  }
+
+  /**
+   * Starts a process on a newly probed port.
+   * @returns True once it serves, or false when the port was taken before the process bound it.
+   * @throws Error when the process fails to start for any other reason.
+   */
+  private async launchOnProbedPort(limits: ServerLimits): Promise<boolean> {
     this.address = `127.0.0.1:${await availablePort()}`;
     let configuration = "dev:\n  durabilityMode: processCrashSafe\nmatching:\n  pingInterval: 2s\n";
     if (limits.maxConcurrentTasksCap !== undefined) configuration += `  maxConcurrentTasksCap: ${limits.maxConcurrentTasksCap}\n`;
     if (limits.maxStreams !== undefined) configuration += `  maxStreams: ${limits.maxStreams}\n`;
     const configurationPath = join(this.dataDirectory, "adaptive-slot-config.yaml");
     writeFileSync(configurationPath, configuration);
+    const launchLogOffset = existsSync(this.logPath) ? statSync(this.logPath).size : 0;
     const logFile = openSync(this.logPath, "a");
     const child = spawn(this.binary, [
       "dev", "--data-dir", join(this.dataDirectory, "data"), "--listen", this.address, "--config", configurationPath,
@@ -147,7 +164,10 @@ export class AdaptiveSlotTestServer {
     closeSync(logFile);
     this.child = child;
     this.exited = new Promise((resolve) => child.once("exit", () => resolve()));
-    await this.waitUntilServing();
+    if (await this.waitUntilServing()) return true;
+    const launchOutput = readFileSync(this.logPath).subarray(launchLogOffset).toString("utf8");
+    if (launchOutput.includes(ADDRESS_IN_USE)) return false;
+    throw new Error(`dex-server-zd exited before serving:\n${this.logTail()}`);
   }
 
   /** Ends the server like a crash: every stream breaks and nothing drains. */
@@ -192,7 +212,12 @@ export class AdaptiveSlotTestServer {
     }
   }
 
-  private async waitUntilServing(): Promise<void> {
+  /**
+   * Waits for the launched process to serve.
+   * @returns True once it serves, or false when it exited first.
+   * @throws Error when it neither serves nor exits within 30 seconds.
+   */
+  private async waitUntilServing(): Promise<boolean> {
     const client = new FlowServiceClient(this.address, credentials.createInsecure());
     try {
       const deadline = Date.now() + 30_000;
@@ -202,8 +227,8 @@ export class AdaptiveSlotTestServer {
         const isServing = await new Promise<boolean>((resolve) => {
           client.getServerInfo({}, new Metadata(), { deadline: Date.now() + 1_000 }, (error) => resolve(error === null));
         });
-        if (isServing) return;
-        if (hasExited) throw new Error(`dex-server-zd exited before serving:\n${this.logTail()}`);
+        if (isServing) return true;
+        if (hasExited) return false;
         if (Date.now() > deadline) throw new Error(`dex-server-zd did not serve:\n${this.logTail()}`);
         await delay(50);
       }
@@ -623,6 +648,7 @@ export class PullSlotCompetitor {
   private readonly held = new Set<ClientDuplexStream<Buffer, Buffer>>();
   private readonly loops: Promise<void>[] = [];
   private isStopped = false;
+  private registrationCount = 0;
 
   private constructor(address: string, private readonly appWorkerID: string) {
     this.client = new GrpcClient(address, credentials.createInsecure());
@@ -637,6 +663,11 @@ export class PullSlotCompetitor {
 
   public heldStreams(): number {
     return this.held.size;
+  }
+
+  /** Counts the streams this competitor has had acknowledged since it started. */
+  public registrations(): number {
+    return this.registrationCount;
   }
 
   /** Ends one held stream; its loop re-registers into the freed slot at once. */
@@ -680,6 +711,7 @@ export class PullSlotCompetitor {
             return;
           }
           isRegistered = true;
+          this.registrationCount++;
           if (this.isStopped) call.cancel(); else this.held.add(call);
           return;
         }
