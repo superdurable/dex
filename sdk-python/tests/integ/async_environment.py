@@ -21,6 +21,7 @@ from dex import (
     BlobCacheConfig,
     ClientOptions,
     Flow,
+    PayloadEncryptionOptions,
     Registry,
     WorkerOptions,
     open_blob_cache,
@@ -28,8 +29,14 @@ from dex import (
 
 
 class AsyncDexDevTestEnvironment:
-    def __init__(self, *flows: Flow[Any], allow_async_handlers: bool = False) -> None:
+    def __init__(
+        self,
+        *flows: Flow[Any],
+        allow_async_handlers: bool = False,
+        payload_encryption: PayloadEncryptionOptions | None = None,
+    ) -> None:
         self._server_address = os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
+        self._payload_encryption = payload_encryption
         self._registry = Registry(flows, allow_async_handlers=allow_async_handlers)
         self._cache_directory = TemporaryDirectory(
             prefix="dex-python-async-integration-cache-"
@@ -43,7 +50,10 @@ class AsyncDexDevTestEnvironment:
         self._worker = AsyncWorker(
             self._registry,
             self._cache,
-            WorkerOptions(server_address=self._server_address),
+            WorkerOptions(
+                server_address=self._server_address,
+                payload_encryption=payload_encryption,
+            ),
         )
         self._worker_task: asyncio.Task[None] | None = None
         self._client: AsyncClient | None = None
@@ -60,7 +70,9 @@ class AsyncDexDevTestEnvironment:
         self._client = AsyncClient(
             self._registry,
             self._cache,
-            ClientOptions(self._server_address),
+            ClientOptions(
+                self._server_address, payload_encryption=self._payload_encryption
+            ),
         )
         return self
 

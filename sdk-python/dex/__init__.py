@@ -100,6 +100,22 @@ from dex.flow_options import (
 from dex.join import Join, JoinRound
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 from dex.flow_result import FlowResult, StepCompletion
+from dex.payload_encryption import (
+    DEFAULT_MAX_PAYLOAD_ENVELOPE_BYTES,
+    DEFAULT_MAX_PAYLOAD_PLAINTEXT_BYTES,
+    AesGcmPayloadCodec,
+    AsyncPayloadCodec,
+    FilePayloadEncryptionKeyProvider,
+    PayloadCodec,
+    PayloadCompression,
+    PayloadContext,
+    PayloadEncryptionError,
+    PayloadEncryptionKeyProvider,
+    PayloadEncryptionOptions,
+    PayloadErrorCategory,
+    is_valid_payload_key_id,
+    payload_envelope_aad,
+)
 from dex.pull_registration import (
     PullQueueRegistrationState,
     PullRegistrationError,
@@ -166,6 +182,20 @@ from dex.worker import Worker
 from dex.worker_options import PullWorkerOptions, WorkerOptions
 
 __all__ = [
+    "DEFAULT_MAX_PAYLOAD_ENVELOPE_BYTES",
+    "DEFAULT_MAX_PAYLOAD_PLAINTEXT_BYTES",
+    "AesGcmPayloadCodec",
+    "AsyncPayloadCodec",
+    "FilePayloadEncryptionKeyProvider",
+    "PayloadCodec",
+    "PayloadCompression",
+    "PayloadContext",
+    "PayloadEncryptionError",
+    "PayloadEncryptionKeyProvider",
+    "PayloadEncryptionOptions",
+    "PayloadErrorCategory",
+    "is_valid_payload_key_id",
+    "payload_envelope_aad",
     "Action",
     "ActionCondition",
     "WORK_QUEUE_PERMISSIONS_INDEX_KEY",

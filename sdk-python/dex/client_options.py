@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from dex._message_size import validate_grpc_max_message_bytes
 from dex.credential import Credential
 from dex.flow_service_tls_options import FlowServiceTlsOptions
+from dex.payload_encryption import PayloadEncryptionOptions
 
 
 @dataclass(frozen=True)
@@ -38,12 +39,21 @@ class ClientOptions:
             server's ``api.grpcMaxMessageBytes`` when one message must carry more.
 
             .. versionadded:: 1.38.0
+        payload_encryption: Client-side payload encryption. Defaults to
+            ``None``, which sends Values as they are and fails with
+            ``value is encrypted; configure a PayloadCodec`` when it reads an
+            encrypted Value. ``Client`` needs a synchronous ``PayloadCodec``;
+            ``AsyncClient`` also accepts an ``AsyncPayloadCodec``. See
+            ``PayloadEncryptionOptions`` for what is encrypted.
+
+            .. versionadded:: 1.45.10
     """
 
     server_address: str = "localhost:8801"
     credential: Credential | None = None
     flow_service_tls: FlowServiceTlsOptions | None = None
     grpc_max_message_bytes: int = 0
+    payload_encryption: PayloadEncryptionOptions | None = None
 
     def __post_init__(self) -> None:
         validate_grpc_max_message_bytes(self.grpc_max_message_bytes)

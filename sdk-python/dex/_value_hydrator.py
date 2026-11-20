@@ -15,15 +15,31 @@ from typing import cast
 import grpc
 
 from dex._message_size import is_grpc_message_size_error
+from dex._payload_message_codec import (
+    RESERVED_ENCODING_PREFIX,
+    PayloadMessageCodec,
+    PayloadScope,
+)
 from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
+from dex.payload_encryption import PayloadContext
 from dex.runtime_errors import BlobMessageTooLargeError
 
 # The server rejects more than 1000 entries while history offload is on.
 _MAX_LOAD_BLOBS_ENTRIES = 1000
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class BlobHydrationError(RuntimeError):
+    """SDK-generated blob loading failure; the Server matches its plaintext text."""
+
+
+def worker_request_payload_scope(flow_type: str, context: pb.Context) -> PayloadScope:
+    return PayloadScope(
+        PayloadContext(flow_type, context.flow_id), context.step_execution_id
+    )
 
 
 @dataclass
@@ -41,14 +57,53 @@ class ValueHydrator:
         self,
         service: dex_pb2_grpc.FlowServiceStub,
         cache: BlobCache,
+        payloads: PayloadMessageCodec | None = None,
     ) -> None:
         self._service = service
         self._cache = cache
+        self._payloads = payloads or PayloadMessageCodec(None)
 
-    def hydrate(self, flow_id: str, value: pb.Value) -> pb.Value:
-        return self.hydrate_all(flow_id, [value])[0]
+    def hydrate(
+        self,
+        flow_id: str,
+        value: pb.Value,
+        payload_context: PayloadContext | None = None,
+    ) -> pb.Value:
+        return self.hydrate_all(flow_id, [value], payload_context)[0]
 
-    def hydrate_all(self, flow_id: str, values: list[pb.Value]) -> list[pb.Value]:
+    def hydrate_all(
+        self,
+        flow_id: str,
+        values: list[pb.Value],
+        payload_context: PayloadContext | None = None,
+    ) -> list[pb.Value]:
+        """Load blobs, then decrypt envelopes; the blob cache keeps ciphertext.
+
+        ``payload_context`` defaults to ``flow_id`` with an unknown Flow type.
+        """
+        hydrated = self._hydrate_blobs(flow_id, values)
+        decoded = self._payloads.decode_values(
+            hydrated, payload_context or PayloadContext("", flow_id)
+        )
+        for value in decoded:
+            self._validate_concrete(value)
+        return decoded
+
+    def flow_result(
+        self,
+        flow_id: str,
+        result: pb.FlowResult,
+        payload_context: PayloadContext,
+    ) -> pb.FlowResult:
+        values = [output.completed_step_output for output in result.results]
+        hydrated = self._hydrate_blobs(flow_id, values)
+        mapped = pb.FlowResult()
+        mapped.CopyFrom(result)
+        for output, value in zip(mapped.results, hydrated):
+            output.completed_step_output.CopyFrom(value)
+        return self._payloads.decode_message(mapped, PayloadScope(payload_context))
+
+    def _hydrate_blobs(self, flow_id: str, values: list[pb.Value]) -> list[pb.Value]:
         return self.hydrate_all_for_flows([(flow_id, value) for value in values])
 
     def hydrate_all_for_flows(
@@ -83,7 +138,7 @@ class ValueHydrator:
 
         for blob in pending.values():
             if blob.hydrated is None:
-                raise RuntimeError(f"blob was not hydrated: {blob.blob_id}")
+                raise BlobHydrationError(f"blob was not hydrated: {blob.blob_id}")
             for index in blob.indexes:
                 hydrated[index] = blob.hydrated
         return hydrated
@@ -105,7 +160,7 @@ class ValueHydrator:
             for message in channel_values.messages
         ]
         values.extend(message.value for message in channel_messages)
-        hydrated = iter(self.hydrate_all(request.context.flow_id, values))
+        hydrated = iter(self._hydrate_blobs(request.context.flow_id, values))
         result.step_input.CopyFrom(next(hydrated))
         if has_heartbeat:
             result.context.last_heartbeat_value.CopyFrom(next(hydrated))
@@ -118,7 +173,9 @@ class ValueHydrator:
         ]
         for message in result_messages:
             message.value.CopyFrom(next(hydrated))
-        return result
+        return self._payloads.decode_message(
+            result, worker_request_payload_scope(request.flow_type, request.context)
+        )
 
     def execute_request(
         self,
@@ -145,7 +202,7 @@ class ValueHydrator:
             values.extend(
                 completion.completed_step_output for completion in flow_result.results
             )
-        hydrated = iter(self.hydrate_all(request.context.flow_id, values))
+        hydrated = iter(self._hydrate_blobs(request.context.flow_id, values))
         if has_step_input:
             result.step_input.CopyFrom(next(hydrated))
         if has_heartbeat:
@@ -167,7 +224,9 @@ class ValueHydrator:
         for flow_result in result.condition_results.sub_flow_results:
             for completion in flow_result.results:
                 completion.completed_step_output.CopyFrom(next(hydrated))
-        return result
+        return self._payloads.decode_message(
+            result, worker_request_payload_scope(request.flow_type, request.context)
+        )
 
     def rpc_request(
         self,
@@ -185,7 +244,7 @@ class ValueHydrator:
             for message in channel_values.messages
         ]
         values.extend(message.value for message in channel_messages)
-        hydrated_entries = iter(self.hydrate_all(request.context.flow_id, values))
+        hydrated_entries = iter(self._hydrate_blobs(request.context.flow_id, values))
         if has_input:
             result.input.CopyFrom(next(hydrated_entries))
         for entry in result.attributes:
@@ -197,22 +256,9 @@ class ValueHydrator:
         ]
         for message in result_messages:
             message.value.CopyFrom(next(hydrated_entries))
-        return result
-
-    def step_outputs(
-        self,
-        flow_id: str,
-        outputs: list[pb.StepCompletionOutput],
-    ) -> list[pb.StepCompletionOutput]:
-        values = [output.completed_step_output for output in outputs]
-        hydrated = self.hydrate_all(flow_id, values)
-        results: list[pb.StepCompletionOutput] = []
-        for output, value in zip(outputs, hydrated):
-            result = pb.StepCompletionOutput()
-            result.CopyFrom(output)
-            result.completed_step_output.CopyFrom(value)
-            results.append(result)
-        return results
+        return self._payloads.decode_message(
+            result, worker_request_payload_scope(request.flow_type, request.context)
+        )
 
     def _load_misses(self, misses: list[_PendingBlob]) -> None:
         if not misses:
@@ -221,7 +267,7 @@ class ValueHydrator:
         for miss in misses:
             concrete = values.get(miss.blob_id)
             if concrete is None:
-                raise RuntimeError(f"LoadBlobs omitted blob {miss.blob_id}")
+                raise BlobHydrationError(f"LoadBlobs omitted blob {miss.blob_id}")
             self._validate_hydrated(miss, concrete)
             miss.hydrated = concrete
             self._write_cache(miss, concrete)
@@ -321,7 +367,7 @@ class ValueHydrator:
     def _validate_hydrated(blob: _PendingBlob, value: pb.Value) -> None:
         expected = "obj_value" if blob.is_object else "string_value"
         if value.WhichOneof("kind") != expected:
-            raise RuntimeError(
+            raise BlobHydrationError(
                 f"blob {blob.blob_id} hydrated to {value.WhichOneof('kind')}"
             )
         ValueHydrator._validate_concrete(value)
@@ -338,7 +384,11 @@ class ValueHydrator:
                 raise ValueError("non-finite numbers are unsupported")
             return
         if kind == "obj_value":
-            if value.obj_value.encoding not in ("json", "raw"):
+            encoding = value.obj_value.encoding
+            # Envelopes pass through so the payload codec can decrypt them.
+            if encoding not in ("json", "raw") and not encoding.startswith(
+                RESERVED_ENCODING_PREFIX
+            ):
                 raise ValueError(
                     f"unsupported object encoding {value.obj_value.encoding}"
                 )

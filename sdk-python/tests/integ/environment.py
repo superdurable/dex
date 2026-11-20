@@ -21,6 +21,7 @@ from dex import (
     Client,
     ClientOptions,
     Flow,
+    PayloadEncryptionOptions,
     Registry,
     Worker,
     WorkerOptions,
@@ -29,7 +30,11 @@ from dex import (
 
 
 class DexDevTestEnvironment:
-    def __init__(self, *flows: Flow[Any]) -> None:
+    def __init__(
+        self,
+        *flows: Flow[Any],
+        payload_encryption: PayloadEncryptionOptions | None = None,
+    ) -> None:
         server_address = os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
         registry = Registry(flows)
         self._cache_directory = TemporaryDirectory(
@@ -44,7 +49,10 @@ class DexDevTestEnvironment:
         self._worker = Worker(
             registry,
             self._cache,
-            WorkerOptions(server_address=server_address),
+            WorkerOptions(
+                server_address=server_address,
+                payload_encryption=payload_encryption,
+            ),
         )
         self._failure: BaseException | None = None
         self._thread = threading.Thread(
@@ -56,7 +64,7 @@ class DexDevTestEnvironment:
         self.client = Client(
             registry,
             self._cache,
-            ClientOptions(server_address),
+            ClientOptions(server_address, payload_encryption=payload_encryption),
         )
 
     def __enter__(self) -> DexDevTestEnvironment:

@@ -89,7 +89,42 @@ def retry_after(after_seconds: int, cause: BaseException) -> RetryAfterError:
     return RetryAfterError(after_seconds=after_seconds, cause=cause)
 
 
+_HAS_DEX_ERROR_DETAILS = "_has_dex_error_details"
+
+
 def translate_rpc_error(
+    error: grpc.RpcError,
+    operation: str,
+    flow_id: str | None,
+    requirement: FlowTargetRequirement,
+) -> DexServiceError:
+    translated = _translate_rpc_error(error, operation, flow_id, requirement)
+    if _service_error_response(error) is not None:
+        setattr(translated, _HAS_DEX_ERROR_DETAILS, True)
+    return translated
+
+
+def has_dex_error_details(error: DexServiceError) -> bool:
+    """Return whether the status carried Dex details; only then is its text a read point."""
+    return getattr(error, _HAS_DEX_ERROR_DETAILS, False) is True
+
+
+def _service_error_response(error: grpc.RpcError) -> pb.ServiceErrorResponse | None:
+    try:
+        status = rpc_status.from_call(cast(grpc.Call, error))
+        if status is None:
+            return None
+        for packed in status.details:
+            candidate = pb.ServiceErrorResponse()
+            if packed.Is(candidate.DESCRIPTOR):
+                packed.Unpack(candidate)
+                return candidate
+    except Exception:
+        return None
+    return None
+
+
+def _translate_rpc_error(
     error: grpc.RpcError,
     operation: str,
     flow_id: str | None,
@@ -150,6 +185,36 @@ def translate_rpc_error(
     if sub_status is ErrorSubStatus.REQUEST_TIMEOUT:
         return RequestTimeoutError(*parameters)
     return DexServiceError(*parameters)
+
+
+def service_error_texts(error: DexServiceError) -> tuple[str, str]:
+    """Return the service detail and the Worker detail, which may be encrypted."""
+    worker_detail = (
+        error.worker_error_detail if isinstance(error, WorkerInvocationError) else ""
+    )
+    return error.detail, worker_detail
+
+
+def with_service_error_texts(
+    error: DexServiceError, detail: str, worker_detail: str
+) -> DexServiceError:
+    """Return ``error`` rebuilt with decrypted texts, or ``error`` when unchanged."""
+    if (detail, worker_detail) == service_error_texts(error):
+        return error
+    if isinstance(error, WorkerInvocationError):
+        return WorkerInvocationError(
+            error.code,
+            error.sub_status,
+            detail,
+            error.operation,
+            error.flow_id,
+            error.worker_code,
+            error.worker_error_type,
+            worker_detail,
+        )
+    return type(error)(
+        error.code, error.sub_status, detail, error.operation, error.flow_id
+    )
 
 
 def translate_clone_fork_flow_error(

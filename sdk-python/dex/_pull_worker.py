@@ -28,8 +28,16 @@ from dex._credential_transport import (
     async_credential_metadata,
 )
 from dex._flow_service_tls import FlowServiceTransport
-from dex._grpc_errors import _worker_error_status
+from dex._grpc_errors import RetryAfterError, _worker_error_status
 from dex._message_size import grpc_message_size_channel_options
+from dex._payload_message_codec import (
+    WORKER_ERROR_DETAIL_FIELD,
+    AsyncPayloadMessageCodec,
+    PayloadMessageCodec,
+    PayloadScope,
+    untrusted_payload_error_fields,
+)
+from dex._value_hydrator import BlobHydrationError, worker_request_payload_scope
 from dex._pull_slot_streams import (
     RPC_ONLY_QUEUE,
     STEP_AND_RPC_QUEUE,
@@ -41,10 +49,16 @@ from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
+from dex.payload_encryption import (
+    PayloadContext,
+    PayloadEncryptionError,
+)
 from dex.pull_registration import PullSlotStreamState, _PullRegistration
+from dex.runtime_errors import BlobMessageTooLargeError
 from dex.worker_options import PullWorkerOptions
 
 _LOGGER = logging.getLogger(__name__)
+_UNKNOWN_TASK_PAYLOAD_SCOPE = PayloadScope(PayloadContext("", ""))
 _GRPC_AIO_EOF = getattr(grpc.aio, "EOF")
 _BUSY_PULL_STREAM_KEEPALIVE_SECONDS = 20
 # Extra stop time to flush a final output already being written at the deadline.
@@ -130,7 +144,14 @@ class PullWorkerRuntime:
         credential_runner: AsyncCredentialRunner | None = None,
         transport: FlowServiceTransport | None = None,
         grpc_max_message_bytes: int = 0,
+        frame_payloads: AsyncPayloadMessageCodec | None = None,
+        handler_thread_frame_payloads: PayloadMessageCodec | None = None,
     ) -> None:
+        # Frames are encrypted where they are built: handler threads for Worker.
+        self._frame_payloads = frame_payloads or AsyncPayloadMessageCodec(None)
+        self._handler_thread_frame_payloads = (
+            handler_thread_frame_payloads or PayloadMessageCodec(None)
+        )
         self._transport = transport
         self._grpc_max_message_bytes = grpc_max_message_bytes
         self._registry = registry
@@ -851,25 +872,36 @@ class PullStream:
 
     async def _execute(self, task: pb.PollWorkerTask) -> None:
         kind = task.WhichOneof("request")
+        scope = _task_payload_scope(task)
         try:
             if self.runtime._executor is None:
-                await self._execute_async(task, kind)
+                await self._execute_async(task, kind, scope)
             else:
                 await asyncio.get_running_loop().run_in_executor(
-                    self.runtime._executor, self._execute_sync, task, kind
+                    self.runtime._executor, self._execute_sync, task, kind, scope
                 )
         except asyncio.CancelledError:
             await self._send_error(
                 task.task_id,
                 asyncio.CancelledError("Worker task canceled"),
                 grpc.StatusCode.CANCELLED,
+                scope,
             )
         except BaseException as failure:
-            _LOGGER.exception("Python Worker invocation failed")
+            payload_failure_detail = _payload_failure_detail(failure)
+            if payload_failure_detail is None:
+                _LOGGER.exception("Python Worker invocation failed")
+            else:
+                # The exception object may be forged; log only rebuilt fields.
+                _LOGGER.error(
+                    "Python Worker invocation failed: %s", payload_failure_detail
+                )
             status = grpc.StatusCode.CANCELLED if not self._active.is_set() else None
-            await self._send_error(task.task_id, failure, status)
+            await self._send_error(task.task_id, failure, status, scope)
 
-    async def _execute_async(self, task: pb.PollWorkerTask, kind: str | None) -> None:
+    async def _execute_async(
+        self, task: pb.PollWorkerTask, kind: str | None, scope: PayloadScope
+    ) -> None:
         deadline = (
             task.deadline.ToDatetime(tzinfo=timezone.utc)
             if task.HasField("deadline")
@@ -881,8 +913,9 @@ class PullStream:
                 self._active.is_set,
                 deadline,
             ):
-                await self._send_frame(
-                    pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output)
+                await self._send_encoded_frame(
+                    pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output),
+                    scope,
                 )
         elif kind == "execute":
             async for output in self.runtime._dispatcher.invoke_execute(
@@ -890,20 +923,23 @@ class PullStream:
                 self._active.is_set,
                 deadline,
             ):
-                await self._send_frame(
-                    pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output)
+                await self._send_encoded_frame(
+                    pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output),
+                    scope,
                 )
         elif kind == "rpc":
             output = await self.runtime._dispatcher.invoke_rpc(
                 task.rpc, self._active.is_set
             )
-            await self._send_frame(
-                pb.PollWorkerTaskFrame(task_id=task.task_id, rpc=output)
+            await self._send_encoded_frame(
+                pb.PollWorkerTaskFrame(task_id=task.task_id, rpc=output), scope
             )
         else:
             raise ValueError(f"unsupported Worker task request {kind}")
 
-    def _execute_sync(self, task: pb.PollWorkerTask, kind: str | None) -> None:
+    def _execute_sync(
+        self, task: pb.PollWorkerTask, kind: str | None, scope: PayloadScope
+    ) -> None:
         deadline = (
             task.deadline.ToDatetime(tzinfo=timezone.utc)
             if task.HasField("deadline")
@@ -917,7 +953,8 @@ class PullStream:
             )
             for output in outputs:
                 self._send_from_thread(
-                    pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output)
+                    pb.PollWorkerTaskFrame(task_id=task.task_id, wait_for=output),
+                    scope,
                 )
         elif kind == "execute":
             outputs = self.runtime._dispatcher.invoke_execute(
@@ -927,37 +964,87 @@ class PullStream:
             )
             for output in outputs:
                 self._send_from_thread(
-                    pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output)
+                    pb.PollWorkerTaskFrame(task_id=task.task_id, execute=output),
+                    scope,
                 )
         elif kind == "rpc":
             output = self.runtime._dispatcher.invoke_rpc(task.rpc, self._active.is_set)
             self._send_from_thread(
-                pb.PollWorkerTaskFrame(task_id=task.task_id, rpc=output)
+                pb.PollWorkerTaskFrame(task_id=task.task_id, rpc=output), scope
             )
         else:
             raise ValueError(f"unsupported Worker task request {kind}")
 
-    def _send_from_thread(self, frame: pb.PollWorkerTaskFrame) -> None:
+    def _send_from_thread(
+        self, frame: pb.PollWorkerTaskFrame, scope: PayloadScope
+    ) -> None:
         loop = self.runtime._loop
         if loop is None:
             raise RuntimeError("pull Worker event loop has stopped")
-        asyncio.run_coroutine_threadsafe(self._send_frame(frame), loop).result()
+        encoded = self.runtime._handler_thread_frame_payloads.encode_message(
+            frame, scope
+        )
+        asyncio.run_coroutine_threadsafe(self._send_frame(encoded), loop).result()
+
+    async def _send_encoded_frame(
+        self, frame: pb.PollWorkerTaskFrame, scope: PayloadScope
+    ) -> None:
+        await self._send_frame(
+            await self.runtime._frame_payloads.encode_message(frame, scope)
+        )
 
     async def _send_error(
         self,
         task_id: str,
         failure: BaseException,
         status: grpc.StatusCode | None = None,
+        scope: PayloadScope = _UNKNOWN_TASK_PAYLOAD_SCOPE,
     ) -> None:
-        worker_error = pb.WorkerErrorResponse()
-        report = _worker_error_status(failure)
-        report.details[0].Unpack(worker_error)
+        payload_failure_detail = _payload_failure_detail(failure)
+        if payload_failure_detail is None:
+            worker_error = pb.WorkerErrorResponse()
+            report = _worker_error_status(failure)
+            report.details[0].Unpack(worker_error)
+        else:
+            # Fixed fields only: no class name, str, repr, or traceback of the error.
+            worker_error = pb.WorkerErrorResponse(
+                detail=payload_failure_detail,
+                error_type=_PAYLOAD_FAILURE_ERROR_TYPE,
+                grpc_status=grpc.StatusCode.UNKNOWN.value[0],
+            )
+            if type(failure) is RetryAfterError:
+                worker_error.retry_after_seconds = failure.after_seconds
         if status is not None:
             worker_error.grpc_status = status.value[0]
+        frame = pb.PollWorkerTaskFrame(task_id=task_id, worker_error=worker_error)
+        # The Server matches SDK blob errors; SDK texts never hold payload content.
+        plaintext_fields = (
+            frozenset((WORKER_ERROR_DETAIL_FIELD,))
+            if payload_failure_detail is not None
+            or issubclass(type(failure), _SDK_PLAINTEXT_FAILURE_TYPES)
+            else frozenset()
+        )
         try:
-            await self._send_frame(
-                pb.PollWorkerTaskFrame(task_id=task_id, worker_error=worker_error)
+            frame = await self.runtime._frame_payloads.encode_message(
+                frame, scope, plaintext_fields
             )
+        except Exception as encryption_failure:
+            category = untrusted_payload_error_fields(encryption_failure)[0].value
+            _LOGGER.warning("cannot encrypt Worker error text: %s", category)
+            frame = pb.PollWorkerTaskFrame(
+                task_id=task_id,
+                worker_error=pb.WorkerErrorResponse(
+                    detail=(
+                        "Dex Python SDK could not encrypt the Worker error text: "
+                        f"{category}"
+                    ),
+                    error_type=worker_error.error_type,
+                    grpc_status=worker_error.grpc_status,
+                    retry_after_seconds=worker_error.retry_after_seconds,
+                ),
+            )
+        try:
+            await self._send_frame(frame)
         except Exception:
             _LOGGER.exception("send Worker error frame failed")
 
@@ -1126,3 +1213,35 @@ def _task_deadline_seconds(task: pb.PollWorkerTask) -> float | None:
         raise RuntimeError(
             f"Worker task {task.task_id!r} has an invalid deadline"
         ) from failure
+
+
+_SDK_PLAINTEXT_FAILURE_TYPES = (BlobHydrationError, BlobMessageTooLargeError)
+_PAYLOAD_FAILURE_ERROR_TYPE = "dex.payload_encryption.PayloadEncryptionError"
+
+
+def _payload_failure_detail(failure: BaseException) -> str | None:
+    """Return a fixed detail for a payload failure, or ``None`` for other failures."""
+    reported: object = failure
+    if type(failure) is RetryAfterError:
+        reported = failure.cause
+    if not issubclass(type(reported), PayloadEncryptionError):
+        return None
+    category = untrusted_payload_error_fields(reported)[0]
+    return f"payload {category.value}: Dex could not encrypt or decrypt a payload"
+
+
+def _task_payload_scope(task: pb.PollWorkerTask) -> PayloadScope:
+    """Return the Flow that stores the task's Values; validated tasks have a request."""
+    request: (
+        pb.InvokeWaitForMethodRequest
+        | pb.InvokeExecuteMethodRequest
+        | (pb.InvokeWorkerRPCRequest)
+    )
+    kind = task.WhichOneof("request")
+    if kind == "wait_for":
+        request = task.wait_for
+    elif kind == "execute":
+        request = task.execute
+    else:
+        request = task.rpc
+    return worker_request_payload_scope(request.flow_type, request.context)

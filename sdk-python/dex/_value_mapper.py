@@ -25,6 +25,10 @@ from dex.codec import (
     _encode_json_value,
     _validate_json_value_metadata,
 )
+from dex._payload_message_codec import (
+    MISSING_PAYLOAD_CODEC_MESSAGE,
+    RESERVED_ENCODING_PREFIX,
+)
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import ValueMappingError
 
@@ -113,6 +117,7 @@ class ValueMapper:
             raise ValueMappingError("decode", str(error)) from error
 
     def _decode(self, value: pb.Value, codec: Codec[Any]) -> Any:
+        self._require_not_envelope(value)
         kind = value.WhichOneof("kind")
         expected = codec.wire_kind
         if kind == "string_value" and expected is WireKind.STRING:
@@ -151,6 +156,7 @@ class ValueMapper:
             raise ValueMappingError("decode", str(error)) from error
 
     def _to_value(self, value: pb.Value) -> Value:
+        self._require_not_envelope(value)
         kind = value.WhichOneof("kind")
         if kind == "string_value":
             return Value(WireKind.STRING, value.string_value)
@@ -211,6 +217,14 @@ class ValueMapper:
         if type(value) is not expected:
             raise TypeError(f"expected {expected.__name__}")
         return value
+
+    @staticmethod
+    def _require_not_envelope(value: pb.Value) -> None:
+        # With a codec, hydration already decrypted every envelope.
+        if value.WhichOneof("kind") == "obj_value" and (
+            value.obj_value.encoding.startswith(RESERVED_ENCODING_PREFIX)
+        ):
+            raise ValueMappingError("decode", MISSING_PAYLOAD_CODEC_MESSAGE)
 
     @staticmethod
     def _require_encoding(value: pb.EncodedObject, expected: str) -> None:

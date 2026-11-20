@@ -32,9 +32,13 @@ from dex._flow_definition_upload import (
 )
 from dex._grpc_errors import (
     FlowTargetRequirement,
+    has_dex_error_details,
+    service_error_texts,
     translate_clone_fork_flow_error,
     translate_rpc_error,
+    with_service_error_texts,
 )
+from dex._payload_message_codec import AsyncPayloadMessageCodec, PayloadScope
 from dex._history_point_mapping import (
     clone_fork_flow_result_from_proto,
     map_clone_fork_flow_request,
@@ -88,6 +92,7 @@ from dex.flow_options import (
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
+from dex.payload_encryption import PayloadContext, PayloadEncryptionError
 from dex.runtime_errors import (
     BlobMessageTooLargeError,
     DexServiceError,
@@ -159,6 +164,10 @@ class AsyncClient:
         Raises:
             ValueError: If the configured TLS address, server name, or CA bundle
                 is invalid, or default roots cannot be loaded.
+
+        .. versionchanged:: 1.45.10
+           Applies ``options.payload_encryption`` with a ``PayloadCodec`` or an
+           ``AsyncPayloadCodec``.
         """
         self.registry = registry
         self.blob_cache = blob_cache
@@ -178,7 +187,10 @@ class AsyncClient:
             self._channel
         )
         self._values = ValueMapper(registry.codec_registry)
-        self._hydrator = AsyncValueHydrator(self._service, blob_cache)
+        self._payloads = AsyncPayloadMessageCodec(
+            self.options.payload_encryption, registry
+        )
+        self._hydrator = AsyncValueHydrator(self._service, blob_cache, self._payloads)
         self._server_protocol = NegotiatedServerProtocol()
         self._mappings = WorkerDispatcher(
             registry,
@@ -311,7 +323,12 @@ class AsyncClient:
         response = cast(
             pb.StartFlowResponse,
             await self._call(
-                self._service.StartFlow, request, "start_flow", flow_id, "none"
+                self._service.StartFlow,
+                request,
+                "start_flow",
+                flow_id,
+                "none",
+                payload_context=PayloadContext(registered.name, flow_id),
             ),
         )
         return response.run_id
@@ -422,10 +439,11 @@ class AsyncClient:
             if rpc.options.timeout is not None
             else 0
         )
-        response = cast(
-            pb.InvokeRPCResponse,
-            await self._call(
-                self._service.InvokeRPC,
+        payload_context = PayloadContext(registered_flow.name, flow_id)
+        service_error: DexServiceError | None = None
+        response = pb.InvokeRPCResponse()
+        try:
+            response = await self._invoke_rpc_request(
                 pb.InvokeRPCRequest(
                     flow_id=require_name(flow_id),
                     run_id=run_id,
@@ -455,16 +473,46 @@ class AsyncClient:
                         )
                     ),
                 ),
-                "invoke_rpc",
-                flow_id,
-                "active",
-            ),
-        )
+                payload_context,
+            )
+        except DexServiceError as error:
+            service_error = error
+        if service_error is not None:
+            # Decoded outside the handler, so a decode error never chains server text.
+            raise await self._decode_service_error_texts(service_error, payload_context)
         if rpc.output_codec is None:
             return None
         return self._values.decode(
-            await self._hydrator.hydrate(flow_id, response.output),
+            await self._hydrator.hydrate(flow_id, response.output, payload_context),
             rpc.output_codec,
+        )
+
+    async def _invoke_rpc_request(
+        self, request: pb.InvokeRPCRequest, payload_context: PayloadContext
+    ) -> pb.InvokeRPCResponse:
+        return cast(
+            pb.InvokeRPCResponse,
+            await self._call(
+                self._service.InvokeRPC,
+                request,
+                "invoke_rpc",
+                request.flow_id,
+                "active",
+                payload_context=payload_context,
+            ),
+        )
+
+    async def _decode_service_error_texts(
+        self, error: DexServiceError, payload_context: PayloadContext
+    ) -> DexServiceError:
+        # A status without Dex details is a transport status; its text stays as is.
+        if not has_dex_error_details(error):
+            return error
+        detail, worker_detail = service_error_texts(error)
+        return with_service_error_texts(
+            error,
+            await self._payloads.decode_text(detail, payload_context),
+            await self._payloads.decode_text(worker_detail, payload_context),
         )
 
     async def write_stream(
@@ -507,6 +555,7 @@ class AsyncClient:
             "write_stream",
             flow_id,
             "none",
+            payload_context=PayloadContext(flow.name, flow_id),
         )
 
     async def read_stream(
@@ -552,6 +601,9 @@ class AsyncClient:
                 flow_id,
                 "none",
             ),
+        )
+        response = await self._payloads.decode_message(
+            response, PayloadScope(PayloadContext(flow.name, flow_id))
         )
         if (
             not response.HasField("message")
@@ -617,6 +669,9 @@ class AsyncClient:
                 "none",
             ),
         )
+        response = await self._payloads.decode_message(
+            response, PayloadScope(PayloadContext(flow.name, flow_id))
+        )
         messages: list[StreamMessage[ValueT]] = []
         for message in response.messages:
             if (
@@ -664,11 +719,9 @@ class AsyncClient:
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         response = await self._wait_for_flow_response(flow_id, timeout)
-        hydrated = await self._hydrator.step_outputs(flow_id, list(response.results))
-        mapped = pb.FlowResult()
-        mapped.CopyFrom(response)
-        del mapped.results[:]
-        mapped.results.extend(hydrated)
+        mapped = await self._hydrator.flow_result(
+            flow_id, response, PayloadContext("", flow_id)
+        )
         return flow_result_from_proto(
             mapped,
             lambda value, output_type: self._values.decode(
@@ -713,6 +766,7 @@ class AsyncClient:
             "stop_flow",
             flow_id,
             "active",
+            payload_context=PayloadContext("", flow_id),
         )
 
     async def describe_flow(self, flow_id: str) -> FlowInfo:
@@ -812,6 +866,10 @@ class AsyncClient:
                 "existing",
             ),
         )
+        # FlowState exposes failure text but no Values, so only text is decrypted.
+        response = await self._payloads.decode_message(
+            response, PayloadScope(PayloadContext("", flow_id)), include_values=False
+        )
         return flow_state_from_proto(flow_id, response)
 
     async def get_attributes(
@@ -839,8 +897,8 @@ class AsyncClient:
         declares in its ``PersistenceSchema``. The definition matches when it is
         equal to the registered one: same class (``Attribute`` or
         ``AttributeMap``), name, ``value_type``, ``index``,
-        ``sync_to_attribute_store``, and ``hard_delete_on_null``. The definition
-        may come from any registered Flow. The server does not check that the
+        ``sync_to_attribute_store``, ``hard_delete_on_null``, and ``plaintext``.
+        The definition may come from any registered Flow. The server does not check that the
         target Flow's type declares it, so a same-named Attribute of another type
         in the target Flow fails to decode.
 
@@ -903,11 +961,13 @@ class AsyncClient:
         entries = plan.set_entries(response)
         try:
             hydrated = await self._hydrator.hydrate_all(
-                flow_id, [entry.value for entry in entries]
+                flow_id,
+                [entry.value for entry in entries],
+                PayloadContext("", flow_id),
             )
         except grpc.RpcError as error:
             raise plan.service_error(error, "LoadBlobs") from error
-        except BlobMessageTooLargeError:
+        except (BlobMessageTooLargeError, PayloadEncryptionError):
             raise
         except (ValueError, RuntimeError) as error:
             raise plan.hydration_error(error) from error
@@ -959,7 +1019,11 @@ class AsyncClient:
     ) -> SearchFlowEntry:
         attributes = {
             kv.key: self._values.to_value(
-                await self._hydrator.hydrate(entry.flow_id, kv.value)
+                await self._hydrator.hydrate(
+                    entry.flow_id,
+                    kv.value,
+                    PayloadContext(entry.flow_type, entry.flow_id),
+                )
             )
             for kv in entry.indexed_attributes
         }
@@ -1011,6 +1075,7 @@ class AsyncClient:
                 "time_travel",
                 flow_id,
                 "existing",
+                payload_context=PayloadContext("", flow_id),
             ),
         )
         return response.run_id
@@ -1097,6 +1162,9 @@ class AsyncClient:
             "clone_fork_flow", flow_id, "none"
         )
         self._server_protocol.require_clone_fork_flow_support()
+        request = await self._payloads.encode_message(
+            request, PayloadScope(PayloadContext(registered.name, flow_id))
+        )
         try:
             response = cast(
                 pb.CloneForkFlowResponse, await self._service.CloneForkFlow(request)
@@ -1299,11 +1367,16 @@ class AsyncClient:
             TypeError: If arguments do not match the Attribute definition.
             ValueError: If an identifier, option, or expected value is invalid.
                 Also raised before transport when the Attribute uses
-                ``hard_delete_on_null``.
+                ``hard_delete_on_null``, or when ``payload_encryption`` would
+                encrypt the Attribute: it has no index, is not declared with
+                ``plaintext=True``, or is not registered.
             RequestTimeoutError: If a positive request timeout expires first.
             FlowNotActiveOrNotFoundError: If the Flow is missing or closes first.
             DexServiceError: If FlowService cannot perform the wait.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.10
+           Rejects an Attribute that payload encryption would encrypt.
         """
         instance, match, options = self._attribute_wait_arguments(
             attribute, args, kwargs
@@ -1321,12 +1394,18 @@ class AsyncClient:
         options: WaitForAttributeOptions,
     ) -> Any:
         _require_attribute_wait_supported(attribute)
+        self._payloads.transformer.require_plaintext_attribute(
+            self._payloads.transformer.registered_attribute(attribute),
+            attribute.name,
+            "wait_for_attribute_match",
+        )
         encoded_match = _encode_attribute_match(
             cast(AttributeMatch[Any], match),
             self._values,
             self._values.codec(attribute.value_type),
         )
         encoded_match.key = self._definition_name(attribute, instance)
+        payload_context = PayloadContext("", flow_id)
         request_budget = _ClientRequestBudget(options.request_timeout)
         while True:
             await self._negotiate_within_request_budget(
@@ -1352,10 +1431,14 @@ class AsyncClient:
                         flow_id,
                         "active",
                         request_attempt.transport_timeout_seconds,
+                        payload_context=payload_context,
                     ),
                 )
                 if not response.HasField("matched_value"):
                     raise ValueError("wait_for_attribute_match response is incomplete")
+                response = await self._payloads.decode_message(
+                    response, PayloadScope(payload_context)
+                )
                 return self._values.decode(
                     response.matched_value,
                     self._values.codec(attribute.value_type),
@@ -1870,11 +1953,18 @@ class AsyncClient:
         flow_id: str | None,
         requirement: FlowTargetRequirement,
         timeout: float | None = None,
+        payload_context: PayloadContext | None = None,
     ) -> Any:
         deadline = None if timeout is None else monotonic() + timeout
         await self._negotiate_server_protocol_for_operation(
             operation, flow_id, requirement, deadline
         )
+        if payload_context is not None:
+            request = await self._payloads.encode_message(
+                request, PayloadScope(payload_context)
+            )
+        elif self._payloads.transformer.might_encode(request):
+            raise RuntimeError(f"{operation} request needs a PayloadContext")
         if deadline is not None:
             timeout = max(0.0, deadline - monotonic())
         try:

@@ -30,6 +30,7 @@ from dex._server_protocol import (
     sdk_version,
     server_info_request_error,
 )
+from dex._payload_message_codec import AsyncPayloadMessageCodec
 from dex._value_mapper import ValueMapper
 from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
@@ -77,11 +78,17 @@ class AsyncWorker:
             ValueError: If the pull Worker ID or configured TLS address, server
                 name, or CA bundle is invalid, or default roots cannot be loaded.
                 Also raised when a configured Flow definition cannot be loaded
-                or two Flow definitions describe the same Flow type.
+                or two Flow definitions describe the same Flow type. Also raised
+                when ``payload_encryption`` would encrypt the Attribute of an
+                Action condition.
 
         .. versionchanged:: 1.45.0
            Loads ``flow_definition_paths`` and ``flow_definitions`` and raises
            ``ValueError`` for an invalid or duplicate Flow definition.
+
+        .. versionchanged:: 1.45.10
+           Applies ``options.payload_encryption`` with a ``PayloadCodec`` or an
+           ``AsyncPayloadCodec``.
         """
         self.registry = registry
         self.blob_cache = blob_cache
@@ -111,10 +118,12 @@ class AsyncWorker:
         self._sdk_version = sdk_version()
         self._server_protocol = NegotiatedServerProtocol()
         values = ValueMapper(registry.codec_registry)
+        payloads = AsyncPayloadMessageCodec(self.options.payload_encryption, registry)
+        payloads.transformer.require_plaintext_action_conditions()
         dispatcher = AsyncWorkerDispatcher(
             registry,
             values,
-            AsyncValueHydrator(self._flow_service, blob_cache),
+            AsyncValueHydrator(self._flow_service, blob_cache, payloads),
             self._server_protocol,
         )
         self._has_start_called = False
@@ -128,6 +137,7 @@ class AsyncWorker:
             self._credential_runner,
             transport=transport,
             grpc_max_message_bytes=self.options.grpc_max_message_bytes,
+            frame_payloads=payloads,
         )
         self._stopped = asyncio.Event()
         self._upload_task: asyncio.Future[None] | None = None
