@@ -108,6 +108,10 @@ jobs:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.suites), 'examples-typescript')
     uses: ./.github/workflows/examples-typescript-ci.yml
+  payload-encryption-interop:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.suites), 'payload-encryption-interop')
+    uses: ./.github/workflows/payload-encryption-interop-ci.yml
   generated-code:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.suites), 'generated-code')
@@ -195,6 +199,7 @@ jobs:
       - examples-python
       - examples-rust
       - examples-typescript
+      - payload-encryption-interop
       - generated-code
       - release-tooling
       - rust-rules

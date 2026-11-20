@@ -1,0 +1,115 @@
+name: Payload encryption interop CI
+
+# Go, Python, and TypeScript Workers and Clients share one key file against one
+# Dex server. Every Client reads every Worker's encrypted values, and the dexcli
+# and example codec servers decode and encode them.
+on:
+  pull_request:
+    paths:
+      - "examples/run-payload-encryption-interop-tests.sh"
+      - "examples/go/interop/**"
+      - "examples/python/tests/interop/**"
+      - "examples/typescript/test/interop/**"
+      - "examples/go/codec-server/**"
+      - "examples/python/codec-server/**"
+      - "examples/typescript/codec-server/**"
+      - "examples/go/go.mod"
+      - "examples/go/go.sum"
+      - "examples/python/pyproject.toml"
+      - "examples/python/uv.lock"
+      - "examples/typescript/package.json"
+      - "examples/typescript/package-lock.json"
+      - "examples/go/production/payload-encryption/**"
+      - "examples/python/dex_examples/production/payload_encryption.py"
+      - "examples/typescript/src/production/payload-encryption.ts"
+      - "cli/internal/payloadcodec/**"
+      - "sdk-go/dex/payload_encryption*"
+      - "sdk-python/dex/payload_encryption.py"
+      - "sdk-python/dex/_payload_message_codec.py"
+      - "sdk-typescript/src/payload-*"
+      - "protos/payload-encryption.md"
+      - "protos/conformance/payload-encryption/**"
+      - ".github/workflows/payload-encryption-interop-ci.yml"
+  workflow_dispatch:
+  # Main CI (all) calls this suite on main.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payload-encryption-interop-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  interop:
+    name: Cross-SDK payload encryption (zd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEX_SERVER_ZD_BINARY: ${{ github.workspace }}/server-zd/target/debug/dex-server-zd
+      # These CARGO_* and RUST* values match Server ZD CI, so its main cache restores here.
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+      RUSTUP_TOOLCHAIN: "1.97.1"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install libclang for RocksDB
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server-zd
+          shared-key: server-zd-build
+          # Restore-only: the Server ZD build cache workflow owns this key.
+          save-if: false
+      - name: Build dex-server-zd
+        working-directory: server-zd
+        run: cargo build --locked -p dexzd-server --bin dex-server-zd
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            web/go.sum
+            examples/go/go.sum
+            examples/go/codec-server/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            examples/typescript/package-lock.json
+            examples/typescript/codec-server/package-lock.json
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: examples/python
+          enable-cache: true
+      - name: Install Python example dependencies
+        working-directory: examples/python
+        run: uv sync --locked
+      - name: Install Python codec server dependencies
+        working-directory: examples/python/codec-server
+        run: uv sync --locked
+      - name: Install TypeScript example dependencies
+        working-directory: examples/typescript
+        run: npm ci
+      - name: Install TypeScript codec server dependencies
+        working-directory: examples/typescript/codec-server
+        run: npm ci
+      - name: Payload encryption interop tests
+        run: ./examples/run-payload-encryption-interop-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: payload-encryption-interop-services
+          path: /tmp/test-payload-encryption-interop-services.log
+          if-no-files-found: ignore
