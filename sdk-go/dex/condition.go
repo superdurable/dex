@@ -271,12 +271,7 @@ func SubFlowID(ctx Context, index ...int) (string, error) {
 	if _, err := invocation.subFlowResult(resolvedIndex); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(
-		"SubFlow:%s-%s-%d",
-		invocation.flowID,
-		invocation.stepExecutionID,
-		resolvedIndex,
-	), nil
+	return subFlowFlowID(invocation.flowID, invocation.stepExecutionID, resolvedIndex), nil
 }
 
 func resolveSubFlowIndex(indexes []int) (int, error) {

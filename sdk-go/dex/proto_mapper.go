@@ -1528,8 +1528,11 @@ func validateConcreteValue(value *dexpb.Value) error {
 		if kind.ObjValue == nil {
 			return fmt.Errorf("dex: object value is missing")
 		}
-		switch kind.ObjValue.Encoding {
-		case jsonEncoding, rawBytesEncoding:
+		switch {
+		case kind.ObjValue.Encoding == jsonEncoding, kind.ObjValue.Encoding == rawBytesEncoding:
+			return nil
+		case strings.HasPrefix(kind.ObjValue.Encoding, payloadReservedEncodingRoot):
+			// Payload decryption validates envelopes after hydration.
 			return nil
 		default:
 			return fmt.Errorf(

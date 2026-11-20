@@ -65,6 +65,7 @@ type registeredAttribute struct {
 	valueType            reflect.Type
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
+	isPlaintext          bool
 }
 
 type registeredChannel struct {
@@ -283,6 +284,7 @@ func (flow *registeredFlow) registerAttribute(
 		valueType:            definition.attributeValueType(),
 		syncToAttributeStore: definition.attributeSyncToAttributeStore(),
 		isHardDeleteOnNull:   definition.attributeIsHardDeleteOnNull(),
+		isPlaintext:          definition.attributeIsPlaintext(),
 	}
 	return nil
 }
@@ -935,6 +937,7 @@ func (registry *Registry) doResolveAttribute(
 			reflect.DeepEqual(registered.index, reference.attributeIndex()) &&
 			registered.syncToAttributeStore == reference.attributeSyncToAttributeStore() &&
 			registered.isHardDeleteOnNull == reference.attributeIsHardDeleteOnNull() &&
+			registered.isPlaintext == reference.attributeIsPlaintext() &&
 			(!shouldMatchValueType || registered.valueType == reference.attributeValueType()) {
 			return registered, nil
 		}

@@ -112,7 +112,7 @@ func TestWorkerSendsSubFlowFromDashedStepTypeToServer(t *testing.T) {
 	serverProtocol.version.Store(maximumSupportedServerProtocolVersion)
 	logger := &recordingWarnLogger{}
 	client := &workerDispatchTestClient{
-		service: newWorkerService(registered, concreteValueHydrator{}, logger, serverProtocol),
+		service: newWorkerService(registered, concreteValueHydrator{}, logger, serverProtocol, newDisabledPayloadEncryption()),
 	}
 
 	waitFor := func(stepType string) ([]*dexpb.InvokeWaitForMethodOutput, error) {

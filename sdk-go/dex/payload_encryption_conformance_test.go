@@ -9,20 +9,14 @@
 package dex
 
 import (
-	"bytes"
-	"compress/gzip"
-	"crypto/aes"
-	"crypto/cipher"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -32,19 +26,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// These tests decode the golden payload encryption vectors with a test-only reference decoder.
-// See protos/payload-encryption.md for the rules it follows.
-
-const (
-	conformancePayloadEnvelopeMarker = "dex/1"
-	conformanceEncodedStringPrefix   = "dex-encoded:"
-)
+// These tests decode the golden payload encryption vectors with the SDK's own decoder and the
+// built-in AES-256-GCM codec. See protos/payload-encryption.md for the rules.
 
 type payloadEncryptionVectorFile struct {
-	KeyFile struct {
-		CurrentKeyID string            `json:"current_key_id"`
-		Keys         map[string]string `json:"keys"`
-	} `json:"keyFile"`
+	KeyFile         json.RawMessage               `json:"keyFile"`
 	Limits          payloadEncryptionVectorLimits `json:"limits"`
 	ErrorCategories []string                      `json:"errorCategories"`
 	Passthrough     []struct {
@@ -89,75 +75,192 @@ type payloadEncryptionVectorInput struct {
 	Text  *string         `json:"text"`
 }
 
+var conformancePayloadContext = PayloadContext{FlowType: "ConformanceFlow", FlowID: "conformance-1"}
+
 func TestPayloadEncryptionVectorsPositiveDecode(t *testing.T) {
-	file, decoder := loadPayloadEncryptionVectors(t)
+	file, keys := loadPayloadEncryptionVectors(t)
 	require.NotEmpty(t, file.Positive)
 	for _, vector := range file.Positive {
 		t.Run(vector.Name, func(t *testing.T) {
-			result, err := decoder.withLimits(vector.Limits).decode(vector.Input)
-			require.NoError(t, err)
-			require.False(t, result.passthrough)
+			encryption := newConformancePayloadEncryption(t, keys, file.Limits, vector.Limits)
+			envelope, values, plaintexts := decodeConformanceVectorParts(t, encryption, vector.Input)
 			wantPlaintext, err := base64.StdEncoding.DecodeString(vector.ExpectedPlaintext)
 			require.NoError(t, err)
-			require.Equal(t, wantPlaintext, result.plaintext)
+			require.Equal(t, wantPlaintext, plaintexts[0])
 			want := &dexpb.Value{}
 			require.NoError(t, protojson.Unmarshal(vector.ExpectedValue, want))
-			requireConformanceValuesEqual(t, want, result.value)
-			if vector.ExpectedText != nil {
-				require.NotNil(t, vector.Input.Text)
-				require.Equal(t, *vector.ExpectedText, result.value.GetStringValue())
-			}
-			envelope := result.envelope
+			requireConformanceValuesEqual(t, want, values[0])
 			require.Equal(t, vector.Envelope.Cipher, int32(envelope.GetCipher()))
 			require.Equal(t, vector.Envelope.KeyID, envelope.GetKeyId())
 			require.Equal(t, vector.Envelope.Compression, int32(envelope.GetCompression()))
-			require.Equal(t, vector.Envelope.NonceHex, hex.EncodeToString(envelope.GetData()[:12]))
-			require.Equal(t, vector.Envelope.AADHex, hex.EncodeToString(conformanceAdditionalAuthenticatedData(envelope)))
+			require.Equal(t, vector.Envelope.NonceHex, hex.EncodeToString(envelope.GetData()[:aesGCMPayloadNonceBytes]))
+			require.Equal(t, vector.Envelope.AADHex, hex.EncodeToString(payloadAdditionalAuthenticatedData(
+				envelope.GetCipher(), envelope.GetCompression(), envelope.GetKeyId(),
+			)))
+
+			// The SDK entry points give the same result.
+			if vector.Input.Text != nil {
+				text, err := encryption.decodeErrorText(context.Background(), conformancePayloadContext, *vector.Input.Text)
+				require.NoError(t, err)
+				require.NotNil(t, vector.ExpectedText)
+				require.Equal(t, *vector.ExpectedText, text)
+				return
+			}
+			decoded := decryptConformanceValue(t, encryption, vector.Input.Value)
+			requireConformanceValuesEqual(t, want, decoded)
 		})
 	}
 }
 
 func TestPayloadEncryptionVectorsPassthrough(t *testing.T) {
-	file, decoder := loadPayloadEncryptionVectors(t)
+	file, keys := loadPayloadEncryptionVectors(t)
 	require.NotEmpty(t, file.Passthrough)
+	encryption := newConformancePayloadEncryption(t, keys, file.Limits, nil)
 	for _, vector := range file.Passthrough {
 		t.Run(vector.Name, func(t *testing.T) {
-			result, err := decoder.decode(vector.Input)
-			require.NoError(t, err)
-			require.True(t, result.passthrough)
+			if vector.Input.Text != nil {
+				text, err := encryption.decodeErrorText(context.Background(), conformancePayloadContext, *vector.Input.Text)
+				require.NoError(t, err)
+				require.Equal(t, *vector.Input.Text, text)
+				return
+			}
+			input := &dexpb.Value{}
+			require.NoError(t, protojson.Unmarshal(vector.Input.Value, input))
+			value := input
+			require.NoError(t, encryption.decryptFlowValues(context.Background(), valuePointersForFlow(
+				conformancePayloadContext, []**dexpb.Value{&value},
+			)))
+			require.Same(t, input, value)
 		})
 	}
 }
 
 func TestPayloadEncryptionVectorsNegativeRejected(t *testing.T) {
-	file, decoder := loadPayloadEncryptionVectors(t)
+	file, keys := loadPayloadEncryptionVectors(t)
 	require.NotEmpty(t, file.Negative)
 	for _, vector := range file.Negative {
 		t.Run(vector.Name, func(t *testing.T) {
 			require.Contains(t, file.ErrorCategories, vector.ExpectedError)
-			_, err := decoder.withLimits(vector.Limits).decode(vector.Input)
-			var rejection *conformanceEnvelopeRejection
-			require.True(t, errors.As(err, &rejection), "decode returned %v", err)
-			require.Equal(t, vector.ExpectedError, rejection.category, rejection.reason)
+			encryption := newConformancePayloadEncryption(t, keys, file.Limits, vector.Limits)
+			var err error
+			if vector.Input.Text != nil {
+				_, err = encryption.decodeErrorText(context.Background(), conformancePayloadContext, *vector.Input.Text)
+			} else {
+				input := &dexpb.Value{}
+				require.NoError(t, protojson.Unmarshal(vector.Input.Value, input))
+				value := input
+				err = encryption.decryptFlowValues(context.Background(), valuePointersForFlow(
+					conformancePayloadContext, []**dexpb.Value{&value},
+				))
+				require.Same(t, input, value, "a rejected value must not be replaced")
+			}
+			var decodeErr *PayloadDecodeError
+			require.True(t, errors.As(err, &decodeErr), "decode returned %v", err)
+			require.Equal(t, PayloadErrorCategory(vector.ExpectedError), decodeErr.Category, err.Error())
 		})
 	}
 }
 
-func loadPayloadEncryptionVectors(t *testing.T) (payloadEncryptionVectorFile, conformanceEnvelopeDecoder) {
+// TestPayloadEncryptionVectorsWithoutCodec checks the error for encrypted input and no codec.
+func TestPayloadEncryptionVectorsWithoutCodec(t *testing.T) {
+	file, _ := loadPayloadEncryptionVectors(t)
+	encryption := newDisabledPayloadEncryption()
+	for _, vector := range file.Positive {
+		var err error
+		if vector.Input.Text != nil {
+			_, err = encryption.decodeErrorText(context.Background(), conformancePayloadContext, *vector.Input.Text)
+		} else {
+			value := &dexpb.Value{}
+			require.NoError(t, protojson.Unmarshal(vector.Input.Value, value))
+			err = encryption.decryptFlowValues(context.Background(), valuePointersForFlow(
+				conformancePayloadContext, []**dexpb.Value{&value},
+			))
+			var decoded string
+			require.ErrorIs(t, decodeValue(value, &decoded), ErrPayloadCodecNotConfigured)
+		}
+		require.ErrorIs(t, err, ErrPayloadCodecNotConfigured, vector.Name)
+		require.Contains(t, err.Error(), "value is encrypted; configure a PayloadCodec")
+	}
+}
+
+func loadPayloadEncryptionVectors(t *testing.T) (payloadEncryptionVectorFile, *FilePayloadEncryptionKeyProvider) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "protos", "conformance", "payload-encryption", "vectors.json"))
 	require.NoError(t, err)
 	var file payloadEncryptionVectorFile
 	require.NoError(t, json.Unmarshal(data, &file))
-	keys := map[string][]byte{}
-	for keyID, encoded := range file.KeyFile.Keys {
-		key, err := base64.StdEncoding.Strict().DecodeString(encoded)
-		require.NoError(t, err)
-		require.Len(t, key, 32, keyID)
-		keys[keyID] = key
+	keyFilePath := filepath.Join(t.TempDir(), "keys.json")
+	require.NoError(t, os.WriteFile(keyFilePath, file.KeyFile, 0o600))
+	keys, err := NewFilePayloadEncryptionKeyProvider(keyFilePath)
+	require.NoError(t, err)
+	return file, keys
+}
+
+func newConformancePayloadEncryption(
+	t *testing.T,
+	keys PayloadEncryptionKeyProvider,
+	defaults payloadEncryptionVectorLimits,
+	override *payloadEncryptionVectorLimits,
+) *payloadEncryption {
+	t.Helper()
+	limits := defaults
+	if override != nil {
+		limits = *override
 	}
-	require.Contains(t, keys, file.KeyFile.CurrentKeyID)
-	return file, conformanceEnvelopeDecoder{keys: keys, limits: file.Limits}
+	require.Equal(t, maxPayloadKeyIDBytes, limits.MaxKeyIDBytes)
+	require.Equal(t, maxPayloadMetadataEntries, limits.MaxMetadataEntries)
+	require.Equal(t, maxPayloadMetadataTotalBytes, limits.MaxMetadataTotalBytes)
+	codec, err := NewAESGCMPayloadCodec(keys, AESGCMPayloadCodecOptions{
+		MaxDecompressedBytes: limits.MaxPlaintextBytes,
+		MaxDataBytes:         limits.MaxDataBytes,
+	})
+	require.NoError(t, err)
+	encryption, err := newPayloadEncryption(PayloadEncryptionOptions{Codec: codec})
+	require.NoError(t, err)
+	encryption.limits = payloadDecodeLimits{
+		maxEnvelopeBytes:    limits.MaxEnvelopeBytes,
+		maxEncodedTextBytes: limits.MaxEncodedTextBytes,
+		maxPlaintextBytes:   limits.MaxPlaintextBytes,
+	}
+	return encryption
+}
+
+// decodeConformanceVectorParts returns the envelope, the decoded Value, and its plaintext bytes.
+func decodeConformanceVectorParts(
+	t *testing.T,
+	encryption *payloadEncryption,
+	input payloadEncryptionVectorInput,
+) (*dexpb.PayloadEnvelope, []*dexpb.Value, [][]byte) {
+	t.Helper()
+	var envelope *dexpb.PayloadEnvelope
+	var err error
+	isText := input.Text != nil
+	if isText {
+		encodedText, found := strings.CutPrefix(*input.Text, payloadEncodedTextPrefix)
+		require.True(t, found)
+		envelope, err = encryption.parseEncodedText(encodedText)
+	} else {
+		value := &dexpb.Value{}
+		require.NoError(t, protojson.Unmarshal(input.Value, value))
+		require.NotNil(t, value.GetObjValue())
+		envelope, err = encryption.parseEnvelopeObject(value.GetObjValue())
+	}
+	require.NoError(t, err)
+	values, plaintexts, err := encryption.decodeEnvelopes(
+		context.Background(), conformancePayloadContext, []*dexpb.PayloadEnvelope{envelope}, isText,
+	)
+	require.NoError(t, err)
+	return envelope, values, plaintexts
+}
+
+func decryptConformanceValue(t *testing.T, encryption *payloadEncryption, input json.RawMessage) *dexpb.Value {
+	t.Helper()
+	value := &dexpb.Value{}
+	require.NoError(t, protojson.Unmarshal(input, value))
+	require.NoError(t, encryption.decryptFlowValues(context.Background(), valuePointersForFlow(
+		conformancePayloadContext, []**dexpb.Value{&value},
+	)))
+	return value
 }
 
 func requireConformanceValuesEqual(t *testing.T, want *dexpb.Value, got *dexpb.Value) {
@@ -174,172 +277,4 @@ func requireConformanceValuesEqual(t *testing.T, want *dexpb.Value, got *dexpb.V
 		return
 	}
 	require.Equal(t, math.Float64bits(wantDouble.DoubleValue), math.Float64bits(gotDouble.DoubleValue))
-}
-
-// conformanceEnvelopeRejection is a decode failure with one specification error category.
-type conformanceEnvelopeRejection struct {
-	category string
-	reason   string
-}
-
-func (rejection *conformanceEnvelopeRejection) Error() string {
-	return rejection.category + ": " + rejection.reason
-}
-
-func rejectConformanceEnvelope(category string, format string, arguments ...any) error {
-	return &conformanceEnvelopeRejection{category: category, reason: fmt.Sprintf(format, arguments...)}
-}
-
-type conformanceDecodeResult struct {
-	passthrough bool
-	envelope    *dexpb.PayloadEnvelope
-	plaintext   []byte
-	value       *dexpb.Value
-}
-
-// conformanceEnvelopeDecoder follows the specification's decode check order.
-type conformanceEnvelopeDecoder struct {
-	keys   map[string][]byte
-	limits payloadEncryptionVectorLimits
-}
-
-// withLimits returns a decoder that uses override, or the receiver when override is nil.
-func (decoder conformanceEnvelopeDecoder) withLimits(override *payloadEncryptionVectorLimits) conformanceEnvelopeDecoder {
-	if override != nil {
-		decoder.limits = *override
-	}
-	return decoder
-}
-
-func (decoder conformanceEnvelopeDecoder) decode(input payloadEncryptionVectorInput) (conformanceDecodeResult, error) {
-	if input.Text != nil {
-		encoded, found := strings.CutPrefix(*input.Text, conformanceEncodedStringPrefix)
-		if !found {
-			return conformanceDecodeResult{passthrough: true}, nil
-		}
-		if len(encoded) > decoder.limits.MaxEncodedTextBytes {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "encoded text has %d bytes", len(encoded))
-		}
-		envelopeBytes, err := base64.StdEncoding.Strict().DecodeString(encoded)
-		if err != nil || base64.StdEncoding.EncodeToString(envelopeBytes) != encoded {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "text is not canonical padded base64")
-		}
-		if len(envelopeBytes) > decoder.limits.MaxEnvelopeBytes {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "envelope has %d bytes", len(envelopeBytes))
-		}
-		return decoder.decodeEnvelope(envelopeBytes, true)
-	}
-	value := &dexpb.Value{}
-	if err := protojson.Unmarshal(input.Value, value); err != nil {
-		return conformanceDecodeResult{}, fmt.Errorf("input value: %w", err)
-	}
-	object := value.GetObjValue()
-	if object == nil || !strings.HasPrefix(object.GetEncoding(), "dex/") {
-		return conformanceDecodeResult{passthrough: true}, nil
-	}
-	if object.GetEncoding() != conformancePayloadEnvelopeMarker {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("unsupported_marker", "encoding %q", object.GetEncoding())
-	}
-	if len(object.GetPayload()) > decoder.limits.MaxEnvelopeBytes {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "envelope has %d bytes", len(object.GetPayload()))
-	}
-	return decoder.decodeEnvelope(object.GetPayload(), false)
-}
-
-func (decoder conformanceEnvelopeDecoder) decodeEnvelope(envelopeBytes []byte, isText bool) (conformanceDecodeResult, error) {
-	limits := decoder.limits
-	envelope := &dexpb.PayloadEnvelope{}
-	if err := proto.Unmarshal(envelopeBytes, envelope); err != nil {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "envelope: %v", err)
-	}
-	keyID := envelope.GetKeyId()
-	if len(keyID) == 0 || len(keyID) > limits.MaxKeyIDBytes {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "key id has %d bytes", len(keyID))
-	}
-	for index := range len(keyID) {
-		if keyID[index] < 0x21 || keyID[index] > 0x7e {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "key id byte %d is outside 0x21 to 0x7e", index)
-		}
-	}
-	metadataBytes := 0
-	for key, value := range envelope.GetMetadata() {
-		metadataBytes += len(key) + len(value)
-	}
-	if len(envelope.GetMetadata()) > limits.MaxMetadataEntries || metadataBytes > limits.MaxMetadataTotalBytes {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "metadata has %d entries and %d bytes", len(envelope.GetMetadata()), metadataBytes)
-	}
-	if envelope.GetCipher() != dexpb.PayloadCipher_PAYLOAD_CIPHER_AES256_GCM {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("unsupported_cipher", "cipher %d", envelope.GetCipher())
-	}
-	if len(envelope.GetMetadata()) > 0 {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "metadata must be empty for AES-256-GCM")
-	}
-	compression := envelope.GetCompression()
-	if compression != dexpb.PayloadCompression_PAYLOAD_COMPRESSION_NONE && compression != dexpb.PayloadCompression_PAYLOAD_COMPRESSION_GZIP {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("unsupported_compression", "compression %d", compression)
-	}
-	key, ok := decoder.keys[keyID]
-	if !ok {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("unknown_key", "key id %q", keyID)
-	}
-	data := envelope.GetData()
-	if len(data) < 12+16 {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "data has %d bytes", len(data))
-	}
-	if len(data) > limits.MaxDataBytes {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "data has %d bytes", len(data))
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return conformanceDecodeResult{}, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return conformanceDecodeResult{}, err
-	}
-	plaintext, err := aead.Open(nil, data[:12], data[12:], conformanceAdditionalAuthenticatedData(envelope))
-	if err != nil {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("authentication_failed", "key id %q", keyID)
-	}
-	if compression == dexpb.PayloadCompression_PAYLOAD_COMPRESSION_GZIP {
-		reader, err := gzip.NewReader(bytes.NewReader(plaintext))
-		if err != nil {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "gzip: %v", err)
-		}
-		plaintext, err = io.ReadAll(io.LimitReader(reader, int64(limits.MaxPlaintextBytes)+1))
-		if err != nil {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("malformed", "gzip: %v", err)
-		}
-	}
-	if len(plaintext) > limits.MaxPlaintextBytes {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("limit_exceeded", "plaintext exceeds %d bytes", limits.MaxPlaintextBytes)
-	}
-	value := &dexpb.Value{}
-	if err := proto.Unmarshal(plaintext, value); err != nil {
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("invalid_plaintext", "plaintext is not a Value: %v", err)
-	}
-	switch kind := value.GetKind().(type) {
-	case *dexpb.Value_StringValue:
-	case *dexpb.Value_ObjValue:
-		if isText || strings.HasPrefix(kind.ObjValue.GetEncoding(), "dex/") {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("invalid_plaintext", "object plaintext is not allowed here")
-		}
-	case *dexpb.Value_IntValue, *dexpb.Value_DoubleValue, *dexpb.Value_BoolValue:
-		if isText {
-			return conformanceDecodeResult{}, rejectConformanceEnvelope("invalid_plaintext", "text plaintext must be a string Value")
-		}
-	default:
-		return conformanceDecodeResult{}, rejectConformanceEnvelope("invalid_plaintext", "plaintext kind %T is never encrypted", kind)
-	}
-	return conformanceDecodeResult{envelope: envelope, plaintext: plaintext, value: value}, nil
-}
-
-// conformanceAdditionalAuthenticatedData returns "dex/1" 0x00 cipher 0x00 compression 0x00 key_id.
-func conformanceAdditionalAuthenticatedData(envelope *dexpb.PayloadEnvelope) []byte {
-	aad := []byte(conformancePayloadEnvelopeMarker + "\x00")
-	aad = strconv.AppendInt(aad, int64(envelope.GetCipher()), 10)
-	aad = append(aad, 0x00)
-	aad = strconv.AppendInt(aad, int64(envelope.GetCompression()), 10)
-	aad = append(aad, 0x00)
-	return append(aad, envelope.GetKeyId()...)
 }

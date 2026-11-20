@@ -31,6 +31,7 @@ func TestSubFlowResultMapsAbandonedAndUnrecognizedErrorTypes(t *testing.T) {
 	invocation, err := newInvocationContext(
 		context.Background(), invocationExecute, nil, nil, workerStepContext(),
 		nil, nil, conditionResults, nil, nil, nil, nil, nil, &negotiatedServerProtocol{},
+		newDisabledPayloadEncryption(),
 	)
 	require.NoError(t, err)
 

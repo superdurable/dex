@@ -39,6 +39,8 @@ type invocationContext struct {
 	active        bool
 	// serverProtocol is the Worker's negotiated Server protocol.
 	serverProtocol *negotiatedServerProtocol
+	// payloadEncryption seals Stream writes and heartbeats, which are sent before the result.
+	payloadEncryption *payloadEncryption
 
 	flowID              string
 	runID               string
@@ -92,9 +94,13 @@ func newInvocationContext(
 	loadedChannelNames []string,
 	loadedChannelMapInstances []string,
 	serverProtocol *negotiatedServerProtocol,
+	payloadEncryption *payloadEncryption,
 ) (*invocationContext, error) {
 	if serverProtocol == nil {
 		panic("dex: invocation Context requires the negotiated Server protocol")
+	}
+	if payloadEncryption == nil {
+		panic("dex: invocation Context requires payload encryption settings")
 	}
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
@@ -127,6 +133,7 @@ func newInvocationContext(
 		outputEmitter:               outputEmitter,
 		active:                      true,
 		serverProtocol:              serverProtocol,
+		payloadEncryption:           payloadEncryption,
 		flowID:                      metadata.FlowId,
 		runID:                       metadata.RunId,
 		flowStartedAt:               time.Unix(metadata.FlowStartedTimestamp, 0),
@@ -174,11 +181,32 @@ func (invocation *invocationContext) writeStream(
 	if err != nil {
 		return err
 	}
-	return invocation.outputEmitter.sendStreamWrite(&dexpb.StepStreamWrite{
+	write := &dexpb.StepStreamWrite{
 		StreamName:          registered.definition.name,
 		StreamCapacityBytes: registered.definition.streamCapacityBytes,
 		Value:               encoded,
-	})
+	}
+	if err := invocation.sealValue("Stream "+write.StreamName+" value", &write.Value); err != nil {
+		return err
+	}
+	return invocation.outputEmitter.sendStreamWrite(write)
+}
+
+// sealValue encrypts one value that is sent while the handler runs.
+func (invocation *invocationContext) sealValue(valueDescription string, valuePointer **dexpb.Value) error {
+	return invocation.payloadEncryption.encryptValueSlots(invocation, []payloadValueSlot{{
+		payloadContext:   invocation.payloadContext(),
+		valueDescription: valueDescription,
+		valuePointer:     valuePointer,
+	}})
+}
+
+func (invocation *invocationContext) payloadContext() PayloadContext {
+	flowType := ""
+	if invocation.flow != nil {
+		flowType = invocation.flow.flowType
+	}
+	return PayloadContext{FlowType: flowType, FlowID: invocation.flowID}
 }
 
 func (invocation *invocationContext) RecordHeartbeat(value any) error {
@@ -192,6 +220,9 @@ func (invocation *invocationContext) RecordHeartbeat(value any) error {
 			return err
 		}
 		heartbeat.Value = encoded
+		if err := invocation.sealValue("heartbeat value", &heartbeat.Value); err != nil {
+			return err
+		}
 	}
 	return invocation.outputEmitter.sendHeartbeat(heartbeat)
 }

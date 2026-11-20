@@ -83,6 +83,13 @@ type WorkerOptions struct {
 	//
 	// Since 1.45.0.
 	FlowDefinitions []FlowDefinitionDocument
+	// PayloadEncryption encrypts the values this Worker sends and decrypts the encrypted values it
+	// receives. The zero value turns encryption off. See PayloadEncryptionOptions for what is
+	// encrypted and for an example. NewWorker returns an error when a limit is negative, or when
+	// a codec is set and an Action condition reads an Attribute that would be encrypted.
+	//
+	// Since 1.45.9.
+	PayloadEncryption PayloadEncryptionOptions
 }
 
 // PullWorkerOptions configures outbound execution slot streams.
@@ -391,6 +398,13 @@ func newWorker(
 	if err != nil {
 		return nil, err
 	}
+	payloadEncryption, err := newPayloadEncryption(options.PayloadEncryption)
+	if err != nil {
+		return nil, err
+	}
+	if err := registry.requirePlaintextActionAttributes(payloadEncryption); err != nil {
+		return nil, err
+	}
 	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
 	if err != nil {
 		return nil, err
@@ -415,6 +429,7 @@ func newWorker(
 		),
 		logger,
 		serverProtocol,
+		payloadEncryption,
 	)
 	pullOptions := PullWorkerOptions{}
 	if options.Pull != nil {

@@ -25,10 +25,11 @@ import (
 const timeoutHandlerStepType = "sys:timeout_handler"
 
 type workerService struct {
-	registry       *Registry
-	hydrator       valueHydrator
-	logger         Logger
-	serverProtocol *negotiatedServerProtocol
+	registry          *Registry
+	hydrator          valueHydrator
+	logger            Logger
+	serverProtocol    *negotiatedServerProtocol
+	payloadEncryption *payloadEncryption
 }
 
 func newWorkerService(
@@ -36,6 +37,7 @@ func newWorkerService(
 	hydrator valueHydrator,
 	logger Logger,
 	serverProtocol *negotiatedServerProtocol,
+	payloadEncryption *payloadEncryption,
 ) *workerService {
 	if registry == nil {
 		panic("dex: WorkerService requires registry")
@@ -46,12 +48,100 @@ func newWorkerService(
 	if serverProtocol == nil {
 		panic("dex: WorkerService requires negotiated Server protocol")
 	}
-	return &workerService{
-		registry:       registry,
-		hydrator:       hydrator,
-		logger:         resolveLogger(logger, nil),
-		serverProtocol: serverProtocol,
+	if payloadEncryption == nil {
+		panic("dex: WorkerService requires payload encryption settings")
 	}
+	return &workerService{
+		registry:          registry,
+		hydrator:          hydrator,
+		logger:            resolveLogger(logger, nil),
+		serverProtocol:    serverProtocol,
+		payloadEncryption: payloadEncryption,
+	}
+}
+
+// prepareRequestValues hydrates blob references, then decrypts values and error text.
+// Its errors are SDK-generated, so they stay plaintext in the Worker error.
+func (service *workerService) prepareRequestValues(
+	ctx context.Context,
+	flowType string,
+	metadata *dexpb.Context,
+	valuePointers []flowValuePointer,
+	conditionResults *dexpb.ConditionResults,
+) error {
+	setFlowTypeOfValuePointers(valuePointers, flowType)
+	if err := service.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
+		return markSDKGeneratedWorkerError(err)
+	}
+	if err := service.payloadEncryption.decryptFlowValues(ctx, valuePointers); err != nil {
+		return service.payloadWorkerFailure(codes.InvalidArgument, "decrypt", metadata.GetFlowId(), err)
+	}
+	payloadContext := PayloadContext{FlowType: flowType, FlowID: metadata.GetFlowId()}
+	if recoveryError := metadata.GetRecoveryError(); recoveryError != nil {
+		detail, err := service.payloadEncryption.decodeErrorText(ctx, payloadContext, recoveryError.Detail)
+		if err != nil {
+			return service.payloadWorkerFailure(codes.InvalidArgument, "decrypt", metadata.GetFlowId(), err)
+		}
+		recoveryError.Detail = detail
+	}
+	for index, result := range conditionResults.GetSubFlowResults() {
+		childContext := PayloadContext{
+			FlowID: subFlowFlowID(metadata.GetFlowId(), metadata.GetStepExecutionId(), index),
+		}
+		if err := service.payloadEncryption.decodeFlowResultErrorText(ctx, childContext, result); err != nil {
+			return service.payloadWorkerFailure(codes.InvalidArgument, "decrypt", metadata.GetFlowId(), err)
+		}
+	}
+	return nil
+}
+
+// payloadWorkerFailure returns a Worker failure whose detail names only the failure category.
+// The SDK's own error text never includes codec or key provider text, so it is safe to log.
+func (service *workerService) payloadWorkerFailure(code codes.Code, operation string, flowID string, err error) error {
+	summary := payloadFailureSummary(err, operation+"_failed")
+	service.logger.Warn("payload "+operation+" failed", "flowID", flowID, "error", err)
+	return markSDKGeneratedWorkerError(newWorkerFailure(
+		code,
+		fmt.Errorf("dex: the Worker could not %s payloads: %s", operation, summary),
+	))
+}
+
+// sealStepResult encrypts the value fields of a Step or RPC result just before it is sent.
+func (service *workerService) sealStepResult(
+	ctx context.Context,
+	flow *registeredFlow,
+	metadata *dexpb.Context,
+	result workerStepResultFields,
+) error {
+	payloadContext := PayloadContext{FlowType: flow.flowType, FlowID: metadata.GetFlowId()}
+	if err := sealForceFailReason(ctx, service.payloadEncryption, payloadContext, result.decision); err != nil {
+		return service.payloadWorkerFailure(codes.Internal, "encrypt", metadata.GetFlowId(), err)
+	}
+	slots := newOutgoingPayloadSlots(service.registry)
+	slots.addAttributeWrites(payloadContext, flow, result.attributeWrites)
+	slots.addKVs(payloadContext, "Step-execution local", result.locals)
+	slots.addKVs(payloadContext, "recorded event", result.recordedEvents)
+	slots.addChannelMessages(payloadContext, result.publications)
+	slots.addStepDecision(payloadContext, result.decision)
+	slots.addWaitingCondition(metadata.GetFlowId(), metadata.GetStepExecutionId(), result.waiting)
+	if result.rpcOutput != nil {
+		slots.addValue(payloadContext, "RPC output", result.rpcOutput)
+	}
+	if err := slots.seal(ctx, service.payloadEncryption); err != nil {
+		return service.payloadWorkerFailure(codes.Internal, "encrypt", metadata.GetFlowId(), err)
+	}
+	return nil
+}
+
+// workerStepResultFields points at the value-bearing fields of one Worker result message.
+type workerStepResultFields struct {
+	attributeWrites []*dexpb.AttributeWrite
+	locals          []*dexpb.KV
+	recordedEvents  []*dexpb.KV
+	publications    []*dexpb.ChannelMessage
+	decision        *dexpb.StepDecision
+	waiting         *dexpb.WaitingCondition
+	rpcOutput       **dexpb.Value
 }
 
 func (service *workerService) invokeWaitForMethod(
@@ -85,9 +175,12 @@ func (service *workerService) invokeWaitForMethod(
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(
+	if err := service.prepareRequestValues(
 		output.stream.Context(),
+		request.FlowType,
+		request.Context,
 		waitForRequestValuePointers(request),
+		nil,
 	); err != nil {
 		return err
 	}
@@ -110,6 +203,7 @@ func (service *workerService) invokeWaitForMethod(
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
 		service.serverProtocol,
+		service.payloadEncryption,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -152,7 +246,7 @@ func (service *workerService) invokeWaitForMethod(
 			return err
 		}
 	}
-	return output.sendResult(&dexpb.InvokeWaitForMethodResponse{
+	response := &dexpb.InvokeWaitForMethodResponse{
 		UpsertAttributes:         attributeWrites,
 		WaitingCondition:         waiting,
 		UpsertStepExeLocals:      invocation.mappedLocalWrites(),
@@ -160,7 +254,17 @@ func (service *workerService) invokeWaitForMethod(
 		PublishToChannel:         invocation.publications,
 		DeleteFromChannel:        invocation.deletions,
 		ActionPermissionMappings: actionPermissionMappings,
-	})
+	}
+	if err := service.sealStepResult(output.stream.Context(), flow, request.Context, workerStepResultFields{
+		attributeWrites: response.UpsertAttributes,
+		locals:          response.UpsertStepExeLocals,
+		recordedEvents:  response.RecordEvents,
+		publications:    response.PublishToChannel,
+		waiting:         response.WaitingCondition,
+	}); err != nil {
+		return err
+	}
+	return output.sendResult(response)
 }
 
 func (service *workerService) invokeExecuteMethod(
@@ -198,8 +302,8 @@ func (service *workerService) invokeExecuteMethod(
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(
-		output.stream.Context(), valuePointers,
+	if err := service.prepareRequestValues(
+		output.stream.Context(), request.FlowType, request.Context, valuePointers, request.ConditionResults,
 	); err != nil {
 		return err
 	}
@@ -222,6 +326,7 @@ func (service *workerService) invokeExecuteMethod(
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
 		service.serverProtocol,
+		service.payloadEncryption,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -244,14 +349,23 @@ func (service *workerService) invokeExecuteMethod(
 	if err := service.serverProtocol.requireHardDeleteAttributeSupport(attributeWrites); err != nil {
 		return err
 	}
-	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
+	response := &dexpb.InvokeExecuteMethodResponse{
 		StepDecision:             mapped,
 		UpsertAttributes:         attributeWrites,
 		RecordEvents:             invocation.recordedEvents,
 		PublishToChannel:         invocation.publications,
 		DeleteFromChannel:        invocation.deletions,
 		ActionPermissionMappings: actionPermissionMappings,
-	})
+	}
+	if err := service.sealStepResult(output.stream.Context(), flow, request.Context, workerStepResultFields{
+		attributeWrites: response.UpsertAttributes,
+		recordedEvents:  response.RecordEvents,
+		publications:    response.PublishToChannel,
+		decision:        response.StepDecision,
+	}); err != nil {
+		return err
+	}
+	return output.sendResult(response)
 }
 
 func (service *workerService) invokeTimeoutHandler(
@@ -290,8 +404,8 @@ func (service *workerService) invokeTimeoutHandler(
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(
-		output.stream.Context(), valuePointers,
+	if err := service.prepareRequestValues(
+		output.stream.Context(), request.FlowType, request.Context, valuePointers, request.ConditionResults,
 	); err != nil {
 		return err
 	}
@@ -310,6 +424,7 @@ func (service *workerService) invokeTimeoutHandler(
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
 		service.serverProtocol,
+		service.payloadEncryption,
 	)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, err)
@@ -332,7 +447,7 @@ func (service *workerService) invokeTimeoutHandler(
 	if err := service.serverProtocol.requireHardDeleteAttributeSupport(attributeWrites); err != nil {
 		return err
 	}
-	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
+	response := &dexpb.InvokeExecuteMethodResponse{
 		StepDecision:             mapped,
 		UpsertAttributes:         attributeWrites,
 		UpsertStepExeLocals:      invocation.mappedLocalWrites(),
@@ -340,7 +455,17 @@ func (service *workerService) invokeTimeoutHandler(
 		PublishToChannel:         invocation.publications,
 		DeleteFromChannel:        invocation.deletions,
 		ActionPermissionMappings: actionPermissionMappings,
-	})
+	}
+	if err := service.sealStepResult(output.stream.Context(), flow, request.Context, workerStepResultFields{
+		attributeWrites: response.UpsertAttributes,
+		locals:          response.UpsertStepExeLocals,
+		recordedEvents:  response.RecordEvents,
+		publications:    response.PublishToChannel,
+		decision:        response.StepDecision,
+	}); err != nil {
+		return err
+	}
+	return output.sendResult(response)
 }
 
 func (service *workerService) invokeWorkerRPC(
@@ -377,9 +502,12 @@ func (service *workerService) invokeWorkerRPC(
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(
+	if err := service.prepareRequestValues(
 		ctx,
+		request.FlowType,
+		request.Context,
 		rpcRequestValuePointers(request),
+		nil,
 	); err != nil {
 		return nil, err
 	}
@@ -402,6 +530,7 @@ func (service *workerService) invokeWorkerRPC(
 		request.LoadedChannelNames,
 		request.LoadedChannelMapInstances,
 		service.serverProtocol,
+		service.payloadEncryption,
 	)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, err)
@@ -428,6 +557,15 @@ func (service *workerService) invokeWorkerRPC(
 	response.RecordEvents = invocation.recordedEvents
 	response.PublishToChannel = invocation.publications
 	response.DeleteFromChannel = invocation.deletions
+	if err := service.sealStepResult(ctx, flow, request.Context, workerStepResultFields{
+		attributeWrites: response.UpsertAttributes,
+		recordedEvents:  response.RecordEvents,
+		publications:    response.PublishToChannel,
+		decision:        response.StepDecision,
+		rpcOutput:       &response.Output,
+	}); err != nil {
+		return nil, err
+	}
 	return response, nil
 }
 
@@ -618,6 +756,10 @@ func executeRequestValuePointers(
 				flowID:           flowID,
 				valueDescription: fmt.Sprintf("SubFlow result at index %d completion at index %d Step output", resultIndex, completionIndex),
 				valuePointer:     &completion.CompletedStepOutput,
+				// The child's Worker encrypted its output; its Flow type is not in the request.
+				payloadContext: PayloadContext{
+					FlowID: subFlowFlowID(flowID, request.GetContext().GetStepExecutionId(), resultIndex),
+				},
 			})
 		}
 	}

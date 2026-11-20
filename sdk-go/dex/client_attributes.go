@@ -353,7 +353,7 @@ func (client *Client) fetchAttributeValues(
 		attributes[attribute.Key] = attribute
 		valuePointers = append(valuePointers, &attribute.Value)
 	}
-	if err := client.hydrateValues(ctx, flowID, valuePointers); err != nil {
+	if err := client.hydrateValues(ctx, PayloadContext{FlowID: flowID}, valuePointers); err != nil {
 		return nil, fmt.Errorf("dex: GetAttributes Flow %q Attributes %q: %w", flowID, joinedKeys, err)
 	}
 	values := make(map[string]*dexpb.Value, len(attributes))

@@ -915,6 +915,14 @@ func (stream *pullStream) executeTask(ctx context.Context, task *dexpb.PollWorke
 					}
 				}
 			}
+			encodeWorkerErrorText(
+				ctx,
+				stream.worker.service.logger,
+				stream.worker.service.payloadEncryption,
+				workerTaskPayloadContext(task),
+				err,
+				workerError,
+			)
 			if sendErr := stream.sendTaskFrame(&dexpb.PollWorkerTaskFrame{TaskId: task.GetTaskId(), Output: &dexpb.PollWorkerTaskFrame_WorkerError{WorkerError: workerError}}); sendErr != nil {
 				stream.worker.service.logger.Error("send Worker error", "error", sendErr)
 			}

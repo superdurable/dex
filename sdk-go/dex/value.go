@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -313,6 +314,9 @@ func decodeObject(
 	case rawBytesEncoding:
 		return assignRawBytes(target, object.Payload)
 	default:
+		if strings.HasPrefix(object.Encoding, payloadReservedEncodingRoot) {
+			return ErrPayloadCodecNotConfigured
+		}
 		return fmt.Errorf("dex: unsupported object encoding %q", object.Encoding)
 	}
 }

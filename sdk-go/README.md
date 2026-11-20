@@ -739,6 +739,32 @@ in place, so a retried Step or RPC attempt can observe a write or deletion made
 by a failed attempt. See the `HardDeleteOnNull` documentation for every
 limitation.
 
+## Payload encryption
+
+Set `PayloadEncryptionOptions` on `ClientOptions` and `WorkerOptions` to
+encrypt values on the client. The Dex server then stores only ciphertext. The
+built-in codec uses AES-256-GCM with keys from a JSON key file:
+
+```go
+keys, err := dex.NewFilePayloadEncryptionKeyProvider("/etc/dex/payload-keys.json")
+if err != nil {
+	return err
+}
+codec, err := dex.NewAESGCMPayloadCodec(keys, dex.AESGCMPayloadCodecOptions{})
+if err != nil {
+	return err
+}
+encryption := dex.PayloadEncryptionOptions{Codec: codec}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{PayloadEncryption: encryption})
+```
+
+Indexed Attributes and Attributes declared with `dex.Plaintext()` stay in
+clear. `WaitForAttributeMatch` and Action conditions require such an
+Attribute when encryption is on. Every Client and Worker that reads an
+encrypted Flow needs the same keys. The Java and Rust SDKs cannot read
+encrypted Flows yet. See `PayloadEncryptionOptions` for what is encrypted and
+for the error text format.
+
 `DefineStep` and `DefineStartStep` retain the step input type behind a private
 `typedStepDef` that implements the sealed `StepDef` interface. Runtime
 movements resolve through the current Flow's registered step definitions, so a

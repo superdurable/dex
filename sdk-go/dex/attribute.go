@@ -36,6 +36,7 @@ type Attribute[T any] struct {
 	index                *AttributeIndex
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
+	isPlaintext          bool
 }
 
 // DefineAttribute creates a typed Attribute with a stable name and definition options.
@@ -48,6 +49,7 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 		index:                config.index,
 		syncToAttributeStore: config.syncToAttributeStore,
 		isHardDeleteOnNull:   config.isHardDeleteOnNull,
+		isPlaintext:          config.isPlaintext,
 	}
 }
 
@@ -63,6 +65,7 @@ type AttributeDef interface {
 	attributeIsMap() bool
 	attributeSyncToAttributeStore() bool
 	attributeIsHardDeleteOnNull() bool
+	attributeIsPlaintext() bool
 }
 
 // Get returns the current value. Missing values return AttributeNotFoundError.
@@ -131,6 +134,10 @@ func (a Attribute[T]) attributeIsHardDeleteOnNull() bool {
 	return a.isHardDeleteOnNull
 }
 
+func (a Attribute[T]) attributeIsPlaintext() bool {
+	return a.isPlaintext
+}
+
 // AttributeMap defines keyed typed persisted values.
 //
 // Register the map once in PersistenceSchema, then supply an instance string for every access and lock.
@@ -141,6 +148,7 @@ type AttributeMap[T any] struct {
 	index                *AttributeIndex
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
+	isPlaintext          bool
 }
 
 // AttributeMapLoad selects one AttributeMap instance for a handler invocation.
@@ -166,6 +174,7 @@ func DefineAttributeMap[T any](name string, options ...AttributeOption) Attribut
 		index:                config.index,
 		syncToAttributeStore: config.syncToAttributeStore,
 		isHardDeleteOnNull:   config.isHardDeleteOnNull,
+		isPlaintext:          config.isPlaintext,
 	}
 }
 
@@ -255,8 +264,12 @@ func (a AttributeMap[T]) attributeIsHardDeleteOnNull() bool {
 	return a.isHardDeleteOnNull
 }
 
+func (a AttributeMap[T]) attributeIsPlaintext() bool {
+	return a.isPlaintext
+}
+
 // AttributeOption configures an Attribute or AttributeMap definition.
-// Use Indexed, SyncToAttributeStore, and HardDeleteOnNull to create values; custom implementations are not supported.
+// Use Indexed, SyncToAttributeStore, HardDeleteOnNull, and Plaintext to create values; custom implementations are not supported.
 type AttributeOption interface {
 	applyAttribute(*attributeConfig)
 }
@@ -306,6 +319,8 @@ func Indexed(index AttributeIndex) AttributeOption {
 
 // SyncToAttributeStore projects every write through the Flow's configured Attribute Store.
 // Projection is asynchronous and latest-state only. Deletes write SQL NULL, and failures do not roll back Flow Attributes.
+// With payload encryption on, an Attribute that is not Indexed or Plaintext syncs as its encrypted
+// envelope and needs a bytea column; see Plaintext.
 func SyncToAttributeStore() AttributeOption {
 	return syncToAttributeStoreOption{}
 }
@@ -375,6 +390,39 @@ func HardDeleteOnNull() AttributeOption {
 	return hardDeleteOnNullOption{}
 }
 
+// Plaintext keeps an Attribute's or AttributeMap's values unencrypted when payload encryption is on.
+//
+// With PayloadEncryptionOptions.Codec set, the SDK encrypts every Attribute value it writes, so the
+// Dex server sees only ciphertext. Some server features compare the stored value itself:
+// WaitForAttributeMatch, WaitForAttributeMapInstanceMatch, and Action conditions. Declare those
+// Attributes with Plaintext, or with Indexed, which also keeps values in clear. Without either,
+// those features return an error when encryption is on.
+//
+// SyncToAttributeStore writes an encrypted Attribute's serialized envelope, so its column must be
+// bytea; read it back and decrypt it with the same codec. The server logs and skips a write to a
+// column of another type, and the writer sees no error. Declare the Attribute with Plaintext to
+// sync readable values to text, jsonb, or other typed columns.
+//
+// Plaintext is a local SDK setting. The SDK never sends it, and it has no effect without a codec.
+// The server and anyone with server access can read Plaintext values, so never use it for
+// sensitive data. Every Client and Worker must register the same definition; a Worker or Client
+// that omits it encrypts the Attribute's writes.
+//
+// Example:
+//
+//	var caseStatus = dex.DefineAttribute[string]("case-status", dex.Plaintext())
+//
+//	action := dex.DefineAction(
+//		"Approve",
+//		dex.WhenAttributeMatches(caseStatus, dex.AttributeMatchEqual("awaiting-manager")),
+//		dex.ActionRequiresPermission("refund.approve"),
+//	)
+//
+// Since 1.45.9.
+func Plaintext() AttributeOption {
+	return plaintextAttributeOption{}
+}
+
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
 // Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or RPCOptions.
 // Locks serialize participating handlers within one Flow; they do not coordinate different Flows.
@@ -402,6 +450,8 @@ func LockAttributeMap[T any](
 
 // InitialAttribute encodes a value for StartFlowOptions.Attributes.
 // It returns ValueMappingError when the value is unsupported or incompatible with its index.
+// With payload encryption, the Client or Worker that sends the value encrypts it then, so one
+// definition can be reused by Clients and Workers with different codecs.
 func InitialAttribute[T any](
 	attribute Attribute[T],
 	value T,
@@ -469,6 +519,7 @@ type attributeConfig struct {
 	index                *AttributeIndex
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
+	isPlaintext          bool
 }
 
 func applyAttributeOptions(options []AttributeOption) attributeConfig {
@@ -498,6 +549,12 @@ type hardDeleteOnNullOption struct{}
 
 func (hardDeleteOnNullOption) applyAttribute(config *attributeConfig) {
 	config.isHardDeleteOnNull = true
+}
+
+type plaintextAttributeOption struct{}
+
+func (plaintextAttributeOption) applyAttribute(config *attributeConfig) {
+	config.isPlaintext = true
 }
 
 type attributeLock struct {

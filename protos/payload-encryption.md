@@ -281,6 +281,27 @@ strip it.
 Readers stay strict. Text that starts with `dex-encoded:` must decode. A
 failure is an error, never a fallback to plaintext.
 
+### Read points
+
+The Server copies the text of the fields above, unchanged, into other fields.
+Readers decode the prefix in these read points too:
+
+| Field | Note |
+| --- | --- |
+| `ServiceErrorResponse.detail` | |
+| gRPC `Status.message` | Only of a status that carries a `ServiceErrorResponse` detail, such as a failed `InvokeRPC`. A status without one, such as a transport error, stays unchanged |
+| `ServiceErrorResponse.original_worker_error_detail` | |
+| `ServiceErrorResponse.original_worker_error_stack_trace` | |
+| `RecoveryErrorInfo.detail` | Including `Context.recovery_error` in Worker requests |
+| `FlowResult.error_message` | Including SubFlow results in `ConditionResults.sub_flow_results` and `StepExecutionCompletedConditions.completed_sub_flow_results` |
+| `FlowClosedHistoryEvent.error_message` | |
+| `StepMethodFailure.details` | A `ServiceErrorResponse`, in `StepMethodEventContext.last_failure_info`, `StepMethodFailedOutput.failure`, and `ActiveStepExecutionState.last_failure_info` |
+
+Readers decode the prefix only in the writer fields above and in these read
+points. They leave every other string unchanged, even when it starts with
+`dex-encoded:`. Server-composed text that embeds an encoded field after other
+text does not start with the prefix, so readers show it unchanged.
+
 ## 7. Decoding
 
 ### What a decoder decodes
@@ -330,6 +351,9 @@ Notes:
 - A custom codec defines its own checks for steps 8 to 13. The SDK still runs
   steps 1 to 7 around it. After the codec returns, the SDK checks that each
   plaintext is at most `maxPlaintextBytes`, then runs step 14.
+- The SDK passes its `maxPlaintextBytes` to every decode call of a custom
+  codec. A custom codec that decompresses MUST stop once the output exceeds
+  it. The SDK's check after the codec returns cannot stop the allocation.
 
 ### Limits
 
@@ -397,10 +421,14 @@ tenant.
 
 | Field | Meaning |
 | --- | --- |
-| Flow type | The Flow type that stores the Values |
+| Flow type | The Flow type that stores the Values, or the empty string when only the Flow ID is known |
 | Flow ID | The Flow ID that stores the Values |
 
 - Use the context of the Flow the Value is stored in.
+- When an SDK knows only the Flow ID, the Flow type is the empty string. This
+  happens, for example, for Client calls that name a Flow only by its Flow ID.
+  The same Value can therefore be encrypted with a Flow type and decrypted
+  without one. Key providers SHOULD select and validate keys by Flow ID.
 - **SubFlow input** uses the child Flow's type and the child's real Flow ID.
   The child Flow ID is deterministic:
   `SubFlow:{parentFlowID}-{stepExecutionID}-{index}`. `index` is the zero-based
@@ -427,6 +455,8 @@ Common rules:
 - `Encode` returns exactly one envelope per plaintext, in order.
 - `Decode` returns exactly one plaintext per envelope, in order.
 - A failure fails the whole batch. The error follows section 7.
+- `Decode` receives the SDK's `maxPlaintextBytes` and stops decompressing once
+  the output exceeds it (section 7).
 - Plaintexts are serialized `Value`s. Envelopes are the generated
   `PayloadEnvelope` message of each SDK.
 - `CurrentKeyID` chooses the key for new encryptions. `Key` returns the
@@ -447,7 +477,8 @@ precise names and avoid the existing type codecs: Python `Codec` and
 
 ### Go
 
-Go is synchronous and takes a `context.Context`.
+Go is synchronous and takes a `context.Context`. `Decode` reads the SDK's
+`maxPlaintextBytes` from it with `dex.PayloadPlaintextLimitFromContext`.
 
 ```go
 type PayloadContext struct {
@@ -583,7 +614,9 @@ Both endpoints take `POST` with `Content-Type: application/json` and return
 { "envelopes": ["<base64 PayloadEnvelope>"] }
 ```
 
-- `context` is required. Both fields are non-empty strings.
+- `context` is required. `flow_id` is a non-empty string. `flow_type` may be
+  the empty string when the caller knows only the Flow ID (section 9). Servers
+  MUST NOT reject an empty `flow_type`.
 - The response has one entry per request entry, in the same order.
 - An empty list returns an empty list.
 - Envelopes are bare serialized `PayloadEnvelope`s in standard padded base64.
