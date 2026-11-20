@@ -338,7 +338,7 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 func TestTypeScriptReviewShapes(t *testing.T) {
 	expectedErrorCodes := map[string][]string{
 		"baseline": nil, "both": nil, "computedLiteral": nil, "contextWeakMap": nil, "hard": nil,
-		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "nestedHelper": nil,
+		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "nestedHelper": nil, "plaintext": nil,
 		"r03-void-helper": nil, "r10-weakmap": nil, "repeatHelper": nil, "reusedWait": nil,
 		"rpcHelperVoidPath": nil, "streamReboundWriter": nil, "sync": nil, "thisField": nil,
 		"unreachableAfterEmpty": nil, "unrelatedMap": nil, "waitTernary": nil,

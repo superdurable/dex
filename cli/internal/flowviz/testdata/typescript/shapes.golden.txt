@@ -376,6 +376,12 @@ edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:review
 == originalAliasMutation valid=false
 == parameterShadow valid=false
 == passed valid=false
+== plaintext valid=true
+node decision:rpc:getStatus:58:12 condition=""
+node decision:step:RecordStatus:37:12 condition=""
+edge resource_read resource:attribute:status -> rpc:getStatus get
+edge resource_write step:RecordStatus -> resource:attribute:reviews set
+edge resource_write step:RecordStatus -> resource:attribute:status set
 == r01-alias valid=false
 == r02-spread valid=false
 == r03-void-helper valid=true
