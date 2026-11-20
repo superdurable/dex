@@ -102,14 +102,19 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.commit(f"change {relative_path}")
 
     def plan(
-        self, version: str = "1.2.3", *extra_arguments: str, is_changelog_ready: bool = True
+        self, *extra_arguments: str, is_changelog_ready: bool = True
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+        versions = {
+            component: extra_arguments[extra_arguments.index(f"--{component}-version") + 1]
+            for component in COMPONENT_KEYS
+            if f"--{component}-version" in extra_arguments
+        }
         if is_changelog_ready:
-            agents_version = extra_arguments[extra_arguments.index("--agents-version") + 1] if extra_arguments else None
-            self.write_ready_changelogs(version, agents_version)
+            self.write_ready_changelogs(versions)
         output = self.repository / "release-output"
+        output.unlink(missing_ok=True)
         result = subprocess.run(
-            ("python3", str(SCRIPT), version, "--output", str(output), *extra_arguments),
+            ("python3", str(SCRIPT), "--output", str(output), *extra_arguments),
             cwd=self.repository,
             check=False,
             text=True,
@@ -121,10 +126,10 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
         return result, values
 
-    def write_ready_changelogs(self, version: str, agents_version: str | None) -> None:
+    def write_ready_changelogs(self, versions: dict[str, str]) -> None:
         """Writes change logs whose newest entries record the release, as a merged release-prep would."""
         for target in TARGETS.values():
-            target_version = agents_version if target.tag_prefix == "agents/v" else version
+            target_version = versions.get("agents" if target.tag_prefix == "agents/v" else target.name)
             if target_version is None:
                 continue
             if target.style == PACKAGES_STYLE:
@@ -142,66 +147,51 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         for key in COMPONENT_KEYS:
             self.assertEqual(values[key], "true" if key in selected_keys else "false", key)
 
-    def test_no_component_changes(self) -> None:
+    def test_empty_dispatch_fails(self) -> None:
         result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Select at least one component version", result.stderr)
+        self.assertEqual(values, {})
 
-    def test_go_sdk_change_triggers_web_and_cli(self) -> None:
+    def test_sdk_and_web_versions_do_not_select_cli(self) -> None:
         self.change("sdk-go/client.go")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "web", "cli")
-
-    def test_shared_native_change_triggers_dependent_sdks(self) -> None:
-        self.change("sdk-rust/crates/dex-blob-cache/src/lib.rs")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "rust", "java", "python", "typescript")
-
-    def test_web_change_triggers_web_and_cli(self) -> None:
+        self.change("sdk-python/pyproject.toml")
+        self.change("sdk-typescript/package.json")
         self.change("web/package.json")
-        result, values = self.plan()
+        result, values = self.plan(
+            "--go-version", "1.2.3", "--python-version", "1.2.3",
+            "--typescript-version", "1.2.3", "--web-version", "1.2.3",
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "web", "cli")
+        self.assert_selected(values, "go", "python", "typescript", "web")
+        self.assertEqual(values["cli_tag"], "")
 
-    def test_flow_definition_renderer_change_triggers_web_and_cli(self) -> None:
-        self.change("web/flow-definition-renderer/src/index.ts")
-        result, values = self.plan()
+    def test_cli_version_alone_selects_cli(self) -> None:
+        self.change("sdk-go/client.go")
+        result, values = self.plan("--cli-version", "1.4.5")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "web", "cli")
+        self.assert_selected(values, "cli")
+        self.assertEqual(values["cli_tag"], "cli-v1.4.5")
 
-    def test_web_release_workflow_change_triggers_web_only(self) -> None:
-        self.change(".github/workflows/docker-image-web-release.yml")
-        result, values = self.plan()
+    def test_different_component_versions(self) -> None:
+        self.change("sdk-go/client.go")
+        self.change("cli/main.go")
+        result, values = self.plan("--go-version", "1.45.17", "--cli-version", "1.47.21")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "web")
-        self.assertEqual(values["web_tag"], "web/v1.2.3")
-
-    def test_generated_sdk_api_change_triggers_web_and_cli(self) -> None:
-        self.change("sdk-go/gen/dexpb/dex.pb.go")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "web", "cli")
+        self.assert_selected(values, "go", "cli")
+        self.assertEqual(values["go_tag"], "sdk-go/v1.45.17")
+        self.assertEqual(values["cli_tag"], "cli-v1.47.21")
 
     def test_missing_web_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "web/v0.1.0")
-        result, values = self.plan()
+        result, values = self.plan("--web-version", "1.2.3")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "web")
         self.assertEqual(values["web_baseline"], "")
 
-    def test_mixed_changes_select_multiple_releases(self) -> None:
-        self.change("sdk-go/client.go")
-        self.change("sdk-typescript/package.json")
-        self.change("protos/api.proto")
-        result, values = self.plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "typescript", "web", "cli")
-
     def test_missing_baseline_selects_first_release(self) -> None:
         self.git("tag", "-d", "sdk-go/v0.1.0")
-        result, values = self.plan()
+        result, values = self.plan("--go-version", "1.2.3")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "go")
         self.assertEqual(values["go_baseline"], "")
@@ -209,24 +199,25 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
     def test_existing_target_tag_fails_preflight(self) -> None:
         self.git("tag", "sdk-go/v1.2.3")
         self.change("sdk-go/client.go")
-        result, _ = self.plan()
+        result, _ = self.plan("--go-version", "1.2.3")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sdk-go/v1.2.3", result.stderr)
 
     def test_agents_change_without_agents_version_is_skipped(self) -> None:
         self.change("agents/python/core/pyproject.toml")
-        result, values = self.plan()
+        self.change("sdk-go/client.go")
+        result, values = self.plan("--go-version", "1.2.3")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values)
+        self.assert_selected(values, "go")
         self.assertEqual(values["agents_tag"], "")
         self.assertEqual(values["agents_version"], "")
 
     def test_agents_change_releases_with_its_own_version(self) -> None:
         self.change("agents/typescript/core/package.json")
         self.change("sdk-go/client.go")
-        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        result, values = self.plan("--go-version", "1.2.3", "--agents-version", "0.2.0")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "web", "cli", "agents")
+        self.assert_selected(values, "go", "agents")
         self.assertEqual(values["agents_tag"], "agents/v0.2.0")
         self.assertEqual(values["agents_baseline"], "agents/v0.1.0")
         self.assertEqual(values["agents_version"], "0.2.0")
@@ -237,25 +228,28 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.git("tag", "server-zd/v0.1.20")
         self.change("agents/python/core/pyproject.toml")
         self.git("tag", "sdk-go/v1.2.2")
-        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        result, values = self.plan("--agents-version", "0.2.0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(values["agents_baseline"], "agents/v0.1.0")
 
-    def test_agents_version_without_agents_changes_is_skipped(self) -> None:
-        self.change("sdk-go/client.go")
-        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+    def test_unchanged_component_requires_override(self) -> None:
+        result, values = self.plan("--go-version", "1.2.3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Go SDK has no changes since sdk-go/v0.1.0", result.stderr)
+        self.assertEqual(values, {})
+        result, values = self.plan("--go-version", "1.2.3", "--allow-unchanged")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_selected(values, "go", "web", "cli")
+        self.assert_selected(values, "go")
 
     def test_agents_publish_workflow_change_selects_agents(self) -> None:
         self.change(".github/workflows/agents-python-publish.yml")
-        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        result, values = self.plan("--agents-version", "0.2.0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "agents")
 
     def test_missing_agents_baseline_selects_first_agents_release(self) -> None:
         self.git("tag", "-d", "agents/v0.1.0")
-        result, values = self.plan("1.2.3", "--agents-version", "0.1.0")
+        result, values = self.plan("--agents-version", "0.1.0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_selected(values, "agents")
         self.assertEqual(values["agents_tag"], "agents/v0.1.0")
@@ -264,13 +258,13 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
     def test_existing_agents_tag_fails_preflight(self) -> None:
         self.git("tag", "agents/v0.2.0")
         self.change("agents/python/core/pyproject.toml")
-        result, _ = self.plan("1.2.3", "--agents-version", "0.2.0")
+        result, _ = self.plan("--agents-version", "0.2.0")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("agents/v0.2.0", result.stderr)
 
     def test_missing_agents_changelog_section_fails_preflight(self) -> None:
         self.change("agents/python/core/pyproject.toml")
-        result, values = self.plan("1.2.3", "--agents-version", "0.3.0", is_changelog_ready=False)
+        result, values = self.plan("--agents-version", "0.3.0", is_changelog_ready=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no '## 0.3.0' section", result.stderr)
         self.assertEqual(values, {})
@@ -280,7 +274,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         fragment = self.repository / "changelog.d/go/late-fix-abc123.md"
         fragment.parent.mkdir(parents=True, exist_ok=True)
         fragment.write_text("---\nsection: Fixed\n---\n- A late fix.\n", encoding="utf-8")
-        result, values = self.plan()
+        result, values = self.plan("--go-version", "1.2.3")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("go: 1 fragments are not in docs/reference/go/changelog.mdx yet", result.stderr)
         self.assertIn("prepare go --version 1.2.3 --date <YYYY-MM-DD>", result.stderr)
@@ -288,20 +282,20 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
 
     def test_missing_release_entry_fails_preflight(self) -> None:
         self.change("web/package.json")
-        result, values = self.plan(is_changelog_ready=False)
+        result, values = self.plan("--web-version", "1.2.3", is_changelog_ready=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("docs/reference/web/changelog.mdx is missing", result.stderr)
-        self.write_ready_changelogs("1.1.0", None)
-        result, values = self.plan(is_changelog_ready=False)
-        self.assertIn("docs/reference/cli/changelog.mdx: the newest entry is not 1.2", result.stderr)
-        self.write_ready_changelogs("1.2.2", None)
-        result, values = self.plan(is_changelog_ready=False)
+        self.write_ready_changelogs({"web": "1.1.0"})
+        result, values = self.plan("--web-version", "1.2.3", is_changelog_ready=False)
+        self.assertIn("docs/reference/web/changelog.mdx: the newest entry is not 1.2", result.stderr)
+        self.write_ready_changelogs({"web": "1.2.2"})
+        result, values = self.plan("--web-version", "1.2.3", is_changelog_ready=False)
         self.assertIn("the 1.2 entry does not name web/v1.2.3 on its Released line", result.stderr)
-        self.assertIn("prepare cli --version 1.2.3", result.stderr)
+        self.assertIn("prepare web --version 1.2.3", result.stderr)
         self.assertEqual(values, {})
 
     def test_invalid_agents_version_fails(self) -> None:
-        result, _ = self.plan("1.2.3", "--agents-version", "v0.2", is_changelog_ready=False)
+        result, _ = self.plan("--agents-version", "v0.2", is_changelog_ready=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Invalid semantic version", result.stderr)
 
@@ -312,6 +306,17 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             self.assertIn(f"workflow: {workflow}", coordinated_workflow)
         self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
         self.assertIn('-f "publish=true"', coordinated_workflow)
+
+    def test_coordinated_release_uses_each_component_version(self) -> None:
+        workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("needs.plan.outputs.version", workflow)
+        for component in COMPONENT_KEYS:
+            self.assertIn(f"{component}_version: ${{{{ steps.plan.outputs.{component}_version }}}}", workflow)
+        for component in ("java", "python", "rust", "web", "cli"):
+            self.assertIn(f"version: ${{{{ needs.plan.outputs.{component}_version }}}}", workflow)
+        self.assertIn("RELEASE_VERSION: ${{ needs.plan.outputs.typescript_version }}", workflow)
+        self.assertIn('version_name="${component^^}_VERSION"', workflow)
+        self.assertIn('node docs/scripts/snapshot-reference.mjs "${component}" "${!version_name}"', workflow)
 
     def test_agents_publishers_never_run_on_release_events(self) -> None:
         for workflow in ("agents-python-publish.yml", "agents-typescript-publish.yml"):

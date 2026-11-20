@@ -102,6 +102,15 @@ component before it creates any tag. The server binary and image releases
 run it on the tagged commit and fail before they build, upload, or push
 anything.
 
+Dispatch **Release changed components** with a separate version input for
+each component to release: `go_version`, `java_version`, `python_version`,
+`rust_version`, `typescript_version`, `web_version`, `cli_version`, or
+`agents_version`. Leave an input empty to skip that component, even if its
+files changed. At least one version is required. The plan rejects a selected
+component with no changes since its latest tag unless `allow_unchanged` is
+set. It reports that override in the run summary. Selected components may
+use different versions in one dispatch.
+
 ### The embedded Dex Web Go module
 
 Each stable `web/vX.Y.Z` release also publishes the Go module
