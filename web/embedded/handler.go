@@ -61,9 +61,9 @@ import (
 	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"github.com/superdurable/dex/web"
-	"github.com/superdurable/dex/web/api"
-	"github.com/superdurable/dex/web/assets"
+	"github.com/superdurable/dex/web/embedded/internal/web"
+	"github.com/superdurable/dex/web/embedded/internal/web/api"
+	"github.com/superdurable/dex/web/embedded/internal/web/assets"
 )
 
 // ErrTargetNotFound tells the handler that the request names no Dex Server. The handler answers HTTP 404.
@@ -197,7 +197,7 @@ func dexWebModuleVersion() string {
 // dexWebModuleVersionOf returns "dex-web <version>" for the Dex Web module in modules, or "" when it has no release version.
 func dexWebModuleVersionOf(modules []*debug.Module) string {
 	for _, module := range modules {
-		if module.Path != "github.com/superdurable/dex/web/embedded" && module.Path != "github.com/superdurable/dex/web" {
+		if module.Path != "github.com/superdurable/dex/web/embedded" && module.Path != "github.com/superdurable/dex/web/embedded/internal/web" {
 			continue
 		}
 		if module.Replace != nil {
