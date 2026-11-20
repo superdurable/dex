@@ -99,10 +99,11 @@ TLS and payload encryption protect different things.
 - **TLS** protects values on the network between your processes and the
   server. The server decrypts them on arrival. It then stores and reads them
   as plaintext.
-- **Payload encryption** encrypts each value in your Workers and Clients
-  before it is sent. The server stores only ciphertext: in Flow history, in
-  object storage, in the blob store, and in Attribute Store tables. The server
-  never holds a key. You keep the keys.
+- **Payload encryption** encrypts values in your Workers and Clients before
+  they are sent. A value that is eligible for encryption stays ciphertext in
+  Flow history, in object storage, in the blob store, and in Attribute Store
+  tables. Some values stay plaintext; see the list below. The server never
+  holds a key. You keep the keys.
 
 Use both in production when the server, its storage, or its operators must
 not see your data. Payload encryption does not replace TLS. Names, IDs, and
@@ -118,7 +119,8 @@ needs it:
 - Configuration, Step and Flow states, times, and error types.
 
 Every Worker and Client that reads encrypted values needs the same keys. Dex
-Web and dexcli show encrypted values through a codec server that you run. The
+Web shows encrypted values through a codec server that you run. dexcli uses
+either the key file or a codec server. The
 [Payload encryption reference](/reference/server/payload-encryption) lists
 everything the server can see, the setup for each SDK, rollout and key
 rotation steps, and the limits.

@@ -83,7 +83,7 @@ auth:
 TLS 和载荷加密（payload encryption）保护的东西不同。
 
 - **TLS** 保护你的进程和 server 之间网络上传输的值。server 收到后解密，然后以明文存储和读取它们。
-- **载荷加密**在你的 Worker 和 Client 里先加密每个值，再发送出去。server 只存储密文：Flow 历史、对象存储、blob store 和 Attribute Store 表里都是密文。server 从不持有 key，key 由你保管。
+- **载荷加密**在你的 Worker 和 Client 里先加密值，再发送出去。符合加密条件的值在 Flow 历史、对象存储、blob store 和 Attribute Store 表里都是密文。有些值仍是明文，见下面的列表。server 从不持有 key，key 由你保管。
 
 如果 server、它的存储或它的运维人员不能看到你的数据，在生产环境同时使用两者。载荷加密不能代替 TLS。名称、ID 和 Flow 的结构仍然随每个请求传输。
 
@@ -93,7 +93,7 @@ TLS 和载荷加密（payload encryption）保护的东西不同。
 - 建了索引或声明为 plaintext 的 Attribute，这样搜索、Attribute 匹配等待和 Action 条件才能继续工作。
 - 配置、Step 和 Flow 的状态、时间以及错误类型。
 
-每个读取加密值的 Worker 和 Client 都需要同一套 key。Dex Web 和 dexcli 通过你运行的 codec server 显示加密值。[Payload encryption reference](/reference/server/payload-encryption)（英文）列出 server 能看到的全部内容、每个 SDK 的配置方法、上线和 key 轮换的步骤，以及各项限制。
+每个读取加密值的 Worker 和 Client 都需要同一套 key。Dex Web 通过你运行的 codec server 显示加密值。dexcli 可以直接使用 key 文件，也可以使用 codec server。[Payload encryption reference](/reference/server/payload-encryption)（英文）列出 server 能看到的全部内容、每个 SDK 的配置方法、上线和 key 轮换的步骤，以及各项限制。
 
 ## 下一步 {#next}
 

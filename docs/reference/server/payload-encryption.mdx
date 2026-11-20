@@ -1,19 +1,21 @@
 ---
 title: Payload encryption
 sidebar_label: Payload encryption
-description: "Payload encryption encrypts application values in your Workers and Clients before they reach Dex Server. The server stores only ciphertext and never holds a key. This page covers the SDK setup, the key file, what stays plaintext, codec servers for Dex Web and dexcli, rollout, key rotation, and limits."
+description: "Payload encryption encrypts application values in your Workers and Clients before they reach Dex Server. The server stores those values as ciphertext and never holds a key. This page covers the SDK setup, the key file, what stays plaintext, codec servers for Dex Web and dexcli, rollout, key rotation, and limits."
 ---
 
 # Payload encryption
 
 Payload encryption encrypts application values in your Workers and Clients
-before they reach Dex Server. The server stores only ciphertext and never
-holds a key. You keep and manage the keys.
+before they reach Dex Server. The server stores those values as ciphertext
+and never holds a key. You keep and manage the keys.
 
-The server keeps encrypted values as ciphertext in Flow history, in its local
-store, in object storage, in the blob store, and in Attribute Store tables.
-Some values stay plaintext on purpose; see
-[What is encrypted](#what-is-encrypted). TLS protects values only on the network; payload
+A value that an SDK with a codec writes, and that is eligible for encryption,
+stays ciphertext in Flow history, in the server's local store, in object
+storage, in the blob store, and in Attribute Store tables. Some values stay
+plaintext on purpose, such as indexed and plaintext Attributes; see
+[Values that stay plaintext](#plaintext-values) and
+[Fields that are not values](#fields-not-values). TLS protects values only on the network; payload
 encryption also protects them at rest and from anyone with access to the
 server. See [Run Dex in Production](/components/production#payload-encryption)
 for how the two compare.
@@ -383,8 +385,12 @@ With a codec and the default options, the SDK encrypts:
   fork.
 
 Error text and reasons are plain text fields, not values. The SDK encrypts
-them into text that starts with `dex-encoded:`. A reader decrypts text with
-this prefix only at its start. Writers never send plaintext that starts with
+them into text that starts with `dex-encoded:`. A reader decrypts such text
+only in the protocol's error and reason fields, and in the fields the server
+copies them into, such as a Flow result's error message. It leaves every other
+string unchanged, even when it starts with the prefix. The
+[read points](https://github.com/superdurable/dex/blob/main/protos/payload-encryption.md#read-points)
+of the format specification list these fields. Writers never send plaintext that starts with
 the prefix: with a codec they encrypt it, even when error text encryption is
 off; without one they add one leading space.
 
@@ -557,11 +563,16 @@ and
 Each reads the key file, uses its SDK's built-in codec, and includes a
 Dockerfile and a health check. Before you deploy one:
 
-- **Authenticate every request.** Anyone who passes authentication can
-  decrypt every value encrypted with its keys, and can create valid
-  ciphertext. Grant access to the same people who may view Dex Web. Each
-  example checks a bearer token or trusts the identity header of an SSO proxy.
-  Replace that check with your own.
+- **Authenticate and authorize every request.** `/decode` decrypts any
+  ciphertext that a caller submits, and `/encode` creates valid ciphertext.
+  Dex Web view rights do not limit it: a caller who holds a ciphertext from a
+  Flow they cannot view can still decrypt it here. Allow only callers who may
+  read all data encrypted with the server's keys. Otherwise, authorize each
+  request in the codec server by the authenticated identity, the tenant or
+  Flow, and the key. The request `context` comes from the browser, so it is no
+  basis for authorization.
+- **Replace the example's authentication.** Each example checks a bearer token
+  or trusts the identity header of an SSO proxy.
 - **Serve it only over HTTPS**, behind a reverse proxy that terminates TLS.
 - **Allow only your Dex Web origins** in CORS. Never allow `*`.
 - **Keep limits on** the request body size and the entries per request.
