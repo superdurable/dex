@@ -8,7 +8,12 @@
 
 import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { X } from 'lucide-react';
-import { parseCodecEndpointURL, payloadCodecErrorMessage, type CodecEndpointMode } from '@/lib/payloadCodec';
+import {
+  effectiveCodecEndpointMode,
+  parseCodecEndpointURL,
+  payloadCodecErrorMessage,
+  type CodecEndpointMode,
+} from '@/lib/payloadCodec';
 import { usePayloadCodec } from '../../payloadCodecContext';
 
 const MODE_LABEL: Record<CodecEndpointMode, string> = { auto: 'Auto', custom: 'Custom', off: 'Off' };
@@ -26,12 +31,10 @@ const ENDPOINT_HELP = 'A codec endpoint decrypts and encrypts values in your bro
   + 'memory.';
 
 const MODE_DESCRIPTION: Record<CodecEndpointMode, string> = {
-  auto: 'Uses the codec server that dexcli dev -codec-key-file starts on this machine.',
+  auto: 'Uses the codec server that this Dex Web provides, such as the one dexcli dev -codec-key-file starts.',
   custom: 'Uses the codec server at the URL below.',
   off: 'Does not decrypt. Encrypted values show as locked.',
 };
-
-const NO_LOCAL_CODEC_SERVER = 'No local codec server found. Start dexcli dev with -codec-key-file, or choose Custom.';
 
 type HelpTopic = 'endpoint' | 'remember' | 'cookies';
 
@@ -147,11 +150,14 @@ export function CodecEndpointSetting() {
   } else if (savedBearerTokenEndpoint !== null) tokenState = 'The saved token is for another URL.';
   const canDeleteToken = savedBearerTokenEndpoint !== null || bearerTokenStorageProblem === 'delete';
 
+  // Auto exists only when this Dex Web provides a local codec server; until it answers, no mode shows.
+  const displayedMode = effectiveCodecEndpointMode(preference.mode, localServer);
+  const modes: CodecEndpointMode[] = localServer?.configured ? ['auto', 'custom', 'off'] : ['custom', 'off'];
+
   // The status line names only a state the viewer can act on or should know; empty otherwise.
   let status = '';
   if (codec?.source === 'local') status = `Local dev codec server at ${codec.endpoint}.`;
-  else if (preference.mode === 'auto' && localServer?.configured === false) status = NO_LOCAL_CODEC_SERVER;
-  else if (preference.mode === 'custom' && !codec) status = 'Enter the codec server URL and save.';
+  else if (displayedMode === 'custom' && !codec) status = 'Enter the codec server URL and save.';
 
   return (
     <div
@@ -175,22 +181,24 @@ export function CodecEndpointSetting() {
           onToggle={() => toggleHelp('endpoint')}
         />
       </span>
-      <div className="app-bar-segmented">
-        {(['auto', 'custom', 'off'] as const).map((mode) => (
-          <button
-            aria-pressed={preference.mode === mode}
-            key={mode}
-            onClick={() => chooseMode(mode)}
-            type="button"
-          >
-            {MODE_LABEL[mode]}
-          </button>
-        ))}
-      </div>
+      {localServer !== null && (
+        <div className="app-bar-segmented">
+          {modes.map((mode) => (
+            <button
+              aria-pressed={displayedMode === mode}
+              key={mode}
+              onClick={() => chooseMode(mode)}
+              type="button"
+            >
+              {MODE_LABEL[mode]}
+            </button>
+          ))}
+        </div>
+      )}
       <small hidden={openHelp !== 'endpoint'} id={endpointHelpId}>{ENDPOINT_HELP}</small>
-      <small data-testid="codec-endpoint-mode">{MODE_DESCRIPTION[preference.mode]}</small>
+      {localServer !== null && <small data-testid="codec-endpoint-mode">{MODE_DESCRIPTION[displayedMode]}</small>}
       {status && <small className="app-bar-codec-status" data-testid="codec-endpoint-status">{status}</small>}
-      {preference.mode === 'custom' && (
+      {localServer !== null && displayedMode === 'custom' && (
         <form
           className="app-bar-codec-form"
           onSubmit={(event) => {

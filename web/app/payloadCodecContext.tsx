@@ -44,7 +44,7 @@ interface PayloadCodecState {
   deleteCustomBearerToken: () => void;
   /** The last bearer token save or delete that browser storage refused; null when the last one succeeded. */
   bearerTokenStorageProblem: 'save' | 'delete' | null;
-  /** The local dev codec server Dex Web reports; null until read or when the read fails. */
+  /** The local codec server Dex Web reports; null until Dex Web answers, and not configured when the read fails. */
   localServer: LocalCodecServer | null;
   /** The endpoint in use; null when no codec is configured. */
   codec: CodecEndpoint | null;
@@ -132,7 +132,8 @@ export function PayloadCodecProvider({ children, browserTab = window }: PayloadC
   useEffect(() => {
     const controller = new AbortController();
     void fetchLocalCodecServer(controller.signal).then((server) => {
-      if (!controller.signal.aborted) setLocalServer(server);
+      // A failed read means no local codec server, so null keeps meaning "not answered yet".
+      if (!controller.signal.aborted) setLocalServer(server ?? { configured: false, endpoint: '', token: '' });
     });
     return () => controller.abort();
   }, []);

@@ -48,6 +48,8 @@ function memoryStorage(): Storage {
 
 let codecStatus = 200;
 let fetchMock: ReturnType<typeof vi.fn>;
+let localCodecServer = { configured: false, endpoint: '', token: '' };
+const localCodecServerConfigured = { configured: true, endpoint: 'http://127.0.0.1:53199', token: 'local-token' };
 
 function savePreference(preference: Record<string, unknown>) {
   window.localStorage.setItem(preferenceKey, JSON.stringify(preference));
@@ -63,8 +65,9 @@ beforeEach(() => {
   vi.stubGlobal('sessionStorage', memoryStorage());
   // An older saved preference without rememberBearerToken.
   savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false });
+  localCodecServer = { configured: false, endpoint: '', token: '' };
   fetchMock = vi.fn(async (url: RequestInfo | URL) => {
-    if (String(url).endsWith('/api/codec-server')) return jsonResponse(200, { configured: false, endpoint: '', token: '' });
+    if (String(url).endsWith('/api/codec-server')) return jsonResponse(200, localCodecServer);
     if (codecStatus !== 200) return jsonResponse(codecStatus, { error: { category: 'unauthenticated', message: 'no' } });
     return jsonResponse(200, { values: [{ stringValue: 'plain' }] });
   });
@@ -76,13 +79,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderSetting() {
-  return render(
+/** Renders the setting and waits until Dex Web answered about its local codec server, so the modes show. */
+async function renderSetting() {
+  const result = render(
     <PayloadCodecProvider>
       <CodecEndpointSetting />
       <DecodeProbe />
     </PayloadCodecProvider>,
   );
+  await screen.findByRole('button', { name: 'Off' });
+  return result;
 }
 
 function codecRequests() {
@@ -121,7 +127,7 @@ function save() {
 
 describe('CodecEndpointSetting bearer token', () => {
   it('keeps a typed token out of the DOM, also before Save', async () => {
-    const { container } = renderSetting();
+    const { container } = await renderSetting();
     typeToken(token);
     expect(tokenInput().getAttribute('value')).toBeNull();
     expect(container.innerHTML).not.toContain(token);
@@ -133,8 +139,8 @@ describe('CodecEndpointSetting bearer token', () => {
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
   });
 
-  it('remembers the token in local storage by default, never in the preference', () => {
-    renderSetting();
+  it('remembers the token in local storage by default, never in the preference', async () => {
+    await renderSetting();
     expect(screen.getByRole('checkbox', { name: 'Remember on this browser' })).toHaveProperty('checked', true);
     typeToken(token);
     save();
@@ -146,8 +152,8 @@ describe('CodecEndpointSetting bearer token', () => {
     });
   });
 
-  it('keeps the token for this tab only when Remember is cleared', () => {
-    renderSetting();
+  it('keeps the token in session storage when Remember is cleared', async () => {
+    await renderSetting();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
     typeToken(token);
     save();
@@ -156,9 +162,9 @@ describe('CodecEndpointSetting bearer token', () => {
     expect(screen.getByText('Token saved in this tab’s session storage.')).toBeTruthy();
   });
 
-  it('moves the saved token when Remember changes and Save runs again', () => {
+  it('moves the saved token when Remember changes and Save runs again', async () => {
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    renderSetting();
+    await renderSetting();
     const remember = screen.getByRole('checkbox', { name: 'Remember on this browser' });
     fireEvent.click(remember);
     save();
@@ -172,7 +178,7 @@ describe('CodecEndpointSetting bearer token', () => {
 
   it('reads the saved token after a reload', async () => {
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    const { container } = renderSetting();
+    const { container } = await renderSetting();
     expect(screen.getByText('Token saved in this browser.')).toBeTruthy();
     expect(container.innerHTML).not.toContain(token);
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
@@ -181,7 +187,7 @@ describe('CodecEndpointSetting bearer token', () => {
   it('deletes the token from both storages with the small delete button', async () => {
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
     window.sessionStorage.setItem(tokenKey, tokenRecord(endpointA));
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
     const requestsBefore = codecRequests().length;
     const deleteButton = screen.getByRole('button', { name: 'Delete saved bearer token' });
@@ -195,7 +201,7 @@ describe('CodecEndpointSetting bearer token', () => {
   });
 
   it('sends no Authorization header without a token', async () => {
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).not.toHaveProperty('Authorization');
     expect(screen.queryByRole('button', { name: 'Delete saved bearer token' })).toBeNull();
   });
@@ -204,7 +210,7 @@ describe('CodecEndpointSetting bearer token', () => {
 describe('CodecEndpointSetting token and URL', () => {
   it('drops the token when Save runs with a different URL', async () => {
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
     const requestsBefore = codecRequests().length;
     fireEvent.change(screen.getByLabelText('Codec endpoint URL'), { target: { value: endpointB } });
@@ -221,7 +227,7 @@ describe('CodecEndpointSetting token and URL', () => {
     // Another tab changed the shared URL to B while this token belongs to A.
     savePreference({ mode: 'custom', endpoint: endpointB, includeCredentials: false });
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    renderSetting();
+    await renderSetting();
     expect(screen.getByText('The saved token is for another URL.')).toBeTruthy();
     expect(await settledDecodeHeaders()).not.toHaveProperty('Authorization');
 
@@ -232,21 +238,26 @@ describe('CodecEndpointSetting token and URL', () => {
   });
 
   it('never sends the custom token in Auto or Off, and sends it again back in Custom', async () => {
+    localCodecServer = localCodecServerConfigured;
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
-    const requestsBefore = codecRequests().length;
+    let requestsBefore = codecRequests().length;
     fireEvent.click(screen.getByRole('button', { name: 'Off' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(codecRequests().length).toBe(requestsBefore);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+    expect(await nextDecodeHeaders(requestsBefore)).toMatchObject({ Authorization: 'Bearer local-token' });
+    expect(String(codecRequests().at(-1)?.[0])).toBe('http://127.0.0.1:53199/decode');
+
+    requestsBefore = codecRequests().length;
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     expect(await nextDecodeHeaders(requestsBefore)).toMatchObject({ Authorization: `Bearer ${token}` });
   });
 
   it('follows another tab that saves or deletes the token', async () => {
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).not.toHaveProperty('Authorization');
 
     let requestsBefore = codecRequests().length;
@@ -272,7 +283,7 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
   it('keeps the saved token in place when it cannot move to session storage', async () => {
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
     vi.stubGlobal('sessionStorage', failingStorage('setItem'));
-    renderSetting();
+    await renderSetting();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
     save();
 
@@ -287,7 +298,7 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
     local.setItem(tokenKey, tokenRecord(endpointA));
     vi.stubGlobal('localStorage', local);
     savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false });
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
     const requestsBefore = codecRequests().length;
     fireEvent.click(screen.getByRole('button', { name: 'Delete saved bearer token' }));
@@ -302,7 +313,7 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
     local.setItem(tokenKey, tokenRecord(endpointA));
     vi.stubGlobal('localStorage', local);
     savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: true });
-    renderSetting();
+    await renderSetting();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
     save();
 
@@ -318,7 +329,7 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
     local.setItem(tokenKey, tokenRecord(endpointA));
     vi.stubGlobal('localStorage', local);
     savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false });
-    renderSetting();
+    await renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
     fireEvent.click(screen.getByRole('button', { name: 'Delete saved bearer token' }));
 
@@ -333,26 +344,68 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
 });
 
 describe('CodecEndpointSetting texts', () => {
-  it('explains the selected mode and shows only actionable status', async () => {
+  function modeButtons() {
+    return ['Auto', 'Custom', 'Off'].filter((name) => screen.queryByRole('button', { name }) !== null);
+  }
+
+  it('offers Auto, Custom, and Off when this Dex Web provides a local codec server', async () => {
+    localCodecServer = localCodecServerConfigured;
     window.localStorage.removeItem(preferenceKey);
-    const { container } = renderSetting();
+    const { container } = await renderSetting();
+    expect(modeButtons()).toEqual(['Auto', 'Custom', 'Off']);
+    expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe('true');
     const modeLine = screen.getByTestId('codec-endpoint-mode');
-    expect(modeLine.textContent).toBe('Uses the codec server that dexcli dev -codec-key-file starts on this machine.');
-    expect((await screen.findByTestId('codec-endpoint-status')).textContent)
-      .toBe('No local codec server found. Start dexcli dev with -codec-key-file, or choose Custom.');
+    expect(modeLine.textContent)
+      .toBe('Uses the codec server that this Dex Web provides, such as the one dexcli dev -codec-key-file starts.');
+    expect(screen.getByTestId('codec-endpoint-status').textContent).toBe('Local dev codec server at http://127.0.0.1:53199.');
 
     fireEvent.click(screen.getByRole('button', { name: 'Off' }));
     expect(modeLine.textContent).toBe('Does not decrypt. Encrypted values show as locked.');
     expect(screen.queryByTestId('codec-endpoint-status')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    expect(modeLine.textContent).toBe('Uses the codec server at the URL below.');
-    expect(screen.getByTestId('codec-endpoint-status').textContent).toBe('Enter the codec server URL and save.');
-    expect(container.textContent).not.toMatch(/stay encrypted|reports no local codec server|stay in this page/);
+    expect(container.textContent).not.toMatch(/stay encrypted|reports no local codec server|stay in this page|No local codec server/);
   });
 
-  it('shows the codec endpoint explanation behind the heading "?"', () => {
-    renderSetting();
+  it('hides Auto and starts in Custom when this Dex Web provides no local codec server', async () => {
+    window.localStorage.removeItem(preferenceKey);
+    await renderSetting();
+    expect(modeButtons()).toEqual(['Custom', 'Off']);
+    expect(screen.getByRole('button', { name: 'Custom' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('codec-endpoint-mode').textContent).toBe('Uses the codec server at the URL below.');
+    expect(screen.getByTestId('codec-endpoint-status').textContent).toBe('Enter the codec server URL and save.');
+    expect(screen.getByLabelText('Codec endpoint URL')).toBeTruthy();
+  });
+
+  it('shows a saved Auto choice as Custom without rewriting it', async () => {
+    savePreference({ mode: 'auto', endpoint: endpointA, includeCredentials: false, rememberBearerToken: true });
+    window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
+    await renderSetting();
+    expect(modeButtons()).toEqual(['Custom', 'Off']);
+    expect(screen.getByRole('button', { name: 'Custom' }).getAttribute('aria-pressed')).toBe('true');
+    expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+    expect(String(codecRequests().at(-1)?.[0])).toBe(`${endpointA}/decode`);
+    expect(JSON.parse(window.localStorage.getItem(preferenceKey) ?? '{}').mode).toBe('auto');
+  });
+
+  it('shows no mode until Dex Web answers, so Auto never flashes', async () => {
+    let answerLocalServer: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { answerLocalServer = resolve; }));
+    window.localStorage.removeItem(preferenceKey);
+    render(
+      <PayloadCodecProvider>
+        <CodecEndpointSetting />
+      </PayloadCodecProvider>,
+    );
+    expect(modeButtons()).toEqual([]);
+    expect(screen.queryByTestId('codec-endpoint-mode')).toBeNull();
+    expect(screen.queryByLabelText('Codec endpoint URL')).toBeNull();
+
+    answerLocalServer(jsonResponse(200, { configured: false, endpoint: '', token: '' }));
+    await screen.findByRole('button', { name: 'Custom' });
+    expect(modeButtons()).toEqual(['Custom', 'Off']);
+  });
+
+  it('shows the codec endpoint explanation behind the heading "?"', async () => {
+    await renderSetting();
     const help = screen.getByRole('button', { name: 'What is a codec endpoint?' });
     const text = screen.getByText(/Your keys stay in the codec server/);
     expect(document.getElementById(help.getAttribute('aria-controls') ?? '')).toBe(text);
@@ -404,14 +457,16 @@ async function nextTabHeaders(flowId: string, requestsBefore: number): Promise<R
 }
 
 describe('CodecEndpointSetting across two tabs', () => {
-  function renderTab(tab: ReturnType<typeof browserTabWith>, flowId: string) {
+  async function renderTab(tab: ReturnType<typeof browserTabWith>, flowId: string) {
     const { container } = render(
       <PayloadCodecProvider browserTab={tab}>
         <CodecEndpointSetting />
         <TabDecodeProbe flowId={flowId} />
       </PayloadCodecProvider>,
     );
-    return within(container);
+    const tabView = within(container);
+    await tabView.findByRole('button', { name: 'Off' });
+    return tabView;
   }
 
   it('follows tab A through Save, the Remember toggle, and Delete in tab B', async () => {
@@ -421,7 +476,7 @@ describe('CodecEndpointSetting across two tabs', () => {
     }));
     const sessionA = memoryStorage();
     const tabA = browserTabWith(shared, sessionA);
-    const a = renderTab(tabA, 'tab-a');
+    const a = await renderTab(tabA, 'tab-a');
 
     // Tab A saves with Remember off.
     fireEvent.change(a.getByLabelText('Codec endpoint bearer token'), { target: { value: token } });
@@ -433,7 +488,7 @@ describe('CodecEndpointSetting across two tabs', () => {
     const sessionB = memoryStorage();
     sessionB.setItem(tokenKey, sessionA.getItem(tokenKey) ?? '');
     const tabB = browserTabWith(shared, sessionB);
-    renderTab(tabB, 'tab-b');
+    await renderTab(tabB, 'tab-b');
     expect(await nextTabHeaders('tab-b', 0)).toMatchObject({ Authorization: `Bearer ${token}` });
 
     // Tab A turns Remember on and saves: the token moves to shared storage.
@@ -463,7 +518,7 @@ describe('CodecEndpointSetting across two tabs', () => {
     const sessionB = { ...memoryStorage(), removeItem: () => { throw new Error('blocked'); } } as Storage;
     sessionB.setItem(tokenKey, tokenRecord(endpointA));
     const tabB = browserTabWith(shared, sessionB);
-    renderTab(tabB, 'tab-b');
+    await renderTab(tabB, 'tab-b');
     expect(await nextTabHeaders('tab-b', 0)).toMatchObject({ Authorization: `Bearer ${token}` });
 
     // Tab A deleted the shared token; the session copy in B stays, but B stops using it.
@@ -475,16 +530,16 @@ describe('CodecEndpointSetting across two tabs', () => {
 });
 
 describe('CodecEndpointSetting cookies and help', () => {
-  it('starts a new Custom configuration with Send cookies cleared', () => {
+  it('starts a new Custom configuration with Send cookies cleared', async () => {
     window.localStorage.removeItem(preferenceKey);
-    renderSetting();
+    await renderSetting();
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     expect(screen.getByRole('checkbox', { name: 'Send cookies (SSO proxy)' })).toHaveProperty('checked', false);
     expect(screen.getByRole('checkbox', { name: 'Remember on this browser' })).toHaveProperty('checked', true);
   });
 
   it('sends the token together with cookies when Send cookies is selected', async () => {
-    renderSetting();
+    await renderSetting();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Send cookies (SSO proxy)' }));
     typeToken(token);
     save();
@@ -494,8 +549,8 @@ describe('CodecEndpointSetting cookies and help', () => {
     ))).toBe(true));
   });
 
-  it('opens and closes each explanation with its "?" button and Escape', () => {
-    renderSetting();
+  it('opens and closes each explanation with its "?" button and Escape', async () => {
+    await renderSetting();
     const cookiesHelp = screen.getByRole('button', { name: 'What is Send cookies?' });
     const rememberHelp = screen.getByRole('button', { name: 'What is Remember on this browser?' });
     expect(cookiesHelp.getAttribute('aria-expanded')).toBe('false');
@@ -524,7 +579,7 @@ describe('CodecEndpointSetting cookies and help', () => {
   it('names the bearer token when the codec endpoint answers 401, without echoing it', async () => {
     codecStatus = 401;
     window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
-    const { container } = renderSetting();
+    const { container } = await renderSetting();
     const message = await screen.findByRole('status');
     expect(message.textContent).toContain('bearer token is likely wrong');
     expect(container.innerHTML).not.toContain(token);

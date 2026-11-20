@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   chunkCodecEntries,
+  effectiveCodecEndpointMode,
   encodeReasonText,
   parseCodecEndpointURL,
   payloadCodecErrorMessage,
@@ -48,6 +49,18 @@ describe('codec endpoint settings', () => {
     expect(resolveCodecEndpoint({ ...auto, mode: 'off' }, local)).toBeNull();
     expect(resolveCodecEndpoint({ ...auto, mode: 'custom', endpoint: 'https://codec.example.com/' }, local))
       .toEqual({ endpoint: 'https://codec.example.com', includeCredentials: true, bearerToken: '', source: 'custom' });
+  });
+
+  it('acts as custom in auto mode when Dex Web provides no local codec server', () => {
+    const none = { configured: false, endpoint: '', token: '' };
+    expect(effectiveCodecEndpointMode('auto', null)).toBe('auto');
+    expect(effectiveCodecEndpointMode('auto', local)).toBe('auto');
+    expect(effectiveCodecEndpointMode('auto', none)).toBe('custom');
+    expect(effectiveCodecEndpointMode('off', none)).toBe('off');
+    const savedAuto = { mode: 'auto' as const, endpoint: 'https://codec.example.com', includeCredentials: false, rememberBearerToken: true };
+    expect(resolveCodecEndpoint(savedAuto, null)).toBeNull();
+    expect(resolveCodecEndpoint(savedAuto, none)?.endpoint).toBe('https://codec.example.com');
+    expect(resolveCodecEndpoint(savedAuto, local)?.source).toBe('local');
   });
 
   it('accepts https, and http only for loopback hosts', () => {

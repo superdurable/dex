@@ -217,18 +217,29 @@ export function parseCodecEndpointURL(text: string): { endpoint: string } | { er
 }
 
 /**
- * Combines the viewer's choice with the local dev codec server; null means no codec is configured.
+ * Returns the mode in effect: a saved auto mode acts as custom when Dex Web provides no local codec server.
  *
- * savedToken applies only in custom mode, and only when its endpoint equals the Custom URL. Auto mode uses the local
- * server's own token.
+ * Pass null as local while Dex Web has not answered yet; auto then stays auto. The saved choice is not changed, so
+ * a Dex Web that provides a local codec server shows auto again.
+ */
+export function effectiveCodecEndpointMode(mode: CodecEndpointMode, local: LocalCodecServer | null): CodecEndpointMode {
+  return mode === 'auto' && local !== null && !local.configured ? 'custom' : mode;
+}
+
+/**
+ * Combines the viewer's choice with the local codec server; null means no codec is configured.
+ *
+ * Pass null as local while Dex Web has not answered yet; auto mode then has no codec. savedToken applies only in
+ * custom mode, and only when its endpoint equals the Custom URL. Auto mode uses the local server's own token.
  */
 export function resolveCodecEndpoint(
   preference: CodecEndpointPreference,
   local: LocalCodecServer | null,
   savedToken: CodecBearerTokenRecord | null = null,
 ): CodecEndpoint | null {
-  if (preference.mode === 'off') return null;
-  if (preference.mode === 'custom') {
+  const mode = effectiveCodecEndpointMode(preference.mode, local);
+  if (mode === 'off') return null;
+  if (mode === 'custom') {
     const parsed = parseCodecEndpointURL(preference.endpoint);
     if ('error' in parsed) return null;
     return {
