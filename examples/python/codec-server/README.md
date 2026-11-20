@@ -174,9 +174,8 @@ docker run --rm -p 127.0.0.1:8080:8080 \
   dex-codec-server-python
 ```
 
-The image installs `dex-python-sdk[encryption]` from PyPI. Until the SDK
-release with payload encryption is published, `pyproject.toml` installs the
-SDK from this repository, and only `uv sync` from this directory works.
+The image installs the `dex-python-sdk[encryption]` version that `uv.lock`
+pins from PyPI.
 
 In production, mount the key file or inject `DEX_CODEC_SERVER_KEYS_JSON`
 from your secret manager. Do not bake keys into the image.

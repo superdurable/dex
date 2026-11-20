@@ -7,8 +7,7 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Pin dex-python-sdk[encryption]==<release> and drop [tool.uv.sources] once the SDK release ships encryption.
-    "dex-python-sdk[encryption]",
+    "dex-python-sdk[encryption]==1.45.16",
     "aiohttp>=3.14,<4",
 ]
 
@@ -23,9 +22,6 @@ dev = [
 [tool.uv]
 package = false
 required-version = "==0.12.2"
-
-[tool.uv.sources]
-dex-python-sdk = { path = "../../../sdk-python" }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -1,5 +1,4 @@
 # Build context: this directory (examples/python/codec-server).
-# It needs dex-python-sdk from PyPI; see README.md while uv.lock still points at ../../../sdk-python.
 FROM python:3.13-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.2 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never

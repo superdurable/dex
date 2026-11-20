@@ -394,7 +394,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14,<4" },
-    { name = "dex-python-sdk", extras = ["encryption"], directory = "../../../sdk-python" },
+    { name = "dex-python-sdk", extras = ["encryption"], specifier = "==1.45.16" },
 ]
 
 [package.metadata.requires-dev]
@@ -407,47 +407,25 @@ dev = [
 
 [[package]]
 name = "dex-python-sdk"
-version = "0.6.0"
-source = { directory = "../../../sdk-python" }
+version = "1.45.16"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
     { name = "grpcio-status" },
     { name = "protobuf" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/b3/94/3c60939e4c1609e390ca60563010a11c6bdb8fd4c1afe159edd5ea38ed1c/dex_python_sdk-1.45.16.tar.gz", hash = "sha256:b9be85ca04b7f4cf3ac6f61574710aa5b4bebea54f014aeeb0579c77a7246412", size = 358973, upload-time = "2026-11-20T09:46:27.299Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/14/97d8f8d3fa6a5f39c27538e63ae1ebc05250b31f5901ec6ec4ec4842d645/dex_python_sdk-1.45.16-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b34dc794b83e1a6fbe6d442ba9062aa4c7058b3f3b11ebb221e2fb43e1ccc64f", size = 833640, upload-time = "2026-11-20T09:46:20.456Z" },
+    { url = "https://files.pythonhosted.org/packages/64/48/103038717e59fcec8dc041b6a285e1c933cd44cbdb798d09b444af3c7df5/dex_python_sdk-1.45.16-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:b6506cec78ff8663280b88dc97b5c8d70ba63f8c0a41e7459cb90523665539dc", size = 810287, upload-time = "2026-11-20T09:46:22.089Z" },
+    { url = "https://files.pythonhosted.org/packages/24/43/320c96a6723a7a0ed0cee61418269781de5b3dc0aecb50b5908b4f3173b7/dex_python_sdk-1.45.16-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:30bfddb7bb6f16c359569fb3927c1afe34649dc789c24590999dbfd708d95bca", size = 875821, upload-time = "2026-11-20T09:46:23.316Z" },
+    { url = "https://files.pythonhosted.org/packages/47/1c/27986476c1086393e58215153ab49cfecceedb0c66f6ee4239bdb6be0e42/dex_python_sdk-1.45.16-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c6b48e25b5a2f5b33b28aa632f54f230f14ec71a36260969e2ed63ea89cb7ac4", size = 877238, upload-time = "2026-11-20T09:46:24.588Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/bc/8f1da675b46d70f0e53ddf49b0284e12186ad8ae357d903d9c406078401a/dex_python_sdk-1.45.16-cp311-abi3-win_amd64.whl", hash = "sha256:98ef09a9aaeed84f85e17edbba406d8727c7eaf66cd18f43c8436d15dd5e6a81", size = 723152, upload-time = "2026-11-20T09:46:25.822Z" },
+]
 
 [package.optional-dependencies]
 encryption = [
     { name = "cryptography" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cryptography", marker = "extra == 'encryption'", specifier = ">=42.0.0" },
-    { name = "grpcio", specifier = ">=1.83.0" },
-    { name = "grpcio-status", specifier = ">=1.83.0" },
-    { name = "protobuf", specifier = ">=7.35.1" },
-]
-provides-extras = ["encryption"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "anyio", specifier = ">=4.9,<5" },
-    { name = "black", specifier = "==24.10.0" },
-    { name = "cryptography", specifier = ">=42.0.0" },
-    { name = "googleapis-common-protos-stubs", specifier = ">=2.3.1" },
-    { name = "grpcio-tools", specifier = "==1.83.0" },
-    { name = "isort", specifier = ">=6.0.1,<7" },
-    { name = "mypy", specifier = ">=1.15,<2" },
-    { name = "pre-commit", specifier = ">=4.2,<5" },
-    { name = "pyright", specifier = ">=1.1.403,<2" },
-    { name = "pytest", specifier = ">=8.3.5,<9" },
-    { name = "pytest-cov", specifier = ">=6.1.1,<7" },
-    { name = "pytest-env", specifier = ">=1.1.5,<2" },
-    { name = "ruff", specifier = "==0.8.1" },
-    { name = "types-grpcio", specifier = ">=1.83.0.20260730" },
-    { name = "types-grpcio-status", specifier = ">=1.0.0.20260408" },
-    { name = "types-protobuf", specifier = ">=7.34.1.20260518" },
-    { name = "wemake-python-styleguide", specifier = ">=0.19.2,<0.20" },
 ]
 
 [[package]]
