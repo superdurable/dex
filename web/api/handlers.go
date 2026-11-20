@@ -138,7 +138,7 @@ func (h *handler) publishChannelMessage(response http.ResponseWriter, request *h
 		WriteError(response, http.StatusBadRequest, "flowId and channelName are required", nil)
 		return
 	}
-	value, err := encodeDebugValue(body.Value, body.ValueType)
+	value, err := debugOrEncodedValue(body.Value, body.ValueType, body.EncodedValue)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -168,7 +168,7 @@ func (h *handler) setAttribute(response http.ResponseWriter, request *http.Reque
 		WriteError(response, http.StatusBadRequest, "flowId and key are required", nil)
 		return
 	}
-	value, err := encodeDebugValue(body.Value, body.ValueType)
+	value, err := debugOrEncodedValue(body.Value, body.ValueType, body.EncodedValue)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -666,7 +666,19 @@ func (h *handler) stopFlow(response http.ResponseWriter, request *http.Request) 
 		return
 	}
 	var output *dexpb.Value
-	if strings.TrimSpace(body.Output) != "" {
+	if hasEncodedValue(body.EncodedOutput) {
+		if !isCompleteStopType || strings.TrimSpace(body.Output) != "" {
+			WriteError(response, http.StatusBadRequest,
+				"encodedOutput requires graceful complete or force complete and no output", nil)
+			return
+		}
+		var err error
+		output, err = encodedStoredValue(body.EncodedOutput)
+		if err != nil {
+			WriteError(response, http.StatusBadRequest, "encodedOutput: "+err.Error(), nil)
+			return
+		}
+	} else if strings.TrimSpace(body.Output) != "" {
 		if !isCompleteStopType {
 			WriteError(response, http.StatusBadRequest, "output requires graceful complete or force complete", nil)
 			return
@@ -879,6 +891,12 @@ func writeGRPCErrorMessage(response http.ResponseWriter, err error, message stri
 		httpStatus = 499
 	}
 	grpcCode := int32(statusError.Code())
+	if isEncodedStatusMessage(statusError, message) {
+		writeJSON(response, httpStatus, errorResponse{
+			Error: encryptedErrorMessage, GRPCCode: &grpcCode, EncodedError: message,
+		})
+		return
+	}
 	WriteError(response, httpStatus, message, &grpcCode)
 }
 

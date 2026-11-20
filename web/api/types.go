@@ -9,6 +9,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -36,6 +37,8 @@ type errorResponse struct {
 	Error    string `json:"error"`
 	Code     string `json:"code,omitempty"`
 	GRPCCode *int32 `json:"grpcCode,omitempty"`
+	// EncodedError is the "dex-encoded:" gRPC status message the browser decodes with its codec endpoint.
+	EncodedError string `json:"encodedError,omitempty"`
 }
 
 type searchFlowsRequest struct {
@@ -134,6 +137,8 @@ type publishChannelMessageRequest struct {
 	ChannelName string      `json:"channelName"`
 	ValueType   string      `json:"valueType"`
 	Value       interface{} `json:"value"`
+	// EncodedValue is a dex/1 Value JSON the browser encrypted; it replaces valueType and value.
+	EncodedValue json.RawMessage `json:"encodedValue"`
 }
 
 type setAttributeRequest struct {
@@ -142,6 +147,8 @@ type setAttributeRequest struct {
 	Key       string      `json:"key"`
 	ValueType string      `json:"valueType"`
 	Value     interface{} `json:"value"`
+	// EncodedValue is a dex/1 Value JSON the browser encrypted; it replaces valueType and value.
+	EncodedValue json.RawMessage `json:"encodedValue"`
 }
 
 // updateFlowHistoryConfigRequest changes only the run's history window.
@@ -261,4 +268,6 @@ type stopFlowRequest struct {
 	Reason   string `json:"reason"`
 	// Output is the natural JSON text of the Flow result for a complete stop type; empty sends none.
 	Output string `json:"output"`
+	// EncodedOutput is a dex/1 Value JSON the browser encrypted; it replaces output.
+	EncodedOutput json.RawMessage `json:"encodedOutput"`
 }

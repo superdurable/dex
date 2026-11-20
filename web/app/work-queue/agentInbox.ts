@@ -21,6 +21,7 @@ import {
 } from '../agents/sessionSchema';
 import { isOpenFlowStatusCode } from './liveness';
 import { webURL } from '@/lib/basePath';
+import { isEncryptedStoredValue, unescapeApplicationJSON } from '@/lib/payloadEncryption';
 
 type AgentInterrupt = AgentInterruptRecord;
 
@@ -56,7 +57,10 @@ export async function readInboxSession(flowId: string, signal?: AbortSignal): Pr
   ));
   const stored = state.attributes.find((entry) => entry.key === SESSION_ATTRIBUTE.pendingInterrupts)?.value;
   const hydrated = await hydrateBlobs(flowId, stored ?? [], new Map(), signal);
-  const interrupts = hydrated.error ? null : decodePendingInterrupts(hydrated.value);
+  if (isEncryptedStoredValue(hydrated.value)) {
+    throw new Error(`${SESSION_ATTRIBUTE.pendingInterrupts} is encrypted; the inbox reads only plaintext Attributes`);
+  }
+  const interrupts = hydrated.error ? null : decodePendingInterrupts(unescapeApplicationJSON(hydrated.value));
   if (interrupts === null) throw new Error(`${SESSION_ATTRIBUTE.pendingInterrupts} could not be read`);
   return { interrupts, isActive: isOpenFlowStatusCode(summary.flowStatusCode) };
 }

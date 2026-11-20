@@ -9,6 +9,7 @@
 import { webURL } from '@/lib/basePath';
 import { CLONE_FORK_POINT_TYPE, ID_REUSE_POLICY } from '@/lib/cloneFork';
 import { readResponseJSON } from '@/lib/http';
+import { encodeReasonText } from '@/lib/payloadCodec';
 import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import type { ConversationItem } from './sessionModel';
 import type { LoadedAgentSession } from './useAgentSession';
@@ -128,7 +129,8 @@ export async function sessionForkPayload(request: SessionForkRequest): Promise<R
     ...(taskQueue === null ? {} : { taskQueue }),
     deleteAttributeKeys: SESSION_FORK_DELETED_ATTRIBUTES,
     idReusePolicy: ID_REUSE_POLICY.DISALLOW_REUSE,
-    reason: request.reason,
+    // Agent sessions read only plaintext, so the reason stays plaintext; the prefix escape still applies.
+    reason: await encodeReasonText(null, { flowId: request.sessionId, flowType: '' }, request.reason),
   };
 }
 

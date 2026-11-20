@@ -10,10 +10,13 @@
 
 import type { ReactNode } from 'react';
 import { EventValueBlock, InlineValue, isShortFlatValue, LongValue } from '@/app/components/StructuredValue';
+import { PayloadLockBadge } from '@/app/components/PayloadLockBadge';
+import { encryptedPayloadDisplayValue, escapeApplicationJSON } from '@/lib/payloadEncryption';
 import { AttributeRows, ChannelRows, messageChannelGroups } from './CompactStateLists';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
+  storedValueJSONReplacer,
 } from '@/lib/blobs';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
@@ -68,6 +71,8 @@ export function isPresent(value: unknown): boolean {
 function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
+  const encryptedDisplay = encryptedPayloadDisplayValue(value);
+  if (encryptedDisplay !== undefined) return encryptedDisplay;
   const message = asData(value);
   if ('stringValue' in message) return message.stringValue;
   if ('intValue' in message) return message.intValue;
@@ -81,7 +86,7 @@ function decodedValue(value: unknown): unknown {
     const decoded = new TextDecoder().decode(bytes);
     if (object.encoding === 'json') {
       try {
-        return JSON.parse(decoded) as unknown;
+        return escapeApplicationJSON(JSON.parse(decoded));
       } catch {
         return decoded;
       }
@@ -154,17 +159,17 @@ export function ValueBlock({
   if (decoded && typeof decoded === 'object' && !isShortFlatValue(decoded)) {
     return (
       <div className="semantic-value">
-        <span>{label}</span>
-        <LongValue text={JSON.stringify(decoded, null, 2)} isBlock />
+        <span>{label}<PayloadLockBadge value={value} /></span>
+        <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock />
       </div>
     );
   }
   return (
     <div className="semantic-value semantic-value-inline">
-      <span>{label}</span>
+      <span>{label}<PayloadLockBadge value={value} /></span>
       <span className="semantic-value-content">
         {decoded && typeof decoded === 'object'
-          ? <code>{JSON.stringify(decoded)}</code>
+          ? <code>{JSON.stringify(decoded, storedValueJSONReplacer)}</code>
           : <LongValue text={displayValue(decoded)} isBlock={false} />}
       </span>
     </div>

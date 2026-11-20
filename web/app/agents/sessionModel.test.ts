@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ActiveStepExecution, FlowHistoryEvent, KeyValue } from '@/lib/types';
+import { escapeApplicationJSON } from '@/lib/payloadEncryption';
 import { readSession, type ToolCallView } from './sessionModel';
 
 const message = (sequence: number, role: string, extra: Record<string, unknown> = {}) => ({
@@ -79,6 +80,38 @@ describe('readSession', () => {
     expect(view.waitingCalls.map((call) => call.interrupt?.interruptId)).toEqual(['c2']);
     expect(view.usage?.inputTokens).toBe(20);
     expect(view.missing).toEqual([]);
+  });
+
+  it('reads session data with __dex keys exactly as before Dex Web escaped them', () => {
+    const attributes = [
+      state({ __dexTrace: 'state-trace' }),
+      message(1, 'user', { text: 'refund order 5521', __dexTrace: { nested: { __dexEnvelope: 'app data' } } }),
+      { key: 'AgentUsage', value: { input_tokens: 20, output_tokens: 10, model_calls: 2, __dexMeta: 1 } },
+    ];
+    const escaped = attributes.map((entry) => ({ ...entry, value: escapeApplicationJSON(entry.value) }));
+    expect(escaped[1].value).toHaveProperty('__dexEscapedObject');
+    const plain = readSession({ attributes, activeSteps: [], events: [] });
+    const fromEscaped = readSession({ attributes: escaped, activeSteps: [], events: [] });
+    expect(fromEscaped).toEqual(plain);
+    expect(fromEscaped.items.map((item) => item.kind === 'message' ? item.message.text : item.key)).toEqual(['refund order 5521']);
+    expect(fromEscaped.usage?.inputTokens).toBe(20);
+  });
+
+  it('reads escaped session data whose fields look like Dex Web markers', () => {
+    const blobLookalike = { __dexBlobReference: { id: 'b9', kind: 'object' } };
+    const attributes = [
+      { ...state(), value: escapeApplicationJSON({ ...state().value as object, ...blobLookalike }) },
+      { ...message(1, 'user'), value: escapeApplicationJSON({ ...message(1, 'user', { text: 'hi' }).value, ...blobLookalike }) },
+      {
+        ...toolCall('c1', 'succeeded'),
+        value: escapeApplicationJSON({ ...toolCall('c1', 'succeeded').value, __dexStoredValueUnavailable: true }),
+      },
+      requestOf(2, 'c1'),
+    ];
+    const view = readSession({ attributes, activeSteps: [], events: [] });
+    expect(view.missing).toEqual([]);
+    expect(view.items.map((item) => item.kind === 'tool' ? `tool:${item.call.toolCallId}` : item.kind === 'message' ? item.message.text : item.key))
+      .toEqual(['hi', 'tool:c1']);
   });
 
   it('hides an assistant message that Claude Code made up, keeping the stored message', () => {

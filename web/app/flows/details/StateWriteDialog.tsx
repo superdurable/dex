@@ -11,6 +11,9 @@ import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 import { webURL } from '@/lib/basePath';
 import { useModalFocus } from '../../components/useModalFocus';
+import { usePayloadCodec } from '../../payloadCodecContext';
+import { encodeStoredValue, type CodecEndpoint } from '@/lib/payloadCodec';
+import { debugValueJSON, readStoredAttributeForm } from '@/lib/payloadWrites';
 
 export type StateWriteKind = 'attribute' | 'channel';
 
@@ -76,14 +79,46 @@ const copyByKind = {
   },
 } as const;
 
+/**
+ * Returns the request fields that carry a written value: plaintext valueType and value, or an encoded Value.
+ *
+ * A Channel message is encrypted whenever a codec is configured. An Attribute follows its stored form: a new one is
+ * written in plaintext, and an update of an encrypted one is encrypted again, or refused without a codec.
+ */
+export async function stateWriteValueFields(
+  kind: StateWriteKind,
+  summary: FlowSummary,
+  key: string,
+  valueType: DebugValueType,
+  value: unknown,
+  codec: CodecEndpoint | null,
+  fetcher: typeof fetch = fetch,
+): Promise<Record<string, unknown>> {
+  let shouldEncrypt = codec !== null;
+  if (kind === 'attribute') {
+    const form = await readStoredAttributeForm(summary.flowId, summary.runId, key, fetcher);
+    if (form === 'encrypted' && !codec) {
+      throw new Error(`Attribute ${key} is encrypted. Set a codec endpoint in Settings to update it; `
+        + 'Dex Web does not replace an encrypted value with plaintext.');
+    }
+    shouldEncrypt = form === 'encrypted';
+  }
+  if (!shouldEncrypt || !codec) return { valueType, value };
+  const context = { flowId: summary.flowId, flowType: summary.flowType };
+  return { encodedValue: await encodeStoredValue(codec, context, debugValueJSON(valueType, value), fetcher) };
+}
+
 export function StateWriteDialog({
   kind,
   summary,
+  storesEncryptedPayloads = false,
   onClose,
   onWritten,
 }: {
   kind: StateWriteKind | null;
   summary: FlowSummary;
+  /** Whether this run holds encrypted values, so a plaintext write deserves a note. */
+  storesEncryptedPayloads?: boolean;
   onClose: () => void;
   onWritten: () => Promise<void>;
 }) {
@@ -92,11 +127,23 @@ export function StateWriteDialog({
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const { codec } = usePayloadCodec();
 
   const modalRef = useModalFocus<HTMLDivElement>(kind !== null, onClose);
   if (!kind) return null;
   const copy = copyByKind[kind];
   const canSubmit = !submitting && name.trim() !== '';
+  const encryptionNote = kind === 'attribute'
+    ? codec
+      ? 'A new Attribute is written in plaintext. An encrypted Attribute is encrypted again in your browser.'
+      : storesEncryptedPayloads
+        ? 'A new Attribute is written in plaintext. Updating an encrypted Attribute needs a codec endpoint.'
+        : ''
+    : codec
+      ? 'The message is encrypted in your browser with the codec endpoint before Dex Web sends it.'
+      : storesEncryptedPayloads
+        ? 'This run holds encrypted values. Without a codec endpoint, the message is sent in plaintext.'
+        : '';
 
   async function submit() {
     if (!kind) return;
@@ -109,6 +156,7 @@ export function StateWriteDialog({
     setError('');
     const target = kind === 'attribute' ? { key: name.trim() } : { channelName: name.trim() };
     try {
+      const valueFields = await stateWriteValueFields(kind, summary, name.trim(), valueType, parsed.value, codec);
       await readResponseJSON(await fetch(copy.url, {
         method: copy.method,
         headers: { 'Content-Type': 'application/json' },
@@ -116,8 +164,7 @@ export function StateWriteDialog({
           flowId: summary.flowId,
           runId: summary.runId,
           ...target,
-          valueType,
-          value: parsed.value,
+          ...valueFields,
         }),
       }));
       await onWritten();
@@ -156,6 +203,7 @@ export function StateWriteDialog({
           Value
           <textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} />
         </label>
+        {encryptionNote && <small className="muted payload-write-note">{encryptionNote}</small>}
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">
           <button className="button ghost" onClick={onClose}>Close</button>

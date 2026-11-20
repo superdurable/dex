@@ -108,6 +108,11 @@ jobs:
         run: cargo build --locked -p dexzd-server --bin dex-server-zd
       - name: Run Dex Web end-to-end tests against server-zd
         run: web/scripts/run-server-zd-e2e.sh
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run the payload encryption browser test
+        run: web/scripts/run-payload-encryption-e2e.sh
 
   standalone-image:
     name: Dex Web image

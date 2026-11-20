@@ -563,7 +563,7 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 			writeGRPCError(response, attributeErr, "GetAttributes")
 			return
 		}
-		attributeSnapshot = keyValueMap(attributes.GetAttributes())
+		attributeSnapshot = h.hydratedKeyValueMap(request.Context(), flowID, attributes.GetAttributes())
 	}
 	isActive := summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_RUNNING
 	eligibleActions := make([]string, 0, len(definition.Actions))
@@ -606,6 +606,16 @@ func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Requ
 	}
 	if err := h.requireActiveFlow(request.Context(), body.FlowID, body.FlowType); err != nil {
 		writeGRPCError(response, err, "GetFlowSummary")
+		return
+	}
+	// A display edit writes plaintext, so it must not replace an encrypted value with a plaintext one.
+	isEncrypted, err := h.isStoredAttributeEncrypted(request.Context(), body.FlowID, body.AttributeKey)
+	if err != nil {
+		writeGRPCError(response, err, "GetAttributes")
+		return
+	}
+	if isEncrypted {
+		WriteError(response, http.StatusConflict, fmt.Sprintf("Attribute %q %s", body.AttributeKey, encryptedValueMessage), nil)
 		return
 	}
 	value, err := encodeV2Value(body.Value, field.ValueType)
@@ -742,7 +752,11 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 			writeGRPCError(response, err, "GetAttributes")
 			return
 		}
-		currentValues := keyValueMap(conditionAttributes.GetAttributes())
+		currentValues := h.hydratedKeyValueMap(request.Context(), body.FlowID, conditionAttributes.GetAttributes())
+		if err := actionConditionValueError(action.Condition.AttributeKey, currentValues[action.Condition.AttributeKey]); err != nil {
+			WriteError(response, http.StatusConflict, err.Error(), nil)
+			return
+		}
 		if !actionConditionMatches(*action.Condition, currentValues[action.Condition.AttributeKey]) {
 			WriteError(response, http.StatusConflict, "Action condition no longer matches the current Flow state", nil)
 			return
@@ -890,7 +904,12 @@ func (h *v2Handler) invokeView(
 	if err != nil {
 		return nil, err
 	}
-	values, ok := v2DexValue(output).(map[string]interface{})
+	if isEncryptedValue(output) {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"%s returned an encrypted value; Dex Web cannot read encrypted RPC outputs", view.RPCName)
+	}
+	// The view's own object is read by field name; only its field values stay escaped.
+	values, ok := unwrapEscapedObject(v2DexValue(output)).(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("%s returned a non-object value", view.RPCName)
 	}
@@ -958,6 +977,25 @@ func (h *v2Handler) hydrateV2Value(
 	return hydrated, nil
 }
 
+// isStoredAttributeEncrypted reports whether an Attribute's current value, after blob loading, is encrypted.
+func (h *v2Handler) isStoredAttributeEncrypted(ctx context.Context, flowID string, key string) (bool, error) {
+	attributes, err := h.client.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: flowID, Keys: []string{key}})
+	if err != nil {
+		return false, err
+	}
+	for _, attribute := range attributes.GetAttributes() {
+		if attribute.GetKey() != key {
+			continue
+		}
+		value, err := h.hydrateV2Value(ctx, flowID, attribute.GetValue())
+		if err != nil {
+			return false, err
+		}
+		return isEncryptedValue(value), nil
+	}
+	return false, nil
+}
+
 func v2BlobID(value *dexpb.Value) string {
 	if value == nil {
 		return ""
@@ -986,7 +1024,7 @@ func v2DexValue(value *dexpb.Value) interface{} {
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return dexValue(value)
 	}
-	return decoded
+	return escapeApplicationJSON(decoded)
 }
 
 func (h *v2Handler) requireActiveFlow(ctx context.Context, flowID string, flowType string) error {
@@ -1455,6 +1493,18 @@ func buildActionInput(
 			input[field.FieldName] = nil
 			continue
 		}
+		if field.Source == "attribute" && isEncryptedMappedValue(value) {
+			return nil, fmt.Errorf("Action input %q reads Attribute %q, which %s",
+				field.FieldName, field.AttributeKey, encryptedValueMessage)
+		}
+		if field.Source == "attribute" && isBlobReferenceMappedValue(value) {
+			return nil, fmt.Errorf("Action input %q reads Attribute %q, whose stored value could not be loaded",
+				field.FieldName, field.AttributeKey)
+		}
+		if field.Source == "attribute" {
+			// The RPC receives the application's own JSON, never Dex Web's escape wrapper.
+			value = unescapeApplicationJSON(value)
+		}
 		if field.ValueType == "int64" {
 			integer, validInteger := v2RequestInt64(value)
 			if !validInteger {
@@ -1486,7 +1536,7 @@ func actionConditionMatches(condition V2ActionCondition, currentValue interface{
 	if condition.Operator != "in" {
 		return false
 	}
-	currentJSON, err := json.Marshal(currentValue)
+	currentJSON, err := json.Marshal(unescapeApplicationJSON(currentValue))
 	if err != nil {
 		return false
 	}
@@ -1519,6 +1569,20 @@ func v2SnapshotKeys(definition V2Definition) []string {
 		}
 	}
 	return keys
+}
+
+// hydratedKeyValueMap maps Attributes like keyValueMap after loading their blobs, so encrypted values are
+// recognized; a blob that fails to load stays a blob reference.
+func (h *v2Handler) hydratedKeyValueMap(ctx context.Context, flowID string, values []*dexpb.KV) map[string]interface{} {
+	mapped := make(map[string]interface{}, len(values))
+	for _, value := range values {
+		hydrated, err := h.hydrateV2Value(ctx, flowID, value.GetValue())
+		if err != nil {
+			hydrated = value.GetValue()
+		}
+		mapped[value.GetKey()] = dexValue(hydrated)
+	}
+	return mapped
 }
 
 func keyValueMap(values []*dexpb.KV) map[string]interface{} {

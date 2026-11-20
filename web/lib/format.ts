@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { unescapeApplicationJSON } from './payloadEncryption';
+
 export type TimezonePreference = 'local' | 'UTC';
 
 // Building a formatter is costly, and a Timeline page formats up to 1000 dates per render.
@@ -105,5 +107,5 @@ export function formatDuration(start: string | null, close: string | null): stri
 export function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'string') return value;
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(unescapeApplicationJSON(value), null, 2);
 }

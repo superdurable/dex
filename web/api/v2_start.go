@@ -43,6 +43,8 @@ type v2StartRequest struct {
 	WorkerTargetTaskQueue   string          `json:"workerTargetTaskQueue"`
 	BypassWorkerHealthCheck bool            `json:"bypassWorkerHealthCheck"`
 	Input                   json.RawMessage `json:"input"`
+	// EncodedInput is a dex/1 Value JSON the browser encrypted after checking the input; it replaces input.
+	EncodedInput json.RawMessage `json:"encodedInput"`
 }
 
 type v2StartResponse struct {
@@ -87,7 +89,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	stepInput, err := v2StartStepInput(definition.Start.Input, body.Input)
+	stepInput, err := v2StartRequestStepInput(definition.Start.Input, body)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -276,6 +278,21 @@ func validateV2StartInputEnum(values []V2StartInputEnumValue, kind string, minim
 		seenValues[valueKey] = true
 	}
 	return nil
+}
+
+// v2StartRequestStepInput returns the encoded input unchanged, or checks and maps the plaintext input.
+// Dex Web cannot check an encoded input against the schema; the browser checked it before encoding.
+func v2StartRequestStepInput(schema V2StartInputSchema, body v2StartRequest) (*dexpb.Value, error) {
+	if !hasEncodedValue(body.EncodedInput) {
+		return v2StartStepInput(schema, body.Input)
+	}
+	if len(bytes.TrimSpace(body.Input)) != 0 {
+		return nil, fmt.Errorf("send either encodedInput or input, not both")
+	}
+	if schema.Kind == "null" {
+		return nil, fmt.Errorf("a null Start input is never encrypted")
+	}
+	return encodedStoredValue(body.EncodedInput)
 }
 
 func v2StartStepInput(schema V2StartInputSchema, rawInput json.RawMessage) (*dexpb.Value, error) {

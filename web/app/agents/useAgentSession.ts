@@ -20,6 +20,7 @@ import { absorb, nothingHeld, readFailureReason, type Held } from '../work-queue
 import { messagesOfChunks, readSession, type SessionView } from './sessionModel';
 import { SESSION_ATTRIBUTE, attributeMapInstance, type AgentMessageRecord } from './sessionSchema';
 import { webURL } from '@/lib/basePath';
+import { containsEncryptedPayload } from '@/lib/payloadEncryption';
 
 export interface LoadedAgentSession {
   summary: FlowSummary;
@@ -115,6 +116,9 @@ async function loadAgentSession(
     chunkMessages,
   });
   if (!recentHistory) view.missing.push('Flow history could not be read, so past calls show message text only');
+  if (containsEncryptedPayload(hydrated.value)) {
+    view.missing.push('Some session Attributes are encrypted; the session view reads only plaintext Attributes');
+  }
   return {
     loaded: {
       summary,

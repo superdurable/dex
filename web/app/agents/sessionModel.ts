@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { isBlobReferenceValue, isStoredValueUnavailable } from '@/lib/blobs';
+import { unescapeApplicationJSON } from '@/lib/payloadEncryption';
 import type { ActiveStepExecution, FlowHistoryEvent, KeyValue } from '@/lib/types';
 import {
   AWAIT_USER_MESSAGE_STEP_TYPE,
@@ -142,6 +143,7 @@ function isUnreadable(value: unknown): boolean {
 /** Builds the conversation from the session's Attributes, active Steps, and Flow history. */
 export function readSession(input: SessionReadInput): SessionView {
   const missing: string[] = [];
+  // Values stay escaped for the unreadable check; decoders get the application's own JSON.
   const values = new Map(input.attributes.map((entry) => [entry.key, entry.value]));
 
   const readSingle = <T>(name: string, decode: (value: unknown) => T | null, required: boolean): T | null => {
@@ -154,7 +156,7 @@ export function readSession(input: SessionReadInput): SessionView {
       missing.push(`${name} could not be loaded`);
       return null;
     }
-    const decoded = decode(raw);
+    const decoded = decode(unescapeApplicationJSON(raw));
     if (decoded === null) missing.push(`${name} does not match the session schema`);
     return decoded;
   };
@@ -174,7 +176,7 @@ export function readSession(input: SessionReadInput): SessionView {
   for (const [key, raw] of values) {
     const messageKey = attributeMapInstance(key, SESSION_ATTRIBUTE.messages);
     if (messageKey !== null) {
-      const message = isUnreadable(raw) ? null : decodeAgentMessage(raw);
+      const message = isUnreadable(raw) ? null : decodeAgentMessage(unescapeApplicationJSON(raw));
       if (message === null) {
         unreadableMessages.push({ sequence: Number(messageKey), key });
         missing.push(`${key} ${isUnreadable(raw) ? 'could not be loaded' : 'does not match the session schema'}`);
@@ -189,7 +191,7 @@ export function readSession(input: SessionReadInput): SessionView {
     }
     const callKey = attributeMapInstance(key, SESSION_ATTRIBUTE.toolCalls);
     if (callKey !== null) {
-      const call = isUnreadable(raw) ? null : decodeAgentToolCall(raw);
+      const call = isUnreadable(raw) ? null : decodeAgentToolCall(unescapeApplicationJSON(raw));
       if (call === null) missing.push(`${key} ${isUnreadable(raw) ? 'could not be loaded' : 'does not match the session schema'}`);
       else liveCalls.set(call.toolCallId, call);
     }
@@ -475,7 +477,7 @@ export function messagesOfChunks(values: readonly unknown[]): { messages: AgentM
   const messages: AgentMessageRecord[] = [];
   let unreadable = 0;
   for (const value of values) {
-    const decoded = isUnreadable(value) ? null : decodeAgentMessageChunk(value);
+    const decoded = isUnreadable(value) ? null : decodeAgentMessageChunk(unescapeApplicationJSON(value));
     if (decoded === null) unreadable += 1;
     else messages.push(...decoded);
   }

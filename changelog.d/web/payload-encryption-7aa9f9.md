@@ -1,0 +1,6 @@
+---
+section: Added
+---
+- Dex Web decrypts **dex/1** encrypted values and **dex-encoded:** error texts and reasons in the browser. Set **Settings > Codec endpoint** to a codec server URL, with **Send cookies** for an SSO proxy. With **Auto**, Dex Web uses the local codec server of **dexcli dev -codec-key-file**. Decrypted values show like plaintext with an open lock and stay in the page's memory. Values that cannot be decrypted show a lock and the key ID, never the ciphertext. The Dex Web server never receives keys or plaintext.
+- With a codec endpoint, Dex Web encrypts Channel messages, Start inputs, stop outputs, and stop, reset, and clone fork reasons in the browser before it sends them. **POST /api/flows/channels/messages** and **PUT /api/flows/attributes** accept **encodedValue**, **POST /api/flows/stop** accepts **encodedOutput**, and **POST /api/v2/start** accepts **encodedInput**; Dex Web passes these **dex/1** Values to the Server unchanged.
+- Set attribute writes a new Attribute in plaintext and keeps the stored form of an existing one: it encrypts an update of an encrypted Attribute again, and refuses that update without a codec endpoint. Display edits, Action conditions, Action inputs read from Attributes, view RPC outputs, agent sessions, and the agent inbox read only plaintext and say so when a value is encrypted.

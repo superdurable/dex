@@ -14,25 +14,29 @@ export class DexAPIError extends Error {
   readonly httpStatus: number;
   readonly grpcCode: number | undefined;
   readonly code: string | undefined;
+  /** The "dex-encoded:" error text that a codec endpoint can decode; message then says it is encrypted. */
+  readonly encodedMessage: string | undefined;
 
-  constructor(message: string, httpStatus: number, grpcCode?: number, code?: string) {
+  constructor(message: string, httpStatus: number, grpcCode?: number, code?: string, encodedMessage?: string) {
     super(message);
     this.name = 'DexAPIError';
     this.httpStatus = httpStatus;
     this.grpcCode = grpcCode;
     this.code = code;
+    this.encodedMessage = encodedMessage;
     Object.setPrototypeOf(this, DexAPIError.prototype);
   }
 }
 
 export async function readResponseJSON<T>(response: Response): Promise<T> {
-  const data = await parseResponseJSON<T & { error?: string; grpcCode?: number; code?: string }>(response);
+  const data = await parseResponseJSON<T & { error?: string; grpcCode?: number; code?: string; encodedError?: string }>(response);
   if (!response.ok) {
     throw new DexAPIError(
       data.error?.trim() || failedRequestMessage(response),
       response.status,
       typeof data.grpcCode === 'number' ? data.grpcCode : undefined,
       data.code,
+      typeof data.encodedError === 'string' ? data.encodedError : undefined,
     );
   }
   return data;

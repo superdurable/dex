@@ -16,6 +16,7 @@ import {
 } from '@/lib/serverInfo';
 import { usePreferences } from '../../providers';
 import { THEME_CHOICES, useTheme, type ThemeChoice } from '../../theme';
+import { CodecEndpointSetting } from './CodecEndpointSetting';
 import { usePopover } from './usePopover';
 
 /** The Dex documentation site, opened in a new tab. */
@@ -123,6 +124,7 @@ export function SettingsMenu() {
               ))}
             </div>
           </div>
+          <CodecEndpointSetting />
           <ConnectedServerInfo info={serverInfo} />
           <a
             aria-label="Dex documentation"

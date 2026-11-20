@@ -13,6 +13,7 @@ import { HostLocationReporter } from './components/frame/HostLocationReporter';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
+import { PayloadCodecProvider } from './payloadCodecContext';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
 import { ThemeProvider } from './theme';
@@ -24,16 +25,18 @@ import { CONNECTORS_PATH, FLOWS_PATH, legacyV2RedirectPath, WORK_QUEUE_PATH } fr
 export function App() {
   return (
     <PreferencesProvider>
-      <ThemeProvider>
-        <WebCatalogProvider>
-          <AppBarSlotsProvider>
-            <HostLocationReporter />
-            <AppFrame>
-              <AppRoutes />
-            </AppFrame>
-          </AppBarSlotsProvider>
-        </WebCatalogProvider>
-      </ThemeProvider>
+      <PayloadCodecProvider>
+        <ThemeProvider>
+          <WebCatalogProvider>
+            <AppBarSlotsProvider>
+              <HostLocationReporter />
+              <AppFrame>
+                <AppRoutes />
+              </AppFrame>
+            </AppBarSlotsProvider>
+          </WebCatalogProvider>
+        </ThemeProvider>
+      </PayloadCodecProvider>
     </PreferencesProvider>
   );
 }
