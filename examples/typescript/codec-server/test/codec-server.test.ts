@@ -24,6 +24,7 @@ import {
   PayloadEncryptionError,
   PayloadEnvelope,
   type PayloadCodec,
+  type PayloadCodecDecodeOptions,
   type PayloadContext,
   type PayloadEncryptionKeyProvider,
 } from "@superdurable/dex";
@@ -378,6 +379,45 @@ class StaticPayloadCodecSelector implements CallerPayloadCodecSelector {
     return this.codec!;
   }
 }
+
+test("/decode passes the plaintext limit to a custom codec", async (t) => {
+  const { path } = writeRandomKeyFile(t);
+  const maxPlaintextBytes = 64;
+  const config = defaultTestConfig(path);
+  const plaintext = encodeDexValue({ kind: "stringValue", stringValue: "x".repeat(100) });
+  let receivedLimit: number | undefined;
+  const codec: PayloadCodec = {
+    async encode(): Promise<PayloadEnvelope[]> {
+      return [];
+    },
+    async decode(
+      _context: PayloadContext,
+      _envelopes: readonly PayloadEnvelope[],
+      options?: PayloadCodecDecodeOptions,
+    ): Promise<Uint8Array[]> {
+      receivedLimit = options?.maxPlaintextBytes;
+      if (receivedLimit !== undefined && plaintext.length > receivedLimit) {
+        throw new PayloadEncryptionError("decode", "limit_exceeded", "plaintext exceeds the limit");
+      }
+      return [plaintext];
+    },
+  };
+  const server = await startTestCodecServer(t, {
+    ...config,
+    payloadSizeLimits: { ...config.payloadSizeLimits, maxPlaintextBytes },
+  }, new StaticPayloadCodecSelector(codec));
+  const [envelopeText] = await encryptWithSdk(await sdkCodecFromKeyFile(path), [
+    { kind: "stringValue", stringValue: "x" },
+  ]);
+
+  assertErrorResponse(
+    await postJson(server, "/decode", { context: testPayloadContext, envelopes: [envelopeText] }),
+    422,
+    "limit_exceeded",
+    0,
+  );
+  assert.equal(receivedLimit, maxPlaintextBytes);
+});
 
 test("key provider, codec, and selector error text never reaches responses or logs", async (t) => {
   const { path } = writeRandomKeyFile(t);

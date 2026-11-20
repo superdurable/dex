@@ -313,7 +313,9 @@ export class PayloadCodecHttpServer {
     const envelope = this.parseEnvelopeText(envelopeText);
     let plaintexts: Uint8Array[];
     try {
-      plaintexts = await codec.decode(payloadContext, [envelope]);
+      plaintexts = await codec.decode(payloadContext, [envelope], {
+        maxPlaintextBytes: this.options.limits.maxPlaintextBytes,
+      });
     } catch (failure) {
       throw this.classifyCodecDecodeFailure(failure, envelope.keyId);
     }
