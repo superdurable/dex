@@ -43,6 +43,8 @@ type zdRunResources struct {
 	webListener *webListenerServer
 	// connectorsMCP keeps the Connectors MCP server behind /mcp running.
 	connectorsMCP *connectorsMCPManager
+	// localCodecServer runs only with --codec-key-file.
+	localCodecServer *localCodecServerRun
 }
 
 func (resources *zdRunResources) closeInto(runErr *error) {
@@ -64,6 +66,9 @@ func (resources *zdRunResources) closeInto(runErr *error) {
 		if webErr != nil && !errors.Is(webErr, context.Canceled) {
 			*runErr = errors.Join(*runErr, fmt.Errorf("stop Dex Web: %w", webErr))
 		}
+	}
+	if resources.localCodecServer != nil {
+		*runErr = errors.Join(*runErr, resources.localCodecServer.Close())
 	}
 	if resources.connection != nil {
 		*runErr = errors.Join(*runErr, resources.connection.Close())

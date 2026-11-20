@@ -23,6 +23,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal"
 	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
+	"github.com/superdurable/dex/cli/internal/payloadcodec"
 	"github.com/superdurable/dex/cli/internal/update"
 )
 
@@ -69,7 +70,7 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	case "release-notes":
 		return update.ExecuteReleaseNotes(ctx, args[1:], os.Stdout, version, term.IsTerminal(os.Stdout.Fd()))
 	case "codec-server":
-		return fmt.Errorf("dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories")
+		return payloadcodec.ExecuteCodecServerCommand(ctx, args[1:], os.Stdout, os.Stderr)
 	case "version":
 		if len(args) > 1 {
 			printUpdateNotice(ctx, os.Stderr, version)
@@ -104,6 +105,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  release-notes  Print the notes of the dexcli releases after this version")
 	fmt.Fprintln(output, "  admin     Describe or step down the active server process (admin credential)")
 	fmt.Fprintln(output, "  web       Serve Dex Web against the existing server given by --server")
+	fmt.Fprintln(output, "  codec-server  Serve a local codec server for encrypted payloads, or generate a key file (keygen)")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "FlowService credentials:")
 	fmt.Fprintln(output, "  --credential-file path  token file; overrides DEX_CREDENTIAL_FILE and DEX_CREDENTIAL")

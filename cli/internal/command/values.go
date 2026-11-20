@@ -26,9 +26,11 @@ type blobReference struct {
 	kind string
 }
 
+// naturalMessage returns message as natural JSON after blob hydration and payload decryption,
+// and the warnings about stored values that could not be loaded or decrypted.
 func naturalMessage(
 	ctx context.Context,
-	client dexpb.FlowServiceClient,
+	client *flowService,
 	flowID string,
 	message proto.Message,
 	noHydrate bool,
@@ -39,11 +41,14 @@ func naturalMessage(
 	}
 	references := make(map[string]blobReference)
 	collectBlobReferences(raw, references)
-	if noHydrate || len(references) == 0 {
-		return naturalValue(raw, nil, false).(map[string]any), nil, nil
+	var replacements map[string]any
+	var warnings []string
+	isHydrated := !noHydrate && len(references) > 0
+	if isHydrated {
+		replacements, warnings = hydrateBlobReferences(ctx, client.service, flowID, references)
 	}
-	replacements, warnings := hydrateBlobReferences(ctx, client, flowID, references)
-	return naturalValue(raw, replacements, true).(map[string]any), warnings, nil
+	warnings = append(warnings, client.decryptRawPayloads(ctx, flowID, message.ProtoReflect().Descriptor(), raw, replacements)...)
+	return naturalValue(raw, replacements, isHydrated).(map[string]any), warnings, nil
 }
 
 func messageMap(message proto.Message) (map[string]any, error) {
@@ -117,7 +122,8 @@ func hydrateBlobReferences(
 			missing++
 			continue
 		}
-		replacements[key] = naturalValue(raw, nil, false)
+		// Kept raw so that payload decryption can still find an envelope in the loaded value.
+		replacements[key] = raw
 	}
 	if missing > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d stored value(s) unavailable", missing))
@@ -131,7 +137,7 @@ func naturalValue(value any, replacements map[string]any, unavailableWhenMissing
 	case map[string]any:
 		if reference, ok := rawBlobReference(current); ok {
 			if replacement, found := replacements[blobReferenceKey(reference)]; found {
-				return replacement
+				return naturalValue(replacement, nil, false)
 			}
 			if unavailableWhenMissing {
 				return map[string]any{

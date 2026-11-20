@@ -27,6 +27,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/update"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
+	"github.com/superdurable/dex/web/api"
 	"github.com/superdurable/dex/web/assets"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -67,6 +68,20 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	}
 	resources := &zdRunResources{ctx: ctx, shutdownTimeout: s.cfg.ShutdownTimeout, listeners: listeners}
 	defer resources.closeInto(&runErr)
+	if err := removeStaleCodecServerDiscovery(s.cfg); err != nil {
+		return err
+	}
+	var webCodecServer api.LocalCodecServerSettings
+	if s.cfg.CodecKeyFile != "" {
+		// Started before the server so that an invalid key file fails at once.
+		resources.localCodecServer, err = startLocalCodecServer(s.cfg)
+		if err != nil {
+			return err
+		}
+		if s.isLoopbackBind() {
+			webCodecServer = resources.localCodecServer.settings
+		}
+	}
 	if s.cfg.isExplicit("server-log-folder") {
 		directory, err := filepath.Abs(s.cfg.LogDirectory)
 		if err != nil {
@@ -125,6 +140,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 			ConnectorReleaseOverrides: s.cfg.ConnectorReleaseOverrides,
 			AllowedHosts:              dexweb.SplitAllowedHosts(s.cfg.AllowedHosts),
 			WebVersion:                "dexcli " + s.cfg.version,
+			LocalCodecServer:          webCodecServer,
 		},
 		flowServiceClient,
 		assets.Files,
@@ -311,16 +327,33 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverVersion 
 	if serverVersion != "" {
 		fmt.Fprintf(s.stdout, "Server version: %s\n", serverVersion)
 	}
+	if s.cfg.CodecKeyFile != "" {
+		s.printLocalCodecServer()
+	}
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
 	fmt.Fprintf(s.stdout, "Logs:          %s\n", serverLogPath)
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
 }
 
+// printLocalCodecServer describes the codec server of --codec-key-file in the ready banner.
+func (s *supervisor) printLocalCodecServer() {
+	if s.isLoopbackBind() {
+		fmt.Fprintln(s.stdout, "Codec server:  on 127.0.0.1 for Dex Web and dexcli flow commands (local development only)")
+	} else {
+		fmt.Fprintln(s.stdout, "Codec server:  for dexcli flow commands only; Dex Web does not get it because --bind-address is not a loopback address")
+	}
+	fmt.Fprintf(s.stdout, "Codec key:     %s (configure your Workers and Clients with the same file)\n", s.cfg.CodecKeyFile)
+}
+
+func (s *supervisor) isLoopbackBind() bool {
+	bindIP := net.ParseIP(s.cfg.BindAddress)
+	return bindIP != nil && bindIP.IsLoopback()
+}
+
 // isConnectorsMCPServed reports whether /mcp is mounted; its tools carry no credentials, so only loopback binds serve it.
 func (s *supervisor) isConnectorsMCPServed() bool {
-	bindIP := net.ParseIP(s.cfg.BindAddress)
-	return s.cfg.ConnectorsMCP.IsEnabled && bindIP != nil && bindIP.IsLoopback()
+	return s.cfg.ConnectorsMCP.IsEnabled && s.isLoopbackBind()
 }
 
 // mountConnectorsMCP returns the Connectors MCP manager and the server that serves Dex Web with /mcp mounted.

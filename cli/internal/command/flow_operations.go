@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +27,7 @@ import (
 
 func loadHistory(
 	ctx context.Context,
-	client dexpb.FlowServiceClient,
+	client *flowService,
 	flowID string,
 	runID string,
 	startEventID int64,
@@ -40,7 +41,7 @@ func loadHistory(
 	nextEventID := startEventID
 	nextToken := pageToken
 	for {
-		response, err := client.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+		response, err := client.service.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
 			FlowId: flowID, RunId: runID, StartInternalEventId: nextEventID,
 			EstimatePageSize: pageSize, NextPageToken: nextToken,
 		})
@@ -169,7 +170,7 @@ func executeInspect(c *flowCommand, ctx context.Context, args []string, options 
 		}
 		resolvedRunID := summaryResponse.GetFlowRunId().GetRunId()
 		history, historyErr := loadHistory(
-			callCtx, client.service, flowID, resolvedRunID, 0, int32(*pageSize), nil,
+			callCtx, client, flowID, resolvedRunID, 0, int32(*pageSize), nil,
 			*allHistory, options.noHydrate,
 		)
 		if historyErr != nil {
@@ -183,7 +184,7 @@ func executeInspect(c *flowCommand, ctx context.Context, args []string, options 
 			if stateErr != nil {
 				return newOperationError("flow inspect", stateErr)
 			}
-			state, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, stateResponse, options.noHydrate)
+			state, warnings, mapErr := naturalMessage(callCtx, client, flowID, stateResponse, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow inspect", mapErr)
 			}
@@ -214,20 +215,21 @@ func executeWatch(c *flowCommand, ctx context.Context, args []string, options op
 	}
 	options.timeout = 0
 	return withStreamingFlowService(ctx, options, func(client *flowService) error {
-		return watchRun(c, ctx, client.service, flowID, *runID, *fromEventID, int32(*pageSize), options)
+		return watchRun(c, ctx, client, flowID, *runID, *fromEventID, int32(*pageSize), options)
 	})
 }
 
 func watchRun(
 	c *flowCommand,
 	ctx context.Context,
-	client dexpb.FlowServiceClient,
+	flowClient *flowService,
 	flowID string,
 	runID string,
 	fromEventID int64,
 	pageSize int32,
 	options options,
 ) error {
+	client := flowClient.service
 	currentRunID, err := resolveRunID(ctx, client, flowID, runID)
 	if err != nil {
 		return newOperationError("flow watch", err)
@@ -244,7 +246,7 @@ func watchRun(
 			return newOperationError("flow watch", pageErr)
 		}
 		for _, event := range page.GetEvents() {
-			mapped, warnings, mapErr := naturalMessage(ctx, client, flowID, event, options.noHydrate)
+			mapped, warnings, mapErr := naturalMessage(ctx, flowClient, flowID, event, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow watch", mapErr)
 			}
@@ -279,7 +281,7 @@ func watchRun(
 			if stateErr != nil {
 				return newOperationError("flow watch", stateErr)
 			}
-			state, warnings, mapErr := naturalMessage(ctx, client, flowID, stateResponse, options.noHydrate)
+			state, warnings, mapErr := naturalMessage(ctx, flowClient, flowID, stateResponse, options.noHydrate)
 			if mapErr != nil {
 				return newOperationError("flow watch", mapErr)
 			}
@@ -331,8 +333,16 @@ func executeStop(c *flowCommand, ctx context.Context, args []string, options opt
 		return newConfirmationError("flow stop")
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		payloadContext := dex.PayloadContext{FlowID: flowID}
+		encodedReason, err := client.encodeText(callCtx, payloadContext, *reason)
+		if err != nil {
+			return newOperationError("flow stop", err)
+		}
+		if err := client.encryptValues(callCtx, payloadContext, &output); err != nil {
+			return newOperationError("flow stop", err)
+		}
 		_, callErr := client.service.StopFlow(callCtx, &dexpb.StopFlowRequest{
-			FlowId: flowID, RunId: *runID, StopType: stopType, Reason: *reason, Output: output,
+			FlowId: flowID, RunId: *runID, StopType: stopType, Reason: encodedReason, Output: output,
 		})
 		if callErr != nil {
 			return newOperationError("flow stop", callErr)
@@ -422,6 +432,11 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 		return newConfirmationError("flow time-travel")
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		encodedReason, err := client.encodeText(callCtx, dex.PayloadContext{FlowID: flowID}, request.GetReason())
+		if err != nil {
+			return newOperationError("flow time-travel", err)
+		}
+		request.Reason = encodedReason
 		response, callErr := client.service.ResetFlow(callCtx, request)
 		if callErr != nil {
 			return newOperationError("flow time-travel", callErr)
@@ -604,6 +619,9 @@ func executeCloneFork(c *flowCommand, ctx context.Context, args []string, option
 		return newConfirmationError("flow clone-fork")
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		if err := client.encodeCloneForkPayloads(callCtx, request); err != nil {
+			return newOperationError("flow clone-fork", err)
+		}
 		response, callErr := client.service.CloneForkFlow(callCtx, request)
 		if callErr != nil {
 			return newOperationError("flow clone-fork", callErr)
