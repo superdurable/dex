@@ -121,6 +121,7 @@ client-apis.
 | [java/](java/) | Java Worker + HTTP (`8080` / `8803`) |
 | [python/](python/) | Python async Worker + HTTP (`8080` / `8803`) |
 | [python/sync-python/](python/sync-python/) | Python sync Worker + HTTP (`8081` / `8804`) |
+| [python/codec-server/](python/codec-server/) | Deployable codec server for encrypted payloads in Dex Web and dexcli (not a Worker) |
 | [typescript/](typescript/) | TypeScript Worker + HTTP (`8080` / `8803`) |
 | [rust/](rust/) | Rust Worker + HTTP (`8080` / `8803`) |
 | [playground/](playground/) | Shared static UI for the HTTP controllers |

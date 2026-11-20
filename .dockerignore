@@ -20,6 +20,7 @@ s3local/target/
 server-zd/target/
 server-zd/target/release/dex-server-zd
 benchmark/bin/dexbench
+examples/python/codec-server/.venv/
 **/target/
 **/node_modules/
 **/.venv/

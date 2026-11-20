@@ -19,6 +19,7 @@ examples/go/deepverify
 cli/dexcli
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
+examples/python/codec-server/.venv/
 .bin/
 .build/
 vendor/
