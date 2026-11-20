@@ -139,6 +139,15 @@ describe('codec request headers', () => {
     expect(wrong).not.toContain('custom-token');
     expect(payloadCodecErrorMessage('unauthenticated', localCodec)).not.toContain('bearer token');
   });
+
+  it('names the bearer token when /encode answers 401, without echoing it', async () => {
+    const fetcher = vi.fn(async () => jsonResponse(401, { error: { category: 'unauthenticated', message: 'no' } }));
+    const codec = resolveCodecEndpoint(customPreference, null, 'custom-token');
+    const failure = await encodeReasonText(codec, context, 'why', fetcher as typeof fetch).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('bearer token');
+    expect((failure as Error).message).not.toContain('custom-token');
+  });
 });
 
 describe('PayloadDecodeStore', () => {

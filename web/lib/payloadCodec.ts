@@ -195,8 +195,13 @@ export class PayloadCodecError extends Error {
   readonly status: number;
   readonly index: number | undefined;
 
-  constructor(category: EncryptedPayloadProblem, status: number, index?: number) {
-    super(payloadCodecErrorMessage(category));
+  constructor(
+    category: EncryptedPayloadProblem,
+    status: number,
+    index?: number,
+    codec?: Pick<CodecEndpoint, 'source' | 'bearerToken' | 'includeCredentials'> | null,
+  ) {
+    super(payloadCodecErrorMessage(category, codec));
     this.name = 'PayloadCodecError';
     this.category = category;
     this.status = status;
@@ -212,8 +217,7 @@ const protocolCategories = new Set<EncryptedPayloadProblem>([
 /**
  * A fixed message per category; codec server messages are not shown, so they cannot leak into the page.
  *
- * Pass the endpoint in use to name its likely cause, such as a missing Custom mode bearer token. The message never
- * contains the token.
+ * The optional endpoint names a likely cause; the message never contains its token.
  */
 export function payloadCodecErrorMessage(
   category: EncryptedPayloadProblem,
@@ -263,7 +267,7 @@ async function postCodecRequest<T>(
       signal: AbortSignal.timeout(codecRequestTimeoutMilliseconds),
     });
   } catch {
-    throw new PayloadCodecError('unavailable', 0);
+    throw new PayloadCodecError('unavailable', 0, undefined, codec);
   }
   if (!response.ok) {
     let category: EncryptedPayloadProblem = response.status === 401 ? 'unauthenticated'
@@ -278,7 +282,7 @@ async function postCodecRequest<T>(
     } catch {
       // A body that is not the protocol error keeps the status category.
     }
-    throw new PayloadCodecError(category, response.status, index);
+    throw new PayloadCodecError(category, response.status, index, codec);
   }
   try {
     return await response.json() as T;
