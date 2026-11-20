@@ -63,3 +63,8 @@ jobs:
         env:
           PROTOC_INCLUDE: ${{ steps.protoc.outputs.path }}/include
         run: make generated-code-check
+      - name: Verify payload encryption vectors
+        working-directory: protos/conformance/payload-encryption
+        env:
+          GOWORK: "off"
+        run: go test ./...

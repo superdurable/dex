@@ -263,6 +263,17 @@ class FlowDefinitionUploadOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrap
     FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED: _ClassVar[FlowDefinitionUploadOutcome]
     FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED: _ClassVar[FlowDefinitionUploadOutcome]
     FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING: _ClassVar[FlowDefinitionUploadOutcome]
+
+class PayloadCipher(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PAYLOAD_CIPHER_UNSPECIFIED: _ClassVar[PayloadCipher]
+    PAYLOAD_CIPHER_AES256_GCM: _ClassVar[PayloadCipher]
+    PAYLOAD_CIPHER_CUSTOM: _ClassVar[PayloadCipher]
+
+class PayloadCompression(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PAYLOAD_COMPRESSION_NONE: _ClassVar[PayloadCompression]
+    PAYLOAD_COMPRESSION_GZIP: _ClassVar[PayloadCompression]
 SERVER_ENGINE_UNSPECIFIED: ServerEngine
 SERVER_ENGINE_TEMPORAL: ServerEngine
 SERVER_ENGINE_CADENCE: ServerEngine
@@ -418,6 +429,11 @@ FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED: FlowDefinitionUploadOutcome
 FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED: FlowDefinitionUploadOutcome
 FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED: FlowDefinitionUploadOutcome
 FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING: FlowDefinitionUploadOutcome
+PAYLOAD_CIPHER_UNSPECIFIED: PayloadCipher
+PAYLOAD_CIPHER_AES256_GCM: PayloadCipher
+PAYLOAD_CIPHER_CUSTOM: PayloadCipher
+PAYLOAD_COMPRESSION_NONE: PayloadCompression
+PAYLOAD_COMPRESSION_GZIP: PayloadCompression
 
 class ServerInfo(_message.Message):
     __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version", "server_engine")
@@ -2445,3 +2461,24 @@ class GetFlowDefinitionsResponse(_message.Message):
     DEFINITIONS_FIELD_NUMBER: _ClassVar[int]
     definitions: _containers.RepeatedCompositeFieldContainer[FlowDefinition]
     def __init__(self, definitions: _Optional[_Iterable[_Union[FlowDefinition, _Mapping]]] = ...) -> None: ...
+
+class PayloadEnvelope(_message.Message):
+    __slots__ = ("cipher", "key_id", "data", "compression", "metadata")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: bytes
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[bytes] = ...) -> None: ...
+    CIPHER_FIELD_NUMBER: _ClassVar[int]
+    KEY_ID_FIELD_NUMBER: _ClassVar[int]
+    DATA_FIELD_NUMBER: _ClassVar[int]
+    COMPRESSION_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    cipher: PayloadCipher
+    key_id: str
+    data: bytes
+    compression: PayloadCompression
+    metadata: _containers.ScalarMap[str, bytes]
+    def __init__(self, cipher: _Optional[_Union[PayloadCipher, str]] = ..., key_id: _Optional[str] = ..., data: _Optional[bytes] = ..., compression: _Optional[_Union[PayloadCompression, str]] = ..., metadata: _Optional[_Mapping[str, bytes]] = ...) -> None: ...

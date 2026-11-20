@@ -1,0 +1,1296 @@
+{
+  "description": "Golden decode vectors for Dex client-side payload encryption, format dex/1. Every SDK must decode each positive case to expectedPlaintext and expectedValue, return each passthrough input unchanged, and reject each negative case with expectedError. See protos/payload-encryption.md.",
+  "marker": "dex/1",
+  "stringPrefix": "dex-encoded:",
+  "keyFile": {
+    "current_key_id": "k2",
+    "keys": {
+      "k1": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "k1-alias": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "k2": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8="
+    }
+  },
+  "keysHex": {
+    "k1": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "k1-alias": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "k2": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+  },
+  "limits": {
+    "maxEnvelopeBytes": 16842752,
+    "maxEncodedTextBytes": 22457004,
+    "maxDataBytes": 16842752,
+    "maxPlaintextBytes": 67108864,
+    "maxKeyIdBytes": 64,
+    "maxMetadataEntries": 16,
+    "maxMetadataTotalBytes": 4096
+  },
+  "errorCategories": [
+    "malformed",
+    "unsupported_marker",
+    "unsupported_cipher",
+    "unsupported_compression",
+    "unknown_key",
+    "authentication_failed",
+    "limit_exceeded",
+    "invalid_plaintext"
+  ],
+  "passthrough": [
+    {
+      "name": "plaintext-string",
+      "description": "A string Value is not an envelope.",
+      "input": {
+        "value": {
+          "stringValue": "hello, dex"
+        }
+      }
+    },
+    {
+      "name": "plaintext-json-object",
+      "description": "An object with encoding json is not an envelope.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "json",
+            "payload": "eyJvcmRlcklkIjoiQS0xMDAxIn0="
+          }
+        }
+      }
+    },
+    {
+      "name": "plaintext-int",
+      "description": "An int Value is not an envelope.",
+      "input": {
+        "value": {
+          "intValue": "42"
+        }
+      }
+    },
+    {
+      "name": "null",
+      "description": "Null is never encrypted.",
+      "input": {
+        "value": {
+          "nullValue": null
+        }
+      }
+    },
+    {
+      "name": "object-encoding-dex-without-slash",
+      "description": "Only encodings starting with dex/ are reserved; dex is an ordinary encoding.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex",
+            "payload": "cGF5bG9hZA=="
+          }
+        }
+      }
+    },
+    {
+      "name": "text-plain",
+      "description": "Text without the prefix is plaintext.",
+      "input": {
+        "text": "payment declined"
+      }
+    },
+    {
+      "name": "text-empty",
+      "description": "Empty text stays empty.",
+      "input": {
+        "text": ""
+      }
+    },
+    {
+      "name": "text-prefix-without-colon",
+      "description": "The prefix includes the colon.",
+      "input": {
+        "text": "dex-encoded"
+      }
+    },
+    {
+      "name": "text-space-escaped-prefix",
+      "description": "A writer without a codec prepends one space to plaintext that starts with dex-encoded:. The prefix must start at the first byte, so readers show this text unchanged, space included.",
+      "input": {
+        "text": " dex-encoded: retry later"
+      }
+    }
+  ],
+  "positive": [
+    {
+      "name": "string-ascii",
+      "description": "A string Value.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGigzMFK3nZwUnZk6eIpxG7StiYziAXsj2ZjP3ndkV1TUqtYVjIMZ2H+H"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "333052b79d9c149d993a788a",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "GgpoZWxsbywgZGV4",
+      "expectedValue": {
+        "stringValue": "hello, dex"
+      }
+    },
+    {
+      "name": "string-unicode",
+      "description": "A string Value with multi-byte UTF-8.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGjLr/Z7r0RKyc4EVWslthFeHpXHXJuSUXx0QPjSiCFPBLWldEeUGiUuF7fTuQZWzTGv53A=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "ebfd9eebd112b27381155ac9",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "GhRHcsO8w59lLCDkuJbnlYwg8J+MjQ==",
+      "expectedValue": {
+        "stringValue": "Grüße, 世界 🌍"
+      }
+    },
+    {
+      "name": "string-empty",
+      "description": "An empty string is still serialized because Value.kind is a oneof.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh76AGpvKCSD/gh+qcB+8nUjXyuzTvuS/a03iAUnOIQ="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "fa006a6f282483fe087ea9c0",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "GgA=",
+      "expectedValue": {
+        "stringValue": ""
+      }
+    },
+    {
+      "name": "object-json",
+      "description": "An object with encoding json.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGl/HNKgD/XZThGuaY7spl9vkzqjwIEKRAFL8VYcFRnoqyg2pSjiCGytYMuDesVvWWqepNi5H0EWBMM/rSkDHV5TMsm/lGVYaMCe6TWhmw3it0oJ7tXMKgMtyJ0ZV7TGLhQ=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "c734a803fd7653846b9a63bb",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "IkEKBGpzb24SOXsib3JkZXJJZCI6IkEtMTAwMSIsImFtb3VudCI6NDIuNSwiaXRlbXMiOlsiYm9vayIsInBlbiJdfQ==",
+      "expectedValue": {
+        "objValue": {
+          "encoding": "json",
+          "payload": "eyJvcmRlcklkIjoiQS0xMDAxIiwiYW1vdW50Ijo0Mi41LCJpdGVtcyI6WyJib29rIiwicGVuIl19"
+        }
+      }
+    },
+    {
+      "name": "object-raw",
+      "description": "An object with encoding raw and arbitrary bytes.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGipFSCLhFpRt8n8CbwFR3KcN+L/qiaMfQvYSquE8X4OQcKopCAYitalfU80="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "454822e116946df27f026f01",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "IgwKA3JhdxIFAAEC/v8=",
+      "expectedValue": {
+        "objValue": {
+          "encoding": "raw",
+          "payload": "AAEC/v8="
+        }
+      }
+    },
+    {
+      "name": "object-encoding-int",
+      "description": "An object whose encoding is the text int must decode as obj_value, not int_value.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGidwNI2ySBCrP7Fm1EOg7vosJhkVj9nHQsM+LbnR1D9IU46PGu1UfAY="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "70348db24810ab3fb166d443",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "IgkKA2ludBICNDI=",
+      "expectedValue": {
+        "objValue": {
+          "encoding": "int",
+          "payload": "NDI="
+        }
+      }
+    },
+    {
+      "name": "int-positive",
+      "description": "An int Value.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh6xLNJhEaaOFmS7okHDi83osX24vYCdmHnqUAaZTeY="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "b12cd26111a68e1664bba241",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "KCo=",
+      "expectedValue": {
+        "intValue": "42"
+      }
+    },
+    {
+      "name": "int-zero",
+      "description": "Zero is still serialized because Value.kind is a oneof.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh7afXFQAM8eh5pMzR2U44dnMEywaDoMHwVhvQtmWwg="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "da7d715000cf1e879a4ccd1d",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "KAA=",
+      "expectedValue": {
+        "intValue": "0"
+      }
+    },
+    {
+      "name": "int-negative",
+      "description": "A negative int uses a 10-byte varint.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGieI2MR3/mlODOnSmyovpORENXtwU0SdLEMqUobRBoI3KJv/MvJrLbU="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "88d8c477fe694e0ce9d29b2a",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "KPn//////////wE=",
+      "expectedValue": {
+        "intValue": "-7"
+      }
+    },
+    {
+      "name": "int-max",
+      "description": "The largest int64.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiYsgod5VabJDyPE0zEUaADgRLP6l+P+T9yn6GeTIVExfd5yiPxtDw=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "2c82877955a6c90f23c4d331",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "KP//////////fw==",
+      "expectedValue": {
+        "intValue": "9223372036854775807"
+      }
+    },
+    {
+      "name": "int-min",
+      "description": "The smallest int64.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGifq5GjSc5dqgZvYTfsU9C2Q6la/SWavssnPuv5ilCAgqzvOZZPE0kc="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "eae468d273976a819bd84dfb",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "KICAgICAgICAgAE=",
+      "expectedValue": {
+        "intValue": "-9223372036854775808"
+      }
+    },
+    {
+      "name": "double-positive",
+      "description": "A double Value.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiXFQdAlT1qPAJzQGmnz99rEqnnwcT2ucGuOzSQpCBBCOGPbVKOW"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "c541d0254f5a8f009cd01a69",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "MQAAAAAAAAxA",
+      "expectedValue": {
+        "doubleValue": 3.5
+      }
+    },
+    {
+      "name": "double-negative",
+      "description": "A negative double.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiUswvxj+KP3G4wqUu6GHDdqy1ttxzyzbovBBeXj/UFlFWvebEI6"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "2cc2fc63f8a3f71b8c2a52ee",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "MQAAAAAAAALA",
+      "expectedValue": {
+        "doubleValue": -2.25
+      }
+    },
+    {
+      "name": "double-negative-zero",
+      "description": "Negative zero keeps its sign bit; compare bits, not ==.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiXQozraJoFheOD9arwOrh1onuSwGruCQ6JoPWMWkFn+7RoAhqDa"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "d0a33ada26816178e0fd6abc",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "MQAAAAAAAACA",
+      "expectedValue": {
+        "doubleValue": -0
+      }
+    },
+    {
+      "name": "double-nan",
+      "description": "NaN with bits 0x7ff8000000000000; compare with an is-NaN check, not bits or ==.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiUc/5x76XE+WpKx21y/LSLWFBcP/P1NhuNQQkkFsDk7+HIlpVuv"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "1cff9c7be9713e5a92b1db5c",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "MQEAAAAAAPh/",
+      "expectedValue": {
+        "doubleValue": "NaN"
+      }
+    },
+    {
+      "name": "double-positive-infinity",
+      "description": "Positive infinity.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiV96mhO5tBaGr0WwFdV3n9pRDql8Qbazfv5+IaEiAgoVkE4xfsH"
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "7dea684ee6d05a1abd16c057",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "MQAAAAAAAPB/",
+      "expectedValue": {
+        "doubleValue": "Infinity"
+      }
+    },
+    {
+      "name": "bool-true",
+      "description": "A bool Value.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh4te3BCobTZE/gSq43FrbfdjQbsmk7KmM9SCkRPaTw="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "2d7b7042a1b4d913f812ab8d",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "OAE=",
+      "expectedValue": {
+        "boolValue": true
+      }
+    },
+    {
+      "name": "bool-false",
+      "description": "False is still serialized because Value.kind is a oneof.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh4Vr4gacWiKkruqrl6KOC6mfueWn+RfbskCVK4pSV8="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "15af881a71688a92bbaaae5e",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "OAA=",
+      "expectedValue": {
+        "boolValue": false
+      }
+    },
+    {
+      "name": "string-gzip",
+      "description": "A string compressed with gzip before encryption.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGnzBd4HS6DzD9/kCNFNhiIB9/p6v/cmspoSstf7TrwxyBk8CfWPnY3sIgQVuwYXSUTn6vHgpvatiJVIaHOOIbPiQnpKNCsNVTikqWUrhAdPla0BDs3Wxp5nPkWTVndq/vEm2kue1Gpvk747WIH6By/AOIr3/dy1Vn7roD/3rIAE="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 1,
+        "nonceHex": "c17781d2e83cc3f7f9023453",
+        "aadHex": "6465782f3100310031006b31"
+      },
+      "expectedPlaintext": "GvgPRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4g",
+      "expectedValue": {
+        "stringValue": "Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. "
+      }
+    },
+    {
+      "name": "key-rotation-current-key",
+      "description": "A Value encrypted with the current key k2; the other cases use the older key k1.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsyGi96l8EbTDEzeOVTOSqyuPXdEcF2sf6Xihhq2Vh/Uh9tfbXTdp+vgyaOBR6Pwo30Rw=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k2",
+        "compression": 0,
+        "nonceHex": "7a97c11b4c313378e553392a",
+        "aadHex": "6465782f3100310030006b32"
+      },
+      "expectedPlaintext": "GhFlbmNyeXB0ZWQgd2l0aCBrMg==",
+      "expectedValue": {
+        "stringValue": "encrypted with k2"
+      }
+    },
+    {
+      "name": "unknown-envelope-field",
+      "description": "An envelope with unknown field 15 decodes; unknown fields are ignored.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGjBKuxRRTwSSZVXCPjjL7uyV1b4ZC0FSsQ/duHy638lO+c27Oi4UoAcHW2Ve0dUYvUt4AQ=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "4abb14514f04926555c23e38",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "GhJmb3J3YXJkIGNvbXBhdGlibGU=",
+      "expectedValue": {
+        "stringValue": "forward compatible"
+      }
+    },
+    {
+      "name": "text-error-message",
+      "description": "A string field in the dex-encoded: prefix format.",
+      "input": {
+        "text": "dex-encoded:CAESAmsxGj+0y4iH9p5Uq6eOtzwZWJ1IoKmBcM7hTJR5LENbW7ohcG8ooTAld8Rskye2RULan8Tk5bGKqxAg/EapFpURKm8="
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "b4cb8887f69e54aba78eb73c",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "GiFwYXltZW50IGRlY2xpbmVkIGZvciBvcmRlciBBLTEwMDE=",
+      "expectedValue": {
+        "stringValue": "payment declined for order A-1001"
+      },
+      "expectedText": "payment declined for order A-1001"
+    },
+    {
+      "name": "limit-envelope-at-maximum",
+      "description": "The object payload is exactly maxEnvelopeBytes long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "7b8ecc7c7a9b7c2b0d169200",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "Gg5saW1pdCBib3VuZGFyeQ==",
+      "expectedValue": {
+        "stringValue": "limit boundary"
+      },
+      "limits": {
+        "maxEnvelopeBytes": 52,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-encoded-text-at-maximum",
+      "description": "The base64 after the prefix is exactly maxEncodedTextBytes long.",
+      "input": {
+        "text": "dex-encoded:CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "7b8ecc7c7a9b7c2b0d169200",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "Gg5saW1pdCBib3VuZGFyeQ==",
+      "expectedValue": {
+        "stringValue": "limit boundary"
+      },
+      "expectedText": "limit boundary",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 72,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-data-at-maximum",
+      "description": "data is exactly maxDataBytes long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "7b8ecc7c7a9b7c2b0d169200",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "Gg5saW1pdCBib3VuZGFyeQ==",
+      "expectedValue": {
+        "stringValue": "limit boundary"
+      },
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 44,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-plaintext-at-maximum",
+      "description": "The decrypted plaintext is exactly maxPlaintextBytes long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 0,
+        "nonceHex": "7b8ecc7c7a9b7c2b0d169200",
+        "aadHex": "6465782f3100310030006b31"
+      },
+      "expectedPlaintext": "Gg5saW1pdCBib3VuZGFyeQ==",
+      "expectedValue": {
+        "stringValue": "limit boundary"
+      },
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 16,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-decompressed-plaintext-at-maximum",
+      "description": "The decompressed plaintext is exactly maxPlaintextBytes long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGnzSyQGYwniKWqvPNohQf0oh+VsoMk/5d1WYoT9q8J5TYKbk95cIVNp3jT5vk4Y8O4nm63hMoNIVezc6KY3rzHV8ahaTwMFhJKQSLUFlTS5Panx+xe3SGpbOJW4evInsXbXQlBLAexnsTbTUDVjAWaWnLi5dpTtGnUMucTv/IAE="
+          }
+        }
+      },
+      "envelope": {
+        "cipher": 1,
+        "keyId": "k1",
+        "compression": 1,
+        "nonceHex": "d2c90198c2788a5aabcf3688",
+        "aadHex": "6465782f3100310031006b31"
+      },
+      "expectedPlaintext": "GvgPRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4gRGV4IHBheWxvYWQgZW5jcnlwdGlvbiBjb21wcmVzc2VzIHJlcGV0aXRpdmUgdGV4dC4g",
+      "expectedValue": {
+        "stringValue": "Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. Dex payload encryption compresses repetitive text. "
+      },
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 2043,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    }
+  ],
+  "negative": [
+    {
+      "name": "wrong-tag",
+      "description": "The last tag byte is flipped.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiRZIZ2VaVWE+NYDAda69nBOXaV5p++Adot7X8NtfuV+Itxn/Xg="
+          }
+        }
+      },
+      "expectedError": "authentication_failed"
+    },
+    {
+      "name": "truncated-data-one-byte",
+      "description": "The last byte of data is removed.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiOZbulHmgVKNL8J8g3aLDSZ97jnPMCqE2cD3EZ9k1ZMT3qkCg=="
+          }
+        }
+      },
+      "expectedError": "authentication_failed"
+    },
+    {
+      "name": "truncated-data-below-minimum",
+      "description": "data is shorter than nonce plus tag (28 bytes).",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGhv31lj/6dsTochMH/0icCDya4HXMHYMM5bXUIg="
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "unknown-key-id",
+      "description": "key_id k9 is not in the key file; the tag is valid for k1 bytes.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAms5GiScCLJzTX40D/i+C5Jn0fL5yjFSyAPKrLLvnw6MVjEr2PlaW/U="
+          }
+        }
+      },
+      "expectedError": "unknown_key"
+    },
+    {
+      "name": "unspecified-cipher",
+      "description": "cipher is PAYLOAD_CIPHER_UNSPECIFIED (0), authenticated as 0.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "EgJrMRokGkJIPKhi/V3bGZTOhOy9+ANH6YHMSz/rt4THVuK9KU3MIrqx"
+          }
+        }
+      },
+      "expectedError": "unsupported_cipher"
+    },
+    {
+      "name": "unknown-cipher",
+      "description": "cipher is the unknown value 7, authenticated as 7.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAcSAmsxGiQ74XXallEBUJZl0gt9VhrfL60lv9rQq+JfBupLWfNXeryw0GA="
+          }
+        }
+      },
+      "expectedError": "unsupported_cipher"
+    },
+    {
+      "name": "custom-cipher-without-custom-codec",
+      "description": "PAYLOAD_CIPHER_CUSTOM reaches the built-in AES-GCM codec.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAISAmsxGiTwRAYpQ7cuZuqf+L+ASSmoxamV33j6z8Mhvff/Uw78wAwUH4kqEAoFY29kZWMSB2V4YW1wbGU="
+          }
+        }
+      },
+      "expectedError": "unsupported_cipher"
+    },
+    {
+      "name": "unknown-compression",
+      "description": "compression is the unknown value 9, authenticated as 9.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiQaW6Qj+0YnD2OMRXQ9GnvnvRxv8NEkt3BHDWK2S9Eu4EqJ3oMgCQ=="
+          }
+        }
+      },
+      "expectedError": "unsupported_compression"
+    },
+    {
+      "name": "unknown-marker-version",
+      "description": "The encoding is dex/2; the payload is a valid dex/1 envelope.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/2",
+            "payload": "CAESAmsxGiQO4pwWGQ38syhHcniknLc0saCff6fqqkveWStAWk04bR7cfkU="
+          }
+        }
+      },
+      "expectedError": "unsupported_marker"
+    },
+    {
+      "name": "metadata-total-too-large",
+      "description": "metadata keys and values total maxMetadataTotalBytes + 1 bytes.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAISAmsxGiR2SquWNWos8rhe4DYON9ZIIU9bL6pyognuTYNrPVcDf+Cqm38qhiAKBGJsb2IS/R+rq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ur"
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "checkOrder": "Also uses PAYLOAD_CIPHER_CUSTOM, which the built-in codec rejects; the metadata limit check runs first. No single-rule form exists for the built-in codec, because any metadata breaks its empty-metadata rule."
+    },
+    {
+      "name": "metadata-too-many-entries",
+      "description": "metadata holds maxMetadataEntries + 1 entries.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAISAmsxGiR/kN77fPglAJIiA0V9guEgc2dkGLWulH8NCOSGsbF3aYTEhUQqCAoDbTAwEgEAKggKA20wMRIBASoICgNtMDISAQIqCAoDbTAzEgEDKggKA20wNBIBBCoICgNtMDUSAQUqCAoDbTA2EgEGKggKA20wNxIBByoICgNtMDgSAQgqCAoDbTA5EgEJKggKA20xMBIBCioICgNtMTESAQsqCAoDbTEyEgEMKggKA20xMxIBDSoICgNtMTQSAQ4qCAoDbTE1EgEPKggKA20xNhIBEA=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "checkOrder": "Also uses PAYLOAD_CIPHER_CUSTOM, which the built-in codec rejects; the metadata limit check runs first. No single-rule form exists for the built-in codec, because any metadata breaks its empty-metadata rule."
+    },
+    {
+      "name": "metadata-with-builtin-cipher",
+      "description": "PAYLOAD_CIPHER_AES256_GCM requires empty metadata.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiRWLwzQz32MG8jY820Hy+jWbwAUVvP4h9aMeKKhdiLHOyI64EoqCQoEbm90ZRIBeA=="
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "aad-mismatch-key-id",
+      "description": "key_id was changed from k1 to k1-alias, which has the same key bytes.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESCGsxLWFsaWFzGiSYViqCke0w0+se6DTv2uIVR/QPM3NEwWjQ25WxL2bBfaDP8B4="
+          }
+        }
+      },
+      "expectedError": "authentication_failed"
+    },
+    {
+      "name": "aad-mismatch-compression",
+      "description": "Encrypted without compression, then relabeled as gzip.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiRi6gbpXCex4ETwmT83/9FYPOvvaqdVAcQ7fSvihey9u7d3vIMgAQ=="
+          }
+        }
+      },
+      "expectedError": "authentication_failed"
+    },
+    {
+      "name": "corrupt-gzip",
+      "description": "compression is gzip but the authenticated plaintext is not gzip data.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiTm/K4d8/Y1TgB/Za+6Dtlq2HQvNV4o2y+5xtx+baJJnM3RyRsgAQ=="
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "envelope-not-protobuf",
+      "description": "The payload is not a valid PayloadEnvelope encoding.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "////"
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "empty-payload",
+      "description": "An empty payload is an envelope with an empty key_id.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1"
+          }
+        }
+      },
+      "expectedError": "malformed",
+      "checkOrder": "Also has cipher 0 and no data; the key_id check runs first. empty-key-id covers the key_id rule alone."
+    },
+    {
+      "name": "empty-key-id",
+      "description": "key_id is empty.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAEaJJlSucOVbq4857NjZBovA2fkQ3DFxD3vMngtKNn2a///Tk2nEw=="
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "key-id-too-long",
+      "description": "key_id has 65 bytes.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESQWtra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trGiROl9F5TlfgYnH0hwYDyatXokTHZOBLfnMaqtTC1hXKuuZvXsY="
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "key-id-with-space",
+      "description": "key_id contains a space, which is outside 0x21 to 0x7e.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESA2sgMRokHlBxgxbM6padPgcwfgorJLwOPhdwHX/RpYDp9ZoNYRSvRthl"
+          }
+        }
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "plaintext-null-value",
+      "description": "The authenticated plaintext is a null Value, which is never encrypted.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh5r3aU92qvEwn4FppXYJ1RF0uxIf5E7EhHAXiHC24U="
+          }
+        }
+      },
+      "expectedError": "invalid_plaintext"
+    },
+    {
+      "name": "plaintext-blob-reference",
+      "description": "The authenticated plaintext is a blob reference, which is never encrypted.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiQ0j25BUHmewBiuwuJCebkEqQNV9LqVVoX3av/PH/bfk2IER+U="
+          }
+        }
+      },
+      "expectedError": "invalid_plaintext"
+    },
+    {
+      "name": "plaintext-nested-envelope",
+      "description": "The authenticated plaintext is itself a dex/1 object; envelopes do not nest.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGlP1oQott2CNMlKOKz2OGFpoIMqwswS2miecDkQ2Qs7xbXKFekgdYmmdawvn4BE/Zwy21n8uFAN064OC86ZrLVtDUgwBz5EddMf0XQuC1RrlUnRqMA=="
+          }
+        }
+      },
+      "expectedError": "invalid_plaintext"
+    },
+    {
+      "name": "plaintext-not-a-value",
+      "description": "The authenticated plaintext is not a valid Value encoding.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGh9qkEREU4hmfcmnOnSuBcOanTjeRZGIvApsFXLFcyiI"
+          }
+        }
+      },
+      "expectedError": "invalid_plaintext"
+    },
+    {
+      "name": "text-plaintext-not-string",
+      "description": "Prefix-format text whose authenticated plaintext is an int Value.",
+      "input": {
+        "text": "dex-encoded:CAESAmsxGh694wx9UOFkk75UhLETlI1rV0IPQVWFtv012eiCf14="
+      },
+      "expectedError": "invalid_plaintext"
+    },
+    {
+      "name": "text-invalid-base64",
+      "description": "The text after the prefix is not base64.",
+      "input": {
+        "text": "dex-encoded:@@@@"
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "text-unpadded-base64",
+      "description": "The base64 after the prefix omits its padding.",
+      "input": {
+        "text": "dex-encoded:CAESAmsxGik3MrbpMuCEku0C70H4IFiZi3WJ9vH4P2uzEN1uzlMPYcVQxRHKyXQsVA"
+      },
+      "expectedError": "malformed"
+    },
+    {
+      "name": "limit-envelope-over-maximum",
+      "description": "The object payload is maxEnvelopeBytes + 1 long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 51,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-encoded-text-over-maximum",
+      "description": "The base64 after the prefix is maxEncodedTextBytes + 1 long.",
+      "input": {
+        "text": "dex-encoded:CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 71,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-data-over-maximum",
+      "description": "data is maxDataBytes + 1 long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 43,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-plaintext-over-maximum",
+      "description": "The decrypted plaintext is maxPlaintextBytes + 1 long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGix7jsx8ept8Kw0WkgCxx3e6uem/4dB5aGEgxz3gp1bORaT+txR8tDZ2oIKKAQ=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 15,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-decompressed-plaintext-over-maximum",
+      "description": "The decompressed plaintext is maxPlaintextBytes + 1 long.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGnzSyQGYwniKWqvPNohQf0oh+VsoMk/5d1WYoT9q8J5TYKbk95cIVNp3jT5vk4Y8O4nm63hMoNIVezc6KY3rzHV8ahaTwMFhJKQSLUFlTS5Panx+xe3SGpbOJW4evInsXbXQlBLAexnsTbTUDVjAWaWnLi5dpTtGnUMucTv/IAE="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 2042,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      }
+    },
+    {
+      "name": "limit-envelope-checked-before-parsing",
+      "description": "An over-limit payload that is not protobuf.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "/////////////////////////////////////////////////////w=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 39,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      },
+      "checkOrder": "Also not protobuf; the payload length check runs before parsing."
+    },
+    {
+      "name": "limit-encoded-text-checked-before-base64",
+      "description": "Over-limit text after the prefix that is not base64.",
+      "input": {
+        "text": "dex-encoded:@@@@@@@@"
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 7,
+        "maxDataBytes": 16842752,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      },
+      "checkOrder": "Also not base64; the text length check runs before base64 decoding."
+    },
+    {
+      "name": "limit-data-checked-before-decryption",
+      "description": "Over-limit data whose tag is also wrong.",
+      "input": {
+        "value": {
+          "objValue": {
+            "encoding": "dex/1",
+            "payload": "CAESAmsxGiyiUcNkuOAblMluoyUTo16g193tVeeILhdsoVTyINCcYmvwU1v4KVELRK0GzQ=="
+          }
+        }
+      },
+      "expectedError": "limit_exceeded",
+      "limits": {
+        "maxEnvelopeBytes": 16842752,
+        "maxEncodedTextBytes": 22457004,
+        "maxDataBytes": 43,
+        "maxPlaintextBytes": 67108864,
+        "maxKeyIdBytes": 64,
+        "maxMetadataEntries": 16,
+        "maxMetadataTotalBytes": 4096
+      },
+      "checkOrder": "Also has a wrong tag; the data length check runs before decryption."
+    }
+  ]
+}
