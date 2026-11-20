@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.37 {#v0-1-37}
+
+Released 2026-11-20 as [server-zd/v0.1.37](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.37).
+
+### Fixed
+
+- **SetAttributes**, **DeleteChannelMessage**, and **InvokeRPC** now compare only the request ID, as **StartFlow** does. A repeat with a recorded request ID gets the first request's reply and applies none of its own changes, even when its content differs. It no longer fails with INVALID_ARGUMENT "request ID ... was already used for a different request". Concurrent transactional or locking RPC calls with the same request ID share one handler execution whatever their inputs. [Reference](/reference/server/runtime-data#rpc-request-ids)
+
 ## 0.1.36 {#v0-1-36}
 
 Released 2026-11-18 as [server-zd/v0.1.36](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.36).
