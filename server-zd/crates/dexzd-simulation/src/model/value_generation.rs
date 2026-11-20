@@ -277,7 +277,8 @@ pub(crate) fn random_identifier(rng: &mut ChaCha8Rng) -> String {
     RunId(random_bytes(rng)).to_string()
 }
 
-/// A stable 16-byte fingerprint of a request, standing in for the owner's xxh3-128.
+/// A stable 16-byte fingerprint of a request, standing in for the xxh3-128 older owners wrote.
+/// Apply ignores it; generated commands keep it to cover older logs.
 pub(crate) fn fingerprint(request: &impl Message) -> Vec<u8> {
     let encoded = request.encode_to_vec();
     let mut fingerprint = Vec::with_capacity(16);

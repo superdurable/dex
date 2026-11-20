@@ -50,7 +50,10 @@ async fn start_flow_proposes_a_complete_start_command_and_returns_the_run_id() {
         response.run_id
     );
     assert!(submitted[0].run_id.is_empty());
-    assert_eq!(start.request_fingerprint.len(), 16);
+    assert!(
+        start.request_fingerprint.is_empty(),
+        "deduplication compares only the request ID"
+    );
     assert_eq!(
         start.resolved_timeout_policy, 1,
         "positive timeout defaults to FAIL"
@@ -224,7 +227,7 @@ async fn writes_target_the_newest_run_and_a_missing_flow_is_not_found() {
     let Some(flow_command::Command::AttributesSet(set)) = submitted[1].command.clone() else {
         panic!("expected AttributesSet");
     };
-    assert_eq!(set.request_fingerprint.len(), 16);
+    assert!(set.request_fingerprint.is_empty());
 
     let error = harness
         .drive(harness.registry.set_attributes(
@@ -544,7 +547,7 @@ async fn rpc_with_effects_commits_and_returns_the_committed_output() {
         panic!("expected RpcCommitted");
     };
     assert_eq!(rpc.app_worker_id, "worker-1");
-    assert_eq!(rpc.request_fingerprint.len(), 16);
+    assert!(rpc.request_fingerprint.is_empty());
 }
 
 #[tokio::test(start_paused = true)]

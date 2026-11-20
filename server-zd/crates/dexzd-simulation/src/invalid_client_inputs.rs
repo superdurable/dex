@@ -10,7 +10,9 @@
 
 use dexzd_apply::ApplyOutcome;
 use dexzd_protocol::dex::Value;
-use dexzd_protocol::dexzd::v1::{FlowCommand, command_reply, flow_command::Command};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, RequestDedupRecord, command_reply, flow_command::Command,
+};
 use prost::Message;
 
 use crate::invariants::InvariantViolation;
@@ -25,7 +27,7 @@ pub const INVALID_CLIENT_INPUT_CLASSES: &[&str] =
     &[OVERSIZED_ATTRIBUTE_VALUE, OVERSIZED_CHANNEL_MESSAGE];
 
 const INVALID_ARGUMENT_GRPC_CODE: i32 = 3;
-/// Apply's size rejection message; other INVALID_ARGUMENT replies, such as request ID reuse, lack it.
+/// Apply's size rejection message; other INVALID_ARGUMENT replies, such as a replayed recorded reply, lack it.
 const TOO_LARGE_MESSAGE: &str = "exceeds the maximum";
 
 const INVALID_INPUT: &str = "invalid-client-input-rejected";
@@ -50,15 +52,24 @@ pub fn invalid_client_input(command: &FlowCommand) -> Option<&'static str> {
     }
 }
 
-/// Checks that a command of invalid input class `class` wrote nothing and replied with an error.
+/// Checks that a command of invalid input class `class` wrote nothing and replied with an error,
+/// or wrote nothing and replayed exactly the reply of `recorded_request`.
+///
+/// `recorded_request` is the deduplication row for the command's request ID as it stood before
+/// apply, or `None` when there was none.
 ///
 /// Returns whether apply rejected it for its value size, or the violation.
 pub fn check_invalid_client_input_rejected(
     class: &str,
+    recorded_request: Option<&RequestDedupRecord>,
     outcome: &ApplyOutcome,
 ) -> Result<bool, InvariantViolation> {
     let error = match &outcome.reply.reply {
         Some(command_reply::Reply::Error(error)) if outcome.writes.is_empty() => error,
+        // A repeated request ID replays its recorded reply whatever the repeat contains.
+        _ if outcome.writes.is_empty() && is_recorded_reply(recorded_request, outcome) => {
+            return Ok(false);
+        }
         reply => {
             return Err(InvariantViolation::new(
                 INVALID_INPUT,
@@ -72,6 +83,13 @@ pub fn check_invalid_client_input_rejected(
     Ok(error.grpc_code == INVALID_ARGUMENT_GRPC_CODE && error.message.contains(TOO_LARGE_MESSAGE))
 }
 
+fn is_recorded_reply(
+    recorded_request: Option<&RequestDedupRecord>,
+    outcome: &ApplyOutcome,
+) -> bool {
+    recorded_request.is_some_and(|record| record.reply.as_ref() == Some(&outcome.reply))
+}
+
 /// Uses apply's size measure: the encoded length of the wire value.
 fn is_oversized(value: Option<&Value>) -> bool {
     value.is_some_and(|value| {
@@ -83,7 +101,7 @@ fn is_oversized(value: Option<&Value>) -> bool {
 mod tests {
     use dexzd_apply::StateWrite;
     use dexzd_keyspace::ColumnFamily;
-    use dexzd_protocol::dexzd::v1::{CommandErrorReply, CommandReply, EmptyReply};
+    use dexzd_protocol::dexzd::v1::{CommandErrorReply, CommandReply, EmptyReply, RpcReply};
 
     use super::*;
 
@@ -96,6 +114,13 @@ mod tests {
         }
     }
 
+    fn recorded(reply: command_reply::Reply) -> RequestDedupRecord {
+        RequestDedupRecord {
+            reply: Some(CommandReply { reply: Some(reply) }),
+            ..RequestDedupRecord::default()
+        }
+    }
+
     #[test]
     fn an_accepted_oversized_value_is_a_violation() {
         let write = StateWrite::Put {
@@ -104,12 +129,49 @@ mod tests {
             value: vec![2],
         };
         let accepted = outcome(vec![write], command_reply::Reply::Ok(EmptyReply {}));
-        let violation = check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, &accepted)
-            .expect_err("apply accepted an oversized value");
+        let violation = check_invalid_client_input_rejected(
+            OVERSIZED_ATTRIBUTE_VALUE,
+            Some(&recorded(command_reply::Reply::Ok(EmptyReply {}))),
+            &accepted,
+        )
+        .expect_err("apply accepted an oversized value");
         assert_eq!(violation.invariant, INVALID_INPUT, "{violation}");
+    }
+
+    #[test]
+    fn a_first_request_id_with_a_silent_ok_is_a_violation() {
         let silent = outcome(Vec::new(), command_reply::Reply::Ok(EmptyReply {}));
-        check_invalid_client_input_rejected(OVERSIZED_CHANNEL_MESSAGE, &silent)
-            .expect_err("an oversized value must get an error reply");
+        let violation =
+            check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, None, &silent)
+                .expect_err("an oversized value with no recorded request must get an error reply");
+        assert_eq!(violation.invariant, INVALID_INPUT, "{violation}");
+    }
+
+    #[test]
+    fn a_reply_that_differs_from_the_recorded_one_is_a_violation() {
+        let silent = outcome(Vec::new(), command_reply::Reply::Ok(EmptyReply {}));
+        let different = recorded(command_reply::Reply::Rpc(RpcReply::default()));
+        let violation = check_invalid_client_input_rejected(
+            OVERSIZED_ATTRIBUTE_VALUE,
+            Some(&different),
+            &silent,
+        )
+        .expect_err("only the recorded reply may answer a repeated request ID");
+        assert_eq!(violation.invariant, INVALID_INPUT, "{violation}");
+    }
+
+    #[test]
+    fn a_repeated_request_id_may_replay_its_recorded_reply() {
+        let replayed = outcome(Vec::new(), command_reply::Reply::Ok(EmptyReply {}));
+        let record = recorded(command_reply::Reply::Ok(EmptyReply {}));
+        assert_eq!(
+            check_invalid_client_input_rejected(
+                OVERSIZED_ATTRIBUTE_VALUE,
+                Some(&record),
+                &replayed
+            ),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -126,12 +188,12 @@ mod tests {
             reply("value of 5000 bytes exceeds the maximum of 4096 bytes"),
         );
         assert_eq!(
-            check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, &too_large),
+            check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, None, &too_large),
             Ok(true)
         );
-        let reused = outcome(Vec::new(), reply("request ID set-1 was already used"));
+        let other_error = outcome(Vec::new(), reply("Flow order-1 was not found"));
         assert_eq!(
-            check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, &reused),
+            check_invalid_client_input_rejected(OVERSIZED_ATTRIBUTE_VALUE, None, &other_error),
             Ok(false)
         );
     }

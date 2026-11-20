@@ -646,7 +646,7 @@ fn transactional_rpc_rejects_duplicate_deletion_target_without_writes() {
 }
 
 #[test]
-fn rpc_request_ids_replay_the_reply_and_reject_changed_fingerprints() {
+fn rpc_request_ids_replay_the_reply_whatever_the_repeat_contains() {
     let mut harness = Harness::new(1000, 16 << 20);
     let first = harness.rpc(
         request("rpc-1"),
@@ -659,9 +659,18 @@ fn rpc_request_ids_replay_the_reply_and_reject_changed_fingerprints() {
     let same = harness.rpc(request("rpc-1"), InvokeWorkerRpcResponse::default(), &[1]);
     assert!(same.writes.is_empty());
     assert_eq!(same.reply, first.reply);
-    let different = harness.rpc(request("rpc-1"), InvokeWorkerRpcResponse::default(), &[2]);
-    assert_error(&different.reply, 3, ErrorSubStatus::Uncategorized);
+    let mut changed_request = request("rpc-1");
+    changed_request.input = Some(string_value("other input"));
+    let different = harness.rpc(
+        changed_request,
+        InvokeWorkerRpcResponse {
+            output: Some(string_value("other output")),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        &[2],
+    );
     assert!(different.writes.is_empty());
+    assert_eq!(different.reply, first.reply);
 }
 
 #[test]

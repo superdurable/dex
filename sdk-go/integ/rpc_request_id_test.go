@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"google.golang.org/grpc/codes"
 )
 
 var (
@@ -98,29 +97,17 @@ func TestRPCRequestIDRetryAppliesTransactionalRPCOnce(t *testing.T) {
 	require.Equal(t, int32(1), requestIDHandlerRunCount(flowID))
 }
 
-// TestRPCRequestIDReusedForDifferentInputFails shows the Server rejects a changed request under a recorded ID.
-func TestRPCRequestIDReusedForDifferentInputFails(t *testing.T) {
+// TestRPCRequestIDReusedForDifferentInputReturnsFirstReply shows the Server compares only the request ID.
+func TestRPCRequestIDReusedForDifferentInputReturnsFirstReply(t *testing.T) {
 	flow := requestIDCounterFlow{}
 	flowID := startRequestIDCounterFlow(t)
 	requestID := "event-" + uuid.NewString()
 
 	require.Equal(t, 5, invokeRequestIDCounter(t, flowID, flow.IncrementCounter, 5, &requestID))
-	var total int
-	err := integClient.InvokeRPCWithOptions(
-		integrationContext(t),
-		flowID,
-		flow.IncrementCounter,
-		7,
-		&total,
-		dex.RPCInvokeOptions{RequestID: &requestID},
-	)
-	var serviceError *dex.ServiceError
-	require.ErrorAs(t, err, &serviceError)
-	require.Equal(t, codes.InvalidArgument, serviceError.Code)
-	require.Equal(t, dex.ErrorSubStatusUncategorized, serviceError.SubStatus)
-	require.Contains(t, serviceError.Detail, "was already used for a different request")
+	require.Equal(t, 5, invokeRequestIDCounter(t, flowID, flow.IncrementCounter, 7, &requestID))
 
 	require.Equal(t, 5, readRequestIDCounterTotal(t, flowID))
+	require.Equal(t, int32(1), requestIDHandlerRunCount(flowID))
 }
 
 // TestRPCWithoutRequestIDAppliesEveryCall shows the generated default keeps every call a new request.

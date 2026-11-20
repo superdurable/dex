@@ -135,17 +135,14 @@ export interface RPCInvokeOptions {
    *
    * Traps:
    *
-   * - Dex compares the whole request, not only the request ID. A repeat must use the same Flow ID,
-   *   RPC, encoded input, run ID, and runtime locks and loads. Pass `runId` on every attempt or on
-   *   none. Rebuild the input from the stored event rather than from data that can change. The
-   *   comparison also covers the RPC's declared timeout, locks, loads, and `isTransactional`, so a
-   *   retry after a deployment that changed them is a different request. A
-   *   different request under a kept request ID fails with {@link DexServiceError} whose `code` is
-   *   gRPC `INVALID_ARGUMENT` and whose detail says the request ID "was already used for a
-   *   different request". A transactional or locking RPC rejects it before a Worker runs the
-   *   handler. Any other RPC rejects it after the handler ran, and applies none of its changes,
-   *   when that attempt changes Flow state or records an event. An attempt that changes no Flow
-   *   state and records no event skips this check and returns its new output.
+   * - Dex compares only the request ID, as it does for a Flow start. A call with a kept request ID
+   *   is a repeat even when its RPC, input, or options differ, and Dex applies none of its Flow
+   *   changes. Concurrent transactional or locking calls with the same request ID share one
+   *   handler execution, whatever their inputs. Rebuild the input from the stored event rather
+   *   than from data that can change, so that a repeat carries the request the first call sent.
+   *   Dex Server 0.1.36 and earlier compare the whole request and reject a different request
+   *   under a kept request ID with {@link DexServiceError} whose `code` is gRPC
+   *   `INVALID_ARGUMENT`.
    * - Each Flow run keeps only its newest request IDs, set by the Server limit
    *   `limits.maxRequestIdsPerRun` (default 1,000). The window is shared with the run's other
    *   requests that carry request IDs, such as Client Attribute writes. A repeat with an older,

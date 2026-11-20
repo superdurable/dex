@@ -10,7 +10,6 @@
 
 mod clone_fork;
 mod hard_delete_uploads;
-pub(super) mod request_fingerprint;
 mod rpc_invocation;
 pub(super) mod rpc_requests;
 mod time_travel;
@@ -32,7 +31,6 @@ use dexzd_request_validation::{
 use crate::flow_coordination::client_operations::hard_delete_uploads::{
     committed_reply, hard_delete_references, has_hard_delete_values,
 };
-use crate::flow_coordination::client_operations::request_fingerprint::request_fingerprint;
 use crate::flow_coordination::read_operations::state_rows::resolve_command_run;
 use crate::flow_coordination::registry::ProposalScope;
 use crate::flow_coordination::{
@@ -60,7 +58,6 @@ impl FlowCoordinatorRegistry {
                 request.flow_timeout_policy
             };
         let new_run_id = RunId(self.inner.dependencies.id_source.run_id().into_bytes());
-        let fingerprint = request_fingerprint(&request);
         let mut request = request;
         let uploads = match request.flow_start_options.as_mut() {
             Some(options) => {
@@ -73,7 +70,7 @@ impl FlowCoordinatorRegistry {
         let worker_target = effective_flow_config.worker_target.clone();
         let start = FlowStartCommand {
             new_run_id: new_run_id.as_bytes().to_vec(),
-            request_fingerprint: fingerprint,
+            request_fingerprint: Vec::new(),
             request: Some(request),
             settings: Some(self.inner.config.run_settings),
             resolved_timeout_policy,
@@ -128,14 +125,13 @@ impl FlowCoordinatorRegistry {
             &self.inner.config.validation,
         )?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
-        let fingerprint = request_fingerprint(&request);
         if !has_hard_delete_values(&request.attributes) {
             return self
                 .propose_targeted(&flow, &request.run_id.clone(), |_| {
                     flow_command::Command::AttributesSet(AttributesSetCommand {
                         request: Some(request.clone()),
                         hard_delete_objects: Vec::new(),
-                        request_fingerprint: fingerprint.clone(),
+                        request_fingerprint: Vec::new(),
                     })
                 })
                 .await
@@ -161,7 +157,7 @@ impl FlowCoordinatorRegistry {
             Some(run_id),
             flow_command::Command::AttributesSet(AttributesSetCommand {
                 hard_delete_objects: hard_delete_references(uploads.as_ref()),
-                request_fingerprint: fingerprint,
+                request_fingerprint: Vec::new(),
                 request: Some(request),
             }),
         );
@@ -225,11 +221,10 @@ impl FlowCoordinatorRegistry {
             &self.inner.config.validation,
         )?;
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
-        let fingerprint = request_fingerprint(&request);
         self.propose_targeted(&flow, &request.run_id.clone(), |_| {
             flow_command::Command::ChannelMessageDelete(ChannelMessageDeleteCommand {
                 request: Some(request.clone()),
-                request_fingerprint: fingerprint.clone(),
+                request_fingerprint: Vec::new(),
             })
         })
         .await

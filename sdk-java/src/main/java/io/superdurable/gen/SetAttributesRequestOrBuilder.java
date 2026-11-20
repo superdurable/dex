@@ -59,11 +59,21 @@ public interface SetAttributesRequestOrBuilder extends
       int index);
 
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and writes nothing.
+   * Dex compares only the ID, not the Attributes or permission mappings.
+   * </pre>
+   *
    * <code>string request_id = 4;</code>
    * @return The requestId.
    */
   java.lang.String getRequestId();
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and writes nothing.
+   * Dex compares only the ID, not the Attributes or permission mappings.
+   * </pre>
+   *
    * <code>string request_id = 4;</code>
    * @return The bytes for requestId.
    */

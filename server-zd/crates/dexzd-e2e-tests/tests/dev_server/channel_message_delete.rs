@@ -83,14 +83,9 @@ async fn delete_channel_message_removes_one_pending_message_per_request_id() {
         .expect("a retried delete returns the recorded success");
     assert_eq!(pending_messages(&mut flow_client).await, remaining);
 
-    let reused = delete(&mut flow_client, &remaining[0].message_id, "delete-first")
+    delete(&mut flow_client, &remaining[0].message_id, "delete-first")
         .await
-        .expect_err("a request ID cannot name a different delete");
-    assert_eq!(reused.code(), tonic::Code::InvalidArgument);
-    assert_eq!(
-        reused.message(),
-        "request ID delete-first was already used for a different request"
-    );
+        .expect("a reused request ID returns the recorded success whatever it names");
     assert_eq!(pending_messages(&mut flow_client).await, remaining);
 
     let missing = delete(&mut flow_client, &deleted_id, "delete-first-again")

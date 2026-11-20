@@ -287,6 +287,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
    * Dex deduplicates it for the whole run.
+   * Dex compares only the ID, not the input or options: a repeat never applies the second request.
    * </pre>
    *
    * <code>string request_id = 7;</code>
@@ -309,6 +310,7 @@ private static final long serialVersionUID = 0L;
    * <pre>
    * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
    * Dex deduplicates it for the whole run.
+   * Dex compares only the ID, not the input or options: a repeat never applies the second request.
    * </pre>
    *
    * <code>string request_id = 7;</code>
@@ -1676,6 +1678,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
      * Dex deduplicates it for the whole run.
+     * Dex compares only the ID, not the input or options: a repeat never applies the second request.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1697,6 +1700,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
      * Dex deduplicates it for the whole run.
+     * Dex compares only the ID, not the input or options: a repeat never applies the second request.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1719,6 +1723,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
      * Dex deduplicates it for the whole run.
+     * Dex compares only the ID, not the input or options: a repeat never applies the second request.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1737,6 +1742,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
      * Dex deduplicates it for the whole run.
+     * Dex compares only the ID, not the input or options: a repeat never applies the second request.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1752,6 +1758,7 @@ private static final long serialVersionUID = 0L;
      * <pre>
      * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
      * Dex deduplicates it for the whole run.
+     * Dex compares only the ID, not the input or options: a repeat never applies the second request.
      * </pre>
      *
      * <code>string request_id = 7;</code>

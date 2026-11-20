@@ -34,22 +34,15 @@ test("transactional RPC repeated with one request ID applies once", async () => 
   });
 });
 
-// Reusing a request ID for different input must fail instead of returning a stale reply.
-test("request ID reused with different input fails with INVALID_ARGUMENT", async () => {
+// Dex compares only the request ID, so a repeat with different input gets the first reply.
+test("request ID reused with different input returns the first reply", async () => {
   const flow = new RpcRequestIdFlow();
   await withEnvironment([flow], async ({ client }) => {
-    const id = flowId("rpc-request-id-conflict");
+    const id = flowId("rpc-request-id-reused");
     await client.startFlow(flow, id, undefined);
     const requestId = `event-${randomUUID()}`;
     assert.equal(await client.invokeRPCWithOptions(flow.addTransactional, id, 1, { requestId }), 1);
-    const failure = await expectError(
-      client.invokeRPCWithOptions(flow.addTransactional, id, 2, { requestId }),
-      DexServiceError,
-    );
-    assert.equal(failure.constructor, DexServiceError);
-    assert.equal(failure.code, status.INVALID_ARGUMENT);
-    assert.match(failure.detail, /already used for a different request/);
-    assert.equal(failure.operation, "invokeRPC");
+    assert.equal(await client.invokeRPCWithOptions(flow.addTransactional, id, 2, { requestId }), 1);
     assert.equal(await client.invokeRPC(flow.getTotal, id), 1);
     assert.equal(flow.transactionalHandlerCalls, 1);
     await client.stopFlow(id);

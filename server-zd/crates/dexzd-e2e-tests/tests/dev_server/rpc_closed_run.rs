@@ -115,8 +115,9 @@ async fn closed_run_rejects_transactional_rpcs_before_the_worker_and_serves_plai
         },
     )
     .await
-    .expect_err("a request ID cannot name a different RPC after close");
-    assert_eq!(reused_request_id.code(), tonic::Code::InvalidArgument);
+    .expect("a recorded request ID returns its earlier reply whatever RPC it names")
+    .into_inner();
+    assert_eq!(reused_request_id, open_response);
 
     for (name, request) in [
         (

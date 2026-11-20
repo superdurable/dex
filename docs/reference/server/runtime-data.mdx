@@ -1448,12 +1448,14 @@ callers need the exact recorded reply.
 
 These rules also apply:
 
-- Dex Server compares the whole request: Flow ID, run ID, RPC name, input,
-  timeout, locks, and loads. A different request under a kept request ID fails
-  with INVALID_ARGUMENT and the detail "request ID ... was already used for a
-  different request". The RPC applies none of its changes. An attempt of an
-  RPC that is neither transactional nor locking skips this check when it
-  changes no Flow state and records no event.
+- Dex Server compares only the request ID, as it does for StartFlow. A repeat
+  with a different RPC name, input, timeout, locks, or loads is still a repeat.
+  Dex Server answers it as the table above describes and applies none of its
+  Flow changes. Concurrent
+  transactional or locking calls with the same request ID share one handler
+  execution, whatever their inputs. Changed in 0.1.37: Dex Server compared the
+  whole request and rejected a different request under a kept request ID with
+  INVALID_ARGUMENT.
 - Each run keeps its newest request IDs, as many as
   [**limits.maxRequestIdsPerRun**](/reference/server/configuration#limits).
   RPC request IDs share this window with the run's other request IDs, such as

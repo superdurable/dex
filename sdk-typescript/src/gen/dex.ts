@@ -1073,6 +1073,10 @@ export interface DeleteChannelMessageRequest {
   runId: string;
   channelName: string;
   messageId: string;
+  /**
+   * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+   * Dex compares only the ID, not the Channel name or message ID.
+   */
   requestId: string;
 }
 
@@ -1147,6 +1151,10 @@ export interface SetAttributesRequest {
   flowId: string;
   runId: string;
   attributes: AttributeWrite[];
+  /**
+   * Optional. A repeat of a recorded request ID gets the first request's reply and writes nothing.
+   * Dex compares only the ID, not the Attributes or permission mappings.
+   */
   requestId: string;
   actionPermissionMappings: ActionPermissionMappings | undefined;
 }
@@ -1884,6 +1892,7 @@ export interface InvokeRPCRequest {
   /**
    * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it.
    * Dex deduplicates it for the whole run.
+   * Dex compares only the ID, not the input or options: a repeat never applies the second request.
    */
   requestId: string;
   /**

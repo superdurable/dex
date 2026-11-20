@@ -601,6 +601,7 @@ message InboxDedupRecord {
 
 // Row of RunTable::RequestDedup, keyed by request kind (1 byte) and request ID.
 message RequestDedupRecord {
+  // Copied from the command and never compared; empty for commands of newer servers.
   bytes request_fingerprint = 1;
   CommandReply reply = 2;
   uint64 recorded_seq = 3;

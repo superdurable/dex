@@ -213,6 +213,11 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object requestId_ = "";
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+   * Dex compares only the ID, not the Channel name or message ID.
+   * </pre>
+   *
    * <code>string request_id = 5;</code>
    * @return The requestId.
    */
@@ -230,6 +235,11 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+   * Dex compares only the ID, not the Channel name or message ID.
+   * </pre>
+   *
    * <code>string request_id = 5;</code>
    * @return The bytes for requestId.
    */
@@ -932,6 +942,11 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object requestId_ = "";
     /**
+     * <pre>
+     * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+     * Dex compares only the ID, not the Channel name or message ID.
+     * </pre>
+     *
      * <code>string request_id = 5;</code>
      * @return The requestId.
      */
@@ -948,6 +963,11 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+     * Dex compares only the ID, not the Channel name or message ID.
+     * </pre>
+     *
      * <code>string request_id = 5;</code>
      * @return The bytes for requestId.
      */
@@ -965,6 +985,11 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+     * Dex compares only the ID, not the Channel name or message ID.
+     * </pre>
+     *
      * <code>string request_id = 5;</code>
      * @param value The requestId to set.
      * @return This builder for chaining.
@@ -978,6 +1003,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+     * Dex compares only the ID, not the Channel name or message ID.
+     * </pre>
+     *
      * <code>string request_id = 5;</code>
      * @return This builder for chaining.
      */
@@ -988,6 +1018,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Optional. A repeat of a recorded request ID gets the first request's reply and deletes nothing.
+     * Dex compares only the ID, not the Channel name or message ID.
+     * </pre>
+     *
      * <code>string request_id = 5;</code>
      * @param value The bytes for requestId to set.
      * @return This builder for chaining.

@@ -42,15 +42,13 @@ use crate::steps::{
 };
 use crate::values::is_null_value;
 
-/// Returns the recorded reply for a repeated request ID, or a rejection for a reused ID with
-/// different content (plan C7).
+/// Returns the recorded reply for a repeated request ID, whatever the repeated request contains.
 fn deduplicate(
     transaction: &FlowTransaction<'_>,
     cursor: &RunCursor,
     scope: &CommandScope<'_>,
     kind: RequestKind,
     request_id: &str,
-    fingerprint: &[u8],
 ) -> Result<Option<CommandReply>, ApplyError> {
     // Replays answer no client, so they skip request deduplication and store no reply.
     if request_id.is_empty() || scope.is_replay {
@@ -59,16 +57,10 @@ fn deduplicate(
     let Some(record) = cursor.rows.request_dedup(transaction, kind, request_id)? else {
         return Ok(None);
     };
-    if record.request_fingerprint != fingerprint {
-        return Ok(Some(error_reply(
-            grpc_code::INVALID_ARGUMENT,
-            ErrorSubStatus::Uncategorized,
-            format!("request ID {request_id} was already used for a different request"),
-        )));
-    }
     Ok(Some(record.reply.unwrap_or_else(ok_reply)))
 }
 
+/// Copies the ignored `fingerprint` of older commands, so their replay rebuilds identical rows.
 fn remember_request(
     transaction: &mut FlowTransaction<'_>,
     cursor: &RunCursor,
@@ -145,7 +137,6 @@ pub(crate) fn apply_attributes_set(
         scope,
         RequestKind::SetAttributes,
         &request.request_id,
-        &command.request_fingerprint,
     )? {
         return Ok(HandlerResult::Rejected(reply));
     }
@@ -271,7 +262,6 @@ pub(crate) fn apply_channel_message_delete(
         scope,
         RequestKind::DeleteChannelMessage,
         &request.request_id,
-        &command.request_fingerprint,
     )? {
         return Ok(HandlerResult::Rejected(reply));
     }

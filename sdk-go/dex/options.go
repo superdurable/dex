@@ -643,13 +643,12 @@ type RPCInvokeOptions struct {
 	// retry returns its reply. For every RPC, side effects of the handler outside Dex, such as an
 	// HTTP call, can repeat.
 	//
-	// Dex compares the whole request sent under one request ID: the RPC name, the input, and every
-	// registered and invocation option that the Client sends, such as the timeout, locks, and
-	// loads. A different request under a recorded request ID fails with a *ServiceError whose Code
-	// is codes.InvalidArgument when the RPC is transactional or locking, or when the attempt's
-	// result changes Flow state or records an event. Its Detail says that the request ID was
-	// already used for a different request, and Dex applies none of that attempt's changes. Any
-	// other attempt is not compared and returns its new output.
+	// Dex compares only the request ID, as it does for StartFlow. A call with a recorded request ID
+	// is a repeat even when its RPC name, input, or options differ. Dex answers it as described
+	// above and applies none of its Flow changes. Concurrent transactional or locking calls with
+	// the same request ID share one handler execution, whatever their inputs. Dex Server 0.1.36
+	// and earlier compare the whole request and reject a different request under a recorded
+	// request ID with a *ServiceError whose Code is codes.InvalidArgument.
 	//
 	// Each Flow run keeps only its newest request IDs. The Server limit
 	// limits.maxRequestIdsPerRun sets how many, 1000 by default, and each run keeps the value it
