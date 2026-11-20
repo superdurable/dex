@@ -1,0 +1,22 @@
+{
+  "name": "@superdurable/dex-example-codec-server",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A deployable payload encryption codec server for Dex Web and dexcli",
+  "type": "module",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-force-exit test/*.test.ts"
+  },
+  "dependencies": {
+    "@superdurable/dex": "file:../../../sdk-typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

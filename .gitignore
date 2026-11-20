@@ -58,6 +58,7 @@ benchmark/bin/dexbench
 
 # TypeScript
 sdk-typescript/node_modules/
+examples/typescript/codec-server/node_modules/
 sdk-typescript/dist/
 sdk-typescript/coverage/
 

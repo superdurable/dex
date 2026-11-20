@@ -13,6 +13,7 @@ examples/go/dex-deal-dsl
 examples/go/dex-ai-agent
 examples/go/deepverify
 sdk-typescript/node_modules/
+examples/typescript/codec-server/node_modules/
 sdk-rust/target/
 sdk-rust/coverage/
 examples/rust/target/

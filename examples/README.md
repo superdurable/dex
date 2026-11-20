@@ -122,6 +122,7 @@ client-apis.
 | [python/](python/) | Python async Worker + HTTP (`8080` / `8803`) |
 | [python/sync-python/](python/sync-python/) | Python sync Worker + HTTP (`8081` / `8804`) |
 | [typescript/](typescript/) | TypeScript Worker + HTTP (`8080` / `8803`) |
+| [typescript/codec-server/](typescript/codec-server/) | Deployable codec server for encrypted payloads in Dex Web and dexcli (not a Worker) |
 | [rust/](rust/) | Rust Worker + HTTP (`8080` / `8803`) |
 | [playground/](playground/) | Shared static UI for the HTTP controllers |
 | [entity-store/](entity-store/) | PostgreSQL + Attribute Store YAML for the user-profile pattern |

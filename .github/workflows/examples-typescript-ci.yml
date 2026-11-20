@@ -35,6 +35,8 @@ jobs:
             examples/typescript/package-lock.json
             examples/typescript/quick-start/package-lock.json
             examples/typescript/slack-thread-agent/package-lock.json
+            examples/typescript/codec-server/package-lock.json
+            sdk-typescript/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -70,6 +72,34 @@ jobs:
       - name: Typecheck Slack thread agent example
         working-directory: examples/typescript/slack-thread-agent
         run: npm run typecheck
+      - name: Build the repository SDK linked by the codec server example
+        working-directory: examples/typescript/codec-server
+        run: |
+          set -euo pipefail
+          # The codec server links sdk-typescript until its SDK release is on npm.
+          if node -e "process.exit(require('./package.json').dependencies['@superdurable/dex'].startsWith('file:') ? 0 : 1)"; then
+            cd ../../../sdk-typescript
+            npm ci
+            npm run build
+          fi
+      - name: Install codec server example dependencies
+        working-directory: examples/typescript/codec-server
+        run: npm ci
+      - name: Typecheck and test codec server example
+        working-directory: examples/typescript/codec-server
+        run: |
+          npm run typecheck
+          npm test
+      - name: Build codec server image
+        working-directory: examples/typescript/codec-server
+        run: |
+          set -euo pipefail
+          # The image installs the SDK from npm; skip while package.json links the repository SDK.
+          if node -e "process.exit(require('./package.json').dependencies['@superdurable/dex'].startsWith('file:') ? 0 : 1)"; then
+            echo "::notice::Skipping the codec server image build: package.json still links sdk-typescript"
+            exit 0
+          fi
+          docker build -t dex-codec-server-typescript:ci .
       - name: Unit tests
         run: npm test
 
