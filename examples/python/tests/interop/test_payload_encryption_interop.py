@@ -30,12 +30,14 @@ from dex import (
     AsyncClient,
     BlobCacheConfig,
     ClientOptions,
+    Flow,
     FlowStatus,
     StartFlowOptions,
     ValueMappingError,
     open_blob_cache,
 )
 
+from tests.interop.go_payload_interop_flow import GoPayloadInteropFlow
 from tests.interop.payload_encryption_interop_flow import (
     COUNT_INTEGER,
     DOCUMENT_OBJECT,
@@ -47,23 +49,33 @@ from tests.interop.payload_encryption_interop_flow import (
     RATIO_DOUBLE,
     SECRET_TEXT,
     STATUS_TEXT,
-    PayloadInteropFlow,
+    PayloadInteropInput,
     expected_failure_text,
     expected_output,
     expected_secret_text,
     expected_status_text,
-    new_client_flows,
     new_client_registry,
     new_file_payload_encryption,
     new_payload_interop_input,
 )
+from tests.interop.python_payload_interop_flow import PythonPayloadInteropFlow
+from tests.interop.typescript_payload_interop_flow import TypeScriptPayloadInteropFlow
 
 WAIT_TIMEOUT = timedelta(seconds=45)
 
 
+def new_client_flows() -> dict[str, Flow[PayloadInteropInput]]:
+    """Returns every Owner's Flow, so one Client can start them all."""
+    return {
+        "go": GoPayloadInteropFlow(),
+        "python": PythonPayloadInteropFlow(),
+        "typescript": TypeScriptPayloadInteropFlow(),
+    }
+
+
 @dataclass(frozen=True)
 class InteropClients:
-    flows: dict[str, PayloadInteropFlow]
+    flows: dict[str, Flow[PayloadInteropInput]]
     client: AsyncClient
     client_without_codec: AsyncClient
 

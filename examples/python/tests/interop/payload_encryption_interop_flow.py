@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The Flow that the cross-SDK payload encryption interoperability test runs.
+"""The Step and Attributes of the cross-SDK payload encryption interoperability Flow.
 
 Every SDK defines the same Flow shape under its own Flow type. Each SDK's
 Worker serves only its own Flow type, and every SDK's Client starts and reads
-all three. Keep this file in sync with
-examples/go/interop/payloadencryption/payload_interop_flow.go and
-examples/typescript/test/interop/payload-encryption-interop-flow.ts.
+all three. Each Flow type lives in its own module, so dexcli visualize can
+render it. Keep this package in sync with examples/go/interop/payloadencryption/
+and examples/typescript/test/interop/.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from dex import (
@@ -35,11 +36,7 @@ from dex import (
     PersistenceSchema,
     Registry,
     RetryPolicy,
-    Step,
-    StepDecision,
-    StepList,
     StepOptions,
-    graceful_complete,
 )
 
 OWNERS = ("go", "python", "typescript")
@@ -97,12 +94,6 @@ def new_payload_interop_input(text: str) -> PayloadInteropInput:
         text=text, count=EXPECTED_COUNT, ratio=EXPECTED_RATIO, document=EXPECTED_DOCUMENT
     )
 
-_FLOW_TYPES = {
-    "go": "GoPayloadInteropFlow",
-    "python": "PythonPayloadInteropFlow",
-    "typescript": "TypeScriptPayloadInteropFlow",
-}
-
 
 def expected_secret_text(owner: str, input: str) -> str:
     return f"{input} | stored by {owner}"
@@ -121,53 +112,30 @@ def expected_failure_text(owner: str, input: str) -> str:
     return f"payload interop failure in {owner}: {input}"
 
 
-class StorePayloadInteropSecretStep(Step[PayloadInteropInput]):
-    def __init__(self, owner: str) -> None:
-        self._owner = owner
-
-    def get_step_type(self) -> str:
-        return "StorePayloadInteropSecretStep"
-
-    def get_step_options(self) -> StepOptions:
-        # One attempt, so a failing Step fails the Flow at once.
-        return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
-
-    def execute(self, context: Context, input: PayloadInteropInput) -> StepDecision:
-        if input.text.startswith(FAIL_INPUT_PREFIX):
-            raise RuntimeError(
-                expected_failure_text(self._owner, input.text.removeprefix(FAIL_INPUT_PREFIX))
-            )
-        SECRET_TEXT.set(context, expected_secret_text(self._owner, input.text))
-        STATUS_TEXT.set(context, expected_status_text(self._owner))
-        DOCUMENT_OBJECT.set(context, input.document)
-        COUNT_INTEGER.set(context, input.count)
-        RATIO_DOUBLE.set(context, input.ratio)
-        return graceful_complete(expected_output(self._owner, input.text))
+PAYLOAD_INTEROP_STEP_OPTIONS = StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))
+"""One attempt, so a failing Step fails the Flow at once."""
 
 
-class PayloadInteropFlow(Flow[PayloadInteropInput]):
-    def __init__(self, owner: str) -> None:
-        self.owner = owner
-        self.store_payload_interop_secret_step = StorePayloadInteropSecretStep(owner)
-
-    def get_flow_type(self) -> str:
-        return _FLOW_TYPES[self.owner]
-
-    def get_steps(self) -> StepList[PayloadInteropInput]:
-        return StepList.start_step(self.store_payload_interop_secret_step)
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(
-            SECRET_TEXT, STATUS_TEXT, DOCUMENT_OBJECT, COUNT_INTEGER, RATIO_DOUBLE
+def store_payload_interop_values(context: Context, owner: str, input: PayloadInteropInput) -> None:
+    """Writes the Owner's Attributes, or raises the Step error for a failing input."""
+    if input.text.startswith(FAIL_INPUT_PREFIX):
+        raise RuntimeError(
+            expected_failure_text(owner, input.text.removeprefix(FAIL_INPUT_PREFIX))
         )
+    SECRET_TEXT.set(context, expected_secret_text(owner, input.text))
+    STATUS_TEXT.set(context, expected_status_text(owner))
+    DOCUMENT_OBJECT.set(context, input.document)
+    COUNT_INTEGER.set(context, input.count)
+    RATIO_DOUBLE.set(context, input.ratio)
 
 
-def new_client_flows() -> dict[str, PayloadInteropFlow]:
-    """Returns every Owner's Flow, so one Client can start them all."""
-    return {owner: PayloadInteropFlow(owner) for owner in OWNERS}
+def payload_interop_persistence_schema() -> PersistenceSchema:
+    return PersistenceSchema.of(
+        SECRET_TEXT, STATUS_TEXT, DOCUMENT_OBJECT, COUNT_INTEGER, RATIO_DOUBLE
+    )
 
 
-def new_client_registry(flows: dict[str, PayloadInteropFlow]) -> Registry:
+def new_client_registry(flows: Mapping[str, Flow[PayloadInteropInput]]) -> Registry:
     return Registry(tuple(flows.values()), allow_async_handlers=True)
 
 

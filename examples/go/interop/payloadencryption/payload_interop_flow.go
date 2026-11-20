@@ -23,9 +23,9 @@
 //
 // Every SDK defines the same Flow shape under its own Flow type. Each SDK's
 // Worker serves only its own Flow type, and every SDK's Client starts and reads
-// all three. Keep this file in sync with
-// examples/python/tests/interop/payload_encryption_interop_flow.py and
-// examples/typescript/test/interop/payload-encryption-interop-flow.ts.
+// all three. Each Flow type lives in its own file, so dexcli visualize can render
+// it. Keep this package in sync with examples/python/tests/interop/ and
+// examples/typescript/test/interop/.
 package payloadencryptioninterop
 
 import (
@@ -117,19 +117,6 @@ func NewPayloadInteropInput(text string) PayloadInteropInput {
 	return PayloadInteropInput{Text: text, Count: ExpectedCount, Ratio: ExpectedRatio, Document: ExpectedDocument()}
 }
 
-// FlowTypeOf returns the Flow type that the Owner's Worker serves.
-func FlowTypeOf(owner Owner) string {
-	switch owner {
-	case OwnerGo:
-		return "GoPayloadInteropFlow"
-	case OwnerPython:
-		return "PythonPayloadInteropFlow"
-	case OwnerTypeScript:
-		return "TypeScriptPayloadInteropFlow"
-	}
-	panic(fmt.Sprintf("unknown payload interop owner %q", owner))
-}
-
 // ExpectedSecretText returns the encrypted Attribute value the Owner's Worker writes for input.
 func ExpectedSecretText(owner Owner, input string) string {
 	return input + " | stored by " + string(owner)
@@ -151,26 +138,20 @@ func ExpectedFailureText(owner Owner, input string) string {
 	return "payload interop failure in " + string(owner) + ": " + input
 }
 
-// PayloadInteropFlow is the interop Flow under the Flow type of one Owner.
-type PayloadInteropFlow struct {
-	dex.FlowDefaults
-	owner Owner
-}
-
 // NewPayloadInteropFlow returns the interop Flow that the Owner's Worker serves.
-func NewPayloadInteropFlow(owner Owner) *PayloadInteropFlow {
-	return &PayloadInteropFlow{owner: owner}
+func NewPayloadInteropFlow(owner Owner) dex.Flow {
+	switch owner {
+	case OwnerGo:
+		return &GoPayloadInteropFlow{}
+	case OwnerPython:
+		return &PythonPayloadInteropFlow{}
+	case OwnerTypeScript:
+		return &TypeScriptPayloadInteropFlow{}
+	}
+	panic(fmt.Sprintf("unknown payload interop owner %q", owner))
 }
 
-func (flow *PayloadInteropFlow) GetFlowType() string {
-	return FlowTypeOf(flow.owner)
-}
-
-func (flow *PayloadInteropFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(storePayloadInteropSecretStep{owner: flow.owner})}
-}
-
-func (*PayloadInteropFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func payloadInteropPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{
 		SecretText, StatusText, DocumentObject, CountInteger, RatioDouble,
 	}}
@@ -185,40 +166,30 @@ func NewClientRegistry() (*dex.Registry, error) {
 	return dex.NewRegistry(flows)
 }
 
-type storePayloadInteropSecretStep struct {
-	dex.StepDefaultsNoWaitFor[PayloadInteropInput]
-	owner Owner
-}
-
-func (storePayloadInteropSecretStep) GetStepType() string {
-	return "StorePayloadInteropSecretStep"
-}
-
-// GetStepOptions disables retries, so a failing Step fails the Flow at once.
-func (storePayloadInteropSecretStep) GetStepOptions() *dex.StepOptions {
+// payloadInteropStepOptions disables retries, so a failing Step fails the Flow at once.
+func payloadInteropStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
 }
 
-func (step storePayloadInteropSecretStep) Execute(ctx dex.Context, input PayloadInteropInput) (*dex.StepDecision, error) {
+// storePayloadInteropValues writes the Owner's Attributes for input. It returns the
+// Step error for an input that starts with FailInputPrefix.
+func storePayloadInteropValues(ctx dex.Context, owner Owner, input PayloadInteropInput) error {
 	if failureInput, isFailure := strings.CutPrefix(input.Text, FailInputPrefix); isFailure {
-		return nil, errors.New(ExpectedFailureText(step.owner, failureInput))
+		return errors.New(ExpectedFailureText(owner, failureInput))
 	}
-	if err := SecretText.Set(ctx, ExpectedSecretText(step.owner, input.Text)); err != nil {
-		return nil, err
+	if err := SecretText.Set(ctx, ExpectedSecretText(owner, input.Text)); err != nil {
+		return err
 	}
-	if err := StatusText.Set(ctx, ExpectedStatusText(step.owner)); err != nil {
-		return nil, err
+	if err := StatusText.Set(ctx, ExpectedStatusText(owner)); err != nil {
+		return err
 	}
 	if err := DocumentObject.Set(ctx, input.Document); err != nil {
-		return nil, err
+		return err
 	}
 	if err := CountInteger.Set(ctx, input.Count); err != nil {
-		return nil, err
+		return err
 	}
-	if err := RatioDouble.Set(ctx, input.Ratio); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(ExpectedOutput(step.owner, input.Text)), nil
+	return RatioDouble.Set(ctx, input.Ratio)
 }
 
 // NewFilePayloadEncryption reads a key file, such as one from dexcli codec-server keygen.
@@ -248,7 +219,7 @@ func RunGoPayloadInteropWorker(ctx context.Context, config WorkerConfig, onReady
 	if err != nil {
 		return err
 	}
-	registry, err := dex.NewRegistry([]dex.Flow{NewPayloadInteropFlow(OwnerGo)})
+	registry, err := dex.NewRegistry([]dex.Flow{&GoPayloadInteropFlow{}})
 	if err != nil {
 		return err
 	}
@@ -291,5 +262,3 @@ func stopPayloadInteropWorker(worker *dex.Worker, workerResult <-chan error) err
 		return errors.Join(stopErr, stopContext.Err())
 	}
 }
-
-var _ dex.Flow = (*PayloadInteropFlow)(nil)

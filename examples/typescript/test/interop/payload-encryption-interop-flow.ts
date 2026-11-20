@@ -17,9 +17,8 @@
 // The Flow that the cross-SDK payload encryption interoperability test runs.
 // Every SDK defines the same Flow shape under its own Flow type. Each SDK's
 // Worker serves only its own Flow type, and every SDK's Client starts and reads
-// all three. Keep this file in sync with
-// examples/go/interop/payloadencryption/payload_interop_flow.go and
-// examples/python/tests/interop/payload_encryption_interop_flow.py.
+// all three. Keep this file in sync with examples/go/interop/payloadencryption/
+// and examples/python/tests/interop/.
 
 import {
   AesGcmPayloadCodec,
@@ -88,12 +87,6 @@ export function newPayloadInteropInput(text: string): PayloadInteropInput {
   return { text, count: Number(expectedCount), ratio: expectedRatio, document: expectedDocument };
 }
 
-const flowTypes: Record<PayloadInteropOwner, string> = {
-  go: "GoPayloadInteropFlow",
-  python: "PythonPayloadInteropFlow",
-  typescript: "TypeScriptPayloadInteropFlow",
-};
-
 export function expectedSecretText(owner: PayloadInteropOwner, input: string): string {
   return `${input} | stored by ${owner}`;
 }
@@ -138,16 +131,14 @@ class StorePayloadInteropSecretStep implements Step<PayloadInteropInput> {
   }
 }
 
-export class PayloadInteropFlow implements Flow<PayloadInteropInput> {
+abstract class PayloadInteropFlow implements Flow<PayloadInteropInput> {
   private readonly storePayloadInteropSecretStep: StorePayloadInteropSecretStep;
 
-  public constructor(public readonly owner: PayloadInteropOwner) {
+  protected constructor(owner: PayloadInteropOwner) {
     this.storePayloadInteropSecretStep = new StorePayloadInteropSecretStep(owner);
   }
 
-  public getFlowType(): string {
-    return flowTypes[this.owner];
-  }
+  public abstract getFlowType(): string;
 
   public getSteps() {
     return StepList.startStep(this.storePayloadInteropSecretStep);
@@ -158,9 +149,46 @@ export class PayloadInteropFlow implements Flow<PayloadInteropInput> {
   }
 }
 
+/** The TypeScript Client's definition of the Flow the Go Worker serves. */
+export class GoPayloadInteropFlow extends PayloadInteropFlow {
+  public constructor() {
+    super("go");
+  }
+
+  public getFlowType(): string {
+    return "GoPayloadInteropFlow";
+  }
+}
+
+/** The TypeScript Client's definition of the Flow the Python Worker serves. */
+export class PythonPayloadInteropFlow extends PayloadInteropFlow {
+  public constructor() {
+    super("python");
+  }
+
+  public getFlowType(): string {
+    return "PythonPayloadInteropFlow";
+  }
+}
+
+/** The interop Flow that the TypeScript Worker serves. */
+export class TypeScriptPayloadInteropFlow extends PayloadInteropFlow {
+  public constructor() {
+    super("typescript");
+  }
+
+  public getFlowType(): string {
+    return "TypeScriptPayloadInteropFlow";
+  }
+}
+
 /** Returns every Owner's Flow, so one Client can start them all. */
 export function newClientFlows(): Map<PayloadInteropOwner, PayloadInteropFlow> {
-  return new Map(payloadInteropOwners.map((owner) => [owner, new PayloadInteropFlow(owner)]));
+  return new Map<PayloadInteropOwner, PayloadInteropFlow>([
+    ["go", new GoPayloadInteropFlow()],
+    ["python", new PythonPayloadInteropFlow()],
+    ["typescript", new TypeScriptPayloadInteropFlow()],
+  ]);
 }
 
 export function newClientRegistry(flows: Map<PayloadInteropOwner, PayloadInteropFlow>): Registry {

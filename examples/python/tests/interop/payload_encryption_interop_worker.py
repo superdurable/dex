@@ -32,10 +32,8 @@ from dex import (
     open_blob_cache,
 )
 
-from tests.interop.payload_encryption_interop_flow import (
-    PayloadInteropFlow,
-    new_file_payload_encryption,
-)
+from tests.interop.payload_encryption_interop_flow import new_file_payload_encryption
+from tests.interop.python_payload_interop_flow import PythonPayloadInteropFlow
 
 
 def _required_env(name: str) -> str:
@@ -52,7 +50,7 @@ async def serve_payload_interop_worker() -> None:
         BlobCacheConfig(_required_env("DEX_PAYLOAD_INTEROP_CACHE_DIR"), 64 << 20)
     )
     worker = AsyncWorker(
-        Registry((PayloadInteropFlow("python"),), allow_async_handlers=True),
+        Registry((PythonPayloadInteropFlow(),), allow_async_handlers=True),
         cache,
         WorkerOptions(
             server_address=server_address,
