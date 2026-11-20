@@ -21,6 +21,7 @@ server/              # HTTP helpers
 shared/              # mock services
 cmd/server/          # default Worker and HTTP entrypoint (`dex-samples`)
 cmd/deal-dsl/    # Deal DSL Worker and HTTP entrypoint (`dex-deal-dsl`)
+codec-server/        # deployable payload-encryption codec server (own Go module)
 ```
 
 HTTP routes use category prefixes:
