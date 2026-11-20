@@ -602,9 +602,11 @@ to Dex Web. It hands the endpoint and token to its Dex Web and to the
 
 Set the codec server in **Settings** > **Codec endpoint**:
 
-- **Auto** uses the local codec server of `dexcli dev -codec-key-file`.
-- **Custom** uses the codec server URL you enter.
-- **Off** leaves encrypted values encrypted.
+- **Auto** uses the codec server that `dexcli dev -codec-key-file` starts on
+  this machine. Without one, the setting says so; start `dexcli dev` with
+  `-codec-key-file`, or choose **Custom**.
+- **Custom** uses the codec server at the URL you enter.
+- **Off** does not decrypt. Encrypted values show as locked.
 
 **Send cookies (SSO proxy)** sends your browser's cookies with each request
 to the codec server. Turn it on when an SSO proxy in front of the codec server

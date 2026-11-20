@@ -21,7 +21,42 @@ const COOKIES_HELP = 'Sends your browser’s cookies with each request to the co
   + 'server must allow credentials in its CORS response. Leave it off for dexcli codec-server and for any codec server '
   + 'that needs only a token.';
 
-type HelpTopic = 'remember' | 'cookies';
+const ENDPOINT_HELP = 'A codec endpoint decrypts and encrypts values in your browser. Your keys stay in the codec '
+  + 'server. Dex Web’s server never receives keys or plaintext, and decrypted values live only in this page’s '
+  + 'memory.';
+
+const MODE_DESCRIPTION: Record<CodecEndpointMode, string> = {
+  auto: 'Uses the codec server that dexcli dev -codec-key-file starts on this machine.',
+  custom: 'Uses the codec server at the URL below.',
+  off: 'Does not decrypt. Encrypted values show as locked.',
+};
+
+const NO_LOCAL_CODEC_SERVER = 'No local codec server found. Start dexcli dev with -codec-key-file, or choose Custom.';
+
+type HelpTopic = 'endpoint' | 'remember' | 'cookies';
+
+interface HelpButtonProps {
+  controls: string;
+  isOpen: boolean;
+  label: string;
+  onToggle: () => void;
+}
+
+/** A small "?" button that opens or closes the explanation it controls. */
+function HelpButton({ controls, isOpen, label, onToggle }: HelpButtonProps): ReactNode {
+  return (
+    <button
+      aria-controls={controls}
+      aria-expanded={isOpen}
+      aria-label={label}
+      className="app-bar-icon-button app-bar-codec-small-button"
+      onClick={onToggle}
+      type="button"
+    >
+      ?
+    </button>
+  );
+}
 
 interface CodecOptionProps {
   checked: boolean;
@@ -43,16 +78,7 @@ function CodecOption({ checked, onChange, label, helpLabel, help, isHelpOpen, on
           <input checked={checked} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
           {label}
         </label>
-        <button
-          aria-controls={helpId}
-          aria-expanded={isHelpOpen}
-          aria-label={helpLabel}
-          className="app-bar-icon-button app-bar-codec-small-button"
-          onClick={onToggleHelp}
-          type="button"
-        >
-          ?
-        </button>
+        <HelpButton controls={helpId} isOpen={isHelpOpen} label={helpLabel} onToggle={onToggleHelp} />
       </div>
       <small className="app-bar-codec-help" hidden={!isHelpOpen} id={helpId}>{help}</small>
     </>
@@ -71,6 +97,7 @@ export function CodecEndpointSetting() {
   // Uncontrolled, so a typed token never becomes a value attribute in the DOM.
   const tokenInputRef = useRef<HTMLInputElement>(null);
   const [openHelp, setOpenHelp] = useState<HelpTopic | null>(null);
+  const endpointHelpId = useId();
   const [error, setError] = useState('');
   useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
   const failure = store.failure();
@@ -115,16 +142,16 @@ export function CodecEndpointSetting() {
   let tokenState = '';
   if (bearerTokenStorageProblem === 'delete') tokenState = 'Could not delete the saved token. Try again.';
   else if (bearerTokenStorageProblem === 'save') tokenState = 'Could not save the token in this browser.';
-  else if (isTokenForThisURL) tokenState = preference.rememberBearerToken ? 'Token saved in this browser.' : 'Token saved for this tab.';
-  else if (savedBearerTokenEndpoint !== null) tokenState = 'The saved token is for another URL.';
+  else if (isTokenForThisURL) {
+    tokenState = preference.rememberBearerToken ? 'Token saved in this browser.' : 'Token saved in this tab’s session storage.';
+  } else if (savedBearerTokenEndpoint !== null) tokenState = 'The saved token is for another URL.';
   const canDeleteToken = savedBearerTokenEndpoint !== null || bearerTokenStorageProblem === 'delete';
 
-  let status: string;
-  if (codec?.source === 'local') status = `Local dev codec server · ${codec.endpoint}`;
-  else if (codec?.source === 'custom') status = codec.endpoint;
-  else if (preference.mode === 'off') status = 'Off: encrypted values stay encrypted';
-  else if (preference.mode === 'custom') status = 'Enter a codec endpoint URL';
-  else status = 'None: encrypted values stay encrypted';
+  // The status line names only a state the viewer can act on or should know; empty otherwise.
+  let status = '';
+  if (codec?.source === 'local') status = `Local dev codec server at ${codec.endpoint}.`;
+  else if (preference.mode === 'auto' && localServer?.configured === false) status = NO_LOCAL_CODEC_SERVER;
+  else if (preference.mode === 'custom' && !codec) status = 'Enter the codec server URL and save.';
 
   return (
     <div
@@ -139,24 +166,30 @@ export function CodecEndpointSetting() {
       }}
       role="group"
     >
-      <span>Codec endpoint</span>
+      <span className="app-bar-codec-option">
+        Codec endpoint
+        <HelpButton
+          controls={endpointHelpId}
+          isOpen={openHelp === 'endpoint'}
+          label="What is a codec endpoint?"
+          onToggle={() => toggleHelp('endpoint')}
+        />
+      </span>
       <div className="app-bar-segmented">
         {(['auto', 'custom', 'off'] as const).map((mode) => (
           <button
             aria-pressed={preference.mode === mode}
             key={mode}
             onClick={() => chooseMode(mode)}
-            title={mode === 'auto' ? 'Use the local codec server of dexcli dev when there is one' : undefined}
             type="button"
           >
             {MODE_LABEL[mode]}
           </button>
         ))}
       </div>
-      <small className="app-bar-codec-status" data-testid="codec-endpoint-status">{status}</small>
-      {preference.mode === 'auto' && localServer?.configured === false && (
-        <small className="muted">Dex Web reports no local codec server.</small>
-      )}
+      <small hidden={openHelp !== 'endpoint'} id={endpointHelpId}>{ENDPOINT_HELP}</small>
+      <small data-testid="codec-endpoint-mode">{MODE_DESCRIPTION[preference.mode]}</small>
+      {status && <small className="app-bar-codec-status" data-testid="codec-endpoint-status">{status}</small>}
       {preference.mode === 'custom' && (
         <form
           className="app-bar-codec-form"
@@ -226,7 +259,6 @@ export function CodecEndpointSetting() {
           <button className="app-bar-codec-retry" onClick={retryDecoding} type="button">Retry</button>
         </small>
       )}
-      <small className="muted">Decrypted values stay in this page&apos;s memory. Dex Web never receives keys or plaintext.</small>
     </div>
   );
 }

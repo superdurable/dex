@@ -68,48 +68,66 @@ const PayloadCodecContext = createContext<PayloadCodecState>({
   retryDecoding: () => undefined,
 });
 
-function browserStorage(): Storage | undefined {
+/** The browser tab whose storage and storage events the provider uses; tests pass their own. */
+export interface PayloadCodecBrowserTab {
+  readonly localStorage: Storage;
+  readonly sessionStorage: Storage;
+  addEventListener(type: 'storage', listener: (event: StorageEvent) => void): void;
+  removeEventListener(type: 'storage', listener: (event: StorageEvent) => void): void;
+}
+
+function browserStorage(tab: PayloadCodecBrowserTab): Storage | undefined {
   try {
-    return window.localStorage;
+    return tab.localStorage;
   } catch {
     return undefined;
   }
 }
 
-function tabSessionStorage(): Storage | undefined {
+function tabSessionStorage(tab: PayloadCodecBrowserTab): Storage | undefined {
   try {
-    return window.sessionStorage;
+    return tab.sessionStorage;
   } catch {
     return undefined;
   }
 }
 
-function bearerTokenStorages(): CodecBearerTokenStorages {
-  return { local: browserStorage(), session: tabSessionStorage() };
+function bearerTokenStorages(tab: PayloadCodecBrowserTab): CodecBearerTokenStorages {
+  return { local: browserStorage(tab), session: tabSessionStorage(tab) };
+}
+
+interface PayloadCodecProviderProps {
+  children: React.ReactNode;
+  /** Defaults to the current window. */
+  browserTab?: PayloadCodecBrowserTab;
 }
 
 /** Holds the codec endpoint choice and the in-memory decode results of this page. */
-export function PayloadCodecProvider({ children }: { children: React.ReactNode }) {
-  const [preference, setPreferenceState] = useState(() => readCodecEndpointPreference(browserStorage()));
+export function PayloadCodecProvider({ children, browserTab = window }: PayloadCodecProviderProps) {
+  const [preference, setPreferenceState] = useState(() => readCodecEndpointPreference(browserStorage(browserTab)));
   const [tokenRecord, setTokenRecord] = useState(
-    () => readCodecBearerTokenRecord(bearerTokenStorages(), preference.rememberBearerToken),
+    () => readCodecBearerTokenRecord(bearerTokenStorages(browserTab), preference.rememberBearerToken),
   );
   const [bearerTokenStorageProblem, setBearerTokenStorageProblem] = useState<'save' | 'delete' | null>(null);
   const [localServer, setLocalServer] = useState<LocalCodecServer | null>(null);
 
-  // Another tab that saves or deletes the shared token changes local storage. A session copy this tab inherited
-  // from it is dropped too, so a deleted token is not read back from that copy.
+  // Follow other tabs' shared token changes and drop any inherited session copy; a failed delete stays revoked.
   const rememberBearerToken = preference.rememberBearerToken;
+  const isDeleteUnfinished = bearerTokenStorageProblem === 'delete';
   useEffect(() => {
     const followOtherTab = (event: StorageEvent) => {
       if (event.key !== null && event.key !== CODEC_BEARER_TOKEN_STORAGE_KEY) return;
-      const storages = bearerTokenStorages();
-      removeSessionCodecBearerTokenRecord(storages);
+      const storages = bearerTokenStorages(browserTab);
+      const removedSessionCopy = removeSessionCodecBearerTokenRecord(storages);
+      if (!removedSessionCopy || isDeleteUnfinished) {
+        setTokenRecord(null);
+        return;
+      }
       setTokenRecord(readCodecBearerTokenRecord(storages, rememberBearerToken));
     };
-    window.addEventListener('storage', followOtherTab);
-    return () => window.removeEventListener('storage', followOtherTab);
-  }, [rememberBearerToken]);
+    browserTab.addEventListener('storage', followOtherTab);
+    return () => browserTab.removeEventListener('storage', followOtherTab);
+  }, [browserTab, isDeleteUnfinished, rememberBearerToken]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,12 +150,12 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
   const value = useMemo<PayloadCodecState>(() => {
     const setPreference = (next: CodecEndpointPreference) => {
       setPreferenceState(next);
-      saveCodecEndpointPreference(browserStorage(), next);
+      saveCodecEndpointPreference(browserStorage(browserTab), next);
     };
     // This page uses the new record even when storage refuses it; the problem tells the viewer it was not kept.
     const saveTokenRecord = (record: CodecBearerTokenRecord | null, remember: boolean): boolean => {
       setTokenRecord(record);
-      const saved = saveCodecBearerTokenRecord(bearerTokenStorages(), record, remember);
+      const saved = saveCodecBearerTokenRecord(bearerTokenStorages(browserTab), record, remember);
       setBearerTokenStorageProblem(saved ? null : record ? 'save' : 'delete');
       return saved;
     };
@@ -163,7 +181,7 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
       codec,
       store,
     };
-  }, [bearerTokenStorageProblem, codec, localServer, preference, store, tokenRecord]);
+  }, [bearerTokenStorageProblem, browserTab, codec, localServer, preference, store, tokenRecord]);
   return <PayloadCodecContext.Provider value={value}>{children}</PayloadCodecContext.Provider>;
 }
 

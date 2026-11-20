@@ -166,8 +166,9 @@ export function readCodecBearerTokenRecord(storages: CodecBearerTokenStorages, r
 /**
  * Saves the record in the storage that remember selects, then removes it from the other; null removes both.
  *
- * Returns false when the record could not be written, or when null could not be removed from both storages. A failed
- * write leaves the other storage unchanged, so a record that was moving keeps its old place.
+ * Returns false when the record could not be written, when the other storage keeps a copy it could not remove, or
+ * when null could not be removed from both storages. A failed write leaves the other storage unchanged, so a record
+ * that was moving keeps its old place.
  */
 export function saveCodecBearerTokenRecord(
   storages: CodecBearerTokenStorages,
@@ -177,9 +178,8 @@ export function saveCodecBearerTokenRecord(
   const [target, other] = remember ? [storages.local, storages.session] : [storages.session, storages.local];
   if (record) {
     if (!writeStoredTokenRecord(target, record)) return false;
-    // A copy left in the other storage only shadows the same token, so its removal failure is not reported.
-    writeStoredTokenRecord(other, null);
-    return true;
+    // A copy left in shared local storage would outlive a tab-only choice, so that counts as a failure.
+    return writeStoredTokenRecord(other, null);
   }
   const removedTarget = writeStoredTokenRecord(target, null);
   const removedOther = writeStoredTokenRecord(other, null);

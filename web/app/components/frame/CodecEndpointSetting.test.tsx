@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 
 import { useEffect } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PayloadCodecProvider, usePayloadCodec } from '../../payloadCodecContext';
 import { CodecEndpointSetting } from './CodecEndpointSetting';
@@ -153,7 +153,7 @@ describe('CodecEndpointSetting bearer token', () => {
     save();
     expect(JSON.parse(window.sessionStorage.getItem(tokenKey) ?? '')).toEqual({ endpoint: endpointA, token });
     expect(window.localStorage.getItem(tokenKey)).toBeNull();
-    expect(screen.getByText('Token saved for this tab.')).toBeTruthy();
+    expect(screen.getByText('Token saved in this tab’s session storage.')).toBeTruthy();
   });
 
   it('moves the saved token when Remember changes and Save runs again', () => {
@@ -297,25 +297,180 @@ describe('CodecEndpointSetting storage failures and inherited copies', () => {
     expect(await nextDecodeHeaders(requestsBefore)).not.toHaveProperty('Authorization');
   });
 
-  it('drops an inherited session copy when another tab deletes the shared token', async () => {
-    // Tab A saved with Remember off; tab B was duplicated from it and inherited the session copy.
-    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: false });
-    window.sessionStorage.setItem(tokenKey, tokenRecord(endpointA));
+  it('reports a move to session storage whose shared copy cannot be removed', async () => {
+    const local = failingStorage('removeItem');
+    local.setItem(tokenKey, tokenRecord(endpointA));
+    vi.stubGlobal('localStorage', local);
+    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: true });
+    renderSetting();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remember on this browser' }));
+    save();
+
+    expect(screen.getByText('Could not save the token in this browser.')).toBeTruthy();
+    expect(screen.queryByText('Token saved in this tab’s session storage.')).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem(preferenceKey) ?? '{}').rememberBearerToken).toBe(true);
+    expect(screen.getByRole('button', { name: 'Delete saved bearer token' })).toBeTruthy();
+    expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+  });
+
+  it('keeps a token whose delete failed revoked when other tabs change storage', async () => {
+    const local = failingStorage('removeItem');
+    local.setItem(tokenKey, tokenRecord(endpointA));
+    vi.stubGlobal('localStorage', local);
+    savePreference({ mode: 'custom', endpoint: endpointA, includeCredentials: false });
     renderSetting();
     expect(await settledDecodeHeaders()).toMatchObject({ Authorization: `Bearer ${token}` });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete saved bearer token' }));
 
-    // Tab A saves with Remember on, so the shared record appears, and then deletes it.
-    let requestsBefore = codecRequests().length;
-    window.localStorage.setItem(tokenKey, tokenRecord(endpointA));
+    const requestsBefore = codecRequests().length;
     act(() => { window.dispatchEvent(new StorageEvent('storage', { key: tokenKey })); });
-    expect(window.sessionStorage.getItem(tokenKey)).toBeNull();
-    expect(await nextDecodeHeaders(requestsBefore)).toMatchObject({ Authorization: `Bearer ${token}` });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(codecRequests().slice(requestsBefore).every(([, init]) => (
+      !('Authorization' in ((init as RequestInit).headers as object))
+    ))).toBe(true);
+    expect(lastRequest().headers).not.toHaveProperty('Authorization');
+  });
+});
 
-    requestsBefore = codecRequests().length;
-    window.localStorage.removeItem(tokenKey);
-    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: tokenKey })); });
-    expect(await nextDecodeHeaders(requestsBefore)).not.toHaveProperty('Authorization');
-    expect(screen.queryByRole('button', { name: 'Delete saved bearer token' })).toBeNull();
+describe('CodecEndpointSetting texts', () => {
+  it('explains the selected mode and shows only actionable status', async () => {
+    window.localStorage.removeItem(preferenceKey);
+    const { container } = renderSetting();
+    const modeLine = screen.getByTestId('codec-endpoint-mode');
+    expect(modeLine.textContent).toBe('Uses the codec server that dexcli dev -codec-key-file starts on this machine.');
+    expect((await screen.findByTestId('codec-endpoint-status')).textContent)
+      .toBe('No local codec server found. Start dexcli dev with -codec-key-file, or choose Custom.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Off' }));
+    expect(modeLine.textContent).toBe('Does not decrypt. Encrypted values show as locked.');
+    expect(screen.queryByTestId('codec-endpoint-status')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    expect(modeLine.textContent).toBe('Uses the codec server at the URL below.');
+    expect(screen.getByTestId('codec-endpoint-status').textContent).toBe('Enter the codec server URL and save.');
+    expect(container.textContent).not.toMatch(/stay encrypted|reports no local codec server|stay in this page/);
+  });
+
+  it('shows the codec endpoint explanation behind the heading "?"', () => {
+    renderSetting();
+    const help = screen.getByRole('button', { name: 'What is a codec endpoint?' });
+    const text = screen.getByText(/Your keys stay in the codec server/);
+    expect(document.getElementById(help.getAttribute('aria-controls') ?? '')).toBe(text);
+    expect(text.hidden).toBe(true);
+    fireEvent.click(help);
+    expect(help.getAttribute('aria-expanded')).toBe('true');
+    expect(text.hidden).toBe(false);
+    fireEvent.keyDown(help, { key: 'Escape' });
+    expect(help.getAttribute('aria-expanded')).toBe('false');
+    expect(text.hidden).toBe(true);
+  });
+});
+
+/** A browser tab with the shared local storage, its own session storage, and its own storage events. */
+function browserTabWith(sharedLocal: Storage, session: Storage) {
+  const events = new EventTarget();
+  return {
+    localStorage: sharedLocal,
+    sessionStorage: session,
+    addEventListener: (type: 'storage', listener: (event: StorageEvent) => void) => {
+      events.addEventListener(type, listener as EventListener);
+    },
+    removeEventListener: (type: 'storage', listener: (event: StorageEvent) => void) => {
+      events.removeEventListener(type, listener as EventListener);
+    },
+    /** Delivers the event a browser sends to this tab when another tab changes the shared token. */
+    receiveTokenChange: () => {
+      act(() => { events.dispatchEvent(new StorageEvent('storage', { key: tokenKey })); });
+    },
+  };
+}
+
+/** Decodes one envelope for a Flow named after the tab, so requests show which tab sent them. */
+function TabDecodeProbe({ flowId }: { flowId: string }) {
+  const { store } = usePayloadCodec();
+  useEffect(() => {
+    store.request({ flowId, flowType: 'OrderFlow' }, ['AAAA']);
+  }, [flowId, store]);
+  return null;
+}
+
+function tabRequests(flowId: string) {
+  return codecRequests().filter(([, init]) => String((init as RequestInit).body).includes(`"flow_id":"${flowId}"`));
+}
+
+async function nextTabHeaders(flowId: string, requestsBefore: number): Promise<Record<string, string>> {
+  await waitFor(() => expect(tabRequests(flowId).length).toBeGreaterThan(requestsBefore));
+  return (tabRequests(flowId).at(-1)?.[1] as RequestInit).headers as Record<string, string>;
+}
+
+describe('CodecEndpointSetting across two tabs', () => {
+  function renderTab(tab: ReturnType<typeof browserTabWith>, flowId: string) {
+    const { container } = render(
+      <PayloadCodecProvider browserTab={tab}>
+        <CodecEndpointSetting />
+        <TabDecodeProbe flowId={flowId} />
+      </PayloadCodecProvider>,
+    );
+    return within(container);
+  }
+
+  it('follows tab A through Save, the Remember toggle, and Delete in tab B', async () => {
+    const shared = memoryStorage();
+    shared.setItem(preferenceKey, JSON.stringify({
+      mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: false,
+    }));
+    const sessionA = memoryStorage();
+    const tabA = browserTabWith(shared, sessionA);
+    const a = renderTab(tabA, 'tab-a');
+
+    // Tab A saves with Remember off.
+    fireEvent.change(a.getByLabelText('Codec endpoint bearer token'), { target: { value: token } });
+    fireEvent.click(a.getByRole('button', { name: 'Save' }));
+    expect(sessionA.getItem(tokenKey)).toBe(tokenRecord(endpointA));
+    expect(shared.getItem(tokenKey)).toBeNull();
+
+    // Tab B is duplicated from A and inherits its session copy.
+    const sessionB = memoryStorage();
+    sessionB.setItem(tokenKey, sessionA.getItem(tokenKey) ?? '');
+    const tabB = browserTabWith(shared, sessionB);
+    renderTab(tabB, 'tab-b');
+    expect(await nextTabHeaders('tab-b', 0)).toMatchObject({ Authorization: `Bearer ${token}` });
+
+    // Tab A turns Remember on and saves: the token moves to shared storage.
+    fireEvent.click(a.getByRole('checkbox', { name: 'Remember on this browser' }));
+    fireEvent.click(a.getByRole('button', { name: 'Save' }));
+    expect(shared.getItem(tokenKey)).toBe(tokenRecord(endpointA));
+    expect(sessionA.getItem(tokenKey)).toBeNull();
+    let requestsBefore = tabRequests('tab-b').length;
+    tabB.receiveTokenChange();
+    expect(sessionB.getItem(tokenKey)).toBeNull();
+    expect(await nextTabHeaders('tab-b', requestsBefore)).toMatchObject({ Authorization: `Bearer ${token}` });
+
+    // Tab A deletes the token.
+    fireEvent.click(a.getByRole('button', { name: 'Delete saved bearer token' }));
+    expect(shared.getItem(tokenKey)).toBeNull();
+    requestsBefore = tabRequests('tab-b').length;
+    tabB.receiveTokenChange();
+    expect(sessionB.getItem(tokenKey)).toBeNull();
+    expect(await nextTabHeaders('tab-b', requestsBefore)).not.toHaveProperty('Authorization');
+  });
+
+  it('drops the token in tab B even when its inherited session copy cannot be removed', async () => {
+    const shared = memoryStorage();
+    shared.setItem(preferenceKey, JSON.stringify({
+      mode: 'custom', endpoint: endpointA, includeCredentials: false, rememberBearerToken: false,
+    }));
+    const sessionB = { ...memoryStorage(), removeItem: () => { throw new Error('blocked'); } } as Storage;
+    sessionB.setItem(tokenKey, tokenRecord(endpointA));
+    const tabB = browserTabWith(shared, sessionB);
+    renderTab(tabB, 'tab-b');
+    expect(await nextTabHeaders('tab-b', 0)).toMatchObject({ Authorization: `Bearer ${token}` });
+
+    // Tab A deleted the shared token; the session copy in B stays, but B stops using it.
+    const requestsBefore = tabRequests('tab-b').length;
+    tabB.receiveTokenChange();
+    expect(sessionB.getItem(tokenKey)).toBe(tokenRecord(endpointA));
+    expect(await nextTabHeaders('tab-b', requestsBefore)).not.toHaveProperty('Authorization');
   });
 });
 

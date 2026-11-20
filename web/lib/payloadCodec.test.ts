@@ -179,6 +179,13 @@ describe('bearer token storage', () => {
     expect(saveCodecBearerTokenRecord(storages, record, true)).toBe(true);
   });
 
+  it('reports a move whose old copy cannot be removed', () => {
+    const storages = { local: { ...fakeStorage(), removeItem: () => { throw new Error('blocked'); } }, session: fakeStorage() };
+    storages.local.entries.set(tokenKey, stored(record.endpoint, record.token));
+    expect(saveCodecBearerTokenRecord(storages, record, false)).toBe(false);
+    expect(storages.local.entries.has(tokenKey)).toBe(true);
+  });
+
   it('reports a delete that one storage refuses, and removes what it can', () => {
     const storages = { local: { ...fakeStorage(), removeItem: () => { throw new Error('blocked'); } }, session: fakeStorage() };
     storages.local.entries.set(tokenKey, stored(record.endpoint, record.token));
