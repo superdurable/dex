@@ -40,6 +40,7 @@ var flagOrder = []string{
 	"allowed-hosts",
 	"attribute-store-config",
 	"bind-address",
+	"codec-key-file",
 	"connector-config-dir",
 	"connector-release-override",
 	"connectors-mcp",
@@ -100,6 +101,8 @@ type Config struct {
 	ConnectorReleaseOverrides map[string]string
 	// AllowedHosts defaults empty and lists extra host names that Dex Web /api requests may use besides loopback.
 	AllowedHosts string
+	// CodecKeyFile defaults empty; when set, a local codec server with this key file serves Dex Web and Flow commands.
+	CodecKeyFile string
 	// ConnectorsMCP configures the Dex Connectors MCP server that dexcli dev proxies at /mcp on the Dex Web port.
 	ConnectorsMCP ConnectorsMCPConfig
 	// OpenBrowser defaults true and opens Dex Web after readiness. Without an explicit --open, the launch environment
@@ -139,6 +142,13 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"Dex YAML file supplying attributeStore settings",
 	)
 	flags.StringVar(&cfg.BindAddress, "bind-address", cfg.BindAddress, "address for local services")
+	flags.StringVar(
+		&cfg.CodecKeyFile,
+		"codec-key-file",
+		"",
+		"payload key file; starts a local codec server on 127.0.0.1 so Dex Web and dexcli flow commands show encrypted values "+
+			"(create one with dexcli codec-server keygen; give the same file to your Workers)",
+	)
 	flags.StringVar(&cfg.Engine, "engine", cfg.Engine, "compatibility option; server-zd is the only engine")
 	flags.StringVar(&cfg.ZDBinary, "zd-binary", cfg.ZDBinary, "dex-server-zd executable (default DEX_SERVER_ZD_BINARY, then next to dexcli, then PATH)")
 	flags.StringVar(&cfg.ZDDataDirectory, "zd-data-dir", "", "zd state directory (default $HOME/.dex/zd/<dex-port>)")
@@ -315,6 +325,13 @@ func (c *Config) validate() error {
 	}
 	if net.ParseIP(c.BindAddress) == nil {
 		return fmt.Errorf("bind address must be an IP address: %q", c.BindAddress)
+	}
+	if c.CodecKeyFile != "" {
+		keyFilePath, err := resolveRegularFilePath(c.CodecKeyFile, "codec key file")
+		if err != nil {
+			return err
+		}
+		c.CodecKeyFile = keyFilePath
 	}
 	c.FlowRenderingDirectory = strings.TrimSpace(c.FlowRenderingDirectory)
 	c.ConnectorConfigDirectory = strings.TrimSpace(c.ConnectorConfigDirectory)

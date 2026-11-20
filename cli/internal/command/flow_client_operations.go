@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -94,6 +95,11 @@ func executeStart(c *flowCommand, ctx context.Context, args []string, options op
 		return newConfirmationError("flow start")
 	}
 	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
+		// Initial Attributes stay plaintext: dexcli cannot know whether the application declared them Plaintext.
+		payloadContext := dex.PayloadContext{FlowType: request.GetFlowType(), FlowID: flowID}
+		if err := client.encryptValues(callCtx, payloadContext, &request.StepInput); err != nil {
+			return newOperationError("flow start", err)
+		}
 		response, callErr := client.service.StartFlow(callCtx, request)
 		if callErr != nil {
 			return newOperationError("flow start", callErr)
@@ -123,7 +129,7 @@ func executeWait(c *flowCommand, ctx context.Context, args []string, options opt
 		if callErr != nil {
 			return newOperationError("flow wait", callErr)
 		}
-		mapped, warnings, mapErr := naturalMessage(callCtx, client.service, flowID, response, options.noHydrate)
+		mapped, warnings, mapErr := naturalMessage(callCtx, client, flowID, response, options.noHydrate)
 		if mapErr != nil {
 			return newOperationError("flow wait", mapErr)
 		}

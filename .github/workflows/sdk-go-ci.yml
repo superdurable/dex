@@ -15,6 +15,7 @@ on:
       - "cli/internal/command/**"
       - "cli/internal/dev/**"
       - "cli/internal/flowviz/**"
+      - "cli/internal/payloadcodec/**"
       - "cli/internal/pointervalue/**"
       - "cli/internal/update/**"
       - "cli/schema/**"

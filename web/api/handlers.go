@@ -39,9 +39,10 @@ const (
 const serverProtocolUnsupportedCode = "SERVER_PROTOCOL_UNSUPPORTED"
 
 type handler struct {
-	client       dexpb.FlowServiceClient
-	serverEngine *ServerEngineResolver
-	webVersion   string
+	client           dexpb.FlowServiceClient
+	serverEngine     *ServerEngineResolver
+	webVersion       string
+	localCodecServer LocalCodecServerSettings
 }
 
 // HandlerConfig holds the optional settings of RegisterHandlersWithConfig.
@@ -49,6 +50,24 @@ type HandlerConfig struct {
 	// WebVersion defaults empty and names the build that serves Dex Web, such as "dex-web 1.45.11".
 	// GET /api/server-info reports it as webVersion; empty means unknown.
 	WebVersion string
+	// LocalCodecServer defaults empty. GET /api/codec-server reports it.
+	LocalCodecServer LocalCodecServerSettings
+}
+
+// LocalCodecServerSettings names a local codec server that the browser calls directly.
+type LocalCodecServerSettings struct {
+	// Endpoint is the codec server base URL, such as http://127.0.0.1:53124; empty means none.
+	Endpoint string `json:"endpoint"`
+	// Token is sent as "Authorization: Bearer <token>" on every /encode and /decode request.
+	Token string `json:"token"`
+}
+
+// codecServerResponse is what GET /api/codec-server returns.
+type codecServerResponse struct {
+	// Configured is false when Dex Web knows no codec server; Endpoint and Token are then empty.
+	Configured bool   `json:"configured"`
+	Endpoint   string `json:"endpoint"`
+	Token      string `json:"token"`
 }
 
 // serverInfoResponse is what GET /api/server-info returns.
@@ -77,8 +96,12 @@ func RegisterHandlersWithConfig(mux *http.ServeMux, client dexpb.FlowServiceClie
 	if client == nil {
 		panic("Dex FlowService client must not be nil")
 	}
-	handler := &handler{client: client, serverEngine: NewServerEngineResolver(client), webVersion: config.WebVersion}
+	handler := &handler{
+		client: client, serverEngine: NewServerEngineResolver(client), webVersion: config.WebVersion,
+		localCodecServer: config.LocalCodecServer,
+	}
 	mux.HandleFunc("GET /api/server-info", handler.getServerInfo)
+	mux.HandleFunc("GET /api/codec-server", handler.getCodecServer)
 	mux.HandleFunc("POST /api/flows/search", handler.searchFlows)
 	mux.HandleFunc("GET /api/flows/summary", handler.getFlowSummary)
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
@@ -95,6 +118,14 @@ func RegisterHandlersWithConfig(mux *http.ServeMux, client dexpb.FlowServiceClie
 	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
+}
+
+func (h *handler) getCodecServer(response http.ResponseWriter, _ *http.Request) {
+	settings := h.localCodecServer
+	response.Header().Set("Cache-Control", "no-store")
+	writeJSON(response, http.StatusOK, codecServerResponse{
+		Configured: settings.Endpoint != "", Endpoint: settings.Endpoint, Token: settings.Token,
+	})
 }
 
 func (h *handler) publishChannelMessage(response http.ResponseWriter, request *http.Request) {

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/superdurable/dex/cli/internal/payloadcodec"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -28,6 +29,11 @@ const defaultMaxMessageBytes = 32 << 20
 type flowService struct {
 	connection *grpc.ClientConn
 	service    dexpb.FlowServiceClient
+	options    options
+	// The payload codec is resolved on first use, so commands without encrypted payloads never read codec settings.
+	isPayloadCodecResolved bool
+	resolvedPayloadCodec   payloadcodec.EnvelopeCodec
+	payloadCodecErr        error
 }
 
 func withFlowService(
@@ -104,6 +110,7 @@ func newFlowService(options options) (*flowService, error) {
 	return &flowService{
 		connection: connection,
 		service:    dexpb.NewFlowServiceClient(connection),
+		options:    options,
 	}, nil
 }
 

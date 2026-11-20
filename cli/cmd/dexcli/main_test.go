@@ -48,15 +48,12 @@ func TestVersionCommandsCheckForUpdates(t *testing.T) {
 	}
 }
 
-func TestCodecServerCommandReportsRemoval(t *testing.T) {
-	for _, arguments := range [][]string{{"codec-server"}, {"codec-server", "--help"}} {
-		err := runWithUpdateNotice(context.Background(), arguments, func(context.Context, io.Writer, string) {
-			t.Fatal("removed command checked for updates")
-		})
-		const expectedMessage = "dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories"
-		if err == nil || err.Error() != expectedMessage {
-			t.Fatalf("runWithUpdateNotice(%q) error = %v, want %q", arguments, err, expectedMessage)
-		}
+func TestCodecServerCommandRequiresKeyFile(t *testing.T) {
+	err := runWithUpdateNotice(context.Background(), []string{"codec-server"}, func(context.Context, io.Writer, string) {
+		t.Fatal("codec-server checked for updates")
+	})
+	if err == nil || !strings.Contains(err.Error(), "-key-file is required") {
+		t.Fatalf("runWithUpdateNotice(codec-server) error = %v, want a missing -key-file error", err)
 	}
 }
 

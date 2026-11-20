@@ -60,6 +60,11 @@ type Config struct {
 	// WebVersion defaults empty and names the build that serves Dex Web, such as "dex-web 1.45.11" or
 	// "dexcli 1.47.10". The settings menu shows it next to the server version; empty shows nothing.
 	WebVersion string
+	// LocalCodecServer defaults empty. When its Endpoint is set, GET /api/codec-server returns the endpoint and
+	// token of a local codec server, such as the one dexcli dev -codec-key-file starts, so the browser can decode
+	// encrypted payloads without manual setup. Only same-origin pages can read the response, and the /api Host
+	// checks apply to it.
+	LocalCodecServer api.LocalCodecServerSettings
 }
 
 type Server struct {
@@ -116,7 +121,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	}
 	routes := pages.newTargetRouteMux(targetRoutes{
 		client: client, flowDefinitions: flowDefinitions, connectorSetup: connectorSetup, basePath: basePath,
-		webVersion: cfg.WebVersion,
+		webVersion: cfg.WebVersion, localCodecServer: cfg.LocalCodecServer,
 	})
 	protectedRoutes := newAPIRequestProtection(newRequestHostPolicy(cfg)).wrap(routes)
 	requestBaseContext, cancelRequestContexts := context.WithCancel(context.Background())
@@ -158,13 +163,17 @@ type targetRoutes struct {
 	hasHostNavigation bool
 	// webVersion is empty when the Dex Web build is unknown.
 	webVersion string
+	// localCodecServer has an empty Endpoint when no local codec server is configured.
+	localCodecServer api.LocalCodecServerSettings
 }
 
 // newTargetRouteMux registers the API, probe, and page routes; paths are relative to the base path.
 func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
 	mux := http.NewServeMux()
 	if routes.client != nil {
-		api.RegisterHandlersWithConfig(mux, routes.client, api.HandlerConfig{WebVersion: routes.webVersion})
+		api.RegisterHandlersWithConfig(mux, routes.client, api.HandlerConfig{
+			WebVersion: routes.webVersion, LocalCodecServer: routes.localCodecServer,
+		})
 		api.RegisterDynamicV2Handlers(mux, routes.client, api.V2DefinitionLoader(func(ctx context.Context) (api.V2DefinitionSnapshot, error) {
 			snapshot, loadErr := routes.flowDefinitions.Load(ctx)
 			if loadErr != nil {

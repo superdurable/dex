@@ -43,6 +43,13 @@ type options struct {
 	// isTimeoutSet records an explicit root --timeout, which overrides a command's own default.
 	isTimeoutSet bool
 	noHydrate    bool
+	// codecKeyFile is a payload key file for in-process encryption and decryption.
+	codecKeyFile string
+	// codecEndpoint is a codec server base URL.
+	codecEndpoint  string
+	codecTokenFile string
+	// codecToken comes only from DEX_CODEC_TOKEN, never from a flag.
+	codecToken string
 }
 
 func defaultOptions(lookupEnv func(string) (string, bool)) options {
@@ -80,7 +87,15 @@ func defaultOptions(lookupEnv func(string) (string, bool)) options {
 	}
 	tlsCAFile, _ := lookupEnv("DEX_TLS_CA_FILE")
 	tlsServerName, _ := lookupEnv("DEX_TLS_SERVER_NAME")
+	codecKeyFile, _ := lookupEnv("DEX_CODEC_KEY_FILE")
+	codecEndpoint, _ := lookupEnv("DEX_CODEC_ENDPOINT")
+	codecTokenFile, _ := lookupEnv("DEX_CODEC_TOKEN_FILE")
+	codecToken, _ := lookupEnv("DEX_CODEC_TOKEN")
 	return options{
+		codecKeyFile:               strings.TrimSpace(codecKeyFile),
+		codecEndpoint:              strings.TrimSpace(codecEndpoint),
+		codecTokenFile:             strings.TrimSpace(codecTokenFile),
+		codecToken:                 strings.TrimSpace(codecToken),
 		server:                     server,
 		credentialFile:             credentialFile,
 		credential:                 credentialValue,
@@ -145,6 +160,25 @@ func addCommonFlags(flags *flag.FlagSet, options *options) {
 	flags.StringVar(&options.output, "output", options.output, "json or table")
 	flags.DurationVar(&options.timeout, "timeout", options.timeout, "request timeout; 0 disables")
 	flags.BoolVar(&options.noHydrate, "no-hydrate", options.noHydrate, "return blob references")
+	flags.StringVar(&options.codecKeyFile, "codec-key-file", options.codecKeyFile, "payload key file that flow commands decrypt and encrypt with in process; default DEX_CODEC_KEY_FILE")
+	flags.StringVar(&options.codecEndpoint, "codec-endpoint", options.codecEndpoint, "codec server URL that flow commands decrypt and encrypt through; https, or http only on loopback; default DEX_CODEC_ENDPOINT")
+	flags.StringVar(&options.codecTokenFile, "codec-token-file", options.codecTokenFile, "bearer token file for --codec-endpoint; default DEX_CODEC_TOKEN_FILE; use DEX_CODEC_TOKEN for a token value (no token flag, to avoid shell history and process listings)")
+}
+
+// readCodecToken returns the codec server token from --codec-token-file, else DEX_CODEC_TOKEN, else "".
+func (o options) readCodecToken() (string, error) {
+	if o.codecTokenFile == "" {
+		return o.codecToken, nil
+	}
+	data, err := os.ReadFile(o.codecTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("read codec token file: %w", err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("codec token file %s is empty", o.codecTokenFile)
+	}
+	return token, nil
 }
 
 type credentialFileFlag struct{ options *options }

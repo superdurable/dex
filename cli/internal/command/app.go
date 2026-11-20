@@ -156,4 +156,12 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout, "  --output json|table                output format (default json)")
 	fmt.Fprintln(a.stdout, "  --timeout duration                 request timeout (default 30s; 0 disables)")
 	fmt.Fprintln(a.stdout, "  --no-hydrate                       return blob references without loading values")
+	fmt.Fprintln(a.stdout)
+	fmt.Fprintln(a.stdout, "Encrypted payloads (flow commands):")
+	fmt.Fprintln(a.stdout, "  --codec-key-file path              payload key file used in process (default DEX_CODEC_KEY_FILE)")
+	fmt.Fprintln(a.stdout, "  --codec-endpoint url               codec server URL; https, or http only on loopback (default DEX_CODEC_ENDPOINT)")
+	fmt.Fprintln(a.stdout, "  --codec-token-file path            codec server bearer token file (default DEX_CODEC_TOKEN_FILE)")
+	fmt.Fprintln(a.stdout, "  DEX_CODEC_TOKEN                    fallback codec server token value; no token flag to avoid shell history and process listings")
+	fmt.Fprintln(a.stdout, "                                     Without these, a loopback --server uses the codec server of dexcli dev -codec-key-file.")
+	fmt.Fprintln(a.stdout, "                                     New Attributes written by flow start and clone-fork stay plaintext; see README.")
 }

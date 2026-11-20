@@ -221,6 +221,7 @@ must exist and be reachable before startup.
 --allowed-hosts string             comma-separated extra host names that Dex Web /api requests may use
 --attribute-store-config string    Dex YAML file supplying Attribute Store settings
 --bind-address string              local bind IP (default 127.0.0.1)
+--codec-key-file string            payload key file; starts a local codec server for Dex Web and flow commands
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --connector-release-override value local Connector release as connector-id=artifact-directory (repeatable)
 --connectors-mcp                   find or start the Dex Connectors MCP server and proxy it at /mcp (default true)
@@ -239,7 +240,95 @@ must exist and be reachable before startup.
 --zd-data-dir string               zd state directory (default $HOME/.dex/zd/<dex-port>)
 ```
 
-`dexcli codec-server` was removed; use `cli-v1.26.1` to inspect payloads in legacy Temporal histories.
+## Encrypted payloads
+
+Applications can encrypt Flow payloads on the client side, so the Dex server
+stores only ciphertext. dexcli reads and writes those payloads with the same
+key file as the application, or through a codec server.
+
+Create a key file. It holds one random 32-byte key and has mode `0600`.
+`keygen` refuses to replace an existing file unless you pass `-force`:
+
+```bash
+dexcli codec-server keygen -o key.json
+```
+
+Give the same file to your Workers and Clients. Then start the local stack
+with it. dexcli never generates a key for you:
+
+```bash
+dexcli dev -codec-key-file key.json
+```
+
+`dexcli dev -codec-key-file` starts a codec server on an ephemeral
+`127.0.0.1` port next to Dex Web:
+
+- Dex Web reads its endpoint and token from `GET /api/codec-server`, so the
+  browser decodes values without manual setup. With a non-loopback
+  `--bind-address`, Dex Web does not get the codec server.
+- `dexcli flow` commands against the loopback server of that `dexcli dev` use
+  it automatically. `dexcli dev` writes its endpoint and token to
+  `$HOME/.dex/dev-codec-server-<dex-port>.json` with mode `0600` and removes
+  the file when it stops. dexcli uses the file only when its directory is a
+  real directory owned by you and not writable by others, and only when the
+  endpoint in it is on `127.0.0.1`, `::1`, or `localhost`.
+
+Run a codec server alone for a Dex Web or dexcli that runs elsewhere on this
+machine:
+
+```bash
+dexcli codec-server -key-file key.json -port 8805 -token-file /tmp/codec-token
+```
+
+The codec server is for local development only. It can decrypt every value
+encrypted with the key file. It protects itself as follows:
+
+- It listens only on `127.0.0.1`.
+- It accepts only requests whose `Host` header is `127.0.0.1`, `localhost`, or
+  `[::1]` with its own port. This blocks DNS rebinding.
+- It generates a new random token at each start and requires it as
+  `Authorization: Bearer <token>` on every request, including `GET /healthz`.
+  Only CORS preflight requests go without it.
+- CORS allows only the Dex Web origins given by `-web-origin`. The default is
+  `http://127.0.0.1:8802` and `http://localhost:8802`.
+- It limits the request body, the entries per request, the decoded output of
+  one `/decode` response, and the number of concurrent `/decode` requests.
+  Error messages never contain key or key provider text.
+
+For shared environments, deploy a codec server with real authentication
+instead.
+
+Flow commands accept these settings:
+
+```text
+--codec-key-file path     payload key file used in process (default DEX_CODEC_KEY_FILE)
+--codec-endpoint url      codec server URL; https, or http only on loopback (default DEX_CODEC_ENDPOINT)
+--codec-token-file path   codec server bearer token file (default DEX_CODEC_TOKEN_FILE)
+DEX_CODEC_TOKEN           codec server token value; there is no token flag, to keep it out of shell history
+```
+
+With a codec, flow commands behave as follows:
+
+- They decrypt stored values and `dex-encoded:` error texts before they print
+  them, after loading blobs.
+- They encrypt the `flow start` input and the `flow stop --result` output.
+- They encrypt the reasons of `flow stop`, `flow time-travel`, and
+  `flow clone-fork` in the `dex-encoded:` text format.
+
+Without a codec, they show each encrypted value as
+`{"__dexEncryptedValue": {"keyId": "..."}}` and add a warning. A reason that
+itself starts with `dex-encoded:` is sent with one leading space, so readers do
+not try to decrypt it.
+
+dexcli does not know which Attributes the application declared `Plaintext`.
+So it writes new Attributes in plaintext, and the server can read them:
+
+- Initial Attributes of `flow start` are always plaintext.
+- `flow clone-fork --attributes` encrypts a write only when the Attribute's
+  current value in the source Flow is encrypted. Indexed writes stay
+  plaintext.
+
+`dexcli api` sends requests as given and does not encrypt or decrypt.
 
 ## Operate flows
 
