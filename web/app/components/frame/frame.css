@@ -392,6 +392,24 @@ body {
   justify-self: end;
 }
 
+.app-bar-codec-token-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.app-bar-codec-token-state small {
+  flex: 1 1 auto;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.app-bar-codec-token-state button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .app-bar-server-info {
   display: grid;
   gap: 4px;

@@ -26,6 +26,9 @@ import {
 /** The local storage key of the viewer's codec endpoint choice. It never holds a token or a payload. */
 export const CODEC_SETTINGS_STORAGE_KEY = 'dex-web-codec-endpoint';
 
+/** The session storage key of the Custom mode bearer token; it is never written to local storage. */
+export const CODEC_BEARER_TOKEN_STORAGE_KEY = 'dex-web-codec-bearer-token';
+
 /** auto uses the local dev codec server when Dex Web reports one; custom uses the saved URL; off decrypts nothing. */
 export type CodecEndpointMode = 'auto' | 'custom' | 'off';
 
@@ -49,7 +52,7 @@ export interface CodecEndpoint {
   /** The base URL without a trailing slash; requests go to /encode and /decode under it. */
   endpoint: string;
   includeCredentials: boolean;
-  /** Only the local dev codec server has one; it is kept in memory and sent only to that endpoint. */
+  /** The local dev codec server's token, or the Custom mode token; sent only to this endpoint. Empty sends none. */
   bearerToken: string;
   source: 'local' | 'custom';
 }
@@ -99,6 +102,25 @@ export function saveCodecEndpointPreference(storage: Pick<Storage, 'setItem'> | 
   }
 }
 
+/** Reads the Custom mode bearer token; a missing or unreadable entry returns an empty token. */
+export function readCodecBearerToken(storage: Pick<Storage, 'getItem'> | undefined): string {
+  try {
+    return storage?.getItem(CODEC_BEARER_TOKEN_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Saves the Custom mode bearer token for this tab; an empty token removes the entry. */
+export function saveCodecBearerToken(storage: Pick<Storage, 'setItem' | 'removeItem'> | undefined, token: string) {
+  try {
+    if (token) storage?.setItem(CODEC_BEARER_TOKEN_STORAGE_KEY, token);
+    else storage?.removeItem(CODEC_BEARER_TOKEN_STORAGE_KEY);
+  } catch {
+    // The token stays in page memory; the error is not logged, so it cannot carry the token.
+  }
+}
+
 function isLoopbackHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
 }
@@ -124,16 +146,26 @@ export function parseCodecEndpointURL(text: string): { endpoint: string } | { er
   return { endpoint: `${url.origin}${url.pathname}`.replace(/\/+$/, '') };
 }
 
-/** Combines the viewer's choice with the local dev codec server; null means no codec is configured. */
+/**
+ * Combines the viewer's choice with the local dev codec server; null means no codec is configured.
+ *
+ * customBearerToken applies only in custom mode; auto mode uses the local server's own token.
+ */
 export function resolveCodecEndpoint(
   preference: CodecEndpointPreference,
   local: LocalCodecServer | null,
+  customBearerToken = '',
 ): CodecEndpoint | null {
   if (preference.mode === 'off') return null;
   if (preference.mode === 'custom') {
     const parsed = parseCodecEndpointURL(preference.endpoint);
     if ('error' in parsed) return null;
-    return { endpoint: parsed.endpoint, includeCredentials: preference.includeCredentials, bearerToken: '', source: 'custom' };
+    return {
+      endpoint: parsed.endpoint,
+      includeCredentials: preference.includeCredentials,
+      bearerToken: customBearerToken,
+      source: 'custom',
+    };
   }
   if (!local?.configured || !local.endpoint) return null;
   const parsed = parseCodecEndpointURL(local.endpoint);
@@ -177,12 +209,30 @@ const protocolCategories = new Set<EncryptedPayloadProblem>([
   'unsupported_compression', 'unknown_key', 'authentication_failed', 'invalid_plaintext', 'internal',
 ]);
 
-/** A fixed message per category; codec server messages are not shown, so they cannot leak into the page. */
-export function payloadCodecErrorMessage(category: EncryptedPayloadProblem): string {
+/**
+ * A fixed message per category; codec server messages are not shown, so they cannot leak into the page.
+ *
+ * Pass the endpoint in use to name its likely cause, such as a missing Custom mode bearer token. The message never
+ * contains the token.
+ */
+export function payloadCodecErrorMessage(
+  category: EncryptedPayloadProblem,
+  codec?: Pick<CodecEndpoint, 'source' | 'bearerToken' | 'includeCredentials'> | null,
+): string {
   switch (category) {
     case 'unavailable':
+      if (codec?.source === 'custom' && codec.includeCredentials) {
+        return 'The codec endpoint could not be reached. If it does not allow cookies, clear Send cookies.';
+      }
       return 'The codec endpoint could not be reached.';
     case 'unauthenticated':
+      if (codec?.source === 'custom' && codec.bearerToken) {
+        return 'The codec endpoint refused the request (unauthenticated). The bearer token is likely wrong; enter it again.';
+      }
+      if (codec?.source === 'custom') {
+        return 'The codec endpoint refused the request (unauthenticated). It likely needs a bearer token; enter it, '
+          + 'or sign in to it.';
+      }
       return 'The codec endpoint refused the request (unauthenticated). Sign in to it or check its credentials.';
     case 'forbidden':
       return 'The codec endpoint does not allow this request (forbidden).';
@@ -208,7 +258,7 @@ async function postCodecRequest<T>(
       headers,
       body: JSON.stringify(body),
       cache: 'no-store',
-      credentials: codec.includeCredentials && !codec.bearerToken ? 'include' : 'omit',
+      credentials: codec.includeCredentials ? 'include' : 'omit',
       referrerPolicy: 'no-referrer',
       signal: AbortSignal.timeout(codecRequestTimeoutMilliseconds),
     });

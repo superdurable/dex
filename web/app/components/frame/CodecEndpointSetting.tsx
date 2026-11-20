@@ -14,9 +14,13 @@ const MODE_LABEL: Record<CodecEndpointMode, string> = { auto: 'Auto', custom: 'C
 
 /** Chooses the codec endpoint that decrypts and encrypts payloads in this browser; saved in this browser only. */
 export function CodecEndpointSetting() {
-  const { preference, setPreference, localServer, codec, store, retryDecoding } = usePayloadCodec();
+  const {
+    preference, setPreference, customBearerToken, setCustomBearerToken, localServer, codec, store, retryDecoding,
+  } = usePayloadCodec();
   const [draftEndpoint, setDraftEndpoint] = useState(preference.endpoint);
   const [draftCredentials, setDraftCredentials] = useState(preference.includeCredentials);
+  // The saved token is never put back into the input, so it stays out of the DOM.
+  const [draftToken, setDraftToken] = useState('');
   const [error, setError] = useState('');
   useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
   const failure = store.failure();
@@ -41,6 +45,13 @@ export function CodecEndpointSetting() {
     setError('');
     setDraftEndpoint(parsed.endpoint);
     setPreference({ mode: 'custom', endpoint: parsed.endpoint, includeCredentials: draftCredentials });
+    const token = draftToken.trim();
+    if (token) setCustomBearerToken(token);
+    setDraftToken('');
+  };
+  const clearToken = () => {
+    setDraftToken('');
+    setCustomBearerToken('');
   };
 
   let status: string;
@@ -86,6 +97,23 @@ export function CodecEndpointSetting() {
             type="url"
             value={draftEndpoint}
           />
+          <input
+            aria-label="Codec endpoint bearer token"
+            autoComplete="off"
+            onChange={(event) => setDraftToken(event.target.value)}
+            placeholder={customBearerToken ? 'New bearer token to replace it' : 'Bearer token (optional)'}
+            spellCheck={false}
+            type="password"
+            value={draftToken}
+          />
+          {(customBearerToken || draftToken) && (
+            <div className="app-bar-codec-token-state">
+              <small className="muted">
+                {customBearerToken ? 'Bearer token saved for this tab.' : 'Save to use this bearer token.'}
+              </small>
+              <button onClick={clearToken} type="button">Clear token</button>
+            </div>
+          )}
           <label className="app-bar-codec-credentials">
             <input
               checked={draftCredentials}
@@ -100,7 +128,7 @@ export function CodecEndpointSetting() {
       )}
       {codec && failure && (
         <small className="field-error" role="status">
-          {payloadCodecErrorMessage(failure)}{' '}
+          {payloadCodecErrorMessage(failure, codec)}{' '}
           <button className="app-bar-codec-retry" onClick={retryDecoding} type="button">Retry</button>
         </small>
       )}

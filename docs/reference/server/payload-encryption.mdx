@@ -609,7 +609,25 @@ Set the codec server in **Settings** > **Codec endpoint**:
   credentials in its CORS response.
 - **Off** leaves encrypted values encrypted.
 
-The setting stays in your browser. If you serve Dex Web behind a Content
+Since Dex Web 1.45.17, **Custom** also takes an optional bearer token. Use it
+for a codec server that requires one, such as `dexcli codec-server` next to a
+`dexcli dev` started without `-codec-key-file`, or a local codec server that a
+hosted Dex Web calls. Dex Web sends the token as `Authorization: Bearer
+<token>` on `/decode` and `/encode`, and only to the codec server. It never
+sends the token to the Dex Web server. An empty token sends no
+`Authorization` header.
+
+- The token stays in the browser tab's session storage. A reload of the same
+  tab keeps it. A new tab or a closed tab does not.
+- **Clear token** removes it.
+- The token and **Send cookies (SSO proxy)** work together. A codec server
+  that does not allow credentials in its CORS response, such as
+  `dexcli codec-server`, needs **Send cookies (SSO proxy)** cleared.
+  Otherwise the browser blocks its responses.
+- When the codec server answers 401, Dex Web says the bearer token is likely
+  missing or wrong.
+
+The endpoint choice stays in your browser. If you serve Dex Web behind a Content
 Security Policy, allow connections to the codec server URL.
 
 With a codec endpoint, Dex Web decrypts values, error texts, and reasons in

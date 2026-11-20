@@ -12,8 +12,10 @@ import { createContext, useContext, useEffect, useMemo, useState, useSyncExterna
 import {
   fetchLocalCodecServer,
   PayloadDecodeStore,
+  readCodecBearerToken,
   readCodecEndpointPreference,
   resolveCodecEndpoint,
+  saveCodecBearerToken,
   saveCodecEndpointPreference,
   type CodecEndpoint,
   type CodecEndpointPreference,
@@ -25,6 +27,10 @@ import { collectPayloadEnvelopes, containsEncryptedPayload, replaceEncryptedPayl
 interface PayloadCodecState {
   preference: CodecEndpointPreference;
   setPreference: (next: CodecEndpointPreference) => void;
+  /** The Custom mode bearer token; kept in session storage only and sent only to the custom codec endpoint. */
+  customBearerToken: string;
+  /** Sets the Custom mode bearer token; an empty token removes it. */
+  setCustomBearerToken: (token: string) => void;
   /** The local dev codec server Dex Web reports; null until read or when the read fails. */
   localServer: LocalCodecServer | null;
   /** The endpoint in use; null when no codec is configured. */
@@ -39,6 +45,8 @@ const unconfiguredStore = new PayloadDecodeStore(null);
 const PayloadCodecContext = createContext<PayloadCodecState>({
   preference: { mode: 'off', endpoint: '', includeCredentials: false },
   setPreference: () => undefined,
+  customBearerToken: '',
+  setCustomBearerToken: () => undefined,
   localServer: null,
   codec: null,
   store: unconfiguredStore,
@@ -53,9 +61,18 @@ function browserStorage(): Storage | undefined {
   }
 }
 
+function tabSessionStorage(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Holds the codec endpoint choice and the in-memory decode results of this page. */
 export function PayloadCodecProvider({ children }: { children: React.ReactNode }) {
   const [preference, setPreferenceState] = useState(() => readCodecEndpointPreference(browserStorage()));
+  const [customBearerToken, setCustomBearerTokenState] = useState(() => readCodecBearerToken(tabSessionStorage()));
   const [localServer, setLocalServer] = useState<LocalCodecServer | null>(null);
 
   useEffect(() => {
@@ -66,7 +83,10 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
     return () => controller.abort();
   }, []);
 
-  const codec = useMemo(() => resolveCodecEndpoint(preference, localServer), [preference, localServer]);
+  const codec = useMemo(
+    () => resolveCodecEndpoint(preference, localServer, customBearerToken),
+    [customBearerToken, preference, localServer],
+  );
   const [retryCount, setRetryCount] = useState(0);
   // A new endpoint or a retry starts with an empty store, so earlier results and failures are dropped.
   const store = useMemo(() => {
@@ -80,10 +100,15 @@ export function PayloadCodecProvider({ children }: { children: React.ReactNode }
       setPreferenceState(next);
       saveCodecEndpointPreference(browserStorage(), next);
     },
+    customBearerToken,
+    setCustomBearerToken: (token) => {
+      setCustomBearerTokenState(token);
+      saveCodecBearerToken(tabSessionStorage(), token);
+    },
     localServer,
     codec,
     store,
-  }), [codec, localServer, preference, store]);
+  }), [codec, customBearerToken, localServer, preference, store]);
   return <PayloadCodecContext.Provider value={value}>{children}</PayloadCodecContext.Provider>;
 }
 
