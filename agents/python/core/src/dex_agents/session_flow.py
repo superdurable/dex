@@ -49,6 +49,7 @@ from dex import (
     Flow,
     PersistenceSchema,
     RecoveryErrorInfo,
+    RetryAfterError,
     RetryPolicy,
     RPCResult,
     Step,
@@ -67,6 +68,7 @@ from dex import (
     go_to_many,
     graceful_completion_requested,
     is_graceful_completion_condition_completed,
+    retry_after,
     rpc,
     supports_graceful_completion_condition,
 )
@@ -97,6 +99,13 @@ from dex_agents.compaction import (
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
 from dex_agents.media import ImageValidationError, validate_image_references
+from dex_agents.model_retry import (
+    ModelCallTurnFailure,
+    ModelRetryPolicy,
+    TransientModelCallError,
+    call_model_under_retry_policy,
+    model_step_maximum_attempts,
+)
 from dex_agents.persistence import (
     AGENT_MESSAGE_CHUNKS,
     AGENT_MESSAGE_INDEX,
@@ -317,6 +326,11 @@ class RunModelLimit:
     ``maximum_attempts=1`` for an expensive segment. A hung call holds its
     Worker slot until ``method_timeout``, so do not set it higher than needed.
 
+    A transient model API error, such as HTTP 429 or 503, retries under
+    ``retry`` with exponential backoff and jitter, on top of
+    ``maximum_attempts``. Any other HTTP 4xx answer fails the turn without a
+    retry. See ``ModelRetryPolicy``.
+
     ``CompactContext`` keeps the defaults, because it makes one model call.
 
     A changed limit applies to each ``RunModel`` scheduled after the Worker
@@ -331,11 +345,21 @@ class RunModelLimit:
 
     .. versionadded:: 0.3.0
 
+    .. versionchanged:: 0.6.16
+       A transient model API error waits with exponential backoff and jitter,
+       about two minutes in all by default, instead of using the three
+       attempts about one and two seconds apart. Any other HTTP 4xx answer
+       fails the turn at once instead of being retried. Adds ``retry``.
+
     Attributes:
         method_timeout: Longest one attempt may run, in whole seconds. Defaults
             to 15 minutes.
-        maximum_attempts: Attempts, including the first. ``1`` disables
-            retries. Defaults to 3.
+        maximum_attempts: Attempts, including the first, for an error that is
+            not a transient model API error, a method timeout, or a Worker
+            crash. A transient error may also use the retries of ``retry``.
+            ``1`` disables every retry. Defaults to 3.
+        retry: Backoff for a transient model API error. Defaults to waits from
+            1 to 30 seconds, about two minutes in all.
 
     Raises:
         ValueError: If ``method_timeout`` is not a whole number of seconds of at
@@ -345,6 +369,7 @@ class RunModelLimit:
 
     method_timeout: timedelta = timedelta(minutes=15)
     maximum_attempts: int = 3
+    retry: ModelRetryPolicy = field(default_factory=ModelRetryPolicy)
 
     def __post_init__(self) -> None:
         if self.method_timeout < timedelta(seconds=1) or self.method_timeout.microseconds:
@@ -367,6 +392,18 @@ class RunModelLimit:
             least twice ``method_timeout``. The default limit gives 30 minutes.
         """
         return self.method_timeout * max(self.maximum_attempts - 1, 2)
+
+    def _step_retry_policy(self) -> RetryPolicy:
+        return RetryPolicy(
+            initial_interval=self.retry.initial_interval,
+            maximum_interval=self.retry.maximum_interval,
+            maximum_attempts=model_step_maximum_attempts(self.maximum_attempts, self.retry),
+            total_duration=self.total_duration,
+        )
+
+
+# CompactContext keeps the default limit.
+_DEFAULT_RUN_MODEL_LIMIT = RunModelLimit()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1589,8 +1626,14 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         if refusal is not None:
             return refusal
         with self._session_tracer.trace_model_call(context, step_type, turn) as model_call_span:
+            limit = self._options.run_model_limit
             async with _background_heartbeats(context.heartbeat):
-                outcome = await self._runner.run_model_step(turn)
+                outcome = await call_model_under_retry_policy(
+                    lambda: self._runner.run_model_step(turn),
+                    context.attempt,
+                    limit.maximum_attempts,
+                    limit.retry,
+                )
                 if isinstance(outcome, TurnCompleted | ToolCallsRequested | TurnContinued):
                     await self._report_model_usage(context, turn_id, step_type, outcome.usage)
             # The index keeps where the turn's replies start, so summarized ones still count.
@@ -1650,6 +1693,36 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         # RecordTurnFailure loads what ending a turn needs, which CompactContext does not.
         error = f"{MODEL_CALL_REFUSED_ERROR_PREFIX}: {decision.reason}"
         AGENT_STATE.set(context, replace(state, last_turn_error=error))
+        return go_to(self._record_turn_failure, None)
+
+    async def _run_model_step_under_retry_policy(
+        self,
+        context: AsyncContext,
+        limit: RunModelLimit,
+        attempt: Callable[[], Awaitable[StepDecision]],
+    ) -> StepDecision:
+        """Run one model Step attempt; end the turn now when another attempt would not help.
+
+        That is a model call error another attempt would not change, or any
+        other error on the last of ``maximum_attempts``. The Dex retry policy
+        also counts the transient retries.
+        """
+        try:
+            return await attempt()
+        except TransientModelCallError as transient:
+            raise retry_after(transient.after_seconds, transient.cause) from None
+        except RetryAfterError:
+            raise
+        except ModelCallTurnFailure as failure:
+            return self._fail_turn_after_model_call(context, failure.error_text)
+        except Exception as error:
+            if 1 < limit.maximum_attempts <= context.attempt:
+                return self._fail_turn_after_model_call(context, str(error) or type(error).__name__)
+            raise
+
+    def _fail_turn_after_model_call(self, context: AsyncContext, error: str) -> StepDecision:
+        # RecordTurnFailure reads the reason from the state, as for a refused model call.
+        AGENT_STATE.set(context, replace(_require_agent_state(context), last_turn_error=error))
         return go_to(self._record_turn_failure, None)
 
     async def _report_model_usage(
@@ -1797,7 +1870,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             raise RuntimeError(
                 f"CompactContext cannot summarize through message {through_sequence}"
             )
-        if not isinstance(self._runner, ContextCompactionRunner):
+        runner = self._runner
+        if not isinstance(runner, ContextCompactionRunner):
             raise TypeError("CompactContext needs a runner that implements ContextCompactionRunner")
         step_type = self._compact_context.get_step_type()
         refusal = await self._check_spend_limit(context, state, turn_id, step_type)
@@ -1831,7 +1905,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             request.messages,
         ) as summary_span:
             async with _background_heartbeats(context.heartbeat):
-                result = await self._runner.summarize_context(request)
+                result = await call_model_under_retry_policy(
+                    lambda: runner.summarize_context(request),
+                    context.attempt,
+                    _DEFAULT_RUN_MODEL_LIMIT.maximum_attempts,
+                    _DEFAULT_RUN_MODEL_LIMIT.retry,
+                )
                 if isinstance(result, ContextSummaryResult):
                     await self._report_model_usage(context, turn_id, step_type, result.usage)
             if not isinstance(result, ContextSummaryResult) or not str(result.text).strip():
@@ -3339,9 +3418,7 @@ class RunModel(Step[TurnFailureRouteInput]):
         return replace(
             _MODEL_CALL_STEP_OPTIONS,
             execute_method_timeout=limit.method_timeout,
-            execute_retry=RetryPolicy(
-                maximum_attempts=limit.maximum_attempts, total_duration=limit.total_duration
-            ),
+            execute_retry=limit._step_retry_policy(),
             execute_load_attribute_maps=self._session._message_step_map_loads(),
         ).on_execute_failure_proceed_to(self._session._record_turn_failure)
 
@@ -3350,7 +3427,10 @@ class RunModel(Step[TurnFailureRouteInput]):
         context: AsyncContext,
         input: TurnFailureRouteInput,
     ) -> StepDecision:
-        return await self._session._run_model_step(context)
+        session = self._session
+        return await session._run_model_step_under_retry_policy(
+            context, session._options.run_model_limit, lambda: session._run_model_step(context)
+        )
 
 
 class CompactContext(Step[TurnFailureRouteInput]):
@@ -3363,6 +3443,7 @@ class CompactContext(Step[TurnFailureRouteInput]):
         # The summary is one model call, so it gets RunModel's options and failure route.
         return replace(
             _MODEL_CALL_STEP_OPTIONS,
+            execute_retry=_DEFAULT_RUN_MODEL_LIMIT._step_retry_policy(),
             execute_load_attribute_maps=(AGENT_MESSAGES,),
         ).on_execute_failure_proceed_to(self._session._record_turn_failure)
 
@@ -3373,7 +3454,10 @@ class CompactContext(Step[TurnFailureRouteInput]):
     ) -> StepDecision:
         if input is None:
             raise TypeError("CompactContext needs a CompactContextInput")
-        return await self._session._compact_context_step(context, input)
+        session = self._session
+        return await session._run_model_step_under_retry_policy(
+            context, _DEFAULT_RUN_MODEL_LIMIT, lambda: session._compact_context_step(context, input)
+        )
 
 
 class AwaitToolApproval(Step[str]):

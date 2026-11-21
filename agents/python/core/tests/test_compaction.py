@@ -620,8 +620,9 @@ async def test_a_failing_summary_fails_the_turn_and_the_next_message_compacts_ag
     assert len(harness.model_requests("summary")) == 3
     assert not [entry for entry in harness.model_requests("model") if entry["turn_id"] == "turn-6"]
     steps = await harness.executed_step_types(session_id)
-    assert steps[-3:] == ["AwaitUserMessage", "RunModel", "RecordTurnFailure"]
-    assert "CompactContext" not in steps
+    # The third CompactContext attempt ends the turn itself, so it completes once.
+    assert steps[-4:] == ["AwaitUserMessage", "RunModel", "CompactContext", "RecordTurnFailure"]
+    assert steps.count("CompactContext") == 1
     assert failed.messages[-1].text == PAD_TURN_COMMANDS[-1]
 
     fail_summary.unlink()

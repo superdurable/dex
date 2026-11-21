@@ -69,11 +69,14 @@ import {
 import { toolResultImages } from "./agent-media.js";
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
 import { agentSessionStartInputCodec, turnFailureRouteInputCodec } from "./agent-session-codecs.js";
+import { callModelUnderRetryPolicy } from "./model-call-retry.js";
 import {
   messageStepOptions,
   minuteMs,
   type MessageChunkLoads,
-  modelCallStepOptions,
+  compactContextStepOptions,
+  defaultResolvedRunModelLimit,
+  runModelRetryPolicy,
   recoveryRetry,
   syncDurability,
 } from "./agent-session-step-options.js";
@@ -321,7 +324,15 @@ export class RunModelStep implements Step<void> {
     );
   }
 
-  public async execute(context: AsyncContext): Promise<StepDecision> {
+  public execute(context: AsyncContext): Promise<StepDecision> {
+    return this.transitions.runModelStepUnderRetryPolicy(
+      context,
+      this.transitions.config.runModelLimit,
+      () => this.callModel(context),
+    );
+  }
+
+  private async callModel(context: AsyncContext): Promise<StepDecision> {
     const transitions = this.transitions;
     const state = transitions.readAgentState(context);
     const turnId = state.activeTurnId;
@@ -363,7 +374,14 @@ export class RunModelStep implements Step<void> {
         turnContext,
         async (modelCallSpan) => {
           const outcome = await transitions.runWithHeartbeats(context, async () => {
-            const result = await transitions.runner.runModelStep(turnContext);
+            const limit = transitions.config.runModelLimit;
+            const result = await callModelUnderRetryPolicy(
+              () => transitions.runner.runModelStep(turnContext),
+              context.attempt,
+              limit.maximumAttempts,
+              runModelRetryPolicy(limit),
+              context.cancellationSignal,
+            );
             if (
               result?.kind === "completed" ||
               result?.kind === "tool_calls_requested" ||
@@ -585,7 +603,7 @@ export class RunModelStep implements Step<void> {
     return goToMany(
       StepMovement.of(new StepRef(agentSessionStepTypes.compactContext), input, {
         ...syncDurability,
-        ...modelCallStepOptions,
+        ...compactContextStepOptions,
         executeLoadAttributeMaps: [persistence.agentMessages],
         ...(chunkLoads.instances.length === 0 ? {} : { executeLoadAttributeMapInstances: chunkLoads.instances }),
       }),
@@ -806,12 +824,18 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
   public getStepOptions(): StepOptions {
     return {
       ...syncDurability,
-      ...modelCallStepOptions,
+      ...compactContextStepOptions,
       executeLoadAttributeMaps: [this.transitions.persistence.agentMessages],
     };
   }
 
-  public async execute(context: AsyncContext, input: CompactContextInput | undefined): Promise<StepDecision> {
+  public execute(context: AsyncContext, input: CompactContextInput | undefined): Promise<StepDecision> {
+    return this.transitions.runModelStepUnderRetryPolicy(context, defaultResolvedRunModelLimit, () =>
+      this.compact(context, input),
+    );
+  }
+
+  private async compact(context: AsyncContext, input: CompactContextInput | undefined): Promise<StepDecision> {
     const transitions = this.transitions;
     if (input === undefined) {
       throw new TypeError("CompactContext needs a CompactContextInput");
@@ -883,7 +907,9 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
       messages,
       async (summarySpan) => {
         const result = await transitions.runWithHeartbeats(context, async () => {
-          const summaryResult = await runner.summarizeContext({
+          const summaryResult = await callModelUnderRetryPolicy(
+            () =>
+              runner.summarizeContext({
             flowId: context.flowId,
             turnId,
             attempt: context.attempt,
@@ -897,7 +923,12 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
             ...(policy === undefined ? {} : { inputTokenBudget: policy.contextWindowTokens }),
             sessionSettings: transitions.readTurnSessionSettings(context),
             heartbeat: () => transitions.recordHeartbeat(context),
-          });
+              }),
+            context.attempt,
+            defaultResolvedRunModelLimit.maximumAttempts,
+            runModelRetryPolicy(defaultResolvedRunModelLimit),
+            context.cancellationSignal,
+          );
           if (typeof summaryResult?.usage === "object") {
             await transitions.reportModelUsage(context, turnId, this.getStepType(), summaryResult.usage);
           }

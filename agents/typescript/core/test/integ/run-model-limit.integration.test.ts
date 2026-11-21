@@ -40,7 +40,12 @@ const silentCommand = "silent";
 interface RunModelMethodOptions {
   readonly timeoutSeconds: number;
   readonly heartbeatTimeoutSeconds: number;
-  readonly retryPolicy: { readonly maximumAttempts: number; readonly totalDurationSeconds: number };
+  readonly retryPolicy: {
+    readonly initialIntervalSeconds: number;
+    readonly maximumIntervalSeconds: number;
+    readonly maximumAttempts: number;
+    readonly totalDurationSeconds: number;
+  };
 }
 
 /** Delegates to the scripted runner, except for model calls that stall or stay silent. */
@@ -109,7 +114,7 @@ describe("RunModel limit", () => {
     await engine?.stop();
   });
 
-  test("the default limit is what every session had before", async () => {
+  test("the default limit keeps the timeouts and budget and adds the transient retries", async () => {
     const sessions = clients.LimitDefault!;
     const sessionId = newSessionId();
     await sessions.startSession(sessionId, "call get_weather");
@@ -118,7 +123,10 @@ describe("RunModel limit", () => {
     for (const options of await readRunModelMethodOptions(sessionId)) {
       assert.equal(options.timeoutSeconds, 900);
       assert.equal(options.heartbeatTimeoutSeconds, 120);
-      assert.equal(options.retryPolicy.maximumAttempts, 3);
+      // 3 attempts, plus the 7 transient retries of the default ModelRetryPolicy.
+      assert.equal(options.retryPolicy.maximumAttempts, 10);
+      assert.equal(options.retryPolicy.initialIntervalSeconds, 1);
+      assert.equal(options.retryPolicy.maximumIntervalSeconds, 30);
       assert.equal(options.retryPolicy.totalDurationSeconds, 1800);
     }
   });
@@ -136,7 +144,7 @@ describe("RunModel limit", () => {
     for (const options of everyOptions) {
       assert.equal(options.timeoutSeconds, 3600);
       assert.equal(options.heartbeatTimeoutSeconds, 120);
-      assert.equal(options.retryPolicy.maximumAttempts, 4);
+      assert.equal(options.retryPolicy.maximumAttempts, 4 + 7);
       assert.equal(options.retryPolicy.totalDurationSeconds, 3 * 3600);
     }
   });
@@ -193,6 +201,8 @@ describe("RunModel limit", () => {
       { methodTimeoutMs: 1_500 },
       { maximumAttempts: 0 },
       { methodTimeoutMs: 2_147_483_647_000, maximumAttempts: 3 },
+      { retry: { initialIntervalMs: 0 } },
+      { retry: { initialIntervalMs: 20_000, maximumIntervalMs: 10_000 } },
     ]) {
       assert.throws(() => createAgentSessionFlow(runner, "LimitInvalid", { runModelLimit }), RangeError);
     }

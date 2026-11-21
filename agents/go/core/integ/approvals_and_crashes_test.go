@@ -281,7 +281,8 @@ func TestTurnFailureAfterAWriteLeavesTheNote(t *testing.T) {
 	for _, message := range snapshot.Messages[:3] {
 		require.Nil(t, message.Origin, "message %d", message.Sequence)
 	}
-	require.Equal(t, []string{"StartAgentSession", "RunModel", "CallSingleAttemptTool", "ResumeTurn", "RecordTurnFailure"},
+	// The third RunModel attempt ends the turn itself, so it completes and moves to RecordTurnFailure.
+	require.Equal(t, []string{"StartAgentSession", "RunModel", "CallSingleAttemptTool", "ResumeTurn", "RunModel", "RecordTurnFailure"},
 		stack.executedStepTypes("failure"))
 
 	isQueued, err := sessions.SendUserMessage(ctx, "failure", "what happened?")

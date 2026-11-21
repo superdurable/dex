@@ -19,6 +19,8 @@ from the user message:
 * ``block <gate> <seconds>`` marks a ``FileGate``, blocks the event loop on the first run, then
   answers.
 * ``fail`` raises on every attempt.
+* ``outage <seconds> <status>`` raises a model API error with that HTTP status
+  until ``seconds`` after the turn's first model call, then answers.
 * ``call <tool> <json>`` asks for one tool call; join several with
   `` && call ``. The second model call summarizes the results.
 * ``call-then-fail <tool> <json>`` does the same, then fails in the second call.
@@ -116,12 +118,21 @@ class ScriptedToolCall:
     arguments: str
 
 
+class ScriptedModelApiError(Exception):
+    """A model API error shaped like the OpenAI and Anthropic SDKs' ``APIStatusError``."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"Error code: {status_code}")
+        self.status_code = status_code
+
+
 class ScriptedRunner(AgentFrameworkRunner):
     def __init__(self, state_dir: Path) -> None:
         self._state_dir = state_dir
         self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
         self._idempotency_keys = InvocationLog(state_dir / IDEMPOTENCY_KEY_LOG_NAME)
         self._session_settings = InvocationLog(state_dir / SESSION_SETTINGS_LOG_NAME)
+        self._outage_starts: dict[str, float] = {}
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         return FrameworkMessage(
@@ -158,6 +169,13 @@ class ScriptedRunner(AgentFrameworkRunner):
             return _answer(command, f"stalled at {command.removeprefix('stall ')}")
         if command == "fail":
             raise RuntimeError("scripted failure")
+        if command.startswith("outage "):
+            _, seconds, status = command.split(" ")
+            self._invocations.record(f"outage:{turn.turn_id}")
+            first_call = self._outage_starts.setdefault(turn.turn_id, time.monotonic())
+            if time.monotonic() - first_call < float(seconds):
+                raise ScriptedModelApiError(int(status))
+            return _answer(command, "the model API is back")
         if command.startswith(("call ", "call-then-fail ", "call-then-stall ")):
             return self._request_tool_calls(turn, command)
         if command.startswith("call-incremental "):

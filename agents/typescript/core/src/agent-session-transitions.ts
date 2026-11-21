@@ -17,6 +17,7 @@ import {
   type Context,
   type RecoveryErrorInfo,
   type StepDecision,
+  RetryAfterError,
 } from "@superdurable/dex";
 
 import type { BuiltInTool } from "./agent-built-in-tools.js";
@@ -42,6 +43,7 @@ import {
   type ModelSpendLimit,
 } from "./agent-session-spend-limit.js";
 import { messageStepOptions, type MessageChunkLoads, type ResolvedRunModelLimit } from "./agent-session-step-options.js";
+import { ModelCallTurnFailure, modelCallErrorText } from "./model-call-retry.js";
 import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
@@ -980,6 +982,38 @@ export class AgentSessionTransitions {
     }
     // RecordTurnFailure loads what ending a turn needs, which CompactContext does not.
     this.writeAgentState(context, { ...state, lastTurnError: `${modelCallRefusedErrorPrefix}: ${decision.reason}` });
+    return goTo(new StepRef(agentSessionStepTypes.recordTurnFailure), undefined);
+  }
+
+  /**
+   * Runs one attempt of a model Step. A model call error that another attempt would not change, or any other error
+   * on the last of `maximumAttempts`, ends the turn now; the Dex retry policy also counts the transient retries.
+   */
+  public async runModelStepUnderRetryPolicy(
+    context: AsyncContext,
+    limit: ResolvedRunModelLimit,
+    attempt: () => Promise<StepDecision>,
+  ): Promise<StepDecision> {
+    try {
+      return await attempt();
+    } catch (error: unknown) {
+      if (error instanceof RetryAfterError || context.cancellationSignal.aborted) {
+        throw error;
+      }
+      if (error instanceof ModelCallTurnFailure) {
+        return this.failTurnAfterModelCall(context, error.errorText);
+      }
+      if (limit.maximumAttempts > 1 && context.attempt >= limit.maximumAttempts) {
+        return this.failTurnAfterModelCall(context, modelCallErrorText(error));
+      }
+      throw error;
+    }
+  }
+
+  /** Ends the turn after a model Step failed in a way another attempt would not change. */
+  private failTurnAfterModelCall(context: Context, error: string): StepDecision {
+    // RecordTurnFailure reads the reason from the state, as for a refused model call.
+    this.writeAgentState(context, { ...this.readAgentState(context), lastTurnError: error });
     return goTo(new StepRef(agentSessionStepTypes.recordTurnFailure), undefined);
   }
 

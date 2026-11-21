@@ -147,6 +147,8 @@ type agentSessionOptions struct {
 	messageWindowSize        int64
 	messageChunkSize         int64
 	messageChunkMaxBytes     int64
+	modelRetry               ModelRetryPolicy
+	resolvedModelRetry       resolvedModelRetryPolicy
 }
 
 type agentSessionOptionFunc func(options *agentSessionOptions)
@@ -323,6 +325,11 @@ func NewAgentSessionFlow(
 	if err := validateAgentSessionOptions(configured, hasInterruptDeadline); err != nil {
 		return nil, err
 	}
+	resolvedModelRetry, err := resolveModelRetryPolicy(configured.modelRetry)
+	if err != nil {
+		return nil, err
+	}
+	configured.resolvedModelRetry = resolvedModelRetry
 	if configured.toolPolicies == nil {
 		configured.toolPolicies = map[string]ToolPolicy{}
 	}
@@ -811,13 +818,17 @@ type RunModel struct {
 	session *AgentSessionFlow
 }
 
-// GetStepOptions sets the model call timeouts, three attempts in 30 minutes, and RecordTurnFailure.
+// GetStepOptions sets the model call timeouts, three attempts plus the transient retries in 30
+// minutes, and RecordTurnFailure.
 func (step RunModel) GetStepOptions() *dex.StepOptions {
+	retry := step.session.options.resolvedModelRetry
 	return &dex.StepOptions{
 		ExecuteMethodTimeout: modelCallMethodTimeout,
 		HeartbeatTimeout:     modelCallHeartbeatTimeout,
 		ExecuteRetry: &dex.RetryPolicy{
-			MaximumAttempts: modelCallMaximumAttempts,
+			InitialInterval: retry.initialInterval,
+			MaximumInterval: retry.maximumInterval,
+			MaximumAttempts: retry.stepMaximumAttempts(),
 			TotalDuration:   modelCallRetryTotalDuration,
 		},
 		ExecuteDurability: dex.StepDurabilitySync,
@@ -842,6 +853,15 @@ func (step RunModel) Execute(ctx dex.Context, _ *CompactContextInput) (*dex.Step
 		return dex.ForceFail(unsupported), nil
 	}
 	result, err := step.session.runModelCall(ctx)
+	var endsTurn *errModelCallEndsTurn
+	if errors.As(err, &endsTurn) {
+		return step.session.failTurnAfterModelCall(ctx, endsTurn)
+	}
+	var retryAfter *dex.RetryAfterError
+	if err != nil && !errors.As(err, &retryAfter) && ctx.Err() == nil && ctx.Attempt() >= modelCallMaximumAttempts {
+		// The Dex retry policy also counts the transient retries, so the last attempt for any other error ends the turn.
+		return step.session.failTurnAfterModelCall(ctx, err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1197,10 +1217,30 @@ func (step RecordTurnFailure) Execute(ctx dex.Context, _ *CompactContextInput) (
 	if err != nil {
 		return nil, err
 	}
-	if err := step.session.failTurn(ctx, state, recoveryDetail(ctx)); err != nil {
+	errorText := recoveryDetail(ctx)
+	// RunModel moves here on purpose, with its reason already in the state.
+	if ctx.RecoveryError() == nil && state.LastTurnError != nil {
+		errorText = *state.LastTurnError
+	}
+	if err := step.session.failTurn(ctx, state, errorText); err != nil {
 		return nil, err
 	}
 	return dex.GoTo(AwaitUserMessage{session: step.session}, nil), nil
+}
+
+// failTurnAfterModelCall stores the error as LastTurnError and moves to RecordTurnFailure, which
+// ends the turn as when RunModel's attempts run out.
+func (flow *AgentSessionFlow) failTurnAfterModelCall(ctx dex.Context, cause error) (*dex.StepDecision, error) {
+	state, err := requireAgentState(ctx)
+	if err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	errorText := cause.Error()
+	state.LastTurnError = &errorText
+	if err := AgentStateAttribute.Set(ctx, state); err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	return dex.GoTo(RecordTurnFailure{session: flow}, nil), nil
 }
 
 // unsupportedSessionError returns the ForceFail reason when this core cannot serve the session's state, or "".
@@ -1346,6 +1386,9 @@ func (flow *AgentSessionFlow) runModelCall(ctx dex.Context) (modelCallResult, er
 	err = flow.withBackgroundHeartbeats(ctx, func() error { return ctx.RecordHeartbeat(nil) }, func() error {
 		var runErr error
 		outcome, runErr = flow.runner.RunModelStep(ctx, turn)
+		if runErr != nil && ctx.Err() == nil {
+			return decideModelCallError(runErr, ctx.Attempt(), flow.options.resolvedModelRetry, randomJitter())
+		}
 		return runErr
 	})
 	if err != nil {

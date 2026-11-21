@@ -16,6 +16,7 @@ import type {
   Tool,
   Usage,
 } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { emptyAgentUsage, type AgentUsage } from "@superdurable/dex-agents";
 import type {
@@ -185,9 +186,11 @@ class PiAiModelClient implements ModelClient {
     }
     if (failedMessage !== undefined) {
       request.cancellationSignal.throwIfAborted();
-      throw new Error(
+      const error = new Error(
         `the pi-ai model call ended with ${failedMessage.stopReason}: ${failedMessage.errorMessage ?? "no error message"}`,
       );
+      // pi-ai keeps only the error text; its own check tells RunModel to back off and retry.
+      throw Object.assign(error, { isRetryable: isRetryableAssistantError(failedMessage) });
     }
     if (finalMessage === undefined) {
       throw new Error("the pi-ai model call ended without a done event");
