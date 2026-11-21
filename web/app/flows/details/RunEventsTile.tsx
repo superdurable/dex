@@ -15,10 +15,6 @@ export interface RunEventsPaging {
   /** The oldest and newest event IDs on the page. */
   firstEventId: number;
   lastEventId: number;
-  /** The 1-based page number, newest first, or null when it is not exact. */
-  pageNumber: number | null;
-  /** The page count, or null when it is not exact. */
-  pageCount: number | null;
   hasOlder: boolean;
   hasNewer: boolean;
   /** Whether the page is the newest page, which Live extends. */
@@ -61,11 +57,10 @@ export function RunEventsTile({
       <div className="run-events-line">
         {paging && (
           <span className="run-events-range">
-            Showing #{paging.firstEventId}–#{paging.lastEventId}
-            {pageLabel(paging) ? ` · ${pageLabel(paging)}` : ''}
+            Showing #{paging.firstEventId.toLocaleString('en-US')}–#{paging.lastEventId.toLocaleString('en-US')}
           </span>
         )}
-        <span className="run-events-latest">{latestEventId === null ? 'None yet' : `Latest #${latestEventId}`}</span>
+        <span className="run-events-latest">{latestEventId === null ? 'None yet' : `Latest #${latestEventId.toLocaleString('en-US')}`}</span>
         {status}
       </div>
       <div className="run-events-controls">
@@ -77,7 +72,7 @@ export function RunEventsTile({
               onChange={(event) => onPageSizeChange(Number(event.target.value) as HistoryPageSize)}
               value={pageSize}
             >
-              {HISTORY_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              {HISTORY_PAGE_SIZES.map((size) => <option key={size} value={size}>{size.toLocaleString('en-US')}</option>)}
             </select>
           </label>
         )}
@@ -96,11 +91,6 @@ function hasOtherPages(paging: RunEventsPaging): boolean {
 function fitsSmallestPage(latestEventId: number | null, paging: RunEventsPaging | null): boolean {
   if (latestEventId === null || (paging && hasOtherPages(paging))) return false;
   return latestEventId <= Math.min(...HISTORY_PAGE_SIZES);
-}
-
-function pageLabel(paging: RunEventsPaging): string {
-  if (paging.pageNumber === null) return '';
-  return paging.pageCount === null ? `Page ${paging.pageNumber}` : `Page ${paging.pageNumber} of ${paging.pageCount}`;
 }
 
 /** The page buttons in words, with older pages on the left like the lane. */

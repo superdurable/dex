@@ -832,27 +832,28 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     expect(screen.getByRole('group', { name: 'Events' })).toBeTruthy();
     expect(latestEventNumber()).toBe('#2100');
-    expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
+    expect(screen.getByText('Latest #2,100')).toBeTruthy();
+    expect(eventsRange()).toBe('Showing #1,101–#2,100');
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
     expect(timelineRowIDs().at(-1)).toBe('101');
-    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+    expect(eventsRange()).toBe('Showing #101–#1,100');
     expect(pageButtonsDisabled()).toEqual([false, false, false, false]);
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('100'));
     expect(timelineRowIDs().at(-1)).toBe('1');
-    expect(eventsRange()).toBe('Showing #1–#100 · Page 3 of 3');
+    expect(eventsRange()).toBe('Showing #1–#100');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
 
     fireEvent.click(pageButton('Newer page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
-    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+    expect(eventsRange()).toBe('Showing #101–#1,100');
     fireEvent.click(pageButton('Newer page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     // A page that reaches the newest event is the newest page, which Live extends.
     expect(timelineRowIDs().at(-1)).toBe('1101');
-    expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
+    expect(eventsRange()).toBe('Showing #1,101–#2,100');
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
   });
 
@@ -862,7 +863,12 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
-    expect(eventsRange()).toBe('Showing #2501–#3500 · Page 1 of 4');
+    expect(eventsRange()).toBe('Showing #2,501–#3,500');
+    const selectedEventId = () => screen.getByRole('region', { name: 'Selected event details' })
+      .querySelector('.selected-event-anchor .event-meta .mono')?.textContent;
+    expect(selectedEventId()).toBe('#3500');
+    fireEvent.click(timelineRow(3499).querySelector('.event-card')!);
+    expect(selectedEventId()).toBe('#3499');
     server.requests.length = 0;
     fireEvent.click(pageButton('Oldest page'));
 
@@ -870,14 +876,16 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs().at(-1)).toBe('1');
     // Oldest page reads from the window start and stops where Older page would have started page 3.
     expect(server.requests.map((request) => [request.startInternalEventId, request.estimatePageSize])).toEqual([[1, 1001]]);
-    expect(eventsRange()).toBe('Showing #1–#500 · Page 4 of 4');
+    expect(eventsRange()).toBe('Showing #1–#500');
+    expect(selectedEventId()).toBe('#500');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
 
     fireEvent.click(pageButton('Newer page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
-    expect(eventsRange()).toBe('Showing #501–#1500 · Page 3 of 4');
+    expect(eventsRange()).toBe('Showing #501–#1,500');
     fireEvent.click(pageButton('Latest page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
+    expect(selectedEventId()).toBe('#3500');
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
   });
 
@@ -891,7 +899,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1501'));
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
-    expect(eventsRange()).toBe('Showing #1–#500 · Page 2 of 2');
+    expect(eventsRange()).toBe('Showing #1–#500');
 
     server.events.push(stepEvent(1501, 'StepWaitForCompleted', { stepExecutionId: 'Step-751' }));
     dex.releaseLiveWait();
@@ -900,13 +908,13 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     expect(timelineRowIDs()[0]).toBe('500');
     expect(timelineRowIDs().at(-1)).toBe('1');
-    // The newest page moved, so this page is no longer one of its numbered pages.
+    // The newest page moved, but the older page still shows the same event range.
     expect(eventsRange()).toBe('Showing #1–#500');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
 
     fireEvent.click(pageButton('Latest page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1501'));
-    expect(eventsRange()).toBe('Showing #502–#1501 · Page 1 of 2');
+    expect(eventsRange()).toBe('Showing #502–#1,501');
     server.events.push(stepEvent(1502, 'StepExecuteCompleted', { stepExecutionId: 'Step-751' }));
     dex.releaseLiveWait();
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1502'));
@@ -937,7 +945,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(pageButtonsDisabled()).toEqual([false, false, false, false]);
   });
 
-  it('omits the page count when the Server reports no run attempts', async () => {
+  it('shows event ranges when the Server reports no run attempts', async () => {
     // The gap after FlowStart lies outside the newest page, and these event IDs prove nothing.
     const retained = sequentialStepHistory(5500)
       .filter((event) => event.eventId === 1 || event.eventId >= 4001)
@@ -947,12 +955,12 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('5500'));
-    expect(eventsRange()).toBe('Showing #4501–#5500 · Page 1');
+    expect(eventsRange()).toBe('Showing #4,501–#5,500');
     fireEvent.click(pageButton('Older page'));
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('4500'));
     expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
-    expect(eventsRange()).toBe('Showing #1–#4500');
+    expect(eventsRange()).toBe('Showing #1–#4,500');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
   });
 
@@ -981,7 +989,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(graph.dataset.eventIds).toBe('1..1100');
     expect(graph.dataset.hasEarlierEvents).toBe('true');
     expect(screen.queryByText(/The graph shows Steps from events/)).toBeNull();
-    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+    expect(eventsRange()).toBe('Showing #101–#1,100');
 
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(screen.getByTestId('execution-graph').dataset.eventIds).toBe('1..100'));
@@ -999,7 +1007,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRowIDs()[0]).toBe('1502');
     expect(timelineRowIDs().slice(-2)).toEqual(['1001', '1']);
     expect(screen.getByText('Events #2 to #1000 were removed by the history window; FlowStart is kept.')).toBeTruthy();
-    expect(eventsRange()).toBe('Showing #1–#1502 · Page 1 of 1');
+    expect(eventsRange()).toBe('Showing #1–#1,502');
     // One page needs no page buttons.
     expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
   });
@@ -1153,25 +1161,25 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1505'));
-    expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2');
+    expect(eventsRange()).toBe('Showing #506–#1,505');
     const pageSize = screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement;
     expect(pageSize.value).toBe('1000');
 
     fireEvent.change(pageSize, { target: { value: '100' } });
-    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1,406–#1,505'));
     expect(timelineRowIDs()).toHaveLength(100);
     expect(window.localStorage.getItem('dex.run.events-page-size')).toBe('100');
 
     fireEvent.click(pageButton('Older page'));
-    await waitFor(() => expect(eventsRange()).toBe('Showing #1306–#1405 · Page 2 of 16'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1,306–#1,405'));
 
     // The oldest page pairs FlowStart with the events before the next numbered page.
     fireEvent.click(pageButton('Oldest page'));
     await waitFor(() => expect(timelineRowIDs()).toEqual(['5', '4', '3', '2', '1']));
-    expect(eventsRange()).toBe('Showing #1–#5 · Page 16 of 16');
+    expect(eventsRange()).toBe('Showing #1–#5');
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Page size' }), { target: { value: '1000' } });
-    await waitFor(() => expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #506–#1,505'));
   });
 
   it('opens with the stored Events page size', async () => {
@@ -1183,7 +1191,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     vi.stubGlobal('fetch', pagedDex(server).fetch);
     renderRun();
 
-    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1,406–#1,505'));
     expect((screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement).value).toBe('100');
   });
 
@@ -1241,7 +1249,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('5000'));
     // Only FlowStart precedes the newest 1000 events, so the newest page is also the oldest.
     await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
-    expect(eventsRange()).toBe('Showing #1–#5000 · Page 1 of 1');
+    expect(eventsRange()).toBe('Showing #1–#5,000');
     // One page needs no page buttons.
     expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
     expect(timelineRowIDs().at(-1)).toBe('1');
@@ -1347,7 +1355,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     // The page that starts at the oldest retained event also shows FlowStart, so it is the oldest page.
     await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
-    expect(eventsRange()).toBe('Showing #1–#5000 · Page 2 of 2');
+    expect(eventsRange()).toBe('Showing #1–#5,000');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
   });
 
@@ -1385,7 +1393,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().slice(-2)).toEqual(['9001', '1']);
     // Time travel skips event IDs, so the page count is not exact.
-    expect(eventsRange()).toBe('Showing #1–#10000 · Page 1');
+    expect(eventsRange()).toBe('Showing #1–#10,000');
     // One page needs no page buttons.
     expect(screen.queryByRole('group', { name: 'Event pages' })).toBeNull();
   });
