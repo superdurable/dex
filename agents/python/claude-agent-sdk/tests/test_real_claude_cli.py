@@ -72,6 +72,8 @@ async def test_real_cli_defers_two_writes_of_one_reply_one_at_a_time(
     real_cli_harness: RealClaudeCliHarness,
 ) -> None:
     harness = real_cli_harness
+    # A live model's stream: the CLI defers the first call before the second one arrives.
+    harness.messages_api.content_block_pause_seconds = 1.0
     await harness.stack.start_worker({PERMISSION_MODE_ENVIRONMENT_VARIABLE: "dontAsk"})
     session_id = harness.new_session_id()
     await harness.sessions.start_session(
@@ -107,7 +109,18 @@ async def test_real_cli_defers_two_writes_of_one_reply_one_at_a_time(
         for block in message["content"]
         if block.get("type") == "tool_result" and block.get("is_error")
     ]
-    assert denied[0].startswith("PreToolUse:mcp__tools__publish hook error: publish did not run.")
+    assert denied[0].startswith("PreToolUse:mcp__tools__publish hook error: publish was not run")
+    assert "sent in the same answer as an earlier call, publish, that had not finished" in denied[0]
+    # The resumed request answers both calls of the reply: the first write's result and the refusal.
+    resumed = _model_requests(harness)[1]["messages"]
+    assert "Tool result missing" not in json.dumps(resumed)
+    reply_results = [
+        json.dumps(block["content"])
+        for block in resumed[-1]["content"]
+        if block.get("type") == "tool_result"
+    ]
+    assert len(reply_results) == 2
+    assert any("published a" in result for result in reply_results)
     _assert_only_the_mock_was_reached(harness)
 
 

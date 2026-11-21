@@ -50,6 +50,8 @@ export class MockAnthropicApi {
   public readonly unservedPaths: string[] = [];
   /** A suffix that replaces the random part of every new tool use ID, so later turns reuse IDs. */
   public fixedToolUseIdSuffix: string | undefined;
+  /** A pause between streamed content blocks, as a live model's stream has, so the CLI decides a call mid-reply. */
+  public contentBlockPauseMs = 0;
   private readonly sockets = new Set<Socket>();
 
   private constructor(private readonly server: Server) {}
@@ -114,7 +116,7 @@ export class MockAnthropicApi {
     });
     const model = String(payload["model"] ?? "claude-scripted");
     if (payload["stream"] === true) {
-      streamMessage(response, model, blocks);
+      await streamMessage(response, model, blocks, this.contentBlockPauseMs);
     } else {
       sendJson(response, messageObject(model, blocks, true));
     }
@@ -216,13 +218,21 @@ function toolResultsByRequest(tail: readonly JsonObject[]): Map<number, string> 
   return latest;
 }
 
-function streamMessage(response: ServerResponse, model: string, blocks: readonly ResponseBlock[]): void {
+async function streamMessage(
+  response: ServerResponse,
+  model: string,
+  blocks: readonly ResponseBlock[],
+  contentBlockPauseMs: number,
+): Promise<void> {
   response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
   const send = (event: string, data: JsonObject): void => {
     response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   send("message_start", { type: "message_start", message: messageObject(model, [], false) });
-  blocks.forEach((block, index) => {
+  for (const [index, block] of blocks.entries()) {
+    if (index > 0 && contentBlockPauseMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, contentBlockPauseMs));
+    }
     if (block.type === "text") {
       send("content_block_start", { type: "content_block_start", index, content_block: { type: "text", text: "" } });
       const half = Math.floor(block.text.length / 2);
@@ -244,7 +254,7 @@ function streamMessage(response: ServerResponse, model: string, blocks: readonly
       });
     }
     send("content_block_stop", { type: "content_block_stop", index });
-  });
+  }
   const stopReason = blocks.some((block) => block.type === "tool_use") ? "tool_use" : "end_turn";
   send("message_delta", {
     type: "message_delta",

@@ -71,6 +71,7 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     await harness?.close();
     harness = undefined;
     api.fixedToolUseIdSuffix = undefined;
+    api.contentBlockPauseMs = 0;
   });
 
   after(async () => {
@@ -216,6 +217,8 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
   test("a second write of one reply is refused, called again alone, and both run once", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("real-two-writes");
+    // A live model's stream: the CLI defers the first call before the second one arrives.
+    api.contentBlockPauseMs = 1_000;
     const command = 'call publish {"message":"b"} && call publish {"message":"c"}';
     await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
     const firstInterrupt = await agent.waitForNewInterrupt(sessionId, "publish");
@@ -229,6 +232,19 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(snapshot.messages.at(-1)?.text, "publish: published b; publish: published c");
     assert.equal(agent.invocations.count("publish"), 2);
     assert.equal(scriptedRequestsOf(command), 3);
+    // The resumed request answers both calls of the reply: the first write's result, then the refusal.
+    const resumed = api.scriptedRequests().filter((request) => request.command === command)[1];
+    assert.equal(JSON.stringify(resumed?.messages).includes("Tool result missing"), false);
+    const replyResults = resumed?.messages.at(-1)?.["content"] as Record<string, unknown>[];
+    const resultTexts = replyResults
+      .filter((block) => block["type"] === "tool_result")
+      .map((block) => JSON.stringify(block["content"]));
+    assert.equal(resultTexts.length, 2);
+    assert.equal(resultTexts.some((text) => text.includes("published b")), true);
+    assert.equal(
+      resultTexts.some((text) => text.includes("sent in the same answer as an earlier call, publish")),
+      true,
+    );
   });
 
   test("a turn steered at an approval keeps its transcript and the next turn resumes a complete session", async () => {
