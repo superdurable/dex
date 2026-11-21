@@ -10,6 +10,8 @@ section: Fixed
   model's next such call, so the model could repeat a write that had already
   run. The transcript given to the resumed CLI now puts the pending deferral
   after the reply's refused calls; stored entries do not change. The refusal
-  of the second call now names the earlier call, says the refused call had no
-  effect, and asks the model to read the earlier result and then call it again
-  by itself if it should still run. (#2111)
+  of the second call now says that it was not run because it came in the same
+  answer as an earlier call that had not finished, names that call, says its
+  result is reported separately, and asks the model to call the refused tool
+  again by itself if it is still needed. It no longer implies the earlier call
+  succeeded. (#2111)

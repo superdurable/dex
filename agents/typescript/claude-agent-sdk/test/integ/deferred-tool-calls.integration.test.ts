@@ -29,7 +29,9 @@ import {
 } from "../fixtures/claude-test-agent.js";
 import { fakeClaudeResumeWithoutHooksVariable } from "../fixtures/fake-claude-cli-environment.js";
 
-const callAloneResult = "did not run, so it had no effect. An earlier call of this reply, publish, runs first";
+const callAloneResult =
+  "was not run, because it was sent in the same answer as an earlier call, publish, that had not finished. " +
+  "publish's own result is reported separately.";
 
 describe("Claude agent tool calls deferred to their own Steps", () => {
   let engine: PrivateDexEngine;

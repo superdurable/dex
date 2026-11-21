@@ -360,9 +360,9 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
      as `FrameworkRunState`, and the segment's transcript entries as `newMessages`, so the session
      stores the turn so far in the same commit and a UI shows it while the call waits. The call's
      arguments are the CLI's recorded input, after every PreToolUse hook's `updatedInput`.
-   - Every later deferrable call of the same segment: `deny` with "<tool> did not run, so it had no
-     effect. An earlier call of this reply, <deferred tool>, runs first ... Call <tool> again by itself
-     if it should still run." The CLI resumes only one deferred call, so a second one would never get
+   - Every later deferrable call of the same segment: `deny` with "<tool> was not run, because it was
+     sent in the same answer as an earlier call, <deferred tool>, that had not finished. <deferred
+     tool>'s own result is reported separately. Call <tool> again by itself if it is still needed." The CLI resumes only one deferred call, so a second one would never get
      a result. The model calls it again in a later reply.
 4. The session runs the call in `AwaitToolApproval` and `CallTool` or `CallSingleAttemptTool`. For a
    custom tool that runs the handler; for a CLI tool it records `approvedCliToolOutput`. `ResumeTurn`

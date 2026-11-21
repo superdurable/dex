@@ -59,9 +59,9 @@ const soloDeferralRequiredMessage = (toolName: string): string =>
   `${toolName} did not run. It must run outside this turn, which works only when it is the only ` +
   `tool call in its message. Call ${toolName} again by itself.`;
 const siblingDeferralMessage = (toolName: string, deferredToolName: string): string =>
-  `${toolName} did not run, so it had no effect. An earlier call of this reply, ${deferredToolName}, runs first ` +
-  `outside this turn, and only one such call runs at a time. Its result follows. Read it, then call ${toolName} ` +
-  "again by itself if it should still run.";
+  `${toolName} was not run, because it was sent in the same answer as an earlier call, ${deferredToolName}, that ` +
+  `had not finished. ${deferredToolName}'s own result is reported separately. Call ${toolName} again by itself ` +
+  "if it is still needed.";
 const subagentDeferralRefusedMessage = (toolName: string): string =>
   `${toolName} did not run. It must run outside this turn, which a subagent cannot do. Call it ` +
   "from the main conversation instead.";

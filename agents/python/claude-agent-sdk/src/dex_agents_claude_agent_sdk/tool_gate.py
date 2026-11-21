@@ -102,10 +102,9 @@ ONE_DEFERRAL_PER_REPLY_MESSAGE = (
     "and another call already does. Call {tool_name} again by itself."
 )
 SIBLING_DEFERRAL_MESSAGE = (
-    "{tool_name} did not run, so it had no effect. An earlier call of this reply, "
-    "{deferred_tool_name}, runs first outside this turn, and only one such call runs at a "
-    "time. Its result follows. Read it, then call {tool_name} again by itself if it should "
-    "still run."
+    "{tool_name} was not run, because it was sent in the same answer as an earlier call, "
+    "{deferred_tool_name}, that had not finished. {deferred_tool_name}'s own result is "
+    "reported separately. Call {tool_name} again by itself if it is still needed."
 )
 SUBAGENT_DEFERRAL_REFUSED_MESSAGE = (
     "{tool_name} did not run. It must run outside this turn, which a subagent cannot do. "

@@ -109,8 +109,8 @@ async def test_real_cli_defers_two_writes_of_one_reply_one_at_a_time(
         for block in message["content"]
         if block.get("type") == "tool_result" and block.get("is_error")
     ]
-    assert denied[0].startswith("PreToolUse:mcp__tools__publish hook error: publish did not run")
-    assert "An earlier call of this reply, publish, runs first" in denied[0]
+    assert denied[0].startswith("PreToolUse:mcp__tools__publish hook error: publish was not run")
+    assert "sent in the same answer as an earlier call, publish, that had not finished" in denied[0]
     # The resumed request answers both calls of the reply: the first write's result and the refusal.
     resumed = _model_requests(harness)[1]["messages"]
     assert "Tool result missing" not in json.dumps(resumed)

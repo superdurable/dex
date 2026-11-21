@@ -242,7 +242,7 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(resultTexts.length, 2);
     assert.equal(resultTexts.some((text) => text.includes("published b")), true);
     assert.equal(
-      resultTexts.some((text) => text.includes("An earlier call of this reply, publish, runs first")),
+      resultTexts.some((text) => text.includes("sent in the same answer as an earlier call, publish")),
       true,
     );
   });
