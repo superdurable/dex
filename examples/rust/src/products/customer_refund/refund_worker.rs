@@ -88,6 +88,11 @@ impl RunningRefundWorker {
         Ok(running)
     }
 
+    /// Returns whether the Worker thread has ended, for example after a fatal stream error.
+    pub fn has_stopped(&self) -> bool {
+        self.thread.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
     /// Stops the Worker and returns the error that ended it, if any.
     pub fn stop(mut self) -> Result<(), Box<dyn Error>> {
         self.stop_and_join()

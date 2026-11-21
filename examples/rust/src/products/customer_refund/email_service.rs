@@ -52,7 +52,9 @@ impl FakeEmailService {
         }
     }
 
-    /// Sends the email once per key and returns whether this call sent it.
+    /// Returns `true` when this call sent the email, or `false` when an earlier call sent it.
+    ///
+    /// The ledger write, which keeps only the key, is the send; the printed line is a log.
     pub fn send(
         &self,
         to: &str,

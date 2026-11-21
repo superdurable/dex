@@ -15,6 +15,7 @@
 //! Reads and changes the JSON files where the fake services remember their keys.
 
 use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -61,11 +62,24 @@ fn open_lock_file(path: &Path) -> Result<File, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Replaces the ledger durably: synced temporary file, rename, then synced directory.
 fn replace_json_ledger<T: Serialize>(path: &Path, entries: &[T]) -> Result<(), String> {
     let text = serde_json::to_string_pretty(entries).map_err(|error| error.to_string())?;
-    let temporary_path = sibling_path(path, &format!("tmp-{}", std::process::id()));
-    std::fs::write(&temporary_path, text).map_err(|error| error.to_string())?;
-    std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())
+    // One fixed name under the lock, so a later write truncates a crashed write's leftover.
+    let temporary_path = sibling_path(path, "tmp");
+    let mut temporary_file = File::create(&temporary_path).map_err(|error| error.to_string())?;
+    temporary_file
+        .write_all(text.as_bytes())
+        .and_then(|()| temporary_file.sync_all())
+        .map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary_path, path).map_err(|error| error.to_string())?;
+    let directory = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    File::open(directory)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| error.to_string())
 }
 
 fn sibling_path(path: &Path, suffix: &str) -> PathBuf {

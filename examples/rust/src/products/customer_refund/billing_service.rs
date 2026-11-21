@@ -16,7 +16,6 @@
 
 use std::fmt::{self, Display, Formatter};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +50,12 @@ pub enum BillingError {
     UnknownOrder {
         order_id: String,
     },
+    /// The key already refunded another order, for example from another Dex environment.
+    IdempotencyKeyConflict {
+        idempotency_key: String,
+        recorded_order_id: String,
+        requested_order_id: String,
+    },
     Ledger {
         path: PathBuf,
         detail: String,
@@ -63,6 +68,7 @@ impl BillingError {
         match self {
             Self::PaymentTimeout { .. } => "PaymentTimeout",
             Self::UnknownOrder { .. } => "UnknownOrder",
+            Self::IdempotencyKeyConflict { .. } => "RefundKeyConflict",
             Self::Ledger { .. } => "BillingLedgerError",
         }
     }
@@ -76,6 +82,15 @@ impl Display for BillingError {
                 "no answer from the payment provider for {order_id}"
             ),
             Self::UnknownOrder { order_id } => write!(formatter, "no order {order_id} in billing"),
+            Self::IdempotencyKeyConflict {
+                idempotency_key,
+                recorded_order_id,
+                requested_order_id,
+            } => write!(
+                formatter,
+                "refund key {idempotency_key} already refunded {recorded_order_id}, \
+                 not {requested_order_id}; give each Dex environment its own ledger"
+            ),
             Self::Ledger { path, detail } => {
                 write!(
                     formatter,
@@ -93,8 +108,6 @@ impl std::error::Error for BillingError {}
 pub struct FakeBillingService {
     ledger_path: PathBuf,
     mode: BillingMode,
-    payment_timeouts: AtomicU32,
-    reused_refunds: AtomicU32,
 }
 
 impl FakeBillingService {
@@ -102,8 +115,6 @@ impl FakeBillingService {
         Self {
             ledger_path: ledger_path.into(),
             mode,
-            payment_timeouts: AtomicU32::new(0),
-            reused_refunds: AtomicU32::new(0),
         }
     }
 
@@ -141,39 +152,53 @@ impl FakeBillingService {
             return Ok(String::new());
         }
         if simulate_timeout {
-            self.payment_timeouts.fetch_add(1, Ordering::SeqCst);
             return Err(BillingError::PaymentTimeout {
                 order_id: order.order_id.clone(),
             });
         }
-        let (refund_id, is_new) =
-            update_json_ledger(&self.ledger_path, |refunds: &mut Vec<RecordedRefund>| {
-                if let Some(earlier) = refunds
-                    .iter()
-                    .find(|refund| refund.idempotency_key == idempotency_key)
-                {
-                    return (false, (earlier.refund_id.clone(), false));
-                }
-                let refund_id = format!("rf_{}", 1042 + refunds.len());
-                refunds.push(RecordedRefund {
-                    refund_id: refund_id.clone(),
-                    order_id: order.order_id.clone(),
-                    amount_cents: order.amount_cents,
-                    idempotency_key: idempotency_key.to_string(),
-                });
-                (true, (refund_id, true))
-            })
-            .map_err(|detail| self.ledger_error(detail))?;
-        if is_new {
-            println!(
-                "Refunded {} USD as {refund_id}",
-                format_usd(order.amount_cents)
-            );
-        } else {
-            self.reused_refunds.fetch_add(1, Ordering::SeqCst);
-            println!("Refund {refund_id} already issued (key {idempotency_key})");
+        let lookup = update_json_ledger(&self.ledger_path, |refunds: &mut Vec<RecordedRefund>| {
+            if let Some(earlier) = refunds
+                .iter()
+                .find(|refund| refund.idempotency_key == idempotency_key)
+            {
+                return (false, RefundLookup::Earlier(earlier.clone()));
+            }
+            // IDs count the ledger's rows, so deleting rows by hand can reuse an ID.
+            let refund = RecordedRefund {
+                refund_id: format!("rf_{}", 1042 + refunds.len()),
+                order_id: order.order_id.clone(),
+                amount_cents: order.amount_cents,
+                idempotency_key: idempotency_key.to_string(),
+            };
+            refunds.push(refund.clone());
+            (true, RefundLookup::Issued(refund))
+        })
+        .map_err(|detail| self.ledger_error(detail))?;
+        match lookup {
+            RefundLookup::Issued(refund) => {
+                println!(
+                    "Refunded {} USD as {}",
+                    format_usd(order.amount_cents),
+                    refund.refund_id
+                );
+                Ok(refund.refund_id)
+            }
+            RefundLookup::Earlier(earlier)
+                if earlier.order_id == order.order_id
+                    && earlier.amount_cents == order.amount_cents =>
+            {
+                println!(
+                    "Refund {} already issued (key {idempotency_key})",
+                    earlier.refund_id
+                );
+                Ok(earlier.refund_id)
+            }
+            RefundLookup::Earlier(earlier) => Err(BillingError::IdempotencyKeyConflict {
+                idempotency_key: idempotency_key.to_string(),
+                recorded_order_id: earlier.order_id,
+                requested_order_id: order.order_id.clone(),
+            }),
         }
-        Ok(refund_id)
     }
 
     fn ledger_error(&self, detail: String) -> BillingError {
@@ -184,18 +209,21 @@ impl FakeBillingService {
     }
 
     pub fn list_refunds(&self) -> Result<Vec<RecordedRefund>, BillingError> {
-        read_json_ledger(&self.ledger_path).map_err(|detail| self.ledger_error(detail))
+        list_recorded_refunds(&self.ledger_path)
     }
+}
 
-    /// Returns how many simulated payment timeouts this service raised.
-    pub fn payment_timeouts(&self) -> u32 {
-        self.payment_timeouts.load(Ordering::SeqCst)
-    }
+/// Returns the refunds recorded in the ledger at `ledger_path`.
+pub fn list_recorded_refunds(
+    ledger_path: impl Into<PathBuf>,
+) -> Result<Vec<RecordedRefund>, BillingError> {
+    let path = ledger_path.into();
+    read_json_ledger(&path).map_err(|detail| BillingError::Ledger { path, detail })
+}
 
-    /// Returns how many refund calls this service answered with an earlier refund.
-    pub fn reused_refunds(&self) -> u32 {
-        self.reused_refunds.load(Ordering::SeqCst)
-    }
+enum RefundLookup {
+    Earlier(RecordedRefund),
+    Issued(RecordedRefund),
 }
 
 /// Formats cents as US dollars with thousands separators, such as 1,249.00.
@@ -217,7 +245,7 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
-    use super::{FakeBillingService, format_usd};
+    use super::{BillingError, FakeBillingService, format_usd};
     use crate::products::customer_refund::refund_config::BillingMode;
 
     const CONCURRENT_CALLS: usize = 8;
@@ -261,11 +289,35 @@ mod tests {
         let refunds = billing.list_refunds().unwrap();
         assert_eq!(refunds.len(), 1);
         assert!(refund_ids.iter().all(|id| *id == refunds[0].refund_id));
-        assert_eq!(billing.reused_refunds(), (CONCURRENT_CALLS - 1) as u32);
         let restarted = FakeBillingService::new(&ledger, BillingMode::Normal);
         let order = restarted.get_order("INV-1249").unwrap();
         let again = restarted.refund(&order, "refund-same", false).unwrap();
         assert_eq!(again, refunds[0].refund_id);
+    }
+
+    #[test]
+    fn a_key_that_refunded_another_order_is_a_conflict() {
+        let directory = tempfile::tempdir().unwrap();
+        let billing =
+            FakeBillingService::new(directory.path().join("refunds.json"), BillingMode::Normal);
+        let small_order = billing.get_order("INV-0049").unwrap();
+        let renewal = billing.get_order("INV-1249").unwrap();
+        billing
+            .refund(&small_order, "refund-refund1", false)
+            .unwrap();
+
+        let error = billing
+            .refund(&renewal, "refund-refund1", false)
+            .expect_err("a different order under the same key is rejected");
+
+        assert!(
+            matches!(error, BillingError::IdempotencyKeyConflict { .. }),
+            "{error}"
+        );
+        assert_eq!(error.error_type(), "RefundKeyConflict");
+        let refunds = billing.list_refunds().unwrap();
+        assert_eq!(refunds.len(), 1);
+        assert_eq!(refunds[0].order_id, "INV-0049");
     }
 
     #[test]

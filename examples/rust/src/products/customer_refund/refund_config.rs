@@ -56,21 +56,32 @@ impl Display for BillingMode {
 pub struct RefundConfig {
     /// The Dex address, from `DEX_FLOW_SERVICE_ADDRESS`; the `dexcli dev` address by default.
     pub server_address: String,
+}
+
+impl RefundConfig {
+    pub fn from_environment() -> Self {
+        let server_address = std::env::var("DEX_FLOW_SERVICE_ADDRESS")
+            .unwrap_or_else(|_| "127.0.0.1:8801".to_string());
+        Self { server_address }
+    }
+}
+
+/// The Worker's settings: the shared ones plus the billing mode.
+pub struct RefundWorkerConfig {
+    pub refund: RefundConfig,
     /// From `REFUND_BILLING_MODE`: `normal` (default) or `call-missing`.
     pub billing_mode: BillingMode,
 }
 
-impl RefundConfig {
+impl RefundWorkerConfig {
     /// Reads the environment, or returns an error for an unknown billing mode.
     pub fn from_environment() -> Result<Self, String> {
-        let server_address = std::env::var("DEX_FLOW_SERVICE_ADDRESS")
-            .unwrap_or_else(|_| "127.0.0.1:8801".to_string());
         let billing_mode = match std::env::var("REFUND_BILLING_MODE") {
             Ok(value) => value.parse()?,
             Err(_) => BillingMode::Normal,
         };
         Ok(Self {
-            server_address,
+            refund: RefundConfig::from_environment(),
             billing_mode,
         })
     }

@@ -15,7 +15,7 @@
 //! Runs the customer refund example's scenarios against a real Dex server.
 
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -33,7 +33,7 @@ use dex_examples_rust::products::customer_refund::refund_scenarios::RefundScenar
 use dex_examples_rust::products::customer_refund::refund_worker::{
     RunningRefundWorker, open_refund_client, refund_worker_options,
 };
-use dex_sdk::{AttributeMatch, Client, FlowResult, FlowStatus, WaitForAttributeOptions};
+use dex_sdk::{AttributeMatch, Client, FlowResult, FlowStatus, SdkError, WaitForAttributeOptions};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -51,9 +51,7 @@ struct RefundTestbed {
 impl RefundTestbed {
     fn new() -> Self {
         let directory = tempfile::tempdir().expect("create the test directory");
-        let server_address = RefundConfig::from_environment()
-            .expect("read the refund settings")
-            .server_address;
+        let server_address = RefundConfig::from_environment().server_address;
         let services = new_services(&directory, BillingMode::Normal);
         let flow = CustomerRefundFlow::new(Arc::clone(&services));
         let cache = open_refund_blob_cache(directory.path().join("client-cache"))
@@ -311,7 +309,11 @@ fn blank_reason_is_rejected_and_a_later_decision_is_accepted() {
             .client
             .invoke_rpc(&flow_id, APPROVE_REFUND, blank)
             .expect_err("a blank reason is rejected");
-        assert!(error.to_string().contains("needs a reason"), "{error}");
+        assert_eq!(
+            worker_error_type(&error),
+            Some("BlankDecisionReason"),
+            "{error}"
+        );
         assert_eq!(
             testbed.case_status(&flow_id),
             Some(CaseStatus::AwaitingManager)
@@ -355,12 +357,14 @@ fn refund_succeeds_after_payment_timeouts() {
     };
 
     assert_outcome(&result, RefundOutcome::Refunded);
-    assert_eq!(testbed.services.billing.payment_timeouts(), 2);
     assert_eq!(testbed.refund_keys(), vec![format!("refund-{flow_id}")]);
-    let completed = issue_refund_completion(&testbed.server_address, &flow_id);
-    assert_eq!(completed["context"]["finalAttempt"], 3, "{completed}");
+    let history = read_history(&testbed.server_address, &flow_id);
+    let completed = step_completion(&history, 1, "IssueRefund").expect("IssueRefund completed");
+    let context = &completed["payload"]["context"];
+    assert_eq!(context["finalAttempt"], 3, "{completed}");
+    assert_eq!(context["lastFailureInfo"]["attempt"], 2, "{completed}");
     assert_eq!(
-        completed["context"]["lastFailureInfo"]["attempt"], 2,
+        context["lastFailureInfo"]["details"]["originalWorkerErrorType"], "PaymentTimeout",
         "{completed}"
     );
 }
@@ -370,36 +374,83 @@ fn refund_succeeds_after_payment_timeouts() {
 fn time_travel_after_a_refund_reuses_the_refund() {
     let testbed = RefundTestbed::new();
     let flow_id = new_flow_id();
-    let worker = testbed.start_worker(BillingMode::Normal);
+    let _worker = testbed.start_worker(BillingMode::Normal);
     testbed.start_refund(&flow_id, RefundScenario::Small);
     let first = testbed.wait_for_flow(&flow_id, WAIT_TIMEOUT);
     assert_outcome(&first, RefundOutcome::Refunded);
     let refund_id = testbed.read_string(&flow_id, &REFUND_ID);
+    let first_run_id = first_history_value(&testbed, &flow_id, "runId");
 
-    time_travel_with_dexcli(&testbed.server_address, &flow_id, "IssueRefund");
-    wait_until(|| testbed.services.billing.reused_refunds() == 1);
-    let again = testbed.wait_for_flow(&flow_id, WAIT_TIMEOUT);
-    worker.stop().expect("stop the refund Worker");
+    let time_travel = time_travel_with_dexcli(&testbed.server_address, &flow_id, "IssueRefund");
+    // Time Travel keeps the run ID and starts a new run attempt.
+    assert_eq!(time_travel["runId"], first_run_id, "{time_travel}");
+    let run_attempt = time_travel["runAttempt"]
+        .as_u64()
+        .expect("a run attempt from time travel");
+    assert!(run_attempt > 1, "{time_travel}");
+    wait_for_step_completion_in_attempt(&testbed, &flow_id, run_attempt, "CloseCase");
 
-    assert_outcome(&again, RefundOutcome::Refunded);
+    let history = read_history(&testbed.server_address, &flow_id);
+    assert!(step_completion(&history, run_attempt, "IssueRefund").is_some());
     assert_eq!(testbed.refund_keys(), vec![format!("refund-{flow_id}")]);
     assert_eq!(testbed.read_string(&flow_id, &REFUND_ID), refund_id);
     assert_eq!(testbed.email_keys(), vec![format!("email-{flow_id}")]);
 }
 
-fn wait_until(condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + WAIT_TIMEOUT;
-    while !condition() {
-        assert!(
-            Instant::now() < deadline,
-            "the condition did not hold in time"
-        );
-        thread::sleep(Duration::from_millis(100));
+#[test]
+#[ignore = "requires dexcli dev"]
+fn concurrent_approve_and_reject_let_at_most_one_win() {
+    let testbed = RefundTestbed::new();
+    let flow_id = new_flow_id();
+    let _worker = testbed.start_worker(BillingMode::Normal);
+    testbed.start_refund(&flow_id, RefundScenario::Normal);
+    testbed.wait_for_manager(&flow_id);
+
+    let barrier = Barrier::new(2);
+    let decide = |rpc, reason: &str| {
+        let decision = DecisionReason {
+            reason: reason.to_string(),
+        };
+        barrier.wait();
+        testbed.client.invoke_rpc(&flow_id, rpc, decision)
+    };
+    let (approve, reject) = thread::scope(|scope| {
+        let approve = scope.spawn(|| decide(APPROVE_REFUND, "Outage confirmed"));
+        let reject = scope.spawn(|| decide(REJECT_REFUND, "Credit offered instead"));
+        (approve.join().unwrap(), reject.join().unwrap())
+    });
+
+    assert!(
+        approve.is_err() || reject.is_err(),
+        "both decisions won: {approve:?} {reject:?}"
+    );
+    for error in [&approve, &reject]
+        .into_iter()
+        .filter_map(|r| r.as_ref().err())
+    {
+        let expected = matches!(error, SdkError::RpcLockConflict { .. })
+            || matches!(error, SdkError::FlowNotActiveOrNotFound { .. })
+            || worker_error_type(error) == Some("RefundNotAwaitingManager");
+        assert!(expected, "unexpected decision error: {error:?}");
+    }
+    if approve.is_ok() || reject.is_ok() {
+        let expected = if approve.is_ok() {
+            RefundOutcome::Refunded
+        } else {
+            RefundOutcome::Denied
+        };
+        assert_outcome(&testbed.wait_for_flow(&flow_id, WAIT_TIMEOUT), expected);
     }
 }
 
-/// Returns the run's StepExecuteCompleted event for IssueRefund, from `dexcli flow history`.
-fn issue_refund_completion(server_address: &str, flow_id: &str) -> Value {
+fn worker_error_type(error: &SdkError) -> Option<&str> {
+    match error {
+        SdkError::WorkerInvocation { worker, .. } => Some(worker.error_type()),
+        _ => None,
+    }
+}
+
+fn read_history(server_address: &str, flow_id: &str) -> Value {
     let output = run_dexcli(&[
         "flow",
         "history",
@@ -408,17 +459,46 @@ fn issue_refund_completion(server_address: &str, flow_id: &str) -> Value {
         server_address,
         "--all",
     ]);
-    let history: Value = serde_json::from_slice(&output).expect("decode the history JSON");
+    serde_json::from_slice(&output).expect("decode the history JSON")
+}
+
+/// Returns the StepExecuteCompleted event of `step_type` in one run attempt, if any.
+fn step_completion(history: &Value, run_attempt: u64, step_type: &str) -> Option<Value> {
     history["events"]
         .as_array()
         .expect("history events")
         .iter()
         .find(|event| {
             event["type"] == "StepExecuteCompleted"
-                && event["payload"]["context"]["stepType"] == "IssueRefund"
+                && event["runAttempt"].as_u64() == Some(run_attempt)
+                && event["payload"]["context"]["stepType"] == step_type
         })
-        .map(|event| event["payload"].clone())
-        .expect("an IssueRefund StepExecuteCompleted event")
+        .cloned()
+}
+
+fn first_history_value(testbed: &RefundTestbed, flow_id: &str, key: &str) -> Value {
+    let history = read_history(&testbed.server_address, flow_id);
+    history["events"][0]["payload"]["flowRunId"][key].clone()
+}
+
+fn wait_for_step_completion_in_attempt(
+    testbed: &RefundTestbed,
+    flow_id: &str,
+    run_attempt: u64,
+    step_type: &str,
+) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let history = read_history(&testbed.server_address, flow_id);
+        if step_completion(&history, run_attempt, step_type).is_some() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{step_type} did not complete in run attempt {run_attempt}"
+        );
+        thread::sleep(Duration::from_millis(250));
+    }
 }
 
 #[test]
@@ -472,8 +552,8 @@ fn wait_for_refund_id(testbed: &RefundTestbed, flow_id: &str) {
 }
 
 /// Runs the README's time travel command.
-fn time_travel_with_dexcli(server_address: &str, flow_id: &str, step_type: &str) {
-    run_dexcli(&[
+fn time_travel_with_dexcli(server_address: &str, flow_id: &str, step_type: &str) -> Value {
+    let output = run_dexcli(&[
         "flow",
         "time-travel",
         flow_id,
@@ -487,6 +567,7 @@ fn time_travel_with_dexcli(server_address: &str, flow_id: &str, step_type: &str)
         "billing call restored",
         "--yes",
     ]);
+    serde_json::from_slice(&output).expect("decode the time travel result")
 }
 
 /// Runs dexcli from `DEXCLI_PATH` or `PATH` and returns its standard output.

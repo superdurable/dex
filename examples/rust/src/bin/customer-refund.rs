@@ -14,16 +14,17 @@
 
 //! Runnable Rust examples for Dex Flows, Steps, and application patterns.
 //!
-//! Runs the customer refund example: worker, start, decide, or list-refunds.
+//! The customer refund commands.
 
 use std::error::Error;
+use std::time::Duration;
 
 use dex_examples_rust::products::customer_refund::billing_service::{
-    DEFAULT_BILLING_LEDGER, FakeBillingService, format_usd,
+    DEFAULT_BILLING_LEDGER, format_usd, list_recorded_refunds,
 };
 use dex_examples_rust::products::customer_refund::email_service::DEFAULT_EMAIL_LEDGER;
 use dex_examples_rust::products::customer_refund::refund_config::{
-    BillingMode, RefundConfig, open_refund_blob_cache,
+    BillingMode, RefundConfig, RefundWorkerConfig, open_refund_blob_cache,
 };
 use dex_examples_rust::products::customer_refund::refund_flow::{
     APPROVE_REFUND, CustomerRefundFlow, DecisionReason, REJECT_REFUND,
@@ -33,6 +34,7 @@ use dex_examples_rust::products::customer_refund::refund_worker::{
     RunningRefundWorker, new_refund_flow, open_refund_client, refund_worker_options,
 };
 use dex_sdk::Client;
+use tracing_subscriber::filter::LevelFilter;
 
 const USAGE: &str = "usage: customer-refund worker
        customer-refund start FLOW_ID [normal|fail-then-succeed|deny|small]
@@ -40,32 +42,32 @@ const USAGE: &str = "usage: customer-refund worker
        customer-refund list-refunds";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let config = RefundConfig::from_environment()?;
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match arguments.as_slice() {
-        ["worker"] => run_worker(&config),
-        ["start", flow_id] => start_refund(&config, flow_id, RefundScenario::Normal),
-        ["start", flow_id, scenario] => start_refund(&config, flow_id, scenario.parse()?),
-        ["decide", flow_id, "approve", reason] => decide_refund(&config, flow_id, true, reason),
-        ["decide", flow_id, "reject", reason] => decide_refund(&config, flow_id, false, reason),
+        ["worker"] => run_worker(&RefundWorkerConfig::from_environment()?),
+        ["start", flow_id] => start_refund(flow_id, RefundScenario::Normal),
+        ["start", flow_id, scenario] => start_refund(flow_id, scenario.parse()?),
+        ["decide", flow_id, "approve", reason] => decide_refund(flow_id, true, reason),
+        ["decide", flow_id, "reject", reason] => decide_refund(flow_id, false, reason),
         ["list-refunds"] => list_refunds(),
         _ => Err(USAGE.into()),
     }
 }
 
-fn configured_refund_flow(config: &RefundConfig) -> CustomerRefundFlow {
-    new_refund_flow(
+fn run_worker(config: &RefundWorkerConfig) -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt()
+        .with_max_level(LevelFilter::WARN)
+        .try_init()
+        .map_err(|error| format!("install the log subscriber: {error}"))?;
+    let refund_flow = new_refund_flow(
         config.billing_mode,
         DEFAULT_BILLING_LEDGER,
         DEFAULT_EMAIL_LEDGER,
-    )
-}
-
-fn run_worker(config: &RefundConfig) -> Result<(), Box<dyn Error>> {
+    );
     let cache = open_refund_blob_cache(".dex-blob-cache/customer-refund-worker")?;
-    let options = refund_worker_options(&config.server_address);
-    let worker = RunningRefundWorker::start(configured_refund_flow(config), cache, options)?;
+    let options = refund_worker_options(&config.refund.server_address);
+    let worker = RunningRefundWorker::start(refund_flow, cache, options)?;
     println!(
         "Worker is ready (billing mode {}). Press Ctrl+C to stop it.",
         config.billing_mode
@@ -73,36 +75,49 @@ fn run_worker(config: &RefundConfig) -> Result<(), Box<dyn Error>> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
-        .block_on(tokio::signal::ctrl_c())?;
+        .block_on(wait_for_interrupt_or_worker_end(&worker))?;
     println!("Stopping the Worker.");
     worker.stop()
 }
 
-fn open_client(config: &RefundConfig) -> Result<(CustomerRefundFlow, Client), Box<dyn Error>> {
-    let refund_flow = configured_refund_flow(config);
+async fn wait_for_interrupt_or_worker_end(worker: &RunningRefundWorker) -> std::io::Result<()> {
+    let interrupt = tokio::signal::ctrl_c();
+    tokio::pin!(interrupt);
+    let mut worker_check = tokio::time::interval(Duration::from_millis(500));
+    loop {
+        tokio::select! {
+            interrupted = &mut interrupt => return interrupted,
+            _ = worker_check.tick() => {
+                if worker.has_stopped() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+/// Opens a Client; it registers the Flow in the normal billing mode because it runs no Steps.
+fn open_client() -> Result<(CustomerRefundFlow, Client), Box<dyn Error>> {
+    let config = RefundConfig::from_environment();
+    let refund_flow = new_refund_flow(
+        BillingMode::Normal,
+        DEFAULT_BILLING_LEDGER,
+        DEFAULT_EMAIL_LEDGER,
+    );
     let cache = open_refund_blob_cache(".dex-blob-cache/customer-refund-client")?;
     let client = open_refund_client(refund_flow.clone(), cache, &config.server_address)?;
     Ok((refund_flow, client))
 }
 
-fn start_refund(
-    config: &RefundConfig,
-    flow_id: &str,
-    scenario: RefundScenario,
-) -> Result<(), Box<dyn Error>> {
-    let (refund_flow, client) = open_client(config)?;
+fn start_refund(flow_id: &str, scenario: RefundScenario) -> Result<(), Box<dyn Error>> {
+    let (refund_flow, client) = open_client()?;
     client.start_flow(&refund_flow, flow_id, scenario.refund_request())?;
     println!("Started refund {flow_id} ({scenario}).");
     Ok(())
 }
 
-fn decide_refund(
-    config: &RefundConfig,
-    flow_id: &str,
-    approved: bool,
-    reason: &str,
-) -> Result<(), Box<dyn Error>> {
-    let (_, client) = open_client(config)?;
+fn decide_refund(flow_id: &str, approved: bool, reason: &str) -> Result<(), Box<dyn Error>> {
+    let (_, client) = open_client()?;
     let rpc = if approved {
         APPROVE_REFUND
     } else {
@@ -118,8 +133,7 @@ fn decide_refund(
 }
 
 fn list_refunds() -> Result<(), Box<dyn Error>> {
-    let refunds =
-        FakeBillingService::new(DEFAULT_BILLING_LEDGER, BillingMode::Normal).list_refunds()?;
+    let refunds = list_recorded_refunds(DEFAULT_BILLING_LEDGER)?;
     if refunds.is_empty() {
         println!("No refunds recorded.");
     }

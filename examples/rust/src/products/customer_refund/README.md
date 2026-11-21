@@ -9,8 +9,18 @@ case.
 Billing, email, and the model are fakes in this folder. They need no API key
 and move no money. Billing and email remember each idempotency key in
 `.customer-refund/`, so a restarted Worker sees what earlier Workers did. Each
-ledger change holds a file lock and replaces the file by rename, so concurrent
-calls with the same key record one refund or one email.
+ledger change holds a file lock, writes and syncs a temporary file, renames it
+over the ledger, and syncs the folder. Concurrent calls with the same key
+record one refund or one email, and a recorded change survives a crash. The
+ledger write is the simulated refund or send; the printed line is only a log.
+The email ledger keeps only idempotency keys, never the message text. Refund
+IDs count the ledger's rows, so deleting rows by hand can reuse an ID.
+
+The keys are `refund-<Flow ID>` and `email-<Flow ID>`. Give each Dex
+environment its own `.customer-refund/` folder, or use Flow IDs that are unique
+across environments. When a key already refunded a different order or amount,
+**IssueRefund** fails with `RefundKeyConflict` instead of reporting the old
+refund.
 
 | File | What it holds |
 | --- | --- |
@@ -29,17 +39,26 @@ The integration test is
 
 ## What the Rust version leaves out
 
-The Python version of this example has three features that the Rust SDK does
-not support yet:
+The Python version of this example has three features that this Rust version
+does not have:
 
 - **Dex Web Actions.** The Rust SDK cannot declare an Action on an RPC, so Dex
   Web shows no **Approve refund** or **Reject refund** button. Approve or
   reject with the `decide` command instead.
-- **Design upload.** `dexcli visualize` reads Go, Python, and TypeScript
-  sources, not Rust. The Worker uploads no design, so the run has no
-  **Design** graph in Dex Web. History, State, and Time Travel work as usual.
+- **The design graph.** `dexcli visualize` generates a design from Go, Python,
+  and TypeScript sources, not from Rust. This example uses `dex-sdk` 1.44.0,
+  which has no design upload, so the run has no **Design** graph in Dex Web.
+  Since 1.45.0 the Rust SDK can upload an existing Flow Definition Graph 2.x
+  JSON file from the Worker (`WorkerOptions::flow_definition_paths` or
+  `flow_definitions`) or the Client. `dexcli dev -flow-rendering-dir` also lets
+  Dex Web read existing graph files. History, State, and Time Travel work as
+  usual.
 - **Payload encryption.** The Rust SDK has no payload codec, so this example
   stores Flow values unencrypted.
+
+`decide` approves as anyone who can reach Dex. Dex authentication does not
+decide who may approve a refund; a production application checks the
+approver itself before it calls the RPC.
 
 ## Run it
 
@@ -71,8 +90,10 @@ dexcli flow state refund1 | grep -o '"case-status","value":"[a-z-]*"'
 cargo run --locked --bin customer-refund -- decide refund1 approve "Outage confirmed"
 ```
 
-A decision needs a reason that is not blank. A second decision fails with
-`this refund is not waiting for a manager`.
+A decision needs a reason that is not blank. Only one decision wins. A second
+decision fails with `this refund is not waiting for a manager`, with
+`RpcLockConflict` when it races the first, or with a not-found error once the
+run has closed.
 
 List the refunds that billing recorded:
 
@@ -82,7 +103,8 @@ cargo run --locked --bin customer-refund -- list-refunds
 
 The Worker ID has the form `refund-worker-<random>`, so **Serving Worker ID**
 in Dex Web shows no host name. Set `DEX_FLOW_SERVICE_ADDRESS` when Dex is not
-at `127.0.0.1:8801`.
+at `127.0.0.1:8801`. It configures only this example's commands; pass the same
+address to each `dexcli flow` command with `--server`.
 
 ## Scenarios
 
@@ -102,8 +124,12 @@ The customer message names each policy rule that denied the refund: the
 
 ```bash
 cargo run --locked --bin customer-refund -- start refund2 fail-then-succeed
+dexcli flow state refund2 | grep -o '"case-status","value":"[a-z-]*"'
 cargo run --locked --bin customer-refund -- decide refund2 approve "Outage confirmed"
 ```
+
+As in [Run it](#run-it), run `decide` only after `case-status` is
+`awaiting-manager`.
 
 **IssueRefund** returns a `PaymentTimeout` error from `billing_service.rs` on
 its first two attempts. Its retry policy waits 5 seconds between attempts. In
@@ -120,10 +146,11 @@ release whose **IssueRefund** Step forgot to call billing:
 REFUND_BILLING_MODE=call-missing cargo run --locked --bin customer-refund -- worker
 ```
 
-Start and approve a refund:
+Start a refund, wait until `case-status` is `awaiting-manager`, and approve it:
 
 ```bash
 cargo run --locked --bin customer-refund -- start refund3
+dexcli flow state refund3 | grep -o '"case-status","value":"[a-z-]*"'
 cargo run --locked --bin customer-refund -- decide refund3 approve "Outage confirmed"
 ```
 
@@ -158,8 +185,9 @@ DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 make customerRefundTests
 ```
 
 Stop the example's own Worker first; it would serve the test runs too. The
-tests cover approval, rejection, a blank reason, each policy denial, the
-fail-then-succeed refund and its History attempts, the missing billing call
-fixed with `dexcli flow time-travel`, and Time Travel after a refund. They need
+tests cover approval, rejection, a blank reason, racing approve and reject,
+each policy denial, the fail-then-succeed refund and its History attempts, the
+missing billing call fixed with `dexcli flow time-travel`, and Time Travel
+after a refund. They need
 `dexcli` on `PATH` or in `DEXCLI_PATH`. `cargo test --lib customer_refund`
 runs the concurrent ledger tests without Dex.
