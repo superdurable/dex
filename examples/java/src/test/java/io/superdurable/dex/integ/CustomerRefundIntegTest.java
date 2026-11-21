@@ -16,6 +16,8 @@
 
 package io.superdurable.dex.integ;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.Client;
@@ -41,16 +43,19 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /** Runs the customer refund example's scenarios against a real Dex server. */
 public class CustomerRefundIntegTest {
     private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(45);
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final String SERVER_ADDRESS =
             System.getenv().getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
 
@@ -126,8 +131,41 @@ public class CustomerRefundIntegTest {
 
         assertEquals("denied", result.getSingleOutput(String.class));
         assertEquals("closed-denied", readAttribute(flowId, CustomerRefundFlow.CASE_STATUS));
+        assertTrue(readAttribute(flowId, CustomerRefundFlow.CUSTOMER_MESSAGE)
+                .endsWith("The charge is outside the 30-day window and no outage was recorded."));
         assertEquals(List.of(), billing.listRefunds());
         assertEquals(List.of("email-" + flowId), email.listSentKeys());
+    }
+
+    @Test
+    void policyNamesOnlyTheExpiredWindow() throws Exception {
+        assertEquals("The charge is outside the 30-day window.", denialNoteFor("INV-0412"));
+    }
+
+    @Test
+    void policyNamesOnlyTheMissingOutage() throws Exception {
+        assertEquals("No outage was recorded for this order.", denialNoteFor("INV-0517"));
+    }
+
+    @Test
+    void blankReasonIsRejectedAndAValidDecisionStillWorks() throws Exception {
+        final String flowId = newFlowId();
+        final FlowResult result;
+        try (RunningWorker ignored = startWorker(newFlow("normal"))) {
+            client.startFlow(flow, flowId, RefundSettings.SCENARIOS.get("normal"));
+            waitForManager(flowId);
+            assertThrows(RuntimeException.class, () ->
+                    client.invokeRPC(stub(flowId)::approveRefund, new DecisionReason("   ")));
+            assertThrows(RuntimeException.class, () ->
+                    client.invokeRPC(stub(flowId)::rejectRefund, new DecisionReason(null)));
+            assertEquals(CustomerRefundFlow.AWAITING_MANAGER, readAttribute(flowId, CustomerRefundFlow.CASE_STATUS));
+
+            client.invokeRPC(stub(flowId)::approveRefund, new DecisionReason("Outage confirmed"));
+            result = client.waitForFlow(flowId, WAIT_TIMEOUT);
+        }
+
+        assertEquals("refunded", result.getSingleOutput(String.class));
+        assertEquals(1, billing.listRefunds().size());
     }
 
     @Test
@@ -146,6 +184,31 @@ public class CustomerRefundIntegTest {
         assertEquals(FlowStatus.COMPLETED, result.getStatus());
         assertEquals(2, workerBilling.countSimulatedTimeouts());
         assertEquals(1, billing.listRefunds().size());
+
+        final JsonNode issueRefund = issueRefundCompletedContext(flowId);
+        assertEquals(3, issueRefund.path("finalAttempt").asInt());
+        assertEquals(2, issueRefund.path("lastFailureInfo").path("attempt").asInt());
+        assertTrue(issueRefund.path("lastFailureInfo").toString().contains("PaymentTimeoutException"));
+    }
+
+    @Test
+    void timeTravelToASucceededRefundReusesItsRefundId() throws Exception {
+        final String flowId = newFlowId();
+        try (RunningWorker ignored = startWorker(newFlow("normal"))) {
+            client.startFlow(flow, flowId, RefundSettings.SCENARIOS.get("small"));
+            client.waitForFlow(flowId, WAIT_TIMEOUT);
+            final String firstRefundId = readAttribute(flowId, CustomerRefundFlow.REFUND_ID);
+
+            timeTravelWithDexcli(flowId, "IssueRefund");
+            final JsonNode events = awaitClosedRunAttempt(flowId, 2);
+            assertTrue(stepCompletedIn(events, "IssueRefund", 2), "IssueRefund did not run again");
+            assertEquals(firstRefundId, readAttribute(flowId, CustomerRefundFlow.REFUND_ID));
+        }
+
+        final List<RecordedRefund> refunds = billing.listRefunds();
+        assertEquals(1, refunds.size());
+        assertEquals(readAttribute(flowId, CustomerRefundFlow.REFUND_ID), refunds.get(0).refundId());
+        assertEquals(List.of("email-" + flowId), email.listSentKeys());
     }
 
     @Test
@@ -165,6 +228,7 @@ public class CustomerRefundIntegTest {
         final FlowResult fixed;
         try (RunningWorker ignored = startWorker(newFlow("normal"))) {
             timeTravelWithDexcli(flowId, "IssueRefund");
+            awaitClosedRunAttempt(flowId, 2);
             fixed = client.waitForFlow(flowId, WAIT_TIMEOUT);
         }
 
@@ -220,23 +284,88 @@ public class CustomerRefundIntegTest {
         return "refund-" + System.nanoTime();
     }
 
+    private String denialNoteFor(final String orderId) throws Exception {
+        final String flowId = newFlowId();
+        final FlowResult result;
+        try (RunningWorker ignored = startWorker(newFlow("normal"))) {
+            client.startFlow(flow, flowId, RefundSettings.SCENARIOS.get("normal").withOrderId(orderId));
+            result = client.waitForFlow(flowId, WAIT_TIMEOUT);
+        }
+        assertEquals("denied", result.getSingleOutput(String.class));
+        assertEquals(List.of(), billing.listRefunds());
+        final String message = readAttribute(flowId, CustomerRefundFlow.CUSTOMER_MESSAGE);
+        final String greeting = "We cannot refund this charge. ";
+        return message.substring(message.indexOf(greeting) + greeting.length());
+    }
+
+    /** Returns the context of the IssueRefund StepExecuteCompleted event. */
+    private static JsonNode issueRefundCompletedContext(final String flowId) throws Exception {
+        for (JsonNode event : readHistory(flowId)) {
+            final JsonNode context = event.path("payload").path("context");
+            if (event.path("type").asText().equals("StepExecuteCompleted")
+                    && context.path("stepType").asText().equals("IssueRefund")) {
+                return context;
+            }
+        }
+        throw new AssertionError("no IssueRefund StepExecuteCompleted event in " + flowId);
+    }
+
+    /** Polls history until the given run attempt closes, then returns the events. */
+    private static JsonNode awaitClosedRunAttempt(final String flowId, final int runAttempt) throws Exception {
+        final long deadline = System.nanoTime() + WAIT_TIMEOUT.toNanos();
+        while (System.nanoTime() < deadline) {
+            final JsonNode events = readHistory(flowId);
+            for (JsonNode event : events) {
+                if (event.path("type").asText().equals("FlowClosed")
+                        && event.path("runAttempt").asInt() == runAttempt) {
+                    return events;
+                }
+            }
+            Thread.sleep(200L);
+        }
+        throw new AssertionError("run attempt " + runAttempt + " of " + flowId + " did not close");
+    }
+
+    private static boolean stepCompletedIn(final JsonNode events, final String stepType, final int runAttempt) {
+        for (JsonNode event : events) {
+            if (event.path("type").asText().equals("StepExecuteCompleted")
+                    && event.path("runAttempt").asInt() == runAttempt
+                    && event.path("payload").path("context").path("stepType").asText().equals(stepType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static JsonNode readHistory(final String flowId) throws Exception {
+        final String output = runDexcli("flow", "history", flowId, "--all", "--server", SERVER_ADDRESS);
+        return JSON.readTree(output).path("events");
+    }
+
     /** Runs the README's time travel command. */
     private static void timeTravelWithDexcli(final String flowId, final String stepType)
             throws IOException, InterruptedException {
-        final String dexcli = System.getenv().getOrDefault("DEXCLI_PATH", "dexcli");
-        final Process process = new ProcessBuilder(
-                dexcli, "flow", "time-travel", flowId,
+        runDexcli(
+                "flow", "time-travel", flowId,
                 "--server", SERVER_ADDRESS,
                 "--type", "step-type",
                 "--target", stepType,
                 "--reason", "billing call restored",
-                "--yes")
-                .redirectErrorStream(true)
+                "--yes");
+    }
+
+    private static String runDexcli(final String... args) throws IOException, InterruptedException {
+        final List<String> command = new ArrayList<>();
+        command.add(System.getenv().getOrDefault("DEXCLI_PATH", "dexcli"));
+        command.addAll(List.of(args));
+        final Process process = new ProcessBuilder(command)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
         final String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         if (process.waitFor() != 0) {
-            fail("dexcli flow time-travel failed: " + output);
+            fail("dexcli " + String.join(" ", args) + " failed: " + output);
         }
+        return output;
     }
 
     private record RunningWorker(Worker worker, Thread thread, BlobCache cache) implements AutoCloseable {

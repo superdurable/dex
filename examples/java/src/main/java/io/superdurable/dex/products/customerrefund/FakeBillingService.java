@@ -16,15 +16,7 @@
 
 package io.superdurable.dex.products.customerrefund;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,13 +26,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class FakeBillingService {
     public static final Path DEFAULT_BILLING_LEDGER = Path.of(".customer-refund/billing-refunds.json");
 
-    private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final Map<String, Order> ORDERS = Map.of(
             "INV-1249", new Order("INV-1249", "Studio plan renewal", 1249.00, 6, 31),
             "INV-0388", new Order("INV-0388", "Studio plan renewal", 1249.00, 47, 0),
-            "INV-0049", new Order("INV-0049", "Extra seat", 49.00, 3, 31));
+            "INV-0049", new Order("INV-0049", "Extra seat", 49.00, 3, 31),
+            "INV-0412", new Order("INV-0412", "Studio plan renewal", 1249.00, 47, 31),
+            "INV-0517", new Order("INV-0517", "Extra seat", 49.00, 6, 0));
 
-    private final Path ledgerPath;
+    private final LockedJsonLedger<RecordedRefund> ledger;
     private final AtomicInteger simulatedTimeouts = new AtomicInteger();
 
     public record Order(
@@ -62,7 +55,7 @@ public class FakeBillingService {
     }
 
     public FakeBillingService(final Path ledgerPath) {
-        this.ledgerPath = ledgerPath;
+        this.ledger = new LockedJsonLedger<>(ledgerPath, RecordedRefund.class);
     }
 
     public Order getOrder(final String orderId) {
@@ -73,39 +66,39 @@ public class FakeBillingService {
         return order;
     }
 
-    public synchronized String refund(
+    public String refund(
             final Order order, final String idempotencyKey, final boolean simulateTimeout) {
         if (simulateTimeout) {
             simulatedTimeouts.incrementAndGet();
             throw new PaymentTimeoutException(
                     "no answer from the payment provider for " + order.orderId());
         }
-        final List<RecordedRefund> refunds = listRefunds();
-        for (RecordedRefund earlier : refunds) {
-            if (earlier.idempotencyKey().equals(idempotencyKey)) {
-                System.out.printf("Refund %s already issued (key %s)%n", earlier.refundId(), idempotencyKey);
-                return earlier.refundId();
+        // The key check, the new refund ID, and its record commit under one lock.
+        final RefundAttempt attempt = ledger.changeRecords(refunds -> {
+            for (RecordedRefund earlier : refunds) {
+                if (earlier.idempotencyKey().equals(idempotencyKey)) {
+                    return new LockedJsonLedger.Change<>(null, new RefundAttempt(earlier, false));
+                }
             }
+            final RecordedRefund refund = new RecordedRefund(
+                    "rf_" + (1042 + refunds.size()), order.orderId(), order.amountUsd(), idempotencyKey);
+            refunds.add(refund);
+            return new LockedJsonLedger.Change<>(refunds, new RefundAttempt(refund, true));
+        });
+        final RecordedRefund refund = attempt.refund();
+        if (attempt.newlyIssued()) {
+            System.out.printf("Refunded %s USD as %s%n", formatUsd(refund.amountUsd()), refund.refundId());
+        } else {
+            System.out.printf("Refund %s already issued (key %s)%n", refund.refundId(), idempotencyKey);
         }
-        final RecordedRefund refund = new RecordedRefund(
-                "rf_" + (1042 + refunds.size()), order.orderId(), order.amountUsd(), idempotencyKey);
-        final List<RecordedRefund> updated = new ArrayList<>(refunds);
-        updated.add(refund);
-        save(updated);
-        System.out.printf("Refunded %s USD as %s%n", formatUsd(order.amountUsd()), refund.refundId());
         return refund.refundId();
     }
 
+    private record RefundAttempt(RecordedRefund refund, boolean newlyIssued) {
+    }
+
     public List<RecordedRefund> listRefunds() {
-        if (!Files.exists(ledgerPath)) {
-            return List.of();
-        }
-        try {
-            return JSON.readValue(ledgerPath.toFile(), new TypeReference<List<RecordedRefund>>() {
-            });
-        } catch (final IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
+        return ledger.readRecords();
     }
 
     /** Returns how many refund calls this instance failed with a simulated timeout. */
@@ -114,20 +107,11 @@ public class FakeBillingService {
     }
 
     public Path ledgerPath() {
-        return ledgerPath;
+        return ledger.path();
     }
 
     public static String formatUsd(final double amountUsd) {
         return String.format(Locale.US, "%,.2f", amountUsd);
-    }
-
-    private void save(final List<RecordedRefund> refunds) {
-        try {
-            Files.createDirectories(ledgerPath.toAbsolutePath().getParent());
-            JSON.writeValue(ledgerPath.toFile(), refunds);
-        } catch (final IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
     }
 
     /** Stands in for a release whose Issue refund Step forgot the billing call. */

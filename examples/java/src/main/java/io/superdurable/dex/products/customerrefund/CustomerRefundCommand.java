@@ -16,10 +16,12 @@
 
 package io.superdurable.dex.products.customerrefund;
 
+import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.ClientOptions;
 import io.superdurable.dex.Registry;
+import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
 import io.superdurable.dex.products.customerrefund.CustomerRefundFlow.DecisionReason;
@@ -102,7 +104,8 @@ public final class CustomerRefundCommand {
         }
     }
 
-    private static void decideRefund(final String flowId, final String decision, final String reason) {
+    private static void decideRefund(final String flowId, final String decision, final String reason)
+            throws InterruptedException {
         if (!decision.equals("approve") && !decision.equals("reject")) {
             exitWithUsage();
         }
@@ -110,6 +113,12 @@ public final class CustomerRefundCommand {
         try (BlobCache cache = RefundSettings.openCache(Path.of(".dex-blob-cache/customer-refund-client"));
                 Client client = new Client(
                         new Registry(List.of(flow)), cache, new ClientOptions(RefundSettings.SERVER_ADDRESS))) {
+            System.out.printf("Waiting for refund %s to reach %s.%n", flowId, CustomerRefundFlow.AWAITING_MANAGER);
+            client.waitForAttributeMatch(
+                    flowId,
+                    CustomerRefundFlow.CASE_STATUS,
+                    AttributeMatch.equalTo(CustomerRefundFlow.AWAITING_MANAGER),
+                    WaitForAttributeOptions.newBuilder().requestTimeout(Duration.ofSeconds(30)).build());
             final CustomerRefundFlow stub = client.newRpcStub(CustomerRefundFlow.class, flowId);
             if (decision.equals("approve")) {
                 client.invokeRPC(stub::approveRefund, new DecisionReason(reason));

@@ -16,59 +16,46 @@
 
 package io.superdurable.dex.products.customerrefund;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 
 /** A fake email service that prints each message and sends one email per key. */
 public class FakeEmailService {
     public static final Path DEFAULT_EMAIL_LEDGER = Path.of(".customer-refund/sent-emails.json");
 
-    private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-
-    private final Path ledgerPath;
+    private final LockedJsonLedger<String> ledger;
 
     public FakeEmailService(final Path ledgerPath) {
-        this.ledgerPath = ledgerPath;
+        this.ledger = new LockedJsonLedger<>(ledgerPath, String.class);
     }
 
-    public synchronized void send(final String to, final String body, final String idempotencyKey) {
-        final List<String> sent = listSentKeys();
-        if (sent.contains(idempotencyKey)) {
+    /**
+     * Sends the email unless one with this key was sent before.
+     *
+     * @return true when this call recorded and sent the email; false when the key was already sent
+     */
+    public boolean send(final String to, final String body, final String idempotencyKey) {
+        // Recording the key first is the send; only that one call prints the email.
+        final boolean sent = ledger.changeRecords(keys -> {
+            if (keys.contains(idempotencyKey)) {
+                return new LockedJsonLedger.Change<>(null, false);
+            }
+            keys.add(idempotencyKey);
+            return new LockedJsonLedger.Change<>(keys, true);
+        });
+        if (sent) {
+            System.out.printf("Emailed %s: %s%n", to, body);
+        } else {
             System.out.printf("Email to %s already sent (key %s)%n", to, idempotencyKey);
-            return;
         }
-        final List<String> updated = new ArrayList<>(sent);
-        updated.add(idempotencyKey);
-        try {
-            Files.createDirectories(ledgerPath.toAbsolutePath().getParent());
-            JSON.writeValue(ledgerPath.toFile(), updated);
-        } catch (final IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
-        System.out.printf("Emailed %s: %s%n", to, body);
+        return sent;
     }
 
     public List<String> listSentKeys() {
-        if (!Files.exists(ledgerPath)) {
-            return List.of();
-        }
-        try {
-            return JSON.readValue(ledgerPath.toFile(), new TypeReference<List<String>>() {
-            });
-        } catch (final IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
+        return ledger.readRecords();
     }
 
     public Path ledgerPath() {
-        return ledgerPath;
+        return ledger.path();
     }
 }

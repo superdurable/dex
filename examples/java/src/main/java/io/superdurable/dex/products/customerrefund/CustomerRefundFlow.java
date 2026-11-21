@@ -133,6 +133,7 @@ public class CustomerRefundFlow implements Flow<CustomerRefundFlow.RefundRequest
 
     @RPC(lockAttributes = {"case-status"})
     public void approveRefund(final Context context, final DecisionReason input) {
+        requireDecisionReason(input);
         requireAwaitingManager(context);
         CASE_STATUS.set(context, "approved");
         MANAGER_DECISIONS.publish(context, new ManagerDecision(true, input.reason()));
@@ -140,9 +141,16 @@ public class CustomerRefundFlow implements Flow<CustomerRefundFlow.RefundRequest
 
     @RPC(lockAttributes = {"case-status"})
     public void rejectRefund(final Context context, final DecisionReason input) {
+        requireDecisionReason(input);
         requireAwaitingManager(context);
         CASE_STATUS.set(context, "rejected");
         MANAGER_DECISIONS.publish(context, new ManagerDecision(false, input.reason()));
+    }
+
+    private static void requireDecisionReason(final DecisionReason input) {
+        if (input == null || input.reason() == null || input.reason().isBlank()) {
+            throw new IllegalArgumentException("a decision needs a reason");
+        }
     }
 
     private static void requireAwaitingManager(final Context context) {
@@ -190,10 +198,18 @@ public class CustomerRefundFlow implements Flow<CustomerRefundFlow.RefundRequest
         @Override
         public StepDecision execute(final Context context, final RefundCase input) {
             final Order order = input.order();
-            if (order.daysSinceCharge() > REFUND_WINDOW_DAYS || order.outageHours() == 0) {
+            final boolean outsideWindow = order.daysSinceCharge() > REFUND_WINDOW_DAYS;
+            final boolean noOutage = order.outageHours() == 0;
+            if (outsideWindow || noOutage) {
                 CASE_STATUS.set(context, "denied");
-                final String note =
-                        "The charge is outside the 30-day window and no outage was recorded.";
+                final String note;
+                if (outsideWindow && noOutage) {
+                    note = "The charge is outside the 30-day window and no outage was recorded.";
+                } else if (outsideWindow) {
+                    note = "The charge is outside the 30-day window.";
+                } else {
+                    note = "No outage was recorded for this order.";
+                }
                 return StepDecision.goTo(WriteCustomerMessage.class, input.withOutcome("denied", note));
             }
             if (order.amountUsd() > MANAGER_APPROVAL_LIMIT_USD) {

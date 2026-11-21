@@ -8,13 +8,16 @@ case.
 
 Billing, email, and the model are fakes in this folder. They need no API key
 and move no money. Billing and email remember each idempotency key in
-`.customer-refund/`, so a restarted Worker sees what earlier Workers did.
+`.customer-refund/`, so a restarted Worker sees what earlier Workers did. Each
+ledger change holds a file lock and replaces the file by an atomic rename, so
+concurrent Workers never lose or duplicate a record.
 
 | File | What it holds |
 | --- | --- |
 | [`CustomerRefundFlow.java`](CustomerRefundFlow.java) | The Flow, its eight Steps, and the `approveRefund` and `rejectRefund` RPCs. |
 | [`FakeBillingService.java`](FakeBillingService.java) | The fake billing service and the `call-missing` stand-in. |
 | [`FakeEmailService.java`](FakeEmailService.java) | The fake email service. |
+| [`LockedJsonLedger.java`](LockedJsonLedger.java) | The locked JSON file that both fakes keep their records in. |
 | [`MockMessageModel.java`](MockMessageModel.java) | A deterministic stand-in for a language model. |
 | [`RefundSettings.java`](RefundSettings.java) | Environment settings, the scenarios, the billing mode, and the Worker options. |
 | [`CustomerRefundCommand.java`](CustomerRefundCommand.java) | The `customer-refund` command: `worker`, `start`, `decide`, and `list-refunds`. |
@@ -51,11 +54,16 @@ Start a refund in a third terminal. The Flow ID is your choice:
 build/install/customer-refund/bin/customer-refund start refund1
 ```
 
-The run stops at **RequestManagerApproval**. Approve or reject it:
+The run stops at **RequestManagerApproval** and sets `case-status` to
+`awaiting-manager`. `dexcli flow state refund1` shows it. Approve or reject
+the refund once it is there:
 
 ```bash
 build/install/customer-refund/bin/customer-refund decide refund1 approve "Outage confirmed"
 ```
+
+`decide` first waits up to 30 seconds for `case-status=awaiting-manager`, so
+it also works right after `start`. A decision needs a non-blank reason.
 
 List the refunds that billing recorded:
 
@@ -75,8 +83,9 @@ run, its History, and its Attributes, but no **Design** or **Actions** tab.
 Approve or reject with `customer-refund decide`. The Python version of this
 example shows both tabs.
 
-`approveRefund` and `rejectRefund` lock `case-status` and check that it is
-`awaiting-manager`, so a second decision fails.
+`approveRefund` and `rejectRefund` reject a blank reason, then lock
+`case-status` and check that it is `awaiting-manager`, so a second decision
+fails.
 
 ## Scenarios
 
@@ -89,6 +98,11 @@ example shows both tabs.
 | `deny` | INV-0388, charged 47 days ago | The policy denies it; no approval, no refund. |
 | `small` | INV-0049, 49.00 USD | Refunds without a manager. |
 
+The customer message names the policy condition that denied the refund: the
+30-day window, no recorded outage, or both. The fake billing also has
+INV-0412 (outside the window only) and INV-0517 (no outage only); the
+integration test uses them.
+
 ### A Step that fails, then succeeds
 
 ```bash
@@ -98,13 +112,17 @@ build/install/customer-refund/bin/customer-refund decide refund2 approve "Outage
 
 **IssueRefund** throws `PaymentTimeoutException` from
 `FakeBillingService.java` on its first two attempts. Its retry policy waits 5
-seconds between attempts, so the **History** view shows each failed attempt
-and its stack trace before the third attempt succeeds.
+seconds between attempts, and the third attempt succeeds. In the **History**
+view, the final event shows attempt 3 succeeded and keeps the details of the
+last failure, with its stack trace. `dexcli flow history refund2 --all` shows
+the same `finalAttempt` and `lastFailureInfo`.
 
 ### A missing billing call, fixed with Time Travel
 
-Start the Worker in the `call-missing` billing mode. It stands in for a
-release whose **IssueRefund** Step forgot to call billing:
+First stop the normal Worker with Ctrl+C. Otherwise it can serve this run
+and issue the refund. Then start the Worker in the `call-missing` billing
+mode. It stands in for a release whose **IssueRefund** Step forgot to call
+billing:
 
 ```bash
 REFUND_BILLING_MODE=call-missing build/install/customer-refund/bin/customer-refund worker
@@ -151,7 +169,15 @@ encryption mode. The Python version shows it.
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 ./gradlew test --tests 'io.superdurable.dex.integ.CustomerRefundIntegTest'
 ```
 
-The tests cover approval, rejection, the policy denial, the fail-then-succeed
-refund, and the missing billing call fixed with `dexcli flow time-travel`. They
-need `dexcli` on `PATH` or in `DEXCLI_PATH`. `./run-integration-tests.sh` runs
-them with the rest of the Java examples.
+The tests cover approval, rejection, a blank reason, each policy denial, the
+fail-then-succeed refund and its history, the missing billing call fixed with
+`dexcli flow time-travel`, and a Time Travel that reuses an issued refund.
+They need `dexcli` on `PATH` or in `DEXCLI_PATH`. `./run-integration-tests.sh`
+runs them with the rest of the Java examples.
+
+The ledger tests need no Dex server. They race billing and email calls with
+the same key and with different keys, in threads and in separate processes:
+
+```bash
+./gradlew test --tests 'io.superdurable.dex.products.customerrefund.*'
+```
