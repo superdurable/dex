@@ -40,6 +40,18 @@ const (
 	approvalDeadline          = 2 * time.Second
 )
 
+// refundToolDeploy is how a Worker's deploy left the idempotent_write tool issue_refund.
+type refundToolDeploy string
+
+const (
+	// refundToolDeployed registers issue_refund with a required order_id.
+	refundToolDeployed refundToolDeploy = ""
+	// refundToolRenamed registers the same tool as refund_payment.
+	refundToolRenamed refundToolDeploy = "renamed"
+	// refundToolSchemaChanged requires refund_order_id instead of order_id.
+	refundToolSchemaChanged refundToolDeploy = "schema_changed"
+)
+
 type scriptedAgentFlows map[string]*dexagents.AgentSessionFlow
 
 func scriptedAgentFlowsByType(flows []dex.Flow) scriptedAgentFlows {
@@ -51,7 +63,10 @@ func scriptedAgentFlowsByType(flows []dex.Flow) scriptedAgentFlows {
 }
 
 // newScriptedAgentFlows builds the Stepwise agents of the tests around one coordination directory.
-func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
+//
+// refundDeploy decides the name and schema of the idempotent_write tool issue_refund, so a test can
+// restart a Worker on a deploy that renamed the tool or changed its schema.
+func newScriptedAgentFlows(coordinationDir string, refundDeploy refundToolDeploy) ([]dex.Flow, error) {
 	tools := scriptedTools{coordinationDir: coordinationDir}
 	lookupOrder, err := builtinloop.NewFunctionTool("lookup_order", "Look up an order by its ID.",
 		json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}`),
@@ -71,6 +86,23 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
+	refundName, refundArgument := "issue_refund", "order_id"
+	switch refundDeploy {
+	case refundToolRenamed:
+		refundName = "refund_payment"
+	case refundToolSchemaChanged:
+		refundArgument = "refund_order_id"
+	case refundToolDeployed:
+	default:
+		return nil, fmt.Errorf("unknown refund tool deploy %q", refundDeploy)
+	}
+	issueRefund, err := builtinloop.NewFunctionTool(refundName, "Refund an order's payment, once per idempotency key.",
+		json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{%q:{"type":"string"}},"required":[%q],"additionalProperties":false}`,
+			refundArgument, refundArgument)),
+		dexagents.ToolEffectIdempotentWrite, tools.issueRefund, builtinloop.WithRequiresApproval(false))
+	if err != nil {
+		return nil, err
+	}
 	script := scriptedConversation{coordinationDir: coordinationDir}
 	newFlow := func(
 		flowType string,
@@ -79,7 +111,7 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	) (dex.Flow, error) {
 		definition, err := builtinloop.NewAgentDefinition("scripted", "You are a scripted test agent.",
 			slowFirstAttemptModelClient{scripted: agentstest.NewScriptedModelClient(script.respond), coordinationDir: coordinationDir},
-			append([]builtinloop.AgentDefinitionOption{builtinloop.WithFunctionTools(lookupOrder, refundOrder, chargeCard)}, options...)...)
+			append([]builtinloop.AgentDefinitionOption{builtinloop.WithFunctionTools(lookupOrder, refundOrder, chargeCard, issueRefund)}, options...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -285,6 +317,22 @@ func (script scriptedConversation) respond(request builtinloop.ModelRequest) (ag
 			}), nil
 		}
 		return agentstest.ScriptedModelReply{Text: "Refund result: " + outputs[0]}, nil
+	case strings.HasPrefix(lastText, "idempotent refund "):
+		// "idempotent refund <gate|-> <order>": after the result, the model call waits for the gate's
+		// release unless it is "-", so a test reads the turn's final record before the turn ends.
+		gate, orderID, _ := strings.Cut(strings.TrimPrefix(lastText, "idempotent refund "), " ")
+		if len(results) == 0 {
+			return toolCalls(agentstest.ScriptedToolCall{
+				ToolName: "issue_refund", Arguments: fmt.Sprintf(`{"order_id": %q}`, orderID),
+			}), nil
+		}
+		if gate != "-" {
+			writeMarker(script.coordinationDir, gate+".reached")
+			if err := waitForRelease(script.coordinationDir, gate); err != nil {
+				return agentstest.ScriptedModelReply{}, err
+			}
+		}
+		return agentstest.ScriptedModelReply{Text: "Refund result: " + outputs[0]}, nil
 	case lastText == "run the job":
 		if len(results) == 0 {
 			return toolCalls(agentstest.ScriptedToolCall{ToolName: "checkpointed_job"}), nil
@@ -375,6 +423,17 @@ func (tools scriptedTools) chargeCard(ctx context.Context, arguments json.RawMes
 	return fmt.Sprintf("charged %d", input.Amount), nil
 }
 
+// issueRefund is the idempotent_write tool issue_refund. It blocks after it started, and the test
+// SIGKILLs its Worker while the refund runs.
+func (tools scriptedTools) issueRefund(ctx context.Context, _ json.RawMessage, _ builtinloop.ToolCallContext) (string, error) {
+	if err := tools.recordCall("issue_refund"); err != nil {
+		return "", err
+	}
+	writeMarker(tools.coordinationDir, "issue_refund.started")
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
 func (tools scriptedTools) recordCall(toolName string) error {
 	file, err := os.OpenFile(filepath.Join(tools.coordinationDir, toolName+".calls"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -390,6 +449,18 @@ func writeMarker(coordinationDir string, name string) {
 	if err := os.WriteFile(filepath.Join(coordinationDir, name), nil, 0o644); err != nil {
 		panic(fmt.Sprintf("write coordination marker %s: %v", name, err))
 	}
+}
+
+// waitForRelease waits until the test writes "<name>.release" in the coordination directory.
+func waitForRelease(coordinationDir string, name string) error {
+	deadline := time.Now().Add(coordinationMarkerTimeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(coordinationDir, name+".release")); err == nil {
+			return nil
+		}
+		time.Sleep(coordinationReleaseWaitPollInterval)
+	}
+	return fmt.Errorf("the test never released %s", name)
 }
 
 // slowFirstAttemptModelClient blocks the first "think slowly" attempt after it streamed output.

@@ -335,6 +335,18 @@ func (*ToolExecutionResult) deferredToolOutcome() {}
 // attempts, and when the attempts run out the session records failed for a
 // read call and outcome_unknown for a write.
 //
+// On a later attempt of a call that is not a read, this error records
+// outcome_unknown instead, with the same message. That attempt follows an
+// earlier one that reached a Worker and ended without a result, such as a
+// Worker that stopped while the tool ran, so the earlier attempt may have taken
+// effect. This covers a refusal before the tool runs, such as an unknown tool
+// after a deploy renamed it or arguments that a changed schema rejects. A call
+// that a tool source built keeps failed, because the source classifies its own
+// errors.
+//
+// Changed in 0.6.16: a later attempt of a call that is not a read records
+// outcome_unknown, not failed.
+//
 //	return nil, &dexagents.ToolExecutionError{Message: "order 42 is already shipped"}
 type ToolExecutionError struct {
 	// Message is the text the model sees after "The tool call failed: ".
@@ -475,6 +487,8 @@ type AgentFrameworkRunner interface {
 	RunModelStep(ctx context.Context, turn AgentTurnContext) (AgentTurnOutcome, error)
 	// ExecuteDeferredToolCall runs the real tool once. It returns *ToolExecutionResult, a
 	// *ToolExecutionError for a failure the model sees, or another error that fails the attempt.
+	// A *ToolExecutionError records failed, or outcome_unknown on a later attempt of a call that
+	// is not a read; see ToolExecutionError.
 	ExecuteDeferredToolCall(ctx context.Context, call DeferredToolExecution) (DeferredToolOutcome, error)
 }
 

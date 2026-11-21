@@ -345,7 +345,14 @@ type AgentFrameworkRunner interface {
   `RecordTurnFailure` stores what it returns before the turn-failure note.
 - `ExecuteDeferredToolCall` runs one tool, possibly concurrently with others.
   A `*ToolExecutionError` records `failed` with its message and is not
-  retried; any other error fails the Step attempt.
+  retried; any other error fails the Step attempt. On attempt 2 or later of a
+  call that is not a `read` and that no tool source built
+  (`ToolSourceReference` is nil), it records `outcome_unknown` with the same
+  message instead: an earlier attempt reached a Worker and ended without a
+  final record, so its tool may have run, and a refusal on the retry, such as
+  an unknown tool after a rename or arguments a changed schema rejects, says
+  nothing about it. The conformance file `tool_execution_errors.json` fixes
+  these cases.
 - When a tool Step's attempts fail and its recovery error's `AttemptProgress`
   is `dex.StepAttemptProgressNotStarted`, no attempt reached a Worker and the
   tool never ran. `RecordToolFailure` and `RecordToolOutcomeUnknown` then

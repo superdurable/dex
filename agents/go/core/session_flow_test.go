@@ -106,6 +106,36 @@ func TestRecoveredToolCallRecordsACallThatNeverRanAsFailed(t *testing.T) {
 	}
 }
 
+// A ToolExecutionError records the status tool_execution_errors.json gives its effect, source, and attempt.
+func TestToolExecutionErrorStatusMatchesTheConformanceSuite(t *testing.T) {
+	t.Parallel()
+	text, err := os.ReadFile(filepath.Join("..", "..", "conformance", "tool_execution_errors.json"))
+	require.NoError(t, err)
+	var suite struct {
+		Cases []struct {
+			Name                string         `json:"name"`
+			Effect              ToolEffect     `json:"effect"`
+			ToolSourceReference *string        `json:"toolSourceReference"`
+			Attempt             int32          `json:"attempt"`
+			Status              ToolCallStatus `json:"status"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(text, &suite))
+	require.NotEmpty(t, suite.Cases)
+	for _, testCase := range suite.Cases {
+		toolCall := AgentToolCall{
+			ToolCallID:          "call-1",
+			TurnID:              "turn-1",
+			ToolName:            "publish",
+			Arguments:           "{}",
+			Effect:              testCase.Effect,
+			Status:              ToolCallStatusApproved,
+			ToolSourceReference: testCase.ToolSourceReference,
+		}
+		require.Equal(t, testCase.Status, toolExecutionErrorStatus(toolCall, testCase.Attempt), testCase.Name)
+	}
+}
+
 // Every conformance AgentMessage decodes, re-encodes to its canonical form, and keeps its origin.
 func TestAgentMessageConformanceValuesKeepTheirOrigin(t *testing.T) {
 	t.Parallel()
