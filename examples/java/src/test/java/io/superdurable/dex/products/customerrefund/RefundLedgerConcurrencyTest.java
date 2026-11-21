@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Many Workers' billing and email calls racing on the same ledger files. */
 class RefundLedgerConcurrencyTest {
@@ -107,19 +108,29 @@ class RefundLedgerConcurrencyTest {
     void refundsRacingFromSeparateProcessesKeepEveryRecord() throws Exception {
         final Path ledger = directory.resolve("billing-refunds.json");
         final String java = ProcessHandle.current().info().command().orElse("java");
+        final Path outputDirectory = Files.createDirectories(directory.resolve("process-output"));
         final List<Process> processes = new ArrayList<>();
-        for (int caller = 0; caller < CALLERS; caller++) {
-            // Even processes share key names; odd ones use their own.
-            final String key = caller % 2 == 0 ? "refund-shared" : "refund-" + caller;
-            processes.add(new ProcessBuilder(
-                    java, "-cp", System.getProperty("java.class.path"),
-                    RefundInSeparateProcess.class.getName(), ledger.toString(), key)
-                    .redirectErrorStream(true)
-                    .start());
-        }
-        for (Process process : processes) {
-            final String output = new String(process.getInputStream().readAllBytes());
-            assertEquals(0, process.waitFor(), output);
+        final List<Path> outputs = new ArrayList<>();
+        try {
+            for (int caller = 0; caller < CALLERS; caller++) {
+                // Even processes share key names; odd ones use their own.
+                final String key = caller % 2 == 0 ? "refund-shared" : "refund-" + caller;
+                final Path output = outputDirectory.resolve("caller-" + caller + ".log");
+                outputs.add(output);
+                processes.add(new ProcessBuilder(
+                        java, "-cp", System.getProperty("java.class.path"),
+                        RefundInSeparateProcess.class.getName(), ledger.toString(), key)
+                        .redirectErrorStream(true)
+                        .redirectOutput(output.toFile())
+                        .start());
+            }
+            for (int caller = 0; caller < processes.size(); caller++) {
+                final Process process = processes.get(caller);
+                assertTrue(process.waitFor(60, TimeUnit.SECONDS), "caller " + caller + " did not finish");
+                assertEquals(0, process.exitValue(), Files.readString(outputs.get(caller)));
+            }
+        } finally {
+            processes.forEach(Process::destroyForcibly);
         }
 
         final List<RecordedRefund> refunds = new FakeBillingService(ledger).listRefunds();
@@ -127,6 +138,23 @@ class RefundLedgerConcurrencyTest {
         assertEquals(refunds.size(), refunds.stream().map(RecordedRefund::refundId).distinct().count());
         assertEquals(refunds.size(), refunds.stream().map(RecordedRefund::idempotencyKey).distinct().count());
         assertNoTemporaryFiles();
+    }
+
+    @Test
+    void refundsThroughADirectoryAliasShareTheLock() throws Exception {
+        final Path realDirectory = Files.createDirectories(directory.resolve("ledgers"));
+        final Path alias = Files.createSymbolicLink(directory.resolve("ledgers-alias"), realDirectory);
+        final Path realLedger = realDirectory.resolve("billing-refunds.json");
+        final Path aliasLedger = alias.resolve("billing-refunds.json");
+        final Order order = new FakeBillingService(realLedger).getOrder("INV-1249");
+
+        final List<String> refundIds = runConcurrently(caller -> {
+            final Path ledger = caller % 2 == 0 ? realLedger : aliasLedger;
+            return () -> new FakeBillingService(ledger).refund(order, "refund-" + caller, false);
+        });
+
+        assertEquals(CALLERS, new HashSet<>(refundIds).size());
+        assertEquals(CALLERS, new FakeBillingService(aliasLedger).listRefunds().size());
     }
 
     /** Issues numbered refunds from its own JVM: LEDGER_PATH KEY_PREFIX. */

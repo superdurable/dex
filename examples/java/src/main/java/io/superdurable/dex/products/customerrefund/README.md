@@ -9,8 +9,13 @@ case.
 Billing, email, and the model are fakes in this folder. They need no API key
 and move no money. Billing and email remember each idempotency key in
 `.customer-refund/`, so a restarted Worker sees what earlier Workers did. Each
-ledger change holds a file lock and replaces the file by an atomic rename, so
-concurrent Workers never lose or duplicate a record.
+ledger read and change holds a file lock, and a change replaces the file by an
+atomic rename, so concurrent Workers never lose or duplicate a record. A file
+system without atomic rename fails with a clear error. The email ledger keeps
+only idempotency keys, not addresses or message text.
+
+`REFUND_BILLING_MODE` affects only the Worker. `start`, `decide`, and
+`list-refunds` ignore it.
 
 | File | What it holds |
 | --- | --- |
@@ -83,9 +88,10 @@ run, its History, and its Attributes, but no **Design** or **Actions** tab.
 Approve or reject with `customer-refund decide`. The Python version of this
 example shows both tabs.
 
-`approveRefund` and `rejectRefund` reject a blank reason, then lock
-`case-status` and check that it is `awaiting-manager`, so a second decision
-fails.
+Both RPCs lock `case-status`: Dex takes the lock before it calls the RPC.
+`approveRefund` and `rejectRefund` then reject a blank reason and check that
+`case-status` is `awaiting-manager`, before they write or publish anything. So
+when two decisions race, only one succeeds.
 
 ## Scenarios
 
@@ -169,14 +175,16 @@ encryption mode. The Python version shows it.
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 ./gradlew test --tests 'io.superdurable.dex.integ.CustomerRefundIntegTest'
 ```
 
-The tests cover approval, rejection, a blank reason, each policy denial, the
+The tests cover approval, rejection, a blank reason, racing approve and reject
+decisions, each policy denial, the
 fail-then-succeed refund and its history, the missing billing call fixed with
 `dexcli flow time-travel`, and a Time Travel that reuses an issued refund.
 They need `dexcli` on `PATH` or in `DEXCLI_PATH`. `./run-integration-tests.sh`
 runs them with the rest of the Java examples.
 
-The ledger tests need no Dex server. They race billing and email calls with
-the same key and with different keys, in threads and in separate processes:
+The ledger tests need no Dex server. In one JVM, they race billing calls and
+email calls with the same key and with different keys, also through a
+directory alias. Eight separate processes race billing calls:
 
 ```bash
 ./gradlew test --tests 'io.superdurable.dex.products.customerrefund.*'

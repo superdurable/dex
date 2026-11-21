@@ -27,6 +27,8 @@ import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.Worker;
+import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.products.customerrefund.CustomerRefundFlow;
 import io.superdurable.dex.products.customerrefund.CustomerRefundFlow.DecisionReason;
 import io.superdurable.dex.products.customerrefund.FakeBillingService;
@@ -45,6 +47,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -154,10 +162,10 @@ public class CustomerRefundIntegTest {
         try (RunningWorker ignored = startWorker(newFlow("normal"))) {
             client.startFlow(flow, flowId, RefundSettings.SCENARIOS.get("normal"));
             waitForManager(flowId);
-            assertThrows(RuntimeException.class, () ->
-                    client.invokeRPC(stub(flowId)::approveRefund, new DecisionReason("   ")));
-            assertThrows(RuntimeException.class, () ->
-                    client.invokeRPC(stub(flowId)::rejectRefund, new DecisionReason(null)));
+            assertBlankReasonRejected(assertThrows(WorkerInvocationException.class, () ->
+                    client.invokeRPC(stub(flowId)::approveRefund, new DecisionReason("   "))));
+            assertBlankReasonRejected(assertThrows(WorkerInvocationException.class, () ->
+                    client.invokeRPC(stub(flowId)::rejectRefund, new DecisionReason(null))));
             assertEquals(CustomerRefundFlow.AWAITING_MANAGER, readAttribute(flowId, CustomerRefundFlow.CASE_STATUS));
 
             client.invokeRPC(stub(flowId)::approveRefund, new DecisionReason("Outage confirmed"));
@@ -166,6 +174,54 @@ public class CustomerRefundIntegTest {
 
         assertEquals("refunded", result.getSingleOutput(String.class));
         assertEquals(1, billing.listRefunds().size());
+        final JsonNode events = readHistory(flowId);
+        assertEquals(1, countEvents(events, "RpcExecutionCompleted"));
+        assertEquals(List.of("Outage confirmed"), managerDecisionReasons(events));
+    }
+
+    @Test
+    void concurrentApproveAndRejectLetOnlyOneDecisionWin() throws Exception {
+        final String flowId = newFlowId();
+        final FlowResult result;
+        final List<String> winners = new ArrayList<>();
+        try (RunningWorker ignored = startWorker(newFlow("normal"))) {
+            client.startFlow(flow, flowId, RefundSettings.SCENARIOS.get("normal"));
+            waitForManager(flowId);
+            final CustomerRefundFlow stub = stub(flowId);
+            final ExecutorService executor = Executors.newFixedThreadPool(2);
+            final CountDownLatch startGate = new CountDownLatch(1);
+            try {
+                final Future<String> approve = executor.submit(() -> {
+                    startGate.await();
+                    client.invokeRPC(stub::approveRefund, new DecisionReason("Outage confirmed"));
+                    return "approve";
+                });
+                final Future<String> reject = executor.submit(() -> {
+                    startGate.await();
+                    client.invokeRPC(stub::rejectRefund, new DecisionReason("Credit offered instead"));
+                    return "reject";
+                });
+                startGate.countDown();
+                for (Future<String> decision : List.of(approve, reject)) {
+                    try {
+                        winners.add(decision.get(30, TimeUnit.SECONDS));
+                    } catch (final ExecutionException lost) {
+                        assertTrue(lost.getCause() instanceof DexServiceException, lost.getCause().toString());
+                    }
+                }
+            } finally {
+                executor.shutdownNow();
+            }
+            result = client.waitForFlow(flowId, WAIT_TIMEOUT);
+        }
+
+        assertEquals(1, winners.size(), "winners " + winners);
+        final boolean approved = winners.get(0).equals("approve");
+        assertEquals(approved ? "refunded" : "denied", result.getSingleOutput(String.class));
+        assertEquals(approved ? 1 : 0, billing.listRefunds().size());
+        final JsonNode events = readHistory(flowId);
+        assertEquals(1, countEvents(events, "RpcExecutionCompleted"));
+        assertEquals(1, managerDecisionReasons(events).size());
     }
 
     @Test
@@ -187,8 +243,12 @@ public class CustomerRefundIntegTest {
 
         final JsonNode issueRefund = issueRefundCompletedContext(flowId);
         assertEquals(3, issueRefund.path("finalAttempt").asInt());
-        assertEquals(2, issueRefund.path("lastFailureInfo").path("attempt").asInt());
-        assertTrue(issueRefund.path("lastFailureInfo").toString().contains("PaymentTimeoutException"));
+        final JsonNode lastFailure = issueRefund.path("lastFailureInfo");
+        assertEquals(2, lastFailure.path("attempt").asInt());
+        assertTrue(lastFailure.path("details").path("originalWorkerErrorType").asText()
+                .endsWith("PaymentTimeoutException"), lastFailure.toString());
+        assertTrue(lastFailure.path("details").path("originalWorkerErrorStackTrace").asText()
+                .contains("FakeBillingService.refund"), lastFailure.toString());
     }
 
     @Test
@@ -296,6 +356,38 @@ public class CustomerRefundIntegTest {
         final String message = readAttribute(flowId, CustomerRefundFlow.CUSTOMER_MESSAGE);
         final String greeting = "We cannot refund this charge. ";
         return message.substring(message.indexOf(greeting) + greeting.length());
+    }
+
+    private static void assertBlankReasonRejected(final WorkerInvocationException rejected) {
+        assertTrue(rejected.getWorkerErrorType().endsWith("IllegalArgumentException"), rejected.toString());
+        assertEquals("a decision needs a reason", rejected.getWorkerErrorDetail());
+    }
+
+    private static long countEvents(final JsonNode events, final String type) {
+        long count = 0;
+        for (JsonNode event : events) {
+            if (event.path("type").asText().equals(type)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Returns the reasons of the manager decisions that RequestManagerApproval received. */
+    private static List<String> managerDecisionReasons(final JsonNode events) {
+        final List<String> reasons = new ArrayList<>();
+        for (JsonNode event : events) {
+            final JsonNode payload = event.path("payload");
+            if (event.path("type").asText().equals("StepExecuteCompleted")
+                    && payload.path("context").path("stepType").asText().equals("RequestManagerApproval")) {
+                for (JsonNode channel : payload.path("input").path("conditionResults").path("channelResults")) {
+                    for (JsonNode decision : channel.path("values")) {
+                        reasons.add(decision.path("reason").asText());
+                    }
+                }
+            }
+        }
+        return reasons;
     }
 
     /** Returns the context of the IssueRefund StepExecuteCompleted event. */

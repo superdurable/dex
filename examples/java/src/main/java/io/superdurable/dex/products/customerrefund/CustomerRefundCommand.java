@@ -66,7 +66,8 @@ public final class CustomerRefundCommand {
 
     /** Runs the Worker until Ctrl+C. */
     private static void runWorker() throws Exception {
-        final Registry registry = new Registry(List.of(newRefundFlow()));
+        final String billingMode = RefundSettings.readWorkerBillingMode();
+        final Registry registry = new Registry(List.of(newRefundFlow(billingMode)));
         final BlobCache cache = RefundSettings.openCache(Path.of(".dex-blob-cache/customer-refund-worker"));
         final String workerId = RefundSettings.newWorkerId();
         final WorkerOptions options = RefundSettings.refundWorkerOptions(RefundSettings.SERVER_ADDRESS, workerId);
@@ -85,7 +86,7 @@ public final class CustomerRefundCommand {
         System.out.printf(
                 "Worker %s is ready (billing mode %s, pid %d). Press Ctrl+C to stop it.%n",
                 workerId,
-                RefundSettings.BILLING_MODE,
+                billingMode,
                 ProcessHandle.current().pid());
         stopped.await();
     }
@@ -95,7 +96,7 @@ public final class CustomerRefundCommand {
         if (request == null) {
             exitWithUsage();
         }
-        final CustomerRefundFlow flow = newRefundFlow();
+        final CustomerRefundFlow flow = newRefundFlow(RefundSettings.NORMAL_BILLING);
         try (BlobCache cache = RefundSettings.openCache(Path.of(".dex-blob-cache/customer-refund-client"));
                 Client client = new Client(
                         new Registry(List.of(flow)), cache, new ClientOptions(RefundSettings.SERVER_ADDRESS))) {
@@ -109,7 +110,7 @@ public final class CustomerRefundCommand {
         if (!decision.equals("approve") && !decision.equals("reject")) {
             exitWithUsage();
         }
-        final CustomerRefundFlow flow = newRefundFlow();
+        final CustomerRefundFlow flow = newRefundFlow(RefundSettings.NORMAL_BILLING);
         try (BlobCache cache = RefundSettings.openCache(Path.of(".dex-blob-cache/customer-refund-client"));
                 Client client = new Client(
                         new Registry(List.of(flow)), cache, new ClientOptions(RefundSettings.SERVER_ADDRESS))) {
@@ -145,9 +146,9 @@ public final class CustomerRefundCommand {
         }
     }
 
-    private static CustomerRefundFlow newRefundFlow() {
+    private static CustomerRefundFlow newRefundFlow(final String billingMode) {
         return RefundSettings.newRefundFlow(
-                RefundSettings.BILLING_MODE,
+                billingMode,
                 FakeBillingService.DEFAULT_BILLING_LEDGER,
                 FakeEmailService.DEFAULT_EMAIL_LEDGER);
     }

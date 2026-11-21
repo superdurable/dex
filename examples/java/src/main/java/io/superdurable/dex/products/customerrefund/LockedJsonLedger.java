@@ -25,6 +25,7 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -49,7 +50,7 @@ final class LockedJsonLedger<T> {
     }
 
     LockedJsonLedger(final Path path, final Class<T> recordType) {
-        this.path = path.toAbsolutePath().normalize();
+        this.path = resolveThroughRealParent(path);
         this.lockPath = this.path.resolveSibling(this.path.getFileName() + ".lock");
         this.listType = JSON.getTypeFactory().constructCollectionType(List.class, recordType);
     }
@@ -58,16 +59,9 @@ final class LockedJsonLedger<T> {
         return path;
     }
 
-    /** Returns the records last written; a reader never sees a partly written file. */
+    /** Returns the records last written, read under the same lock as writes. */
     List<T> readRecords() {
-        if (!Files.exists(path)) {
-            return List.of();
-        }
-        try {
-            return JSON.readValue(path.toFile(), listType);
-        } catch (final IOException failure) {
-            throw new UncheckedIOException(failure);
-        }
+        return underLock(this::readRecordsHoldingLock);
     }
 
     /**
@@ -77,22 +71,32 @@ final class LockedJsonLedger<T> {
      * @return the change's result
      */
     <R> R changeRecords(final Function<List<T>, Change<R>> change) {
+        return underLock(() -> {
+            final Change<R> result = change.apply(new ArrayList<>(readRecordsHoldingLock()));
+            if (result.recordsToWrite() != null) {
+                writeAtomically(result.recordsToWrite());
+            }
+            return result.result();
+        });
+    }
+
+    private <R> R underLock(final LockedAction<R> action) {
         synchronized (MONITORS.computeIfAbsent(path, ignored -> new Object())) {
-            try {
-                Files.createDirectories(path.getParent());
-                try (FileChannel lockChannel = FileChannel.open(
-                        lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                        FileLock ignored = lockChannel.lock()) {
-                    final Change<R> result = change.apply(new ArrayList<>(readRecords()));
-                    if (result.recordsToWrite() != null) {
-                        writeAtomically(result.recordsToWrite());
-                    }
-                    return result.result();
-                }
+            try (FileChannel lockChannel = FileChannel.open(
+                    lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                    FileLock ignored = lockChannel.lock()) {
+                return action.run();
             } catch (final IOException failure) {
                 throw new UncheckedIOException(failure);
             }
         }
+    }
+
+    private List<T> readRecordsHoldingLock() throws IOException {
+        if (!Files.exists(path)) {
+            return List.of();
+        }
+        return JSON.readValue(path.toFile(), listType);
     }
 
     private void writeAtomically(final List<?> records) throws IOException {
@@ -105,9 +109,29 @@ final class LockedJsonLedger<T> {
                 }
                 channel.force(true);
             }
-            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (final AtomicMoveNotSupportedException unsupported) {
+                throw new IOException("the ledger needs a file system with atomic rename: " + path, unsupported);
+            }
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    // Aliased directories must share one monitor key and one lock file.
+    private static Path resolveThroughRealParent(final Path path) {
+        final Path absolute = path.toAbsolutePath();
+        try {
+            Files.createDirectories(absolute.getParent());
+            return absolute.getParent().toRealPath().resolve(absolute.getFileName());
+        } catch (final IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+    }
+
+    @FunctionalInterface
+    private interface LockedAction<R> {
+        R run() throws IOException;
     }
 }

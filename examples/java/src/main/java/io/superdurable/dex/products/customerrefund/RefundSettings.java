@@ -37,8 +37,8 @@ import java.util.Map;
 public final class RefundSettings {
     public static final String SERVER_ADDRESS =
             System.getenv().getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
-    public static final String BILLING_MODE =
-            System.getenv().getOrDefault("REFUND_BILLING_MODE", "normal");
+    public static final String NORMAL_BILLING = "normal";
+    public static final String CALL_MISSING_BILLING = "call-missing";
 
     private static final RefundRequest NORTHSTAR_RENEWAL = new RefundRequest(
             "Northstar Studio",
@@ -53,14 +53,23 @@ public final class RefundSettings {
     private RefundSettings() {
     }
 
+    /** Reads REFUND_BILLING_MODE for the Worker; only the Worker's Steps call billing. */
+    public static String readWorkerBillingMode() {
+        final String billingMode = System.getenv().getOrDefault("REFUND_BILLING_MODE", NORMAL_BILLING);
+        if (!billingMode.equals(NORMAL_BILLING) && !billingMode.equals(CALL_MISSING_BILLING)) {
+            throw new IllegalArgumentException(
+                    "REFUND_BILLING_MODE must be normal or call-missing, not " + billingMode);
+        }
+        return billingMode;
+    }
+
     /** Returns the Flow; billing mode "call-missing" leaves out the billing call. */
     public static CustomerRefundFlow newRefundFlow(
             final String billingMode, final Path billingLedger, final Path emailLedger) {
         final FakeBillingService billing = switch (billingMode) {
-            case "normal" -> new FakeBillingService(billingLedger);
-            case "call-missing" -> new CallMissingBillingService(billingLedger);
-            default -> throw new IllegalArgumentException(
-                    "REFUND_BILLING_MODE must be normal or call-missing, not " + billingMode);
+            case NORMAL_BILLING -> new FakeBillingService(billingLedger);
+            case CALL_MISSING_BILLING -> new CallMissingBillingService(billingLedger);
+            default -> throw new IllegalArgumentException("unknown billing mode " + billingMode);
         };
         return new CustomerRefundFlow(billing, new FakeEmailService(emailLedger), new MockMessageModel());
     }
