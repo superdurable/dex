@@ -30,6 +30,10 @@ class PaymentTimeout(Exception):
     """The payment provider did not answer in time; a retry may succeed."""
 
 
+class IdempotencyKeyConflict(Exception):
+    """The key already refunded a different order; a retry cannot succeed."""
+
+
 @dataclass(frozen=True)
 class Order:
     order_id: str
@@ -74,9 +78,15 @@ class FakeBillingService:
                 (idempotency_key, order.order_id, order.amount_usd),
             ).rowcount
             row = ledger.execute(
-                "SELECT id FROM refunds WHERE idempotency_key = ?", (idempotency_key,)
+                "SELECT id, order_id, amount_usd FROM refunds WHERE idempotency_key = ?",
+                (idempotency_key,),
             ).fetchone()
         refund_id = refund_id_for(row[0])
+        if (row[1], row[2]) != (order.order_id, order.amount_usd):
+            raise IdempotencyKeyConflict(
+                f"key {idempotency_key} already refunded {row[1]} ({row[2]:,.2f} USD) as"
+                f" {refund_id}, not {order.order_id}; use one ledger per Dex environment"
+            )
         if inserted:
             print(f"Refunded {order.amount_usd:,.2f} USD as {refund_id}", flush=True)
         else:

@@ -11,7 +11,10 @@ and move no money. Billing and email record each idempotency key in one SQLite
 ledger, `.customer-refund/ledger.sqlite3`. A UNIQUE key and an atomic insert
 keep one refund and one email per key, even for concurrent calls. "Once" holds
 because every Worker shares this one persistent ledger; Workers with separate
-ledgers would each refund.
+ledgers would each refund. The key is built from the Flow ID, so give each Dex
+environment its own ledger directory, or keep Flow IDs unique across
+environments. Billing refuses a key that already refunded a different order
+with `IdempotencyKeyConflict`.
 
 | File | What it holds |
 | --- | --- |

@@ -23,7 +23,11 @@ from typing import TypeVar
 
 import pytest
 
-from dex_examples.products.customer_refund.billing_service import ORDERS, FakeBillingService
+from dex_examples.products.customer_refund.billing_service import (
+    ORDERS,
+    FakeBillingService,
+    IdempotencyKeyConflict,
+)
 from dex_examples.products.customer_refund.email_service import FakeEmailService
 
 CALLERS = 16
@@ -59,6 +63,17 @@ def test_same_refund_key_records_one_refund(tmp_path: Path) -> None:
     refunds = FakeBillingService(tmp_path / "ledger.sqlite3").list_refunds()
     assert [refund.idempotency_key for refund in refunds] == ["refund-case-1"]
     assert refund_ids == [refunds[0].refund_id] * CALLERS
+
+
+def test_reused_refund_key_for_another_order_is_refused(tmp_path: Path) -> None:
+    billing = FakeBillingService(tmp_path / "ledger.sqlite3")
+    first_refund_id = billing.refund(ORDERS["INV-0049"], "refund-refund1", simulate_timeout=False)
+
+    with pytest.raises(IdempotencyKeyConflict, match="already refunded INV-0049"):
+        billing.refund(ORDERS["INV-1249"], "refund-refund1", simulate_timeout=False)
+
+    assert [refund.refund_id for refund in billing.list_refunds()] == [first_refund_id]
+    assert billing.refund(ORDERS["INV-0049"], "refund-refund1", False) == first_refund_id
 
 
 def test_different_refund_keys_keep_every_refund(tmp_path: Path) -> None:
