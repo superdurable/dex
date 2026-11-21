@@ -11,7 +11,7 @@ which Steps ran.
 | [`quick_start/shop_api.py`](quick_start/shop_api.py) | The mock payment and shipping API. |
 | [`worker.py`](worker.py) | The Worker that runs the Steps. |
 | [`start.py`](start.py) | Starts one Flow with a Client. |
-| [`tests/test_quick_start.py`](tests/test_quick_start.py) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. |
+| [`tests/test_quick_start.py`](tests/test_quick_start.py) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. It also checks that the Worker uploads the generated design. |
 
 ## Get the code
 
@@ -32,12 +32,18 @@ Start Dex in one terminal:
 dexcli dev
 ```
 
-Start the Worker in a second terminal:
+In a second terminal, generate the Flow's design and start the Worker:
 
 ```bash
 uv sync --locked
+dexcli visualize quick_start/order_flow.py --schema-version 2.0 --json --out build/flow-definitions/order
 uv run --frozen python worker.py
 ```
+
+The Worker uploads every design in `build/flow-definitions/`, so the run's
+**Design** view in Dex Web draws `OrderFlow`. Without the folder the Worker
+still runs and prints a hint. Run `dexcli visualize` again after you change
+`order_flow.py`.
 
 Start a Flow in a third terminal:
 
@@ -92,3 +98,5 @@ was already accepted. Sending the same request again starts nothing new. Set
 ```bash
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 uv run --frozen pytest
 ```
+
+The design test needs `dexcli` on `PATH` or in `DEXCLI_PATH`.

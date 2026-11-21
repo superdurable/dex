@@ -28,12 +28,21 @@ SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
 HTTP_PORT = int(os.environ.get("QUICK_START_HTTP_PORT", "8080"))
 CHARGE_DELAY_SECONDS = float(os.environ.get("QUICK_START_CHARGE_DELAY_SECONDS", "0"))
 SHOP_API_KEYS_PATH = Path(".shop-api-keys")
+FLOW_DEFINITIONS_DIR = Path("build/flow-definitions")
 SHIP_DELAY = timedelta(seconds=int(os.environ.get("QUICK_START_SHIP_DELAY_SECONDS", "60")))
 
 
 def new_shop_api() -> ShopApi:
     """Returns the mock API that the Worker calls, with its keys in a local file."""
     return ShopApi(SHOP_API_KEYS_PATH, CHARGE_DELAY_SECONDS)
+
+
+def flow_definition_paths() -> tuple[Path, ...]:
+    """Returns the generated design folder for the Worker to upload, if it exists."""
+    if FLOW_DEFINITIONS_DIR.is_dir():
+        return (FLOW_DEFINITIONS_DIR,)
+    print(f"No design in {FLOW_DEFINITIONS_DIR}; Dex Web shows no Design view.", flush=True)
+    return ()
 
 
 def open_cache(directory: Path) -> BlobCache:
