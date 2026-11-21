@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -31,6 +31,7 @@ import {
   FlowDefinitionUploadOutcome,
   PayloadEncryptionError,
   Registry,
+  RpcLockConflictError,
   Worker,
   WorkerInvocationError,
   stringCodec,
@@ -79,6 +80,29 @@ class TimeoutCountingBillingService extends FakeBillingService {
   }
 }
 
+/** Records each refund call and whether billing already had its key. */
+class RecordingBillingService extends FakeBillingService {
+  public readonly calls: { idempotencyKey: string; alreadyIssued: boolean; refundId: string }[] = [];
+
+  public override refund(order: Order, idempotencyKey: string, simulateTimeout: boolean): string {
+    const alreadyIssued = this.findRefundId(idempotencyKey) !== undefined;
+    const refundId = super.refund(order, idempotencyKey, simulateTimeout);
+    this.calls.push({ idempotencyKey, alreadyIssued, refundId });
+    return refundId;
+  }
+}
+
+/** Records each email call and whether it sent a new email. */
+class RecordingEmailService extends FakeEmailService {
+  public readonly calls: { idempotencyKey: string; sent: boolean }[] = [];
+
+  public override send(to: string, body: string, idempotencyKey: string): boolean {
+    const sent = super.send(to, body, idempotencyKey);
+    this.calls.push({ idempotencyKey, sent });
+    return sent;
+  }
+}
+
 /** One test's ledgers, cache folder, and Client, shared by its Workers. */
 class RefundTestbed {
   public readonly billing: FakeBillingService;
@@ -106,11 +130,21 @@ class RefundTestbed {
   public async withWorker(
     flow: CustomerRefundFlow,
     work: () => Promise<void>,
-    flowDefinitionsDir: string = FLOW_DEFINITIONS_DIR,
+    workingDirectory: string = process.cwd(),
   ): Promise<void> {
     const cache = openRefundBlobCache(join(this.directory, `worker-cache-${randomUUID()}`));
-    const options = refundWorkerOptions(serverAddress, this.payloadCodec, flowDefinitionsDir);
-    const worker = new Worker(new Registry([flow]), cache, options);
+    // The Worker reads the default design folder relative to the working directory while it is built.
+    const testDirectory = process.cwd();
+    process.chdir(workingDirectory);
+    let worker: Worker;
+    try {
+      worker = new Worker(new Registry([flow]), cache, refundWorkerOptions(serverAddress, this.payloadCodec));
+    } catch (failure) {
+      cache.close();
+      throw failure;
+    } finally {
+      process.chdir(testDirectory);
+    }
     try {
       await worker.start();
       await worker.waitPullRegistered({ timeoutMs: 30_000 });
@@ -213,6 +247,46 @@ test("a blank reason is refused and a later valid decision is accepted", async (
   });
 });
 
+for (const second of ["approve", "reject"] as const) {
+  test(`two managers decide at once (approve and ${second}): only one decision counts`, async () => {
+    await withTestbed(async (bed) => {
+      const flowId = newFlowId();
+      let output = "";
+      let approvedWins = false;
+      await bed.withWorker(bed.newFlow("normal"), async () => {
+        await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+        await bed.waitForManager(flowId);
+        const secondRpc = second === "approve" ? bed.flow.approveRefund : bed.flow.rejectRefund;
+        const outcomes = await Promise.allSettled([
+          bed.client.invokeRPC(bed.flow.approveRefund, flowId, { reason: "Outage confirmed" }),
+          bed.client.invokeRPC(secondRpc, flowId, { reason: "Second manager" }),
+        ]);
+        assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1, JSON.stringify(outcomes));
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") {
+            const failure: unknown = outcome.reason;
+            // The loser either meets the winner's lock or runs after it and sees the new state.
+            assert.ok(
+              failure instanceof RpcLockConflictError
+                || (failure instanceof WorkerInvocationError && /not waiting for a manager/.test(failure.message)),
+              String(failure),
+            );
+          }
+        }
+        approvedWins = second === "approve" || outcomes[0]?.status === "fulfilled";
+        output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
+      });
+
+      assert.equal(output, approvedWins ? "refunded" : "denied");
+      assert.equal(bed.billing.listRefunds().length, approvedWins ? 1 : 0);
+      if (!approvedWins) {
+        const [message] = await bed.client.getAttributes(flowId, customerMessage);
+        assert.match(message ?? "", /Second manager/);
+      }
+    });
+  });
+}
+
 test("the policy denies an old charge", async () => {
   await withTestbed(async (bed) => {
     const flowId = newFlowId();
@@ -309,16 +383,25 @@ test("time travel after a successful refund reuses its refund ID", async () => {
     const flowId = newFlowId();
     await bed.withWorker(bed.newFlow("normal"), async () => {
       await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.small);
-      await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
-      const [firstRefundId] = await bed.client.getAttributes(flowId, refundId);
+      const first = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
+      assert.equal(first.status, "completed", first.errorMessage);
+    });
+    const [firstRefundId] = await bed.client.getAttributes(flowId, refundId);
+    assert.match(firstRefundId ?? "", /^rf_\d+$/);
 
+    // A new Worker with recording providers shows what the second execution called.
+    const billing = new RecordingBillingService(bed.billing.ledgerPath);
+    const email = new RecordingEmailService(bed.email.ledgerPath);
+    await bed.withWorker(new CustomerRefundFlow(billing, email, new MockMessageModel()), async () => {
       await timeTravelWithDexcli(flowId, "IssueRefund");
       const again = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
       assert.equal(again.status, "completed", again.errorMessage);
-      const [secondRefundId] = await bed.client.getAttributes(flowId, refundId);
-      assert.equal(secondRefundId, firstRefundId);
     });
 
+    assert.deepEqual(billing.calls, [{ idempotencyKey: `refund-${flowId}`, alreadyIssued: true, refundId: firstRefundId }]);
+    assert.deepEqual(email.calls, [{ idempotencyKey: `email-${flowId}`, sent: false }]);
+    const [secondRefundId] = await bed.client.getAttributes(flowId, refundId);
+    assert.equal(secondRefundId, firstRefundId);
     assert.deepEqual(bed.billing.listRefunds().map((refund) => refund.idempotencyKey), [`refund-${flowId}`]);
     assert.deepEqual(bed.email.listSentKeys(), [`email-${flowId}`]);
   });
@@ -326,7 +409,9 @@ test("time travel after a successful refund reuses its refund ID", async () => {
 
 test("the Worker uploads the generated design", async () => {
   await withTestbed(async (bed, directory) => {
-    const designDir = join(directory, "design");
+    // Write the README's output under a fresh working directory, where the Worker looks by default.
+    const workingDirectory = join(directory, "work");
+    await mkdir(workingDirectory);
     await promisify(execFile)(dexcli, [
       "visualize",
       "src/products/customer-refund/refund-flow.ts",
@@ -334,18 +419,19 @@ test("the Worker uploads the generated design", async () => {
       "2.0",
       "--json",
       "--out",
-      join(designDir, "customer-refund"),
+      join(workingDirectory, FLOW_DEFINITIONS_DIR, "customer-refund"),
     ]);
-    const content = await readFile(join(designDir, "customer-refund.json"));
-    const generatedAt = new Date((JSON.parse(content.toString("utf8")) as { generatedAt: string }).generatedAt);
+    const content = await readFile(join(workingDirectory, FLOW_DEFINITIONS_DIR, "customer-refund.json"));
+    const design = JSON.parse(content.toString("utf8")) as DesignDocument;
+    assertRefundDesign(design);
 
     await bed.withWorker(bed.newFlow("normal"), async () => {
       // Uploading the same document again is UNCHANGED only when the Worker already stored it.
       const [result] = await bed.client.uploadFlowDefinitions([
-        { flowType: "CustomerRefundFlow", content, generatedAt },
+        { flowType: "CustomerRefundFlow", content, generatedAt: new Date(design.generatedAt) },
       ]);
       assert.equal(result?.outcome, FlowDefinitionUploadOutcome.UNCHANGED);
-    }, designDir);
+    }, workingDirectory);
   });
 });
 
@@ -397,6 +483,33 @@ async function timeTravelWithDexcli(flowId: string, stepType: string): Promise<v
     "billing call restored",
     "--yes",
   ]);
+}
+
+interface DesignDocument {
+  readonly valid: boolean;
+  readonly generatedAt: string;
+  readonly nodes: readonly { readonly id: string; readonly name?: string }[];
+  readonly edges: readonly { readonly kind: string; readonly from: string; readonly to: string }[];
+  readonly v2: { readonly actions: readonly unknown[] };
+}
+
+/** Checks the Actions and the case-status locks that Dex Web needs from the design. */
+function assertRefundDesign(design: DesignDocument): void {
+  assert.equal(design.valid, true);
+  const condition = { attributeKey: "case-status", operator: "in", values: [AWAITING_MANAGER] };
+  const input = {
+    kind: "object",
+    fields: [{ description: "Reason", fieldName: "reason", required: true, source: "user", valueType: "string" }],
+  };
+  assert.deepEqual(design.v2.actions, [
+    { condition, input, label: "Approve refund", requiredPermission: "refund.manage", rpcName: "approveRefund" },
+    { condition, input, label: "Reject refund", requiredPermission: "refund.manage", rpcName: "rejectRefund" },
+  ]);
+  for (const rpcName of ["approveRefund", "rejectRefund"]) {
+    const locks = design.edges.filter((edge) => edge.kind === "resource_lock" && edge.from === `rpc:${rpcName}`);
+    const lockedNames = locks.map((edge) => design.nodes.find((node) => node.id === edge.to)?.name);
+    assert.deepEqual(lockedNames, ["case-status"], rpcName);
+  }
 }
 
 interface HistoryEvent {

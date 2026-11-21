@@ -28,7 +28,7 @@ import {
 } from "./refund-settings.js";
 
 const [flowId, scenario = "normal"] = process.argv.slice(2);
-if (flowId === undefined || !(scenario in REFUND_SCENARIOS)) {
+if (flowId === undefined || !Object.hasOwn(REFUND_SCENARIOS, scenario)) {
   console.error(`usage: start.js FLOW_ID [${Object.keys(REFUND_SCENARIOS).join("|")}]`);
   process.exit(2);
 }

@@ -22,6 +22,7 @@ import {
   FlowNotActiveOrNotFoundError,
   Registry,
   RequestTimeoutError,
+  RpcLockConflictError,
   WorkerInvocationError,
 } from "@superdurable/dex";
 
@@ -60,6 +61,8 @@ try {
 } catch (failure) {
   if (failure instanceof FlowNotActiveOrNotFoundError) {
     console.error(`Refund ${flowId} is closed or does not exist.`);
+  } else if (failure instanceof RpcLockConflictError) {
+    console.error(`Refund ${flowId}: another decision is being processed; check the run before trying again.`);
   } else if (failure instanceof RequestTimeoutError) {
     console.error(`Refund ${flowId} did not wait for a manager within 30 seconds.`);
   } else if (failure instanceof WorkerInvocationError) {

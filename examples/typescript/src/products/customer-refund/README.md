@@ -8,11 +8,21 @@ case.
 
 Billing, email, and the model are fakes in this folder. They need no API key
 and move no money. Billing and email keep their records in SQLite files in
-`.customer-refund/`, through the built-in `node:sqlite` module. Each record
-has a unique idempotency key, and one statement checks and writes it. So a
-restarted Worker, or two Workers at once, never issue a second refund or a
-second email for the same key. Node.js 22 and 24 print an
-`ExperimentalWarning` the first time `node:sqlite` loads.
+`.customer-refund/`, through the built-in `node:sqlite` module. Each call
+checks its idempotency key and records it in one transaction. So a restarted
+Worker, or two Workers at once, never issue a second refund or a second email
+for the same key. Billing numbers refunds from a sequence that never reuses a
+number, and it keeps every idempotency key even if a refund row is deleted.
+A key that billing already used for another order or amount fails with
+`RefundKeyConflict` instead of reporting the other refund. The email ledger
+stores only idempotency keys, never an address or message text. Node.js 22
+and 24 print an `ExperimentalWarning` the first time `node:sqlite` loads.
+
+The idempotency keys are built from the Flow ID, such as `refund-refund1`.
+Give each Dex environment its own `.customer-refund/` folder, by running its
+Worker from its own directory, or keep Flow IDs unique across environments.
+Otherwise a second environment that reuses a Flow ID meets the first
+environment's refund.
 
 | File | What it holds |
 | --- | --- |
@@ -77,6 +87,15 @@ node dist/src/products/customer-refund/decide.js refund1 approve "Outage confirm
 
 `decide.js` first waits up to 30 seconds for `case-status=awaiting-manager`,
 so you can run it right after `start.js`. Both RPCs refuse a blank reason.
+When two managers decide at once, both RPCs lock `case-status`, so only one
+decision counts. The other gets `RpcLockConflictError`, or sees that the
+refund no longer waits for a manager, and `decide.js` says so and exits with
+status 1.
+
+**Working as** and the Action's required permission only decide which
+Actions Dex Web shows. Dex Server authentication identifies the caller; it
+does not check that the caller may approve refunds. A production application
+authorizes approvers itself before it lets a request reach these RPCs.
 
 List the refunds that billing recorded:
 
@@ -175,9 +194,11 @@ node dist/src/products/customer-refund/start.js refund4 small
 `newPayloadCodec()` in `refund-settings.ts` turns the file into an
 `AesGcmPayloadCodec` for the Worker and the Client. `case-status` and
 `customer-email` are declared with `.plaintext()`, so Dex Web reads them
-without the key; the Action condition needs `case-status` in plaintext. Step
-inputs, `refund-id`, and `customer-message` are stored encrypted. The email
-address is synthetic sample data.
+without the key; the Action condition needs `case-status` in plaintext. Of
+the payloads Dex stores, Step inputs, `refund-id`, and `customer-message` are
+encrypted. Payload encryption covers only what Dex stores; the fake services
+keep their own files, as real ones would. The email address is synthetic
+sample data.
 
 To show the encrypted values in Dex Web, the simplest way is to start Dex
 with the key: `dexcli dev -codec-key-file /tmp/refund-key.json`. Or start a
@@ -203,11 +224,14 @@ npm run build
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 node --test --experimental-test-isolation=none --test-force-exit dist/test/integ/customer-refund.test.js
 ```
 
-The tests cover approval, rejection, blank reasons, each policy denial, the
-fail-then-succeed refund and its History, the missing billing call fixed with
-`dexcli flow time-travel`, Time Travel after a successful refund, the design
-upload, and encryption. They need `dexcli` on `PATH` or in `DEXCLI_PATH`.
-`npm run test:integ` and `./run-integration-tests.sh` run them with the other
-examples. `npm test` runs
+The tests cover approval, rejection, blank reasons, two decisions at once,
+each policy denial, the fail-then-succeed refund and its History, the missing
+billing call fixed with `dexcli flow time-travel`, Time Travel after a
+successful refund, the design and its Actions, and encryption. They need
+`dexcli` on `PATH` or in `DEXCLI_PATH`. `npm run test:integ` and
+`./run-integration-tests.sh` run them with the other examples. `npm test`
+runs
 [`test/workflow/customer-refund-ledgers.test.ts`](../../../test/workflow/customer-refund-ledgers.test.ts),
-which checks the ledgers with several processes at once and needs no Dex.
+which needs no Dex. It holds each ledger's lock while several processes
+start, then releases it, and checks deleted refund rows and a key reused for
+another order.

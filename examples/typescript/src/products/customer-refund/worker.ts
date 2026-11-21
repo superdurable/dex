@@ -22,13 +22,15 @@ import {
   newPayloadCodec,
   newRefundFlow,
   openRefundBlobCache,
+  readBillingMode,
   readRefundEnvironment,
   refundWorkerOptions,
 } from "./refund-settings.js";
 
 const environment = readRefundEnvironment();
+const billingMode = readBillingMode();
 const payloadCodec = await newPayloadCodec(environment.payloadKeyFile);
-const registry = new Registry([newRefundFlow(environment.billingMode)]);
+const registry = new Registry([newRefundFlow(billingMode)]);
 const cache = openRefundBlobCache(".dex-blob-cache/customer-refund-worker");
 const options = refundWorkerOptions(environment.serverAddress, payloadCodec);
 const worker = new Worker(registry, cache, options);
@@ -38,7 +40,7 @@ try {
   const encryption = payloadCodec === undefined ? "off" : "on";
   console.log(
     `Worker ${options.pull?.appWorkerID} is ready ` +
-      `(billing mode ${environment.billingMode}, encryption ${encryption}). Press Ctrl+C to stop it.`,
+      `(billing mode ${billingMode}, encryption ${encryption}). Press Ctrl+C to stop it.`,
   );
   await new Promise<void>((resolve) => {
     process.once("SIGINT", () => resolve());

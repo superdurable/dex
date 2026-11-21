@@ -44,20 +44,23 @@ export type BillingMode = "normal" | "call-missing";
 export interface RefundEnvironment {
   readonly serverAddress: string;
   readonly payloadKeyFile: string;
-  readonly billingMode: BillingMode;
 }
 
-/** Reads the example's environment variables; the entry scripts call it once. */
+/** Reads the settings that the Worker and the commands share; each entry script calls it once. */
 export function readRefundEnvironment(): RefundEnvironment {
+  return {
+    serverAddress: process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801",
+    payloadKeyFile: process.env.REFUND_PAYLOAD_KEY_FILE ?? "",
+  };
+}
+
+/** Reads REFUND_BILLING_MODE; only the Worker uses it. */
+export function readBillingMode(): BillingMode {
   const billingMode = process.env.REFUND_BILLING_MODE ?? "normal";
   if (billingMode !== "normal" && billingMode !== "call-missing") {
     throw new Error(`REFUND_BILLING_MODE must be normal or call-missing, not ${JSON.stringify(billingMode)}`);
   }
-  return {
-    serverAddress: process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801",
-    payloadKeyFile: process.env.REFUND_PAYLOAD_KEY_FILE ?? "",
-    billingMode,
-  };
+  return billingMode;
 }
 
 const NORTHSTAR_RENEWAL: RefundRequest = {

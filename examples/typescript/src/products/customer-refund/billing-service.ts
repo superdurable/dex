@@ -30,6 +30,14 @@ export class PaymentTimeout extends Error {
   }
 }
 
+/** The idempotency key already belongs to a refund of another order or amount. */
+export class RefundKeyConflict extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "RefundKeyConflict";
+  }
+}
+
 export interface Order {
   readonly orderId: string;
   readonly description: string;
@@ -64,16 +72,36 @@ export function formatUsd(amountUsd: number): string {
 export function openLedger(ledgerPath: string, schema: string): DatabaseSync {
   mkdirSync(dirname(ledgerPath), { recursive: true });
   const ledger = new DatabaseSync(ledgerPath, { timeout: 10_000 });
-  ledger.exec(schema);
+  try {
+    ledger.exec(schema);
+  } catch (failure) {
+    ledger.close();
+    throw failure;
+  }
   return ledger;
 }
 
-const REFUNDS_SCHEMA = `CREATE TABLE IF NOT EXISTS refunds (
-  refund_id TEXT NOT NULL UNIQUE,
+// AUTOINCREMENT never reuses a number, even after a row is deleted.
+const REFUNDS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS refunds (
+  refund_number INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id TEXT NOT NULL,
   amount_usd REAL NOT NULL,
-  idempotency_key TEXT NOT NULL UNIQUE
-)`;
+  idempotency_key TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS refund_idempotency_keys (
+  idempotency_key TEXT NOT NULL PRIMARY KEY,
+  refund_number INTEGER NOT NULL,
+  order_id TEXT NOT NULL,
+  amount_usd REAL NOT NULL
+);`;
+
+/** Shows refund number 1 as rf_1042. */
+const REFUND_NUMBER_OFFSET = 1041;
+
+function refundIdOf(refundNumber: unknown): string {
+  return `rf_${REFUND_NUMBER_OFFSET + Number(refundNumber)}`;
+}
 
 /** Keeps refunds in a SQLite file, so a restarted or concurrent Worker sees earlier refunds. */
 export class FakeBillingService {
@@ -93,20 +121,54 @@ export class FakeBillingService {
     }
     const ledger = openLedger(this.ledgerPath, REFUNDS_SCHEMA);
     try {
-      // One statement numbers and records the refund, so concurrent calls cannot share an ID.
-      const inserted = ledger.prepare(
-        `INSERT INTO refunds (refund_id, order_id, amount_usd, idempotency_key)
-         SELECT 'rf_' || (1042 + COUNT(*)), ?, ?, ? FROM refunds WHERE true
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-      ).run(order.orderId, order.amountUsd, idempotencyKey);
-      const row = ledger.prepare("SELECT refund_id FROM refunds WHERE idempotency_key = ?").get(idempotencyKey);
-      const refundId = String(row?.refund_id);
-      if (inserted.changes === 0) {
-        console.log(`Refund ${refundId} already issued (key ${idempotencyKey})`);
-      } else {
+      // The write lock makes the key check, the numbering, and both inserts one atomic step.
+      ledger.exec("BEGIN IMMEDIATE");
+      try {
+        const earlier = ledger.prepare(
+          "SELECT refund_number, order_id, amount_usd FROM refund_idempotency_keys WHERE idempotency_key = ?",
+        ).get(idempotencyKey);
+        if (earlier !== undefined) {
+          ledger.exec("COMMIT");
+          const refundId = refundIdOf(earlier.refund_number);
+          if (earlier.order_id !== order.orderId || Number(earlier.amount_usd) !== order.amountUsd) {
+            throw new RefundKeyConflict(
+              `key ${idempotencyKey} already refunded ${earlier.order_id} (${formatUsd(Number(earlier.amount_usd))} USD) ` +
+                `as ${refundId}, not ${order.orderId} (${formatUsd(order.amountUsd)} USD); ` +
+                "give each Dex environment its own billing ledger",
+            );
+          }
+          console.log(`Refund ${refundId} already issued (key ${idempotencyKey})`);
+          return refundId;
+        }
+        const inserted = ledger.prepare(
+          "INSERT INTO refunds (order_id, amount_usd, idempotency_key) VALUES (?, ?, ?)",
+        ).run(order.orderId, order.amountUsd, idempotencyKey);
+        ledger.prepare(
+          "INSERT INTO refund_idempotency_keys (idempotency_key, refund_number, order_id, amount_usd) VALUES (?, ?, ?, ?)",
+        ).run(idempotencyKey, inserted.lastInsertRowid, order.orderId, order.amountUsd);
+        ledger.exec("COMMIT");
+        const refundId = refundIdOf(inserted.lastInsertRowid);
         console.log(`Refunded ${formatUsd(order.amountUsd)} USD as ${refundId}`);
+        return refundId;
+      } catch (failure) {
+        if (ledger.isTransaction) {
+          ledger.exec("ROLLBACK");
+        }
+        throw failure;
       }
-      return refundId;
+    } finally {
+      ledger.close();
+    }
+  }
+
+  /** Returns the refund ID recorded for the key, or undefined when billing has none. */
+  public findRefundId(idempotencyKey: string): string | undefined {
+    const ledger = openLedger(this.ledgerPath, REFUNDS_SCHEMA);
+    try {
+      const row = ledger.prepare(
+        "SELECT refund_number FROM refund_idempotency_keys WHERE idempotency_key = ?",
+      ).get(idempotencyKey);
+      return row === undefined ? undefined : refundIdOf(row.refund_number);
     } finally {
       ledger.close();
     }
@@ -116,10 +178,10 @@ export class FakeBillingService {
     const ledger = openLedger(this.ledgerPath, REFUNDS_SCHEMA);
     try {
       const rows = ledger.prepare(
-        "SELECT refund_id, order_id, amount_usd, idempotency_key FROM refunds ORDER BY rowid",
+        "SELECT refund_number, order_id, amount_usd, idempotency_key FROM refunds ORDER BY refund_number",
       ).all();
       return rows.map((row) => ({
-        refundId: String(row.refund_id),
+        refundId: refundIdOf(row.refund_number),
         orderId: String(row.order_id),
         amountUsd: Number(row.amount_usd),
         idempotencyKey: String(row.idempotency_key),

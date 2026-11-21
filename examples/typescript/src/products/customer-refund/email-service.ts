@@ -20,10 +20,9 @@ import { openLedger } from "./billing-service.js";
 
 export const DEFAULT_EMAIL_LEDGER = ".customer-refund/emails.sqlite";
 
+// Only the key is stored, so the ledger keeps no address or message text.
 const EMAILS_SCHEMA = `CREATE TABLE IF NOT EXISTS sent_emails (
-  idempotency_key TEXT NOT NULL PRIMARY KEY,
-  recipient TEXT NOT NULL,
-  body TEXT NOT NULL
+  idempotency_key TEXT NOT NULL PRIMARY KEY
 )`;
 
 /** Keeps sent emails in a SQLite file, so a restarted or concurrent Worker sees earlier emails. */
@@ -36,8 +35,8 @@ export class FakeEmailService {
     try {
       // The fake sends by recording; only the call that inserts the key prints the message.
       const inserted = ledger.prepare(
-        "INSERT INTO sent_emails (idempotency_key, recipient, body) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-      ).run(idempotencyKey, to, body);
+        "INSERT INTO sent_emails (idempotency_key) VALUES (?) ON CONFLICT DO NOTHING",
+      ).run(idempotencyKey);
       if (inserted.changes === 0) {
         console.log(`Email to ${to} already sent (key ${idempotencyKey})`);
         return false;
