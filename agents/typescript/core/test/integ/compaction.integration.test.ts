@@ -513,8 +513,9 @@ describe("context compaction", () => {
     assert.equal(calls.filter((call) => call.kind === "summary").length, 3);
     assert.equal(calls.filter((call) => call.kind === "model" && call.turnId === "turn-6").length, 0);
     const steps = await executedStepTypes(sessionId);
-    assert.deepEqual(steps.slice(-3), ["AwaitUserMessage", "RunModel", "RecordTurnFailure"]);
-    assert.ok(!steps.includes("CompactContext"));
+    // The third CompactContext attempt ends the turn itself, so it completes once, without a summary.
+    assert.deepEqual(steps.slice(-4), ["AwaitUserMessage", "RunModel", "CompactContext", "RecordTurnFailure"]);
+    assert.equal(steps.filter((step) => step === "CompactContext").length, 1);
     assert.equal(failed.messages.at(-1)?.text, padTurnCommands.at(-1));
 
     rmSync(failSummaryPath);

@@ -10,6 +10,12 @@ import { ExecuteFailure, StepRef, type AttributeMapLoad, type RetryPolicy, type 
 
 import type { AgentSessionPersistence } from "./agent-session-persistence.js";
 import { agentSessionStepTypes } from "./agent-session-step-types.js";
+import {
+  modelStepMaximumAttempts,
+  resolveModelRetryPolicy,
+  type ModelRetryPolicy,
+  type ResolvedModelRetryPolicy,
+} from "./model-call-retry.js";
 
 export const minuteMs = 60_000;
 const maxStepDurationMs = 2_147_483_647_000;
@@ -30,8 +36,15 @@ const maxStepDurationMs = 2_147_483_647_000;
  * twice `methodTimeoutMs`, so the default limit gives 30 minutes. Dex checks it only after an attempt fails, and never
  * ends a running attempt, so it must exceed `methodTimeoutMs` for a timed-out attempt to retry at all.
  *
+ * A transient model API error, such as HTTP 429 or 503, retries under {@link retry} with exponential backoff and jitter,
+ * on top of `maximumAttempts`. Any other HTTP 4xx answer fails the turn without a retry. See {@link ModelRetryPolicy}.
+ *
  * `CompactContext` keeps the defaults, because it makes one model call. A changed limit applies to each `RunModel`
  * scheduled after the Worker restarts. An attempt in flight, and its retries, keep their limit.
+ *
+ * Changed in 0.6.16: a transient model API error waits with exponential backoff and jitter, about two minutes in all
+ * by default, instead of using the three attempts about one and two seconds apart. Any other HTTP 4xx answer fails
+ * the turn at once instead of being retried.
  *
  * @example
  * ```ts
@@ -45,8 +58,18 @@ const maxStepDurationMs = 2_147_483_647_000;
 export interface RunModelLimit {
   /** Longest one attempt may run, in milliseconds, a whole number of seconds. Defaults to 15 minutes. */
   readonly methodTimeoutMs?: number;
-  /** Attempts, including the first. `1` disables retries. Defaults to 3. */
+  /**
+   * Attempts, including the first, for an error that is not a transient model API error, a method timeout, or a
+   * Worker crash. A transient error may also use the retries of {@link retry}. `1` disables every retry. Defaults to 3.
+   */
   readonly maximumAttempts?: number;
+  /**
+   * Backoff for a transient model API error. Defaults to waits from 1 to 30 seconds, about two minutes in all. See
+   * {@link ModelRetryPolicy}.
+   *
+   * @since 0.6.16
+   */
+  readonly retry?: ModelRetryPolicy;
 }
 
 /** A {@link RunModelLimit} with every default filled in and the retry budget it implies. */
@@ -57,6 +80,13 @@ export interface ResolvedRunModelLimit {
   readonly maximumAttempts: number;
   /** The retry budget in milliseconds. */
   readonly totalDurationMs: number;
+  /**
+   * The resolved backoff for transient model API errors. `resolveRunModelLimit` always sets it; omitted means the
+   * default.
+   *
+   * @since 0.6.16
+   */
+  readonly retry?: ResolvedModelRetryPolicy;
 }
 
 /**
@@ -64,7 +94,8 @@ export interface ResolvedRunModelLimit {
  * @param limit - The application's limit.
  * @returns The limit with its defaults and retry budget.
  * @throws {RangeError} When `methodTimeoutMs` is not a positive whole number of seconds, `maximumAttempts` is not a
- * positive integer, or the retry budget does not fit a signed 32-bit number of seconds.
+ * positive integer, or the retry budget does not fit a signed 32-bit number of seconds, or `retry` is invalid; see
+ * {@link resolveModelRetryPolicy}.
  */
 export function resolveRunModelLimit(limit: RunModelLimit = {}): ResolvedRunModelLimit {
   const methodTimeoutMs = limit.methodTimeoutMs ?? modelCallStepOptions.executeMethodTimeoutMs;
@@ -79,7 +110,24 @@ export function resolveRunModelLimit(limit: RunModelLimit = {}): ResolvedRunMode
   if (totalDurationMs > maxStepDurationMs) {
     throw new RangeError("runModelLimit.methodTimeoutMs times maximumAttempts is too long for Dex");
   }
-  return Object.freeze({ methodTimeoutMs, maximumAttempts, totalDurationMs });
+  const retry = resolveModelRetryPolicy(limit.retry);
+  return Object.freeze({ methodTimeoutMs, maximumAttempts, totalDurationMs, retry });
+}
+
+/** Returns a limit's retry policy, filling in the default for a limit built without one. */
+export function runModelRetryPolicy(limit: ResolvedRunModelLimit): ResolvedModelRetryPolicy {
+  return limit.retry ?? defaultResolvedRunModelLimit.retry!;
+}
+
+/** Returns the Dex retry policy of a model Step under a limit. */
+export function modelStepRetryPolicy(limit: ResolvedRunModelLimit): RetryPolicy {
+  const retry = runModelRetryPolicy(limit);
+  return {
+    initialIntervalMs: retry.initialIntervalMs,
+    maximumIntervalMs: retry.maximumIntervalMs,
+    maximumAttempts: modelStepMaximumAttempts(limit.maximumAttempts, retry),
+    totalDurationMs: limit.totalDurationMs,
+  };
 }
 // CompactContext makes one model call, so it shares RunModel's timeouts and retries.
 export const modelCallStepOptions = {
@@ -88,6 +136,12 @@ export const modelCallStepOptions = {
   executeRetry: { maximumAttempts: 3, totalDurationMs: 30 * minuteMs },
   executeFailure: ExecuteFailure.proceedTo(new StepRef(agentSessionStepTypes.recordTurnFailure)),
 } as const satisfies StepOptions;
+// CompactContext keeps the default limit.
+export const defaultResolvedRunModelLimit = resolveRunModelLimit();
+export const compactContextStepOptions: StepOptions = {
+  ...modelCallStepOptions,
+  executeRetry: modelStepRetryPolicy(defaultResolvedRunModelLimit),
+};
 // Recovery Steps must eventually run; cap their backoff so a returning Worker picks them up quickly.
 export const recoveryRetry: RetryPolicy = { maximumIntervalMs: 5_000 };
 // An ASYNC FlowConfig could replay a committed result after a Server failover, re-running a write.
@@ -121,10 +175,7 @@ export function messageStepOptions(
         ...syncDurability,
         ...modelCallStepOptions,
         executeMethodTimeoutMs: runModelLimit.methodTimeoutMs,
-        executeRetry: {
-          maximumAttempts: runModelLimit.maximumAttempts,
-          totalDurationMs: runModelLimit.totalDurationMs,
-        },
+        executeRetry: modelStepRetryPolicy(runModelLimit),
         ...loads,
       };
     case agentSessionStepTypes.applyTurnControl:

@@ -81,6 +81,7 @@ from dex_agents.media import (
     validate_image_references,
     verify_image_bytes,
 )
+from dex_agents.model_retry import ModelRetryPolicy
 from dex_agents.persistence import (
     AGENT_MESSAGE_CHUNKS,
     AGENT_MESSAGE_INDEX,
@@ -442,6 +443,7 @@ __all__ = [
     "ModelCallCheck",
     "ModelCallDecision",
     "ModelCallMetadata",
+    "ModelRetryPolicy",
     "ModelSpendLimit",
     "ModelUsageReport",
     "PendingUserMessage",

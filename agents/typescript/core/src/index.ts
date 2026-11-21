@@ -201,6 +201,7 @@ export {
   validateSessionSettings,
 } from "./agent-session-settings.js";
 export type { ResolvedRunModelLimit, RunModelLimit } from "./agent-session-step-options.js";
+export type { ModelRetryPolicy, ResolvedModelRetryPolicy } from "./model-call-retry.js";
 export {
   modelCallRefusedErrorPrefix,
   spendLimitCallTimeoutMs,

@@ -26,7 +26,7 @@ from tests.scripted_agent import RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE
 SILENT_CALL_SECONDS = 135
 
 
-async def test_the_default_limit_is_what_every_session_had_before(
+async def test_the_default_limit_keeps_the_timeouts_and_budget_and_adds_the_transient_retries(
     harness: ScriptedAgentHarness,
 ) -> None:
     await harness.stack.start_worker()
@@ -37,7 +37,10 @@ async def test_the_default_limit_is_what_every_session_had_before(
     (options,) = await _run_model_method_options(harness, session_id)
     assert options["timeoutSeconds"] == 900
     assert options["heartbeatTimeoutSeconds"] == 120
-    assert options["retryPolicy"]["maximumAttempts"] == 3
+    # 3 attempts, plus the 7 transient retries of the default ModelRetryPolicy.
+    assert options["retryPolicy"]["maximumAttempts"] == 10
+    assert options["retryPolicy"]["initialIntervalSeconds"] == 1
+    assert options["retryPolicy"]["maximumIntervalSeconds"] == 30
     assert options["retryPolicy"]["totalDurationSeconds"] == 1800
 
 
@@ -56,7 +59,7 @@ async def test_every_run_model_of_a_session_gets_the_limit_and_the_budget_moves_
     for options in every_options:
         assert options["timeoutSeconds"] == 3600
         assert options["heartbeatTimeoutSeconds"] == 120
-        assert options["retryPolicy"]["maximumAttempts"] == 4
+        assert options["retryPolicy"]["maximumAttempts"] == 4 + 7
         assert options["retryPolicy"]["totalDurationSeconds"] == 3 * 3600
 
 

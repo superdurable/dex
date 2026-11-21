@@ -1090,6 +1090,32 @@ within 30 minutes, rerunning only this one model call, then routes to
 `RecordTurnFailure`. Each attempt has a 15 minute timeout. `run_model_limit` in
 `AgentSessionOptions` changes it, with the attempts and the retry budget.
 
+`RunModel` and `CompactContext` sort a model call's exception into three kinds:
+
+| Exception | What happens |
+| --- | --- |
+| HTTP 408, 409, 429, or 5xx, or a connection error or timeout | Retries with exponential backoff and jitter: waits of about 1, 2, 4, 8, 16, then 30 seconds, about two minutes in all, and at least the provider's `Retry-After` |
+| Any other HTTP 4xx, such as 400 or 401 | Fails the turn at once, without a retry |
+| Anything else | Retries up to `maximum_attempts`, 3 by default, as before |
+
+The session reads the status from `status_code`, `status`, `code`, or
+`response.status_code`, as the OpenAI, Anthropic, Google GenAI, LiteLLM, and
+httpx errors set them, and follows `__cause__` and `__context__`. So raise the
+model client's own exception, or chain it with `raise ... from error`. Change
+the backoff with `RunModelLimit.retry`, a `ModelRetryPolicy`:
+
+```python
+options = AgentSessionOptions(
+    run_model_limit=RunModelLimit(
+        retry=ModelRetryPolicy(
+            maximum_interval=timedelta(minutes=1), total_duration=timedelta(minutes=5)
+        ),
+    ),
+)
+```
+
+`maximum_attempts=1` still disables every retry.
+
 When a failed turn already has final tool call records, `RecordTurnFailure`
 stores one note before it deletes them, built with `build_user_message`, so
 the next turn's model does not repeat a write. `build_turn_failure_note`
@@ -1522,7 +1548,7 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 | --- | --- | --- |
 | `StartAgentSession` (`AgentSessionStartInput`) | Start Step. Initializes state, usage, interrupts, and `SessionSettings`. | `RunModel` with a non-blank `initial_message`, else `AwaitUserMessage` |
 | `AwaitUserMessage` (none) | Waits for any of, in this order, `TurnControlRequests`, `QueuedUserMessages.for_one()`, and, while the plan is `draft` or `active`, `PlanExecutions.for_one(<revision>)`, and, on a server with protocol 7 or later, the graceful completion condition last. Locks `TurnCancellationRequest` in Execute, so no turn starts while `cancel_turn` decides. A steer: moves to `ApplyTurnControl`. A message: stores it and starts a `chat` or `planning` turn. An approval: clears `PendingPlanExecution`, marks the plan `active`, and starts an `executing` turn. No consumed message and a graceful completion request: ends with `dead_end`, so the session Flow completes. | `ApplyTurnControl`, `RunModel`, itself for a stale approval, or `dead_end` |
-| `RunModel` (none) | Ends the turn and moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
+| `RunModel` (none) | Ends the turn and moves to `ApplyTurnControl` without a model call when the turn is steered or cancelled, or else to `CompactContext` when a compaction policy's threshold is crossed. Otherwise calls `run_model_step`. 15 min timeout, 2 min heartbeat timeout, 3 attempts in 30 min plus backoff retries for transient model API errors, failure route `RecordTurnFailure`. On `ToolCallsRequested`, stores the run state, one `AgentToolCalls` record per call, and the interrupts; records `write_todos` calls, and every call but `write_todos` of a planning turn, final in this commit. | `AwaitUserMessage`, `ApplyTurnControl`, `CompactContext`, or `go_to_many` with one Step per tool call plus `ResumeTurn` |
 | `CompactContext` (`CompactContextInput`) | Calls `summarize_context` once and stores `ContextSummary`. `RunModel`'s timeouts, attempts, and failure route. | `RunModel` |
 | `AwaitToolApproval` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(id)`, plus a Timer at the deadline, rounded up to whole seconds, while the interrupt is pending. Approved: marks the record `approved`. Rejected or expired: records `rejected` and publishes `ToolCallResults`. A Timer that fires before the deadline waits again. A cancellation records `rejected` with its reason. | `CallTool` or `CallSingleAttemptTool`, or ends |
 | `AwaitQuestionAnswer` (tool call ID) | Waits for `ToolCallCancellations.for_one(id)` or `InterruptResolutions.for_one(interrupt_id)`, plus a deadline Timer while the question is pending, or a zero Timer while a tool's question is not raised yet. Locks `PendingInterrupts` in Execute, where it raises a tool's question. Records the answer, decline, or deadline and publishes `ToolCallResults`, or returns a tool question's call to its tool Step, or a task's question to `PollToolTask`. Steering never cancels a task's question; `cancel_turn` cancels the wait and abandons the task. | Ends, the tool Step, `PollToolTask`, `FinishTurnCancellation`, or itself |

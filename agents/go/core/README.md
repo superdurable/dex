@@ -276,6 +276,20 @@ output item as the provider sent it.
 | `anthropicmodel` | `NewMessagesModelClient(anthropic.Client, model)`: one streaming Messages API request; thinking blocks keep their signatures | `anthropic`, `chat_completions`: the LiteLLM chat message the Python core stores, byte for byte; it also replays the TypeScript core's `ai-sdk` items with their reasoning signatures |
 | `agentstest` | `NewScriptedModelClient(respond)`: answers from a script, for tests without a model key | `dex-scripted`, `scripted`, byte for byte the Python core's scripted items |
 
+A model call that returns an error fails its `RunModel` attempt. `RunModel`
+sorts the error into three kinds:
+
+| Error | What happens |
+| --- | --- |
+| HTTP 408, 409, 429, or 5xx, or a connection error or timeout | Retries with exponential backoff and jitter: waits of about 1, 2, 4, 8, 16, then 30 seconds, about two minutes in all, and at least the provider's `Retry-After` |
+| Any other HTTP 4xx, such as 400 or 401 | Fails the turn at once, without a retry |
+| Anything else | Retries up to 3 attempts, as before |
+
+The status comes from an error in the chain with a `StatusCode` field or a
+`Response *http.Response` field, as the OpenAI and Anthropic Go SDKs' errors
+have, so wrap the client's error with `%w`. `WithModelRetryPolicy` changes the
+backoff.
+
 An item replays unchanged to a client with the same provider and API, and as
 its text and tool calls to any other, so a session can change model between
 turns. An Anthropic response with no text, tool call, or signed thinking
@@ -372,7 +386,7 @@ type AgentFrameworkRunner interface {
 `WithDefaultToolEffect` (default `unclassified`), `WithEventStreamCapacityBytes`
 (default 10 MiB), `WithInterruptDeadline` (default none),
 `WithMessageWindowSize` (default 64), `WithMessageChunkSize` (default 32),
-`WithMessageChunkMaxBytes` (default 1 MiB), and `WithLogger`. `builtinloop.NewBuiltinAgentSessionFlow` accepts the same options
+`WithMessageChunkMaxBytes` (default 1 MiB), `WithModelRetryPolicy` (default waits of 1 to 30 seconds, about two minutes in all), and `WithLogger`. `builtinloop.NewBuiltinAgentSessionFlow` accepts the same options
 after the Flow type.
 
 ## Message storage
