@@ -20,9 +20,9 @@ import os
 import threading
 from pathlib import Path
 
-from dex import Registry, Worker, WorkerOptions
+from dex import Registry, Worker
 
-from quick_start.config import SERVER_ADDRESS, new_shop_api, open_cache
+from quick_start.config import new_shop_api, open_cache, worker_options
 from quick_start.order_flow import OrderFlow
 
 
@@ -30,7 +30,7 @@ def main() -> None:
     order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
-    worker = Worker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
+    worker = Worker(registry, cache, worker_options())
     thread = threading.Thread(target=worker.start, daemon=True)
     try:
         thread.start()

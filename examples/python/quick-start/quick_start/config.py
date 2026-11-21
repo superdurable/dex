@@ -20,7 +20,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from dex import BlobCache, BlobCacheConfig, open_blob_cache
+from dex import BlobCache, BlobCacheConfig, WorkerOptions, open_blob_cache
 
 from quick_start.shop_api import ShopApi
 
@@ -28,12 +28,25 @@ SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
 HTTP_PORT = int(os.environ.get("QUICK_START_HTTP_PORT", "8080"))
 CHARGE_DELAY_SECONDS = float(os.environ.get("QUICK_START_CHARGE_DELAY_SECONDS", "0"))
 SHOP_API_KEYS_PATH = Path(".shop-api-keys")
+FLOW_DEFINITIONS_DIR = Path("build/flow-definitions")
 SHIP_DELAY = timedelta(seconds=int(os.environ.get("QUICK_START_SHIP_DELAY_SECONDS", "60")))
 
 
 def new_shop_api() -> ShopApi:
     """Returns the mock API that the Worker calls, with its keys in a local file."""
     return ShopApi(SHOP_API_KEYS_PATH, CHARGE_DELAY_SECONDS)
+
+
+def worker_options() -> WorkerOptions:
+    """Returns the Worker options; they upload the generated design when it exists."""
+    design_paths = (FLOW_DEFINITIONS_DIR,) if FLOW_DEFINITIONS_DIR.is_dir() else ()
+    if not design_paths:
+        print(
+            f"This start did not upload a design from {FLOW_DEFINITIONS_DIR};"
+            " run the README's dexcli visualize command to generate one.",
+            flush=True,
+        )
+    return WorkerOptions(server_address=SERVER_ADDRESS, flow_definition_paths=design_paths)
 
 
 def open_cache(directory: Path) -> BlobCache:

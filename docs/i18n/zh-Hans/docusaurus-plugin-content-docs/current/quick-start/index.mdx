@@ -499,7 +499,7 @@ def main() -> None:
     order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
-    worker = Worker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
+    worker = Worker(registry, cache, worker_options())
     thread = threading.Thread(target=worker.start, daemon=True)
     try:
         thread.start()
@@ -512,6 +512,8 @@ def main() -> None:
         worker.close()
         cache.close()
 ```
+
+`quick_start/config.py` 中的 `worker_options()` 设置 server 地址。`build/flow-definitions` 文件夹存在时，它还把这个文件夹作为 `flow_definition_paths` 传入。Worker 从中上传 Flow 的设计，Dex Web 用这份设计绘制运行的 **Design** 视图。第 4 步生成这个文件夹。
 
 `start.py` 中的 Client：
 
@@ -772,7 +774,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 <SdkTabs>
 <SdkSnippet lang="python">
 
+第一条命令把 Flow 的设计写到 `build/flow-definitions/`，供 Dex Web 使用。第二条命令启动 Worker：
+
 ```bash
+dexcli visualize quick_start/order_flow.py --schema-version 2.0 --json --out build/flow-definitions/order
 uv run --frozen python worker.py
 ```
 
@@ -950,6 +955,8 @@ Ship 的 Timer 触发时（默认在 Charge 完成 60 秒后），Worker 为订�
 打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，选择第 4 步启动的 Flow，启动命令打印过它的 ID。带编号的行是 Dex Web 中这次 run 的历史事件。Worker 停止和 Timer 触发不是事件，所以卡片把它们画在事件之间：
 
 <CrashTimeline variant="quick-start" />
+
+使用 Python 示例时，运行的 **Design** 视图会根据 Worker 在第 4 步上传的设计绘制 Charge 和 Ship。
 
 想在终端里查看的话，可以让 `dexcli` 输出这个 Flow 的摘要。使用启动命令打印的 Flow ID：
 

@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -29,7 +31,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -37,6 +39,8 @@ from dex import (
     Client,
     ClientOptions,
     DexServiceError,
+    FlowDefinitionDocument,
+    FlowDefinitionUploadOutcome,
     FlowStatus,
     Registry,
     StepExecutionId,
@@ -46,7 +50,13 @@ from dex import (
     WorkerOptions,
 )
 
-from quick_start.config import SERVER_ADDRESS, open_cache
+from quick_start import order_flow as order_flow_module
+from quick_start.config import (
+    FLOW_DEFINITIONS_DIR,
+    SERVER_ADDRESS,
+    open_cache,
+    worker_options,
+)
 from quick_start.order_flow import SHIP_DELAY_TIMER, OrderFlow
 from quick_start.shop_api import ShopApi
 from service import new_handler
@@ -141,6 +151,68 @@ def _skip_ship_delay(client: Client, order_id: str) -> None:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.25)
+
+
+class OrderFlowForDesignCheck(OrderFlow):
+    """OrderFlow under a Flow type that no other run uses."""
+
+    def __init__(self, shop: ShopApi, flow_type: str) -> None:
+        super().__init__(shop)
+        self.flow_type = flow_type
+
+    def get_flow_type(self) -> str:
+        return self.flow_type
+
+
+def test_worker_uploads_the_generated_design(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexcli = os.environ.get("DEXCLI_PATH") or shutil.which("dexcli")
+    if dexcli is None:
+        pytest.fail("set DEXCLI_PATH or put dexcli on PATH")
+    source = Path(order_flow_module.__file__).resolve()
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(
+        [
+            dexcli,
+            "visualize",
+            str(source),
+            "--schema-version",
+            "2.0",
+            "--json",
+            "--out",
+            "build/flow-definitions/order",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    # A Flow type of its own keeps earlier uploads on a shared server out of the result.
+    flow_type = f"OrderFlowDesignCheck{uuid.uuid4().hex}"
+    design_path = FLOW_DEFINITIONS_DIR / "order.json"
+    document = json.loads(design_path.read_text())
+    document["flow"]["name"] = flow_type
+    design_path.write_text(json.dumps(document))
+    design = design_path.read_bytes()
+    generated_at = datetime.fromisoformat(document["generatedAt"])
+
+    client_flow = OrderFlow(ShopApi())
+    with connected_client(client_flow, tmp_path / "client") as client:
+        cache = open_cache(tmp_path / "worker")
+        design_check_flow = OrderFlowForDesignCheck(ShopApi(), flow_type)
+        worker = Worker(Registry((design_check_flow,)), cache, worker_options())
+        thread = threading.Thread(target=worker.start, daemon=True)
+        try:
+            thread.start()
+            worker.wait_pull_registered(timeout=30)
+        finally:
+            worker.close()
+            thread.join(timeout=10)
+            cache.close()
+        results = client.upload_flow_definitions(
+            [FlowDefinitionDocument(flow_type, design, generated_at)]
+        )
+
+    assert [result.outcome for result in results] == [FlowDefinitionUploadOutcome.UNCHANGED]
 
 
 def test_shop_api_drops_a_repeated_key_across_processes(tmp_path: Path) -> None:

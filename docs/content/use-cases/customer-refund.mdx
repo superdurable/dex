@@ -2,18 +2,76 @@
 title: Customer Refund
 ---
 
+import readableFlow from '@site/src/data/flow-definitions/customer-refund-python.json';
 import deterministicFlow from '@site/src/data/flow-definitions/customer-refund.json';
 import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic.json';
 
 # Customer Refund
 
-The Go customer-refund example contains two independent Flows. Both publish Flow Definition Graph 2.0 metadata for Dex Web.
+A customer asks for a refund. The Flow checks the order and the refund policy, waits for a manager when the amount is large, issues the refund, and tells the customer. This page has three Flows for this process: one short Flow to read first, and two larger Go Flows.
 
-**SDK:** Go
+**SDK:** Python (refund with manager approval), Go (deterministic policy and agentic review)
+
+## Refund with manager approval {#refund-with-manager-approval}
+
+Northstar Studio asks for a refund of a 1,249.00 USD subscription renewal after a service interruption. `CustomerRefundFlow` runs eight Steps, grouped as Intake, Evidence, Control, Resolution, and Close.
+
+<DocsFlowDefinitionGraph graph={readableFlow} />
+
+**Check policy** applies the refund policy. It denies a charge older than 30 days or one with no recorded outage. It sends an amount over 1,000 USD to **Request manager approval**, and refunds a smaller amount at once. **Request manager approval** waits for one message on a Channel, then refunds or denies by the manager's decision.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py'}}>
+<SdkSnippet lang="python">
+
+```python
+class CheckPolicy(Step[RefundCase]):
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        order = input.order
+        if order.days_since_charge > REFUND_WINDOW_DAYS:
+            CASE_STATUS.set(context, "denied")
+            note = "The charge is older than our 30-day refund window."
+            return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
+        if order.outage_hours == 0:
+            CASE_STATUS.set(context, "denied")
+            note = "We found no service interruption on this order."
+            return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
+        if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
+            CASE_STATUS.set(context, AWAITING_MANAGER)
+            return go_to(RequestManagerApproval, input)
+        return go_to(IssueRefund, input)
+
+
+# dex:group group-id:control group-label:"Control"
+# dex:explanation text:"Wait for a manager to approve or reject the refund."
+class RequestManagerApproval(Step[RefundCase]):
+    def wait_for(self, context: Context, input: RefundCase) -> Wait:
+        return Wait.until(MANAGER_DECISIONS.for_one())
+
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        decision = MANAGER_DECISIONS.results(context)[0]
+        if decision.approved:
+            return go_to(IssueRefund, input)
+        CASE_STATUS.set(context, "denied")
+        return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=decision.reason))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The **Approve refund** and **Reject refund** RPCs publish the manager's decision to that Channel. Each one declares a Dex Web Action with a required reason. Dex Web offers the Actions only while `case-status` is `awaiting-manager`, and each RPC checks that status again before it publishes.
+
+The example adds what a production refund needs:
+
+- **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each. This holds because every Worker shares the same persistent ledger of the local fake services.
+- **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first. The final **Issue refund** event in Dex Web then shows that attempt 3 succeeded and keeps the details of the last failure.
+- The Worker uploads the design that `dexcli visualize` generates, so Dex Web draws this graph on each run.
+- With a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
+
+The [example folder](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund) has the commands for each scenario: approval, a refund that fails and then succeeds, a missing billing call that Time Travel fixes, and encryption.
 
 ## Deterministic policy
 
-`CustomerRefundFlow` runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
+`CustomerRefundFlow` in Go runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
