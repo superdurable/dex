@@ -1,0 +1,405 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
+
+## 1.47 {#v1-47}
+
+Released 2026-11-12 as [cli-v1.47.0](https://github.com/superdurable/dex/releases/tag/cli-v1.47.0); 1.47.1 released 2026-11-12 as [cli-v1.47.1](https://github.com/superdurable/dex/releases/tag/cli-v1.47.1); 1.47.2 released 2026-11-13 as [cli-v1.47.2](https://github.com/superdurable/dex/releases/tag/cli-v1.47.2); 1.47.3 released 2026-11-13 as [cli-v1.47.3](https://github.com/superdurable/dex/releases/tag/cli-v1.47.3); 1.47.4 released 2026-11-14 as [cli-v1.47.4](https://github.com/superdurable/dex/releases/tag/cli-v1.47.4); 1.47.5 released 2026-11-14 as [cli-v1.47.5](https://github.com/superdurable/dex/releases/tag/cli-v1.47.5); 1.47.6 released 2026-11-14 as [cli-v1.47.6](https://github.com/superdurable/dex/releases/tag/cli-v1.47.6); 1.47.7 released 2026-11-14 as [cli-v1.47.7](https://github.com/superdurable/dex/releases/tag/cli-v1.47.7); 1.47.8 released 2026-11-15 as [cli-v1.47.8](https://github.com/superdurable/dex/releases/tag/cli-v1.47.8); 1.47.9 released 2026-11-16 as [cli-v1.47.9](https://github.com/superdurable/dex/releases/tag/cli-v1.47.9); 1.47.10 released 2026-11-16 as [cli-v1.47.10](https://github.com/superdurable/dex/releases/tag/cli-v1.47.10); 1.47.11 released 2026-11-17 as [cli-v1.47.11](https://github.com/superdurable/dex/releases/tag/cli-v1.47.11); 1.47.12 released 2026-11-17 as [cli-v1.47.12](https://github.com/superdurable/dex/releases/tag/cli-v1.47.12); 1.47.13 released 2026-11-18 as [cli-v1.47.13](https://github.com/superdurable/dex/releases/tag/cli-v1.47.13); 1.47.14 released 2026-11-18 as [cli-v1.47.14](https://github.com/superdurable/dex/releases/tag/cli-v1.47.14); 1.47.15 released 2026-11-18 as [cli-v1.47.15](https://github.com/superdurable/dex/releases/tag/cli-v1.47.15); 1.47.16 released 2026-11-19 as [cli-v1.47.16](https://github.com/superdurable/dex/releases/tag/cli-v1.47.16); 1.47.17 released 2026-11-19 as [cli-v1.47.17](https://github.com/superdurable/dex/releases/tag/cli-v1.47.17); 1.47.18 released 2026-11-20 as [cli-v1.47.18](https://github.com/superdurable/dex/releases/tag/cli-v1.47.18); 1.47.19 released 2026-11-20 as [cli-v1.47.19](https://github.com/superdurable/dex/releases/tag/cli-v1.47.19); 1.47.20 released 2026-11-20 as [cli-v1.47.20](https://github.com/superdurable/dex/releases/tag/cli-v1.47.20); 1.47.21 released 2026-11-20 as [cli-v1.47.21](https://github.com/superdurable/dex/releases/tag/cli-v1.47.21).
+
+### Added
+
+- **dexcli agents-tui**: **/model** without an ID opens a list of the
+  command's suggested models with the current one marked; **/model ID** still
+  takes any model ID. The new **/effort** opens the reasoning effort values the
+  command offers, and **/effort LEVEL** checks the value against them;
+  **default** returns to the model's default. Both change the session's
+  settings from the next turn. The status line shows the reasoning effort when
+  the session sets one. The lists come from dex-agents 0.6.2; with an older
+  command, **/model** lists only its configured model and **/effort** says the
+  command has no reasoning effort setting.
+- **dexcli agents-tui** shows a user message that carries a sender name, such as one sent from Dex Web with **Your name**, as **› Alice: text**, live, on resume, and in **/history**. Messages from another client without a name keep the **(another client)** label. Since 1.47.1.
+- **dexcli agents-tui** hands a session switch back to the agents command when
+  the launch document sets **launcher_session_switch**. Then **/sessions** and
+  **/new** end the terminal UI, and the command opens the chosen session after
+  it waits until no other terminal has that session open. Without the
+  capability, the terminal UI switches in place as before. **--describe**
+  lists the capability. Since 1.47.2.
+- **dexcli visualize** accepts **--typescript-compiler**, or the
+  **DEX_TYPESCRIPT_COMPILER** environment variable, naming a trusted
+  **typescript** package directory. The analyzer then loads only that
+  compiler and starts Node.js without **NODE_** environment variables, so no
+  code from the analyzed source tree runs. Without it, the analyzer loads the
+  **typescript** package that the source project resolves, which a source tree
+  can supply through its own or a parent **node_modules** or a package named
+  **typescript**, even when **NODE_PATH** is set. Set it whenever you
+  visualize untrusted TypeScript source, and keep the analyzed tree's
+  directories out of **PATH**. An empty flag value or an empty variable is a
+  usage error, never a fallback to the source project's compiler.
+  [Reference](/reference/web/flow-visualization#typescript-compiler). Since 1.47.2.
+- **dexcli visualize** reads TypeScript **waitFor** methods, RPC handlers,
+  and **handleTimeout** in the same graph shape as Go. A Wait built directly
+  from **Wait** factories shows its Timer, Channel, ChannelMap, Join, and
+  SubFlow conditions, and a **waitFor** that only throws shows a failure
+  Wait. An RPC's **RPCResult** shows its **nextSteps** and **cancelingSteps**.
+  The graph also records resource reads, writes, and publishes in each
+  handler and in the same-file helpers it calls, and warns about unused
+  resources. A Wait, RPC result, or resource access that the analyzer cannot
+  prove, a Stream write in an RPC or timeout handler, and several Flows in
+  one file are blocking diagnostics. Such a source no longer reports
+  **typescript_wait_for_unsupported**.
+  [Reference](/reference/web/flow-visualization#supported-source-profile). Since 1.47.3.
+- **dexcli connectors mcp** serves only the Connectors MCP server, without Dex Server or Dex Web, on its own loopback **/mcp** proxy. It prints the URL as one JSON line on stdout, reuses the server of a running **dexcli dev** for the same **connections.json**, and stops only a server it started. An agent that works against a remote Dex server uses it to reach the Connector tools authorized on this machine. [Reference](/reference/cli/1.47.x/#connectors-mcp-command). Since 1.47.7.
+- **dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID** creates a new Flow from a point of another Flow run through **CloneForkFlow**. **--type** selects the point: **current** (the default), **beginning**, **history-event-time**, **step-type**, **step-execution-id**, or **event-id**. Other flags set the source run, run attempt, task queue, Flow configuration override, initial Attributes, Flow timeout, ID reuse policy, SubFlow reset policy, request ID, and reason. Since 1.47.8.
+- **dexcli flow time-travel** accepts **--type event-id** with the history event ID as **--target**, **--run-attempt** to search an earlier run attempt, and **--sub-flow-reset-policy** to decide what happens to restored SubFlow waits. Its output adds **runAttempt**. Since 1.47.8.
+- **dexcli api** lists the **CloneForkFlow** call of the FlowService and, as for other writes, calls it only with **--yes**. Since 1.47.8.
+- Flow analysis accepts the **agent.repeatOnUnknown** and **agent.maxSends** fields of a Connector package's **dex-connector.json**, and the published manifest schema declares them. Since 1.47.8.
+- **dexcli flow stop** accepts **--type graceful-complete** and **--type force-complete**, which close the Flow as completed, and **--result JSON|@FILE|-**, which adds one Flow result with those two types. They need server-zd 0.1.34 or later. Since 1.47.9.
+- **dexcli version check** also reports **serverEngine**, and **dexcli dev**
+  prints the **Server version** line with the version and protocol range of
+  server-zd once it is ready. See
+  [Check protocol compatibility](/reference/cli/1.47.x/#check-protocol-compatibility). Since 1.47.10.
+- **dexcli codec-server -key-file key.json** serves a local codec server (**POST /encode**, **POST /decode**) for encrypted payloads. It is for local development only: it listens only on 127.0.0.1, accepts only localhost **Host** headers, requires a random bearer token generated at each start, and allows CORS only from the given Dex Web origins. Since 1.47.18.
+- **dexcli codec-server keygen -o key.json** writes a payload key file with one random 32-byte key and mode 0600. It refuses to replace an existing file unless you pass **-force**. Since 1.47.18.
+- **dexcli dev -codec-key-file key.json** starts that codec server next to Dex Web and hands its endpoint and token to Dex Web and to **dexcli flow** commands against the same local server. dexcli never generates a key. Since 1.47.18.
+- **dexcli flow** commands accept **--codec-key-file**, or **--codec-endpoint** with a token from **--codec-token-file** or **DEX_CODEC_TOKEN**. They decrypt stored values and **dex-encoded:** error texts before they print them. They encrypt the **flow start** input, the **flow stop --result** output, and the Stop, Time Travel, and clone-fork reasons. New Attributes stay plaintext, because dexcli cannot know which Attributes the application declared **Plaintext**. Since 1.47.18.
+- Without a codec, a Stop, Time Travel, or clone-fork reason that starts with **dex-encoded:** is sent with one leading space, so readers never try to decrypt it. Since 1.47.18.
+
+### Changed
+
+- **dexcli visualize** reports a missing TypeScript compiler with a message
+  that names both places it looks: the source project and the
+  **node_modules** directories listed in **NODE_PATH**. A source project
+  without **node_modules** can use a separately installed, pinned
+  **typescript** package through **--typescript-compiler**; see
+  [Trusted TypeScript compiler](/reference/web/flow-visualization#typescript-compiler). Since 1.47.2.
+- The Dex Web of **dexcli dev** and **dexcli web** is Dex Web 1.45.4. A left rail holds its sections, every page has one bar, and the run tabs are Events, State and Streams. [Change log](/reference/web/changelog#v1-45). Since 1.47.4.
+- The release archives bundle **dex-server-zd** 0.1.30 instead of 0.1.26, so **dexcli dev** serves named task queues (Server protocol version 5). A Flow can name a task queue when it starts, and only Workers of that task queue run it. [Reference](/reference/server/workers). Since 1.47.5.
+- The Dex Web of **dexcli dev** and **dexcli web** is Dex Web 1.45.5. Events switches between Timeline, Graph and Design, the run tabs always show, the State tab edits the run's configuration, and Work Queue and Connectors are redesigned. [Change log](/reference/web/changelog#v1-45). Since 1.47.6.
+- **dexcli agents-tui**: pasting image paths, or dropping image files on the terminal, attaches them at once, without the **Attach NAME?** question, also when the input holds text. One paste may name several files, quoted or with backslash-escaped spaces. A pasted path that does not attach stays as text. When the paste also names an image, or the path ends in an image extension, a notice says why: not a PNG, JPEG, GIF, or WebP image, missing, or unreadable. A paste while a panel or list has focus closes it and goes to the input instead of being lost. [Reference](/reference/agents/cli#images). Since 1.47.8.
+- **dexcli agents-tui**: the notice for an image over the size limit gives both sizes in exact bytes, such as "an image may have at most 3,750,000", instead of a rounded "3.6 MB". Since 1.47.8.
+- The release archives bundle **dex-server-zd** 0.1.33 instead of 0.1.30, so **dexcli dev** serves **CloneForkFlow**, Time Travel to an event ID, and the SubFlow reset policy (Server protocol version 6). [Reference](/reference/server/runtime-client#clone-fork). Since 1.47.8.
+- The release archives bundle **dex-server-zd** 0.1.34 instead of 0.1.33, so **dexcli dev** serves the graceful completion wait condition and **StopFlow** with the graceful and force complete stop types (Server protocol version 7). [Reference](/reference/server/step-and-flow-close#graceful-completion-condition). Since 1.47.9.
+- **dexcli dev** opens Dex Web in the browser only when it runs interactively:
+  stdout is a terminal and **CI** is unset or empty. Without **--open**, it
+  keeps the browser closed when stdout is not a terminal or **CI** is
+  non-empty, as in scripts, tests, and CI. **--open=true** still
+  always opens it, and **--open=false** still always keeps it closed. Since 1.47.10.
+- **dexcli web** and **dexcli dev** serve Dex Web 1.45.13. Since 1.47.12.
+- **dexcli web** and **dexcli dev** serve Dex Web 1.45.14. Since 1.47.13.
+- **dexcli dev** and **dexcli web** bundle **dex-server-zd** 0.1.35 and serve Dex Web 1.45.15. The bundled server keeps the **dexcli dev** node lease through slower renewal writes on a busy machine. Since 1.47.14.
+- **dexcli dev** and **dexcli web** bundle **dex-server-zd** 0.1.36, which adds the **commit.batchWriteDeadline** server setting. Since 1.47.15.
+- **dexcli dev shows only server warnings and errors** in the terminal. Lines that are not log lines, such as a crash message, still show. Every server line goes to a log file named after the Dex port, such as /tmp/dexcli/dev-8801.log, truncated on each start, and the ready message prints its path on the new Logs line. When the server cannot start, exits before Dex is ready, or stops later, dexcli prints its last 20 lines and the log path. Pass --server-log-level info to see every info line as before. With --server-log-folder, server-zd keeps writing dex-server-zd.log in that folder. See [Server logs](https://docs.superdurable.io/reference/cli/#server-logs). Since 1.47.17. Since 1.47.17.
+- **The update reminder is three lines**: the newest version, the upgrade command, and how many releases you skipped, with "includes breaking changes" when one of them lists one. The new dexcli release-notes command prints the notes of those releases on demand, newest first, without empty "None." sections, with one change-log link at the end. Both send GITHUB_TOKEN or GH_TOKEN to GitHub when set, and dexcli release-notes explains a GitHub rate limit instead of printing the HTTP status. See [Update reminder and release notes](https://docs.superdurable.io/reference/cli/#release-notes). Since 1.47.17. Since 1.47.17.
+- **dexcli dev** and **dexcli web** bundle **dex-server-zd** 0.1.37, where **SetAttributes**, **DeleteChannelMessage**, and **InvokeRPC** compare only the request ID, so retried encrypted requests get the first reply. Since 1.47.20.
+- **dexcli dev** and **dexcli web** bundle **Dex Web** 1.45.17, where a custom codec server takes a bearer token and **Send cookies** is off by default. Since 1.47.21.
+
+### Fixed
+
+- **dexcli agents-tui**: Enter right after pasting an image no longer sends the message without it and attaches the image to the next message. Enter waits until the draft's pasted images are stored, shows "attaching image… sends when ready", and then sends one message with them. If an image does not attach, the message stays unsent with a notice, and the next Enter sends it without the image. Since 1.47.8.
+- **dexcli agents-tui**: live output turns off only when the Dex server's Stream Store is disabled. Before, any failed precondition on reading the session's events turned it off for the rest of the chat; now such a failure is retried. Since 1.47.8.
+- **dexcli version check** now checks the server against the protocol range of the embedded Go SDK, which every other dexcli command uses. It reports that range as **clientProtocol** and the protocol those commands negotiate as **negotiatedProtocol**. Earlier releases checked a fixed range of 1-1, so the command could report a compatible server that the other commands reject. When the ranges do not overlap, the **reason** says whether to upgrade the server or dexcli. **dexcli web** warns with the same check. Since 1.47.11.
+- **dexcli visualize** lists the enum values of a Start input type in the same order on every run when the type's constants are declared across several files. They are ordered by file name, then by source position. Since 1.47.16.
+- **dexcli visualize** accepts TypeScript Attributes and AttributeMaps declared with **.plaintext()**, as it accepts **.syncToAttributeStore()** and **.hardDeleteOnNull()**. Before, a Step or RPC that read or wrote such an Attribute failed with **dynamic_resource_access**. Since 1.47.20.
+
+## 1.46 {#v1-46}
+
+Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/releases/tag/cli-v1.46.0); 1.46.1 released 2026-11-12 as [cli-v1.46.1](https://github.com/superdurable/dex/releases/tag/cli-v1.46.1).
+
+### Added
+
+- **dexcli agents-tui** shows the message with which an approved plan starts
+  running as the notice "Running plan revision N", not as a user message from
+  another client. It hides the notes the session writes for the model after a
+  failed, steered, or cancelled turn. It reads **AgentMessage.origin**, which
+  dex-agents 0.6.0 sets on these messages.
+- The **dexcli agents-tui** chat opens a tool's whole stored output in a
+  pager with **Ctrl-O**, or picks one of the latest turn's tools with
+  **/tools**. **/history** pages through the messages stored before the ones
+  a resumed chat shows. The pager scrolls with **j**/**k** and the page keys,
+  searches with **/**, and closes with **q**.
+- Replies render tables, strikethrough, and task lists. Tool rows count the
+  images a tool returned.
+- The approval popup shows what a call acts on, what it does, and the diff
+  of a file write, when the tool's source describes them; otherwise it shows
+  the concrete arguments.
+- Pasting the path of an image file, as a terminal does for a dropped file,
+  asks whether to attach it. **Tab** completes the path after **/image** and
+  keeps its quotes or backslash escapes; **/image** reads them the same way.
+- The welcome area shows the Dex logo when the terminal is large enough.
+- **/run** shows as unavailable in the command list, with the reason, until
+  the session waits for approval of a draft plan.
+- **dexcli agents-tui** also runs the **sessions** and **connectors** modes of
+  terminal UI contract 1. The **sessions** mode is a full-screen, paged list of
+  a command's sessions. It shows the title, last activity, and turn count when
+  the sessions have them, and only the ID, status, and start time otherwise.
+  **/** filters the loaded sessions and searches titles in Dex. Enter on a
+  running session hands it back to the command to resume. The
+  **connectors** mode lists the connections of the connector tools, refreshes
+  them with **r**, and opens the Dex Web Connectors page with **a**.
+- In the agents chat, **/sessions** opens the same session list and switches
+  the chat to the picked session with its history. Before **/sessions** or
+  **/new** switches, the chat asks whether to drop attached images, and it
+  waits for the current session's requests to finish. Messages and commands
+  meant for the previous session are not sent to the new one; the chat says
+  so.
+- **dexcli agents-tui** runs the full-screen chat of the agents CLI commands
+  under terminal UI contract 1. It is a hidden command that a command's
+  launcher starts with **--channel-fd**; **--describe** prints the contracts
+  and modes it supports. The **chat** mode talks to the
+  agent session directly, with the snapshot as the record and live events
+  for streaming, and asks the launcher for local work such as **/image** and
+  **/new**.
+
+### Changed
+
+- **dexcli agents-tui**: the exit summary now says the session keeps running
+  and how to resume it, in the same words as the plain chat of the agents
+  commands, instead of "stays in Dex".
+- In the **dexcli agents-tui** chat, an idle **Ctrl-C** asks for a second
+  press within two seconds before it exits. A first press still clears a
+  draft. **Esc** on an empty input cancels the running turn, as **Ctrl-C**
+  does; the status line names it.
+- An approval or question that waited before the chat loaded the session
+  stays in the pending bar until **Tab** opens it. One that arrives while the
+  user types opens once the input stays empty for a second.
+- In the pending bar, **Up** and **Down** pick the queued message that **s**
+  and **x** act on. Any other letter returns to the input and is typed there.
+- Typing in a question's choice list starts a free-text answer, when the
+  question allows one.
+- **write_todos** rows list the plan's steps as a checklist, and **Ctrl-P**
+  shows the whole plan. **ask_user** rows show no raw result, and a waiting
+  question is called a question.
+- **/model** without an ID shows the current model and leaves **/model** in
+  the input to type one; an ID with spaces is refused.
+- The status line says "writing reply" while text streams. A stopped Worker
+  dims the input. The welcome area keeps the session the chat started with,
+  and the exit line names it after a switch.
+- Paths under the home directory show as **~**. **/web** with the browser
+  switched off shows the link as information.
+- In the **dexcli agents-tui** chat, **Up** and **Down** on an empty input
+  scroll the messages one line, so the mouse wheel scrolls in terminals that
+  send it as arrow keys. **Ctrl-P** and **Ctrl-N** recall earlier messages.
+  **Up** and **Down** keep recalling while the input holds an unedited
+  recalled message, and move between the lines of a typed message. The plan's
+  steps open with **Ctrl-T** instead of **Ctrl-P**. Since 1.46.1.
+- The **dexcli agents-tui** chat shows Dex Web addresses, in the welcome area
+  and in notices, as underlined links that terminals with hyperlink support
+  open on a click. The welcome logo uses the Dex brand green, picking the
+  light or dark shade from the terminal background, and draws its bar in the
+  terminal's text color. Since 1.46.1.
+
+### Fixed
+
+- The **dexcli agents-tui** chat shows the first reply after **/new** or
+  **/sessions**, and counts the new session's turns and usage from zero.
+- A reply that follows a tool call prints below its tool row, whole, even
+  when the session reports the finished row after the reply's text.
+- A finished reply keeps single line breaks, as it showed while streaming,
+  so it no longer jumps when the turn ends.
+- A resumed chat no longer labels the user's own queued messages as from
+  another client, and marks the cancelled turns of its history.
+- A cancelled turn says that the reply is incomplete only when part of it
+  was shown.
+- When the Dex server becomes unreachable, the chat says so once, instead
+  of reporting that the session has not loaded.
+- A suspend (SIGTSTP) stops the chat once, and **fg** brings it back. Before,
+  the stop could come back as a second suspend, and keys typed then were
+  lost. Without a job-control shell, as in a command started in its own
+  session, the chat keeps running instead of stopping.
+- The **dexcli agents-tui** chat no longer captures the mouse, so a plain drag
+  selects text and the terminal's copy works. Since 1.46.1.
+
+## 1.45 {#v1-45}
+
+Released 2026-11-11 as [cli-v1.45.0](https://github.com/superdurable/dex/releases/tag/cli-v1.45.0).
+
+### Added
+
+- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON files or directories on the server and prints the outcome for each Flow type. **--force** replaces a stored definition even when its generation time is later. **dexcli flow-definition list** lists the Flow types that have a stored definition. [Reference](/reference/cli/1.47.x/#flow-definition).
+- **dexcli visualize** writes a top-level **generatedAt** field, an RFC 3339 UTC timestamp, into each Version 2.0 Flow Definition Graph. Set **SOURCE_DATE_EPOCH** to make it reproducible; an invalid value is a usage error. Version 1.0 output is unchanged. Dex Web older than 1.45 rejects a graph that has **generatedAt**, so upgrade Dex Web with dexcli. [Reference](/reference/web/flow-visualization#generated-at).
+
+### Changed
+
+- **dexcli dev** bundles server-zd 0.1.26, which stores uploaded Flow Definition Graphs. [Reference](/reference/server/changelog#v0-1-26).
+
+### Fixed
+
+- **dexcli visualize** writes an empty array, never **null**, for every list in the Flow Definition Graph. A WaitFor that only fails used to get **"conditions": null**. [Reference](/reference/web/flow-visualization#json-contract).
+
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [cli-v1.44.0](https://github.com/superdurable/dex/releases/tag/cli-v1.44.0).
+
+### Added
+
+- **dexcli visualize** recognizes the SDK Join helper in Go, Python, and TypeScript sources. A Join appears as a ChannelMap; the branch Steps and the join Step that **Fork** starts become transitions, marked ×N when the branches are built in a loop. The Go and Python graphs also show the Join's wait, publish, and read edges. [Reference](/reference/web/flow-visualization).
+
+## 1.43 {#v1-43}
+
+Released 2026-11-10 as [cli-v1.43.0](https://github.com/superdurable/dex/releases/tag/cli-v1.43.0).
+
+### Breaking
+
+- Removed **dexcli flow trigger-continue-as-new** and the **--follow-runs** flag from **dexcli flow watch**. **dexcli flow watch** stops when the watched run closes. [Reference](/reference/cli/1.47.x/#friendly-flow-operations).
+- **dexcli flow start --config** and **dexcli flow update-config --config** ignore **continueAsNewThreshold** and **continueAsNewPageSizeInBytes** and no longer send them. Remove those JSON properties. [Reference](/reference/cli/1.47.x/#friendly-flow-operations).
+- **dexcli api** response JSON uses **flowRunId** instead of **flowExecutionId**. **dexcli api call** rejects a request that still names a removed field, such as **includeContinuedAsNew** or **continueAsNewThreshold** in a **FlowConfig**. [Reference](/reference/cli/1.47.x/#complete-public-api-access).
+- History output from **dexcli flow history**, **dexcli flow inspect**, **dexcli flow watch**, and **dexcli api** no longer contains **continuedStart** or **continuedToRunId**. Flow status is never **FLOW_STATUS_CONTINUED_AS_NEW**. [Reference](/reference/cli/1.47.x/#complete-public-api-access).
+
+### Added
+
+- The Dex Web of **dexcli dev** and **dexcli web** can start a Dex Agents session, send it messages, and edit its settings from the **Agent session** tab. [Reference](/reference/web/dex-web#agent-new-session).
+- **dexcli dev** finds or starts the Dex Connectors MCP server and serves its agent tools at **/mcp** on the Dex Web port. It downloads and verifies a compatible release, and restarts the server when it stops. New flags: **--connectors-mcp**, **--connectors-mcp-version**, **--connectors-mcp-binary**, and **--connectors-mcp-connection**. [Reference](/reference/cli/1.47.x/#connectors-mcp).
+
+### Changed
+
+- The Dex Web of **dexcli web** answers its **/api/v2/connector-** routes with HTTP 404 **CONNECTOR_SETUP_UNAVAILABLE**, because it has no local Connector setup. **dexcli web** and **dexcli dev** still serve Dex Web at the root of their port. [Reference](/reference/web/embed-dex-web#limits).
+
+## 1.42 {#v1-42}
+
+Released 2026-11-10 as [cli-v1.42.0](https://github.com/superdurable/dex/releases/tag/cli-v1.42.0).
+
+### Added
+
+- **dexcli dev** serves a Dex Web **Connectors** page that can add a named connection that no loaded Flow uses, such as the Slack connection an agent tool opens, without **--flow-rendering-dir**. [Reference](/reference/web/local-connector-setup#add-a-connection).
+- **dexcli dev** and **dexcli web** accept **--allowed-hosts**, a comma-separated list of host names that Dex Web **/api** requests may use. [Reference](/reference/web/dex-web#allowed-hosts).
+
+### Changed
+
+- The Dex Web of **dexcli dev** refuses an **/api** request whose **Host** is a DNS name other than a loopback name or an **--allowed-hosts** entry, with HTTP 403 **HOST_NOT_ALLOWED**. This stops DNS rebinding. Pass **--allowed-hosts** when a tunnel or a hosted development environment forwards Dex Web under its own name. [Reference](/reference/web/dex-web#allowed-hosts).
+
+## 1.41 {#v1-41}
+
+Released 2026-11-09 as [cli-v1.41.0](https://github.com/superdurable/dex/releases/tag/cli-v1.41.0). Patch release [cli-v1.41.1](https://github.com/superdurable/dex/releases/tag/cli-v1.41.1) followed on 2026-11-10.
+
+### Breaking
+
+- **dexcli web** and **dexcli dev** serve a Dex Web with one UI. The **v2** pages are removed, and every **/v2** URL redirects to its **/v1** equivalent. [Reference](/reference/web/dex-web#v1-pages).
+
+### Added
+
+- **dexcli web** and **dexcli dev** serve the Dex Web **Design** tab and the **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. [Reference](/reference/web/dex-web#run-tabs).
+
+### Changed
+
+- Since 1.41.1: **dexcli web** and **dexcli dev** open a run on the **Timeline** tab by default. [Reference](/reference/web/dex-web#run-tabs).
+- Since 1.41.1: **dexcli web** and **dexcli dev** serve a Timeline overview where clicking a bar selects its event. [Reference](/reference/web/dex-web#v1-pages).
+- Since 1.41.1: **dexcli web** and **dexcli dev** serve an **Agent session** tab that shows queued and skipped connector writes. [Reference](/reference/web/dex-web#agent-session-view).
+- **dexcli visualize** opens the **Designs** page, which was called **Flow Rendering**. [Reference](/reference/web/flow-visualization).
+- **dexcli web** and **dexcli dev** serve the Timeline overview histogram. [Reference](/reference/web/dex-web#v1-pages).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [cli-v1.40.0](https://github.com/superdurable/dex/releases/tag/cli-v1.40.0). Patch releases [cli-v1.40.1](https://github.com/superdurable/dex/releases/tag/cli-v1.40.1) and [cli-v1.40.2](https://github.com/superdurable/dex/releases/tag/cli-v1.40.2) followed the same day.
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.23. Its breaking changes apply to every **dexcli dev** data directory. Each run now chooses at start whether it offloads history, and the **history.offloadEnabled**, **history.deleteExpiredObjects**, and **history.maxRetainedSupersededBytes** keys are removed. A **history.offloadEnabled** value of false in a **--zd-config** file now fails startup. [Reference](/reference/server/changelog#v0-1-23).
+- The default **history.windowEvents** for **dexcli dev** is 5,000 events, where it was 10,000. Runs keep the window they recorded at start.
+- Do not run an earlier dexcli on a data directory after 1.40 has used it.
+
+### Added
+
+- **dexcli flow start --config** accepts **offloadHistory**. [Reference](/reference/server/configuration#history-offload).
+- The Connector manifest schema accepts **agent.branches**, so **dexcli visualize** reads it without a diagnostic. [Reference](/reference/web/flow-visualization#connector-package-manifests).
+- **dexcli web** and **dexcli dev** serve the Dex Web v1 Flows and Run pages redesign, including a horizontal Timeline and editing of a run's history window. [Reference](/reference/web/dex-web#v1-pages).
+
+### Changed
+
+- **FlowConfig.delete_expired_history_objects** is deprecated. **dexcli** no longer sends it.
+- **dexcli dev** bundles server-zd 0.1.25 since 1.40.2. [Reference](/reference/server/changelog#v0-1-25).
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [cli-v1.39.0](https://github.com/superdurable/dex/releases/tag/cli-v1.39.0). Patch release [cli-v1.39.1](https://github.com/superdurable/dex/releases/tag/cli-v1.39.1) followed the same day.
+
+### Added
+
+- **dexcli visualize** reads Actions declared by Python and TypeScript applications, and emits their RPC lock edges. This arrived in 1.39.1. [Reference](/reference/web/flow-visualization#actions-in-python-and-typescript).
+- **dexcli visualize** provides a Flow Definition Graph for Dex Agents session Flows.
+- Dex Web sends the declared RPC locks when a person runs an Action. [Reference](/reference/web/dex-web#actions).
+- Dex Web adds a Session tab for Dex Agents sessions and an agent inbox in the Work Queue. [Reference](/reference/web/dex-web#agent-session-view).
+
+### Changed
+
+- **dexcli** sends LoadBlobs requests in batches of at most 1,000 entries.
+- **dexcli dev** bundles server-zd 0.1.22 since 1.39.1. This turns history offload on by default for **dexcli dev**. [Reference](/reference/server/changelog#v0-1-22).
+- **dexcli flow start --config** accepts **deleteExpiredHistoryObjects**.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [cli-v1.38.0](https://github.com/superdurable/dex/releases/tag/cli-v1.38.0).
+
+### Added
+
+- Dex Web v2 searches by active Step type and across Flow types, returns the output of an Action RPC, and accepts an Action without a condition. [Reference](/reference/web/dex-web#search-several-flow-types).
+- **dexcli flow start --config** accepts **historyWindowEvents**, which sets how many history events a run keeps. [Reference](/reference/server/configuration#history-window).
+
+### Changed
+
+- **dexcli** splits a LoadBlobs request when the server rejects its response size.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [cli-v1.37.0](https://github.com/superdurable/dex/releases/tag/cli-v1.37.0). Reference: [1.37.x](/reference/cli/1.37.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.20 and creates 32-partition state directories. To retain an older 1024-partition directory, pass **--zd-config** with **cluster.partitionCount** set to 1024. [Reference](/reference/cli/1.47.x/#start-locally).
+
+### Added
+
+- **dexcli web** serves Dex Web against an existing **--server** using the CLI’s TLS and credential settings. It binds loopback by default and accepts **--flow-rendering-dir**. [Reference](/reference/cli/1.47.x/#web).
+
+### Fixed
+
+- Stopping embedded Dex Web no longer waits for an open Flow history long poll to finish. [Reference](/reference/cli/1.47.x/#web).
+
+## 1.36 {#v1-36}
+
+Released 2026-11-06 as [cli-v1.36.0](https://github.com/superdurable/dex/releases/tag/cli-v1.36.0). Reference: [1.36.x](/reference/cli/1.47.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.19, which caps node Stream data at 1 GiB and each requested Stream capacity at 64 MiB by default. Set **streamStore.maxTotalBytes** and **streamStore.maxStreamCapacityBytes** through **--zd-config** for larger buffers. [Reference](/reference/cli/1.47.x/#start-locally).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [cli-v1.35.0](https://github.com/superdurable/dex/releases/tag/cli-v1.35.0). Reference: [1.35.x](/reference/cli/1.47.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.18 and defaults to strict durability, with slower writes that survive host crashes. Pass **--durability process-crash-safe** for the previous behavior. [Reference](/reference/cli/1.47.x/#start-locally).
+- **dexcli dev** refuses data directories left unclean by server-zd releases before 0.1.4. Delete such a directory to start empty. [Reference](/reference/cli/1.47.x/#start-locally).
+
+### Added
+
+- **--durability** accepts **strict**, **process-crash-safe**, or **relaxed**. An explicit flag overrides **dev.durabilityMode** in **--zd-config**. [Reference](/reference/cli/1.47.x/#start-locally).
+
+### Changed
+
+- The bundled server supports protocol version 4, including durable Step queues and planned-stop draining. This CLI release can run SDK 1.35 applications locally. [Reference](/reference/cli/1.47.x/#start-locally).
+- **dexcli visualize** uses **RPCOptions.Name** for Actions and Summary and Display RPCs when the name is a compile-time string. [Reference](/reference/cli/1.47.x/#start-locally).
+
+## 1.34 {#v1-34}
+
+Released 2026-11-02 as [cli-v1.34.0](https://github.com/superdurable/dex/releases/tag/cli-v1.34.0). Reference: [1.34.x](/reference/cli/1.47.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.16, including the fix for a process taking its lease back after step-down. [Reference](/reference/cli/1.47.x/#start-locally).
+
+## 1.33 {#v1-33}
+
+Released 2026-11-02 as [cli-v1.33.0](https://github.com/superdurable/dex/releases/tag/cli-v1.33.0). Reference: [1.33.x](/reference/cli/1.47.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.15, which supports hot standby takeover and administrative step-down. [Reference](/reference/cli/1.47.x/#start-locally).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true).
