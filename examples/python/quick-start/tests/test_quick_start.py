@@ -153,22 +153,30 @@ def _skip_ship_delay(client: Client, order_id: str) -> None:
             time.sleep(0.25)
 
 
+class OrderFlowForDesignCheck(OrderFlow):
+    """OrderFlow under a Flow type that no other run uses."""
+
+    def __init__(self, shop: ShopApi, flow_type: str) -> None:
+        super().__init__(shop)
+        self.flow_type = flow_type
+
+    def get_flow_type(self) -> str:
+        return self.flow_type
+
+
 def test_worker_uploads_the_generated_design(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dexcli = os.environ.get("DEXCLI_PATH") or shutil.which("dexcli")
     if dexcli is None:
         pytest.fail("set DEXCLI_PATH or put dexcli on PATH")
-    # A unique source folder gives the design a source.path no earlier upload has.
-    unique_source = tmp_path / uuid.uuid4().hex / "order_flow.py"
-    unique_source.parent.mkdir()
-    shutil.copy(Path(order_flow_module.__file__), unique_source)
+    source = Path(order_flow_module.__file__).resolve()
     monkeypatch.chdir(tmp_path)
     subprocess.run(
         [
             dexcli,
             "visualize",
-            str(unique_source.relative_to(tmp_path)),
+            str(source),
             "--schema-version",
             "2.0",
             "--json",
@@ -178,13 +186,20 @@ def test_worker_uploads_the_generated_design(
         check=True,
         capture_output=True,
     )
-    design = (FLOW_DEFINITIONS_DIR / "order.json").read_bytes()
-    generated_at = datetime.fromisoformat(json.loads(design)["generatedAt"])
+    # A Flow type of its own keeps earlier uploads on a shared server out of the result.
+    flow_type = f"OrderFlowDesignCheck{uuid.uuid4().hex}"
+    design_path = FLOW_DEFINITIONS_DIR / "order.json"
+    document = json.loads(design_path.read_text())
+    document["flow"]["name"] = flow_type
+    design_path.write_text(json.dumps(document))
+    design = design_path.read_bytes()
+    generated_at = datetime.fromisoformat(document["generatedAt"])
 
     client_flow = OrderFlow(ShopApi())
     with connected_client(client_flow, tmp_path / "client") as client:
         cache = open_cache(tmp_path / "worker")
-        worker = Worker(Registry((OrderFlow(ShopApi()),)), cache, worker_options())
+        design_check_flow = OrderFlowForDesignCheck(ShopApi(), flow_type)
+        worker = Worker(Registry((design_check_flow,)), cache, worker_options())
         thread = threading.Thread(target=worker.start, daemon=True)
         try:
             thread.start()
@@ -194,7 +209,7 @@ def test_worker_uploads_the_generated_design(
             thread.join(timeout=10)
             cache.close()
         results = client.upload_flow_definitions(
-            [FlowDefinitionDocument("OrderFlow", design, generated_at)]
+            [FlowDefinitionDocument(flow_type, design, generated_at)]
         )
 
     assert [result.outcome for result in results] == [FlowDefinitionUploadOutcome.UNCHANGED]

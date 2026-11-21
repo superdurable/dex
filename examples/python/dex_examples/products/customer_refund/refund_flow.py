@@ -114,13 +114,13 @@ class CheckOrder(Step[RefundRequest]):
 class CheckPolicy(Step[RefundCase]):
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         order = input.order
-        note = ""
         if order.days_since_charge > REFUND_WINDOW_DAYS:
-            note = "The charge is older than our 30-day refund window."
-        elif order.outage_hours == 0:
-            note = "We found no service interruption on this order."
-        if note:
             CASE_STATUS.set(context, "denied")
+            note = "The charge is older than our 30-day refund window."
+            return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
+        if order.outage_hours == 0:
+            CASE_STATUS.set(context, "denied")
+            note = "We found no service interruption on this order."
             return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
         if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
             CASE_STATUS.set(context, AWAITING_MANAGER)

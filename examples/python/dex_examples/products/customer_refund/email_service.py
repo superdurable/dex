@@ -26,7 +26,7 @@ from dex_examples.products.customer_refund.ledger_database import (
 
 
 class FakeEmailService:
-    """Records each email in the shared SQLite ledger; the first record is the send."""
+    """Records only each email's key in the shared ledger; the first record is the send."""
 
     def __init__(self, ledger_path: Path = DEFAULT_LEDGER_DATABASE) -> None:
         self.ledger_path = ledger_path
@@ -34,9 +34,8 @@ class FakeEmailService:
     def send(self, to: str, body: str, idempotency_key: str) -> None:
         with closing(connect_ledger(self.ledger_path)) as ledger:
             inserted = ledger.execute(
-                "INSERT OR IGNORE INTO sent_emails (idempotency_key, recipient, body)"
-                " VALUES (?, ?, ?)",
-                (idempotency_key, to, body),
+                "INSERT OR IGNORE INTO sent_email_keys (idempotency_key) VALUES (?)",
+                (idempotency_key,),
             ).rowcount
         if inserted:
             print(f"Emailed {to}: {body}", flush=True)
@@ -45,5 +44,7 @@ class FakeEmailService:
 
     def list_sent_keys(self) -> list[str]:
         with closing(connect_ledger(self.ledger_path)) as ledger:
-            rows = ledger.execute("SELECT idempotency_key FROM sent_emails ORDER BY id").fetchall()
+            rows = ledger.execute(
+                "SELECT idempotency_key FROM sent_email_keys ORDER BY id"
+            ).fetchall()
         return [row[0] for row in rows]

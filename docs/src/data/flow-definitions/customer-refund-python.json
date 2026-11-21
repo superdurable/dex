@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-21T07:25:03Z",
+  "generatedAt": "2026-11-21T07:42:42Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -60,11 +60,28 @@
       }
     },
     {
+      "id": "decision:step:CheckPolicy:120:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CheckPolicy",
+      "condition": "order.days_since_charge \u003e REFUND_WINDOW_DAYS",
+      "phase": "execute",
+      "span": {
+        "startLine": 120,
+        "startColumn": 20,
+        "endLine": 120,
+        "endColumn": 92
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
       "id": "decision:step:CheckPolicy:124:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CheckPolicy",
-      "condition": "note",
+      "condition": "not (order.days_since_charge \u003e REFUND_WINDOW_DAYS) and order.outage_hours == 0",
       "phase": "execute",
       "span": {
         "startLine": 124,
@@ -81,7 +98,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CheckPolicy",
-      "condition": "not (note) and order.amount_usd \u003e MANAGER_APPROVAL_LIMIT_USD",
+      "condition": "not (order.days_since_charge \u003e REFUND_WINDOW_DAYS) and not (order.outage_hours == 0) and order.amount_usd \u003e MANAGER_APPROVAL_LIMIT_USD",
       "phase": "execute",
       "span": {
         "startLine": 127,
@@ -98,7 +115,7 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CheckPolicy",
-      "condition": "not (note) and not (order.amount_usd \u003e MANAGER_APPROVAL_LIMIT_USD)",
+      "condition": "not (order.days_since_charge \u003e REFUND_WINDOW_DAYS) and not (order.outage_hours == 0) and not (order.amount_usd \u003e MANAGER_APPROVAL_LIMIT_USD)",
       "phase": "execute",
       "span": {
         "startLine": 128,
@@ -484,6 +501,19 @@
     {
       "id": "edge:0002",
       "kind": "transition",
+      "from": "decision:step:CheckPolicy:120:20",
+      "to": "step:WriteCustomerMessage",
+      "label": "go_to",
+      "span": {
+        "startLine": 120,
+        "startColumn": 20,
+        "endLine": 120,
+        "endColumn": 92
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
       "from": "decision:step:CheckPolicy:124:20",
       "to": "step:WriteCustomerMessage",
       "label": "go_to",
@@ -495,7 +525,7 @@
       }
     },
     {
-      "id": "edge:0003",
+      "id": "edge:0004",
       "kind": "transition",
       "from": "decision:step:CheckPolicy:127:20",
       "to": "step:RequestManagerApproval",
@@ -508,7 +538,7 @@
       }
     },
     {
-      "id": "edge:0004",
+      "id": "edge:0005",
       "kind": "transition",
       "from": "decision:step:CheckPolicy:128:16",
       "to": "step:IssueRefund",
@@ -521,7 +551,7 @@
       }
     },
     {
-      "id": "edge:0005",
+      "id": "edge:0006",
       "kind": "transition",
       "from": "decision:step:IssueRefund:160:16",
       "to": "step:WriteCustomerMessage",
@@ -534,7 +564,7 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "transition",
       "from": "decision:step:ReceiveRequest:98:16",
       "to": "step:CheckOrder",
@@ -547,7 +577,7 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0008",
       "kind": "transition",
       "from": "decision:step:RequestManagerApproval:140:20",
       "to": "step:IssueRefund",
@@ -560,7 +590,7 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0009",
       "kind": "transition",
       "from": "decision:step:RequestManagerApproval:142:16",
       "to": "step:WriteCustomerMessage",
@@ -573,7 +603,7 @@
       }
     },
     {
-      "id": "edge:0009",
+      "id": "edge:0010",
       "kind": "transition",
       "from": "decision:step:SendMessage:197:16",
       "to": "step:CloseCase",
@@ -586,7 +616,7 @@
       }
     },
     {
-      "id": "edge:0010",
+      "id": "edge:0011",
       "kind": "transition",
       "from": "decision:step:WriteCustomerMessage:182:16",
       "to": "step:SendMessage",
@@ -599,7 +629,7 @@
       }
     },
     {
-      "id": "edge:0011",
+      "id": "edge:0012",
       "kind": "resource_read",
       "from": "resource:attribute:CASE_STATUS",
       "to": "rpc:approve_refund",
@@ -615,7 +645,7 @@
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0013",
       "kind": "resource_read",
       "from": "resource:attribute:CASE_STATUS",
       "to": "rpc:reject_refund",
@@ -631,7 +661,7 @@
       }
     },
     {
-      "id": "edge:0013",
+      "id": "edge:0014",
       "kind": "resource_read",
       "from": "resource:channel:MANAGER_DECISIONS",
       "to": "step:RequestManagerApproval",
@@ -647,7 +677,7 @@
       }
     },
     {
-      "id": "edge:0014",
+      "id": "edge:0015",
       "kind": "wait_condition",
       "from": "resource:channel:MANAGER_DECISIONS",
       "to": "wait:RequestManagerApproval:135:16:0",
@@ -660,7 +690,7 @@
       }
     },
     {
-      "id": "edge:0015",
+      "id": "edge:0016",
       "kind": "resource_lock",
       "from": "rpc:approve_refund",
       "to": "resource:attribute:CASE_STATUS",
@@ -677,7 +707,7 @@
       }
     },
     {
-      "id": "edge:0016",
+      "id": "edge:0017",
       "kind": "resource_write",
       "from": "rpc:approve_refund",
       "to": "resource:attribute:CASE_STATUS",
@@ -693,7 +723,7 @@
       }
     },
     {
-      "id": "edge:0017",
+      "id": "edge:0018",
       "kind": "resource_publish",
       "from": "rpc:approve_refund",
       "to": "resource:channel:MANAGER_DECISIONS",
@@ -709,7 +739,7 @@
       }
     },
     {
-      "id": "edge:0018",
+      "id": "edge:0019",
       "kind": "resource_lock",
       "from": "rpc:reject_refund",
       "to": "resource:attribute:CASE_STATUS",
@@ -726,7 +756,7 @@
       }
     },
     {
-      "id": "edge:0019",
+      "id": "edge:0020",
       "kind": "resource_write",
       "from": "rpc:reject_refund",
       "to": "resource:attribute:CASE_STATUS",
@@ -742,7 +772,7 @@
       }
     },
     {
-      "id": "edge:0020",
+      "id": "edge:0021",
       "kind": "resource_publish",
       "from": "rpc:reject_refund",
       "to": "resource:channel:MANAGER_DECISIONS",
@@ -758,15 +788,15 @@
       }
     },
     {
-      "id": "edge:0021",
+      "id": "edge:0022",
       "kind": "resource_write",
       "from": "step:CheckPolicy",
       "to": "resource:attribute:CASE_STATUS",
       "label": "set",
       "span": {
-        "startLine": 123,
+        "startLine": 118,
         "startColumn": 13,
-        "endLine": 123,
+        "endLine": 118,
         "endColumn": 47
       },
       "metadata": {
@@ -774,7 +804,7 @@
       }
     },
     {
-      "id": "edge:0022",
+      "id": "edge:0023",
       "kind": "resource_write",
       "from": "step:CloseCase",
       "to": "resource:attribute:CASE_STATUS",
@@ -790,7 +820,7 @@
       }
     },
     {
-      "id": "edge:0023",
+      "id": "edge:0024",
       "kind": "resource_write",
       "from": "step:IssueRefund",
       "to": "resource:attribute:CASE_STATUS",
@@ -806,7 +836,7 @@
       }
     },
     {
-      "id": "edge:0024",
+      "id": "edge:0025",
       "kind": "resource_write",
       "from": "step:IssueRefund",
       "to": "resource:attribute:REFUND_ID",
@@ -822,7 +852,7 @@
       }
     },
     {
-      "id": "edge:0025",
+      "id": "edge:0026",
       "kind": "resource_write",
       "from": "step:ReceiveRequest",
       "to": "resource:attribute:CASE_STATUS",
@@ -838,7 +868,7 @@
       }
     },
     {
-      "id": "edge:0026",
+      "id": "edge:0027",
       "kind": "resource_write",
       "from": "step:ReceiveRequest",
       "to": "resource:attribute:CUSTOMER_EMAIL",
@@ -854,7 +884,7 @@
       }
     },
     {
-      "id": "edge:0027",
+      "id": "edge:0028",
       "kind": "resource_write",
       "from": "step:RequestManagerApproval",
       "to": "resource:attribute:CASE_STATUS",
@@ -870,7 +900,7 @@
       }
     },
     {
-      "id": "edge:0028",
+      "id": "edge:0029",
       "kind": "resource_write",
       "from": "step:WriteCustomerMessage",
       "to": "resource:attribute:CUSTOMER_MESSAGE",

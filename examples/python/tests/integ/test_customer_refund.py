@@ -233,10 +233,13 @@ def test_time_travel_reuses_an_issued_refund(
         testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["small"])
         testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         first_refunds = testbed.billing.list_refunds()
-        time_travel_with_dexcli(flow_id, "IssueRefund")
+        first_attempt = current_run_attempt(flow_id)
+        new_attempt = time_travel_with_dexcli(flow_id, "IssueRefund")
         again = testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
     assert again.status == FlowStatus.COMPLETED
+    assert new_attempt > first_attempt
+    issue_refund_execute_completed_context(flow_id, new_attempt)
     assert len(first_refunds) == 1
     assert testbed.billing.list_refunds() == first_refunds
     refund_id = testbed.client.get_attributes(flow_id, REFUND_ID)[REFUND_ID]
@@ -298,28 +301,43 @@ def dexcli_path() -> str:
     return dexcli
 
 
-def issue_refund_execute_completed_context(flow_id: str) -> dict[str, Any]:
-    """Reads the context of the one IssueRefund StepExecuteCompleted event."""
+def read_history_events(flow_id: str) -> list[dict[str, Any]]:
+    """Reads every history event of the Flow's current run with dexcli."""
     history = subprocess.run(
         [dexcli_path(), "flow", "history", flow_id, "--server", server_address(), "--all"],
         check=True,
         capture_output=True,
         text=True,
     )
+    events: list[dict[str, Any]] = json.loads(history.stdout)["events"]
+    return events
+
+
+def issue_refund_execute_completed_context(
+    flow_id: str, run_attempt: int | None = None
+) -> dict[str, Any]:
+    """Reads the context of the one IssueRefund StepExecuteCompleted event, in one run attempt."""
     contexts = [
         event["payload"]["context"]
-        for event in json.loads(history.stdout)["events"]
+        for event in read_history_events(flow_id)
         if event["type"] == "StepExecuteCompleted"
         and event["payload"]["context"]["stepType"] == "IssueRefund"
+        and run_attempt in (None, event["runAttempt"])
     ]
     assert len(contexts) == 1
     context: dict[str, Any] = contexts[0]
     return context
 
 
-def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
-    """Runs the README's time travel command."""
-    subprocess.run(
+def current_run_attempt(flow_id: str) -> int:
+    """Returns the run attempt of the Flow's latest history event."""
+    run_attempt: int = read_history_events(flow_id)[-1]["runAttempt"]
+    return run_attempt
+
+
+def time_travel_with_dexcli(flow_id: str, step_type: str) -> int:
+    """Runs the README's time travel command and returns the new run attempt."""
+    completed = subprocess.run(
         [
             dexcli_path(),
             "flow",
@@ -337,4 +355,7 @@ def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
         ],
         check=True,
         capture_output=True,
+        text=True,
     )
+    run_attempt: int = json.loads(completed.stdout)["runAttempt"]
+    return run_attempt

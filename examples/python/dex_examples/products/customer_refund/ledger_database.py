@@ -28,11 +28,9 @@ CREATE TABLE IF NOT EXISTS refunds (
     order_id TEXT NOT NULL,
     amount_usd REAL NOT NULL
 );
-CREATE TABLE IF NOT EXISTS sent_emails (
+CREATE TABLE IF NOT EXISTS sent_email_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    idempotency_key TEXT NOT NULL UNIQUE,
-    recipient TEXT NOT NULL,
-    body TEXT NOT NULL
+    idempotency_key TEXT NOT NULL UNIQUE
 );
 """
 
@@ -41,6 +39,10 @@ def connect_ledger(database_path: Path) -> sqlite3.Connection:
     """Opens the ledger in autocommit mode, so each INSERT commits atomically."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path, timeout=30, isolation_level=None)
-    # BEGIN IMMEDIATE waits for the write lock, so concurrent first opens do not fail.
-    connection.executescript(f"BEGIN IMMEDIATE; {_SCHEMA} COMMIT;")
+    try:
+        # BEGIN IMMEDIATE waits for the write lock, so concurrent first opens do not fail.
+        connection.executescript(f"BEGIN IMMEDIATE; {_SCHEMA} COMMIT;")
+    except BaseException:
+        connection.close()
+        raise
     return connection

@@ -68,8 +68,10 @@ uv run --frozen python -m dex_examples.products.customer_refund.decide refund1 a
 `decide` first waits, up to 60 seconds, until `case-status` is
 `awaiting-manager`, so you can run it right after `start`. Both RPCs refuse a
 blank reason. The Action's `refund.manage` permission applies to Dex Web and
-Work Queue only. A direct RPC call, such as `decide`, is authorized by your
-server's authentication, which you configure separately.
+Work Queue only. A direct RPC call, such as `decide`, passes only the
+server's public API authentication, which identifies the caller. It does not
+decide who may approve a refund; a production application must authorize the
+approver separately.
 
 List the refunds that billing recorded:
 
@@ -167,9 +169,11 @@ uv run --frozen python -m dex_examples.products.customer_refund.start refund4 sm
 `payload_encryption()` in `refund_settings.py` turns the file into
 `PayloadEncryptionOptions` for the Worker and the Client. `case-status` and
 `customer-email` are declared `plaintext=True`, so Dex Web reads them without
-the key; the Action condition needs `case-status` in plaintext. Step inputs,
-`refund-id`, and `customer-message` are stored encrypted. The email address is
-synthetic sample data.
+the key; the Action condition needs `case-status` in plaintext. In the
+payloads Dex stores, Step inputs, `refund-id`, and `customer-message` are
+encrypted. Encryption covers only those payloads. The local fake ledger keeps
+idempotency keys, order IDs, and amounts, and no email text. The email address
+is synthetic sample data.
 
 To show the encrypted values in Dex Web, the simplest way is to start Dex with
 the key file. Dex Web then finds its codec server by itself (**Settings** >
