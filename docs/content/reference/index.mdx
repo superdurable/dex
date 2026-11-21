@@ -82,11 +82,7 @@ page.
 Programs read the same data from
 [server-zd.json](https://docs.superdurable.io/compatibility/server-zd.json).
 Its [JSON Schema](https://docs.superdurable.io/compatibility/server-zd.schema.json)
-describes every field and the compatibility rule. New fields can appear
-without a new `schemaVersion`, so a program ignores the fields it does not
-know. For each Agents CLI command package, `agentsCliCommands` lists
-releases that exist on the registry and whose pinned SDK works with the
-server.
+describes every field and the compatibility rule.
 
 Dex Web 1.45, 1.43, 1.41, 1.40, 1.37 needs server-zd 0.1.17 or newer (protocol
 version 4).
@@ -99,6 +95,7 @@ runs:
 
 | dexcli | Bundled server-zd |
 | --- | --- |
+| 1.47 | 0.1.37 |
 | 1.45 | 0.1.26 |
 | 1.43 | 0.1.25 |
 | 1.41 | 0.1.25 |
