@@ -1680,7 +1680,7 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 	})
 	var toolError *ToolExecutionError
 	if errors.As(err, &toolError) {
-		toolCall.Status = ToolCallStatusFailed
+		toolCall.Status = toolExecutionErrorStatus(toolCall, ctx.Attempt())
 		toolCall.Error = &toolError.Message
 		return finishToolCall(ctx, toolCall, events)
 	}
@@ -1695,6 +1695,20 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 	toolCall.Output = &executionResult.Output
 	toolCall.RunnerToolState = executionResult.RunnerToolState
 	return finishToolCall(ctx, toolCall, events)
+}
+
+// toolExecutionErrorStatus returns the status a *ToolExecutionError from a tool Step's attempt records.
+//
+// A first attempt, a read, and a call that a tool source built record failed. A later attempt of any
+// other call records outcome_unknown: an attempt number above 1 means an earlier attempt reached a
+// Worker and ended without a final record, so its tool may have taken effect. A refusal on the retry,
+// such as an unknown tool or arguments that a new schema rejects, says nothing about that earlier
+// attempt. A tool source classifies its own errors, so its calls keep failed.
+func toolExecutionErrorStatus(toolCall AgentToolCall, attempt int32) ToolCallStatus {
+	if attempt > 1 && toolCall.Effect != ToolEffectRead && toolCall.ToolSourceReference == nil {
+		return ToolCallStatusOutcomeUnknown
+	}
+	return ToolCallStatusFailed
 }
 
 func (flow *AgentSessionFlow) recordToolRecovery(

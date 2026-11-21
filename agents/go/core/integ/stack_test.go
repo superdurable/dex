@@ -34,6 +34,7 @@ const (
 	serverAddressEnvironmentVariable    = "DEX_AGENTS_SERVER_ADDRESS"
 	blobCacheDirEnvironmentVariable     = "DEX_AGENTS_BLOB_CACHE_DIR"
 	coordinationDirEnvironmentVariable  = "DEX_AGENTS_COORDINATION_DIR"
+	refundToolDeployEnvironmentVariable = "DEX_AGENTS_REFUND_TOOL_DEPLOY"
 	sessionConvergenceTimeout           = 90 * time.Second
 	sessionConvergencePollInterval      = 100 * time.Millisecond
 	workerReadyTimeout                  = time.Minute
@@ -53,7 +54,8 @@ func TestMain(m *testing.M) {
 func runScriptedWorker() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	flows, err := newScriptedAgentFlows(os.Getenv(coordinationDirEnvironmentVariable))
+	flows, err := newScriptedAgentFlows(os.Getenv(coordinationDirEnvironmentVariable),
+		refundToolDeploy(os.Getenv(refundToolDeployEnvironmentVariable)))
 	if err == nil {
 		err = agentstest.ServeAgentWorker(ctx, flows,
 			os.Getenv(serverAddressEnvironmentVariable), os.Getenv(blobCacheDirEnvironmentVariable))
@@ -99,7 +101,7 @@ func newAgentTestStackWithServerZDConfig(t *testing.T, serverZDConfig string) *a
 	stack.engine = engine
 	require.NoError(t, engine.Start(context.Background()))
 	t.Cleanup(stack.close)
-	flowList, err := newScriptedAgentFlows(stack.coordinationDir)
+	flowList, err := newScriptedAgentFlows(stack.coordinationDir, refundToolDeployed)
 	require.NoError(t, err)
 	stack.flows = scriptedAgentFlowsByType(flowList)
 	registry, err := dex.NewRegistry(flowList)
@@ -149,6 +151,12 @@ func (stack *agentTestStack) dumpLogs() {
 // startWorker starts a new Worker child and waits until it serves every pull queue.
 func (stack *agentTestStack) startWorker() *agentstest.KillableProcess {
 	stack.t.Helper()
+	return stack.startWorkerWithRefundTool(refundToolDeployed)
+}
+
+// startWorkerWithRefundTool starts a Worker child whose issue_refund tool is as deploy leaves it.
+func (stack *agentTestStack) startWorkerWithRefundTool(deploy refundToolDeploy) *agentstest.KillableProcess {
+	stack.t.Helper()
 	index := len(stack.workers) + 1
 	worker := agentstest.NewKillableProcess(fmt.Sprintf("Worker %d", index),
 		filepath.Join(stack.stateDir, fmt.Sprintf("worker-%d.log", index)))
@@ -158,6 +166,7 @@ func (stack *agentTestStack) startWorker() *agentstest.KillableProcess {
 		serverAddressEnvironmentVariable+"="+stack.engine.Address(),
 		blobCacheDirEnvironmentVariable+"="+filepath.Join(stack.stateDir, fmt.Sprintf("worker-blob-cache-%d", index)),
 		coordinationDirEnvironmentVariable+"="+stack.coordinationDir,
+		refundToolDeployEnvironmentVariable+"="+string(deploy),
 	)
 	require.NoError(stack.t, worker.Start(context.Background(), []string{os.Args[0], "-test.run=^$"},
 		environment, agentstest.WorkerReadyLine, workerReadyTimeout))
@@ -282,6 +291,12 @@ func (stack *agentTestStack) stepHistory(sessionID string) []agentstest.StepHist
 	history, err := agentstest.ReadStepHistory(context.Background(), stack.engine.Dexcli(), stack.engine.Address(), sessionID)
 	require.NoError(stack.t, err)
 	return history
+}
+
+// releaseMarker writes the coordination file that a Worker child waits for in waitForRelease.
+func (stack *agentTestStack) releaseMarker(name string) {
+	stack.t.Helper()
+	writeMarker(stack.coordinationDir, name+".release")
 }
 
 // waitForMarker waits until a Worker child writes a coordination file.

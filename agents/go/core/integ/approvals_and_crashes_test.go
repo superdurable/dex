@@ -143,6 +143,85 @@ func TestWorkerKillDuringSingleAttemptToolRecordsOutcomeUnknown(t *testing.T) {
 	require.NotContains(t, executed, "CallSingleAttemptTool", "the killed attempt never completed")
 }
 
+// A Worker killed while an idempotent_write runs, and restarted on a deploy that renamed the tool or
+// changed its schema, records outcome_unknown with the refusal: the first attempt may have taken effect.
+func TestIdempotentWriteWhoseRetryFindsAChangedToolRecordsOutcomeUnknown(t *testing.T) {
+	t.Parallel()
+	for name, testCase := range map[string]struct {
+		deploy        refundToolDeploy
+		expectedError string
+	}{
+		"renamed":        {refundToolRenamed, "unknown tool issue_refund"},
+		"schema changed": {refundToolSchemaChanged, "invalid arguments for issue_refund: arguments.refund_order_id is required"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			stack := newAgentTestStack(t)
+			worker := stack.startWorker()
+			sessions := stack.sessions(scriptedAgentFlowType)
+			ctx := context.Background()
+
+			_, err := sessions.StartSession(ctx, "refund", ptr("idempotent refund model-gate order-5"), dex.StartFlowOptions{})
+			require.NoError(t, err)
+			stack.waitForMarker("issue_refund.started")
+			worker.Kill()
+			stack.startWorkerWithRefundTool(testCase.deploy)
+			// The next model call waits at the gate, so the turn keeps the final record readable.
+			stack.waitForMarker("model-gate.reached")
+			waiting, err := sessions.GetAgentSnapshot(ctx, "refund")
+			require.NoError(t, err)
+			stack.releaseMarker("model-gate")
+
+			require.Len(t, waiting.ToolCalls, 1)
+			require.Equal(t, "issue_refund", waiting.ToolCalls[0].ToolName)
+			require.Equal(t, dexagents.ToolCallStatusOutcomeUnknown, waiting.ToolCalls[0].Status)
+			require.NotNil(t, waiting.ToolCalls[0].Error)
+			require.Equal(t, testCase.expectedError, *waiting.ToolCalls[0].Error)
+			snapshot := stack.waitForTurnCount(scriptedAgentFlowType, "refund", 1)
+			require.Nil(t, snapshot.State.LastTurnError)
+			require.Equal(t, dexagents.OutcomeUnknownToolResult, *snapshot.Messages[2].ToolOutput)
+			require.Equal(t, "Refund result: "+dexagents.OutcomeUnknownToolResult, *snapshot.Messages[3].Text)
+			require.Equal(t, 1, stack.callCount("issue_refund"))
+			require.Equal(t, []string{"StartAgentSession", "RunModel", "CallTool", "ResumeTurn", "RunModel"},
+				stack.executedStepTypes("refund"))
+		})
+	}
+}
+
+// A first attempt that finds no tool of the call's name records failed: nothing could have run.
+func TestFirstAttemptThatFindsNoToolOfThatNameRecordsFailed(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorkerWithRefundTool(refundToolRenamed)
+	sessions := stack.sessions(scriptedAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "refund", ptr("idempotent refund - order-6"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+
+	snapshot := stack.waitForTurnCount(scriptedAgentFlowType, "refund", 1)
+	require.Equal(t, "The tool call failed: unknown tool issue_refund", *snapshot.Messages[2].ToolOutput)
+	require.Zero(t, stack.callCount("issue_refund"))
+}
+
+// A first attempt of an idempotent_write whose arguments break the schema records failed.
+func TestFirstAttemptOfAnIdempotentWriteWithInvalidArgumentsRecordsFailed(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorkerWithRefundTool(refundToolSchemaChanged)
+	sessions := stack.sessions(scriptedAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "refund", ptr("idempotent refund - order-7"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+
+	snapshot := stack.waitForTurnCount(scriptedAgentFlowType, "refund", 1)
+	require.Equal(t,
+		"The tool call failed: invalid arguments for issue_refund: arguments.refund_order_id is required",
+		*snapshot.Messages[2].ToolOutput)
+	require.Zero(t, stack.callCount("issue_refund"))
+	require.Equal(t, []string{"StartAgentSession", "RunModel", "CallTool", "ResumeTurn", "RunModel"},
+		stack.executedStepTypes("refund"))
+}
+
 // A Worker killed during RunModel reruns only that one model call.
 func TestWorkerKillDuringRunModelRerunsOnlyThatCall(t *testing.T) {
 	t.Parallel()
