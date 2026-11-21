@@ -48,7 +48,8 @@ def main() -> None:
             else refund_flow.reject_refund
         )
         client.invoke_rpc(rpc, arguments.flow_id, DecisionReason(arguments.reason))
-        print(f"Refund {arguments.flow_id}: {arguments.decision}d.", flush=True)
+        outcome = "approved" if arguments.decision == "approve" else "rejected"
+        print(f"Refund {arguments.flow_id}: {outcome}.", flush=True)
     finally:
         client.close()
         cache.close()
