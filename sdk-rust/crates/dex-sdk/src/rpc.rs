@@ -371,6 +371,8 @@ pub(crate) struct RegisteredRpc {
     pub(crate) load_attribute_maps: Vec<AttributeMapLoad>,
     pub(crate) load_channels: Vec<ChannelLoad>,
     pub(crate) load_channel_maps: Vec<ChannelMapLoad>,
+    /// Whether the handler takes an input; an RPC bound without input ignores an unset one.
+    pub(crate) takes_input: bool,
     pub(crate) handler: Arc<dyn ErasedRpc>,
 }
 
@@ -396,6 +398,7 @@ where
     fn bind(self: Box<Self>, flow: Arc<FlowType>) -> RegisteredRpc {
         registered_rpc(
             self.definition,
+            true,
             Arc::new(BoundFunction {
                 flow,
                 handler: self.handler,
@@ -438,6 +441,7 @@ where
     fn bind(self: Box<Self>, flow: Arc<FlowType>) -> RegisteredRpc {
         registered_rpc(
             self.definition,
+            false,
             Arc::new(BoundFunctionWithoutInput {
                 flow,
                 handler: self.handler,
@@ -479,6 +483,7 @@ where
     fn bind(self: Box<Self>, flow: Arc<FlowType>) -> RegisteredRpc {
         registered_rpc(
             self.definition,
+            true,
             Arc::new(BoundProcedure {
                 flow,
                 handler: self.handler,
@@ -515,6 +520,7 @@ where
     fn bind(self: Box<Self>, flow: Arc<FlowType>) -> RegisteredRpc {
         registered_rpc(
             self.definition,
+            false,
             Arc::new(BoundProcedureWithoutInput {
                 flow,
                 handler: self.handler,
@@ -540,6 +546,7 @@ where
 
 fn registered_rpc<Input, Output>(
     definition: RpcDefinition<Input, Output>,
+    takes_input: bool,
     handler: Arc<dyn ErasedRpc>,
 ) -> RegisteredRpc {
     RegisteredRpc {
@@ -550,6 +557,7 @@ fn registered_rpc<Input, Output>(
         load_attribute_maps: definition.load_attribute_maps,
         load_channels: definition.load_channels,
         load_channel_maps: definition.load_channel_maps,
+        takes_input,
         handler,
     }
 }
