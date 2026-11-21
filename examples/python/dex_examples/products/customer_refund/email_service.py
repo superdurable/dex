@@ -16,29 +16,34 @@
 
 from __future__ import annotations
 
-import json
+from contextlib import closing
 from pathlib import Path
 
-DEFAULT_EMAIL_LEDGER = Path(".customer-refund/sent-emails.json")
+from dex_examples.products.customer_refund.ledger_database import (
+    DEFAULT_LEDGER_DATABASE,
+    connect_ledger,
+)
 
 
 class FakeEmailService:
-    """Keeps sent keys in a JSON file, so a restarted Worker sees earlier emails."""
+    """Records each email in the shared SQLite ledger; the first record is the send."""
 
-    def __init__(self, ledger_path: Path = DEFAULT_EMAIL_LEDGER) -> None:
+    def __init__(self, ledger_path: Path = DEFAULT_LEDGER_DATABASE) -> None:
         self.ledger_path = ledger_path
 
     def send(self, to: str, body: str, idempotency_key: str) -> None:
-        sent = self.list_sent_keys()
-        if idempotency_key in sent:
+        with closing(connect_ledger(self.ledger_path)) as ledger:
+            inserted = ledger.execute(
+                "INSERT OR IGNORE INTO sent_emails (idempotency_key, recipient, body)"
+                " VALUES (?, ?, ?)",
+                (idempotency_key, to, body),
+            ).rowcount
+        if inserted:
+            print(f"Emailed {to}: {body}", flush=True)
+        else:
             print(f"Email to {to} already sent (key {idempotency_key})", flush=True)
-            return
-        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        self.ledger_path.write_text(json.dumps([*sent, idempotency_key], indent=2))
-        print(f"Emailed {to}: {body}", flush=True)
 
     def list_sent_keys(self) -> list[str]:
-        if not self.ledger_path.exists():
-            return []
-        keys: list[str] = json.loads(self.ledger_path.read_text())
-        return keys
+        with closing(connect_ledger(self.ledger_path)) as ledger:
+            rows = ledger.execute("SELECT idempotency_key FROM sent_emails ORDER BY id").fetchall()
+        return [row[0] for row in rows]

@@ -16,11 +16,14 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass
+from contextlib import closing
+from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_BILLING_LEDGER = Path(".customer-refund/billing-refunds.json")
+from dex_examples.products.customer_refund.ledger_database import (
+    DEFAULT_LEDGER_DATABASE,
+    connect_ledger,
+)
 
 
 class PaymentTimeout(Exception):
@@ -46,15 +49,16 @@ class RecordedRefund:
 
 ORDERS = {
     "INV-1249": Order("INV-1249", "Studio plan renewal", 1249.00, 6, 31),
-    "INV-0388": Order("INV-0388", "Studio plan renewal", 1249.00, 47, 0),
+    "INV-0388": Order("INV-0388", "Studio plan renewal", 1249.00, 47, 31),
+    "INV-0455": Order("INV-0455", "Studio plan renewal", 1249.00, 5, 0),
     "INV-0049": Order("INV-0049", "Extra seat", 49.00, 3, 31),
 }
 
 
 class FakeBillingService:
-    """Keeps refunds in a JSON file, so a restarted Worker sees earlier refunds."""
+    """Keeps refunds in a shared SQLite ledger, one per idempotency key."""
 
-    def __init__(self, ledger_path: Path = DEFAULT_BILLING_LEDGER) -> None:
+    def __init__(self, ledger_path: Path = DEFAULT_LEDGER_DATABASE) -> None:
         self.ledger_path = ledger_path
 
     def get_order(self, order_id: str) -> Order:
@@ -63,28 +67,33 @@ class FakeBillingService:
     def refund(self, order: Order, idempotency_key: str, simulate_timeout: bool) -> str:
         if simulate_timeout:
             raise PaymentTimeout(f"no answer from the payment provider for {order.order_id}")
-        refunds = self.list_refunds()
-        for earlier in refunds:
-            if earlier.idempotency_key == idempotency_key:
-                print(
-                    f"Refund {earlier.refund_id} already issued (key {idempotency_key})", flush=True
-                )
-                return earlier.refund_id
-        refund = RecordedRefund(
-            f"rf_{1042 + len(refunds)}", order.order_id, order.amount_usd, idempotency_key
-        )
-        self._save([*refunds, refund])
-        print(f"Refunded {order.amount_usd:,.2f} USD as {refund.refund_id}", flush=True)
-        return refund.refund_id
+        with closing(connect_ledger(self.ledger_path)) as ledger:
+            inserted = ledger.execute(
+                "INSERT OR IGNORE INTO refunds (idempotency_key, order_id, amount_usd)"
+                " VALUES (?, ?, ?)",
+                (idempotency_key, order.order_id, order.amount_usd),
+            ).rowcount
+            row = ledger.execute(
+                "SELECT id FROM refunds WHERE idempotency_key = ?", (idempotency_key,)
+            ).fetchone()
+        refund_id = refund_id_for(row[0])
+        if inserted:
+            print(f"Refunded {order.amount_usd:,.2f} USD as {refund_id}", flush=True)
+        else:
+            print(f"Refund {refund_id} already issued (key {idempotency_key})", flush=True)
+        return refund_id
 
     def list_refunds(self) -> list[RecordedRefund]:
-        if not self.ledger_path.exists():
-            return []
-        return [RecordedRefund(**item) for item in json.loads(self.ledger_path.read_text())]
+        with closing(connect_ledger(self.ledger_path)) as ledger:
+            rows = ledger.execute(
+                "SELECT id, order_id, amount_usd, idempotency_key FROM refunds ORDER BY id"
+            ).fetchall()
+        return [RecordedRefund(refund_id_for(row[0]), row[1], row[2], row[3]) for row in rows]
 
-    def _save(self, refunds: list[RecordedRefund]) -> None:
-        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        self.ledger_path.write_text(json.dumps([asdict(refund) for refund in refunds], indent=2))
+
+def refund_id_for(ledger_row_id: int) -> str:
+    """Returns the refund ID of a ledger row, such as rf_1042 for the first row."""
+    return f"rf_{1041 + ledger_row_id}"
 
 
 class CallMissingBillingService(FakeBillingService):

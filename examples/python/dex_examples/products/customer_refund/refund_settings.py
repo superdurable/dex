@@ -30,14 +30,11 @@ from dex import (
 )
 
 from dex_examples.products.customer_refund.billing_service import (
-    DEFAULT_BILLING_LEDGER,
     CallMissingBillingService,
     FakeBillingService,
 )
-from dex_examples.products.customer_refund.email_service import (
-    DEFAULT_EMAIL_LEDGER,
-    FakeEmailService,
-)
+from dex_examples.products.customer_refund.email_service import FakeEmailService
+from dex_examples.products.customer_refund.ledger_database import DEFAULT_LEDGER_DATABASE
 from dex_examples.products.customer_refund.message_model import MockMessageModel
 from dex_examples.products.customer_refund.refund_flow import CustomerRefundFlow
 
@@ -57,8 +54,7 @@ def payload_encryption(key_file: str = PAYLOAD_KEY_FILE) -> PayloadEncryptionOpt
 
 def new_refund_flow(
     billing_mode: str = BILLING_MODE,
-    billing_ledger: Path = DEFAULT_BILLING_LEDGER,
-    email_ledger: Path = DEFAULT_EMAIL_LEDGER,
+    ledger_path: Path = DEFAULT_LEDGER_DATABASE,
 ) -> CustomerRefundFlow:
     """Returns the Flow; billing mode "call-missing" leaves out the billing call."""
     if billing_mode not in ("normal", "call-missing"):
@@ -66,10 +62,10 @@ def new_refund_flow(
             f"REFUND_BILLING_MODE must be normal or call-missing, not {billing_mode!r}"
         )
     if billing_mode == "call-missing":
-        billing: FakeBillingService = CallMissingBillingService(billing_ledger)
+        billing: FakeBillingService = CallMissingBillingService(ledger_path)
     else:
-        billing = FakeBillingService(billing_ledger)
-    return CustomerRefundFlow(billing, FakeEmailService(email_ledger), MockMessageModel())
+        billing = FakeBillingService(ledger_path)
+    return CustomerRefundFlow(billing, FakeEmailService(ledger_path), MockMessageModel())
 
 
 def new_worker_id() -> str:

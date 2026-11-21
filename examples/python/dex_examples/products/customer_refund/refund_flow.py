@@ -114,9 +114,13 @@ class CheckOrder(Step[RefundRequest]):
 class CheckPolicy(Step[RefundCase]):
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         order = input.order
-        if order.days_since_charge > REFUND_WINDOW_DAYS or order.outage_hours == 0:
+        note = ""
+        if order.days_since_charge > REFUND_WINDOW_DAYS:
+            note = "The charge is older than our 30-day refund window."
+        elif order.outage_hours == 0:
+            note = "We found no service interruption on this order."
+        if note:
             CASE_STATUS.set(context, "denied")
-            note = "The charge is outside the 30-day window and no outage was recorded."
             return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
         if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
             CASE_STATUS.set(context, AWAITING_MANAGER)
@@ -242,6 +246,8 @@ class CustomerRefundFlow(Flow[RefundRequest]):
         ),
     )
     def approve_refund(self, context: Context, input: DecisionReason) -> None:
+        if not input.reason.strip():
+            raise ValueError("a reason is required")
         if CASE_STATUS.get(context) != AWAITING_MANAGER:
             raise ValueError("this refund is not waiting for a manager")
         CASE_STATUS.set(context, "approved")
@@ -259,6 +265,8 @@ class CustomerRefundFlow(Flow[RefundRequest]):
         ),
     )
     def reject_refund(self, context: Context, input: DecisionReason) -> None:
+        if not input.reason.strip():
+            raise ValueError("a reason is required")
         if CASE_STATUS.get(context) != AWAITING_MANAGER:
             raise ValueError("this refund is not waiting for a manager")
         CASE_STATUS.set(context, "rejected")

@@ -27,9 +27,13 @@ Northstar Studio 在一次服务中断后，申请退还一笔 1,249.00 USD 的�
 class CheckPolicy(Step[RefundCase]):
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         order = input.order
-        if order.days_since_charge > REFUND_WINDOW_DAYS or order.outage_hours == 0:
+        note = ""
+        if order.days_since_charge > REFUND_WINDOW_DAYS:
+            note = "The charge is older than our 30-day refund window."
+        elif order.outage_hours == 0:
+            note = "We found no service interruption on this order."
+        if note:
             CASE_STATUS.set(context, "denied")
-            note = "The charge is outside the 30-day window and no outage was recorded."
             return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
         if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
             CASE_STATUS.set(context, AWAITING_MANAGER)
@@ -58,8 +62,8 @@ class RequestManagerApproval(Step[RefundCase]):
 
 这个示例还包含生产环境的退款需要的几项内容：
 
-- **Issue refund** 和 **Send message** 向 billing 和 email 传入幂等 key。Time Travel 点之后的 Step 会再次运行，这些 key 保证退款和邮件都只有一次。
-- **Issue refund** 遇到支付超时，每 5 秒重试一次。一个运行可以先要求两次超时，这样 Dex Web 会先显示失败的尝试，再显示退款成功。
+- **Issue refund** 和 **Send message** 向 billing 和 email 传入幂等 key。Time Travel 点之后的 Step 会再次运行，这些 key 保证退款和邮件都只有一次。前提是所有 Worker 共用本地 fake 服务的同一份持久账本。
+- **Issue refund** 遇到支付超时，每 5 秒重试一次。一个运行可以先要求两次超时。这时 Dex Web 中最后一个 **Issue refund** 事件显示第 3 次尝试成功，并保留最近一次失败的详情。
 - Worker 上传 `dexcli visualize` 生成的设计，所以 Dex Web 会在每个运行上绘制这张图。
 - 提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
 

@@ -499,11 +499,7 @@ def main() -> None:
     order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
-    options = WorkerOptions(
-        server_address=SERVER_ADDRESS,
-        flow_definition_paths=flow_definition_paths(),
-    )
-    worker = Worker(registry, cache, options)
+    worker = Worker(registry, cache, worker_options())
     thread = threading.Thread(target=worker.start, daemon=True)
     try:
         thread.start()
@@ -517,7 +513,7 @@ def main() -> None:
         cache.close()
 ```
 
-`flow_definition_paths()` returns `build/flow-definitions` when that folder exists. The Worker uploads the Flow's design from it, and Dex Web draws the run's **Design** view from that design. Step 4 generates the folder.
+`worker_options()` in `quick_start/config.py` sets the server address. When `build/flow-definitions` exists, it also passes that folder as `flow_definition_paths`. The Worker uploads the Flow's design from it, and Dex Web draws the run's **Design** view from that design. Step 4 generates the folder.
 
 The Client, in `start.py`:
 

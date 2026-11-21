@@ -499,11 +499,7 @@ def main() -> None:
     order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
-    options = WorkerOptions(
-        server_address=SERVER_ADDRESS,
-        flow_definition_paths=flow_definition_paths(),
-    )
-    worker = Worker(registry, cache, options)
+    worker = Worker(registry, cache, worker_options())
     thread = threading.Thread(target=worker.start, daemon=True)
     try:
         thread.start()
@@ -517,7 +513,7 @@ def main() -> None:
         cache.close()
 ```
 
-`build/flow-definitions` 文件夹存在时，`flow_definition_paths()` 返回它。Worker 从中上传 Flow 的设计，Dex Web 用这份设计绘制运行的 **Design** 视图。第 4 步生成这个文件夹。
+`quick_start/config.py` 中的 `worker_options()` 设置 server 地址。`build/flow-definitions` 文件夹存在时，它还把这个文件夹作为 `flow_definition_paths` 传入。Worker 从中上传 Flow 的设计，Dex Web 用这份设计绘制运行的 **Design** 视图。第 4 步生成这个文件夹。
 
 `start.py` 中的 Client：
 

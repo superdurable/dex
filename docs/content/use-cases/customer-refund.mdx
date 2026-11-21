@@ -27,9 +27,13 @@ Northstar Studio asks for a refund of a 1,249.00 USD subscription renewal after 
 class CheckPolicy(Step[RefundCase]):
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         order = input.order
-        if order.days_since_charge > REFUND_WINDOW_DAYS or order.outage_hours == 0:
+        note = ""
+        if order.days_since_charge > REFUND_WINDOW_DAYS:
+            note = "The charge is older than our 30-day refund window."
+        elif order.outage_hours == 0:
+            note = "We found no service interruption on this order."
+        if note:
             CASE_STATUS.set(context, "denied")
-            note = "The charge is outside the 30-day window and no outage was recorded."
             return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
         if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
             CASE_STATUS.set(context, AWAITING_MANAGER)
@@ -58,8 +62,8 @@ The **Approve refund** and **Reject refund** RPCs publish the manager's decision
 
 The example adds what a production refund needs:
 
-- **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each.
-- **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first, so Dex Web shows failed attempts before the refund succeeds.
+- **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each. This holds because every Worker shares the same persistent ledger of the local fake services.
+- **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first. The final **Issue refund** event in Dex Web then shows that attempt 3 succeeded and keeps the details of the last failure.
 - The Worker uploads the design that `dexcli visualize` generates, so Dex Web draws this graph on each run.
 - With a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
 

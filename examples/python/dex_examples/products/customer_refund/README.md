@@ -7,14 +7,18 @@ the refund, has a model write the customer message, emails it, and closes the
 case.
 
 Billing, email, and the model are fakes in this folder. They need no API key
-and move no money. Billing and email remember each idempotency key in
-`.customer-refund/`, so a restarted Worker sees what earlier Workers did.
+and move no money. Billing and email record each idempotency key in one SQLite
+ledger, `.customer-refund/ledger.sqlite3`. A UNIQUE key and an atomic insert
+keep one refund and one email per key, even for concurrent calls. "Once" holds
+because every Worker shares this one persistent ledger; Workers with separate
+ledgers would each refund.
 
 | File | What it holds |
 | --- | --- |
 | [`refund_flow.py`](refund_flow.py) | The Flow, its eight Steps, and the Approve and Reject RPCs. |
 | [`billing_service.py`](billing_service.py) | The fake billing service. Run it to list the refunds it recorded. |
 | [`email_service.py`](email_service.py) | The fake email service. |
+| [`ledger_database.py`](ledger_database.py) | The SQLite ledger that billing and email share. |
 | [`message_model.py`](message_model.py) | A deterministic stand-in for a language model. |
 | [`refund_settings.py`](refund_settings.py) | Environment settings, payload encryption, and the billing mode. |
 | [`worker.py`](worker.py) | The Worker. It uploads the generated design. |
@@ -52,13 +56,20 @@ Start a refund in a third terminal. The Flow ID is your choice:
 uv run --frozen python -m dex_examples.products.customer_refund.start refund1
 ```
 
-The run stops at **Request manager approval**. In Dex Web, open `refund1`,
-choose the **Actions** tab, set **Working as** to `refund.manage`, enter a
-reason, and press **Approve refund** or **Reject refund**. Or run:
+The run stops at **Request manager approval** once `case-status` is
+`awaiting-manager`. In Dex Web, open `refund1`, choose the **Actions** tab,
+set **Working as** to `refund.manage`, enter a reason, and press **Approve
+refund** or **Reject refund**. Or run:
 
 ```bash
 uv run --frozen python -m dex_examples.products.customer_refund.decide refund1 approve "Outage confirmed"
 ```
+
+`decide` first waits, up to 60 seconds, until `case-status` is
+`awaiting-manager`, so you can run it right after `start`. Both RPCs refuse a
+blank reason. The Action's `refund.manage` permission applies to Dex Web and
+Work Queue only. A direct RPC call, such as `decide`, is authorized by your
+server's authentication, which you configure separately.
 
 List the refunds that billing recorded:
 
@@ -78,7 +89,7 @@ at `127.0.0.1:8801`.
 | --- | --- | --- |
 | `normal` (default) | INV-1249, 1,249.00 USD | Waits for a manager, then refunds. |
 | `fail-then-succeed` | INV-1249 | After approval, the refund fails twice, then succeeds. |
-| `deny` | INV-0388, charged 47 days ago | The policy denies it; no approval, no refund. |
+| `deny` | INV-0388, charged 47 days ago | The policy denies it as outside the 30-day window; no approval, no refund. |
 | `small` | INV-0049, 49.00 USD | Refunds without a manager. |
 
 ### A Step that fails, then succeeds
@@ -88,21 +99,25 @@ uv run --frozen python -m dex_examples.products.customer_refund.start refund2 fa
 uv run --frozen python -m dex_examples.products.customer_refund.decide refund2 approve "Outage confirmed"
 ```
 
-**Issue refund** raises `PaymentTimeout` from `billing_service.py` on its
-first two attempts. Its retry policy waits 5 seconds between attempts, so the
-**History** view shows each failed attempt and its stack trace before the
-third attempt succeeds.
+`decide` waits for `case-status` to be `awaiting-manager` before it approves.
+**Issue refund** then raises `PaymentTimeout` from `billing_service.py` on its
+first two attempts, and its retry policy waits 5 seconds between attempts. In
+the **History** view, the final **Issue refund** event shows that attempt 3
+succeeded and keeps the details of the last failure, with its stack trace.
 
 ### A missing billing call, fixed with Time Travel
 
-Start the Worker in the `call-missing` billing mode. It stands in for a
-release whose **Issue refund** Step forgot to call billing:
+Stop every running refund Worker first with Ctrl+C. Otherwise a normal Worker
+can take the run's tasks. Then start the Worker in the `call-missing` billing
+mode. It stands in for a release whose **Issue refund** Step forgot to call
+billing:
 
 ```bash
 REFUND_BILLING_MODE=call-missing uv run --frozen python -m dex_examples.products.customer_refund.worker
 ```
 
-Start and approve a refund:
+Start a refund and approve it; `decide` waits for `case-status` to be
+`awaiting-manager` first:
 
 ```bash
 uv run --frozen python -m dex_examples.products.customer_refund.start refund3
@@ -130,7 +145,8 @@ Dex runs **Issue refund** and the Steps after it again. This time billing
 records one refund, and `refund-id` holds its ID, such as `rf_1044`. The email
 service sees the key `email-refund3` again and does not send a second email.
 Each external call carries an idempotency key because Steps after a Time
-Travel point run again.
+Travel point run again. A Time Travel to a successful **Issue refund** gets
+the same refund ID back from billing and records no second refund.
 
 ## Payload encryption
 
@@ -155,16 +171,28 @@ the key; the Action condition needs `case-status` in plaintext. Step inputs,
 `refund-id`, and `customer-message` are stored encrypted. The email address is
 synthetic sample data.
 
-To show the encrypted values in Dex Web, start a local codec server:
+To show the encrypted values in Dex Web, the simplest way is to start Dex with
+the key file. Dex Web then finds its codec server by itself (**Settings** >
+**Codec endpoint** > **Auto**):
 
 ```bash
-dexcli codec-server -key-file /tmp/refund-key.json -port 8805 -token-file /tmp/refund-codec-token
+dexcli dev -codec-key-file /tmp/refund-key.json
+```
+
+With a `dexcli dev` that is already running, start a local codec server
+instead. It prints its bearer token at start, so send its output to
+`/dev/null` and read the token from the mode-0600 file:
+
+```bash
+dexcli codec-server -key-file /tmp/refund-key.json -port 8805 -token-file /tmp/refund-codec-token > /dev/null
 ```
 
 In Dex Web, open **Settings** > **Codec endpoint**, choose **Custom**, and
 enter `http://127.0.0.1:8805` and the token from `/tmp/refund-codec-token`.
-`dexcli flow state refund4 --codec-endpoint http://127.0.0.1:8805
---codec-token-file /tmp/refund-codec-token` reads the same values.
+When Dex Web is not on port 8802, also pass its origin, such as
+`-web-origin http://127.0.0.1:8812`. `dexcli flow state refund4
+--codec-endpoint http://127.0.0.1:8805 --codec-token-file
+/tmp/refund-codec-token` reads the same values.
 
 ## Test it
 
@@ -172,6 +200,9 @@ enter `http://127.0.0.1:8805` and the token from `/tmp/refund-codec-token`.
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 uv run --frozen pytest -vv tests/integ/test_customer_refund.py
 ```
 
-The tests cover approval, rejection, the policy denial, the fail-then-succeed
-refund, the missing billing call fixed with `dexcli flow time-travel`, and
-encryption. They need `dexcli` on `PATH` or in `DEXCLI_PATH`.
+The tests cover approval, rejection, a refused blank reason, each policy
+denial, the fail-then-succeed refund and its attempt count in history, Time
+Travel to a successful and to a missing billing call, and encryption. They
+need `dexcli` on `PATH` or in `DEXCLI_PATH`.
+`tests/unit/test_customer_refund_ledger.py` checks the ledger under concurrent
+calls with the same key and with different keys.

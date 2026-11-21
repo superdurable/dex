@@ -12,16 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Approves or rejects a waiting refund: decide FLOW_ID approve|reject REASON."""
+"""Waits until a refund asks for a manager, then approves or rejects it.
+
+Usage: decide FLOW_ID approve|reject REASON
+"""
 
 from __future__ import annotations
 
 import argparse
+from datetime import timedelta
 from pathlib import Path
 
-from dex import Client, ClientOptions, Registry
+from dex import AttributeMatch, Client, ClientOptions, Registry, WaitForAttributeOptions
 
-from dex_examples.products.customer_refund.refund_flow import DecisionReason
+from dex_examples.products.customer_refund.refund_flow import (
+    AWAITING_MANAGER,
+    CASE_STATUS,
+    DecisionReason,
+)
 from dex_examples.products.customer_refund.refund_settings import (
     SERVER_ADDRESS,
     new_refund_flow,
@@ -42,6 +50,12 @@ def main() -> None:
     options = ClientOptions(server_address=SERVER_ADDRESS, payload_encryption=payload_encryption())
     client = Client(Registry((refund_flow,)), cache, options)
     try:
+        client.wait_for_attribute_match(
+            arguments.flow_id,
+            CASE_STATUS,
+            AttributeMatch.equal_to(AWAITING_MANAGER),
+            WaitForAttributeOptions(request_timeout=timedelta(seconds=60)),
+        )
         rpc = (
             refund_flow.approve_refund
             if arguments.decision == "approve"

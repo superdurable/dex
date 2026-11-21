@@ -32,15 +32,14 @@ from dex import (
     StepExecutionId,
     WaitForStepCompletionOptions,
     Worker,
-    WorkerOptions,
 )
 
 from quick_start.config import (
     HTTP_PORT,
     SERVER_ADDRESS,
-    flow_definition_paths,
     new_shop_api,
     open_cache,
+    worker_options,
 )
 from quick_start.order_flow import OrderFlow
 
@@ -90,11 +89,7 @@ def main() -> None:
     registry = Registry((order_flow,))
     worker_cache = open_cache(Path(".dex-blob-cache/worker"))
     client_cache = open_cache(Path(".dex-blob-cache/client"))
-    worker_options = WorkerOptions(
-        server_address=SERVER_ADDRESS,
-        flow_definition_paths=flow_definition_paths(),
-    )
-    worker = Worker(registry, worker_cache, worker_options)
+    worker = Worker(registry, worker_cache, worker_options())
     client = Client(registry, client_cache, ClientOptions(server_address=SERVER_ADDRESS))
     worker_thread = threading.Thread(target=worker.start, daemon=True)
     server = ThreadingHTTPServer(("127.0.0.1", HTTP_PORT), new_handler(client, order_flow))

@@ -16,14 +16,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from dex import (
@@ -36,6 +39,7 @@ from dex import (
     ValueMappingError,
     WaitForAttributeOptions,
     Worker,
+    WorkerInvocationError,
 )
 
 from dex_examples.products.customer_refund.billing_service import FakeBillingService
@@ -67,8 +71,8 @@ class RefundTestbed:
     def __init__(self, directory: Path, encryption: PayloadEncryptionOptions | None) -> None:
         self.directory = directory
         self.encryption = encryption
-        self.billing = FakeBillingService(directory / "billing-refunds.json")
-        self.email = FakeEmailService(directory / "sent-emails.json")
+        self.billing = FakeBillingService(directory / "ledger.sqlite3")
+        self.email = FakeEmailService(directory / "ledger.sqlite3")
         self.flow = self.new_flow("normal")
         self.cache = open_cache(directory / "client-cache")
         self.client = Client(
@@ -78,7 +82,7 @@ class RefundTestbed:
         )
 
     def new_flow(self, billing_mode: str) -> CustomerRefundFlow:
-        return new_refund_flow(billing_mode, self.billing.ledger_path, self.email.ledger_path)
+        return new_refund_flow(billing_mode, self.billing.ledger_path)
 
     @contextmanager
     def running_worker(self, billing_mode: str = "normal") -> Iterator[None]:
@@ -155,16 +159,48 @@ def test_manager_rejects_the_refund(
     assert "Credit offered instead" in message
 
 
-def test_policy_denies_an_old_charge(
+def test_blank_reason_is_refused_and_a_later_decision_still_counts(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["deny"])
+        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["normal"])
+        testbed.wait_for_manager(flow_id)
+        with pytest.raises(WorkerInvocationError, match="a reason is required"):
+            testbed.client.invoke_rpc(testbed.flow.approve_refund, flow_id, DecisionReason("   "))
+        assert testbed.client.get_attributes(flow_id, CASE_STATUS)[CASE_STATUS] == AWAITING_MANAGER
+        testbed.client.invoke_rpc(
+            testbed.flow.approve_refund, flow_id, DecisionReason("Outage confirmed")
+        )
+        result = testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+
+    assert result.single_output(str) == "refunded"
+    assert len(testbed.billing.list_refunds()) == 1
+
+
+@pytest.mark.parametrize(
+    ("order_id", "expected_note"),
+    [
+        ("INV-0388", "older than our 30-day refund window"),
+        ("INV-0455", "no service interruption"),
+    ],
+)
+def test_policy_denial_names_the_failed_rule(
+    testbed: RefundTestbed,
+    new_flow_id: Callable[[str], str],
+    order_id: str,
+    expected_note: str,
+) -> None:
+    flow_id = new_flow_id("refund")
+    with testbed.running_worker():
+        request = replace(SCENARIOS["normal"], order_id=order_id)
+        testbed.client.start_flow(testbed.flow, flow_id, request)
         result = testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
     assert result.single_output(str) == "denied"
     assert testbed.client.get_attributes(flow_id, CASE_STATUS)[CASE_STATUS] == "closed-denied"
+    message = testbed.client.get_attributes(flow_id, CUSTOMER_MESSAGE)[CUSTOMER_MESSAGE]
+    assert expected_note in message
     assert testbed.billing.list_refunds() == []
     assert testbed.email.list_sent_keys() == [f"email-{flow_id}"]
 
@@ -183,6 +219,29 @@ def test_refund_succeeds_after_payment_timeouts(
 
     assert result.status == FlowStatus.COMPLETED
     assert len(testbed.billing.list_refunds()) == 1
+    completed = issue_refund_execute_completed_context(flow_id)
+    assert completed["finalAttempt"] == 3
+    assert completed["lastFailureInfo"]["attempt"] == 2
+    assert "PaymentTimeout" in json.dumps(completed["lastFailureInfo"])
+
+
+def test_time_travel_reuses_an_issued_refund(
+    testbed: RefundTestbed, new_flow_id: Callable[[str], str]
+) -> None:
+    flow_id = new_flow_id("refund")
+    with testbed.running_worker():
+        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["small"])
+        testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        first_refunds = testbed.billing.list_refunds()
+        time_travel_with_dexcli(flow_id, "IssueRefund")
+        again = testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+
+    assert again.status == FlowStatus.COMPLETED
+    assert len(first_refunds) == 1
+    assert testbed.billing.list_refunds() == first_refunds
+    refund_id = testbed.client.get_attributes(flow_id, REFUND_ID)[REFUND_ID]
+    assert refund_id == first_refunds[0].refund_id
+    assert testbed.email.list_sent_keys() == [f"email-{flow_id}"]
 
 
 def test_time_travel_issues_the_refund_a_missing_call_skipped(
@@ -232,14 +291,37 @@ def test_encryption_keeps_case_status_readable(
         encrypted.close()
 
 
-def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
-    """Runs the README's time travel command."""
+def dexcli_path() -> str:
     dexcli = os.environ.get("DEXCLI_PATH") or shutil.which("dexcli")
     if dexcli is None:
         pytest.fail("set DEXCLI_PATH or put dexcli on PATH")
+    return dexcli
+
+
+def issue_refund_execute_completed_context(flow_id: str) -> dict[str, Any]:
+    """Reads the context of the one IssueRefund StepExecuteCompleted event."""
+    history = subprocess.run(
+        [dexcli_path(), "flow", "history", flow_id, "--server", server_address(), "--all"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    contexts = [
+        event["payload"]["context"]
+        for event in json.loads(history.stdout)["events"]
+        if event["type"] == "StepExecuteCompleted"
+        and event["payload"]["context"]["stepType"] == "IssueRefund"
+    ]
+    assert len(contexts) == 1
+    context: dict[str, Any] = contexts[0]
+    return context
+
+
+def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
+    """Runs the README's time travel command."""
     subprocess.run(
         [
-            dexcli,
+            dexcli_path(),
             "flow",
             "time-travel",
             flow_id,

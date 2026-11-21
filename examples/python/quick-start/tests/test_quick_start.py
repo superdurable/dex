@@ -54,8 +54,8 @@ from quick_start import order_flow as order_flow_module
 from quick_start.config import (
     FLOW_DEFINITIONS_DIR,
     SERVER_ADDRESS,
-    flow_definition_paths,
     open_cache,
+    worker_options,
 )
 from quick_start.order_flow import SHIP_DELAY_TIMER, OrderFlow
 from quick_start.shop_api import ShopApi
@@ -159,25 +159,32 @@ def test_worker_uploads_the_generated_design(
     dexcli = os.environ.get("DEXCLI_PATH") or shutil.which("dexcli")
     if dexcli is None:
         pytest.fail("set DEXCLI_PATH or put dexcli on PATH")
-    source = Path(order_flow_module.__file__).resolve()
+    # A unique source folder gives the design a source.path no earlier upload has.
+    unique_source = tmp_path / uuid.uuid4().hex / "order_flow.py"
+    unique_source.parent.mkdir()
+    shutil.copy(Path(order_flow_module.__file__), unique_source)
     monkeypatch.chdir(tmp_path)
     subprocess.run(
-        [dexcli, "visualize", str(source), "--schema-version", "2.0", "--json",
-         "--out", "build/flow-definitions/order"],
+        [
+            dexcli,
+            "visualize",
+            str(unique_source.relative_to(tmp_path)),
+            "--schema-version",
+            "2.0",
+            "--json",
+            "--out",
+            "build/flow-definitions/order",
+        ],
         check=True,
         capture_output=True,
     )
-    assert flow_definition_paths() == (FLOW_DEFINITIONS_DIR,)
     design = (FLOW_DEFINITIONS_DIR / "order.json").read_bytes()
     generated_at = datetime.fromisoformat(json.loads(design)["generatedAt"])
 
     client_flow = OrderFlow(ShopApi())
     with connected_client(client_flow, tmp_path / "client") as client:
         cache = open_cache(tmp_path / "worker")
-        options = WorkerOptions(
-            server_address=SERVER_ADDRESS, flow_definition_paths=flow_definition_paths()
-        )
-        worker = Worker(Registry((OrderFlow(ShopApi()),)), cache, options)
+        worker = Worker(Registry((OrderFlow(ShopApi()),)), cache, worker_options())
         thread = threading.Thread(target=worker.start, daemon=True)
         try:
             thread.start()
