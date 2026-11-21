@@ -21,11 +21,13 @@ import { useModalFocus } from '../../components/useModalFocus';
 import { usePayloadCodec } from '../../payloadCodecContext';
 import { encodeReasonText } from '@/lib/payloadCodec';
 import {
+  AdvancedOptionsSection,
   HistoryPointFields,
   historyPointRequestFields,
   isHistoryPointComplete,
   SubFlowResetPolicyField,
   useStepTypesOf,
+  WritesReapplyField,
   type HistoryPointKind,
 } from './HistoryPointFields';
 
@@ -81,6 +83,9 @@ export function TimeTravelDialog({
   const [target, setTarget] = useState(() => initialTarget?.stepExecutionId ?? '');
   const [stepMethod, setStepMethod] = useState<number>(() => initialTarget?.stepMethod ?? 0);
   const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
+  // Dex Web skips write reapply by default, so a Step waiting for outside input waits again.
+  const [shouldApplyWritesAgain, setShouldApplyWritesAgain] = useState(false);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [reason, setReason] = useState('');
   const { codec } = usePayloadCodec();
   const [submitting, setSubmitting] = useState(false);
@@ -96,6 +101,8 @@ export function TimeTravelDialog({
     setTarget(eventTarget?.stepExecutionId ?? '');
     setStepMethod(eventTarget?.stepMethod ?? 0);
     setSubFlowResetPolicy(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
+    setShouldApplyWritesAgain(false);
+    setIsAdvancedExpanded(false);
     setReason('');
     setError('');
   }, [initialEvent?.eventId, open]);
@@ -112,6 +119,8 @@ export function TimeTravelDialog({
       timeTravelType,
       reason,
       ...historyPointRequestFields(pointKind, target, stepMethod, timezone),
+      // Sent every time: an absent field means reapply on the server.
+      skipWritesReapply: !shouldApplyWritesAgain,
     };
     if (supportsRunHistoryForks) payload.subFlowResetPolicy = subFlowResetPolicy;
     if (runAttempt > 0) payload.runAttempt = runAttempt;
@@ -134,7 +143,7 @@ export function TimeTravelDialog({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal" ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal time-travel-dialog" ref={modalRef} role="dialog" aria-modal="true" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{hasRunAttempts ? 'Time travel to a new run attempt' : 'Time travel to a new Flow run'}</h2>
           <button className="icon-button" onClick={onClose}>×</button>
@@ -166,9 +175,6 @@ export function TimeTravelDialog({
           onTargetChange={setTarget}
           onStepMethodChange={setStepMethod}
         />
-        {supportsRunHistoryForks && (
-          <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
-        )}
         <label>
           Reason
           <textarea
@@ -179,6 +185,12 @@ export function TimeTravelDialog({
             onChange={(event) => setReason(event.target.value)}
           />
         </label>
+        <AdvancedOptionsSection isExpanded={isAdvancedExpanded} onExpandedChange={setIsAdvancedExpanded}>
+          <WritesReapplyField shouldApplyWritesAgain={shouldApplyWritesAgain} onChange={setShouldApplyWritesAgain} />
+          {supportsRunHistoryForks && (
+            <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
+          )}
+        </AdvancedOptionsSection>
         {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions">
           <button className="button ghost" onClick={onClose}>Cancel</button>

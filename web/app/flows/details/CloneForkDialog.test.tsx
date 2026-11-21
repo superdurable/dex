@@ -78,6 +78,64 @@ function requestBody(fetchMock: ReturnType<typeof stubCloneFork>): Record<string
   return JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
 }
 
+function openAdvanced() {
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+}
+
+describe('Clone fork Advanced section', () => {
+  it('shows only the point, new Flow ID, and reason until Advanced is opened', () => {
+    renderDialog();
+
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('textbox', { name: /^Task queue/ })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /^ID reuse policy/ })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Clone fork point' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: /^New Flow ID/ })).toBeTruthy();
+    expect(screen.getByLabelText('Reason')).toBeTruthy();
+
+    fireEvent.click(advanced);
+
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('textbox', { name: /^Task queue/ })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: /^ID reuse policy/ })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: /^SubFlow reset policy/ })).toBeTruthy();
+    // CloneForkFlow never applies the source's later input, so there is nothing to choose.
+    expect(screen.queryByRole('checkbox', { name: 'Apply later writes again' })).toBeNull();
+
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('textbox', { name: /^Task queue/ })).toBeNull();
+  });
+
+  it('keeps Advanced open while the task queue is invalid', () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'try a fix' } });
+    const button = screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(button.disabled).toBe(false);
+
+    fireEvent.click(advanced);
+    const taskQueue = screen.getByRole('textbox', { name: /^Task queue/ });
+    fireEvent.change(taskQueue, { target: { value: 'dex.reserved' } });
+    expect(taskQueue.getAttribute('aria-invalid')).toBe('true');
+    expect(document.querySelector('.field-error')?.textContent).toBeTruthy();
+    expect(button.disabled).toBe(true);
+
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('textbox', { name: /^Task queue/ })).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'orders-fork' } });
+    expect(button.disabled).toBe(false);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('textbox', { name: /^Task queue/ })).toBeNull();
+  });
+});
+
 describe('Clone fork from the selected event', () => {
   it('offers Clone fork beside Time travel for the same events', () => {
     const markup = renderToStaticMarkup(
@@ -114,6 +172,7 @@ describe('Clone fork from the selected event', () => {
     expect((screen.getByRole('combobox', { name: 'Clone fork point' }) as HTMLSelectElement).value).toBe('event-id');
     expect((screen.getByLabelText('Target') as HTMLInputElement).value).toBe('42');
     expect((screen.getByRole('textbox', { name: /^New Flow ID/ }) as HTMLInputElement).value).toMatch(/^order-1-fork-\d{8}-\d{6}$/);
+    openAdvanced();
     expect((screen.getByRole('textbox', { name: /^Task queue/ }) as HTMLInputElement).value).toBe('orders');
     fireEvent.change(screen.getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'try a fix' } });
@@ -140,8 +199,9 @@ describe('Clone fork from the selected event', () => {
     const fetchMock = stubCloneFork();
     renderDialog();
 
+    openAdvanced();
     fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'orders-fork' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'ID reuse policy' }), { target: { value: '4' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /^ID reuse policy/ }), { target: { value: '4' } });
     fireEvent.change(screen.getByRole('combobox', { name: /^SubFlow reset policy/ }), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'try a fix' } });
     fireEvent.click(screen.getByRole('button', { name: 'Clone fork' }));
@@ -179,6 +239,7 @@ describe('Clone fork from the selected event', () => {
   ])('sends SubFlow policy $label', async ({ policy }) => {
     const fetchMock = stubCloneFork();
     renderDialog();
+    openAdvanced();
     fireEvent.change(screen.getByRole('combobox', { name: /^SubFlow reset policy/ }), { target: { value: String(policy) } });
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'branch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Clone fork' }));
@@ -199,6 +260,9 @@ describe('Clone fork validation', () => {
     expect(screen.getByText(/Choose a Flow ID other than the source/)).toBeTruthy();
 
     fireEvent.change(screen.getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    expect(button.disabled).toBe(false);
+    expect(screen.queryByText(/Choose a Flow ID other than the source/)).toBeNull();
+    openAdvanced();
     fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'dex.reserved' } });
     expect(button.disabled).toBe(true);
   });

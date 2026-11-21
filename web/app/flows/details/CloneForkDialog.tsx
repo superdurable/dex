@@ -25,6 +25,7 @@ import { usePayloadCodec } from '../../payloadCodecContext';
 import { encodeReasonText } from '@/lib/payloadCodec';
 import { startTaskQueueError } from '../../start/StartFlowDialog';
 import {
+  AdvancedOptionsSection,
   HistoryPointFields,
   historyPointRequestFields,
   isHistoryPointComplete,
@@ -105,6 +106,7 @@ export function CloneForkDialog({
   const [taskQueue, setTaskQueue] = useState(sourceTaskQueue ?? '');
   const [idReusePolicy, setIdReusePolicy] = useState<number>(ID_REUSE_POLICY.SERVER_DEFAULT);
   const [subFlowResetPolicy, setSubFlowResetPolicy] = useState<number>(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [reason, setReason] = useState('');
   const { codec } = usePayloadCodec();
   const [requestId, setRequestId] = useState(newCloneForkRequestId);
@@ -164,6 +166,7 @@ export function CloneForkDialog({
     setTaskQueue(sourceTaskQueue ?? '');
     setIdReusePolicy(ID_REUSE_POLICY.SERVER_DEFAULT);
     setSubFlowResetPolicy(SUB_FLOW_RESET_POLICY.ATTACH_ELSE_RESTART);
+    setIsAdvancedExpanded(false);
     setReason('');
     setRequestId(newCloneForkRequestId());
     setError('');
@@ -294,36 +297,6 @@ export function CloneForkDialog({
           />
           {flowIdError && <small className="field-error">{flowIdError}</small>}
         </label>
-        {isOnOwnSessionQueue ? (
-          <label>
-            Task queue
-            <input readOnly spellCheck={false} value={sessionTaskQueueOfNewFlow ?? ''} />
-            <small className="muted">Derived from the new Flow ID: the new session runs on its own task queue.</small>
-          </label>
-        ) : (
-        <label>
-          Task queue
-          <input
-            aria-invalid={taskQueueError ? true : undefined}
-            placeholder="Source task queue (default)"
-            spellCheck={false}
-            value={taskQueue}
-            onChange={(event) => setTaskQueue(event.target.value)}
-          />
-          {taskQueueError
-            ? <small className="field-error">{taskQueueError}</small>
-            : <small className="muted">{sourceTaskQueue === null
-              ? 'Empty inherits the source\'s task queue; dex.default selects the default one.'
-              : 'Empty keeps the source\'s task queue; dex.default selects the default one.'}</small>}
-        </label>
-        )}
-        <label>
-          ID reuse policy
-          <select value={idReusePolicy} onChange={(event) => setIdReusePolicy(Number(event.target.value))}>
-            {idReusePolicyOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
         <label>
           Reason
           <textarea
@@ -334,6 +307,43 @@ export function CloneForkDialog({
             onChange={(event) => setReason(event.target.value)}
           />
         </label>
+        {/* An invalid task queue keeps Advanced open, so the error that disables Clone fork stays visible. */}
+        <AdvancedOptionsSection
+          isExpanded={isAdvancedExpanded || Boolean(taskQueueError)}
+          onExpandedChange={(isExpanded) => setIsAdvancedExpanded(isExpanded || Boolean(taskQueueError))}
+        >
+          {isOnOwnSessionQueue ? (
+            <label>
+              Task queue
+              <input readOnly spellCheck={false} value={sessionTaskQueueOfNewFlow ?? ''} />
+              <small className="muted">Derived from the new Flow ID: the new session runs on its own task queue.</small>
+            </label>
+          ) : (
+            <label>
+              Task queue
+              <input
+                aria-invalid={taskQueueError ? true : undefined}
+                placeholder="Source task queue (default)"
+                spellCheck={false}
+                value={taskQueue}
+                onChange={(event) => setTaskQueue(event.target.value)}
+              />
+              {taskQueueError
+                ? <small className="field-error">{taskQueueError}</small>
+                : <small className="muted">{sourceTaskQueue === null
+                  ? 'Empty inherits the source\'s task queue; dex.default selects the default one.'
+                  : 'Empty keeps the source\'s task queue; dex.default selects the default one.'}</small>}
+            </label>
+          )}
+          <label>
+            ID reuse policy
+            <select value={idReusePolicy} onChange={(event) => setIdReusePolicy(Number(event.target.value))}>
+              {idReusePolicyOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+            </select>
+            <small className="muted">Whether the new Flow ID may already have a run, as for a start.</small>
+          </label>
+          <SubFlowResetPolicyField value={subFlowResetPolicy} onChange={setSubFlowResetPolicy} />
+        </AdvancedOptionsSection>
         {(error || sessionQueueError) && <div className="error-banner">{error || sessionQueueError}</div>}
         <div className="modal-actions">
           <button className="button ghost" onClick={onClose}>Cancel</button>

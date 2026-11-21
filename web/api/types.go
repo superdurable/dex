@@ -219,6 +219,8 @@ type timeTravelFlowRequest struct {
 	EventID historyEventID `json:"eventId"`
 	// SubFlowResetPolicy is a SubFlowResetPolicy number; zero selects the server default.
 	SubFlowResetPolicy int32 `json:"subFlowResetPolicy"`
+	// SkipWritesReapply skips applying later RPCs, Channel publications, and Attribute writes again; absent means false.
+	SkipWritesReapply bool `json:"skipWritesReapply"`
 }
 
 type timeTravelFlowResponse struct {

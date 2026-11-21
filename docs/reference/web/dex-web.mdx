@@ -770,6 +770,32 @@ server, **POST /api/flows/time-travel** with **timeTravelType** 6 or a non-zero
 **subFlowResetPolicy** returns HTTP 400 with code
 **SERVER_PROTOCOL_UNSUPPORTED**.
 
+#### Time travel dialog fields {#time-travel-dialog}
+
+Changed in 1.45.18: the time travel dialog shows **Time travel point**, the
+point's **Target**, **Step method**, and **Reason**. **Target** depends on the
+chosen point type: none for **Beginning**, a time, a Step type, a Step
+execution ID, or an event ID. **Step method** appears only for **Step execution
+ID**. The less common choices
+sit under **Advanced**, which starts collapsed each time the dialog opens.
+**Advanced** is a button with **aria-expanded**, so the keyboard and screen
+readers can open and close it.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **Apply later writes again** (Advanced) | Off | Off skips write reapply: RPC calls, Channel publications, and Attribute writes that reached the run after the point are not applied again, so a Step that waits for such input, such as a human approval, waits again. On applies them again, as before 1.45.18. |
+| **SubFlow reset policy** (Advanced) | **Attach, else restart** | As described above. Shown only on a server with protocol version 6 or later. |
+
+The Dex Web default differs from the Client and **dexcli** default. A Client
+applies later writes again unless its time travel options skip write reapply,
+and **dexcli flow time-travel** does so unless you pass **--skip-writes-reapply**.
+
+**POST /api/flows/time-travel** accepts an optional **skipWritesReapply**
+boolean, sent to the server as **ResetFlowRequest.skip_writes_reapply**. An
+absent value means **false**, so later writes are applied again. The dialog
+always sends it: **true** unless **Apply later writes again** is on. Every
+server-zd release accepts it, so it needs no protocol check.
+
 ### Clone fork {#clone-fork}
 
 Since 1.45.7. **Clone fork** starts a new Flow from a copy of a run's state at
@@ -796,10 +822,16 @@ The dialog has these fields:
 | --- | --- | --- |
 | **Clone fork point** | **Current state** or **Event ID**, as above | **Current state**, **Beginning**, **History event time**, **Step type**, **Step execution ID**, or **Event ID**. **Current state** appears only while the run runs. The other points search the run attempt on screen. |
 | **New Flow ID** | The source Flow ID with **-fork-** and the UTC time to the second, such as **order-1-fork-20261115-080910** | Required. It must differ from the source Flow ID. |
-| **Task queue** | The source run's task queue when available; otherwise empty | An unchanged or empty value inherits the source's task queue. **dex.default** selects the default task queue. Set a task queue of its own when Workers pick their Flows by task queue. |
-| **ID reuse policy** | **Server default (disallow reuse)** | Decides whether the new Flow ID may already have a run, as for a start. |
-| **SubFlow reset policy** | **Attach, else restart** | Decides what happens to a SubFlow that a copied Step waits on; see [SubFlows across a clone fork](/reference/server/runtime-client#sub-flows-across-a-clone-fork). |
+| **Task queue** (Advanced) | The source run's task queue when available; otherwise empty | An unchanged or empty value inherits the source's task queue. **dex.default** selects the default task queue. Set a task queue of its own when Workers pick their Flows by task queue. |
+| **ID reuse policy** (Advanced) | **Server default (disallow reuse)** | Decides whether the new Flow ID may already have a run, as for a start. |
+| **SubFlow reset policy** (Advanced) | **Attach, else restart** | Decides what happens to a SubFlow that a copied Step waits on; see [SubFlows across a clone fork](/reference/server/runtime-client#sub-flows-across-a-clone-fork). |
 | **Reason** | Empty | Required. Recorded with the new run's start. |
+
+Changed in 1.45.18: **Task queue**, **ID reuse policy**, and **SubFlow reset
+policy** sit under **Advanced**, which starts collapsed. **Advanced** stays open
+while the task queue is invalid, so its error stays in view. Clone fork has no
+**Apply later writes again** choice: the new run never receives the source's
+input after the point.
 
 **Clone fork** opens the new Flow's run page. Each opening of the dialog sends
 one request ID, so a second click retries the same clone fork and returns the

@@ -3222,7 +3222,8 @@ button.timeline-edge-stub:focus-visible {
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
 }
 
-.modal > label {
+.modal > label,
+.modal-advanced-body > label {
   display: flex;
   margin-top: 14px;
   flex-direction: column;
@@ -3232,7 +3233,81 @@ button.timeline-edge-stub:focus-visible {
   font-weight: 600;
 }
 
-/* Clone fork has more fields than a short phone screen holds, so the dialog scrolls inside. */
+.modal-advanced {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.modal-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -6px;
+  padding: 4px 8px 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal-advanced-toggle:hover {
+  background: var(--line);
+}
+
+.modal-advanced-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Forced colors drop box shadows, so the focus needs a real outline. */
+@media (forced-colors: active) {
+  .modal-advanced-toggle:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+.modal-advanced-chevron {
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.modal-advanced[data-expanded='true'] .modal-advanced-chevron {
+  transform: rotate(0deg);
+}
+
+.modal-checkbox-field {
+  display: flex;
+  margin-top: 14px;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.modal-checkbox-field > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal .modal-checkbox-field input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+/* Clone fork and Time travel with Advanced open have more fields than a short phone screen holds, so the dialog scrolls inside. */
+.modal.time-travel-dialog,
 .modal.clone-fork-dialog {
   max-height: calc(100dvh - 40px);
   overflow-y: auto;

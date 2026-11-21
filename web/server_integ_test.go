@@ -425,6 +425,27 @@ func TestWebServerTimeTravelsToStepMethod(t *testing.T) {
 		request.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE {
 		t.Fatalf("unexpected time travel point: %+v", request)
 	}
+	if request.GetSkipWritesReapply() {
+		t.Fatalf("a request without skipWritesReapply skipped write reapply: %+v", request)
+	}
+}
+
+func TestWebServerTimeTravelSkipsWritesReapply(t *testing.T) {
+	service := &flowService{timeTravelRequests: make(chan *dexpb.ResetFlowRequest, 1)}
+	harness := newHarness(t, service)
+	response := postJSON(
+		t,
+		harness.http.URL+"/api/flows/time-travel",
+		`{"flowId":"checkout-1","runId":"run-1","timeTravelType":1,"skipWritesReapply":true,"reason":"wait for a new approval"}`,
+	)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("time travel status = %d body=%q", response.StatusCode, readBody(t, response))
+	}
+	request := <-service.timeTravelRequests
+	if !request.GetSkipWritesReapply() {
+		t.Fatalf("skipWritesReapply did not reach ResetFlow: %+v", request)
+	}
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {

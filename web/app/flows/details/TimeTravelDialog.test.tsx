@@ -137,8 +137,121 @@ describe('time travel requests', () => {
       timeTravelType: 2,
       reason: 'replay the fix',
       historyEventTime: '2026-10-24T17:30:05.000Z',
+      skipWritesReapply: true,
       subFlowResetPolicy: 4,
       runAttempt: 1,
+    });
+  });
+
+  it('shows only the common fields until Advanced is opened', () => {
+    render(
+      <TimeTravelDialog
+        open
+        summary={summary}
+        events={[event]}
+        initialEvent={event}
+        runAttempt={0}
+        timezone="local"
+        supportsRunHistoryForks
+        onClose={() => {}}
+        onTimeTraveled={() => {}}
+      />,
+    );
+
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('checkbox', { name: 'Apply later writes again' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Time travel point' })).toBeTruthy();
+    expect(screen.getByLabelText('Target')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Step method' })).toBeTruthy();
+    expect(screen.getByLabelText('Reason')).toBeTruthy();
+
+    fireEvent.click(advanced);
+
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    expect(document.getElementById(advanced.getAttribute('aria-controls') ?? '')?.hidden).toBe(false);
+    const reapply = screen.getByRole('checkbox', { name: 'Apply later writes again' }) as HTMLInputElement;
+    expect(reapply.checked).toBe(false);
+    const help = document.getElementById(reapply.getAttribute('aria-describedby') ?? '');
+    expect(help?.textContent).toMatch(/^Off: RPC calls, Channel messages, and Attribute writes that came after this point are not applied again/);
+    expect(screen.getByRole('combobox', { name: /^SubFlow reset policy/ })).toBeTruthy();
+  });
+
+  it('collapses Advanced and skips write reapply again when the same dialog reopens', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ runId: 'run-1', runAttempt: 2 }),
+      { status: 200 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const onTimeTraveled = vi.fn();
+    const props = {
+      summary: { ...summary, runAttempt: 1 },
+      events: [event],
+      initialEvent: event,
+      runAttempt: 0,
+      timezone: 'UTC' as const,
+      supportsRunHistoryForks: true,
+      onClose: () => {},
+      onTimeTraveled,
+    };
+    const { rerender } = render(<TimeTravelDialog open {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Apply later writes again' }));
+    expect((screen.getByRole('checkbox', { name: 'Apply later writes again' }) as HTMLInputElement).checked).toBe(true);
+
+    rerender(<TimeTravelDialog open={false} {...props} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    rerender(<TimeTravelDialog open {...props} />);
+
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('checkbox', { name: 'Apply later writes again' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'wait for a new approval' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
+
+    await waitFor(() => expect(onTimeTraveled).toHaveBeenCalled());
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toMatchObject({
+      skipWritesReapply: true,
+    });
+  });
+
+  it('applies later writes again only when Advanced turns it on', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ runId: 'run-1', runAttempt: 2 }),
+      { status: 200 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const onTimeTraveled = vi.fn();
+    render(
+      <TimeTravelDialog
+        open
+        summary={{ ...summary, runAttempt: 1 }}
+        events={[event]}
+        initialEvent={event}
+        runAttempt={0}
+        timezone="UTC"
+        supportsRunHistoryForks
+        onClose={() => {}}
+        onTimeTraveled={onTimeTraveled}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Apply later writes again' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'apply the approvals again' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
+
+    await waitFor(() => expect(onTimeTraveled).toHaveBeenCalled());
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({
+      flowId: 'order-1',
+      runId: 'run-1',
+      timeTravelType: 4,
+      reason: 'apply the approvals again',
+      stepExecutionId: 'ChargeOrder-2',
+      stepMethod: 2,
+      skipWritesReapply: false,
+      subFlowResetPolicy: 4,
     });
   });
 
@@ -169,6 +282,7 @@ describe('time travel requests', () => {
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: '0' } });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: '42' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
     fireEvent.change(screen.getByRole('combobox', { name: /^SubFlow reset policy/ }), { target: { value: '3' } });
     fireEvent.click(button);
 
@@ -179,6 +293,7 @@ describe('time travel requests', () => {
       timeTravelType: 6,
       reason: 'replay',
       eventId: '42',
+      skipWritesReapply: true,
       subFlowResetPolicy: 3,
     });
   });
@@ -236,6 +351,8 @@ describe('time travel requests', () => {
 
     const points = screen.getByRole('combobox', { name: 'Time travel point' }) as HTMLSelectElement;
     expect([...points.options].map((option) => option.textContent)).not.toContain('Event ID');
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    expect(screen.getByRole('checkbox', { name: 'Apply later writes again' })).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: /^SubFlow reset policy/ })).toBeNull();
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'replay' } });
     fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
@@ -246,6 +363,7 @@ describe('time travel requests', () => {
       runId: 'run-1',
       timeTravelType: 1,
       reason: 'replay',
+      skipWritesReapply: true,
     });
   });
 });
