@@ -16,6 +16,7 @@
 
 package io.superdurable.dex.products.customerrefund;
 
+import io.superdurable.dex.products.customerrefund.FakeBillingService.IdempotencyKeyConflictException;
 import io.superdurable.dex.products.customerrefund.FakeBillingService.Order;
 import io.superdurable.dex.products.customerrefund.FakeBillingService.RecordedRefund;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Many Workers' billing and email calls racing on the same ledger files. */
@@ -138,6 +140,19 @@ class RefundLedgerConcurrencyTest {
         assertEquals(refunds.size(), refunds.stream().map(RecordedRefund::refundId).distinct().count());
         assertEquals(refunds.size(), refunds.stream().map(RecordedRefund::idempotencyKey).distinct().count());
         assertNoTemporaryFiles();
+    }
+
+    @Test
+    void reusedKeyForADifferentOrderFailsInsteadOfReportingTheOldRefund() {
+        final FakeBillingService billing = new FakeBillingService(directory.resolve("billing-refunds.json"));
+        final String refundId = billing.refund(billing.getOrder("INV-0049"), "refund-refund1", false);
+
+        assertEquals(refundId, billing.refund(billing.getOrder("INV-0049"), "refund-refund1", false));
+        final IdempotencyKeyConflictException conflict = assertThrows(IdempotencyKeyConflictException.class,
+                () -> billing.refund(billing.getOrder("INV-1249"), "refund-refund1", false));
+        assertTrue(conflict.getMessage().contains("INV-0049"), conflict.getMessage());
+        assertTrue(conflict.getMessage().contains("INV-1249"), conflict.getMessage());
+        assertEquals(1, billing.listRefunds().size());
     }
 
     @Test

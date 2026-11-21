@@ -54,6 +54,13 @@ public class FakeBillingService {
         }
     }
 
+    /** The idempotency key already belongs to a refund of a different order or amount. */
+    public static class IdempotencyKeyConflictException extends RuntimeException {
+        public IdempotencyKeyConflictException(final String message) {
+            super(message);
+        }
+    }
+
     public FakeBillingService(final Path ledgerPath) {
         this.ledger = new LockedJsonLedger<>(ledgerPath, RecordedRefund.class);
     }
@@ -77,6 +84,17 @@ public class FakeBillingService {
         final RefundAttempt attempt = ledger.changeRecords(refunds -> {
             for (RecordedRefund earlier : refunds) {
                 if (earlier.idempotencyKey().equals(idempotencyKey)) {
+                    if (!earlier.orderId().equals(order.orderId())
+                            || Double.compare(earlier.amountUsd(), order.amountUsd()) != 0) {
+                        throw new IdempotencyKeyConflictException(String.format(Locale.US,
+                                "key %s already refunded %s for %s USD, not %s for %s USD;"
+                                        + " give each Dex environment its own ledger directory",
+                                idempotencyKey,
+                                earlier.orderId(),
+                                formatUsd(earlier.amountUsd()),
+                                order.orderId(),
+                                formatUsd(order.amountUsd())));
+                    }
                     return new LockedJsonLedger.Change<>(null, new RefundAttempt(earlier, false));
                 }
             }

@@ -14,6 +14,12 @@ atomic rename, so concurrent Workers never lose or duplicate a record. A file
 system without atomic rename fails with a clear error. The email ledger keeps
 only idempotency keys, not addresses or message text.
 
+The idempotency keys are built from Flow IDs, such as `refund-refund1`. Give
+each Dex environment its own ledger directory, or keep Flow IDs unique across
+environments. When a key already belongs to a refund of a different order or
+amount, billing fails with `IdempotencyKeyConflictException` instead of
+reporting the old refund.
+
 `REFUND_BILLING_MODE` affects only the Worker. `start`, `decide`, and
 `list-refunds` ignore it.
 
