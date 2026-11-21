@@ -35,6 +35,34 @@ dependencies {
     testImplementation "org.junit.jupiter:junit-jupiter"
 }
 
+// The customer refund command adds a second main class.
+springBoot {
+    mainClass = "io.superdurable.dex.SpringMainApplication"
+}
+
+// ./gradlew installCustomerRefund writes build/install/customer-refund/bin/customer-refund.
+// It runs outside Gradle so that Ctrl+C reaches the Worker.
+def customerRefundScripts = tasks.register("customerRefundScripts", CreateStartScripts) {
+    applicationName = "customer-refund"
+    mainClass = "io.superdurable.dex.products.customerrefund.CustomerRefundCommand"
+    defaultJvmOpts = ["--enable-native-access=ALL-UNNAMED"]
+    classpath = files(tasks.named("jar")) + configurations.runtimeClasspath
+    outputDir = layout.buildDirectory.dir("customer-refund-scripts").get().asFile
+}
+
+tasks.register("installCustomerRefund", Sync) {
+    into layout.buildDirectory.dir("install/customer-refund")
+    from(customerRefundScripts) {
+        into "bin"
+    }
+    from(tasks.named("jar")) {
+        into "lib"
+    }
+    from(configurations.runtimeClasspath) {
+        into "lib"
+    }
+}
+
 tasks.named("test") {
     useJUnitPlatform()
     // Integ tests share one Worker via SharedIntegExtension.
