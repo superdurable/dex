@@ -773,6 +773,11 @@ impl ServeProcess {
             .is_some()
     }
 
+    /// Returns the operating system process ID of the running process.
+    pub(crate) fn process_id(&self) -> u32 {
+        self.child.id().expect("the process is still running")
+    }
+
     /// Returns everything the process wrote to standard error.
     pub(crate) fn log(&self) -> String {
         fs::read_to_string(&self.log_path)

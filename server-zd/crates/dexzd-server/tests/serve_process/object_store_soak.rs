@@ -44,7 +44,7 @@ const LEASE_DURATION_VARIABLE: &str = "DEX_SOAK_LEASE_DURATION";
 const MAX_STANDBY_RESTARTS_VARIABLE: &str = "DEX_SOAK_MAX_STANDBY_RESTARTS";
 const MAX_TAKEOVER_RETRIES_VARIABLE: &str = "DEX_SOAK_MAX_TAKEOVER_RETRIES";
 const LOG_STALL_INTERVAL_VARIABLE: &str = "DEX_SOAK_LOG_STALL_INTERVAL";
-/// Outlasts the 10 s log batch write deadline, so the serving process stops.
+/// Outlasts the soak's 10 s `commit.batchWriteDeadline`, so the serving process stops.
 const LOG_STALL_HOLD: Duration = Duration::from_secs(15);
 /// How long a stall waits for the serving process to exit before it releases the writes.
 const LOG_STALL_BUDGET: Duration = Duration::from_secs(30);

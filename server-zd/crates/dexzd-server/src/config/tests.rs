@@ -937,35 +937,44 @@ fn replay_check_yaml_override_reaches_the_engine_node() {
 }
 
 #[test]
-fn batch_write_deadline_defaults_to_ten_seconds_and_reaches_the_engine_node() {
-    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
-    assert_eq!(
-        valid_config().commit.batch_write_deadline,
-        Duration::from_secs(10)
-    );
-    assert_eq!(
-        defaults.engine_node.commit.batch_write_deadline,
-        dexzd_engine::CommitConfig::default().batch_write_deadline
-    );
+fn batch_write_deadline_defaults_to_the_lease_duration_and_reaches_the_engine_node() {
+    assert_eq!(valid_config().commit.batch_write_deadline, None);
+    let mut configuration = valid_config();
+    for (lease_duration, expected) in [
+        (Duration::from_secs(3), Duration::from_secs(10)),
+        (Duration::from_secs(10), Duration::from_secs(10)),
+        (Duration::from_secs(90), Duration::from_secs(90)),
+        (Duration::from_secs(600), Duration::from_secs(300)),
+    ] {
+        configuration.lease.duration = lease_duration;
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        assert_eq!(
+            components.engine_node.commit.batch_write_deadline, expected,
+            "{lease_duration:?} lease"
+        );
+    }
 
     let parsed = Config::parse_yaml("commit:\n  batchWriteDeadline: 45s\n")
         .expect("parse batch write deadline");
     let mut configuration = valid_config();
     configuration.commit = parsed.commit;
     configuration.validate().expect("a 45 s deadline is valid");
+    configuration.lease.duration = Duration::from_secs(90);
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
     assert_eq!(
         components.engine_node.commit.batch_write_deadline,
-        Duration::from_secs(45)
+        Duration::from_secs(45),
+        "an explicit deadline wins over the lease duration"
     );
 
-    configuration.commit.batch_write_deadline = Duration::from_secs(300);
+    configuration.commit.batch_write_deadline = Some(Duration::from_secs(300));
     configuration
         .validate()
         .expect("the 5 minute bound is valid");
     for deadline in [Duration::ZERO, Duration::from_millis(300_001)] {
-        configuration.commit.batch_write_deadline = deadline;
+        configuration.commit.batch_write_deadline = Some(deadline);
         let error = configuration
             .validate()
             .expect_err("invalid batch write deadline");
@@ -975,7 +984,7 @@ fn batch_write_deadline_defaults_to_ten_seconds_and_reaches_the_engine_node() {
                 ConfigError::Invalid {
                     field: "commit.batchWriteDeadline",
                     message,
-                } if message == "must be positive and at most 5 minutes"
+                } if message == "must be positive and at most 5 minutes when set"
             ),
             "{deadline:?}: {error}"
         );
@@ -988,6 +997,46 @@ fn batch_write_deadline_defaults_to_ten_seconds_and_reaches_the_engine_node() {
         assert!(
             matches!(Config::parse_yaml(yaml), Err(ConfigError::Yaml { .. })),
             "{yaml}"
+        );
+    }
+}
+
+#[test]
+fn dev_and_local_log_writes_wait_as_long_as_their_lease_unless_overridden() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let explicit_deadline_path = temporary.path().join("batch-write-deadline.yaml");
+    fs::write(
+        &explicit_deadline_path,
+        "commit:\n  batchWriteDeadline: 10s\n",
+    )
+    .expect("write test config");
+    let engine_deadline = |configuration: &Config| {
+        ComponentConfigs::from_config(configuration, true)
+            .expect("single-node component configuration")
+            .engine_node
+            .commit
+            .batch_write_deadline
+    };
+    let profiles = [
+        (
+            Config::load_dev as fn(&DevCommandOptions) -> Result<Config, ConfigError>,
+            Duration::from_secs(90),
+        ),
+        (Config::load_local, Duration::from_secs(30)),
+    ];
+    for (load, lease_duration) in profiles {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert_eq!(without_overrides.lease.duration, lease_duration);
+        assert_eq!(engine_deadline(&without_overrides), lease_duration);
+        let with_explicit_deadline = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_deadline_path.clone()),
+        ))
+        .expect("configuration with an explicit deadline");
+        assert_eq!(
+            engine_deadline(&with_explicit_deadline),
+            Duration::from_secs(10)
         );
     }
 }
@@ -1834,7 +1883,7 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
             config.commit.batch_window = Duration::ZERO
         }),
         ("commit.batchWriteDeadline", |config| {
-            config.commit.batch_write_deadline = Duration::ZERO
+            config.commit.batch_write_deadline = Some(Duration::ZERO)
         }),
         ("commit.maxInFlight", |config| {
             config.commit.max_in_flight = 0

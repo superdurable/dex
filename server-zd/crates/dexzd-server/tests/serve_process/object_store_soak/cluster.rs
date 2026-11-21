@@ -38,6 +38,9 @@ pub(crate) const NODE_ID: &str = "soak-node";
 const KILLED_LEASE_EXPIRY_MARGIN: Duration = Duration::from_secs(2);
 /// Longer than any standby lag, so a hot standby never misses a deleted log batch.
 const LOG_DELETION_DELAY: &str = "10m";
+/// Shorter than the soak's log write stall, so the stall still exercises the stop and takeover;
+/// unset, the deadline would follow the lease duration.
+const LOG_BATCH_WRITE_DEADLINE: &str = "10s";
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The error line of a process whose start failed after it took the lease.
 const FAILED_START_MARKER: &str = "dex-server-zd: starting the engine: ";
@@ -120,7 +123,7 @@ impl SoakCluster {
             let local_directory = directory.join(format!("{name}-store"));
             let contents = |standby_mode: &str| {
                 format!(
-                    "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {lease_duration}s\n  failIfHeld: false\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: {standby_mode}\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
+                    "cluster:\n  nodeId: {NODE_ID}\n  partitionCount: 16\n{object_store}localStorage:\n  directory: {local}\n  blockCacheBytes: 33554432\nlease:\n  duration: {lease_duration}s\n  failIfHeld: false\ncommit:\n  batchWriteDeadline: {LOG_BATCH_WRITE_DEADLINE}\nsnapshot:\n  interval: {snapshot_interval}s\n  retainedCount: 2\n  logDeletionDelay: {LOG_DELETION_DELAY}\nstandby:\n  mode: {standby_mode}\nstreamStore:\n  backend: memory\napi:\n  listen: \"{address}\"\nmetrics:\n  listen: '{metrics_address}'\nsearch:\n  backend: builtin\n",
                     object_store = target.object_store_yaml(),
                     local = local_directory.display(),
                     snapshot_interval = snapshot_interval.as_secs(),

@@ -352,6 +352,8 @@ pub(crate) struct SwitchableFaults {
     delayed: Mutex<Option<DelayedOperation>>,
     /// Key prefix and delay applied to every read under it.
     delayed_gets: Mutex<Option<(String, Duration)>>,
+    /// Key prefix and delay applied to every write under it.
+    delayed_puts: Mutex<Option<(String, Duration)>>,
     delayed_entered: Notify,
     operations: Mutex<Vec<(ObjectStoreOperation, String)>>,
 }
@@ -418,11 +420,17 @@ impl SwitchableFaults {
         *self.limited_put.lock().expect("fault lock") = None;
         *self.delayed.lock().expect("fault lock") = None;
         *self.delayed_gets.lock().expect("fault lock") = None;
+        *self.delayed_puts.lock().expect("fault lock") = None;
     }
 
     /// Delays every read of a key under `prefix` by `delay` until cleared.
     pub(crate) fn delay_every_get_under(&self, prefix: &str, delay: Duration) {
         *self.delayed_gets.lock().expect("fault lock") = Some((prefix.to_owned(), delay));
+    }
+
+    /// Delays every write of a key under `prefix` by `delay` until cleared.
+    pub(crate) fn delay_every_put_under(&self, prefix: &str, delay: Duration) {
+        *self.delayed_puts.lock().expect("fault lock") = Some((prefix.to_owned(), delay));
     }
 
     /// Delays the next read of exactly `key` by `delay`.
@@ -556,6 +564,11 @@ impl FaultInjector for SwitchableFaults {
         }
         if operation != ObjectStoreOperation::Put {
             return FaultAction::Proceed;
+        }
+        if let Some((prefix, delay)) = &*self.delayed_puts.lock().expect("fault lock")
+            && key.starts_with(prefix.as_str())
+        {
+            return FaultAction::Delay(*delay);
         }
         if let Some((limited_key, allowed)) = &mut *self.limited_put.lock().expect("fault lock")
             && limited_key == key

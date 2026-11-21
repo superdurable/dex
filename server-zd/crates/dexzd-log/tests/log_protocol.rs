@@ -1304,6 +1304,43 @@ async fn pipeline_fails_when_head_put_exceeds_deadline() {
     );
 }
 
+/// A process pause moves the clock past the deadline in one step while the head PUT is in flight.
+/// The store answers right after the resume, so the final attempt commits the batch.
+#[tokio::test(start_paused = true)]
+async fn pipeline_commits_a_head_put_whose_deadline_passed_during_a_process_pause() {
+    let store = Arc::new(MemoryStore::default());
+    let release = store.block_seq(1).await;
+    let config = CommitPipelineConfig {
+        head_deadline: Duration::from_secs(10),
+        ..Default::default()
+    };
+    let (pipeline, mut committed) =
+        CommitPipeline::start(store.clone(), Arc::new(FixedClock), stream(), 1, 1, config).unwrap();
+    let ticket = pipeline
+        .propose(2, Bytes::from_static(b"paused"), true)
+        .await
+        .unwrap();
+    while store.put_count.load(Ordering::SeqCst) == 0 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_secs(15)).await;
+    // The expired deadline runs before the store's reply is read, as after a SIGCONT.
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    store.blocked_seq.lock().await.remove(&1);
+    release.notify_waiters();
+    assert_eq!(ticket.committed.await.unwrap(), Ok(1));
+    assert_eq!(committed.recv().await.unwrap().seq, 1);
+    let written = store
+        .get(&stream().batch_key(1))
+        .await
+        .unwrap()
+        .expect("batch 1 is durable before its acknowledgement");
+    assert_eq!(decode_batch(&written.bytes).unwrap().records.len(), 1);
+    assert!(store.get(&stream().batch_key(2)).await.unwrap().is_none());
+}
+
 #[tokio::test(start_paused = true)]
 async fn pipeline_commits_a_head_put_slower_than_ten_seconds_within_a_longer_deadline() {
     let store = Arc::new(MemoryStore::default());

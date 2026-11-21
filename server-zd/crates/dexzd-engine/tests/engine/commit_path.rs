@@ -465,12 +465,58 @@ async fn a_raised_batch_write_deadline_keeps_serving_through_a_slow_log_write() 
     test.node.shutdown().await.expect("lease released");
 }
 
+/// Commits submitted while the head log batch waits for object storage.
+const COMMITS_DURING_STALL: usize = 4;
+
 #[tokio::test(start_paused = true)]
-async fn the_default_batch_write_deadline_stops_the_node_on_the_same_slow_log_write() {
+async fn commits_during_a_log_write_stall_are_acknowledged_only_after_it_in_submission_order() {
+    let mut cluster = TestCluster::new();
+    let mut config = cluster.config(LocalStoreConfig::InMemory);
+    config.commit.batch_write_deadline = RAISED_BATCH_WRITE_DEADLINE;
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("stalled-log-flow", 1).await;
+    cluster.faults.delay_next_put_under("log/", SLOW_LOG_PUT);
+    let stall_started_at = tokio::time::Instant::now();
+    let (_, head_ticket) = test
+        .submit("stalled-log-flow", CommitUrgency::Prompt)
+        .expect("submit succeeds");
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    let mut tickets = vec![head_ticket];
+    for _ in 1..COMMITS_DURING_STALL {
+        let (_, ticket) = test
+            .submit("stalled-log-flow", CommitUrgency::Prompt)
+            .expect("submissions are accepted while the head batch waits");
+        tickets.push(ticket);
+    }
+    let mut seqs = Vec::with_capacity(COMMITS_DURING_STALL);
+    for ticket in tickets {
+        let committed = ticket.wait().await.expect("every held commit commits");
+        assert!(
+            stall_started_at.elapsed() >= SLOW_LOG_PUT,
+            "a commit was acknowledged {:?} into a {SLOW_LOG_PUT:?} log write stall",
+            stall_started_at.elapsed()
+        );
+        seqs.push(committed.position.seq);
+    }
+    assert!(
+        seqs.is_sorted(),
+        "commits are acknowledged in submission order: {seqs:?}"
+    );
+    assert_eq!(test.node.stop_reason(), None);
+    assert_eq!(
+        test.committed_count("stalled-log-flow").await,
+        1 + COMMITS_DURING_STALL as u64
+    );
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_default_batch_write_deadline_stops_the_node_when_every_log_write_stalls() {
     let mut cluster = TestCluster::new();
     let test = cluster.start_in_memory().await;
     test.commit_prompt("slow-log-flow", 1).await;
-    cluster.faults.delay_next_put_under("log/", SLOW_LOG_PUT);
+    // Every attempt stalls, so the final attempt after the deadline fails too.
+    cluster.faults.delay_every_put_under("log/", SLOW_LOG_PUT);
     let (_, ticket) = test
         .submit("slow-log-flow", CommitUrgency::Prompt)
         .expect("submit succeeds");
@@ -484,6 +530,24 @@ async fn the_default_batch_write_deadline_stops_the_node_on_the_same_slow_log_wr
             detail: "object storage did not accept a log batch before its deadline".to_owned(),
         }
     );
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_log_put_slower_than_the_deadline_is_retried_once_and_the_node_keeps_serving() {
+    let mut cluster = TestCluster::new();
+    let test = cluster.start_in_memory().await;
+    test.commit_prompt("retried-log-flow", 1).await;
+    cluster.faults.delay_next_put_under("log/", SLOW_LOG_PUT);
+    let (_, ticket) = test
+        .submit("retried-log-flow", CommitUrgency::Prompt)
+        .expect("submit succeeds");
+    ticket
+        .wait()
+        .await
+        .expect("the final attempt after the deadline commits");
+    assert_eq!(test.node.stop_reason(), None);
+    assert_eq!(test.committed_count("retried-log-flow").await, 2);
     test.node.shutdown().await.expect("lease released");
 }
 

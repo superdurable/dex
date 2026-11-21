@@ -19,9 +19,9 @@ seconds before the lease ends. A renewal write may take up to 20 seconds. A
 write cut off after 20 seconds is retried once, and that retry may use the
 rest of the 60 seconds. A renewal that takes longer still stops the node. Log
 writes keep their own limit, **commit.batchWriteDeadline**, described below.
-It defaults to 10 seconds in dev too, so a longer stall can still stop a dev
-node. Changed in 0.1.35: the dev defaults were a 30-second
-lease and the derived renewal attempt timeout.
+It defaults to the lease duration, so 90 seconds in dev. Changed in 0.1.35:
+the dev defaults were a 30-second lease and the derived renewal attempt
+timeout. Changed in 0.1.38: the log write limit in dev was 10 seconds.
 
 A dev node holds an exclusive lock on **dev.lock** in its data directory, so a
 second dev process on that directory fails to start. While a dev node holds the
@@ -80,15 +80,26 @@ The duration only partly affects object storage outages:
 - A renewal lost to another holder, or a permanent storage error, stops the
   node at once.
 - A log write that object storage does not accept within
-  **commit.batchWriteDeadline** also stops the node. The deadline defaults to
-  10 seconds and covers retries of the write. It does not depend on the lease
-  duration. A commit is acknowledged only while the lease is valid, and the
-  epoch fences a write that lands later. Every later commit waits behind a slow
-  write. So raise the deadline only when object storage can be slower than 10
-  seconds, such as on a busy test machine. It must be positive and at most 5
-  minutes. Since 0.1.36; earlier releases fix the limit at 10 seconds.
+  **commit.batchWriteDeadline** also stops the node. The write is retried with
+  backoff until the deadline. When the deadline passes, the node makes one
+  more attempt of at most 5 seconds before it stops. That attempt tells a
+  healthy store from a stalled one after the process itself was paused, for
+  example by SIGSTOP or a frozen VM.
+- While a log write waits, every later commit waits behind it, and requests
+  beyond **commit.maxUnappliedBytes** fail with UNAVAILABLE. No commit is
+  acknowledged before its log batch is in object storage. A commit is
+  acknowledged only while the lease is valid, and the epoch fences a write
+  that lands later.
+- When **commit.batchWriteDeadline** is unset, the deadline is the larger of
+  10 seconds and **lease.duration**, at most 5 minutes. When all of object storage stalls,
+  lease renewal stops the node once the lease ends, so with the default the
+  lease decides. A stall shorter than the lease, such as 15 seconds in dev or
+  with a 60-second single-replica lease, does not stop the node. An explicit
+  value must be positive and at most 5 minutes. Since 0.1.36. Changed in
+  0.1.38: the default was 10 seconds, and a missed deadline stopped the node
+  without the extra attempt.
 
-So a longer lease lets an idle node survive a stalled object store or a stalled
+So a longer lease lets a node survive a stalled object store or a stalled
 host for longer. After any of these stops, the process exits 1.
 
 For a single-replica deployment, set **lease.duration** to 60 seconds. Lease

@@ -32,9 +32,12 @@ Three defaults need a change before launch.
   seconds by default. A single-replica setup should use 60 seconds, so it waits
   up to about a minute after a crash. A graceful shutdown hands over at once.
   See [Lease](/reference/server/high-availability#lease).
-- **A stalled object store stops the node.** A log write that object storage
-  does not accept within its deadline stops the active node, and a standby
-  takes over after the lease ends. The deadline is 10 seconds by default. See
+- **A long object store stall stops the node.** While object storage does not
+  answer, commits wait and new requests can fail with UNAVAILABLE. A log write
+  that object storage does not accept within its deadline stops the active
+  node, and a standby takes over after the lease ends. By default the
+  deadline is at least the lease duration, so a stall that the lease survives
+  does not stop the node. See
   [When its own dependencies fail](/components/server#dependency-failures).
 - **Failover reruns in-flight Steps.** Recovery fails every attempt that a
   Worker had received, and each one consumes a retry. See

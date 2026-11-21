@@ -46,14 +46,15 @@ pub struct CommitConfig {
     /// Defaults to 20 ms; maximum time an unsealed batch waits for more commands.
     #[serde(with = "humantime_serde")]
     pub batch_window: Duration,
-    /// Defaults to 10 s; longest time object storage may take to accept one log batch, including
-    /// retries of transient errors. A batch still not accepted then stops the node with a commit
-    /// pipeline failure. Every later commit waits behind that batch, so a larger value trades a
-    /// longer stall for fewer stops on slow storage. Must be positive and at most 5 minutes.
-    /// Acknowledgements still require a valid lease, and the epoch fences late writes, so the
-    /// value does not depend on `lease.duration`.
-    #[serde(with = "humantime_serde")]
-    pub batch_write_deadline: Duration,
+    /// Defaults to unset, which uses the larger of 10 s and `lease.duration`, at most 5 minutes; longest time object
+    /// storage may take to accept one log batch, including retries with backoff. While the batch
+    /// waits, later commits wait behind it, and submissions beyond `maxUnappliedBytes` fail with
+    /// UNAVAILABLE. A batch still not accepted then stops the node with a commit pipeline failure.
+    /// When the whole store stalls, lease renewal stops the node once the lease ends, so the
+    /// default lets the lease decide. Acknowledgements still require a valid lease, and the epoch
+    /// fences late writes. When set, it must be positive and at most 5 minutes.
+    #[serde(with = "humantime_serde", skip_serializing_if = "Option::is_none")]
+    pub batch_write_deadline: Option<Duration>,
     /// Defaults to 4; maximum conditional object writes in flight for one partition.
     pub max_in_flight: u32,
     /// Defaults to 4 MiB; seals a batch at this many serialized bytes unless a command itself is larger.
@@ -86,7 +87,7 @@ impl Default for CommitConfig {
         Self {
             debug_replay_checks: None,
             batch_window: Duration::from_millis(20),
-            batch_write_deadline: Duration::from_secs(10),
+            batch_write_deadline: None,
             max_in_flight: 4,
             seal_at_bytes: 4 * 1024 * 1024,
             multipart_threshold_bytes: 8 * 1024 * 1024,
@@ -104,6 +105,9 @@ const MIN_DEFAULT_APPLIER_LANES: u32 = 8;
 /// Most applier lanes; each lane is a task with its own queue.
 pub(crate) const MAX_APPLIER_LANES: u32 = 1024;
 
+/// Shortest default `commit.batchWriteDeadline`, the earlier fixed limit, so a short lease keeps it.
+const MIN_DEFAULT_BATCH_WRITE_DEADLINE: Duration = Duration::from_secs(10);
+
 /// Longest `commit.batchWriteDeadline`; a longer head-of-line stall should stop and recover instead.
 const MAX_BATCH_WRITE_DEADLINE: Duration = Duration::from_secs(300);
 
@@ -117,15 +121,26 @@ impl CommitConfig {
         if self.batch_window.is_zero() {
             return Err(invalid("commit.batchWindow", "must be positive"));
         }
-        if self.batch_write_deadline.is_zero()
-            || self.batch_write_deadline > MAX_BATCH_WRITE_DEADLINE
+        if self
+            .batch_write_deadline
+            .is_some_and(|deadline| deadline.is_zero() || deadline > MAX_BATCH_WRITE_DEADLINE)
         {
             return Err(invalid(
                 "commit.batchWriteDeadline",
-                "must be positive and at most 5 minutes",
+                "must be positive and at most 5 minutes when set",
             ));
         }
         Ok(())
+    }
+
+    /// Returns `batchWriteDeadline` when set, otherwise the larger of 10 s and `lease_duration`,
+    /// at most 5 minutes.
+    pub fn effective_batch_write_deadline(&self, lease_duration: Duration) -> Duration {
+        self.batch_write_deadline.unwrap_or_else(|| {
+            lease_duration
+                .max(MIN_DEFAULT_BATCH_WRITE_DEADLINE)
+                .min(MAX_BATCH_WRITE_DEADLINE)
+        })
     }
 
     /// Returns `applierLanes` when set. Otherwise returns the larger of 8 and `available_cpus`

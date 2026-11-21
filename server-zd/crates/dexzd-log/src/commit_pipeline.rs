@@ -529,50 +529,97 @@ async fn write_batch(
 ) -> Result<(), LogError> {
     let key = stream.batch_key(seq);
     let trailer = xxh3_128(&body[..body.len() - 16]);
-    let deadline = Instant::now() + timeout_duration;
-    let mut backoff = Duration::from_millis(10);
-    loop {
-        if Instant::now() >= deadline {
-            return Err(LogError::Deadline);
+    let batch = BatchWrite {
+        store,
+        stream,
+        epoch,
+        seq,
+        key: &key,
+        body: &body,
+        trailer,
+    };
+    match batch.write_until(Instant::now() + timeout_duration).await {
+        // A process pause (SIGSTOP, a frozen VM) can pass the deadline while a healthy store's
+        // reply waits unread, so one fresh, reconciled attempt decides before the node stops.
+        Err(LogError::Deadline) => {
+            batch
+                .write_until(Instant::now() + timeout_duration.min(FINAL_WRITE_ATTEMPT_WINDOW))
+                .await
         }
-        let should_read_back = match timeout_at(
-            deadline,
-            store.put(&key, body.clone(), WriteCondition::CreateOnly),
-        )
-        .await
-        {
-            Err(_) => return Err(LogError::Deadline),
-            Ok(result) => match result {
-                Ok(WriteOutcome::Written { .. }) => return Ok(()),
-                Ok(WriteOutcome::PreconditionFailed) => true,
-                Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => true,
-                Err(error) if error.kind == ObjectStoreErrorKind::Transient => false,
-                Err(error) => return Err(error.into()),
-            },
-        };
-        if should_read_back {
-            match timeout_at(deadline, store.get(&key)).await {
+        outcome => outcome,
+    }
+}
+
+/// Longest final attempt after a missed deadline; a healthy store answers in milliseconds.
+const FINAL_WRITE_ATTEMPT_WINDOW: Duration = Duration::from_secs(5);
+
+/// One log batch to write with `CreateOnly` and reconcile by reading it back.
+struct BatchWrite<'a> {
+    store: &'a dyn ObjectStore,
+    stream: &'a StreamIdentity,
+    epoch: u64,
+    seq: u64,
+    key: &'a str,
+    body: &'a Bytes,
+    trailer: u128,
+}
+
+impl BatchWrite<'_> {
+    /// Writes the batch, retrying transient failures with backoff until `deadline`.
+    async fn write_until(&self, deadline: Instant) -> Result<(), LogError> {
+        let BatchWrite {
+            store,
+            stream,
+            epoch,
+            seq,
+            key,
+            body,
+            trailer,
+        } = *self;
+        let mut backoff = Duration::from_millis(10);
+        loop {
+            if Instant::now() >= deadline {
+                return Err(LogError::Deadline);
+            }
+            let should_read_back = match timeout_at(
+                deadline,
+                store.put(key, body.clone(), WriteCondition::CreateOnly),
+            )
+            .await
+            {
                 Err(_) => return Err(LogError::Deadline),
                 Ok(result) => match result {
-                    Ok(Some(object)) => {
-                        let batch = decode_batch(&object.bytes)?;
-                        validate_batch_identity(&batch, stream, seq)?;
-                        if batch.trailer == trailer {
-                            return Ok(());
-                        }
-                        if batch.header.epoch < epoch {
-                            return Err(LogError::Restart);
-                        }
-                        return Err(LogError::Fenced);
-                    }
-                    Ok(None) => {}
-                    Err(error) if error.kind == ObjectStoreErrorKind::Transient => {}
+                    Ok(WriteOutcome::Written { .. }) => return Ok(()),
+                    Ok(WriteOutcome::PreconditionFailed) => true,
+                    Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => true,
+                    Err(error) if error.kind == ObjectStoreErrorKind::Transient => false,
                     Err(error) => return Err(error.into()),
                 },
+            };
+            if should_read_back {
+                match timeout_at(deadline, store.get(key)).await {
+                    Err(_) => return Err(LogError::Deadline),
+                    Ok(result) => match result {
+                        Ok(Some(object)) => {
+                            let batch = decode_batch(&object.bytes)?;
+                            validate_batch_identity(&batch, stream, seq)?;
+                            if batch.trailer == trailer {
+                                return Ok(());
+                            }
+                            if batch.header.epoch < epoch {
+                                return Err(LogError::Restart);
+                            }
+                            return Err(LogError::Fenced);
+                        }
+                        Ok(None) => {}
+                        Err(error) if error.kind == ObjectStoreErrorKind::Transient => {}
+                        Err(error) => return Err(error.into()),
+                    },
+                }
             }
+            sleep(backoff.min(deadline.saturating_duration_since(Instant::now()))).await;
+            backoff = (backoff * 2).min(Duration::from_millis(500));
         }
-        sleep(backoff.min(deadline.saturating_duration_since(Instant::now()))).await;
-        backoff = (backoff * 2).min(Duration::from_millis(500));
     }
 }
 

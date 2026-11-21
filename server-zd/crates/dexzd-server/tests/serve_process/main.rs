@@ -25,6 +25,7 @@ mod local_command;
 mod metrics;
 mod object_store_compatibility;
 mod object_store_soak;
+mod object_store_stall;
 mod purging_reads;
 mod queued_restart;
 mod removed_history_keys;
