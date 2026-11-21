@@ -37,6 +37,7 @@ from dex_examples.products.customer_refund.refund_settings import (
     payload_encryption,
 )
 
+
 def refund_worker_options(
     server_address: str, encryption: PayloadEncryptionOptions | None
 ) -> WorkerOptions:
@@ -50,6 +51,7 @@ def refund_worker_options(
         flow_definition_paths=design_paths,
         payload_encryption=encryption,
     )
+
 
 def main() -> None:
     registry = Registry((new_refund_flow(),))
@@ -72,6 +74,7 @@ def main() -> None:
     finally:
         worker.close()
         cache.close()
+
 
 if __name__ == "__main__":
     main()

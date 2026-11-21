@@ -21,6 +21,7 @@ from pathlib import Path
 
 DEFAULT_EMAIL_LEDGER = Path(".customer-refund/sent-emails.json")
 
+
 class FakeEmailService:
     """Keeps sent keys in a JSON file, so a restarted Worker sees earlier emails."""
 

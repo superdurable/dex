@@ -44,6 +44,7 @@ SCENARIOS = {
     "small": replace(NORTHSTAR_RENEWAL, order_id="INV-0049"),
 }
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Start one customer refund.")
     parser.add_argument("flow_id", help="a short Flow ID, such as refund1")
@@ -60,6 +61,7 @@ def main() -> None:
     finally:
         client.close()
         cache.close()
+
 
 if __name__ == "__main__":
     main()

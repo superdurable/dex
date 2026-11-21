@@ -46,12 +46,14 @@ PAYLOAD_KEY_FILE = os.environ.get("REFUND_PAYLOAD_KEY_FILE", "")
 BILLING_MODE = os.environ.get("REFUND_BILLING_MODE", "normal")
 FLOW_DEFINITIONS_DIR = Path("build/customer-refund")
 
+
 def payload_encryption(key_file: str = PAYLOAD_KEY_FILE) -> PayloadEncryptionOptions | None:
     """Returns AES-GCM payload encryption with the key file, or None without one."""
     if not key_file:
         return None
     key_provider = FilePayloadEncryptionKeyProvider(key_file)
     return PayloadEncryptionOptions(AesGcmPayloadCodec(key_provider))
+
 
 def new_refund_flow(
     billing_mode: str = BILLING_MODE,
@@ -60,16 +62,20 @@ def new_refund_flow(
 ) -> CustomerRefundFlow:
     """Returns the Flow; billing mode "call-missing" leaves out the billing call."""
     if billing_mode not in ("normal", "call-missing"):
-        raise ValueError(f"REFUND_BILLING_MODE must be normal or call-missing, not {billing_mode!r}")
+        raise ValueError(
+            f"REFUND_BILLING_MODE must be normal or call-missing, not {billing_mode!r}"
+        )
     if billing_mode == "call-missing":
         billing: FakeBillingService = CallMissingBillingService(billing_ledger)
     else:
         billing = FakeBillingService(billing_ledger)
     return CustomerRefundFlow(billing, FakeEmailService(email_ledger), MockMessageModel())
 
+
 def new_worker_id() -> str:
     """Returns a Worker ID without the host name; it changes on every start."""
     return f"refund-worker-{secrets.token_hex(3)}"
+
 
 def open_cache(directory: Path) -> BlobCache:
     """Opens a local cache for large Flow values, up to 1 GiB."""

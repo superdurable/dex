@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+
 class MockMessageModel:
     """Answers like a model would, without an API key or a network call."""
 
@@ -26,6 +27,5 @@ class MockMessageModel:
                 f"We refunded {amount_usd:,.2f} USD to your card. {note}"
             ).strip()
         return (
-            f"Hi {customer}, thank you for reaching out. "
-            f"We cannot refund this charge. {note}"
+            f"Hi {customer}, thank you for reaching out. " f"We cannot refund this charge. {note}"
         ).strip()

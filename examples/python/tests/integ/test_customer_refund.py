@@ -60,6 +60,7 @@ from tests.integ.test_payload_encryption import write_payload_key_file
 
 pytestmark = pytest.mark.integ
 
+
 class RefundTestbed:
     """One test's ledgers, cache folder, and Client, shared by its Workers."""
 
@@ -106,6 +107,7 @@ class RefundTestbed:
         self.client.close()
         self.cache.close()
 
+
 @pytest.fixture()
 def testbed(tmp_path: Path) -> Iterator[RefundTestbed]:
     bed = RefundTestbed(tmp_path, None)
@@ -113,6 +115,7 @@ def testbed(tmp_path: Path) -> Iterator[RefundTestbed]:
         yield bed
     finally:
         bed.close()
+
 
 def test_manager_approves_the_northstar_refund(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
@@ -133,6 +136,7 @@ def test_manager_approves_the_northstar_refund(
     assert testbed.client.get_attributes(flow_id, REFUND_ID)[REFUND_ID] == refunds[0].refund_id
     assert testbed.email.list_sent_keys() == [f"email-{flow_id}"]
 
+
 def test_manager_rejects_the_refund(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
 ) -> None:
@@ -150,6 +154,7 @@ def test_manager_rejects_the_refund(
     message = testbed.client.get_attributes(flow_id, CUSTOMER_MESSAGE)[CUSTOMER_MESSAGE]
     assert "Credit offered instead" in message
 
+
 def test_policy_denies_an_old_charge(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
 ) -> None:
@@ -162,6 +167,7 @@ def test_policy_denies_an_old_charge(
     assert testbed.client.get_attributes(flow_id, CASE_STATUS)[CASE_STATUS] == "closed-denied"
     assert testbed.billing.list_refunds() == []
     assert testbed.email.list_sent_keys() == [f"email-{flow_id}"]
+
 
 def test_refund_succeeds_after_payment_timeouts(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
@@ -177,6 +183,7 @@ def test_refund_succeeds_after_payment_timeouts(
 
     assert result.status == FlowStatus.COMPLETED
     assert len(testbed.billing.list_refunds()) == 1
+
 
 def test_time_travel_issues_the_refund_a_missing_call_skipped(
     testbed: RefundTestbed, new_flow_id: Callable[[str], str]
@@ -203,6 +210,7 @@ def test_time_travel_issues_the_refund_a_missing_call_skipped(
     assert testbed.client.get_attributes(flow_id, REFUND_ID)[REFUND_ID] == refunds[0].refund_id
     assert testbed.email.list_sent_keys() == [f"email-{flow_id}"]
 
+
 def test_encryption_keeps_case_status_readable(
     tmp_path: Path, new_flow_id: Callable[[str], str]
 ) -> None:
@@ -223,6 +231,7 @@ def test_encryption_keeps_case_status_readable(
         plain.close()
         encrypted.close()
 
+
 def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
     """Runs the README's time travel command."""
     dexcli = os.environ.get("DEXCLI_PATH") or shutil.which("dexcli")
@@ -230,10 +239,19 @@ def time_travel_with_dexcli(flow_id: str, step_type: str) -> None:
         pytest.fail("set DEXCLI_PATH or put dexcli on PATH")
     subprocess.run(
         [
-            dexcli, "flow", "time-travel", flow_id,
-            "--server", server_address(),
-            "--type", "step-type", "--target", step_type,
-            "--reason", "billing call restored", "--yes",
+            dexcli,
+            "flow",
+            "time-travel",
+            flow_id,
+            "--server",
+            server_address(),
+            "--type",
+            "step-type",
+            "--target",
+            step_type,
+            "--reason",
+            "billing call restored",
+            "--yes",
         ],
         check=True,
         capture_output=True,

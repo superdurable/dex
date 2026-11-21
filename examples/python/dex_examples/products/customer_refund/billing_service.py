@@ -22,8 +22,10 @@ from pathlib import Path
 
 DEFAULT_BILLING_LEDGER = Path(".customer-refund/billing-refunds.json")
 
+
 class PaymentTimeout(Exception):
     """The payment provider did not answer in time; a retry may succeed."""
+
 
 @dataclass(frozen=True)
 class Order:
@@ -33,6 +35,7 @@ class Order:
     days_since_charge: int
     outage_hours: int
 
+
 @dataclass(frozen=True)
 class RecordedRefund:
     refund_id: str
@@ -40,11 +43,13 @@ class RecordedRefund:
     amount_usd: float
     idempotency_key: str
 
+
 ORDERS = {
     "INV-1249": Order("INV-1249", "Studio plan renewal", 1249.00, 6, 31),
     "INV-0388": Order("INV-0388", "Studio plan renewal", 1249.00, 47, 0),
     "INV-0049": Order("INV-0049", "Extra seat", 49.00, 3, 31),
 }
+
 
 class FakeBillingService:
     """Keeps refunds in a JSON file, so a restarted Worker sees earlier refunds."""
@@ -61,7 +66,9 @@ class FakeBillingService:
         refunds = self.list_refunds()
         for earlier in refunds:
             if earlier.idempotency_key == idempotency_key:
-                print(f"Refund {earlier.refund_id} already issued (key {idempotency_key})", flush=True)
+                print(
+                    f"Refund {earlier.refund_id} already issued (key {idempotency_key})", flush=True
+                )
                 return earlier.refund_id
         refund = RecordedRefund(
             f"rf_{1042 + len(refunds)}", order.order_id, order.amount_usd, idempotency_key
@@ -79,6 +86,7 @@ class FakeBillingService:
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         self.ledger_path.write_text(json.dumps([asdict(refund) for refund in refunds], indent=2))
 
+
 class CallMissingBillingService(FakeBillingService):
     """Stands in for a release whose Issue refund Step forgot the billing call."""
 
@@ -86,12 +94,16 @@ class CallMissingBillingService(FakeBillingService):
         print(f"Billing call missing: no refund for {order.order_id}", flush=True)
         return ""
 
+
 def main() -> None:
     refunds = FakeBillingService().list_refunds()
     if not refunds:
         print("No refunds recorded.")
     for refund in refunds:
-        print(f"{refund.refund_id}  {refund.order_id}  {refund.amount_usd:,.2f} USD  key {refund.idempotency_key}")
+        print(
+            f"{refund.refund_id}  {refund.order_id}  {refund.amount_usd:,.2f} USD  key {refund.idempotency_key}"
+        )
+
 
 if __name__ == "__main__":
     main()

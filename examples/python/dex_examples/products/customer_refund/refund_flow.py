@@ -55,6 +55,7 @@ CUSTOMER_EMAIL = Attribute("customer-email", str, plaintext=True)
 REFUND_ID = Attribute("refund-id", str)
 CUSTOMER_MESSAGE = Attribute("customer-message", str)
 
+
 @dataclass(frozen=True)
 class RefundRequest:
     customer: str
@@ -63,14 +64,17 @@ class RefundRequest:
     reason: str
     payment_timeouts_to_simulate: int = 0
 
+
 @dataclass(frozen=True)
 class ManagerDecision:
     approved: bool
     reason: str
 
+
 @dataclass(frozen=True)
 class DecisionReason:
     reason: str
+
 
 @dataclass(frozen=True)
 class RefundCase:
@@ -81,7 +85,9 @@ class RefundCase:
     refund_id: str = ""
     message: str = ""
 
+
 MANAGER_DECISIONS = Channel("manager-decisions", ManagerDecision)
+
 
 # dex:group group-id:intake group-label:"Intake"
 # dex:explanation text:"Record the refund request and the customer's email address."
@@ -90,6 +96,7 @@ class ReceiveRequest(Step[RefundRequest]):
         CASE_STATUS.set(context, "received")
         CUSTOMER_EMAIL.set(context, input.customer_email)
         return go_to(CheckOrder, input)
+
 
 # dex:group group-id:evidence group-label:"Evidence"
 # dex:explanation text:"Look up the order in billing."
@@ -100,6 +107,7 @@ class CheckOrder(Step[RefundRequest]):
     def execute(self, context: Context, input: RefundRequest) -> StepDecision:
         order = self.billing.get_order(input.order_id)
         return go_to(CheckPolicy, RefundCase(request=input, order=order))
+
 
 # dex:group group-id:evidence group-label:"Evidence"
 # dex:explanation text:"Refund, deny, or ask a manager, by the refund policy."
@@ -115,6 +123,7 @@ class CheckPolicy(Step[RefundCase]):
             return go_to(RequestManagerApproval, input)
         return go_to(IssueRefund, input)
 
+
 # dex:group group-id:control group-label:"Control"
 # dex:explanation text:"Wait for a manager to approve or reject the refund."
 class RequestManagerApproval(Step[RefundCase]):
@@ -127,6 +136,7 @@ class RequestManagerApproval(Step[RefundCase]):
             return go_to(IssueRefund, input)
         CASE_STATUS.set(context, "denied")
         return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=decision.reason))
+
 
 # dex:group group-id:resolution group-label:"Resolution"
 # dex:explanation text:"Refund the order through billing, once per case."
@@ -153,6 +163,7 @@ class IssueRefund(Step[RefundCase]):
         )
         return StepOptions(execute_retry=retry)
 
+
 # dex:group group-id:close group-label:"Close"
 # dex:explanation text:"Ask the model to write the customer message."
 class WriteCustomerMessage(Step[RefundCase]):
@@ -165,6 +176,7 @@ class WriteCustomerMessage(Step[RefundCase]):
         )
         CUSTOMER_MESSAGE.set(context, message)
         return go_to(SendMessage, replace(input, message=message))
+
 
 # dex:group group-id:close group-label:"Close"
 # dex:explanation text:"Email the message to the customer, once per case."
@@ -180,12 +192,14 @@ class SendMessage(Step[RefundCase]):
         )
         return go_to(CloseCase, input)
 
+
 # dex:group group-id:close group-label:"Close"
 # dex:explanation text:"Close the case with its outcome."
 class CloseCase(Step[RefundCase]):
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         CASE_STATUS.set(context, f"closed-{input.outcome}")
         return graceful_complete(input.outcome)
+
 
 class CustomerRefundFlow(Flow[RefundRequest]):
     def __init__(

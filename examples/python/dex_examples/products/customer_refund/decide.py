@@ -29,6 +29,7 @@ from dex_examples.products.customer_refund.refund_settings import (
     payload_encryption,
 )
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Approve or reject a refund.")
     parser.add_argument("flow_id")
@@ -41,12 +42,17 @@ def main() -> None:
     options = ClientOptions(server_address=SERVER_ADDRESS, payload_encryption=payload_encryption())
     client = Client(Registry((refund_flow,)), cache, options)
     try:
-        rpc = refund_flow.approve_refund if arguments.decision == "approve" else refund_flow.reject_refund
+        rpc = (
+            refund_flow.approve_refund
+            if arguments.decision == "approve"
+            else refund_flow.reject_refund
+        )
         client.invoke_rpc(rpc, arguments.flow_id, DecisionReason(arguments.reason))
         print(f"Refund {arguments.flow_id}: {arguments.decision}d.", flush=True)
     finally:
         client.close()
         cache.close()
+
 
 if __name__ == "__main__":
     main()
