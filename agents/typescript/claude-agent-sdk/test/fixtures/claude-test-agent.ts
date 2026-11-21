@@ -100,6 +100,11 @@ export const slowWriteGateName = "slow_write";
 export const raisedPayoutAmount = 500;
 /** While this file exists in the state directory, `hiding_note`'s source lists nothing, or throws when it says `raise`. */
 export const hideSourceToolsFileName = "hide-source-tools";
+/** A `publish` message whose handler throws a plain error after the message may have been sent. */
+export const publishLosesConnectionMessage = "lose-connection";
+/** A `publish` message whose handler throws `ToolExecutionError`. */
+export const publishRefusedMessage = "refuse";
+
 /** While this file exists in the state directory, an application hook denies every `publish` and `post_note`. */
 export const denyFlagFileName = "deny-publish-and-post-note";
 /** The reason that hook gives. */
@@ -558,6 +563,12 @@ function createTestCustomTools(stateDirectory: string): ClaudeCustomTool[] {
   );
   const publish = tool("publish", "Publish a message", { message: z.string() }, async (toolArguments) => {
     invocations.record("publish");
+    if (toolArguments.message === publishLosesConnectionMessage) {
+      throw new Error("publish lost its connection after it sent the message");
+    }
+    if (toolArguments.message === publishRefusedMessage) {
+      throw new ToolExecutionError("publish refused a duplicate message");
+    }
     return textResult(`published ${toolArguments.message}`);
   });
   const charge = tool(

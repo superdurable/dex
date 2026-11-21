@@ -211,6 +211,36 @@ the idempotency key. A result with `isError: true` records `failed`, and the mod
 thrown error fails the Step attempt: an `idempotent_write` call retries, and once its attempts run
 out, or at once for a single-attempt call, the session records `outcome_unknown`.
 
+#### Report a definite failure
+
+How a write tool fails decides what the model reads, and so whether it calls the write again:
+
+| The handler | Records | The model reads |
+| --- | --- | --- |
+| Returns `isError: true`, or throws `ToolExecutionError` from `@superdurable/dex-agents` | `failed` | The text; nothing took effect |
+| Throws any other error | `outcome_unknown` for a write, once its attempts run out | `outcomeUnknownToolResult`: the write may have taken effect |
+
+Return `isError: true`, or throw `ToolExecutionError`, only for an answer that settles the call, such as an
+HTTP 4xx from the service. Let a broken connection, a timeout, or a 5xx throw, because the write may have run.
+A handler that wraps its whole body in `try`/`catch` and returns `isError: true` records an interrupted payment
+as `failed`, and the model may pay again under a new tool call ID.
+
+```ts
+const issueRefund = tool("issue_refund", "Refund a charge", { chargeId: z.string() }, async ({ chargeId }) => {
+  const response = await fetch(`${refundsUrl}/${chargeId}`, { method: "POST" }); // a network error throws
+  if (response.status >= 400 && response.status < 500) {
+    throw new ToolExecutionError(`refund refused: ${await response.text()}`);
+  }
+  if (!response.ok) {
+    throw new Error(`refund service ${response.status}`); // a 5xx may have run: outcome_unknown
+  }
+  return { content: [{ type: "text", text: await response.text() }] };
+});
+```
+
+On a later attempt of a write, a definite failure also records `outcome_unknown`, because the earlier attempt
+may have taken effect.
+
 An inline `read` call runs inside `RunModel`, not in a tool Step. An error thrown by its handler does
 not fail `RunModel`: the custom tool server turns it into an MCP error result, and the model reads its
 text. An inline `read` tool therefore cannot ask for a `RunModel` retry. Retry transient failures

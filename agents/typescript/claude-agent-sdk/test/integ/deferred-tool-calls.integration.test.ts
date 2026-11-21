@@ -26,6 +26,8 @@ import {
   denyFlagFileName,
   failingPermissionBashCommand,
   inlineBashCommand,
+  publishLosesConnectionMessage,
+  publishRefusedMessage,
 } from "../fixtures/claude-test-agent.js";
 import { fakeClaudeResumeWithoutHooksVariable } from "../fixtures/fake-claude-cli-environment.js";
 
@@ -364,6 +366,16 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(agent.invocations.count("charge"), 3);
   });
 
+  test("an error result after an attempt that threw records outcome_unknown, because that attempt may have run", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("idempotent-error-after-throw");
+    await agent.sessions.startSession(sessionId, 'call charge {"amount":0,"fail_attempts":1}');
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(snapshot.messages.at(-1)?.text, `charge: ${outcomeUnknownToolResult}`);
+    assert.equal(agent.invocations.count("charge"), 2);
+  });
+
   test("a custom tool error result is recorded as failed and shown to the model", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("tool-error");
@@ -372,6 +384,30 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
 
     assert.equal(snapshot.messages.at(-1)?.text, "charge: The tool call failed: amount must be positive");
     assert.equal(agent.invocations.count("charge"), 1);
+  });
+
+  test("a plain error from a single-attempt write records outcome_unknown and never runs it again", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("write-throws");
+    await agent.sessions.startSession(sessionId, `call publish {"message":"${publishLosesConnectionMessage}"}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(snapshot.messages.at(-1)?.text, `publish: ${outcomeUnknownToolResult}`);
+    assert.equal(agent.invocations.count("publish"), 1);
+  });
+
+  test("a ToolExecutionError from a single-attempt write records failed and shows its message", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("write-refused");
+    await agent.sessions.startSession(sessionId, `call publish {"message":"${publishRefusedMessage}"}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(snapshot.messages.at(-1)?.text, "publish: The tool call failed: publish refused a duplicate message");
+    assert.equal(agent.invocations.count("publish"), 1);
   });
 
   test("only the first write of a reply is deferred; a later one is refused and called again alone", async () => {
