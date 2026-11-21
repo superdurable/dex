@@ -161,7 +161,7 @@ body {
 }
 
 .run-facts-button {
-  max-width: min(100%, 64ch);
+  max-width: 100%;
   color: var(--ui-ink);
   font-weight: 600;
 }
