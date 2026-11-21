@@ -76,7 +76,7 @@ export function RunFactsMenu({
         type="button"
       >
         <span className="run-facts-name mono">
-          {middleTruncate(barFlowIdOf(flowId, parentFlowId), 26)}
+          {barFlowIdOf(flowId, parentFlowId)}
         </span>
         <ChevronDown aria-hidden="true" size={14} strokeWidth={2.25} />
       </button>

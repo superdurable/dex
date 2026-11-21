@@ -705,8 +705,14 @@ export function RunDetailsPage({
   const latestEvent = history.at(-1);
   const runFailure = summary && terminalStatuses.has(summary.flowStatusCode) ? runFailureOf(history) : null;
   const failedEvent = runFailure ? history.find((event) => event.eventId === runFailure.eventId) ?? null : null;
+  const selectedEventIsOutsidePage = isEventsViewShown && timelineWindow !== null
+    && selectedEvent !== null && !timelineEvents.some((event) => event.eventId === selectedEvent.eventId);
+  const selectedEventInView = selectedEventIsOutsidePage ? null : selectedEvent;
+  const failedEventOnPage = failedEvent && timelineEvents.find((event) => event.eventId === failedEvent.eventId);
   // A failed run opens on the event that failed, the one a reader came for.
-  const selectedRaw = selectedEvent ?? failedEvent ?? latestEvent ?? null;
+  const selectedRaw = selectedEventInView
+    ?? (isEventsViewShown ? failedEventOnPage ?? timelineEvents.at(-1) : failedEvent ?? latestEvent)
+    ?? null;
   const selected = selectedRaw ? hydratedEvents[selectedRaw.eventId] ?? selectedRaw : null;
   // Views outside Timeline read the newest window, with FlowStart for start details and routing.
   const historyWithFlowStart = useMemo(() => withFlowStart(history, flowStartEvent), [flowStartEvent, history]);
@@ -792,15 +798,18 @@ export function RunDetailsPage({
     if (isEventsTab(shownTab)) void jumpToEvent(requestedEventId);
   }, [history.length, jumpToEvent, requestedEventId, shownTab]);
   useEffect(() => {
+    if (selectedEventIsOutsidePage) setSelectedEvent(null);
     if (!selectedEvent || (!hasOpenedRequestedEvent.current && requestedEventId > 0)) return;
+    const selectedEventId = selectedEventInView ? String(selectedEventInView.eventId) : null;
+    if (searchParams.get(RUN_EVENT_PARAM) === selectedEventId) return;
     hasOpenedRequestedEvent.current = true;
     setSearchParams((current) => {
-      if (current.get(RUN_EVENT_PARAM) === String(selectedEvent.eventId)) return current;
       const next = new URLSearchParams(current);
-      next.set(RUN_EVENT_PARAM, String(selectedEvent.eventId));
+      if (selectedEventId === null) next.delete(RUN_EVENT_PARAM);
+      else next.set(RUN_EVENT_PARAM, selectedEventId);
       return next;
     }, { replace: true });
-  }, [requestedEventId, selectedEvent, setSearchParams]);
+  }, [requestedEventId, searchParams, selectedEvent, selectedEventInView, selectedEventIsOutsidePage, setSearchParams]);
 
   const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
     highlightEvent(null);
@@ -852,8 +861,6 @@ export function RunDetailsPage({
     : {
       firstEventId: pageFirstEventId,
       lastEventId: pageLastEventId,
-      pageNumber: runHistory.isTimelineOnNewest ? 1 : pagePosition?.pageNumber ?? null,
-      pageCount: pagePosition?.pageCount ?? null,
       hasOlder: timelineWindow?.hasOlder ?? false,
       hasNewer: runHistory.timelineHasNewer,
       isNewest: runHistory.isTimelineOnNewest,
@@ -1185,7 +1192,7 @@ export function RunDetailsPage({
           failedEventId={failedEvent?.eventId}
           onTimeTravelFromFailure={failedEvent ? () => openTimeTravel(failedEvent) : undefined}
           onStop={() => setStopOpen(true)}
-          onTimeTravel={() => openTimeTravel(selectedEvent ? selected : null)}
+          onTimeTravel={() => openTimeTravel(selectedEventInView ? selected : null)}
           onCloneFork={canCloneFork ? () => openCloneFork(null) : undefined}
         />
       </AppBarSlot>
@@ -1307,7 +1314,7 @@ export function RunDetailsPage({
                   <HorizontalTimeline
                     events={displayedTimelineEvents}
                     selectedEvent={selectedRaw}
-                    isFollowingLatest={selectedEvent === null}
+                    isFollowingLatest={selectedEventInView === null}
                     onSelectEvent={selectTimelineEvent}
                     relations={selectedRaw ? selectedRelations : undefined}
                     paging={{
