@@ -111,14 +111,28 @@ describe('Clone fork Advanced section', () => {
 
   it('keeps Advanced open while the task queue is invalid', () => {
     renderDialog();
-    openAdvanced();
-    fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'dex.reserved' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'try a fix' } });
+    const button = screen.getByRole('button', { name: 'Clone fork' }) as HTMLButtonElement;
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(button.disabled).toBe(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(advanced);
+    const taskQueue = screen.getByRole('textbox', { name: /^Task queue/ });
+    fireEvent.change(taskQueue, { target: { value: 'dex.reserved' } });
+    expect(taskQueue.getAttribute('aria-invalid')).toBe('true');
+    expect(document.querySelector('.field-error')?.textContent).toBeTruthy();
+    expect(button.disabled).toBe(true);
 
-    expect(screen.getByRole('button', { name: 'Advanced' }).getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('textbox', { name: /^Task queue/ })).toBeTruthy();
+
     fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'orders-fork' } });
-    expect(screen.getByRole('button', { name: 'Advanced' }).getAttribute('aria-expanded')).toBe('true');
+    expect(button.disabled).toBe(false);
+    expect(advanced.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(advanced);
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('textbox', { name: /^Task queue/ })).toBeNull();
   });
 });
 
@@ -246,6 +260,8 @@ describe('Clone fork validation', () => {
     expect(screen.getByText(/Choose a Flow ID other than the source/)).toBeTruthy();
 
     fireEvent.change(screen.getByRole('textbox', { name: /^New Flow ID/ }), { target: { value: 'order-1-copy' } });
+    expect(button.disabled).toBe(false);
+    expect(screen.queryByText(/Choose a Flow ID other than the source/)).toBeNull();
     openAdvanced();
     fireEvent.change(screen.getByRole('textbox', { name: /^Task queue/ }), { target: { value: 'dex.reserved' } });
     expect(button.disabled).toBe(true);

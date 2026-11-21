@@ -173,8 +173,47 @@ describe('time travel requests', () => {
     expect(document.getElementById(advanced.getAttribute('aria-controls') ?? '')?.hidden).toBe(false);
     const reapply = screen.getByRole('checkbox', { name: 'Apply later writes again' }) as HTMLInputElement;
     expect(reapply.checked).toBe(false);
-    expect(reapply.getAttribute('aria-describedby')).toBeTruthy();
+    const help = document.getElementById(reapply.getAttribute('aria-describedby') ?? '');
+    expect(help?.textContent).toMatch(/^Off: RPC calls, Channel messages, and Attribute writes that came after this point are not applied again/);
     expect(screen.getByRole('combobox', { name: /^SubFlow reset policy/ })).toBeTruthy();
+  });
+
+  it('collapses Advanced and skips write reapply again when the same dialog reopens', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(
+      JSON.stringify({ runId: 'run-1', runAttempt: 2 }),
+      { status: 200 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const onTimeTraveled = vi.fn();
+    const props = {
+      summary: { ...summary, runAttempt: 1 },
+      events: [event],
+      initialEvent: event,
+      runAttempt: 0,
+      timezone: 'UTC' as const,
+      supportsRunHistoryForks: true,
+      onClose: () => {},
+      onTimeTraveled,
+    };
+    const { rerender } = render(<TimeTravelDialog open {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Apply later writes again' }));
+    expect((screen.getByRole('checkbox', { name: 'Apply later writes again' }) as HTMLInputElement).checked).toBe(true);
+
+    rerender(<TimeTravelDialog open={false} {...props} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    rerender(<TimeTravelDialog open {...props} />);
+
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(advanced.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('checkbox', { name: 'Apply later writes again' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'wait for a new approval' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Time travel' }));
+
+    await waitFor(() => expect(onTimeTraveled).toHaveBeenCalled());
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toMatchObject({
+      skipWritesReapply: true,
+    });
   });
 
   it('applies later writes again only when Advanced turns it on', async () => {

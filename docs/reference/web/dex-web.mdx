@@ -773,7 +773,10 @@ server, **POST /api/flows/time-travel** with **timeTravelType** 6 or a non-zero
 #### Time travel dialog fields {#time-travel-dialog}
 
 Changed in 1.45.18: the time travel dialog shows **Time travel point**, the
-point's **Target** and **Step method**, and **Reason**. The less common choices
+point's **Target**, **Step method**, and **Reason**. **Target** depends on the
+chosen point type: none for **Beginning**, a time, a Step type, a Step
+execution ID, or an event ID. **Step method** appears only for **Step execution
+ID**. The less common choices
 sit under **Advanced**, which starts collapsed each time the dialog opens.
 **Advanced** is a button with **aria-expanded**, so the keyboard and screen
 readers can open and close it.
@@ -785,7 +788,7 @@ readers can open and close it.
 
 The Dex Web default differs from the Client and **dexcli** default. A Client
 applies later writes again unless its time travel options skip write reapply,
-and **dexcli flow time-travel** does so unless you pass **-skip-writes-reapply**.
+and **dexcli flow time-travel** does so unless you pass **--skip-writes-reapply**.
 
 **POST /api/flows/time-travel** accepts an optional **skipWritesReapply**
 boolean, sent to the server as **ResetFlowRequest.skip_writes_reapply**. An

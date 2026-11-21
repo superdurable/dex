@@ -47,7 +47,7 @@ Time Travel 把一次 run 退回到它历史中较早的一个点，并从那里
 
 那个点之后的每个 Step 都会重新运行，包括它的外部调用，所以每个调用都需要[幂等键](/concepts/step#idempotency-keys)。
 
-Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute、它的 Channel 消息，以及当时正在等待或已就绪的 Step。在那个点之后从 run 外部进来的输入，之后可以再应用一次：RPC 调用、Channel 发布和 Attribute 写入。这叫做 **write reapply**。Client 和 `dexcli` 会再应用这些输入，除非你设置 `skip_writes_reapply`（`dexcli`：`-skip-writes-reapply`）。Dex Web 默认跳过它，除非你在它的 Time Travel 对话框里打开 **Advanced** 下的 **Apply later writes again**。跳过 write reapply 时，等待外部输入的 Step（例如人工审批）会重新等待新的输入。
+Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute、它的 Channel 消息，以及当时正在等待或已就绪的 Step。在那个点之后从 run 外部进来的输入，之后可以再应用一次：RPC 调用、Channel 发布和 Attribute 写入。这叫做 **write reapply**。每次 time travel 都可以选择是否应用它。跳过 write reapply 时，等待外部输入的 Step（例如人工审批）会重新等待新的输入。Dex Web、[CLI](/reference/cli#time-travel-and-clone-fork)（英文）和 Client 各有自己的默认值；见 [Time travel dialog fields](/reference/web/dex-web#time-travel-dialog)（英文）。
 
 在值较大的长 run 上，write reapply 可能超出一次 time travel 的内存预算；这时调用会失败，并且什么都不改变。如果那些输入不应该再算一次，跳过 write reapply 后重试；要提高预算，见 [Time travel](/reference/server/runtime-client#time-travel)（英文）。
 
