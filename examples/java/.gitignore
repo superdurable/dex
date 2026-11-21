@@ -4,5 +4,9 @@
 # Ignore Gradle build output directory
 build
 
+# Customer refund ledgers and local caches
+.customer-refund
+.dex-blob-cache
+
 # Ignore intellij files
 .idea
