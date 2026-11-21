@@ -1,4 +1,4 @@
-.PHONY: check test clippy fmt-check integTests workflowPatternsTests controlStructurePatternsTests flowSmokeTests
+.PHONY: check test clippy fmt-check integTests workflowPatternsTests controlStructurePatternsTests customerRefundTests flowSmokeTests
 
 check:
 	cargo check --all-targets --locked
@@ -14,6 +14,9 @@ workflowPatternsTests:
 
 controlStructurePatternsTests:
 	cargo test --locked --test control_structure_patterns -- --ignored --test-threads=1 $(TEST_RUNNER_ARGS)
+
+customerRefundTests:
+	cargo test --locked --test customer_refund -- --ignored --test-threads=1 $(TEST_RUNNER_ARGS)
 
 flowSmokeTests:
 	cargo test --locked --test flow_smoke -- --ignored --test-threads=1 $(TEST_RUNNER_ARGS)
