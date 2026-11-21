@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useId, useMemo } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useId, useMemo, type ReactNode } from 'react';
 import type { TimezonePreference } from '@/lib/format';
 import { historyEventTimeFromLocalInput, subFlowResetPolicyOptions, TIME_TRAVEL_STEP_METHOD } from '@/lib/timeTravel';
 import type { FlowHistoryEvent } from '@/lib/types';
@@ -147,5 +148,61 @@ export function SubFlowResetPolicyField({
       </select>
       <small className="muted">What happens to a SubFlow that a Step at this point still waits on.</small>
     </label>
+  );
+}
+
+/** Chooses whether a time travel applies the run's later outside input again. */
+export function WritesReapplyField({
+  shouldApplyWritesAgain,
+  onChange,
+}: {
+  shouldApplyWritesAgain: boolean;
+  onChange: (shouldApplyWritesAgain: boolean) => void;
+}) {
+  const helpId = useId();
+  return (
+    <div className="modal-checkbox-field">
+      <label>
+        <input
+          aria-describedby={helpId}
+          checked={shouldApplyWritesAgain}
+          type="checkbox"
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        Apply later writes again
+      </label>
+      <small className="muted" id={helpId}>
+        Off: RPC calls, Channel messages, and Attribute writes that came after this point are not applied again,
+        so a Step that waits for one keeps waiting. On: they are applied again, as dexcli and the SDKs do by default.
+      </small>
+    </div>
+  );
+}
+
+/** A collapsed-by-default disclosure that holds a dialog's less common fields. */
+export function AdvancedOptionsSection({
+  isExpanded,
+  onExpandedChange,
+  children,
+}: {
+  isExpanded: boolean;
+  onExpandedChange: (isExpanded: boolean) => void;
+  children: ReactNode;
+}) {
+  const bodyId = useId();
+  return (
+    <section className="modal-advanced" data-expanded={isExpanded}>
+      <button
+        aria-controls={bodyId}
+        aria-expanded={isExpanded}
+        className="modal-advanced-toggle"
+        onClick={() => onExpandedChange(!isExpanded)}
+        type="button"
+      >
+        <ChevronDown aria-hidden="true" className="modal-advanced-chevron" size={15} strokeWidth={2.2} />
+        Advanced
+      </button>
+      <div className="modal-advanced-body" hidden={!isExpanded} id={bodyId}>{children}</div>
+    </section>
   );
 }

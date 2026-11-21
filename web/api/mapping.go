@@ -64,6 +64,7 @@ func resetFlowRequestOf(body timeTravelFlowRequest) *dexpb.ResetFlowRequest {
 		RunAttempt:         body.RunAttempt,
 		EventId:            int64(body.EventID),
 		SubFlowResetPolicy: dexpb.SubFlowResetPolicy(body.SubFlowResetPolicy),
+		SkipWritesReapply:  body.SkipWritesReapply,
 	}
 }
 
