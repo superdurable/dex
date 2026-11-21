@@ -24,8 +24,8 @@ use dex_protocol::dex::{
     StepDurability as ProtoStepDurability, StepMovement as ProtoStepMovement,
     StepOptions as ProtoStepOptions, SubFlowCondition as ProtoSubFlowCondition,
     SubFlowOptions as ProtoSubFlowOptions, SubFlowReusePolicy as ProtoSubFlowReusePolicy,
-    TimerCondition, WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType,
-    invoke_execute_method_output, invoke_wait_for_method_output,
+    TimerCondition, Value as ProtoValue, WaitForMethodFailurePolicy, WaitingCondition,
+    WaitingConditionType, invoke_execute_method_output, invoke_wait_for_method_output,
 };
 use tokio::sync::mpsc;
 
@@ -34,7 +34,7 @@ use crate::channel::{ChannelLoad, ChannelMapLoad};
 use crate::context::{Context, ContextInput, InvocationCancellation, InvocationMethod};
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, physical_name};
-use crate::rpc::encode_rpc_output;
+use crate::rpc::{RegisteredRpc, encode_rpc_output};
 use crate::server_protocol::NegotiatedServerProtocolVersion;
 use crate::step::{StepDecisionKind, StepMovement};
 use crate::step_options::ErasedStepOptions;
@@ -416,9 +416,7 @@ impl WorkerDispatcher {
             None,
             cancellation,
         )?;
-        let input = request
-            .input
-            .ok_or_else(|| HandlerError::new("dex_sdk::HandlerError", "RPC input is required"))?;
+        let input = rpc_input(&rpc, request.input)?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let result = rpc.handler.invoke(&mut context, &input)?;
@@ -602,7 +600,10 @@ impl WorkerDispatcher {
             .as_ref()
             .map(|context| context.flow_id.clone())
             .unwrap_or_default();
-        let mut values = vec![request.input.take().unwrap_or_default()];
+        // Released TypeScript Clients leave the input of an input-free RPC unset.
+        let input = request.input.take();
+        let has_input = input.is_some();
+        let mut values = input.into_iter().collect::<Vec<_>>();
         let attribute_count = request.attributes.len();
         values.extend(take_entry_values(&mut request.attributes)?);
         let channel_message_counts =
@@ -613,7 +614,9 @@ impl WorkerDispatcher {
             .await
             .map_err(handler_error)?;
         let mut hydrated = hydrated.into_iter();
-        request.input = hydrated.next();
+        if has_input {
+            request.input = hydrated.next();
+        }
         restore_n_entry_values(&mut request.attributes, &mut hydrated, attribute_count)?;
         restore_channel_message_values(
             &mut request.loaded_channel_messages,
@@ -1583,6 +1586,20 @@ fn seconds64(duration: Duration) -> HandlerResult<i64> {
         .map_err(|_| HandlerError::new("dex_sdk::HandlerError", "Duration exceeds int64"))
 }
 
+/// Returns the input an RPC handler receives.
+///
+/// An RPC bound without input gets null when the request leaves the input unset, as released
+/// TypeScript Clients do. An RPC bound with input fails with a value mapping error instead.
+fn rpc_input(rpc: &RegisteredRpc, input: Option<ProtoValue>) -> HandlerResult<ProtoValue> {
+    match input {
+        Some(input) => Ok(input),
+        None if !rpc.takes_input => value_mapper::encode_handler(&()),
+        None => Err(handler_error(SdkError::ValueMapping {
+            message: format!("RPC '{}' request is missing its input", rpc.name),
+        })),
+    }
+}
+
 fn handler_error(error: SdkError) -> HandlerError {
     HandlerError::from_error(error)
 }
@@ -1846,3 +1863,7 @@ mod pull_routing_tests;
 #[cfg(test)]
 #[path = "worker_dispatcher_wait_mapping_tests.rs"]
 mod wait_mapping_tests;
+
+#[cfg(test)]
+#[path = "worker_dispatcher_rpc_input_tests.rs"]
+mod rpc_input_tests;

@@ -127,6 +127,53 @@ fn test_rpc_workflow_func0() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
+fn test_rust_worker_serves_an_input_free_rpc_whose_input_is_unset() {
+    use dex_protocol::dex::InvokeRpcRequest;
+    use dex_protocol::dex::flow_service_client::FlowServiceClient;
+    use dex_protocol::dex::value;
+
+    let (environment, workflow, flow_id) = start_rpc_workflow("rpc-unset-input");
+    environment
+        .client
+        .invoke_rpc(&flow_id, RpcWorkflow::SET_DATA, Some("saved".to_string()))
+        .expect("set data Attribute");
+    let server_address =
+        std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
+    let runtime = tokio::runtime::Runtime::new().expect("create FlowService runtime");
+    // TypeScript Clients before 1.45.8 leave the input of an input-free RPC unset.
+    let response = runtime.block_on(async {
+        FlowServiceClient::connect(format!("http://{server_address}"))
+            .await
+            .expect("connect FlowService")
+            .invoke_rpc(InvokeRpcRequest {
+                flow_id: flow_id.clone(),
+                rpc_name: "get_data".to_string(),
+                request_id: uuid::Uuid::new_v4().to_string(),
+                input: None,
+                ..Default::default()
+            })
+            .await
+            .expect("InvokeRPC without input")
+            .into_inner()
+    });
+    assert_eq!(
+        Some(value::Kind::StringValue("saved".to_string())),
+        response.output.and_then(|output| output.kind)
+    );
+    environment
+        .client
+        .invoke_rpc_without_input(&flow_id, RpcWorkflow::FUNCTION_ZERO)
+        .expect("invoke function zero");
+    assert_rpc_completion(
+        &environment,
+        &workflow,
+        &flow_id,
+        RpcWorkflow::HARDCODED_VALUE,
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
 fn test_rpc_workflow_proc1() {
     let (environment, workflow, flow_id) = start_rpc_workflow("rpc-proc-1");
     environment
