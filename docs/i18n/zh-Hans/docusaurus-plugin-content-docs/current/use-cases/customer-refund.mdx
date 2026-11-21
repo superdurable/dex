@@ -2,16 +2,72 @@
 title: 客户退款
 ---
 
+import readableFlow from '@site/src/data/flow-definitions/customer-refund-python.json';
 import deterministicFlow from '@site/src/data/flow-definitions/customer-refund.json';
 import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic.json';
 
 # 客户退款
 
-Go customer-refund 示例包含两个互相独立的 Flow。两者都会发布 Flow Definition Graph 2.0 元数据，供 Dex Web 使用。
+客户申请退款。Flow 检查订单和退款政策，金额较大时等待经理审批，然后退款并通知客户。本页包含这个流程的三个 Flow：一个适合先读的短 Flow，以及两个更大的 Go Flow。
+
+**SDK：** Python（经理审批的退款）、Go（确定性策略和 agentic 审核）
+
+## 经理审批的退款 {#refund-with-manager-approval}
+
+Northstar Studio 在一次服务中断后，申请退还一笔 1,249.00 USD 的订阅续费。`CustomerRefundFlow` 运行八个 Step，分为 Intake、Evidence、Control、Resolution 和 Close 几组。
+
+<DocsFlowDefinitionGraph graph={readableFlow} />
+
+**Check policy** 是 Flow 中唯一的选择。超过 30 天的扣款，或没有记录到服务中断的扣款，会被拒绝。超过 1,000 USD 的金额进入 **Request manager approval**，较小的金额直接退款。**Request manager approval** 在一个 Channel 上等待一条消息。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py'}}>
+<SdkSnippet lang="python">
+
+```python
+class CheckPolicy(Step[RefundCase]):
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        order = input.order
+        if order.days_since_charge > REFUND_WINDOW_DAYS or order.outage_hours == 0:
+            CASE_STATUS.set(context, "denied")
+            note = "The charge is outside the 30-day window and no outage was recorded."
+            return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=note))
+        if order.amount_usd > MANAGER_APPROVAL_LIMIT_USD:
+            CASE_STATUS.set(context, AWAITING_MANAGER)
+            return go_to(RequestManagerApproval, input)
+        return go_to(IssueRefund, input)
+
+
+# dex:group group-id:control group-label:"Control"
+# dex:explanation text:"Wait for a manager to approve or reject the refund."
+class RequestManagerApproval(Step[RefundCase]):
+    def wait_for(self, context: Context, input: RefundCase) -> Wait:
+        return Wait.until(MANAGER_DECISIONS.for_one())
+
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        decision = MANAGER_DECISIONS.results(context)[0]
+        if decision.approved:
+            return go_to(IssueRefund, input)
+        CASE_STATUS.set(context, "denied")
+        return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=decision.reason))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**Approve refund** 和 **Reject refund** 两个 RPC 把经理的决定发布到这个 Channel。每个 RPC 都声明了一个需要填写原因的 Dex Web Action。只有 `case-status` 为 `awaiting-manager` 时，Dex Web 才提供这两个 Action；每个 RPC 发布之前也会再次检查这个状态。
+
+这个示例还包含生产环境的退款需要的几项内容：
+
+- **Issue refund** 和 **Send message** 向 billing 和 email 传入幂等 key。Time Travel 点之后的 Step 会再次运行，这些 key 保证退款和邮件都只有一次。
+- **Issue refund** 遇到支付超时，每 5 秒重试一次。一个运行可以先要求两次超时，这样 Dex Web 会先显示失败的尝试，再显示退款成功。
+- Worker 上传 `dexcli visualize` 生成的设计，所以 Dex Web 会在每个运行上绘制这张图。
+- 提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
+
+[示例文件夹](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用，以及加密。
 
 ## 确定性策略
 
-`CustomerRefundFlow` 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
+Go 中的 `CustomerRefundFlow` 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
