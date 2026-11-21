@@ -74,6 +74,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
 | Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
+| Customer refund | [`CustomerRefundFlow`](src/products/customer_refund) | Manager approval through a Channel, a retried refund, and Time Travel; its own Worker and commands |
 
 ## Patterns
 
@@ -133,7 +134,7 @@ ensures the manifest uses the published crate rather than a local path.
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
 Deal DSL, and Failure Recovery Flows through the published Rust SDK. It then
-runs the Workflow Patterns tests.
+runs the Workflow Patterns and customer refund tests.
 
 All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
