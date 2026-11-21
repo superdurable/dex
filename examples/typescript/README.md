@@ -97,6 +97,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./src/products/signup)
 - [Job posting](./src/products/job-post)
 - [Deal DSL](./src/products/deal-dsl)
+- [Customer refund](./src/products/customer-refund): its own Worker and commands; a manager approval Action, a retried refund, Time Travel, and payload encryption
 - [AI Agent](./src/products/ai-agent)
 - [Agent harnesses](./src/products/agent-harnesses): one order-support agent per agent framework
 - [Quick Start](./quick-start): the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate npm package
