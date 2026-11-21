@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -28,9 +28,11 @@ import { promisify } from "node:util";
 import {
   AttributeMatch,
   Client,
+  FlowDefinitionUploadOutcome,
   PayloadEncryptionError,
   Registry,
   Worker,
+  WorkerInvocationError,
   stringCodec,
   type BlobCache,
   type PayloadCodec,
@@ -45,11 +47,14 @@ import { MockMessageModel } from "../../src/products/customer-refund/message-mod
 import {
   AWAITING_MANAGER,
   CustomerRefundFlow,
+  NO_OUTAGE_NOTE,
+  WINDOW_EXPIRED_NOTE,
   caseStatus,
   customerMessage,
   refundId,
 } from "../../src/products/customer-refund/refund-flow.js";
 import {
+  FLOW_DEFINITIONS_DIR,
   REFUND_SCENARIOS,
   newPayloadCodec,
   newRefundFlow,
@@ -60,6 +65,7 @@ import {
 
 const WAIT_TIMEOUT_MS = 45_000;
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
+const dexcli = process.env.DEXCLI_PATH ?? "dexcli";
 
 /** Counts the payment timeouts, so a test can show they really happened. */
 class TimeoutCountingBillingService extends FakeBillingService {
@@ -85,8 +91,8 @@ class RefundTestbed {
     private readonly directory: string,
     private readonly payloadCodec: PayloadCodec | undefined,
   ) {
-    this.billing = new FakeBillingService(join(directory, "billing-refunds.json"));
-    this.email = new FakeEmailService(join(directory, "sent-emails.json"));
+    this.billing = new FakeBillingService(join(directory, "billing.sqlite"));
+    this.email = new FakeEmailService(join(directory, "emails.sqlite"));
     this.flow = this.newFlow("normal");
     this.cache = openRefundBlobCache(join(directory, "client-cache"));
     this.client = new Client(new Registry([this.flow]), this.cache, { serverAddress, payloadCodec });
@@ -96,9 +102,15 @@ class RefundTestbed {
     return newRefundFlow(billingMode, this.billing.ledgerPath, this.email.ledgerPath);
   }
 
-  public async withWorker(flow: CustomerRefundFlow, work: () => Promise<void>): Promise<void> {
+  /** Runs work while a Worker built from the Worker entrypoint's options serves the Flow. */
+  public async withWorker(
+    flow: CustomerRefundFlow,
+    work: () => Promise<void>,
+    flowDefinitionsDir: string = FLOW_DEFINITIONS_DIR,
+  ): Promise<void> {
     const cache = openRefundBlobCache(join(this.directory, `worker-cache-${randomUUID()}`));
-    const worker = new Worker(new Registry([flow]), cache, refundWorkerOptions(serverAddress, this.payloadCodec));
+    const options = refundWorkerOptions(serverAddress, this.payloadCodec, flowDefinitionsDir);
+    const worker = new Worker(new Registry([flow]), cache, options);
     try {
       await worker.start();
       await worker.waitPullRegistered({ timeoutMs: 30_000 });
@@ -176,6 +188,31 @@ test("a manager rejects the refund", async () => {
   });
 });
 
+test("a blank reason is refused and a later valid decision is accepted", async () => {
+  await withTestbed(async (bed) => {
+    const flowId = newFlowId();
+    let output = "";
+    await bed.withWorker(bed.newFlow("normal"), async () => {
+      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+      await bed.waitForManager(flowId);
+      for (const rpc of [bed.flow.approveRefund, bed.flow.rejectRefund]) {
+        await assert.rejects(
+          bed.client.invokeRPC(rpc, flowId, { reason: "   " }),
+          (failure: unknown) => failure instanceof WorkerInvocationError && /a reason is required/.test(failure.message),
+        );
+      }
+      const [status] = await bed.client.getAttributes(flowId, caseStatus);
+      assert.equal(status, AWAITING_MANAGER);
+
+      await bed.client.invokeRPC(bed.flow.approveRefund, flowId, { reason: "Outage confirmed" });
+      output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
+    });
+
+    assert.equal(output, "refunded");
+    assert.equal(bed.billing.listRefunds().length, 1);
+  });
+});
+
 test("the policy denies an old charge", async () => {
   await withTestbed(async (bed) => {
     const flowId = newFlowId();
@@ -186,10 +223,32 @@ test("the policy denies an old charge", async () => {
     });
 
     assert.equal(output, "denied");
-    const [status] = await bed.client.getAttributes(flowId, caseStatus);
+    const [status, message] = await bed.client.getAttributes(flowId, caseStatus, customerMessage);
     assert.equal(status, "closed-denied");
+    assert.ok(message?.includes(WINDOW_EXPIRED_NOTE) && message.includes(NO_OUTAGE_NOTE), message);
     assert.deepEqual(bed.billing.listRefunds(), []);
     assert.deepEqual(bed.email.listSentKeys(), [`email-${flowId}`]);
+  });
+});
+
+test("the denial note names only the policy condition that applies", async () => {
+  await withTestbed(async (bed) => {
+    const cases = [
+      { orderId: "INV-0412", note: WINDOW_EXPIRED_NOTE, absent: NO_OUTAGE_NOTE },
+      { orderId: "INV-0518", note: NO_OUTAGE_NOTE, absent: WINDOW_EXPIRED_NOTE },
+    ];
+    await bed.withWorker(bed.newFlow("normal"), async () => {
+      for (const { orderId, note, absent } of cases) {
+        const flowId = newFlowId();
+        await bed.client.startFlow(bed.flow, flowId, { ...REFUND_SCENARIOS.normal, orderId });
+        const output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
+        assert.equal(output, "denied");
+        const [message] = await bed.client.getAttributes(flowId, customerMessage);
+        assert.ok(message?.includes(note), `${orderId}: ${message}`);
+        assert.ok(!message?.includes(absent), `${orderId}: ${message}`);
+      }
+    });
+    assert.deepEqual(bed.billing.listRefunds(), []);
   });
 });
 
@@ -208,6 +267,12 @@ test("the refund succeeds after two payment timeouts", async () => {
 
     assert.equal(billing.paymentTimeouts, 2);
     assert.equal(bed.billing.listRefunds().length, 1);
+    const completions = (await readHistoryWithDexcli(flowId)).filter(
+      (event) => event.type === "StepExecuteCompleted" && event.payload?.context?.stepType === "IssueRefund",
+    );
+    assert.equal(completions.length, 1);
+    assert.equal(completions[0]?.payload?.context?.finalAttempt, 3);
+    assert.equal(completions[0]?.payload?.context?.lastFailureInfo?.attempt, 2);
   });
 });
 
@@ -236,6 +301,51 @@ test("time travel issues the refund that a missing billing call skipped", async 
     const [storedRefundId] = await bed.client.getAttributes(flowId, refundId);
     assert.equal(storedRefundId, refunds[0]?.refundId);
     assert.deepEqual(bed.email.listSentKeys(), [`email-${flowId}`]);
+  });
+});
+
+test("time travel after a successful refund reuses its refund ID", async () => {
+  await withTestbed(async (bed) => {
+    const flowId = newFlowId();
+    await bed.withWorker(bed.newFlow("normal"), async () => {
+      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.small);
+      await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
+      const [firstRefundId] = await bed.client.getAttributes(flowId, refundId);
+
+      await timeTravelWithDexcli(flowId, "IssueRefund");
+      const again = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
+      assert.equal(again.status, "completed", again.errorMessage);
+      const [secondRefundId] = await bed.client.getAttributes(flowId, refundId);
+      assert.equal(secondRefundId, firstRefundId);
+    });
+
+    assert.deepEqual(bed.billing.listRefunds().map((refund) => refund.idempotencyKey), [`refund-${flowId}`]);
+    assert.deepEqual(bed.email.listSentKeys(), [`email-${flowId}`]);
+  });
+});
+
+test("the Worker uploads the generated design", async () => {
+  await withTestbed(async (bed, directory) => {
+    const designDir = join(directory, "design");
+    await promisify(execFile)(dexcli, [
+      "visualize",
+      "src/products/customer-refund/refund-flow.ts",
+      "--schema-version",
+      "2.0",
+      "--json",
+      "--out",
+      join(designDir, "customer-refund"),
+    ]);
+    const content = await readFile(join(designDir, "customer-refund.json"));
+    const generatedAt = new Date((JSON.parse(content.toString("utf8")) as { generatedAt: string }).generatedAt);
+
+    await bed.withWorker(bed.newFlow("normal"), async () => {
+      // Uploading the same document again is UNCHANGED only when the Worker already stored it.
+      const [result] = await bed.client.uploadFlowDefinitions([
+        { flowType: "CustomerRefundFlow", content, generatedAt },
+      ]);
+      assert.equal(result?.outcome, FlowDefinitionUploadOutcome.UNCHANGED);
+    }, designDir);
   });
 });
 
@@ -273,7 +383,6 @@ async function writePayloadKeyFile(directory: string): Promise<string> {
 
 /** Runs the README's time travel command. */
 async function timeTravelWithDexcli(flowId: string, stepType: string): Promise<void> {
-  const dexcli = process.env.DEXCLI_PATH ?? "dexcli";
   await promisify(execFile)(dexcli, [
     "flow",
     "time-travel",
@@ -288,4 +397,25 @@ async function timeTravelWithDexcli(flowId: string, stepType: string): Promise<v
     "billing call restored",
     "--yes",
   ]);
+}
+
+interface HistoryEvent {
+  readonly type: string;
+  readonly payload?: {
+    readonly context?: {
+      readonly stepType?: string;
+      readonly finalAttempt?: number;
+      readonly lastFailureInfo?: { readonly attempt?: number };
+    };
+  };
+}
+
+/** Reads the run's history as the History view shows it. */
+async function readHistoryWithDexcli(flowId: string): Promise<HistoryEvent[]> {
+  const { stdout } = await promisify(execFile)(
+    dexcli,
+    ["flow", "history", flowId, "--all", "--server", serverAddress],
+    { maxBuffer: 16 * 1024 * 1024 },
+  );
+  return (JSON.parse(stdout) as { events: HistoryEvent[] }).events;
 }

@@ -104,15 +104,19 @@ export function newWorkerId(): string {
 }
 
 /** Returns Worker options that also upload the design when it was generated. */
-export function refundWorkerOptions(serverAddress: string, payloadCodec: PayloadCodec | undefined): WorkerOptions {
-  const designGenerated = existsSync(FLOW_DEFINITIONS_DIR) && statSync(FLOW_DEFINITIONS_DIR).isDirectory();
+export function refundWorkerOptions(
+  serverAddress: string,
+  payloadCodec: PayloadCodec | undefined,
+  flowDefinitionsDir: string = FLOW_DEFINITIONS_DIR,
+): WorkerOptions {
+  const designGenerated = existsSync(flowDefinitionsDir) && statSync(flowDefinitionsDir).isDirectory();
   if (!designGenerated) {
-    console.log(`No design in ${FLOW_DEFINITIONS_DIR}; see the README to generate it.`);
+    console.log(`No design in ${flowDefinitionsDir}; see the README to generate it.`);
   }
   return {
     serverAddress,
     pull: { appWorkerID: newWorkerId() },
-    flowDefinitionPaths: designGenerated ? [FLOW_DEFINITIONS_DIR] : [],
+    flowDefinitionPaths: designGenerated ? [flowDefinitionsDir] : [],
     payloadCodec,
   };
 }

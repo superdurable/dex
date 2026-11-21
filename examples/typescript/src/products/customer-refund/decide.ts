@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
-/** Approves or rejects a waiting refund: decide.js FLOW_ID approve|reject REASON. */
+/** Waits until a refund awaits a manager, then approves or rejects it: decide.js FLOW_ID approve|reject REASON. */
 
 import {
+  AttributeMatch,
   Client,
   FlowNotActiveOrNotFoundError,
   Registry,
+  RequestTimeoutError,
   WorkerInvocationError,
 } from "@superdurable/dex";
 
-import type { DecisionReason } from "./refund-flow.js";
+import { AWAITING_MANAGER, caseStatus, type DecisionReason } from "./refund-flow.js";
 import {
   newPayloadCodec,
   newRefundFlow,
@@ -46,6 +48,10 @@ const client = new Client(new Registry([refundFlow]), cache, {
   payloadCodec,
 });
 try {
+  // A new run reaches the manager wait a moment after it starts.
+  await client.waitForAttributeMatch(flowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
+    requestTimeoutMs: 30_000,
+  });
   const rpc = decision === "approve" ? refundFlow.approveRefund : refundFlow.rejectRefund;
   const input: DecisionReason = { reason };
   await client.invokeRPC(rpc, flowId, input);
@@ -54,6 +60,8 @@ try {
 } catch (failure) {
   if (failure instanceof FlowNotActiveOrNotFoundError) {
     console.error(`Refund ${flowId} is closed or does not exist.`);
+  } else if (failure instanceof RequestTimeoutError) {
+    console.error(`Refund ${flowId} did not wait for a manager within 30 seconds.`);
   } else if (failure instanceof WorkerInvocationError) {
     console.error(`Refund ${flowId}: ${failure.message}.`);
   } else {

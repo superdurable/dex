@@ -7,8 +7,12 @@ the refund, has a model write the customer message, emails it, and closes the
 case.
 
 Billing, email, and the model are fakes in this folder. They need no API key
-and move no money. Billing and email remember each idempotency key in
-`.customer-refund/`, so a restarted Worker sees what earlier Workers did.
+and move no money. Billing and email keep their records in SQLite files in
+`.customer-refund/`, through the built-in `node:sqlite` module. Each record
+has a unique idempotency key, and one statement checks and writes it. So a
+restarted Worker, or two Workers at once, never issue a second refund or a
+second email for the same key. Node.js 22 and 24 print an
+`ExperimentalWarning` the first time `node:sqlite` loads.
 
 | File | What it holds |
 | --- | --- |
@@ -61,13 +65,18 @@ Start a refund in a third terminal. The Flow ID is your choice:
 node dist/src/products/customer-refund/start.js refund1
 ```
 
-The run stops at **Request manager approval**. In Dex Web, open `refund1`,
-choose the **Actions** tab, set **Working as** to `refund.manage`, enter a
-reason, and press **Approve refund** or **Reject refund**. Or run:
+The run stops at **Request manager approval** and sets `case-status` to
+`awaiting-manager`. In Dex Web, open `refund1`, choose the **Actions** tab,
+set **Working as** to `refund.manage`, enter a reason, and press **Approve
+refund** or **Reject refund**. The Actions appear once `case-status` is
+`awaiting-manager`. Or run:
 
 ```bash
 node dist/src/products/customer-refund/decide.js refund1 approve "Outage confirmed"
 ```
+
+`decide.js` first waits up to 30 seconds for `case-status=awaiting-manager`,
+so you can run it right after `start.js`. Both RPCs refuse a blank reason.
 
 List the refunds that billing recorded:
 
@@ -87,7 +96,7 @@ at `127.0.0.1:8801`.
 | --- | --- | --- |
 | `normal` (default) | INV-1249, 1,249.00 USD | Waits for a manager, then refunds. |
 | `fail-then-succeed` | INV-1249 | After approval, the refund fails twice, then succeeds. |
-| `deny` | INV-0388, charged 47 days ago | The policy denies it; no approval, no refund. |
+| `deny` | INV-0388, charged 47 days ago, no outage recorded | The policy denies it; no approval, no refund. The message names both reasons. |
 | `small` | INV-0049, 49.00 USD | Refunds without a manager. |
 
 ### A Step that fails, then succeeds
@@ -98,14 +107,17 @@ node dist/src/products/customer-refund/decide.js refund2 approve "Outage confirm
 ```
 
 **Issue refund** throws `PaymentTimeout` from `billing-service.ts` on its
-first two attempts. Its retry policy waits 5 seconds between attempts, so the
-**History** view shows each failed attempt and its stack trace before the
-third attempt succeeds.
+first two attempts. Its retry policy waits 5 seconds between attempts, and
+the third attempt succeeds. In the **History** view, the final **Issue
+refund** event shows that attempt 3 succeeded and keeps the details of the
+last failure, including its stack trace.
 
 ### A missing billing call, fixed with Time Travel
 
-Stop the Worker with Ctrl+C and start it in the `call-missing` billing mode.
-It stands in for a release whose **Issue refund** Step forgot to call billing:
+Stop the normal Worker first: press Ctrl+C in its terminal. A normal Worker
+that is still running could take the next refund and call billing. Then
+start the Worker in the `call-missing` billing mode. It stands in for a
+release whose **Issue refund** Step forgot to call billing:
 
 ```bash
 REFUND_BILLING_MODE=call-missing node dist/src/products/customer-refund/worker.js
@@ -122,7 +134,8 @@ The run completes and the customer is told the refund was issued. But the
 `refund-id` Attribute is empty, and the billing list shows no refund with the
 key `refund-refund3`.
 
-Stop the Worker and start it again in the normal mode:
+Stop the `call-missing` Worker with Ctrl+C and start it again in the normal
+mode:
 
 ```bash
 node dist/src/products/customer-refund/worker.js
@@ -139,7 +152,9 @@ Dex runs **Issue refund** and the Steps after it again. This time billing
 records one refund, and `refund-id` holds its ID, such as `rf_1044`. The email
 service sees the key `email-refund3` again and does not send a second email.
 Each external call carries an idempotency key because Steps after a Time
-Travel point run again.
+Travel point run again. Time Travel to **Issue refund** of a run that was
+already refunded, such as `refund1`, gets the same refund ID back from
+billing and creates no second refund.
 
 ## Payload encryption
 
@@ -164,14 +179,20 @@ without the key; the Action condition needs `case-status` in plaintext. Step
 inputs, `refund-id`, and `customer-message` are stored encrypted. The email
 address is synthetic sample data.
 
-To show the encrypted values in Dex Web, start a local codec server:
+To show the encrypted values in Dex Web, the simplest way is to start Dex
+with the key: `dexcli dev -codec-key-file /tmp/refund-key.json`. Or start a
+local codec server:
 
 ```bash
-dexcli codec-server -key-file /tmp/refund-key.json -port 8805 -token-file /tmp/refund-codec-token
+dexcli codec-server -key-file /tmp/refund-key.json -port 8805 -token-file /tmp/refund-codec-token > /dev/null
 ```
 
-In Dex Web, open **Settings** > **Codec endpoint**, choose **Custom**, and
-enter `http://127.0.0.1:8805` and the token from `/tmp/refund-codec-token`.
+The codec server prints its bearer token at each start, so the command sends
+standard output to `/dev/null` and reads the token from the `0600` token file
+instead. It allows Dex Web at the default port 8802. If Dex Web runs on
+another port, add `-web-origin http://127.0.0.1:<port>` for it. In Dex Web,
+open **Settings** > **Codec endpoint**, choose **Custom**, and enter
+`http://127.0.0.1:8805` and the token from `/tmp/refund-codec-token`.
 `dexcli flow state refund4 --codec-endpoint http://127.0.0.1:8805
 --codec-token-file /tmp/refund-codec-token` reads the same values.
 
@@ -182,8 +203,11 @@ npm run build
 DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 node --test --experimental-test-isolation=none --test-force-exit dist/test/integ/customer-refund.test.js
 ```
 
-The tests cover approval, rejection, the policy denial, the fail-then-succeed
-refund, the missing billing call fixed with `dexcli flow time-travel`, and
-encryption. They need `dexcli` on `PATH` or in `DEXCLI_PATH`.
+The tests cover approval, rejection, blank reasons, each policy denial, the
+fail-then-succeed refund and its History, the missing billing call fixed with
+`dexcli flow time-travel`, Time Travel after a successful refund, the design
+upload, and encryption. They need `dexcli` on `PATH` or in `DEXCLI_PATH`.
 `npm run test:integ` and `./run-integration-tests.sh` run them with the other
-examples.
+examples. `npm test` runs
+[`test/workflow/customer-refund-ledgers.test.ts`](../../../test/workflow/customer-refund-ledgers.test.ts),
+which checks the ledgers with several processes at once and needs no Dex.

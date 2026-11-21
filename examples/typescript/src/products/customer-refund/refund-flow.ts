@@ -45,6 +45,8 @@ export const REFUND_WINDOW_DAYS = 30;
 export const MANAGER_APPROVAL_LIMIT_USD = 1000.0;
 export const AWAITING_MANAGER = "awaiting-manager";
 export const MANAGE_REFUNDS_PERMISSION = "refund.manage";
+export const WINDOW_EXPIRED_NOTE = "The charge is outside the 30-day refund window.";
+export const NO_OUTAGE_NOTE = "No service outage was recorded for this charge.";
 
 // Readable without the payload key, so Dex Web can show and match them.
 export const caseStatus = new Attribute("case-status", stringCodec).plaintext();
@@ -119,10 +121,15 @@ class CheckPolicy implements Step<RefundCase> {
 
   public execute(context: Context, input: RefundCase): StepDecision {
     const order = input.order;
-    if (order.daysSinceCharge > REFUND_WINDOW_DAYS || order.outageHours === 0) {
+    const windowExpired = order.daysSinceCharge > REFUND_WINDOW_DAYS;
+    const noOutage = order.outageHours === 0;
+    if (windowExpired || noOutage) {
       caseStatus.set(context, "denied");
-      const note = "The charge is outside the 30-day window and no outage was recorded.";
-      return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note });
+      const notes = [
+        windowExpired ? WINDOW_EXPIRED_NOTE : "",
+        noOutage ? NO_OUTAGE_NOTE : "",
+      ];
+      return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note: notes.join(" ").trim() });
     }
     if (order.amountUsd > MANAGER_APPROVAL_LIMIT_USD) {
       caseStatus.set(context, AWAITING_MANAGER);
@@ -280,11 +287,15 @@ export class CustomerRefundFlow implements Flow<RefundRequest> {
     }),
   })
   public approveRefund(context: Context, input: DecisionReason): void {
+    const reason = (input.reason ?? "").trim();
+    if (reason === "") {
+      throw new Error("a reason is required");
+    }
     if (caseStatus.get(context) !== AWAITING_MANAGER) {
       throw new Error("this refund is not waiting for a manager");
     }
     caseStatus.set(context, "approved");
-    managerDecisions.publish(context, { approved: true, reason: input.reason });
+    managerDecisions.publish(context, { approved: true, reason });
   }
 
   // dex:input field-name:reason value-type:string source:user required:true description:"Reason"
@@ -297,10 +308,14 @@ export class CustomerRefundFlow implements Flow<RefundRequest> {
     }),
   })
   public rejectRefund(context: Context, input: DecisionReason): void {
+    const reason = (input.reason ?? "").trim();
+    if (reason === "") {
+      throw new Error("a reason is required");
+    }
     if (caseStatus.get(context) !== AWAITING_MANAGER) {
       throw new Error("this refund is not waiting for a manager");
     }
     caseStatus.set(context, "rejected");
-    managerDecisions.publish(context, { approved: false, reason: input.reason });
+    managerDecisions.publish(context, { approved: false, reason });
   }
 }

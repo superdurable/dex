@@ -16,30 +16,46 @@
 
 /** A fake email service that prints each message and sends one email per key. */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { openLedger } from "./billing-service.js";
 
-export const DEFAULT_EMAIL_LEDGER = ".customer-refund/sent-emails.json";
+export const DEFAULT_EMAIL_LEDGER = ".customer-refund/emails.sqlite";
 
-/** Keeps sent keys in a JSON file, so a restarted Worker sees earlier emails. */
+const EMAILS_SCHEMA = `CREATE TABLE IF NOT EXISTS sent_emails (
+  idempotency_key TEXT NOT NULL PRIMARY KEY,
+  recipient TEXT NOT NULL,
+  body TEXT NOT NULL
+)`;
+
+/** Keeps sent emails in a SQLite file, so a restarted or concurrent Worker sees earlier emails. */
 export class FakeEmailService {
   public constructor(public readonly ledgerPath: string = DEFAULT_EMAIL_LEDGER) {}
 
-  public send(to: string, body: string, idempotencyKey: string): void {
-    const sent = this.listSentKeys();
-    if (sent.includes(idempotencyKey)) {
-      console.log(`Email to ${to} already sent (key ${idempotencyKey})`);
-      return;
+  /** Returns true when this call sent the email, false when the key was already used. */
+  public send(to: string, body: string, idempotencyKey: string): boolean {
+    const ledger = openLedger(this.ledgerPath, EMAILS_SCHEMA);
+    try {
+      // The fake sends by recording; only the call that inserts the key prints the message.
+      const inserted = ledger.prepare(
+        "INSERT INTO sent_emails (idempotency_key, recipient, body) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+      ).run(idempotencyKey, to, body);
+      if (inserted.changes === 0) {
+        console.log(`Email to ${to} already sent (key ${idempotencyKey})`);
+        return false;
+      }
+      console.log(`Emailed ${to}: ${body}`);
+      return true;
+    } finally {
+      ledger.close();
     }
-    mkdirSync(dirname(this.ledgerPath), { recursive: true });
-    writeFileSync(this.ledgerPath, JSON.stringify([...sent, idempotencyKey], null, 2));
-    console.log(`Emailed ${to}: ${body}`);
   }
 
   public listSentKeys(): string[] {
-    if (!existsSync(this.ledgerPath)) {
-      return [];
+    const ledger = openLedger(this.ledgerPath, EMAILS_SCHEMA);
+    try {
+      return ledger.prepare("SELECT idempotency_key FROM sent_emails ORDER BY rowid").all()
+        .map((row) => String(row.idempotency_key));
+    } finally {
+      ledger.close();
     }
-    return JSON.parse(readFileSync(this.ledgerPath, "utf8")) as string[];
   }
 }
