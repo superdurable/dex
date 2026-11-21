@@ -58,6 +58,10 @@ export const cliToolNames: ReadonlySet<string> = new Set([
 const soloDeferralRequiredMessage = (toolName: string): string =>
   `${toolName} did not run. It must run outside this turn, which works only when it is the only ` +
   `tool call in its message. Call ${toolName} again by itself.`;
+const siblingDeferralMessage = (toolName: string, deferredToolName: string): string =>
+  `${toolName} did not run, so it had no effect. An earlier call of this reply, ${deferredToolName}, runs first ` +
+  `outside this turn, and only one such call runs at a time. Its result follows. Read it, then call ${toolName} ` +
+  "again by itself if it should still run.";
 const subagentDeferralRefusedMessage = (toolName: string): string =>
   `${toolName} did not run. It must run outside this turn, which a subagent cannot do. Call it ` +
   "from the main conversation instead.";
@@ -410,8 +414,12 @@ export class ToolCallGate {
         : sourceTool.buildDeferredToolCall(this.turn, callId, toolArguments);
     // The result names one deferred call, and the CLI checks siblings per content block, not per reply.
     if (this.deferralRequest !== undefined && this.deferralRequest.toolCallId !== callId) {
-      const message = deferral.ordered === true ? orderedWriteDeferralMessage : soloDeferralRequiredMessage;
-      return preToolUseDecision("deny", message(policyToolName));
+      return preToolUseDecision(
+        "deny",
+        deferral.ordered === true
+          ? orderedWriteDeferralMessage(policyToolName)
+          : siblingDeferralMessage(policyToolName, this.deferralRequest.toolName),
+      );
     }
     this.deferralRequest = deferral;
     this.deferredSourceTool = sourceTool;

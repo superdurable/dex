@@ -349,6 +349,65 @@ function placeEndedTurnAnswers(
   return placedEntries;
 }
 
+// Resumes a deferral that a refused sibling of its reply follows; see "How a turn runs" in the README.
+export function withPendingDeferralLast(entries: readonly ClaudeTranscriptEntry[]): ClaudeTranscriptEntry[] {
+  let deferralIndex = entries.length - 1;
+  while (deferralIndex >= 0 && deferredToolUseIdOf(entries[deferralIndex] ?? {}) === undefined) {
+    deferralIndex -= 1;
+  }
+  const deferral = entries[deferralIndex];
+  if (deferral === undefined || typeof deferral["uuid"] !== "string") {
+    return [...entries];
+  }
+  const deferredToolUseId = deferredToolUseIdOf(deferral);
+  const owner = entries
+    .slice(0, deferralIndex)
+    .reverse()
+    .find((entry) => mainToolUsesOf([entry]).some((toolUse) => toolUse.toolUseId === deferredToolUseId));
+  const ownerMessageId = owner === undefined ? undefined : assistantMessageIdOf(owner);
+  const isPending = toolUseInstancesOf(entries).some(
+    (toolUse) => toolUse.toolUseId === deferredToolUseId && toolUse.assistantUuid === owner?.["uuid"] && !toolUse.isAnswered,
+  );
+  const laterChainEntries = entries.slice(deferralIndex + 1).filter((entry) => typeof entry["uuid"] === "string");
+  if (ownerMessageId === undefined || !isPending || laterChainEntries.length === 0) {
+    return [...entries];
+  }
+  const replyToolUseIds = new Set<string>();
+  for (const entry of laterChainEntries) {
+    if (entry["isSidechain"] === true) {
+      return [...entries];
+    }
+    if (entry["type"] === "assistant") {
+      if (assistantMessageIdOf(entry) !== ownerMessageId) {
+        return [...entries];
+      }
+      for (const toolUse of mainToolUsesOf([entry])) {
+        replyToolUseIds.add(toolUse.toolUseId);
+      }
+    } else if (entry["type"] === "user") {
+      const blocks = contentBlocksOf(entry);
+      const isSiblingResult =
+        entry["isMeta"] !== true &&
+        blocks.length > 0 &&
+        blocks.every((block) => block["type"] === "tool_result" && replyToolUseIds.has(String(block["tool_use_id"])));
+      if (!isSiblingResult) {
+        return [...entries];
+      }
+    } else if (entry["type"] !== "attachment" || deferredToolUseIdOf(entry) !== undefined) {
+      return [...entries];
+    }
+  }
+  if (replyToolUseIds.size === 0) {
+    return [...entries];
+  }
+  const leafUuid = laterChainEntries.at(-1)?.["uuid"];
+  const reordered = entries
+    .filter((entry) => entry !== deferral)
+    .map((entry) => (entry["parentUuid"] === deferral["uuid"] ? { ...entry, parentUuid: deferral["parentUuid"] } : entry));
+  reordered.push({ ...deferral, parentUuid: leafUuid });
+  return reordered;
+}
+
 function deferredToolUseIdOf(entry: ClaudeTranscriptEntry): string | undefined {
   const attachment = entry["attachment"];
   if (entry["type"] !== "attachment" || !isRecord(attachment) || attachment["type"] !== "hook_deferred_tool") {

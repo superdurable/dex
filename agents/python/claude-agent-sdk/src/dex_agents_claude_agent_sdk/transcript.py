@@ -456,6 +456,84 @@ def _place_ended_turn_answers(
     return placed_entries
 
 
+def with_pending_deferral_last(entries: Sequence[TranscriptEntry]) -> list[TranscriptEntry]:
+    """Return the resume transcript with a pending deferral after its reply's refused siblings.
+
+    See "How a turn runs" in the README. Any other transcript is returned unchanged.
+    """
+    deferral_index = next(
+        (
+            index
+            for index in reversed(range(len(entries)))
+            if _deferred_tool_use_id(entries[index]) is not None
+        ),
+        None,
+    )
+    if deferral_index is None or not isinstance(entries[deferral_index].get("uuid"), str):
+        return list(entries)
+    deferral = entries[deferral_index]
+    deferred_tool_use_id = _deferred_tool_use_id(deferral)
+    owner = next(
+        (
+            entry
+            for entry in reversed(entries[:deferral_index])
+            if any(
+                tool_use.tool_use_id == deferred_tool_use_id
+                for tool_use in _main_tool_uses([entry])
+            )
+        ),
+        None,
+    )
+    owner_message_id = None if owner is None else _assistant_message_id(owner)
+    is_pending = any(
+        tool_use.tool_use_id == deferred_tool_use_id
+        and owner is not None
+        and tool_use.assistant_uuid == owner.get("uuid")
+        and not tool_use.is_answered
+        for tool_use in _tool_use_instances(entries)
+    )
+    later_chain_entries = [
+        entry for entry in entries[deferral_index + 1 :] if isinstance(entry.get("uuid"), str)
+    ]
+    if owner_message_id is None or not is_pending or not later_chain_entries:
+        return list(entries)
+    reply_tool_use_ids: set[str] = set()
+    for entry in later_chain_entries:
+        if entry.get("isSidechain") is True:
+            return list(entries)
+        if entry.get("type") == "assistant":
+            if _assistant_message_id(entry) != owner_message_id:
+                return list(entries)
+            reply_tool_use_ids.update(tool_use.tool_use_id for tool_use in _main_tool_uses([entry]))
+        elif entry.get("type") == "user":
+            blocks = _content_blocks(entry)
+            is_sibling_result = (
+                entry.get("isMeta") is not True
+                and bool(blocks)
+                and all(
+                    block.get("type") == "tool_result"
+                    and block.get("tool_use_id") in reply_tool_use_ids
+                    for block in blocks
+                )
+            )
+            if not is_sibling_result:
+                return list(entries)
+        elif entry.get("type") != "attachment" or _deferred_tool_use_id(entry) is not None:
+            return list(entries)
+    if not reply_tool_use_ids:
+        return list(entries)
+    deferral_uuid = deferral["uuid"]
+    reordered: list[TranscriptEntry] = [
+        {**entry, "parentUuid": deferral.get("parentUuid")}
+        if entry.get("parentUuid") == deferral_uuid
+        else entry
+        for entry in entries
+        if entry is not deferral
+    ]
+    reordered.append({**deferral, "parentUuid": later_chain_entries[-1]["uuid"]})
+    return reordered
+
+
 def _deferred_tool_use_id(entry: Mapping[str, Any]) -> str | None:
     attachment = entry.get("attachment")
     if (

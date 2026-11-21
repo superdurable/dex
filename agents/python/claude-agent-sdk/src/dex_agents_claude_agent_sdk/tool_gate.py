@@ -101,6 +101,12 @@ ONE_DEFERRAL_PER_REPLY_MESSAGE = (
     "{tool_name} did not run. Only one tool call per reply can run outside this turn, "
     "and another call already does. Call {tool_name} again by itself."
 )
+SIBLING_DEFERRAL_MESSAGE = (
+    "{tool_name} did not run, so it had no effect. An earlier call of this reply, "
+    "{deferred_tool_name}, runs first outside this turn, and only one such call runs at a "
+    "time. Its result follows. Read it, then call {tool_name} again by itself if it should "
+    "still run."
+)
 SUBAGENT_DEFERRAL_REFUSED_MESSAGE = (
     "{tool_name} did not run. It must run outside this turn, which a subagent cannot do. "
     "Call it from the main conversation instead."
@@ -458,11 +464,14 @@ class ToolCallGate:
         # The CLI resumes only one deferred call, so later ones in the segment must wait.
         if self._segment_deferral is not None:
             message = (
-                ORDERED_WRITE_DEFERRAL_MESSAGE
+                ORDERED_WRITE_DEFERRAL_MESSAGE.format(tool_name=policy_tool_name)
                 if deferral.ordered
-                else ONE_DEFERRAL_PER_REPLY_MESSAGE
+                else SIBLING_DEFERRAL_MESSAGE.format(
+                    tool_name=policy_tool_name,
+                    deferred_tool_name=self._segment_deferral.tool_name,
+                )
             )
-            return _pre_tool_use_decision("deny", message.format(tool_name=policy_tool_name))
+            return _pre_tool_use_decision("deny", message)
         self._segment_deferral = deferral
         self._segment_deferral_source_tool = source_tool
         return _pre_tool_use_decision("defer", "The Dex agent session settles this call.")

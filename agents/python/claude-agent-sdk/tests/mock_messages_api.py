@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -53,6 +54,8 @@ class MockMessagesApi:
     requests: list[MessagesApiRequest] = field(default_factory=list)
     #: Replaces the random part of every new tool use ID, so later turns reuse IDs.
     fixed_tool_use_id_suffix: str | None = None
+    #: A pause between streamed content blocks, as in a live model stream.
+    content_block_pause_seconds: float = 0.0
     _server: ThreadingHTTPServer | None = None
     _thread: threading.Thread | None = None
 
@@ -105,6 +108,8 @@ class MockMessagesApi:
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 for event in stream_events(message):
+                    if event["type"] == "content_block_start" and event["index"] > 0:
+                        time.sleep(api.content_block_pause_seconds)
                     frame = f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
                     self.wfile.write(frame.encode())
                     self.wfile.flush()

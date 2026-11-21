@@ -88,6 +88,7 @@ from dex_agents_claude_agent_sdk.transcript import (
     load_session_transcript,
     project_turn_entries,
     tool_result_text,
+    with_pending_deferral_last,
 )
 from dex_agents_claude_agent_sdk.transcript_images import (
     TranscriptImageCodec,
@@ -499,7 +500,11 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             ).entries,
             OUTCOME_UNKNOWN_TOOL_RESULT,
         )
-        stored_entries = resume_transcript.entries
+        stored_entries = (
+            with_pending_deferral_last(resume_transcript.entries)
+            if prompt_content is None
+            else resume_transcript.entries
+        )
         image_codec = self._transcript_image_codec(turn, [stored_entries, prompt_content])
         session_store = TurnSegmentSessionStore(session_id, stored_entries, image_codec)
         running_turn_entries = [

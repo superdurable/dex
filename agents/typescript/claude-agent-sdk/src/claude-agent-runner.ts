@@ -66,6 +66,7 @@ import {
   answeredRunningTurnToolUseIds,
   cliToolNamesByToolUseId,
   buildResumeTranscript,
+  withPendingDeferralLast,
   buildUnfinishedToolResultEntries,
   decodeRunState,
   encodeRunState,
@@ -509,7 +510,8 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
       loadSessionTranscript(turn.messages.filter((message) => message.turnId !== turn.turnId)).entries,
       outcomeUnknownToolResult,
     );
-    const resumedEntries = resumeTranscript.entries;
+    const resumedEntries =
+      promptContent === undefined ? withPendingDeferralLast(resumeTranscript.entries) : resumeTranscript.entries;
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const imageCodec = this.transcriptImageCodec(turn, [resumedEntries, promptContent]);
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries, imageCodec);

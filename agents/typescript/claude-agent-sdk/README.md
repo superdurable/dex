@@ -360,8 +360,9 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
      as `FrameworkRunState`, and the segment's transcript entries as `newMessages`, so the session
      stores the turn so far in the same commit and a UI shows it while the call waits. The call's
      arguments are the CLI's recorded input, after every PreToolUse hook's `updatedInput`.
-   - Every later deferrable call of the same segment: `deny` with "<tool> did not run. ... Call
-     <tool> again by itself." The CLI resumes only one deferred call, so a second one would never get
+   - Every later deferrable call of the same segment: `deny` with "<tool> did not run, so it had no
+     effect. An earlier call of this reply, <deferred tool>, runs first ... Call <tool> again by itself
+     if it should still run." The CLI resumes only one deferred call, so a second one would never get
      a result. The model calls it again in a later reply.
 4. The session runs the call in `AwaitToolApproval` and `CallTool` or `CallSingleAttemptTool`. For a
    custom tool that runs the handler; for a CLI tool it records `approvedCliToolOutput`. `ResumeTurn`
@@ -375,6 +376,13 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    result writes `outcome_unknown`. A rejected or unfinished CLI tool is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
    record's failure or unknown outcome text. The CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
    The runner closes the CLI's input when the segment's result arrives.
+   The CLI writes a deferral right after its tool use, so a refused later call of the same reply can
+   follow it in the transcript. The CLI would then resume from the refusal as an interrupted turn,
+   and the model would read Claude Code's "[Tool result missing due to internal error]" for the
+   deferred call until a later deferral. So the transcript given to the resumed CLI puts the
+   pending deferral after the reply's later calls and refusals; the stored entries never change. The
+   model then reads the deferred call's recorded result and the refusal together, in the reply's
+   results. Changed in 0.6.16.
 6. When the CLI produces the final answer, the runner returns `TurnCompleted` with the segment's
    entries; earlier segments of the turn are already stored. Each assistant API
    message and each tool result becomes one stored message. Its `frameworkItem` is
@@ -539,7 +547,8 @@ from this way:
 ## Limits
 
 - One deferred call per segment. A reply that asks for two writes costs an extra model call: the
-  second write is denied and the model asks for it again alone.
+  second write is denied, the model reads the first write's result, and it asks for the second again
+  alone.
 - A deferrable call inside a subagent is denied with a message that asks the model to call it from
   the main conversation.
 - The resume behavior above was observed with Claude Code CLI 2.1.316. Rerun the real-CLI tests when

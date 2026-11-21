@@ -383,10 +383,10 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
      and a UI shows it while the call waits. The call's arguments are the
      CLI's recorded input, after every PreToolUse hook's `updatedInput`.
    - Every later deferrable call of the same segment: `deny` with
-     "<tool> did not run. Only one tool call per reply can run outside this
-     turn, and another call already does. Call <tool> again by itself." The
-     CLI resumes only one deferred call, so a second one would never get a
-     result. The model calls it again in a later reply.
+     "<tool> did not run, so it had no effect. An earlier call of this reply,
+     <deferred tool>, runs first ... Call <tool> again by itself if it should
+     still run." The CLI resumes only one deferred call, so a second one would
+     never get a result. The model calls it again in a later reply.
 4. The session runs the call in `AwaitToolApproval` and `CallTool` or
    `CallSingleAttemptTool`. For a custom tool that runs the handler; for a CLI
    tool it records `APPROVED_CLI_TOOL_OUTPUT`. `ResumeTurn` then starts
@@ -408,6 +408,15 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
    under `dontAsk` the CLI does not ask, so `--await-initialize` must prevent
    the skip. The CLI then adds a hidden "Continue from where you left off."
    message and makes the next model call.
+   The CLI writes a deferral right after its tool use, so a refused later
+   call of the same reply can follow it in the transcript. The CLI would then
+   resume from the refusal as an interrupted turn, and the model would read
+   Claude Code's "[Tool result missing due to internal error]" for the
+   deferred call until a later deferral. So the transcript given to the
+   resumed CLI puts the pending deferral after the reply's later calls and
+   refusals; the stored entries never change. The model then reads the
+   deferred call's recorded result and the refusal together, in the reply's
+   results. Changed in 0.6.16.
 6. When the CLI produces the final answer, the runner returns `TurnCompleted`
    with the segment's entries; earlier segments of the turn are already stored.
    Each assistant API message and each tool result becomes one stored message.

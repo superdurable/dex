@@ -485,7 +485,8 @@ async def test_two_writes_in_one_reply_leave_the_turn_one_at_a_time(
         if message.role is MessageRole.TOOL and message.tool_name == "publish"
     ]
     # The refusal of b is written in the first segment, before a's result on resume.
-    assert "Call publish again by itself" in publish_outputs[0]
+    assert "An earlier call of this reply, publish, runs first" in publish_outputs[0]
+    assert "call publish again by itself" in publish_outputs[0]
     assert publish_outputs[1:] == ["published a", "published b"]
     assert harness.invocations.count("publish") == 2
 
