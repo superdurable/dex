@@ -36,6 +36,8 @@ from tests.claude_test_agent import (
     FAILING_PERMISSION_BASH_COMMAND,
     INLINE_BASH_COMMAND,
     ORIGINAL_BASH_COMMAND,
+    PUBLISH_LOSES_CONNECTION_MESSAGE,
+    PUBLISH_REFUSED_MESSAGE,
     REWRITTEN_BASH_COMMAND,
 )
 from tests.conftest import ClaudeAgentHarness
@@ -293,6 +295,59 @@ async def test_idempotent_custom_write_that_exhausts_its_attempts_records_outcom
 
     assert snapshot.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
     assert harness.invocations.count("charge") == 3
+
+
+async def test_error_result_after_an_attempt_that_raised_records_outcome_unknown(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call charge {"amount": -1, "fail_attempts": 1}'
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("charge") == 2
+
+
+async def test_plain_error_from_a_single_attempt_write_records_outcome_unknown(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f'call publish {{"message": "{PUBLISH_LOSES_CONNECTION_MESSAGE}"}}'
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"publish: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("publish") == 1
+
+
+async def test_tool_execution_error_from_a_single_attempt_write_records_failed(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f'call publish {{"message": "{PUBLISH_REFUSED_MESSAGE}"}}'
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert (
+        snapshot.messages[-1].text
+        == "publish: The tool call failed: publish refused a duplicate message"
+    )
+    assert harness.invocations.count("publish") == 1
 
 
 async def test_custom_tool_error_result_reaches_the_model_without_a_retry(

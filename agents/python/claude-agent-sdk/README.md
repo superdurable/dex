@@ -215,6 +215,36 @@ text. An exception fails the Step attempt: an `idempotent_write` call retries,
 and once its attempts run out, or at once for a single-attempt call, the
 session records `outcome_unknown`, because the write may have taken effect.
 
+#### Report a definite failure
+
+How a write tool fails decides what the model reads, and so whether it calls
+the write again:
+
+| The handler | Records | The model reads |
+| --- | --- | --- |
+| Returns `is_error=True`, or raises `dex_agents.ToolExecutionError` | `failed` | The text; nothing took effect |
+| Raises any other exception | `outcome_unknown` for a write, once its attempts run out | `OUTCOME_UNKNOWN_TOOL_RESULT`: the write may have taken effect |
+
+Return `is_error=True`, or raise `ToolExecutionError`, only for an answer that
+settles the call, such as an HTTP 4xx from the service. Let a broken
+connection, a timeout, or a 5xx raise, because the write may have run. A
+handler that wraps its whole body in `try`/`except` and returns `is_error=True`
+records an interrupted payment as `failed`, and the model may pay again under a
+new tool call ID.
+
+```python
+@tool("issue_refund", "Refund a charge", {"charge_id": str})
+async def issue_refund(arguments: dict[str, Any]) -> dict[str, Any]:
+    response = await http.post("/refunds", json=arguments)  # a network error raises
+    if 400 <= response.status_code < 500:
+        raise ToolExecutionError(f"refund refused: {response.text}")
+    response.raise_for_status()  # a 5xx raises
+    return {"content": [{"type": "text", "text": response.text}]}
+```
+
+On a later attempt of a write, a definite failure also records
+`outcome_unknown`, because the earlier attempt may have taken effect.
+
 An inline READ call runs inside `RunModel`, not in a tool Step. An exception
 from its handler does not fail `RunModel`: the custom tool server turns it into
 an MCP error result, and the model reads its text. An inline READ tool

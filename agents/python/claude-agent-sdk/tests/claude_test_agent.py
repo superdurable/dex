@@ -140,6 +140,10 @@ FAILING_PERMISSION_BASH_COMMAND = "break the permission check"
 ORIGINAL_BASH_COMMAND = f"echo original-input | tee {BASH_OUTPUT_FILE_NAME}"
 REWRITTEN_BASH_COMMAND = f"echo rewritten-input | tee {BASH_OUTPUT_FILE_NAME}"
 HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
+# A publish message whose handler raises a plain error after the message may have been sent.
+PUBLISH_LOSES_CONNECTION_MESSAGE = "lose-connection"
+# A publish message whose handler raises ToolExecutionError.
+PUBLISH_REFUSED_MESSAGE = "refuse"
 DENY_FLAG_FILE_NAME = "deny-publish-and-post-note"
 APPLICATION_HOOK_DENIAL = "the application hook denies this call"
 SLOW_WRITE_GATE = "slow_write"
@@ -650,6 +654,10 @@ def build_custom_tools(state_dir: Path) -> list[SdkMcpTool[Any]]:
     @tool("publish", "Publish a message", {"message": str})
     async def publish(arguments: dict[str, Any]) -> dict[str, Any]:
         invocations.record("publish")
+        if arguments["message"] == PUBLISH_LOSES_CONNECTION_MESSAGE:
+            raise ConnectionError("publish lost its connection after it sent the message")
+        if arguments["message"] == PUBLISH_REFUSED_MESSAGE:
+            raise ToolExecutionError("publish refused a duplicate message")
         return _text_result(f"published {arguments['message']}")
 
     @tool(
