@@ -250,6 +250,7 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	if err != nil {
 		return nil, err
 	}
+	keepPartStreamIndexes(forEino, &fixed)
 	handed, err := encodeComparableMessage(forEino)
 	if err != nil {
 		return nil, err
@@ -344,6 +345,19 @@ func (run *modelCallRun) changeAfterModelCall() string {
 			"Handler's BeforeModelRewriteState instead, which runs before every model call"
 	}
 	return ""
+}
+
+// keepPartStreamIndexes copies the parts' StreamingMeta, which JSON drops, so Eino's second concatenation keeps them apart.
+func keepPartStreamIndexes(decoded, source *schema.Message) {
+	if len(decoded.AssistantGenMultiContent) != len(source.AssistantGenMultiContent) {
+		return
+	}
+	for index, part := range source.AssistantGenMultiContent {
+		if part.StreamingMeta != nil {
+			streamingMeta := *part.StreamingMeta
+			decoded.AssistantGenMultiContent[index].StreamingMeta = &streamingMeta
+		}
+	}
 }
 
 // jsonDecodedCopy returns message as encoding/json decodes it, so Extra holds only JSON values.

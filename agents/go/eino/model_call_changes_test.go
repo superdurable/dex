@@ -10,6 +10,7 @@ package dexeino_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sync"
@@ -199,6 +200,112 @@ func TestWrapModelChangesAreStoredAndRun(t *testing.T) {
 			require.Equal(t, "refunded order 1", *completed.NewMessages[len(completed.NewMessages)-1].Text)
 		})
 	}
+}
+
+// Streamed parts with their own stream index, as Eino's Ark Responses client sends, are stored apart and run.
+func TestStreamedMessageWithIndexedPartsIsStoredAndRun(t *testing.T) {
+	text := func(index *int, text string) schema.MessageOutputPart {
+		return withStreamIndex(schema.MessageOutputPart{Type: schema.ChatMessagePartTypeText, Text: text}, index)
+	}
+	reasoning := func(index *int, text string) schema.MessageOutputPart {
+		return withStreamIndex(schema.MessageOutputPart{Type: schema.ChatMessagePartTypeReasoning,
+			Reasoning: &schema.MessageOutputReasoning{Text: text}}, index)
+	}
+	first, second := ptr(0), ptr(1)
+	for name, testCase := range map[string]struct {
+		chunks   []schema.MessageOutputPart
+		expected []string
+	}{
+		"two text parts": {[]schema.MessageOutputPart{text(first, "Order 1 "), text(first, "shipped."), text(second, "It arrives Monday.")},
+			[]string{"text:Order 1 shipped.", "text:It arrives Monday."}},
+		"two reasoning items": {[]schema.MessageOutputPart{reasoning(first, "Look it up. "), reasoning(second, "Found it.")},
+			[]string{"reasoning:Look it up. ", "reasoning:Found it."}},
+		"reasoning, text, reasoning": {[]schema.MessageOutputPart{reasoning(first, "Plan."), text(second, "Checking."), reasoning(ptr(2), "Done.")},
+			[]string{"reasoning:Plan.", "text:Checking.", "reasoning:Done."}},
+		"parts without an index": {[]schema.MessageOutputPart{text(nil, "Order 1 "), text(nil, "shipped.")},
+			[]string{"text:Order 1 shipped."}},
+	} {
+		for _, isToolCalled := range []bool{false, true} {
+			for _, isStreaming := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s tool call=%v streaming=%v", name, isToolCalled, isStreaming), func(t *testing.T) {
+					modelChunks := func() []*schema.Message {
+						var chunks []*schema.Message
+						for _, part := range testCase.chunks {
+							chunks = append(chunks, &schema.Message{Role: schema.Assistant,
+								AssistantGenMultiContent: []schema.MessageOutputPart{part}})
+						}
+						if isToolCalled {
+							chunks = append(chunks, toolCallMessage(call("call_1", "lookup_order", `{"id":"1"}`)))
+						}
+						return chunks
+					}
+					scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {
+						if input[len(input)-1].Role == schema.Tool {
+							return schema.AssistantMessage("Order 1 shipped.", nil), nil
+						}
+						return schema.ConcatMessages(modelChunks())
+					}}
+					scripted.chunks = func(message *schema.Message) []*schema.Message {
+						if len(message.AssistantGenMultiContent) == 0 {
+							return []*schema.Message{message}
+						}
+						return modelChunks()
+					}
+					runner := readRunner(t, scripted, dexeino.WithStreaming(isStreaming))
+					state := newTurnState(t, runner, "where is order 1")
+					outcome := state.runModel(runner)
+					if completed, isCompleted := outcome.(*dexagents.TurnCompleted); isCompleted {
+						require.Nil(t, completed.TurnError)
+					}
+					require.Len(t, state.messages, 2)
+					require.Equal(t, testCase.expected, storedParts(t, state.messages[1].FrameworkItem))
+					if !isToolCalled {
+						require.IsType(t, &dexagents.TurnCompleted{}, outcome)
+						return
+					}
+					requested := outcome.(*dexagents.ToolCallsRequested)
+					require.Equal(t, `{"id":"1"}`, requested.ToolCalls[0].Arguments)
+					require.Empty(t, state.runTools(runner))
+					completed := state.runModel(runner).(*dexagents.TurnCompleted)
+					require.Nil(t, completed.TurnError)
+					replayed := scripted.lastInput()
+					require.Equal(t, schema.Assistant, replayed[len(replayed)-2].Role)
+					require.Equal(t, testCase.expected, partTexts(replayed[len(replayed)-2].AssistantGenMultiContent),
+						"the next model call replays every part")
+				})
+			}
+		}
+	}
+}
+
+func withStreamIndex(part schema.MessageOutputPart, index *int) schema.MessageOutputPart {
+	if index != nil {
+		part.StreamingMeta = &schema.MessageStreamingMeta{Index: *index}
+	}
+	return part
+}
+
+// storedParts returns the type and text of each AssistantGenMultiContent part of a stored Eino message.
+func storedParts(t *testing.T, frameworkItem string) []string {
+	t.Helper()
+	var item struct {
+		Message *schema.Message `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(frameworkItem), &item))
+	return partTexts(item.Message.AssistantGenMultiContent)
+}
+
+func partTexts(parts []schema.MessageOutputPart) []string {
+	var texts []string
+	for _, part := range parts {
+		switch part.Type {
+		case schema.ChatMessagePartTypeReasoning:
+			texts = append(texts, "reasoning:"+part.Reasoning.Text)
+		default:
+			texts = append(texts, string(part.Type)+":"+part.Text)
+		}
+	}
+	return texts
 }
 
 // routingHandler answers from a model it picked and never calls the model it wraps.
