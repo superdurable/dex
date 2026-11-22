@@ -891,7 +891,7 @@ func (client *Client) StopFlow(
 // options controls whether Step completion results are included. The server may end one long poll
 // at its configured cap and return LongPollTimeoutError; callers may repeat the call. Use
 // context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
-// A wait that ends at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
+// A wait that times out at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
 // Changed in 1.45.17: a long-poll cap that expires earlier than that returns LongPollTimeoutError
 // instead of context.DeadlineExceeded.
 // Canceling this wait does not stop the Flow. Call StopFlow separately to request a stop.
@@ -1473,7 +1473,7 @@ func (client *Client) WriteStream(
 // is canceled. Use context.WithTimeout to impose a shorter Go-side deadline. Pass the returned
 // StreamMessage.ResumeToken unchanged to resume after this message.
 // An expired long-poll cap returns LongPollTimeoutError; call again with the same resumeToken.
-// A wait that ends at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
+// A wait that times out at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
 // Changed in 1.45.17: a long-poll cap that expires earlier than that returns LongPollTimeoutError
 // instead of context.DeadlineExceeded.
 func (client *Client) ReadStream(
