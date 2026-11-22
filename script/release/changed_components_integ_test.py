@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from changed_components import COMPONENTS  # noqa: E402
 from changelog_fragments import FRAGMENT_SOURCE_PATHS  # noqa: E402
-from component_changelogs import PACKAGES_STYLE, TARGETS, release_key, released_line  # noqa: E402
+from component_changelogs import PACKAGES_STYLE, TARGETS, assemble_release  # noqa: E402
 
 
 SCRIPT = Path(__file__).with_name("changed_components.py")
@@ -135,9 +135,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             if target.style == PACKAGES_STYLE:
                 text = f"# Changelog\n\n## {target_version} (2026-11-12)\n\n- Notes.\n"
             else:
-                key = release_key(target, target_version)
-                anchor = key.replace(".", "-")
-                text = f"# Change log\n\n## {key} {{#v{anchor}}}\n\n{released_line(target, target_version, '2026-11-12')}\n"
+                text = assemble_release(target, "# Change log\n\n", [], target_version, "2026-11-12", is_empty_allowed=True)
             path = self.repository / target.output
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
@@ -341,7 +339,7 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("docs/reference/web/changelog.mdx: the newest entry is not 1.2", result.stderr)
         self.write_ready_changelogs({"web": "1.2.2"})
         result, values = self.plan("--web-version", "1.2.3", is_changelog_ready=False)
-        self.assertIn("the 1.2 entry does not name web/v1.2.3 on its Released line", result.stderr)
+        self.assertIn("the 1.2 entry does not record web/v1.2.3", result.stderr)
         self.assertIn("prepare web --version 1.2.3", result.stderr)
         self.assertEqual(values, {})
 

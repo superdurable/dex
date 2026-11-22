@@ -301,6 +301,8 @@ def write_new_fragment(directory: Path, stem: str, front_matter: str) -> Path:
 
 def run_lint(options: argparse.Namespace, repository: Path) -> int:
     working_tree = TreeReader(repository, None)
+    has_origin_main = run_git(repository, "rev-parse", "--verify", "origin/main", check=False).returncode == 0
+    base = TreeReader(repository, "origin/main" if has_origin_main else "HEAD")
     paths = list(options.paths) or [path for target in TARGET_OUTPUTS for path in working_tree.fragment_paths(target)]
     errors = []
     for path in paths:
@@ -308,7 +310,7 @@ def run_lint(options: argparse.Namespace, repository: Path) -> int:
         if text is None:
             errors.append(f"{path}: no such file")
             continue
-        errors.extend(lint_fragment(path, text))
+        errors.extend(lint_fragment(path, text, is_new=base.read(path) is None))
     return report(errors, f"linted {len(paths)} fragments")
 
 
@@ -523,7 +525,7 @@ def check_fragment_changes(head: TreeReader, changes: Sequence[FileChange]) -> l
         if text is None:
             errors.append(f"{change.path}: cannot read the fragment")
             continue
-        errors.extend(lint_fragment(change.path, text))
+        errors.extend(lint_fragment(change.path, text, is_new=change.status == "A"))
     return errors
 
 
@@ -720,13 +722,29 @@ def replace_manifest_version(path: str, manifest: str, version: str) -> str:
     return MANIFEST_VERSION.sub(lambda match: f"{match.group(1)}{version}{match.group(3)}", manifest)
 
 
-def lint_fragment(path: str, text: str) -> list[str]:
+def lint_fragment(path: str, text: str, *, is_new: bool = True) -> list[str]:
     """Returns every problem of the fragment at path, or no problems."""
     try:
         fragment = parse_fragment(path, text)
     except FragmentError as error:
         return [str(error)]
-    return fragment_problems(fragment)
+    problems = fragment_problems(fragment)
+    if is_new and not problems:
+        problems.extend(bullet_length_problems(fragment))
+    return problems
+
+
+def bullet_length_problems(fragment: Fragment) -> list[str]:
+    limit = 500 if fragment.front_matter.get("section") == "Breaking" else 300
+    problems = []
+    for number, bullet in enumerate(fragment.body.split("\n- "), start=1):
+        length = len(" ".join(line.strip() for line in bullet.removeprefix("- ").splitlines()))
+        if length > limit:
+            problems.append(
+                f"{fragment.path}: bullet {number} has {length} characters; limit {limit}. "
+                "State what changed first and link to the reference page for details."
+            )
+    return problems
 
 
 def fragment_problems(fragment: Fragment) -> list[str]:

@@ -135,9 +135,9 @@ and write the bullets in the new `changelog.d/<target>/` file. The target is
 `go`, `java`, `python`, `rust`, `typescript`, `web`, `cli`, `server`, `agents`
 (the docs change log), or `agents-packages` (`agents/CHANGELOG.md`). The
 section is Breaking, Added, Changed, Deprecated, or Fixed; `agents-packages`
-may also name a topic. Never edit the newest entry of a change log, add a
-version heading, or change a Released line by hand. Check Gate CI rejects such
-an edit unless the description contains a line
+may also name a topic. Release-prep pull requests write the change-log entries,
+version headings, index tables, and Released lines. Check Gate CI rejects hand
+edits unless the description contains a line
 `changelog: correction: <reason>`.
 
 Before each release, the release cutter runs
@@ -184,10 +184,9 @@ empty to skip it. Prefer patch releases:
   Until then, version doc comments use the next patch.
 - When the choice is unclear, ask the owner before releasing.
 
-A patch release folds into its minor's change log entry. List it on the
-Released line and mark its items "Since 1.NN.P"; the release-prep pull
-request does both. Developer reference pages mark its changes
-"Changed in 1.NN.P".
+Every SDK, cli, web, and agents docs release gets its own dated section under
+its minor and a row in the minor's index table. The release-prep pull request
+writes both. Developer reference pages mark its changes "Changed in 1.NN.P".
 
 ## Docs Information Placement
 

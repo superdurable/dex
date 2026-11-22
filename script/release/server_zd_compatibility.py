@@ -26,7 +26,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from component_changelogs import TARGETS as COMPONENT_CHANGELOGS
+from component_changelogs import (
+    TARGETS as COMPONENT_CHANGELOGS,
+    ChangelogError,
+    is_legacy_entry,
+    parse_entry,
+    parse_release_sections,
+    split_entries,
+)
 
 COMPATIBILITY_FILE = "docs/static/compatibility/server-zd.json"
 SCHEMA_URL = "https://docs.superdurable.io/compatibility/server-zd.schema.json"
@@ -709,11 +716,22 @@ def describe(protocol: ProtocolRange | None) -> str:
 
 
 def released_versions(reader: RepositoryReader, changelog_name: str) -> list[str]:
-    """Returns every version whose Released line the component change log records."""
+    """Returns every version the component change log records."""
     target = COMPONENT_CHANGELOGS[changelog_name]
     text = reader.working_file(target.output)
     if text is None:
         raise CompatibilityError(f"{target.output} is missing")
+    if target.uses_release_sections:
+        try:
+            versions = {
+                release.version
+                for block in split_entries(text)[1]
+                if not is_legacy_entry(parse_entry(block))
+                for release in parse_release_sections(target, block)
+            }
+        except ChangelogError as error:
+            raise CompatibilityError(str(error)) from error
+        return sorted(versions, key=version_key)
     versions = set()
     for line in text.splitlines():
         if not line.startswith("Released "):
