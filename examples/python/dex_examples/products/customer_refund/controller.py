@@ -16,32 +16,38 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from dex import (
+    FlowAlreadyStartedError,
+    FlowClosingError,
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
+    RequestTimeoutError,
     RpcLockConflictError,
     StepExecutionId,
     WaitForStepCompletionOptions,
     WorkerInvocationError,
 )
-from quart import Blueprint, Response, jsonify
+from quart import Blueprint, Response, current_app, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.products.customer_refund.refund_flow import (
     CASE_STATUS,
     REFUND_ID,
+    REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE,
     DecisionReason,
 )
 from dex_examples.products.customer_refund.start import SCENARIOS
 from dex_examples.shared.query import (
     new_flow_id,
     optional_query,
-    required_query,
     started_flow,
 )
 
 CHECK_POLICY_STEP = StepExecutionId("CheckPolicy")
+CHECK_POLICY_TIMEOUT = timedelta(seconds=10)
 
 
 def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -57,11 +63,31 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.errorhandler(FlowNotActiveOrNotFoundError)
     async def report_closed_refund(error: FlowNotActiveOrNotFoundError) -> Response:
-        return _error_response("this refund is closed and no longer waits for a manager", 409)
+        return _error_response("this refund is closed or missing", 404)
+
+    @blueprint.errorhandler(FlowAlreadyStartedError)
+    async def report_duplicate_refund(error: FlowAlreadyStartedError) -> Response:
+        return _error_response(error.detail, 409)
+
+    @blueprint.errorhandler(FlowClosingError)
+    async def report_closing_refund(error: FlowClosingError) -> Response:
+        return _error_response("this refund is closing", 409)
 
     @blueprint.errorhandler(RpcLockConflictError)
     async def report_busy_refund(error: RpcLockConflictError) -> Response:
         return _error_response("another decision is changing this refund; try again", 409)
+
+    @blueprint.errorhandler(WorkerInvocationError)
+    async def report_failed_refund_rpc(error: WorkerInvocationError) -> Response:
+        # The RPC refuses a run that is not waiting for a manager.
+        if error.worker_error_type == REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE:
+            return _error_response(error.worker_error_detail, 409)
+        return await report_refund_route_failure(error)
+
+    @blueprint.errorhandler(Exception)
+    async def report_refund_route_failure(error: Exception) -> Response:
+        current_app.logger.error("Customer refund route failed", exc_info=error)
+        return _error_response("internal server error", 500)
 
     @blueprint.get("/start")
     async def start() -> Response:
@@ -77,16 +103,24 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
             start_options(),
         )
         # After CheckPolicy, case-status tells whether the refund waits for a manager.
-        await app_state.client.wait_for_step_completion(
-            flow_id,
-            CHECK_POLICY_STEP,
-            WaitForStepCompletionOptions(),
-        )
+        try:
+            await app_state.client.wait_for_step_completion(
+                flow_id,
+                CHECK_POLICY_STEP,
+                WaitForStepCompletionOptions(request_timeout=CHECK_POLICY_TIMEOUT),
+            )
+        except RequestTimeoutError:
+            return _error_response("refund policy check did not finish within 10 seconds", 504)
+        except FlowNotActiveOrNotFoundError:
+            # Denied and small refunds can close before the wait attaches.
+            pass
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/decide")
     async def decide() -> Response:
-        flow_id = _required_flow_id()
+        flow_id = _optional_flow_id()
+        if not flow_id:
+            return _error_response("workflowId is required", 400)
         decision = optional_query("decision", "")
         if decision not in ("approve", "reject"):
             return _error_response("decision must be approve or reject", 400)
@@ -94,25 +128,30 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
         if not reason.strip():
             return _error_response("a reason is required", 400)
         flow = app_state.customer_refund
+        description = await app_state.client.describe_flow(flow_id)
+        if description.flow_type != flow.get_flow_type():
+            return _error_response("no refund Flow with this ID", 404)
         decide_rpc = flow.approve_refund if decision == "approve" else flow.reject_refund
-        try:
-            await app_state.client.invoke_rpc(decide_rpc, flow_id, DecisionReason(reason))
-        except WorkerInvocationError as error:
-            # The RPC refuses a run that is not waiting for a manager.
-            return _error_response(error.worker_error_detail or error.detail, 409)
+        await app_state.client.invoke_rpc(
+            decide_rpc, flow_id, DecisionReason(reason), run_id=description.run_id
+        )
         return jsonify({"flowID": flow_id, "decision": decision})
 
     @blueprint.get("/describe")
     async def describe() -> Response:
-        flow_id = _required_flow_id()
+        flow_id = _optional_flow_id()
+        if not flow_id:
+            return _error_response("workflowId is required", 400)
         description = await app_state.client.describe_flow(flow_id)
+        if description.flow_type != app_state.customer_refund.get_flow_type():
+            return _error_response("no refund Flow with this ID", 404)
         values = await app_state.client.get_attributes(flow_id, CASE_STATUS, REFUND_ID)
         return jsonify(
             {
                 "flowID": flow_id,
                 "status": description.status.value,
-                "caseStatus": values.get(CASE_STATUS, ""),
-                "refundId": values.get(REFUND_ID, ""),
+                "caseStatus": values.get(CASE_STATUS),
+                "refundId": values.get(REFUND_ID),
             }
         )
 
@@ -122,11 +161,6 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
 def _optional_flow_id() -> str:
     """Reads the Flow ID from workflowId, or from its alias flowId; empty when absent."""
     return optional_query("workflowId", "") or optional_query("flowId", "")
-
-
-def _required_flow_id() -> str:
-    """Reads the Flow ID from flowId, or from its alias workflowId."""
-    return optional_query("workflowId", "") or required_query("flowId")
 
 
 def _error_response(message: str, status_code: int) -> Response:

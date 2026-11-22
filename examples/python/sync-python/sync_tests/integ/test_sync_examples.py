@@ -14,10 +14,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import pytest
-from dex_examples.products.customer_refund.start import SCENARIOS
+from dex_examples.products.customer_refund.billing_service import FakeBillingService
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.engagement.status import Status
@@ -33,17 +34,24 @@ from sync_examples.wait import (
     flow_status_or_none,
     wait_until,
 )
+from tests.refund_rpc_gate import RefundRpcGate
 
 from dex import (
+    Attribute,
     AttributeMatch,
     Client,
     FlowStatus,
     IdReusePolicy,
     StartFlowOptions,
+    StepExecutionId,
     WaitForAttributeOptions,
+    WaitForStepCompletionOptions,
 )
 
 pytestmark = pytest.mark.integ
+
+REFUND_ROUTE = "/products/customer-refund/manager-approval"
+APPROVAL = {"decision": "approve", "reason": "Outage confirmed"}
 
 
 def test_channel_approve_completes(
@@ -70,53 +78,220 @@ def test_money_transfer_completes_the_saga(
     assert "from from-account to to-account for amount 100" in output
 
 
-def test_customer_refund_routes_approve_and_describe(
+@pytest.mark.parametrize(
+    ("decision", "outcome"), [("approve", "refunded"), ("reject", "denied")]
+)
+def test_customer_refund_routes_decide_and_describe(
     app: SyncExampleApp,
     client: Client,
     new_flow_id: Callable[[str], str],
+    decision: str,
+    outcome: str,
 ) -> None:
     http_client = create_app(app).test_client()
-    route_prefix = "/products/customer-refund/manager-approval"
     flow_id = new_flow_id("sync-customer-refund")
     started = http_client.get(
-        f"{route_prefix}/start", query_string={"workflowId": flow_id, "scenario": "normal"}
+        f"{REFUND_ROUTE}/start",
+        query_string={"workflowId": "", "flowId": flow_id, "scenario": ""},
     )
     assert started.status_code == 200, started.get_json()
+    assert started.get_json().keys() == {"flowID", "runID"}
     assert started.get_json()["flowID"] == flow_id
-    waiting = http_client.get(f"{route_prefix}/describe", query_string={"workflowId": flow_id})
-    assert waiting.get_json()["caseStatus"] == "awaiting-manager"
+    assert started.get_json()["runID"]
+    waiting = http_client.get(f"{REFUND_ROUTE}/describe", query_string={"workflowId": flow_id})
+    assert waiting.status_code == 200
+    assert waiting.get_json() == {
+        "flowID": flow_id,
+        "status": "running",
+        "caseStatus": "awaiting-manager",
+        "refundId": None,
+    }
 
     blank = http_client.get(
-        f"{route_prefix}/decide",
+        f"{REFUND_ROUTE}/decide",
         query_string={"flowId": flow_id, "decision": "approve", "reason": " "},
     )
     assert blank.status_code == 400
     assert blank.get_json() == {"error": "a reason is required"}
-    approved = http_client.get(
-        f"{route_prefix}/decide",
-        query_string={"flowId": flow_id, "decision": "approve", "reason": "Outage confirmed"},
+    decided = http_client.get(
+        f"{REFUND_ROUTE}/decide",
+        query_string={"flowId": flow_id, "decision": decision, "reason": "Outage confirmed"},
     )
-    assert approved.status_code == 200, approved.get_json()
-    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "refunded"
+    assert decided.status_code == 200, decided.get_json()
+    assert decided.get_json() == {"flowID": flow_id, "decision": decision}
+    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == outcome
 
-    closed = http_client.get(f"{route_prefix}/describe", query_string={"flowId": flow_id})
-    assert closed.get_json()["caseStatus"] == "closed-refunded"
-    assert closed.get_json()["refundId"].startswith("rf_")
+    refunds = [
+        refund
+        for refund in FakeBillingService(app.config.customer_refund_ledger_path).list_refunds()
+        if refund.idempotency_key == f"refund-{flow_id}"
+    ]
+    assert len(refunds) == (1 if decision == "approve" else 0)
+    closed = http_client.get(f"{REFUND_ROUTE}/describe", query_string={"flowId": flow_id})
+    assert closed.status_code == 200
+    assert closed.get_json() == {
+        "flowID": flow_id,
+        "status": "completed",
+        "caseStatus": f"closed-{outcome}",
+        "refundId": refunds[0].refund_id if refunds else None,
+    }
     late = http_client.get(
-        f"{route_prefix}/decide",
+        f"{REFUND_ROUTE}/decide",
         query_string={"flowId": flow_id, "decision": "reject", "reason": "Too late"},
     )
-    assert late.status_code == 409
+    assert late.status_code == 404
+    assert late.get_json() == {"error": "this refund is closed or missing"}
 
 
-def test_customer_refund_policy_denial_completes(
+def test_customer_refund_decide_rejects_a_running_run_after_approval(
+    app: SyncExampleApp, client: Client, new_flow_id: Callable[[str], str]
+) -> None:
+    http_client = create_app(app).test_client()
+    flow_id = new_flow_id("sync-customer-refund")
+    started = http_client.get(
+        f"{REFUND_ROUTE}/start", query_string={"flowId": flow_id, "scenario": "fail-then-succeed"}
+    )
+    assert started.status_code == 200, started.get_json()
+    approval_query = {"flowId": flow_id, **APPROVAL}
+    approved = http_client.get(f"{REFUND_ROUTE}/decide", query_string=approval_query)
+    assert approved.status_code == 200, approved.get_json()
+    running = http_client.get(f"{REFUND_ROUTE}/describe", query_string={"flowId": flow_id})
+    assert running.status_code == 200
+    assert running.get_json()["status"] == "running"
+    assert running.get_json()["caseStatus"] == "approved"
+    refused = http_client.get(f"{REFUND_ROUTE}/decide", query_string=approval_query)
+    assert refused.status_code == 409
+    assert refused.get_json() == {"error": "this refund is not waiting for a manager"}
+    client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+
+
+def test_customer_refund_decide_reports_rpc_lock_conflict(
     app: SyncExampleApp,
     client: Client,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    flask_app = create_app(app)
+    http_client = flask_app.test_client()
     flow_id = new_flow_id("sync-customer-refund")
-    client.start_flow(app.customer_refund, flow_id, SCENARIOS["deny"], start_options())
-    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "denied"
+    started = http_client.get(f"{REFUND_ROUTE}/start", query_string={"flowId": flow_id})
+    assert started.status_code == 200, started.get_json()
+    gate = RefundRpcGate(flow_id)
+    monkeypatch.setattr(
+        Attribute, "get", lambda attribute, context: gate.hold_lock(attribute, context)
+    )
+    approval_query = {"flowId": flow_id, **APPROVAL}
+    with ThreadPoolExecutor(max_workers=2) as requests:
+        winner = requests.submit(
+            flask_app.test_client().get, f"{REFUND_ROUTE}/decide", query_string=approval_query
+        )
+        try:
+            assert gate.lock_acquired.wait(5)
+            loser = requests.submit(
+                http_client.get, f"{REFUND_ROUTE}/decide", query_string=approval_query
+            )
+            refused = loser.result(timeout=5)
+            assert refused.status_code == 409
+            assert refused.get_json() == {
+                "error": "another decision is changing this refund; try again"
+            }
+        finally:
+            gate.release_lock.set()
+        approved = winner.result(timeout=5)
+        assert approved.status_code == 200
+        assert approved.get_json() == {"flowID": flow_id, "decision": "approve"}
+    client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+
+
+def test_customer_refund_duplicate_start_returns_a_json_conflict(
+    app: SyncExampleApp, new_flow_id: Callable[[str], str]
+) -> None:
+    http_client = create_app(app).test_client()
+    query = {"flowId": new_flow_id("sync-customer-refund")}
+    started = http_client.get(f"{REFUND_ROUTE}/start", query_string=query)
+    assert started.status_code == 200, started.get_json()
+    duplicate = http_client.get(f"{REFUND_ROUTE}/start", query_string=query)
+    assert duplicate.status_code == 409
+    assert duplicate.get_json().keys() == {"error"}
+    assert duplicate.get_json()["error"]
+
+
+@pytest.mark.parametrize(("route", "query"), [("describe", {}), ("decide", APPROVAL)])
+def test_customer_refund_lookup_validates_the_flow_id_and_type(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+    route: str,
+    query: dict[str, str],
+) -> None:
+    http_client = create_app(app).test_client()
+    path = f"{REFUND_ROUTE}/{route}"
+    missing = http_client.get(path, query_string=query)
+    assert missing.status_code == 400
+    assert missing.get_json() == {"error": "workflowId is required"}
+    unknown = http_client.get(path, query_string={"flowId": new_flow_id("unknown"), **query})
+    assert unknown.status_code == 404
+    assert unknown.get_json().keys() == {"error"}
+    assert unknown.get_json()["error"]
+
+    other_flow_id = new_flow_id("sync-channel")
+    client.start_flow(app.channel, other_flow_id, 5, start_options())
+    wrong_type = http_client.get(path, query_string={"flowId": other_flow_id, **query})
+    assert wrong_type.status_code == 404
+    assert wrong_type.get_json() == {"error": "no refund Flow with this ID"}
+
+
+def test_customer_refund_decide_refuses_an_unknown_decision(app: SyncExampleApp) -> None:
+    refused = create_app(app).test_client().get(
+        f"{REFUND_ROUTE}/decide",
+        query_string={"flowId": "unknown-refund", "decision": "maybe", "reason": "x"},
+    )
+    assert refused.status_code == 400
+    assert refused.get_json() == {"error": "decision must be approve or reject"}
+
+
+@pytest.mark.parametrize(("scenario", "outcome"), [("small", "refunded"), ("deny", "denied")])
+def test_customer_refund_start_succeeds_when_the_run_closes_before_the_policy_wait(
+    app: SyncExampleApp,
+    client: Client,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+    outcome: str,
+) -> None:
+    http_client = create_app(app).test_client()
+    wait_for_step = client.wait_for_step_completion
+
+    def wait_for_policy_after_close(
+        flow_id: str, step: StepExecutionId, options: WaitForStepCompletionOptions
+    ) -> None:
+        client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        wait_for_step(flow_id, step, options)
+
+    monkeypatch.setattr(client, "wait_for_step_completion", wait_for_policy_after_close)
+    started = http_client.get(
+        f"{REFUND_ROUTE}/start", query_string={"flowId": "", "scenario": scenario}
+    )
+    assert started.status_code == 200, started.get_json()
+    assert started.get_json().keys() == {"flowID", "runID"}
+    flow_id = started.get_json()["flowID"]
+    assert flow_id.startswith("customer-refund-")
+    assert started.get_json()["runID"]
+    refunds = [
+        refund
+        for refund in FakeBillingService(app.config.customer_refund_ledger_path).list_refunds()
+        if refund.idempotency_key == f"refund-{flow_id}"
+    ]
+    assert len(refunds) == (1 if scenario == "small" else 0)
+    if refunds:
+        assert refunds[0].refund_id.startswith("rf_")
+    closed = http_client.get(f"{REFUND_ROUTE}/describe", query_string={"flowId": flow_id})
+    assert closed.status_code == 200
+    assert closed.get_json() == {
+        "flowID": flow_id,
+        "status": "completed",
+        "caseStatus": f"closed-{outcome}",
+        "refundId": refunds[0].refund_id if refunds else None,
+    }
 
 
 def test_engagement_accept_completes(

@@ -133,7 +133,7 @@ window.PLAYGROUND_CATALOG = [
     id: "customer-refund-manager-approval",
     title: "Customer refund with manager approval",
     flowIdPrefix: "customer-refund",
-    note: "Start returns after the policy check. The normal and fail-then-succeed scenarios wait for a manager: decide with a reason, then describe.",
+    note: "Start returns after the policy check. The deny and small scenarios may already be past the manager approval stage. The normal and fail-then-succeed scenarios wait for a manager: decide with a reason, then describe.",
     endpoints: [
       endpoint("GET", "/products/customer-refund/manager-approval/start", "Start", [
         flowId(),

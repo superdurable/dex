@@ -27,6 +27,7 @@ import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import uuid4
 
@@ -66,30 +67,31 @@ async def example_app(
     slack_mock: slackmock.Mock,
 ) -> AsyncIterator[ExampleApp]:
     """Boots one ExampleApp with every Flow on outbound pull streams."""
-    config = ExamplesConfig(
-        server_address=server_address(),
-        http_address="127.0.0.1:0",
-        blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
-        agent_mcp_config=_agent_mcp_config(tmp_path_factory),
-        customer_refund_ledger_path=(
-            tmp_path_factory.mktemp("customer-refund-ledger") / "ledger.sqlite3"
-        ),
-    )
-    app = ExampleApp(config, slack_mock.connection())
-    try:
-        # Pull registration fails without a server, so probe first to keep the skip.
-        is_server_ready = await server_is_ready(app.client)
-        if is_server_ready:
-            await app.start_worker()
-        if not is_server_ready:
-            pytest.skip(
-                "no Dex server at "
-                f"{config.server_address}; set DEX_FLOW_SERVICE_ADDRESS to a running "
-                "Dex server to run the example integration tests"
-            )
-        yield app
-    finally:
-        await app.close()
+    with TemporaryDirectory(
+        prefix="customer-refund-ledger-", dir=tmp_path_factory.getbasetemp()
+    ) as ledger_directory:
+        config = ExamplesConfig(
+            server_address=server_address(),
+            http_address="127.0.0.1:0",
+            blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
+            agent_mcp_config=_agent_mcp_config(tmp_path_factory),
+            customer_refund_ledger_path=Path(ledger_directory) / "ledger.sqlite3",
+        )
+        app = ExampleApp(config, slack_mock.connection())
+        try:
+            # Pull registration fails without a server, so probe first to keep the skip.
+            is_server_ready = await server_is_ready(app.client)
+            if is_server_ready:
+                await app.start_worker()
+            if not is_server_ready:
+                pytest.skip(
+                    "no Dex server at "
+                    f"{config.server_address}; set DEX_FLOW_SERVICE_ADDRESS to a running "
+                    "Dex server to run the example integration tests"
+                )
+            yield app
+        finally:
+            await app.close()
 
 
 def _agent_mcp_config(tmp_path_factory: pytest.TempPathFactory) -> Path:

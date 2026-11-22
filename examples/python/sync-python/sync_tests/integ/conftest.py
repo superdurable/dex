@@ -20,6 +20,8 @@ import os
 import time
 from collections.abc import Callable, Iterator
 from datetime import timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import pytest
@@ -35,31 +37,32 @@ POLL_INTERVAL_SECONDS = 0.5
 
 @pytest.fixture(scope="session")
 def sync_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SyncExampleApp]:
-    config = SyncExamplesConfig(
-        server_address=os.environ.get(
-            "DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS
-        ),
-        http_address="127.0.0.1:0",
-        blob_cache_dir=tmp_path_factory.mktemp("dex-sync-examples-blob-cache"),
-        customer_refund_ledger_path=(
-            tmp_path_factory.mktemp("sync-customer-refund-ledger") / "ledger.sqlite3"
-        ),
-    )
-    app = SyncExampleApp(config)
-    try:
-        # Pull registration fails without a server, so probe first to keep the skip.
-        is_server_ready = _server_is_ready(app.client)
-        if is_server_ready:
-            app.start_worker()
-        if not is_server_ready:
-            pytest.skip(
-                "no Dex server at "
-                f"{config.server_address}; set DEX_FLOW_SERVICE_ADDRESS to run "
-                "sync-python integ tests"
-            )
-        yield app
-    finally:
-        app.close()
+    with TemporaryDirectory(
+        prefix="sync-customer-refund-ledger-", dir=tmp_path_factory.getbasetemp()
+    ) as ledger_directory:
+        config = SyncExamplesConfig(
+            server_address=os.environ.get(
+                "DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS
+            ),
+            http_address="127.0.0.1:0",
+            blob_cache_dir=tmp_path_factory.mktemp("dex-sync-examples-blob-cache"),
+            customer_refund_ledger_path=Path(ledger_directory) / "ledger.sqlite3",
+        )
+        app = SyncExampleApp(config)
+        try:
+            # Pull registration fails without a server, so probe first to keep the skip.
+            is_server_ready = _server_is_ready(app.client)
+            if is_server_ready:
+                app.start_worker()
+            if not is_server_ready:
+                pytest.skip(
+                    "no Dex server at "
+                    f"{config.server_address}; set DEX_FLOW_SERVICE_ADDRESS to run "
+                    "sync-python integ tests"
+                )
+            yield app
+        finally:
+            app.close()
 
 
 @pytest.fixture(scope="session")
