@@ -8,14 +8,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Changed
 
-- Connector tools in the Python and TypeScript cores classify a call only from
-  the branch the connector returns. They no longer read the connector's
-  single-dispatch fence records. **uncertain** and a branch listed as
-  **unknown** record **outcome_unknown**, a success branch records
-  **succeeded**, and every other branch records **failed**, for a Query and a
-  Mutation alike. A Mutation's **defect** and its unlisted optional branches
-  now record **failed** instead of **outcome_unknown**. A branch listed as
-  **rejected** records **failed** also after an earlier attempt.
+- Python and TypeScript Connector tools now classify outcomes by branch alone. A Mutation's **defect** and unlisted branches record **failed**, as does **rejected** after an earlier attempt. [Reference](/reference/agents/connector-tools#outcomes)
 - A connector Retry always goes to the tool Step's retry policy. A
   single-attempt write that asks to retry now records **outcome_unknown**,
   also when the fence recorded that nothing was sent, instead of **failed**
@@ -26,66 +19,20 @@ for the Dex SDK and framework versions each release supports.
   **classifyConnectorBranch** ignores **mayHaveDispatched**; both are
   deprecated. **CONNECTOR_NOT_SENT_RETRY_LATER** and
   **connectorNotSentRetryLater** are deprecated and no call records them.
-- The Python agents packages and CLI commands depend on **dex-python-sdk**
-  1.45.8, and the TypeScript ones depend on, and peer-depend on,
-  **@superdurable/dex** 1.45.8. In these releases a Python Worker serves an
-  RPC declared without input when a TypeScript Client leaves the input unset,
-  and the TypeScript Client sends a null input for such an RPC. Before, the
-  call failed with **Value has no concrete kind**. (#2034)
+- Python agents packages and CLI commands require **dex-python-sdk** 1.45.8. TypeScript packages and CLI commands require and peer-depend on **@superdurable/dex** 1.45.8, which sends null for an unset RPC input so Python Workers can serve the call. (#2034)
 
 ### Fixed
 
-- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk**:
-  a turn no longer fails, or gives the model a "belongs to a recorded call"
-  denial, when a Worker restarts on a deploy that renamed or removed a custom
-  tool whose call the turn deferred. The resumed segment serves the old tool
-  name replay-only, so the CLI receives the call's recorded result. A renamed
-  single-attempt call that was in flight keeps its **outcome_unknown** record
-  and never runs again. A retried **idempotent_write** whose tool is gone now
-  records **outcome_unknown** instead of reporting the "approved" placeholder
-  as its result. The next model call uses the new tool list.
-- **dex-agents-google-adk**: a turn no longer fails with "Tool ... is not
-  registered" when a Worker restarts on a deploy that renamed or removed a
-  tool whose call the turn paused on. While **RunModel** resumes the ADK
-  invocation, each agent gets an undeclared stand-in for every paused call's
-  tool, so ADK accepts the confirmation and the call replays its record. The
-  next model call uses the new tool list. A renamed single-attempt call that
-  was in flight keeps its **outcome_unknown** record and never runs again.
-- A `ToolExecutionError` on a later attempt of a tool call that is not a
-  **read** records **outcome_unknown** instead of **failed**, in the Python
-  and TypeScript cores. An earlier attempt reached a Worker and ended without
-  a result, so it may have taken effect. This covers an **idempotent_write**
-  whose Worker stopped while the tool ran, when the retry runs on a deploy
-  that renamed the tool (`unknown tool <name>`) or changed its schema
-  (`invalid arguments for <name>: ...`). Before, the model read a failure and
-  could call the write again under a new tool call ID. A first attempt, a
-  **read**, and a call that a tool source built, such as a Connector or MCP
-  tool, still record **failed**.
-- **dex-agents-openai-agents** and **@superdurable/dex-agents-openai-agents**:
-  a turn no longer fails with "Tool ... not found" when a Worker restarts on
-  a deploy that renamed or removed a tool the turn already called. The SDK
-  cannot resume such a **RunState**, so the runner rebuilds the turn from the
-  session's records: it stores the turn's calls with their recorded results
-  as history, and the next model call uses the new tool list. A renamed
-  single-attempt call that was in flight keeps its **outcome_unknown** record
-  and never runs again.
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk** resume deferred calls to renamed or removed tools with recorded results. In-flight single-attempt calls stay **outcome_unknown** without rerunning, as do retries of a removed **idempotent_write**.
+- **dex-agents-google-adk** now resumes **RunModel** with recorded results for paused calls to renamed or removed tools. In-flight single-attempt calls keep **outcome_unknown** without rerunning. The next model call uses the new tool list.
+- Python and TypeScript record **outcome_unknown** when `ToolExecutionError` refuses a write retry, including **idempotent_write** after a deploy renames the tool or changes its schema. [Reference](/reference/agents/failures#retry-refusal)
+- **dex-agents-openai-agents** and **@superdurable/dex-agents-openai-agents** rebuild a turn's history from recorded results when a renamed or removed tool prevents resuming **RunState**. In-flight single-attempt calls keep **outcome_unknown** without rerunning.
 
 ## 0.6.14 (2026-11-16)
 
 ### Added
 
-- **dex-agents**, **@superdurable/dex-agents**, and the Go core: **StopFlow**
-  with **GracefulComplete** ends a session as **COMPLETED**, from a client or
-  from one of the session's own tools. **AwaitUserMessage** also waits for the
-  graceful completion condition when the server supports it. The running turn
-  finishes and stores its tool results and final assistant message, user
-  messages queued before the request still run their turns, and the session
-  Flow then completes. It needs server-zd 0.1.34 or later; with an older
-  server the wait stays unchanged. Upgrade every Worker of the session's Flow
-  type to 0.6.14 or later before you send graceful complete. A session idle
-  since before the upgrade completes this way only after its next turn
-  returns it to the idle wait; cancel it to end it sooner. The conformance
-  suite adds the **graceful_complete** transcript.
+- **StopFlow** with **GracefulComplete** ends Python, TypeScript, and Go agent sessions as **COMPLETED** after running and queued turns finish. Upgrade to server-zd 0.1.34+ and all Workers of the session's Flow type to 0.6.14+. [Reference](/reference/agents/session-limits#end-a-session)
 
 ### Changed
 
@@ -102,27 +49,8 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- **dex-agents** and **@superdurable/dex-agents**: **fork_agent_session**
-  (**forkAgentSession**) and **AgentSessionClient.fork_session** create a new
-  session from another session's conversation between two turns, with Dex
-  clone fork. Every fork copies the state at the start of one
-  **AwaitUserMessage** WaitFor: the one waiting now, or, for
-  **after_message** (**afterMessage**), the one that started the turn after
-  that message, found from its **turn_started** event. The fork deletes
-  **SessionTerminalLease** and **SessionLastTerminalEnvironment** in the same
-  change, never reuses a Flow ID, and takes an optional task queue. A point
-  inside a turn, during a running turn, before a steered turn, or beyond the
-  retained events raises **AgentSessionForkError** with a code and one
-  sentence, and creates nothing. **AgentSessionForkingFlow**
-  (**createAgentSessionForkingFlow**) lets a Client fork sessions without
-  building the agent. The rules are in **agents/conformance/session_fork.json**.
-- Python and TypeScript CLI commands: **fork SESSION_ID [--at N]** and the
-  plain chat's **/fork [N]** fork a session into a new session ID, then offer
-  to open it. A session of the command's own Flow type gets the new session's
-  own task queue, also when the source ran on a shared one; a session from
-  before 0.6.8 keeps its task queue. When the fork exists but cannot be
-  opened, the error names the new session. A server without clone fork stops
-  the fork with one line that names **dexcli** 1.47.8.
+- **fork_agent_session**, **forkAgentSession**, and **AgentSessionClient.fork_session** fork a session between turns. **AgentSessionForkingFlow** and **createAgentSessionForkingFlow** let clients fork without building the agent. [Reference](/reference/agents/cli#fork)
+- **fork SESSION_ID [--at N]** and **/fork [N]** fork a session and offer to open it. Sessions from before 0.6.8 keep their task queue. Forks need server-zd clone fork support, available in **dexcli** 1.47.8. [Reference](/reference/agents/cli#fork)
 
 ### Changed
 
@@ -138,159 +66,39 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- Session graph Connector Trigger bindings: `dex-agents-session-graph` takes a repeatable `--trigger-binding <connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>` and a `--trigger-bindings <file.json>` array, so a hosting platform can configure the Connector Triggers that deliver into the session Flow. Each binding reads the installed Connector package's `dex-connector.json` and becomes the same `v2.connectorTriggerBindings` entry that `dexcli visualize` writes for a binding declared in code, with the manifest's UI units unless the file sets its own. A missing package, another version, an unknown Trigger, several Trigger factories with different UI units and no `factoryName`, or a `null` field exits with status 2. In code, `resolveSessionTriggerBinding` / `resolve_session_trigger_binding` and the `connectorTriggerBindings` / `connector_trigger_bindings` option of the session graph functions do the same. A graph rendered without bindings is unchanged.
-- `dex-agents` and `@superdurable/dex-agents`: a Connector Mutation whose
-  `dex-connector.json` says `agent.repeatOnUnknown: limited` with an
-  `agent.maxSends` from 2 to 10, and whose operation definition declares the
-  same tier and cap, resends a bounded number of times. Its effect stays
-  `non_idempotent_write`, so every released reader still decodes its records.
-  Each call pins its send cap in its tool source reference,
-  `{"tool": "<name>", "maxSends": <n>}`. With a cap of 2 or more the call runs
-  in `CallSingleAttemptTool` with the operation's own maximum attempts (3 when
-  they are unlimited), at least the cap. When a send's outcome is unknown, the
-  Connector reads back first when the operation supports it, and resends while
-  the call's sends stay below the cap; a definite failure is never resent.
-  Every attempt passes the pinned cap to the Connector, also after a deploy
-  changes or drops the manifest's tier, and a Mutation call without a pinned
-  cap never resends. Any other `repeatOnUnknown` value, an out-of-range
-  `maxSends`, a disagreeing definition, or a manifest without these fields runs
-  the call once, as before. `ConnectorTool.max_sends` (`maxSends`) holds the
-  manifest's cap.
+- `dex-agents-session-graph` adds Connector Trigger bindings via `--trigger-binding <connectionName>=<packageName>@<packageVersion>:<triggerName>[#<factoryName>]:<bindingName>` or `--trigger-bindings <file.json>`. [Reference](/reference/agents/dex-web#trigger-bindings)
+- Connector Mutations resend after unknown outcomes when the manifest and operation agree on `agent.repeatOnUnknown: limited` and `agent.maxSends` of 2–10. Calls pin that cap and default to three attempts if attempts are unlimited. [Reference](/reference/agents/connector-tools#bounded-resends)
 - `ToolCallStepOptions.bounded_resend_execute_retry`
   (`boundedResendExecuteRetry`) gives a `non_idempotent_write` call whose tool
   enforces its own send cap more than one attempt in `CallSingleAttemptTool`;
   when the attempts run out, the call records `outcome_unknown`.
-- `ToolPolicy.max_sends` (`maxSends`), an integer from 1 to 10, replaces a
-  Connector tool's send cap; `1` turns resending off and keeps one attempt. A
-  raised cap adds its difference from the manifest's cap to the call's
-  attempts. Other tools ignore it. TypeScript rejects an out-of-range value
-  when the session Flow is built, and Python when the `ToolPolicy` is created.
-  The cap reaches the Connector with `@superdurable/connectors-sdk` 0.11.0 or
-  `dex-connectors-sdk` 0.10.0; an earlier SDK never resends. The TypeScript
-  peer range adds `^0.11.0`, and the Python `connectors` extra allows
-  `dex-connectors-sdk` from 0.9.0 to 0.10.x.
-- Enable a `limited` Connector tool only after no Worker before 0.6.12 can run
-  the session Flow type, and do not roll back to such a Worker while a bounded
-  call is open: a Worker before 0.6.12 that runs a later attempt does not pass
-  the pinned cap, so a TypeScript Connector uses its definition's cap there and
-  can send more often than the call allows. A cap of 1 is safe on any Worker,
-  because the call has only one attempt.
+- `ToolPolicy.max_sends` (`maxSends`) overrides a Connector tool's send cap with 1–10. Use `1` for one attempt, or `@superdurable/connectors-sdk` 0.11.0+ or `dex-connectors-sdk` 0.10.0+ to enable resends. [Reference](/reference/agents/connector-tools#max-sends)
+- Upgrade all Workers of a session Flow type to 0.6.12 before enabling `limited` resends and keep them upgraded while calls are open. Older Workers can exceed the pinned TypeScript send cap. [Reference](/reference/agents/connector-tools#bounded-write-upgrade)
 
 ### Changed
 
-- The Python, TypeScript, and Go cores cut each tool call's result in the
-  turn-failure note and in the steered or stopped turn note to 2,000 UTF-8
-  bytes, on a character boundary, followed by
-  `… [output truncated: <omitted> of <total> bytes omitted]`. Every later turn
-  resends these notes, so one large tool output no longer grows each prompt.
-  The stored tool call records keep the full output. New constants:
-  `TOOL_CALL_NOTE_MAX_OUTPUT_BYTES` and `TOOL_CALL_NOTE_TRUNCATION_MARKER`
-  (Python), `toolCallNoteMaxOutputBytes` and `toolCallNoteTruncationMarker`
-  (TypeScript), and `ToolCallNoteMaxOutputBytes` and
-  `ToolCallNoteTruncationMarker` (Go).
+- Python, TypeScript, and Go cap tool results in failed, steered, or stopped turn notes at 2,000 UTF-8 bytes per call, cut at a character boundary with an omission marker. Stored tool records keep the full output.
 
 ### Fixed
 
-- TypeScript CLI commands: when the terminal UI attaches an image and the media store fails, the answer names a known cause, such as a full disk, denied permission, or an S3 access error, which the terminal UI shows; other failures say only that the image could not be stored. The Worker host log records the same reason, never the store's error text, which can hold bucket URLs or credentials. A file that exists but cannot be read says so with its reason instead of "does not exist", and size limits are written with comma separators.
-- `@superdurable/dex-agents-claude-agent-sdk`: each `RunModel` that defers a call stores the turn's
-  transcript so far, so a UI shows the assistant's messages and tool results while the call waits.
-  `ClaudeAgentRunner.buildUnfinishedTurnMessages` stores the tool result of the call a steered,
-  cancelled, or failed turn abandoned, from its final record. A steered or cancelled turn no longer
-  stores the core's note, which repeated every tool output, and the next turn resumes the same
-  Claude session with every tool use answered. A run state from an earlier release still resumes.
-  When a Worker without that method, such as 0.6.11 or the Python adapter, ends a turn at a stored
-  deferral, the next `RunModel` stores an unknown-outcome result for the call and gives it to the
-  Claude Code CLI right after the call, even when such a Worker completed later turns, so the CLI
-  does not resume it.
+- TypeScript CLI commands show known image storage failures and unreadable-file causes, and format size limits with commas. The UI and Worker log use safe storage reasons or a generic message to avoid exposing bucket URLs or credentials.
+- `@superdurable/dex-agents-claude-agent-sdk` stores partial transcripts during `RunModel` deferrals. `ClaudeAgentRunner.buildUnfinishedTurnMessages` records the final result of an abandoned call, and `RunModel` supplies unknown outcomes for deferrals ended by older Workers.
 - `ConnectorToolSource` keeps a Connector branch `outcome_unknown` when a
   `sendCount` on an earlier attempt's fence marker counts a send that may have
   taken effect, in both cores. It also does so when an earlier attempt's
   claim stands but the operation returned before it read that record.
-- `ConnectorToolSource` records `outcome_unknown` instead of `failed` when a
-  later attempt refuses the call's arguments, through the input schema, the
-  input validator, or input decoding, while an earlier attempt's checkpoint
-  holds a claim or a counted send of the same call. A first attempt, or one
-  without such evidence, still records the argument failure.
-- `@superdurable/dex-agents`: the TypeScript core reads the `sendCount` that a
-  single-dispatch fence with a send cap writes. With
-  `@superdurable/connectors-sdk` 0.11, outside the 0.6.11 peer range, 0.6.11
-  did not treat such a claim as a fence marker, so a later optional branch
-  could record `failed`. The Python core already recognized the claim.
-- `dex-agents-google-adk`: `AdkAgentRunner.build_unfinished_turn_messages` stores the events of a
-  steered, cancelled, or failed turn, with a function response for each paused tool call from its
-  final record. Each response event belongs to the agent, branch, and isolation scope of its calls,
-  so every branch of a `ParallelAgent` sees its own results. A succeeded call gets the fixed
-  `UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT`, which states the success and asks the model not to
-  repeat the call, instead of its recorded output, because the method runs none of the application
-  code, such as tool callbacks, that a resumed invocation applies to that output. A steered or
-  cancelled turn no longer stores the core's note, which repeated every tool output, and the next
-  turn replays the tool calls and their results.
-- `dex-agents-langgraph`: `LangGraphAgentRunner.build_unfinished_turn_messages` stores the messages
-  of a steered, cancelled, or failed turn from its checkpoint, with a `ToolMessage` from the final
-  record of every tool call of the last `AIMessage` that has none, such as the core's steering
-  result. This covers Deep Agents agents too. A steered or cancelled turn no longer stores the
-  core's note, which repeated every tool output, and the next turn sees each call with its result.
-  The run state format is unchanged.
-- `@superdurable/dex-agents-mastra`: `MastraAgentRunner.buildUnfinishedTurnMessages` stores the
-  Mastra messages of a steered, cancelled, or failed turn, with each pending tool invocation answered
-  from its call's final record in state `result`. A steered or cancelled turn no longer stores the
-  core's note, which repeated every tool output, and the next turn replays the turn's real messages.
-- `dex-agents-openai-agents`: `OpenAIAgentsRunner.build_unfinished_turn_messages` stores the items
-  of a steered, cancelled, or failed turn from the `RunState`, with a `function_call_output` from
-  the final record of every call that has none, such as the core's steering result. A steered or
-  cancelled turn no longer stores the core's note, which repeated every tool output, and the next
-  turn sees each call with its result. The run state format is unchanged.
-- `@superdurable/dex-agents-openai-agents`: `OpenAIAgentsRunner.buildUnfinishedTurnMessages`
-  stores the items of a steered, cancelled, or failed turn from the `RunState`, with a
-  `function_call_result` from the final record of every call that has none, such as the core's
-  steering result. A steered or cancelled turn no longer stores the core's note, which repeated
-  every tool output, and the next turn sees each call with its result. The run state format is
-  unchanged.
-- `dex-agents-claude-agent-sdk`: each `RunModel` that defers a call stores the turn's transcript
-  so far, so a UI shows the assistant's messages and tool results while the call waits.
-  `ClaudeAgentRunner.build_unfinished_turn_messages` stores the tool result of the call a steered,
-  cancelled, or failed turn abandoned, from its final record. A steered or cancelled turn no longer
-  stores the core's note, which repeated every tool output, and the next turn resumes the same
-  Claude session with every tool use answered. A run state from an earlier release still resumes.
-  When a Worker without that method, such as 0.6.11, ends a turn at a stored deferral, the next
-  `RunModel` stores an unknown-outcome result for the call and gives it to the Claude Code CLI
-  right after the call, so the CLI does not resume it and ask for its approval again. Each such
-  result names its call by its assistant entry and tool use ID, so a tool use ID that a later turn
-  reuses gets its own result. The stored entries match the TypeScript adapter's byte for byte, so
-  Workers of both languages can share a session.
-- `@superdurable/dex-agents-claude-agent-sdk`: the tool results that `buildUnfinishedTurnMessages`
-  and `RunModel` build for unfinished calls and for ended turns' open calls now name each call by its
-  assistant entry and tool use ID. When a model reuses a tool use ID in a later turn, the two results
-  get distinct uuids, so the stored transcript keeps both, the first call keeps its result, and a
-  later call left open with a reused ID is still answered. The Claude Code CLI (2.1.316) still shows
-  the later call with the same ID to the model as "[Tool use interrupted]". The tool call gate
-  no longer treats an earlier turn's result as the answer to a new call with the same ID. Answers
-  stored under the earlier uuid scheme still count and are not built again.
-- `dex-agents-pydantic-ai`: each `RunModel` that asks for tools stores the turn's messages so far,
-  so a UI shows the assistant's tool calls and the earlier tool results while the calls run.
-  Completion stores only the messages not stored yet. `PydanticAIRunner.build_unfinished_turn_messages`
-  stores a `ToolReturnPart` for each tool call a steered, cancelled, or failed turn left without a
-  result, from its final record. A steered or cancelled turn no longer stores the core's note, which
-  repeated every tool output, and the next turn replays the exact tool calls and results. A run
-  state from an earlier release still resumes. When a Worker of 0.6.11 or earlier ends such a turn
-  with only the note, the replay answers each stored tool call without a result with
-  `OUTCOME_UNKNOWN_TOOL_RESULT`, so the model input stays valid. A Worker of 0.6.11 or earlier cannot
-  read the new run state, so upgrade every Worker of the Flow type together, or drain the older
-  Workers first.
+- `ConnectorToolSource` records `outcome_unknown` when a retry rejects arguments and an earlier attempt claimed or counted a send. First attempts and retries without that evidence record `failed`. [Reference](/reference/agents/connector-tools#outcomes)
+- `@superdurable/dex-agents` recognizes a capped fence's `sendCount` when classifying a retry. In 0.6.11, `@superdurable/connectors-sdk` 0.11 was outside the peer range and an optional branch could record `failed`. [Reference](/reference/agents/connector-tools#outcomes)
+- `dex-agents-google-adk` uses `AdkAgentRunner.build_unfinished_turn_messages` to store events and answer paused calls in each `ParallelAgent` branch after steering, cancellation, or failure. Successful calls show `UNFINISHED_TURN_SUCCEEDED_TOOL_RESULT` without raw output.
+- `dex-agents-langgraph` uses `LangGraphAgentRunner.build_unfinished_turn_messages` to restore checkpoint messages and add a missing `ToolMessage` for each call of the final `AIMessage` after steering, cancellation, or failure. This includes Deep Agents.
+- `@superdurable/dex-agents-mastra` uses `MastraAgentRunner.buildUnfinishedTurnMessages` to preserve messages after steering, cancellation, or failure. Each pending tool invocation receives its recorded `result`.
+- `dex-agents-openai-agents` uses `OpenAIAgentsRunner.build_unfinished_turn_messages` to preserve `RunState` items after steering, cancellation, or failure. Any unanswered call gets a `function_call_output` from its final record.
+- `@superdurable/dex-agents-openai-agents` uses `OpenAIAgentsRunner.buildUnfinishedTurnMessages` to preserve `RunState` items after steering, cancellation, or failure. Any unanswered call gets a `function_call_result` from its final record.
+- `dex-agents-claude-agent-sdk` stores deferred `RunModel` transcripts and records abandoned tool results with `ClaudeAgentRunner.build_unfinished_turn_messages`. Deferrals ended by 0.6.11 get unknown results keyed by assistant entry and tool use ID, matching TypeScript Workers.
+- `@superdurable/dex-agents-claude-agent-sdk` keys `buildUnfinishedTurnMessages` and `RunModel` results by assistant entry and tool use ID, so later turns can reuse IDs without losing or duplicating results. Claude Code CLI 2.1.316 still shows a reused ID as "[Tool use interrupted]".
+- `dex-agents-pydantic-ai` saves partial `RunModel` messages and uses `PydanticAIRunner.build_unfinished_turn_messages` to fill missing `ToolReturnPart` results. Workers at 0.6.11 or earlier cannot read the new state. Drain or upgrade them together for each Flow type.
 - Agent package licenses link to the repository’s current legacy notices location.
-- `@superdurable/dex-agents-vercel-ai`: each `RunModel` that requests tool calls stores the turn's
-  messages so far, so a UI shows the model's text, tool calls, and earlier results while a call runs
-  or waits for approval. `VercelAiAgentRunner.buildUnfinishedTurnMessages` stores an AI SDK tool
-  result for each call of a steered, cancelled, or failed turn that has none, from its final record.
-  A steered or cancelled turn no longer stores the core's note, which repeated every tool output, and
-  the next turn sends every call with its result. A succeeded call of a tool with `toModelOutput`
-  whose result the model has not read yet gets the new exported text `toolCallOutputOmittedResult`,
-  which states the success without any output, never the raw output. The
-  method runs no application code. The run state is
-  now version 2. A version 1 run state from an earlier release still resumes, but 0.6.11 refuses
-  version 2 and fails that turn, so upgrade all Workers of a Flow type together. When a 0.6.11 Worker
-  ends a turn after its calls were stored, later model calls send each such call with the
-  unknown-outcome result.
+- `@superdurable/dex-agents-vercel-ai` saves partial `RunModel` messages and fills missing tool results, hiding raw `toModelOutput` values with `toolCallOutputOmittedResult`. Version 2 state fails on 0.6.11. Upgrade all Workers of each Flow type together.
 
 ## 0.6.11 (2026-11-15)
 
