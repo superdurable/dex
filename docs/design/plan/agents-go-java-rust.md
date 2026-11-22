@@ -164,3 +164,44 @@ framework adapters.
   drive a Go-served session.
 - New contract features land in Python and TypeScript first. Go follows only
   when users ask for it.
+
+## Decision: Go gets Connectors as tools (2026-11-21)
+
+Recorded 2026-11-21, at the request of a co-owner of the project, who asked
+for a Go version of an existing agent that reads and writes through Dex
+Connectors, tested end to end. That agent calls Connector operations as tools,
+so the Go core needs the tool sources that the Python and TypeScript cores
+already have. Every Connector ships a Go package (see "Why Go goes ahead
+anyway"), so the Go connector library's `sdkgo.AgentTool` is the input. This
+narrows "Go gets the session core and nothing past it" above: Go gains the
+contract features that Connectors as tools depend on, and the rest of "What Go
+will not get" stands.
+
+**What ships (agents 0.6.16):**
+- package `connectortools` in the core module: `ConnectorTool` and
+  `ConnectorToolSource` over `sdkgo.AgentTool`, a port of the Python and
+  TypeScript connector tool sources. Effects and approval come from the
+  reviewed agent metadata; argument checks, branch mapping, result bounds,
+  send caps, and bounded resends match the other cores, and the Go test runs
+  every case of `agents/conformance/connector_tools.json`;
+- in the core: `ToolSource`, `ToolSourceRouter`, and `SourceToolListing`;
+  `DeferredToolCall.Ordered` with write ordering; `ToolPolicy.MaxSends`;
+  `ToolOutcomeUnknownError`; `ToolExecutionResult.TruncatedOutputBytes`;
+  `ToolCallStepOptions` with `ToolCallStepOptionsProvider`; and
+  `DeferredToolExecution.StepContext`, so a source reads its tool Step whatever
+  context it gets. A framework adapter routes a source call before its
+  framework's tool node and tool middleware, once per attempt, as the Python
+  and TypeScript adapters do, and the session records the source's result;
+- `builtinloop.WithToolSources`. A framework adapter serves sources through
+  `ToolSourceRouter` the same way.
+
+**Still not in Go:** the MCP tool source, tool tasks, and the approval display
+of a connector call, so an approval UI shows the call's arguments. The other
+items of "What Go will not get" are unchanged.
+
+**Upgrade rule:** stop or drain every Go Worker of a Flow type built from 0.6.15
+or earlier before a Worker with tool sources serves it, and do not roll such a
+Flow type back below 0.6.16 while a session has a queued connector write or a
+connector call in flight. An older Go Worker never starts a queued write, so
+the session stalls, and it records a later attempt of a connector write
+`failed` instead of `outcome_unknown`.

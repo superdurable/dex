@@ -6,6 +6,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/openai/openai-go/v3 v3.91.1
 	github.com/stretchr/testify v1.11.1
+	github.com/superdurable/dex-connectors-library/sdkgo v0.39.0
 	github.com/superdurable/dex/blob-cache-go v0.1.2
 	github.com/superdurable/dex/sdk-go v1.45.6
 	google.golang.org/grpc v1.79.3

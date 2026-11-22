@@ -15,7 +15,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 // OutcomeUnknownToolResult is the model-visible text for a call whose outcome is unknown.
@@ -26,6 +29,23 @@ const OutcomeUnknownToolResult = "The tool call's outcome is unknown: it stopped
 // the tool. The record's error is this prefix, ": ", and the recovery detail, so the model sees a
 // failed call that it may make again.
 const ToolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again"
+
+// ToolCallSkippedAfterWriteDetail follows ToolCallNotRunErrorPrefix and ": " in the error of a
+// record that write ordering skipped.
+//
+// A call whose DeferredToolCall.Ordered is set waits for the earlier ordered
+// writes of its turn. When one of them does not succeed, the session records
+// each later ordered write failed with this error and AgentToolCall.Skipped
+// set, and never runs it. The text is the same in every core.
+//
+// Since 0.6.16.
+const ToolCallSkippedAfterWriteDetail = "an earlier write of this turn did not succeed"
+
+// ConnectorMaxSendsCeiling is the largest ToolPolicy.MaxSends: one connector tool call sends its
+// write at most this many times.
+//
+// Since 0.6.16.
+const ConnectorMaxSendsCeiling int32 = 10
 
 // TurnFailureNoteHeader is the first line of the note RecordTurnFailure stores after a failed
 // turn ran tools.
@@ -76,14 +96,28 @@ const MissingUnfinishedTurnMessageBuilder = "a runner that sets ToolCallsRequest
 //		"search_tickets": {Effect: dexagents.ToolEffectRead},
 //		"create_refund":  {Effect: dexagents.ToolEffectIdempotentWrite, RequiresApproval: ptr.Any(true)},
 //		"send_email":     {Effect: dexagents.ToolEffectNonIdempotentWrite},
+//		"slack_post_message": {Effect: dexagents.ToolEffectNonIdempotentWrite, MaxSends: ptr.Any(int32(5))},
 //	}}
 type ToolPolicy struct {
-	// Effect is what the tool does outside the session.
+	// Effect is what the tool does outside the session. A connector tool's effect always comes
+	// from its connector metadata, so this field does not change it.
 	Effect ToolEffect
 	// RequiresApproval reports whether a person approves each call. Nil uses the effect's
 	// default: false for read and idempotent_write, true for non_idempotent_write and
 	// unclassified.
 	RequiresApproval *bool
+	// MaxSends is the most times one call of a connector tool may send its write when the
+	// outcome of a send is unknown, from 1 to ConnectorMaxSendsCeiling, or nil to keep the
+	// connector's own cap.
+	//
+	// It replaces the cap of a connector Mutation whose RepeatOnUnknown is limited; 1 turns
+	// resending off. Every other tool ignores it. A call keeps the value it was deferred with on
+	// every attempt, so a later deploy that changes it affects only new calls. A raised value
+	// also raises the call's attempt limit by the difference, so the connector can reach it.
+	// NewAgentSessionFlow returns an error for a value outside 1 to ConnectorMaxSendsCeiling.
+	//
+	// Since 0.6.16.
+	MaxSends *int32
 }
 
 // IsApprovalRequired reports whether each call waits for the resolve_interrupt RPC.
@@ -101,7 +135,10 @@ func (policy ToolPolicy) IsApprovalRequired() bool {
 // Runners normally call AgentTurnContext.ResolveToolPolicy instead. An
 // explicit policy in toolPolicies wins over frameworkEffect, which wins over
 // defaultToolEffect; pass nil for frameworkEffect when the framework says
-// nothing. The returned policy always has RequiresApproval set.
+// nothing. The returned policy always has RequiresApproval set, and keeps an
+// explicit policy's MaxSends.
+//
+// Changed in 0.6.16: the returned policy keeps MaxSends.
 func ResolveToolPolicy(
 	toolName string,
 	toolPolicies map[string]ToolPolicy,
@@ -117,7 +154,7 @@ func ResolveToolPolicy(
 		policy = ToolPolicy{Effect: effect}
 	}
 	isApprovalRequired := policy.IsApprovalRequired()
-	return ToolPolicy{Effect: policy.Effect, RequiresApproval: &isApprovalRequired}
+	return ToolPolicy{Effect: policy.Effect, RequiresApproval: &isApprovalRequired, MaxSends: policy.MaxSends}
 }
 
 // DescribeToolCallOutcome returns the tool result text the model should see for a final record.
@@ -253,7 +290,8 @@ type FrameworkMessage struct {
 // Return one in ToolCallsRequested.ToolCalls for every tool call of the model
 // response. The session records each call, starts one Step per call in
 // parallel, raises an approval interrupt first when the policy requires it,
-// and calls RunModelStep again once every call has a final record.
+// and calls RunModelStep again once every call has a final record. Ordered
+// calls are the exception: they run one at a time, as Ordered describes.
 type DeferredToolCall struct {
 	// ToolCallID is the framework tool call ID. It must be non-empty, contain no "/", and be
 	// unique within one turn. IDs may repeat across turns.
@@ -267,6 +305,17 @@ type DeferredToolCall struct {
 	// ToolSourceReference is opaque text stored on the record and returned to the tool Step, or
 	// nil.
 	ToolSourceReference *string
+	// Ordered reports whether the call is a write that runs in the model's order after the turn's
+	// earlier ordered calls.
+	//
+	// The session starts one ordered call at a time, raises its approval only when its turn
+	// comes, and records the later ordered calls failed with AgentToolCall.Skipped and
+	// ToolCallSkippedAfterWriteDetail once one does not succeed. A read call ignores it. False,
+	// the default, runs the call in parallel with the turn's other calls. A connector tool
+	// source sets it for connector writes.
+	//
+	// Since 0.6.16.
+	Ordered bool
 }
 
 // AgentTurnOutcome is the result of one RunModelStep call: *TurnCompleted or *ToolCallsRequested.
@@ -350,6 +399,12 @@ type DeferredToolOutcome interface {
 type ToolExecutionResult struct {
 	// Output is the text the model sees.
 	Output string
+	// TruncatedOutputBytes is the size in bytes of the full output when Output is a truncated
+	// copy, or nil when Output is whole. The session stores it as
+	// AgentToolCall.TruncatedOutputBytes.
+	//
+	// Since 0.6.16.
+	TruncatedOutputBytes *int64
 	// RunnerToolState is opaque text the runner keeps with the call's result for its own later model
 	// calls, such as the framework state that the tool changed, or nil to store nothing.
 	//
@@ -394,6 +449,74 @@ type ToolExecutionError struct {
 // Error returns Message.
 func (toolError *ToolExecutionError) Error() string {
 	return toolError.Message
+}
+
+// ToolOutcomeUnknownError reports that a tool call may or may not have taken effect, so it must not
+// run again.
+//
+// Return it from ExecuteDeferredToolCall, directly or wrapped, when the tool
+// sent a write and cannot tell whether it took effect, such as a connector
+// operation's uncertain branch. The session records outcome_unknown with
+// Message as the record's error and does not retry, and the model sees
+// OutcomeUnknownToolResult. A later ordered write of the turn is skipped.
+//
+//	return nil, &dexagents.ToolOutcomeUnknownError{Message: "the provider timed out after receiving the refund"}
+//
+// Since 0.6.16.
+type ToolOutcomeUnknownError struct {
+	// Message is the record's error. The model sees OutcomeUnknownToolResult instead.
+	Message string
+}
+
+// Error returns Message.
+func (unknownError *ToolOutcomeUnknownError) Error() string {
+	return unknownError.Message
+}
+
+// ToolCallStepOptions overrides the timeout and retry policy of one tool call's Step.
+//
+// A runner returns it from ToolCallStepOptionsProvider.ToolCallStepOptions.
+// The session applies it to the movement that starts the call's tool Step,
+// and to no other Step. A CallSingleAttemptTool call takes
+// ExecuteMethodTimeout, and it runs one attempt unless
+// BoundedResendExecuteRetry is set.
+//
+//	options := &dexagents.ToolCallStepOptions{
+//		ExecuteMethodTimeout: 30 * time.Second,
+//		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3, TotalDuration: time.Hour},
+//	}
+//
+// Since 0.6.16.
+type ToolCallStepOptions struct {
+	// ExecuteMethodTimeout is the timeout of each attempt, or zero for the tool Step's default.
+	ExecuteMethodTimeout time.Duration
+	// ExecuteRetry is the retry policy of a CallTool call, or nil for the default of three
+	// attempts.
+	ExecuteRetry *dex.RetryPolicy
+	// BoundedResendExecuteRetry is the retry policy of a non_idempotent_write call whose tool
+	// itself bounds how many times a repeat can send the write, such as a connector Mutation
+	// whose RepeatOnUnknown is limited, or nil for one attempt.
+	//
+	// The call still runs in CallSingleAttemptTool, with these attempts instead of one. When
+	// they run out, the call records outcome_unknown, as a single attempt does. Set it only for
+	// a tool that enforces its own send cap on every attempt. The record's effect stays
+	// non_idempotent_write, so a Worker without this option runs a later attempt of the call
+	// once.
+	BoundedResendExecuteRetry *dex.RetryPolicy
+}
+
+// ToolCallStepOptionsProvider gives a tool call's Step its own timeout and retry policy.
+//
+// A runner implements it when some tools need options other than the tool
+// Steps' defaults, as builtinloop.BuiltinLoopAgentRunner does for a tool
+// source that implements it. The session calls it whenever it starts a
+// call's tool Step, including after an approval, so it must answer from the
+// record alone. An error leaves the defaults and is logged.
+//
+// Since 0.6.16.
+type ToolCallStepOptionsProvider interface {
+	// ToolCallStepOptions returns the options of one call's tool Step, or nil for the defaults.
+	ToolCallStepOptions(toolCall AgentToolCall) (*ToolCallStepOptions, error)
 }
 
 // AgentTurnContext gives RunModelStep everything it needs for one model call of a turn.
@@ -471,7 +594,7 @@ type DeferredToolExecution struct {
 	// the external system when it supports idempotency.
 	IdempotencyKey string
 	// Attempt is the one-based tool Step attempt. Read and idempotent_write calls get up to three
-	// attempts; other calls get one.
+	// attempts; other calls get one. ToolCallStepOptions can change both.
 	Attempt int64
 	// Events writes live events, bound to the tool call Step attempt.
 	Events *AgentEventWriter
@@ -485,6 +608,25 @@ type DeferredToolExecution struct {
 	// it as HeartbeatCheckpoint. Dex may drop a checkpoint, so pass IdempotencyKey to remote work
 	// as well. It returns the heartbeat's error.
 	SaveHeartbeatCheckpoint func(checkpoint string) error
+	// StepContext is the tool Step's dex.Context, or nil when the caller has none, such as a unit
+	// test.
+	//
+	// It gives the Step execution ID, the attempt, and the attempt deadline,
+	// whatever context the runner passes to ExecuteDeferredToolCall, so a
+	// runner may pass a derived context, such as one that a tracing span adds
+	// values to. A ToolSource reads the Step from here, never from the
+	// identity of its ctx: connectortools derives the connector Call ID from
+	// its Step execution ID. A runner still routes a source call before its
+	// framework's tool node and tool middleware; see
+	// ToolSourceRouter.ExecuteDeferredToolCall. Use it only during this call,
+	// never store it, and record heartbeats only through Heartbeat and
+	// SaveHeartbeatCheckpoint, because a bare heartbeat would drop the
+	// checkpoint.
+	//
+	// Since 0.6.16.
+	StepContext dex.Context
+	// sourceCall is the attempt's one tool source call; the session records its result.
+	sourceCall *toolSourceCall
 }
 
 // AgentFrameworkRunner runs one agent framework, or the built-in agent loop, inside the session Flow.
@@ -538,9 +680,17 @@ type AgentFrameworkRunner interface {
 	// get_agent_snapshot and list_agent_messages call failed to decode it.
 	RunModelStep(ctx context.Context, turn AgentTurnContext) (AgentTurnOutcome, error)
 	// ExecuteDeferredToolCall runs the real tool once. It returns *ToolExecutionResult, a
-	// *ToolExecutionError for a failure the model sees, or another error that fails the attempt.
-	// A *ToolExecutionError records failed, or outcome_unknown on a later attempt of a call that
-	// is not a read; see ToolExecutionError.
+	// *ToolExecutionError for a failure the model sees, a *ToolOutcomeUnknownError for a write
+	// that may have taken effect, or another error that fails the attempt. A *ToolExecutionError
+	// records failed, or outcome_unknown on a later attempt of a call that is not a read; see
+	// ToolExecutionError. ctx is the tool Step's dex.Context, and call.StepContext holds the same
+	// Step, so the runner may pass a tool a context derived from ctx. A call that a tool source
+	// built goes first, before any framework tool code, to
+	// ToolSourceRouter.ExecuteDeferredToolCall, and the session records the source's result.
+	//
+	// Changed in 0.6.16: a *ToolOutcomeUnknownError records outcome_unknown,
+	// call.StepContext holds the tool Step's dex.Context, and a tool source call
+	// records the source's result.
 	ExecuteDeferredToolCall(ctx context.Context, call DeferredToolExecution) (DeferredToolOutcome, error)
 }
 
