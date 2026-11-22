@@ -1,5 +1,5 @@
 ---
-description: "Install a Dex Agents adapter with its framework, from PyPI or npm. Each adapter brings in the dex-agents core and the Dex SDK it supports."
+description: "Install a Dex Agents adapter with its framework, from PyPI, npm, or the Go module proxy. Each adapter brings in its language's Dex Agents core and the Dex SDK it supports."
 title: Install the packages
 sidebar_label: Install
 ---
@@ -39,6 +39,29 @@ needs Node 22.19 or later. It reads Pi tools through structural types, so it
 does not depend on **@earendil-works/pi-agent-core** or
 **@earendil-works/pi-durable**. Install them when your tools use them.
 
+## Go {#go}
+
+Since 0.6.16, the Eino adapter, **github.com/superdurable/dex/agents/go/eino**
+(package **dexeino**), runs CloudWeGo Eino ADK agents on the Go core's session
+Flow. Go modules come from the Go module proxy, and they need Go 1.26 or
+later.
+
+```bash
+go get github.com/superdurable/dex/agents/go/eino@v0.6.16 github.com/cloudwego/eino@v0.9.23
+go get github.com/cloudwego/eino-ext/components/model/openai
+```
+
+The adapter requires the Go core, **github.com/superdurable/dex/agents/go/core**
+(package **dexagents**), at the same version, and the Dex Go SDK that the core
+requires. It needs **github.com/cloudwego/eino** v0.9.23 or later, and the
+0.6.16 tests ran against v0.9.23 and v0.10.0-alpha.35. The second line adds
+the eino-ext model client the examples use; add the one your agent uses.
+
+Each agents release tags both Go modules on the same commit, such as
+**agents/go/core/v0.6.16** and **agents/go/eino/v0.6.16**. Install a tagged
+version. A commit between releases builds against the core release that its
+**go.mod** names, not against the core on that commit.
+
 ## The core only {#core-only}
 
 To write a runner of your own, install only the core:
@@ -46,6 +69,7 @@ To write a runner of your own, install only the core:
 ```bash
 pip install dex-agents
 npm i @superdurable/dex-agents @superdurable/dex
+go get github.com/superdurable/dex/agents/go/core@v0.6.16
 ```
 
 To use Connector operations as tools, install the core with the Connector SDK.
@@ -57,14 +81,15 @@ one of the CLI commands. See [CLI commands](/reference/agents/cli#install).
 ## Versions {#versions}
 
 All agents packages share one version line. A Python adapter requires the core
-of the same version. An npm adapter peer-depends on it. Each release pins the
+of the same version. An npm adapter peer-depends on it. A Go adapter requires
+the Go core of the same version. Each release pins the
 Dex SDK it supports and the framework range it was tested with. See the
 [compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
 Without a version, pip and npm install the newest agents release and the Dex
 SDK it pins.
 
 The packages are before 1.0, so a minor release may change their API. Pin
-exact versions in your lockfile. Read the [change log](/reference/agents/changelog)
+exact versions in your lockfile, or in **go.mod** for Go. Read the [change log](/reference/agents/changelog)
 before an upgrade.
 
 Build the same session Flow in every process that starts sessions or calls

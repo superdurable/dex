@@ -55,6 +55,25 @@ The Worker authenticates the Claude Code CLI with `ANTHROPIC_API_KEY`. Set it in
 The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
 
 </FrameworkTab>
+<FrameworkTab framework="eino">
+
+<SdkTabs
+  examples={{
+    go: 'agents/go/eino',
+  }}>
+<SdkSnippet lang="go">
+
+```bash
+go get github.com/superdurable/dex/agents/go/eino@v0.6.16 github.com/cloudwego/eino@v0.9.23
+go get github.com/cloudwego/eino-ext/components/model/openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The adapter needs Go 1.26 or later and Eino v0.9.23 or later. It brings in the Go core, `github.com/superdurable/dex/agents/go/core`, at the same version. The second line installs the eino-ext model client the example uses; install the one your agent uses. [Install the packages](/reference/agents/install#go) has the versions.
+
+</FrameworkTab>
 <FrameworkTab framework="google-adk">
 
 <SdkTabs
@@ -268,6 +287,77 @@ export function buildDurableAgent(
 </SdkTabs>
 
 The Claude Agent SDK takes the tools in a list next to the options, so Dex runs each one itself.
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+The tools are Eino `InferTool` tools in an `adk.ChatModelAgentConfig`. The plain agent passes the config to `adk.NewChatModelAgent`. The durable agent passes the same config to `dexeino.NewAgentSessionFlow`, with an effect for each tool, because Eino tools carry none.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/agent-harnesses/quickstart/eino_quick_start.go',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+// NewPlainEinoAgent returns the agent as Eino alone writes it. An adk.Runner runs it in this process.
+func NewPlainEinoAgent(
+	ctx context.Context, orderDesk *orderdesk.OrderDesk, chatModel model.ToolCallingChatModel,
+) (*adk.ChatModelAgent, error) {
+	config, err := newEinoAgentConfig(orderDesk, chatModel)
+	if err != nil {
+		return nil, err
+	}
+	return adk.NewChatModelAgent(ctx, config)
+}
+
+// NewDurableEinoAgent returns the same agent as a durable Dex agent session: the same config, plus tool effects.
+func NewDurableEinoAgent(
+	orderDesk *orderdesk.OrderDesk, chatModel model.ToolCallingChatModel,
+) (*dexagents.AgentSessionFlow, error) {
+	config, err := newEinoAgentConfig(orderDesk, chatModel)
+	if err != nil {
+		return nil, err
+	}
+	return dexeino.NewAgentSessionFlow(config, EinoQuickStartFlowType,
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+			"look_up_order": dexagents.ToolEffectRead,
+			"cancel_order":  dexagents.ToolEffectNonIdempotentWrite,
+		}))
+}
+
+func newEinoAgentConfig(
+	orderDesk *orderdesk.OrderDesk, chatModel model.ToolCallingChatModel,
+) (*adk.ChatModelAgentConfig, error) {
+	lookUpOrder, err := utils.InferTool("look_up_order",
+		"Look up one order by its order ID and return its items and status.",
+		func(ctx context.Context, input lookUpOrderInput) (string, error) {
+			return orderDesk.DescribeOrder(ctx, input.OrderID)
+		})
+	if err != nil {
+		return nil, err
+	}
+	cancelOrder, err := utils.InferTool("cancel_order", "Cancel one order that has not shipped yet.",
+		func(ctx context.Context, input cancelOrderInput) (string, error) {
+			return orderDesk.CancelOrder(ctx, input.OrderID, input.Reason)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &adk.ChatModelAgentConfig{
+		Name:        "order_support",
+		Description: "Answers questions about orders and cancels them.",
+		Instruction: orderdesk.OrderSupportInstructions,
+		Model:       chatModel,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools: []tool.BaseTool{lookUpOrder, cancelOrder},
+		}},
+	}, nil
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -635,11 +725,11 @@ Classify each tool by what a repeat would do. A **read** or an `idempotent_write
 
 The quick start program is three files per language. They use only Dex, Dex Agents, and your framework, apart from the example's order desk with its tools and the settings the entry point reads. Read them in the repository:
 
-| File | Python | TypeScript |
-| --- | --- | --- |
-| Your agent module, plain and durable, with every import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [pi](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
-| The runner: Registry, Worker, Client, and one turn with approvals | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
-| The entry point that asks for approval at the prompt | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
+| File | Python | TypeScript | Go |
+| --- | --- | --- | --- |
+| Your agent module, plain and durable, with every import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [pi](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) | [eino](https://github.com/superdurable/dex/blob/main/examples/go/agent-harnesses/quickstart/eino_quick_start.go) |
+| The runner: Registry, Worker, Client, and one turn with approvals | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) | [session.go](https://github.com/superdurable/dex/blob/main/examples/go/agent-harnesses/quickstart/session.go) |
+| The entry point that asks for approval at the prompt | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) | [main.go](https://github.com/superdurable/dex/blob/main/examples/go/agent-harnesses/cmd/agent-quick-start/main.go) |
 
 ## Wire the session into your app {#wire-it-into-your-app}
 
@@ -649,6 +739,7 @@ The change to your agent is small: the wrap in [What changes in your code](#what
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/embed.py',
     typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-embed.ts',
+    go: 'examples/go/agent-harnesses/quickstart/embed.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -758,9 +849,96 @@ export async function askAgent(
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+package quickstart
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	dexagents "github.com/superdurable/dex/agents/go/core"
+	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	"github.com/superdurable/dex/sdk-go/dex"
+)
+
+// AskAgent is the smallest host for a durable agent: one Worker, one Client, one turn.
+//
+// It starts a session, sends one message, and returns the session after the turn.
+func AskAgent(
+	ctx context.Context,
+	sessionFlow *dexagents.AgentSessionFlow,
+	sessionID string,
+	message string,
+	flowServiceAddress string,
+	blobCacheDir string,
+) (dexagents.AgentSnapshot, error) {
+	registry, err := dex.NewRegistry([]dex.Flow{sessionFlow})
+	if err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+	cache, err := blobcache.New(&blobcache.Config{Dir: blobCacheDir, MaxBytes: 1 << 30})
+	if err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+	defer cache.Close()
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: flowServiceAddress})
+	if err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+	defer client.Close()
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{FlowServiceAddress: flowServiceAddress})
+	if err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+	workerResult := make(chan error, 1)
+	go func() { workerResult <- worker.Start() }()
+	defer func() {
+		_ = worker.Stop(context.Background())
+		<-workerResult
+	}()
+	registrationContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := worker.WaitPullRegistered(registrationContext); err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+
+	sessions := dexagents.NewAgentSessionClient(client, sessionFlow)
+	if _, err := sessions.StartSession(ctx, sessionID, &message, dex.StartFlowOptions{}); err != nil {
+		return dexagents.AgentSnapshot{}, err
+	}
+	for {
+		snapshot, err := sessions.GetAgentSnapshot(ctx, sessionID)
+		if err != nil {
+			return dexagents.AgentSnapshot{}, err
+		}
+		if state := snapshot.State; state != nil {
+			if state.Status == dexagents.AgentSessionStatusFailed && state.LastTurnError != nil {
+				return dexagents.AgentSnapshot{}, fmt.Errorf("the session failed: %s", *state.LastTurnError)
+			}
+			if state.Status == dexagents.AgentSessionStatusFailed {
+				return dexagents.AgentSnapshot{}, errors.New("the session failed")
+			}
+			if state.TurnCount >= 1 && state.Status == dexagents.AgentSessionStatusWaitingForUserMessage {
+				return snapshot, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return dexagents.AgentSnapshot{}, ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-It takes the session Flow that your module's `build_durable_agent` or `buildDurableAgent` returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
+It takes the session Flow that your module's `build_durable_agent`, `buildDurableAgent`, or `NewDurableEinoAgent` returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
 
 A web app splits the same pieces across routes:
 
@@ -779,6 +957,11 @@ The handler queues the message on the session and returns.
 <FrameworkTab framework="claude-agent-sdk">
 
 This replaces the `query` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+This replaces the `Runner.Query` call that waited for the reply.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -824,6 +1007,7 @@ The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/web.py',
     typescript: 'examples/typescript/src/products/ai-agent',
+    go: 'examples/go/agent-harnesses/ordersupport/http_routes.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -939,6 +1123,42 @@ The [AI Agent](/use-cases/ai-agent) example's chat routes show the same pieces. 
     const options = { ...session, flowId: sessionIdOf(request), resumeToken, signal: abortSignalOf(response) };
     await sendFetchResponse(response, createAgentUIMessageStreamResponse(options));
   });
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+The Go example serves its session routes with `net/http`: start a session, send a message, read the session, and answer an approval. The Go core has no UI stream helpers, so a Go app reads the session snapshot, or the AgentEvents Stream with `AgentSessionClient.ReadAgentEvent`. This is an excerpt: `readSessionRequest`, `writeDexError`, and the other routes are in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/go/agent-harnesses/ordersupport/http_routes.go).
+
+```go
+// Register adds the routes to mux.
+func (routes *SessionRoutes) Register(mux *http.ServeMux) {
+	prefix := "/products/agent-harnesses/" + routes.harnessName
+	mux.HandleFunc("POST "+prefix+"/sessions", routes.startSession)
+	mux.HandleFunc("POST "+prefix+"/messages", routes.sendUserMessage)
+	mux.HandleFunc("POST "+prefix+"/interrupts/resolve", routes.resolveInterrupt)
+	mux.HandleFunc("GET "+prefix+"/snapshot", routes.getAgentSnapshot)
+}
+
+func (routes *SessionRoutes) sendUserMessage(response http.ResponseWriter, request *http.Request) {
+	var body struct {
+		SessionID string `json:"session_id"`
+		Text      string `json:"text"`
+	}
+	if !routes.readSessionRequest(response, request, &body, &body.SessionID) {
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		http.Error(response, "text must be a non-empty string", http.StatusBadRequest)
+		return
+	}
+	isAccepted, err := routes.sessions.SendUserMessage(request.Context(), body.SessionID, body.Text)
+	if err != nil {
+		writeDexError(response, err)
+		return
+	}
+	writeJSON(response, map[string]bool{"accepted": isAccepted})
+}
 ```
 
 </SdkSnippet>

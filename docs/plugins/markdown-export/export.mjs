@@ -586,13 +586,13 @@ async function expandCrashTimeline(node, context) {
 // Mirrors FrameworkTabs.tsx. Each FrameworkTabs becomes one group; selectFramework later keeps one framework per
 // output file, so a reader of the Markdown sees one framework at a time, as on the page.
 const frameworkLabels = {
-  'claude-agent-sdk': 'Claude Agent SDK',
+  'claude-agent-sdk': 'Claude Agent SDK', eino: 'Eino',
   'openai-agents-sdk': 'OpenAI Agents SDK', pi: 'Pi', 'pydantic-ai': 'Pydantic AI',
   'langchain-langgraph': 'LangChain and LangGraph', 'google-adk': 'Google ADK',
   'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra', 'built-in-agent-loop': 'Built-in agent loop',
 };
 // Tab order, as in src/components/agentFrameworks.ts.
-export const frameworkOrder = ['claude-agent-sdk', 'google-adk', 'langchain-langgraph', 'mastra', 'openai-agents-sdk',
+export const frameworkOrder = ['claude-agent-sdk', 'eino', 'google-adk', 'langchain-langgraph', 'mastra', 'openai-agents-sdk',
   'pi', 'pydantic-ai', 'vercel-ai-sdk', 'built-in-agent-loop'];
 const frameworkGroupType = 'dexFrameworkGroup';
 async function expandFrameworkTabs(node, context) {

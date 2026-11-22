@@ -14,8 +14,10 @@ outcomes, write order, and crashes. This page covers the packages and settings.
 **ConnectorToolSource** offers the operations, the way **McpToolSource** offers
 an MCP server's tools. The Python and TypeScript cores ship it. The built-in
 agent loop and every Python and TypeScript framework adapter take it, through
-**tool_sources** in Python and **toolSources** in TypeScript. The Go core has
-function tools only.
+**tool_sources** in Python and **toolSources** in TypeScript. Since 0.6.16,
+the Go core ships it too, in package **connectortools**, and the Go built-in
+agent loop and the Eino adapter take it through **WithToolSources**. A Go call
+that waits for approval carries no approval display yet.
 
 ## Install {#install}
 
@@ -25,7 +27,12 @@ uses:
 ```bash
 pip install 'dex-agents[connectors]' dex-connector-stripe
 npm i @superdurable/dex-agents @superdurable/connectors-sdk @superdurable/connector-stripe
+go get github.com/superdurable/dex/agents/go/core@v0.6.16 github.com/superdurable/dex-connectors-library/connectors/slack/go
 ```
+
+In Go, **connectortools** is a package of the core. It needs
+**github.com/superdurable/dex-connectors-library/sdkgo** v0.39.0 or later, and
+each Connector's Go module, such as the Slack Connector's above.
 
 Some Python Connector packages are released on GitHub before PyPI. Install one
 from its release tag. The release notes give the exact command:

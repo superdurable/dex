@@ -7,7 +7,7 @@ description: Dex 支持哪些 Agent 框架、各用哪些语言、每个框架�
 
 # 框架支持
 
-Dex 可以运行用八个框架构建的 Agent，还有它自己的内置 Agent Loop。每一个都有持久化 Session、tool policy、审批、Connector 作为 tool、带 **Steer** 和 `cancel_turn` 的排队消息，以及 AgentEvents Stream 上的实时事件。
+Dex 可以运行用九个框架构建的 Agent，还有它自己的内置 Agent Loop。每一个都有持久化 Session、tool policy、审批、Connector 作为 tool、排队消息，以及 AgentEvents Stream 上的实时事件。除 Eino 以外，每一个还有 **Steer** 和 `cancel_turn`；Eino 运行在 Go core 上，Go core 两者都没有。
 
 ## 框架与功能 {#features-by-harness}
 
@@ -16,6 +16,7 @@ Dex 可以运行用八个框架构建的 Agent，还有它自己的内置 Agent 
 | 框架 | 语言 | 每个 tool call 有自己的 Step | 由 Dex 压缩上下文 | 提问和计划 |
 | --- | --- | --- | --- | --- |
 | Claude Agent SDK | Python、TypeScript | 写入和 Connector 调用。读取在模型调用的 Step 里运行。 | 否。Claude Code 自己压缩 transcript。 | 否 |
+| Eino | Go | 是。agent tool 的 sub-agent 的 tool 在这个 tool 的 Step 里运行。 | 否。Go core 没有上下文压缩。 | 否 |
 | Google ADK | Python | 是 | 是 | 否 |
 | LangChain 和 LangGraph | Python | 是。提供方运行的 tool 在提供方运行。 | 是 | 否 |
 | Mastra | TypeScript | 是，Mastra 自己运行的 tool 除外 | 是 | 否 |
@@ -34,6 +35,7 @@ Dex 可以运行用八个框架构建的 Agent，还有它自己的内置 Agent 
 | 框架 | 主要限制 |
 | --- | --- |
 | Claude Agent SDK | 同一个模型回复里的写入调用逐个运行。Claude Code CLI 内部的 tool，例如 **Bash** 和 **Edit**，可能再运行一次。 |
+| Eino | 在一个 Step 里调用模型不止一次的配置无法构建，例如 `ModelRetryConfig` 或 summarization middleware。Go core 没有 **Steer**、`cancel_turn`、提问、上下文压缩、图片、MCP tool source 和 UI stream。 |
 | Google ADK | App 的根必须是 `BaseAgent`。tool 对 state 和 artifact 的修改会被丢弃。 |
 | LangChain 和 LangGraph | 只有消息列表会带到下一个 turn。tool 不能使用 `ToolRuntime`、`InjectedState` 或 `InjectedStore`。 |
 | Mastra | Session 取代 Mastra Memory。调用 `suspend()` 的 tool 会失败。 |
