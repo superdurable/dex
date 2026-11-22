@@ -7,16 +7,24 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Stamp one release version, and the internal dependency constraints, across every agents package."""
+"""Stamp one release version, and the internal dependency constraints, across every agents package.
+
+The publishers stamp the PyPI and npm packages on the runner before they build, so their committed version
+never changes. Go has no build step: `go get` reads the go.mod of the tagged commit and ignores its replace
+directives. So --go stamps only the requires between the agents Go modules, and the release commits that
+change before it pushes the tags agents/go/<module>/v<version>.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
-from pathlib import Path
+from collections.abc import Iterator
+from pathlib import Path, PurePosixPath
 
 AGENTS_DIR = Path(__file__).resolve().parents[1]
 # A "cli/<name>" package lives in agents/cli/<language>/<name>; the others in agents/<language>/<name>.
@@ -36,6 +44,16 @@ TYPESCRIPT_CORE_PACKAGE = "@superdurable/dex-agents"
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$")
 PYTHON_INTERNAL_CONSTRAINT_PATTERN = re.compile(r'"(dex-agents(?:-[a-z0-9-]+)?)(\[[a-z0-9,-]+\])?==[^"]*"')
 TYPESCRIPT_LOCAL_PACKAGE_KEY_PATTERN = re.compile(r"^node_modules/@superdurable/dex-agents(-[a-z0-9-]+)?$")
+GO_MODULES_DIR = AGENTS_DIR / "go"
+GO_MODULE_PATH_PREFIX = "github.com/superdurable/dex/agents/go/"
+# A version a go.mod may require: semantic version 2.0.0 with a "v" prefix and no build metadata.
+GO_IDENTIFIER = r"(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+GO_VERSION_PATTERN = re.compile(
+    rf"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-{GO_IDENTIFIER}(?:\.{GO_IDENTIFIER})*)?$"
+)
+# The pseudo-version forms of golang.org/x/mod/module: a commit, not a release.
+GO_PSEUDO_VERSION_PATTERN = re.compile(r"^v[0-9]+\.(0\.0-|[0-9]+\.[0-9]+-([^+]*\.)?0\.)[0-9]{14}-[A-Za-z0-9]+$")
+GO_MOD_TOKEN_PATTERN = re.compile(r'"(?:[^"\\]|\\.)*"|`[^`]*`|[()]|[^\s()"`]+')
 
 
 class StampMismatchError(Exception):
@@ -123,6 +141,120 @@ def write_or_compare(path: Path, original: str, updated: str, check_only: bool) 
     path.write_text(updated, encoding="utf-8")
 
 
+def go_release_version(version: str) -> str:
+    go_version = f"v{version}"
+    match = GO_VERSION_PATTERN.fullmatch(go_version)
+    if match is None or GO_PSEUDO_VERSION_PATTERN.fullmatch(go_version):
+        raise StampMismatchError(f"{go_version} is not a Go module release version")
+    if int(match.group(1)) >= 2:
+        raise StampMismatchError(
+            f"{go_version}: the agents Go module paths have no /v{match.group(1)} suffix, "
+            "so a release from 2.0.0 on needs new module paths first"
+        )
+    return go_version
+
+
+def go_mod_directives(lines: list[str]) -> Iterator[tuple[int, str, list[str]]]:
+    """Yields the line index, verb, and unquoted fields of each go.mod directive, one per block entry."""
+    block_verb: str | None = None
+    for index, line in enumerate(lines):
+        fields = [
+            token[1:-1] if token[:1] in ('"', "`") else token
+            for token in GO_MOD_TOKEN_PATTERN.findall(line.split("//", 1)[0])
+        ]
+        if not fields:
+            continue
+        if block_verb is not None:
+            if fields == [")"]:
+                block_verb = None
+            else:
+                yield index, block_verb, fields
+        elif fields[1:] == ["("]:
+            block_verb = fields[0]
+        elif fields[1:] != ["(", ")"]:
+            yield index, fields[0], fields[1:]
+
+
+def go_module_path(lines: list[str]) -> str | None:
+    return next((fields[0] for _, verb, fields in go_mod_directives(lines) if verb == "module" and fields), None)
+
+
+def go_mods_missing_from_checkout() -> list[str]:
+    """Returns each agents/go/<module>/go.mod that git tracks but the checkout lacks, or none outside git."""
+    repository = AGENTS_DIR.parent
+    toplevel = subprocess.run(
+        ("git", "-C", str(repository), "rev-parse", "--show-toplevel"), capture_output=True, text=True
+    )
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != repository.resolve():
+        return []
+    tracked = subprocess.run(
+        ("git", "-C", str(repository), "ls-files", "-z", "--", "agents/go"), check=True, capture_output=True, text=True
+    ).stdout.split("\0")
+    return [
+        path for path in tracked
+        if len(PurePosixPath(path).parts) == 4 and path.endswith("/go.mod") and not (repository / path).is_file()
+    ]
+
+
+def agents_go_modules() -> dict[str, Path]:
+    """Maps each agents Go module path to its go.mod; the tag agents/go/<directory>/v<version> resolves it."""
+    missing = go_mods_missing_from_checkout()
+    if missing:
+        raise StampMismatchError(
+            "\n".join(
+                f"{path}: git tracks it, but this checkout does not have it, as in a sparse checkout; "
+                "stamp a checkout with all of agents/go, for example after git sparse-checkout add agents/go"
+                for path in missing
+            )
+        )
+    modules: dict[str, Path] = {}
+    for go_mod in sorted(GO_MODULES_DIR.glob("*/go.mod")):
+        expected = GO_MODULE_PATH_PREFIX + go_mod.parent.name
+        declared = go_module_path(go_mod.read_text(encoding="utf-8").split("\n"))
+        if declared != expected:
+            raise StampMismatchError(f"{go_mod}: module is {declared}, not {expected}")
+        modules[expected] = go_mod
+    return modules
+
+
+def stamped_go_mod(path: Path, go_version: str, modules: dict[str, Path]) -> tuple[str, str]:
+    """Returns the go.mod text and that text with every agents Go module required at go_version."""
+    text = path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    directives = list(go_mod_directives(lines))
+    replacements: dict[str, list[list[str]]] = {}
+    for _, verb, fields in directives:
+        if verb == "replace" and fields:
+            replacements.setdefault(fields[0], []).append(fields[1:])
+    for index, verb, fields in directives:
+        if verb != "require" or not fields or not fields[0].startswith(GO_MODULE_PATH_PREFIX):
+            continue
+        module = fields[0]
+        if module not in modules:
+            raise StampMismatchError(f"{path}: requires {module}, which is not a module in {GO_MODULES_DIR}")
+        local_directory = f"../{modules[module].parent.name}"
+        if replacements.get(module) != [["=>", local_directory]]:
+            raise StampMismatchError(
+                f"{path}: requires {module} without the one replace {module} => {local_directory} "
+                "that builds the local module in this repository"
+            )
+        lines[index], count = re.subn(
+            rf'^(\s*(?:require\s+)?["`]?{re.escape(module)}["`]?\s+)\S+', rf"\g<1>{go_version}", lines[index], count=1
+        )
+        if count != 1:
+            raise StampMismatchError(f"{path}:{index + 1}: cannot find the version of {module}")
+    return text, "\n".join(lines)
+
+
+def stamp_go_modules(version: str, check_only: bool) -> None:
+    go_version = go_release_version(version)
+    modules = agents_go_modules()
+    # Every go.mod is checked before any is written, so a refused stamp changes nothing.
+    stamped = [(go_mod, *stamped_go_mod(go_mod, go_version, modules)) for go_mod in modules.values()]
+    for go_mod, original, updated in stamped:
+        write_or_compare(go_mod, original, updated, check_only)
+
+
 def stamp_all_packages(version: str, check_only: bool) -> None:
     for package in PYTHON_PACKAGES:
         package_dir = package_directory("python", package)
@@ -139,12 +271,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version", help="Release version, such as 0.1.0 or 0.2.0-rc.1")
     parser.add_argument("--check", action="store_true", help="Fail instead of writing changes")
+    parser.add_argument(
+        "--go",
+        action="store_true",
+        help="Stamp only the requires between the agents Go modules, as v<version>, which the release commits",
+    )
     arguments = parser.parse_args()
     if not VERSION_PATTERN.fullmatch(arguments.version):
         print(f"Invalid agents release version: {arguments.version}", file=sys.stderr)
         return 1
     try:
-        stamp_all_packages(arguments.version, arguments.check)
+        if arguments.go:
+            stamp_go_modules(arguments.version, arguments.check)
+        else:
+            stamp_all_packages(arguments.version, arguments.check)
     except StampMismatchError as error:
         print(error, file=sys.stderr)
         return 1

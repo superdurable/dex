@@ -216,5 +216,8 @@ jobs:
         run: |
           version="$(uv run --no-project --python 3.11 python -c 'import tomllib; print(tomllib.load(open("agents/python/core/pyproject.toml", "rb"))["project"]["version"])')"
           uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py "$version" --check
+      # Go builds the tagged go.mod, so the agents Go modules must require released Dex modules.
+      - name: Check that the Go modules build from their release tags
+        run: uv run --no-project --python 3.11 python script/release/check_agents_go_modules.py
       - name: Build, install, and run the built packages
         run: agents/script/smoke-test-built-packages.sh all

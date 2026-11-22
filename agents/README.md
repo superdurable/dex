@@ -88,11 +88,14 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 
 ## Versions and compatibility
 
-All twenty-six published packages share one version line, starting at 0.1.0. It is
-independent of the Dex SDK versions and of the Dex Skills: frameworks move
+The twenty-six PyPI and npm packages share one version line, starting at
+0.1.0. The Go modules under [`go/`](go) take the same versions from 0.6.16,
+the first release that tags them; no Go tag exists for an earlier version. The
+line is independent of the Dex SDK versions and of the Dex Skills: frameworks move
 faster than Dex, and the adapter API is still before 1.0, so a minor release
-may change it. One release publishes the whole family under one tag,
-`agents/v<version>`. Each package pins the Dex SDK it supports and keeps the
+may change it. One release publishes the whole family under the tag
+`agents/v<version>`, and tags each Go module `agents/go/<module>/v<version>`
+on the same commit. Each package pins the Dex SDK it supports and keeps the
 framework range it was tested against.
 
 | Agents version | Dex SDK | Package | Framework range | Tested with |
@@ -166,9 +169,13 @@ or later.
 
 ## Releases
 
-One release publishes all twenty-six packages at one version, in dependency
-order: the core, the adapters, the CLI core, then the CLI commands.
-`dex-agents-cli-testing` is never published.
+One release publishes all twenty-six PyPI and npm packages at one version, in
+dependency order: the core, the adapters, the CLI core, then the CLI commands.
+`dex-agents-cli-testing` is never published. The same release tags each Go
+module under [`go/`](go), such as `github.com/superdurable/dex/agents/go/core`,
+at that version. The Go modules are counted apart from the twenty-six: no
+workflow uploads them, because `go get` fetches each one from its tag
+`agents/go/<module>/v<version>` through the Go module proxy.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)
 uploads to PyPI and
 [`agents-typescript-publish.yml`](../.github/workflows/agents-typescript-publish.yml)
@@ -184,7 +191,27 @@ moved on.
 
 ### Release steps
 
-1. Merge the release-prep pull request. It writes the `## <version>` entry of
+1. Make every Go module require the other agents Go modules at the release
+   version on `main`. Go builds the `go.mod` of the tagged commit and skips
+   its `replace` directives, so a module that requires the core must
+   require `v<version>` there. The PyPI and npm versions need no such
+   commit, because the publishers stamp them on the runner. Check it on a
+   fresh `main` with Python 3.11 or later, as Agents CI runs the stamp:
+
+   ```bash
+   uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py <version> --go --check
+   ```
+
+   When the check fails, stamp the requires and merge the change in its own
+   pull request before the release-prep pull request, so the tag can follow
+   that merge. The stamp keeps each `replace ... => ../<module>`, so the
+   repository still builds the local modules:
+
+   ```bash
+   uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py <version> --go
+   ```
+
+2. Merge the release-prep pull request. It writes the `## <version>` entry of
    `agents/CHANGELOG.md` and the entry of the Developer reference change log.
    See [`changelog.d/README.md`](../changelog.d/README.md#release):
 
@@ -192,21 +219,49 @@ moved on.
    python3 script/release/changelog_fragments.py prepare agents --version <version> --date <YYYY-MM-DD>
    ```
 
-2. Push the tag on a commit on `main`:
+3. On the release commit, a commit on `main`, check the Go modules. Then push
+   `agents/v<version>` and one tag per Go module on that same commit:
 
    ```bash
-   git tag agents/v<version> <commit on main>
-   git push origin agents/v<version>
+   git switch --detach <commit on main>
+   python3 script/release/check_agents_go_modules.py --version <version>
    ```
 
-3. Publish the npm packages:
+   The check prints the Go tag of each module under [`go/`](go), such as
+   `agents/go/core/v<version>`. It fails in a checkout that lacks a Go module
+   git tracks, such as a sparse checkout without all of `agents/go`, and on a
+   `go.mod` that differs from the commit. Tag the commit with
+   `agents/v<version>` and every printed tag, and push them in one atomic
+   push, so either every tag lands or none does:
+
+   ```bash
+   git tag agents/v<version>
+   git tag agents/go/core/v<version>
+   git push --atomic origin agents/v<version> agents/go/core/v<version>
+   ```
+
+   Add a `git tag` line and a push argument for each other printed tag. When
+   the remote rejects a tag because it already exists, that version is
+   taken: release the next patch version. Then confirm that the Go module
+   proxy serves each module at the release version. `GOWORK=off` keeps the
+   repository's `go.work` out of the lookup:
+
+   ```bash
+   GOWORK=off GOPROXY=https://proxy.golang.org go list -m github.com/superdurable/dex/agents/go/core@v<version>
+   ```
+
+   It prints the module path and `v<version>`. The proxy keeps a version
+   once it has served it, so never move or delete a pushed Go tag. Fix a
+   wrong one with the next patch release.
+
+4. Publish the npm packages:
 
    ```bash
    gh workflow run agents-typescript-publish.yml --ref agents/v<version> \
      -f version=<version> -f publish=true
    ```
 
-4. Publish the PyPI packages. A release with no new PyPI project needs one
+5. Publish the PyPI packages. A release with no new PyPI project needs one
    run with `skip_packages` empty:
 
    ```bash
@@ -224,7 +279,7 @@ moved on.
      -f skip_packages="<new commands not yet registered>"
    ```
 
-5. Create the GitHub Release by hand, after the day's publisher runs succeed. Its notes
+6. Create the GitHub Release by hand, after the day's publisher runs succeed. Its notes
    come from [`script/release/component_release_notes.py`](../script/release/component_release_notes.py).
    Pass the previous `agents/v*` tag. Attach the wheels of CLI commands that
    are not on PyPI yet, so users can install them before a later day's upload.
@@ -255,7 +310,7 @@ moved on.
      agents-dist/dex_agents_<command>_cli-<version>-*.whl
    ```
 
-6. Snapshot the agents Developer reference on `main` with
+7. Snapshot the agents Developer reference on `main` with
    `node docs/scripts/snapshot-reference.mjs agents <version>`, run
    `npm run check --prefix docs`, and open its docs pull request. See
    [Release automation](../docs/README.md#release-automation).
@@ -268,7 +323,16 @@ files, their lockfiles, and every constraint between agents packages: the
 adapters' on their core, and the CLI packages' on the core, their adapter,
 and the CLI core. Python pins `==<version>`; npm peer-depends on
 `<version>` exactly. Run it locally to bump the committed version, and pass
-`--check` to verify it.
+`--check` to verify it. With `--go`, it sets only the requires between the Go
+modules (`go/<module>/go.mod`) to `v<version>`. It fails on such a require
+without its `replace ... => ../<module>`, on a version that Go cannot tag,
+and in a checkout that lacks a Go module git tracks. Commit that change
+before the tag, as step 1 says.
+[`check_agents_go_modules.py`](../script/release/check_agents_go_modules.py)
+also checks that each Go module requires the other Dex modules at released
+versions, never at a pseudo-version of an unreleased commit. It also rejects
+any other `replace` or `exclude` directive, because a consumer's build skips
+them. Agents CI runs it on every change under `agents/`.
 
 [`script/smoke-test-built-packages.sh`](script/smoke-test-built-packages.sh)
 builds every package with `uv build` and `npm pack`, checks the artifacts
@@ -325,7 +389,15 @@ commands still waiting.
 **Release changed components** can release the agents packages together with
 the other components: set its `agents_version` input. It creates the tag and
 the Release, then dispatches both workflows on the tag once, passing
-`agents_python_skip_packages` as `skip_packages`. Release the remaining new
+`agents_python_skip_packages` as `skip_packages`. Its plan runs
+`check_agents_go_modules.py` for `agents_version` first, so merge the Go
+stamp of step 1 before you dispatch it. Its **Push agents Go module tags**
+job pushes the tag of each Go module onto the same commit, in one atomic
+push, after the Releases exist. When that job fails, the other publishers
+still run; use **Re-run failed jobs**. The rerun skips each tag that already
+names the release commit and pushes the rest. It fails when a tag names
+another commit: that version is taken, so release the next patch version.
+Release the remaining new
 PyPI projects with the steps above. It releases every component that changed
 since its last release at the shared `version`. So it cannot release the
 agents packages alone while other components have changed; use the release
@@ -339,7 +411,11 @@ steps above instead.
    `dex-agents = { path = "../core", editable = true }` in `[tool.uv.sources]`.
    npm packages list `@superdurable/dex-agents` as an exact `<version>` peer
    dependency and as a `file:../core` devDependency, with `install-links=true`
-   in their `.npmrc` so the local core is copied, not linked.
+   in their `.npmrc` so the local core is copied, not linked. Go modules
+   declare `github.com/superdurable/dex/agents/go/<module>`, require another
+   agents Go module at the release version with
+   `replace github.com/superdurable/dex/agents/go/<module> => ../<module>`,
+   and require the other Dex modules at released versions.
 2. Implement the runner contract in the
    [Python core README](python/core/README.md#the-runner-contract).
 3. Test against a real Dex Server with the core's testing utilities and a
@@ -351,7 +427,9 @@ steps above instead.
 `Agents CI` finds every executable `agents/*/*/ci.sh` and runs each in its own
 job, so a new package needs no workflow change. Add a new package to the
 package lists in the stamping script, the smoke test, both publish workflows,
-and the tables above, in dependency order. In the scripts, the package in
+and the tables above, in dependency order. A Go module needs no list entry:
+the stamp, the Go module check, and the release find every
+`agents/go/*/go.mod`. In the scripts, the package in
 `agents/cli/<language>/<name>` is `cli/<name>`. A new package name needs its trusted publishing set up
 on PyPI or npm before the first release that publishes it. Source
 files use the

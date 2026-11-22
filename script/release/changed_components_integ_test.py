@@ -262,6 +262,57 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("agents/v0.2.0", result.stderr)
 
+    def write_agents_go_modules(self, core_version: str) -> None:
+        core = "github.com/superdurable/dex/agents/go/core"
+        go_mods = {
+            "agents/go/core/go.mod": f"module {core}\n\ngo 1.26.0\n\nrequire github.com/superdurable/dex/sdk-go v1.45.6\n",
+            "agents/go/eino/go.mod": (
+                "module github.com/superdurable/dex/agents/go/eino\n\ngo 1.26.0\n\n"
+                f"require {core} {core_version}\n\nreplace {core} => ../core\n"
+            ),
+        }
+        for relative_path, text in go_mods.items():
+            path = self.repository / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        self.commit(f"agents Go modules at {core_version}")
+
+    def test_agents_release_tags_each_go_module_on_the_same_commit(self) -> None:
+        self.write_agents_go_modules("v0.2.0")
+        result, values = self.plan("--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["agents_tag"], "agents/v0.2.0")
+        self.assertEqual(values["agents_go_tags"], "agents/go/core/v0.2.0 agents/go/eino/v0.2.0")
+
+    def test_agents_release_without_go_modules_pushes_no_go_tag(self) -> None:
+        self.change("agents/python/core/pyproject.toml")
+        result, values = self.plan("--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["agents_go_tags"], "")
+        result, values = self.plan("--go-version", "1.2.3", "--allow-unchanged")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["agents_go_tags"], "")
+
+    def test_go_module_at_another_agents_version_fails_preflight(self) -> None:
+        self.write_agents_go_modules("v0.1.0")
+        result, values = self.plan("--agents-version", "0.2.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "Agents Go modules: agents/go/eino/go.mod: requires github.com/superdurable/dex/agents/go/core v0.1.0, "
+            "not the release version v0.2.0",
+            result.stderr,
+        )
+        self.assertIn("stamp_agents_release_version.py 0.2.0 --go", result.stderr)
+        self.assertEqual(values, {})
+
+    def test_existing_agents_go_tag_fails_preflight(self) -> None:
+        self.write_agents_go_modules("v0.2.0")
+        self.git("tag", "agents/go/eino/v0.2.0")
+        result, values = self.plan("--agents-version", "0.2.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("- agents/go/eino/v0.2.0", result.stderr)
+        self.assertEqual(values, {})
+
     def test_missing_agents_changelog_section_fails_preflight(self) -> None:
         self.change("agents/python/core/pyproject.toml")
         result, values = self.plan("--agents-version", "0.3.0", is_changelog_ready=False)
@@ -306,6 +357,33 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             self.assertIn(f"workflow: {workflow}", coordinated_workflow)
         self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
         self.assertIn('-f "publish=true"', coordinated_workflow)
+
+    def test_coordinated_release_pushes_agents_go_tags_in_their_own_job(self) -> None:
+        workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("agents_go_tags: ${{ steps.plan.outputs.agents_go_tags }}", workflow)
+        # A failed push inside create-releases would skip every publisher, and its rerun stops at the first Release.
+        create_releases = workflow.split("\n  create-releases:\n", 1)[1].split("\n  snapshot-references:\n", 1)[0]
+        self.assertNotIn("git push", create_releases)
+        self.assertNotIn("agents_go_tags", create_releases)
+        go_tags_job = workflow.split("\n  publish-agents-go-tags:\n", 1)[1].split("\n\n  ", 1)[0]
+        self.assertIn("needs: [plan, create-releases]", go_tags_job)
+        self.assertEqual(
+            workflow_job_if(workflow, "publish-agents-go-tags"),
+            workflow_job_if(workflow, "publish-agents"),
+        )
+        self.assertIn("permissions:\n      contents: write\n", go_tags_job)
+        self.assertIn("shell: bash\n", go_tags_job)
+        self.assertIn("AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}", go_tags_job)
+        self.assertIn(
+            'python3 script/release/push_agents_go_tags.py --commit "${GITHUB_SHA}" "${agents_go_tags[@]}"', go_tags_job
+        )
+        for block in workflow_run_blocks(go_tags_job):
+            self.assertNotIn("${{", block)
+        complete = workflow.split("\n  complete:\n", 1)[1]
+        self.assertIn("      - publish-agents-go-tags\n", complete)
+        self.assertIn("AGENTS_GO_TAGS_RESULT: ${{ needs.publish-agents-go-tags.result }}", complete)
+        self.assertIn('"Agents Go module tags:${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}"', complete)
+        self.assertIn('"${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}"', complete)
 
     def test_coordinated_release_uses_each_component_version(self) -> None:
         workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
