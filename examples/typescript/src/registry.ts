@@ -106,7 +106,6 @@ import { openSlackConnectionFromProject } from "./shared/slack-connector-tools.j
 import { environmentOr } from "./config/env.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
-const customerRefundFlow = newSharedServerRefundFlow();
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
@@ -131,7 +130,6 @@ const piOrderSupportFlow = createPiOrderSupportFlow(orderDesk, loadPiOrderSuppor
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
   orderProcessingFlow,
-  customerRefundFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,
@@ -195,14 +193,13 @@ export const allExampleFlows: readonly Flow<any>[] = [
   ...workflowPatternFlows,
 ];
 
-export function createExampleRegistry(): Registry {
-  return new Registry(allExampleFlows);
+export function createExampleRegistry(customerRefundFlow = newSharedServerRefundFlow()): Registry {
+  return new Registry([...allExampleFlows, customerRefundFlow]);
 }
 
 export {
   moneyTransferFlow,
   orderProcessingFlow,
-  customerRefundFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,

@@ -48,16 +48,19 @@ this Flow, with the normal billing mode only. It serves these routes:
 
 | Route | What it does |
 | --- | --- |
-| `GET /products/customer-refund/manager-approval/start?workflowId=<id>&scenario=<scenario>` | Starts a refund and returns `flowID` and `runID`. `workflowId` is optional; without it the server picks a `customer-refund-` Flow ID. `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
+| `GET /products/customer-refund/manager-approval/start?workflowId=<id>&scenario=<scenario>` | Starts a refund and waits up to 10 seconds for `CheckPolicy` before returning `flowID` and `runID`. The server picks a `customer-refund-` Flow ID when no ID is supplied. `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
 | `GET /products/customer-refund/manager-approval/decide?workflowId=<id>&decision=<approve or reject>&reason=<text>` | Approves or rejects a refund that waits for a manager. |
-| `GET /products/customer-refund/manager-approval/describe?workflowId=<id>` | Returns the run `status`, and `caseStatus` and `refundId` from the `case-status` and `refund-id` Attributes. |
+| `GET /products/customer-refund/manager-approval/describe?workflowId=<id>` | Returns `flowID`, the run `status`, and `caseStatus` and `refundId` from the `case-status` and `refund-id` Attributes. `refundId` is `null` until a refund is issued. |
 
 Each route also accepts the Flow ID as `flowId`, like the order-processing routes.
 
-`decide` answers 400 for a blank reason, 409 when the refund is not waiting
-for a manager or another decision holds its lock, and 404 when the run is
-closed. The server keeps its ledgers in `.customer-refund/`; set
-`REFUND_LEDGER_DIR` to use another folder.
+For the `normal` scenario, call `decide` as soon as `start` succeeds. A duplicate
+start returns 409, and a policy check that exceeds the wait returns 504.
+`decide` returns 400 for invalid input and 409 if the refund is no longer
+awaiting a manager, another decision holds its lock, or the run is closing.
+`describe` and `decide` return 404 for unknown refunds or another Flow type.
+`decide` also returns 404 for closed runs. The server keeps its ledgers in
+`.customer-refund/`. Set `REFUND_LEDGER_DIR` to use another folder.
 
 Stop the shared server before you run this example's own Worker against the
 same Dex. Both serve `CustomerRefundFlow`, so either one could run a Step,

@@ -21,23 +21,29 @@ import test from "node:test";
 import { AttributeMatch, stringCodec } from "@superdurable/dex";
 
 import { loadEnv } from "../../src/config/env.js";
-import { startSampleServer, type SampleServer } from "../../src/main.js";
+import type { SampleServer } from "../../src/main.js";
 import { jobProgress } from "../../src/patterns/polling/polling-flow.js";
-import { AWAITING_MANAGER, caseStatus } from "../../src/products/customer-refund/refund-flow.js";
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
+import {
+  assertRecordedRefund,
+  startSharedServerTestEnvironment,
+  type SharedServerTestEnvironment,
+} from "./shared-server-test-environment.js";
 
+let environment: SharedServerTestEnvironment;
 let server: SampleServer;
 let baseUrl: string;
 
 test.before(async () => {
   process.env.DEX_EXAMPLES_HTTP_ADDRESS =
     process.env.DEX_SMOKE_HTTP_ADDRESS ?? "127.0.0.1:18080";
-  server = await startSampleServer();
+  environment = await startSharedServerTestEnvironment();
+  server = environment.server;
   baseUrl = `http://${loadEnv().httpAddress}`;
 });
 
 test.after(async () => {
-  await server.close();
+  await environment?.close();
 });
 
 async function get(
@@ -136,9 +142,6 @@ test("product customer-refund manager-approval start decide describe", async () 
   const start = await get("/products/customer-refund/manager-approval/start");
   requireOk(start, "customer-refund/manager-approval/start");
   const workflowId = (start.json as { flowID: string }).flowID;
-  await server.client.waitForAttributeMatch(workflowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
-    requestTimeoutMs: 30_000,
-  });
   requireOk(
     await get("/products/customer-refund/manager-approval/decide", {
       workflowId,
@@ -147,10 +150,16 @@ test("product customer-refund manager-approval start decide describe", async () 
     }),
     "customer-refund/manager-approval/decide",
   );
-  requireOk(
-    await get("/products/customer-refund/manager-approval/describe", { workflowId }),
-    "customer-refund/manager-approval/describe",
-  );
+  const result = await server.client.waitForFlow(workflowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage);
+  const describe = await get("/products/customer-refund/manager-approval/describe", { workflowId });
+  requireOk(describe, "customer-refund/manager-approval/describe");
+  assert.deepEqual(describe.json, {
+    flowID: workflowId,
+    status: "completed",
+    caseStatus: "closed-refunded",
+    refundId: assertRecordedRefund(environment, workflowId),
+  });
 });
 
 test("product microservice start swap signal", async () => {

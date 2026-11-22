@@ -136,7 +136,6 @@ DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   npm run test:integ
 DEX_BLOB_CACHE_DIR="$test_dir/blobs" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-REFUND_LEDGER_DIR="$test_dir/customer-refund" \
   npm run smoke
 
 # The Quick Start is a separate npm package with its own dependencies.

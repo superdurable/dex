@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/** Settings shared by the refund Worker, the start and decide commands, the shared server, and the tests. */
+/** Settings shared by the refund Worker, the start and decide commands, and the tests. */
 
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
@@ -56,8 +56,9 @@ export function readRefundEnvironment(): RefundEnvironment {
 }
 
 /** Returns the shared example server's normal-billing Flow; REFUND_LEDGER_DIR moves its ledgers. */
-export function newSharedServerRefundFlow(): CustomerRefundFlow {
-  const ledgerDirectory = process.env.REFUND_LEDGER_DIR || dirname(DEFAULT_BILLING_LEDGER);
+export function newSharedServerRefundFlow(
+  ledgerDirectory = process.env.REFUND_LEDGER_DIR || dirname(DEFAULT_BILLING_LEDGER),
+): CustomerRefundFlow {
   return newRefundFlow("normal", join(ledgerDirectory, "billing.sqlite"), join(ledgerDirectory, "emails.sqlite"));
 }
 

@@ -14,19 +14,28 @@
  * limitations under the License.
  */
 
-import { Router } from "express";
+import { Router, type ErrorRequestHandler } from "express";
 
 import {
   FlowAlreadyStartedError,
+  FlowClosingError,
   FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
+  RequestTimeoutError,
   RpcLockConflictError,
+  StepExecutionId,
   WorkerInvocationError,
   type Client,
 } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { caseStatus, refundId, type CustomerRefundFlow, type DecisionReason } from "./refund-flow.js";
+import {
+  REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE,
+  caseStatus,
+  refundId,
+  type CustomerRefundFlow,
+  type DecisionReason,
+} from "./refund-flow.js";
 import { REFUND_SCENARIOS, type RefundScenario } from "./refund-settings.js";
 
 export function createCustomerRefundRouter(client: Client, flow: CustomerRefundFlow): Router {
@@ -34,7 +43,7 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
 
   router.get("/manager-approval/start", async (request, response) => {
     const flowId = flowIdFromQuery(request.query) || `customer-refund-${process.hrtime.bigint()}`;
-    const scenario = String(request.query.scenario ?? "normal");
+    const scenario = String(request.query.scenario || "normal");
     if (!Object.hasOwn(REFUND_SCENARIOS, scenario)) {
       const scenarios = Object.keys(REFUND_SCENARIOS).join(", ");
       response.status(400).json({ error: `scenario must be one of ${scenarios}` });
@@ -43,10 +52,24 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     try {
       const input = REFUND_SCENARIOS[scenario as RefundScenario];
       const runId = await client.startFlow(flow, flowId, input, startOptions());
-      response.json({ flowID: flowId, runID: runId, scenario });
+      try {
+        await client.waitForStepCompletion(flowId, StepExecutionId.of("CheckPolicy"), {
+          requestTimeoutMs: 10_000,
+        });
+      } catch (error) {
+        // A policy denial or a small refund can finish before the wait attaches.
+        if (!(error instanceof FlowNotActiveOrNotFoundError)) {
+          throw error;
+        }
+      }
+      response.json({ flowID: flowId, runID: runId });
     } catch (error) {
       if (error instanceof FlowAlreadyStartedError) {
         response.status(409).json({ error: `Flow ID ${flowId} is already used; choose another one` });
+        return;
+      }
+      if (error instanceof RequestTimeoutError) {
+        response.status(504).json({ error: `refund ${flowId} did not complete its policy check in time` });
         return;
       }
       throw error;
@@ -72,10 +95,15 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     const rpc = decision === "approve" ? flow.approveRefund : flow.rejectRefund;
     const input: DecisionReason = { reason };
     try {
+      const run = await client.describeFlow(flowId);
+      if (run.flowType !== flow.getFlowType() || run.status !== "running") {
+        response.status(404).json({ error: `refund ${flowId} is closed or does not exist` });
+        return;
+      }
       await client.invokeRPC(rpc, flowId, input);
       response.json({ flowID: flowId, decision });
     } catch (error) {
-      if (error instanceof FlowNotActiveOrNotFoundError) {
+      if (error instanceof FlowNotActiveOrNotFoundError || error instanceof FlowNotFoundError) {
         response.status(404).json({ error: `refund ${flowId} is closed or does not exist` });
         return;
       }
@@ -83,8 +111,11 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
         response.status(409).json({ error: `another decision on refund ${flowId} is being processed` });
         return;
       }
-      // The RPC refuses a run that is not waiting for a manager.
-      if (error instanceof WorkerInvocationError) {
+      if (error instanceof FlowClosingError) {
+        response.status(409).json({ error: error.message });
+        return;
+      }
+      if (error instanceof WorkerInvocationError && error.workerErrorType === REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE) {
         response.status(409).json({ error: error.message });
         return;
       }
@@ -100,13 +131,16 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     }
     try {
       const run = await client.describeFlow(flowId);
+      if (run.flowType !== flow.getFlowType()) {
+        response.status(404).json({ error: `refund ${flowId} does not exist` });
+        return;
+      }
       const [status, issuedRefundId] = await client.getAttributes(flowId, caseStatus, refundId);
       response.json({
         flowID: flowId,
-        runID: run.runId,
-        status: run.status,
+        status: run.status.toLowerCase(),
         caseStatus: status ?? null,
-        refundId: issuedRefundId ?? null,
+        refundId: issuedRefundId || null,
       });
     } catch (error) {
       if (error instanceof FlowNotFoundError) {
@@ -117,10 +151,17 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     }
   });
 
+  router.use(sendRefundError);
+
   return router;
 }
 
+const sendRefundError: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+  const message = error instanceof Error ? error.message : String(error);
+  response.status(500).json({ error: message });
+};
+
 /** Reads the Flow ID from flowId, or from its alias workflowId. */
 function flowIdFromQuery(query: Record<string, unknown>): string {
-  return String(query.workflowId ?? query.flowId ?? "");
+  return String(query.workflowId || query.flowId || "");
 }
