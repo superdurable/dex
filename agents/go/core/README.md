@@ -36,6 +36,9 @@ Supported:
   `UnfinishedTurnMessageBuilder`);
 - `TurnCompleted.TurnError`, which ends a turn as failed without a retry, as
   `turn_error` in Python and `turnError` in TypeScript do (since 0.6.16);
+- the end of a session at the state limit, which `AgentSessionClient` reports
+  as Python's and TypeScript's clients do (since 0.6.16; see
+  [At the state limit](#at-the-state-limit));
 - session settings and `update_session_settings`, with the built-in loop model
   resolver;
 - the built-in agent loop, with function tools;
@@ -485,20 +488,44 @@ history migrates over several commits and reads stay whole meanwhile.
 
 server-zd caps each Flow's active state at `limits.maxFlowStateBytes`. A Step
 whose commit would pass it fails with error type `ValueTooLarge` and a detail
-such as `run state of 140213 bytes exceeds the maximum of 131072 bytes`. Since
-0.6.16, when that failure reaches `RecordToolFailure`,
-`RecordToolOutcomeUnknown`, or `RecordTurnFailure`, the Go session ends, as a
-Python or TypeScript session does: the Step sets `AgentState.Status` to
-`failed` and `LastTurnError` to the detail, clears the turn,
-`FrameworkRunState`, and `PendingInterrupts`, keeps the turn's records,
-writes `turn_failed`, and fails the Flow with the detail as its reason. That
-commit meets the same limit, so it stores no turn messages. Messages queued
-before it stay in `AgentSnapshot.QueuedMessages` and never run, and
-`SendUserMessage` returns the Dex error for a closed Flow. Before 0.6.16 the
-session went on, and every later turn failed with the same detail. When even
-that small commit does not fit, Dex fails the Flow with the same reason and
-`AgentState` keeps its last value; read the reason from `Client.WaitForFlow`.
-Start a new session, or raise the limit, to go on.
+that contains `run state of `, such as
+`active run state of 140213 bytes exceeds the maximum of 131072 bytes`. The
+session then ends, as a Python or TypeScript session does, because it is at
+its limit. Since 0.6.16:
+
+- When the failure reaches `RecordToolFailure`, `RecordToolOutcomeUnknown`,
+  or `RecordTurnFailure`, the Step stores the end of the session: it sets
+  `AgentState.Status` to `failed` and `LastTurnError` to the detail, clears
+  the turn, `FrameworkRunState`, and `PendingInterrupts`, keeps the turn's
+  records, writes `turn_failed`, and fails the Flow with the detail as its
+  reason. That commit meets the same limit, so it stores no turn messages.
+  No further model call is made, and the model never sees a failed tool
+  call.
+- A Step without a failure route, such as `AwaitUserMessage` storing the
+  next user message, closes the Flow failed with the same reason. The same
+  happens when the commit above does not fit, which is common when turns are
+  small. The stored `AgentState` then keeps its last value, such as
+  `waiting_for_user_message` or `running_tools`.
+- `AgentSessionClient.GetAgentSnapshot` reads how the Flow closed, so it
+  reports status `failed`, the reason in `LastTurnError`, no active turn, and
+  no pending interrupts or tool calls in both cases. Use it, not the
+  `get_agent_snapshot` RPC alone. A session that fails before it stores a
+  state has a snapshot with no state; read the reason from
+  `Client.WaitForFlow`.
+- `AgentSessionClient.SendUserMessage` to a failed session returns
+  `*AgentSessionFailedError` with the reason. `errors.As` also finds the
+  `*dex.FlowNotActiveOrNotFoundError` in it, which a direct RPC call gets.
+- Messages queued before the end stay in `AgentSnapshot.QueuedMessages` and
+  never run. Send them to a new session.
+
+A failed session cannot go on. Start a new session; a higher
+`limits.maxFlowStateBytes` applies only to sessions that start after
+server-zd restarts with it.
+
+Before 0.6.16, a model answer over the limit failed only its turn, and a
+tool result over the limit became a `failed` or `outcome_unknown` call that
+the model saw. The Go session went on in both cases, and the Go client read
+only the stored snapshot.
 
 ## Flow shape
 
@@ -549,7 +576,11 @@ as children of the test binary:
 - the turn-failure note after a write ran;
 - a model answer and a read or write tool result that would pass
   `limits.maxFlowStateBytes` ending the session with the reason, after one
-  model call and one tool run, with later messages left queued;
+  model call and one tool run, with later messages left queued, no pending
+  approval, and no `FrameworkRunState`; a user message that `AwaitUserMessage`
+  cannot store, and 24 sessions of small tool turns of which some have no
+  room to store the failure, each reported as failed by
+  `AgentSessionClient.GetAgentSnapshot` and `SendUserMessage`;
 - `TurnCompleted.TurnError` ending a turn as failed with no retry, its usage
   and messages stored, and the next turn clearing it, and an outcome the
   session must not store failing its turn at once with its usage recorded;

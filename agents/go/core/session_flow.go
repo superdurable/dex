@@ -1046,14 +1046,16 @@ func (step CallSingleAttemptTool) Execute(ctx dex.Context, toolCallID string) (*
 // When the attempts failed because their commit would pass the Flow's state
 // limit, server-zd's limits.maxFlowStateBytes, it ends the session instead: it
 // sets AgentState.Status to failed and LastTurnError to the recovery detail,
-// such as "run state of 140213 bytes exceeds the maximum of 131072 bytes",
-// clears the turn, FrameworkRunState, and PendingInterrupts, keeps the turn's
-// records, writes turn_failed, and fails the Flow with the detail. It stores
-// no turn messages, because this commit meets the same limit. Every later turn
-// would fail the same way, so the session stops taking messages.
+// such as "active run state of 140213 bytes exceeds the maximum of 131072
+// bytes" (the detail contains "run state of "), clears the turn,
+// FrameworkRunState, and PendingInterrupts, keeps the turn's records, writes
+// turn_failed, and fails the Flow with the detail. It stores no turn messages,
+// because this commit meets the same limit. The session takes no more
+// messages, because it is at its limit.
 //
 // Changed in 0.6.16: a state-limit failure ends the session, as in the Python
-// and TypeScript cores.
+// and TypeScript cores. Before, the call was recorded as failed or
+// outcome_unknown with the detail, the model saw it, and the session went on.
 //
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Record a tool call whose attempts ran out as failed for a read or a never-run call and outcome unknown for a write."
@@ -1224,8 +1226,8 @@ func (step ResumeTurn) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error
 // session instead, as RecordToolFailure describes, and the session takes no
 // more messages.
 //
-// Changed in 0.6.16: a state-limit failure ends the session. Before, every
-// later turn failed with the same detail.
+// Changed in 0.6.16: a state-limit failure ends the session. Before, it
+// failed only the turn, and the session went on.
 //
 // dex:group group-id:model group-label:"Model"
 // dex:explanation text:"Record a turn whose model call failed after its retries, note which tool calls already ran, and wait for the user."
@@ -1580,11 +1582,7 @@ func (flow *AgentSessionFlow) completeTurn(
 	state.TurnCount++
 	state.ActiveTurnID = nil
 	state.AcceptsTurnControl = false
-	state.LastTurnError = nil
-	if outcome.TurnError != nil {
-		turnError := *outcome.TurnError
-		state.LastTurnError = &turnError
-	}
+	state.LastTurnError = outcome.TurnError
 	if err := AgentStateAttribute.Set(ctx, state); err != nil {
 		return err
 	}

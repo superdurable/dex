@@ -36,7 +36,8 @@ const (
 	// AgentSessionStatusFailed means the session ended and takes no more messages. Its Flow closed
 	// failed, and AgentState.LastTurnError holds the reason. Python and TypeScript Workers write it;
 	// the Go core reads it, and since 0.6.16 writes it too, when a Step's commit would pass the
-	// Flow's state limit (see RecordToolFailure).
+	// Flow's state limit (see RecordToolFailure). A session at that limit may lack room to store
+	// it; AgentSessionClient.GetAgentSnapshot then reports it from the Flow's close.
 	AgentSessionStatusFailed AgentSessionStatus = "failed"
 )
 

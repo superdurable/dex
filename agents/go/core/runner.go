@@ -227,9 +227,10 @@ type FrameworkMessage struct {
 	// Role is the author of the item. It must be user, assistant, or tool; MessageRole.IsValid
 	// checks it. The session never stores any other value, the empty string included, because
 	// every reader of a stored message rejects it. Such a message in TurnCompleted.NewMessages or
-	// ToolCallsRequested.NewMessages fails the turn at once (see AgentFrameworkRunner.RunModelStep),
-	// one from UnfinishedTurnMessageBuilder is logged and dropped, and one from BuildUserMessage
-	// fails the Step attempt.
+	// ToolCallsRequested.NewMessages fails the turn at once (see AgentFrameworkRunner.RunModelStep).
+	// When UnfinishedTurnMessageBuilder returns one, the session logs a warning and stores none of
+	// the messages it returned, only the turn-failure note. One from BuildUserMessage fails the Step
+	// attempt.
 	//
 	// Changed in 0.6.16: an invalid Role in NewMessages fails the turn instead of being stored.
 	Role MessageRole
@@ -280,8 +281,11 @@ type AgentTurnOutcome interface {
 // FrameworkRunState, and waits for the next user message, all in one commit. Set TurnError to end
 // the turn as failed instead of completed:
 //
-//	stop := "the turn used more than 20 model calls"
-//	return &dexagents.TurnCompleted{NewMessages: messages, Usage: usage, TurnError: &stop}, nil
+//	return &dexagents.TurnCompleted{
+//		NewMessages: messages,
+//		Usage:       usage,
+//		TurnError:   ptr.Any("the turn used more than 20 model calls"),
+//	}, nil
 type TurnCompleted struct {
 	// NewMessages are the turn's items that the session has not stored yet, in order. For a
 	// runner that never sets ToolCallsRequested.NewMessages, that is every item the turn produced
