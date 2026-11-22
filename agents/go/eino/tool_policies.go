@@ -152,11 +152,17 @@ func (runner *Runner) checkToolEffects(tools agentTools) error {
 	return nil
 }
 
-// modelCallToolPolicy returns the policy of one requested call.
+// modelCallToolPolicy returns the policy of one requested call of a name no source listing offered.
 //
 // A session policy wins, then the tool's effect, then the default. A name the
 // model was never offered fails fast in CallTool as an unknown tool.
 func (runner *Runner) modelCallToolPolicy(turn dexagents.AgentTurnContext, tools agentTools, offered map[string]bool, toolName string) dexagents.ToolPolicy {
+	_, isAgentTool := tools.lookup(toolName)
+	if runner.hasToolSources() && !isAgentTool && !offered[toolName] {
+		// As in the built-in loop: an unlisted name never reaches a source, so nobody approves it.
+		isApprovalRequired := false
+		return dexagents.ToolPolicy{Effect: dexagents.ToolEffectUnclassified, RequiresApproval: &isApprovalRequired}
+	}
 	if _, hasPolicy := turn.ToolPolicies[toolName]; hasPolicy {
 		return turn.ResolveToolPolicy(toolName, nil)
 	}

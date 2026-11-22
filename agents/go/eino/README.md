@@ -27,6 +27,8 @@ v0.10.0 alpha (v0.10.0-alpha.35 when this was written). It depends on
 `github.com/superdurable/dex/agents/go/core` at the same version, and on the
 released Go SDK that the core requires. Model packages from `eino-ext` work as
 they are; the tests use `github.com/cloudwego/eino-ext/components/model/openai`.
+Connectors as tools use the core's package `connectortools`, which requires
+`github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0 or later.
 
 The Go agents modules are not tagged yet. Until they are, depend on a commit
 of `main`.
@@ -198,7 +200,8 @@ StartAgentSession -> RunModel -> CallTool(lookup_order) -> ResumeTurn -> RunMode
   `ToolArgumentsHandler`, and `ToolCallMiddlewares`, then each
   `AgentMiddleware.WrapToolCall`, then the `Handlers`' tool wrappers, in Eino's
   order. `compose.GetToolCallID` and `ToolCallContextFrom` work inside the
-  tool.
+  tool. A call of a tool source's tool runs through its source instead; see
+  [Connectors as tools](#connectors-as-tools).
 - **`ResumeTurn`** waits for every result, and the next `RunModel` makes the
   next model call. A final answer ends the turn.
 
@@ -241,6 +244,66 @@ the call, such as invalid arguments or a refusal before anything changed.
 text. Under Dex that hides a crash as a success, so a write that may have run
 would read as succeeded. Do not wrap Dex tools with it.
 
+## Connectors as tools
+
+`WithToolSources` offers the tools of a `dexagents.ToolSource`, such as a
+`connectortools.ConnectorToolSource` of Dex Connector operations, beside the
+agent's own tools:
+
+```go
+agentTools, err := slackConnection.AgentTools()
+if err != nil {
+	return err
+}
+tools := []*connectortools.ConnectorTool{}
+for _, agentTool := range agentTools {
+	if agentTool.Metadata().ToolName != "slack_post_thread_reply" {
+		continue
+	}
+	tool, err := connectortools.NewConnectorTool(agentTool)
+	if err != nil {
+		return err
+	}
+	tools = append(tools, tool)
+}
+source, err := connectortools.NewConnectorToolSource(tools)
+if err != nil {
+	return err
+}
+flow, err := dexeino.NewAgentSessionFlow(config, "SupportAgent",
+	dexeino.WithToolEffects(effects),
+	dexeino.WithToolSources(source))
+```
+
+How a source tool works with Eino:
+
+- **Offered as Eino tools.** Every `RunModel` lists each source, waiting at
+  most `WithToolSourceListingTimeout` (10 seconds by default), and offers the
+  listed tools after the agent's own, with their names, descriptions, and
+  argument schemas. Their bodies never run in `RunModel`: the adapter's gate
+  stops the run at their calls like any other. A source whose listing fails or
+  takes longer offers no tools in that model call, and the turn goes on.
+- **Built by the source.** The source picks each call's effect, approval, and
+  write ordering, and stores its own reference with the call. A session
+  `ToolPolicy` for the tool name reaches the source, so it may change the
+  approval or a connector's send cap. The connector effects and Steps are in
+  the Go core's [Connectors as tools](../core/README.md#connectors-as-tools)
+  table: a Query is a `read` in `CallTool`, a Mutation with `IsRetrySafe` an
+  `idempotent_write` in `CallTool`, and any other Mutation a
+  `non_idempotent_write` in `CallSingleAttemptTool`.
+- **Run by the source, outside Eino.** The tool Step routes the call to its
+  source first, once per attempt, with the Step's `DeferredToolExecution`. No
+  `compose.ToolsNode`, `ToolCallMiddlewares`, `AgentMiddleware.WrapToolCall`,
+  or Handler tool wrapper runs around it, and the `AgentConfigBuilder` is not
+  called, so an Eino retry or error handler can never send a connector write
+  twice or turn an unknown outcome into a success. The call's tool Step gets
+  the operation's timeout and retry policy through `ToolCallStepOptions`.
+- **Names.** Construction fails when two sources share a `SourceName` or a
+  name a source declares repeats an agent tool or a tool alias. A name that
+  neither the agent nor a listing offers is deferred as `unclassified` without
+  an approval, as in the built-in loop, and its tool Step answers
+  `unknown tool <name>`.
+
 ## Integration mode
 
 Step mode, by stateless replay. No Eino `CheckPointStore` is used, and no run
@@ -259,7 +322,8 @@ Details that follow from it:
   stored, so a retry of the same attempt stores the same IDs. Other IDs are
   kept.
 - **Unknown tools.** The adapter sets `UnknownToolsHandler`. A tool the model
-  invents, or one a deploy renamed or removed, is deferred like a read, and
+  invents, or one a deploy renamed or removed, is deferred like a read (as
+  `unclassified` without an approval when the agent has tool sources), and
   its tool Step answers `unknown tool <name>`, so the model sees why. On a later
   attempt of a write, the core records `outcome_unknown`, because the first
   attempt may have run under the old name.
@@ -268,20 +332,32 @@ Details that follow from it:
   invented that a later deploy added as a write. The model sees why and may
   call it again under the new policy.
 - **One model call.** A Handler or model wrapper that calls the model a second
-  time fails the Step before the second call reaches the model.
-- **Model errors.** The adapter's outermost model wrapper exposes the HTTP
-  status of a failed call in `ModelAPIError.StatusCode`, from the
-  `HTTPStatusCode` field of go-openai and Ark errors and the `Code` of genai
-  errors, with the response headers when the error carries them. The core then
-  backs off a 429 or 5xx, honoring `Retry-After`, and ends the turn at once on
-  another 4xx.
+  time ends the turn as failed before the second call reaches the model. The
+  one call that ran is billed, and no retry pays for it again.
+- **Turns that end as failed.** A stop that a retry would repeat ends the turn
+  at once with `TurnCompleted.TurnError`: the second model call above, a turn
+  at `MaxIterations`, an Eino interrupt the adapter did not raise, tool calls
+  that a Handler changed after the model call, and a configuration from the
+  `AgentConfigBuilder` that construction would refuse. The session sets
+  `LastTurnError` to the reason and writes `turn_failed`; the next turn that
+  completes clears it. The tool results the turn has not stored yet are
+  stored, so every stored call keeps its result. The model message of the
+  refused call is not stored.
+- **Model errors.** The Go core reads the HTTP status of a failed model call
+  from a `StatusCode`, `Response`, or `HTTPStatusCode` field, so go-openai and
+  Ark errors reach it unchanged. The adapter's outermost model wrapper wraps an
+  error in `ModelAPIError` only where the core would miss something: the
+  status in the `Code` of genai errors, or response headers that an error with
+  `HTTPStatusCode` carries. The core then backs off a 429 or 5xx, honoring
+  `Retry-After`, and ends the turn at once on another 4xx.
 - **Streaming.** With `WithStreaming(true)` the model call streams, and its text
   and reasoning arrive as `text_delta` and `reasoning_delta` events. Without it
   the model call uses `Generate`, and the whole text is one delta.
 - **Usage.** `ResponseMeta.Usage` maps to the session's usage: prompt, completion,
   cached prompt, and reasoning tokens.
 - **Turn limit.** `MaxIterations` (Eino's default 20) caps the model calls of one
-  turn, as it caps one Eino run.
+  turn, as it caps one Eino run. A turn at the cap ends as failed with
+  `TurnCompleted.TurnError` before another model call.
 
 ## Messages
 
@@ -308,7 +384,7 @@ its single tool call or result, when it has one.
 | Eino feature | Under Dex |
 | --- | --- |
 | `adk.Runner`, `TurnLoop`, `CheckPointStore`, `WithCheckPointID`, `ResumeWithParams` | The session Flow. Dex stores the messages and resumes from them |
-| Human-in-the-loop `tool.Interrupt` and `compose.Interrupt` | Dex approvals: give the tool `RequiresApproval` or a write effect, and answer with `resolve_interrupt`. An interrupt the adapter did not raise fails the Step |
+| Human-in-the-loop `tool.Interrupt` and `compose.Interrupt` | Dex approvals: give the tool `RequiresApproval` or a write effect, and answer with `resolve_interrupt`. An interrupt the adapter did not raise ends the turn as failed |
 | `ModelRetryConfig` | `RunModel` retries; tune it with `WithModelRetryPolicy`. Refused at construction |
 | `ModelFailoverConfig` | Choose the model per call with an `AgentConfigBuilder`. Refused at construction |
 | Sub-agents and `transfer_to_agent`, supervisor, plan-execute | Not supported: they make several model calls in one Step. Wrap a sub-agent as a tool instead |
@@ -349,18 +425,19 @@ its single tool call or result, when it has one.
 - **Tools must be safe for concurrent use**, because the calls of one model
   response run as parallel Steps, possibly in one Worker.
 - **Go core gaps.** The adapter runs on the Go core, which has no steering or
-  `cancel_turn`, questions or tool input requests, compaction, tool sources
-  (Connectors or MCP), images, plans, GenAI spans, or `ModelCallMetadata`. A
-  deliberate turn failure, such as the second-model-call guard or `MaxIterations`,
-  is retried by `RunModel` before the turn fails, because the Go core has no
-  `TurnCompleted.TurnError`. Serve each agent Flow type with Workers of one
-  language.
+  `cancel_turn`, questions or tool input requests, compaction, the MCP tool
+  source, tool tasks, images, plans, GenAI spans, `ModelCallMetadata`, or an
+  approval display for connector calls. Serve each agent Flow type with
+  Workers of one language, and follow the Go core's upgrade rule for tool
+  sources.
 
 ## Testing
 
 `ci.sh` checks formatting, `go vet`, and public API docs, then runs the unit
 tests and the integration tests against a private `dexcli dev` engine with
-scripted Eino models, so no model key is needed. The integration tests run
+scripted Eino models, so no model key is needed. The connector integration
+tests use a test Connector whose operations run behind real
+`sdkgo.AgentTool`s. The integration tests run
 Workers as child processes and kill them to test crashes. It runs the suite a
 second time against the newest Eino v0.10.0 alpha in a temporary copy of the
 module, with build tag `eino_v010`.

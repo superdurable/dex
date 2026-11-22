@@ -94,17 +94,22 @@ type AgentConfigBuilder func(ctx context.Context, build AgentBuildContext) (*adk
 
 // Runner runs one Eino ChatModelAgent configuration in Dex Step mode.
 //
-// It implements dexagents.AgentFrameworkRunner and
-// dexagents.UnfinishedTurnMessageBuilder. It keeps no state between calls:
-// every RunModelStep builds a fresh Eino agent and adk.Runner over the
+// It implements dexagents.AgentFrameworkRunner,
+// dexagents.UnfinishedTurnMessageBuilder, and
+// dexagents.ToolCallStepOptionsProvider. It keeps no session state between
+// calls: every RunModelStep builds a fresh Eino agent and adk.Runner over the
 // session's stored messages, and every ExecuteDeferredToolCall builds a
-// one-call compose.ToolsNode. Most applications call NewAgentSessionFlow
-// instead of constructing it. Embed it to wrap one of its methods, so the
-// session still finds BuildUnfinishedTurnMessages. Since 0.6.16.
+// one-call compose.ToolsNode, or runs a tool source's call through its source.
+// Most applications call NewAgentSessionFlow instead of constructing it. Embed
+// it to wrap one of its methods, so the session still finds
+// BuildUnfinishedTurnMessages and ToolCallStepOptions.
+//
+// Since 0.6.16.
 type Runner struct {
 	config  *adk.ChatModelAgentConfig
 	build   AgentConfigBuilder
 	options runnerOptions
+	router  *dexagents.ToolSourceRouter
 }
 
 // agentConfig is the adapter's own copy of one built configuration.
@@ -124,19 +129,22 @@ type runState struct {
 // and never changes it, but its tools, model, and Handlers are shared by every
 // Step, so they must be safe for concurrent use. It returns an error when
 // config is nil, when a tool has no Dex effect (see WithToolEffects), when two
-// tools share a name, or when the configuration makes more than one model call
-// in a Step or runs a tool inside RunModel: ModelRetryConfig,
+// tools share a name, when the configuration makes more than one model call
+// in a Step or runs a tool inside RunModel (ModelRetryConfig,
 // ModelFailoverConfig, Exit, ToolsConfig.ReturnDirectly, and the
-// summarization middleware are refused. Since 0.6.16.
+// summarization middleware are refused), or when the WithToolSources sources
+// are refused (see WithToolSources). Since 0.6.16.
 func NewRunner(config *adk.ChatModelAgentConfig, options ...Option) (*Runner, error) {
 	if config == nil {
 		return nil, errors.New("dexeino: NewRunner needs an Eino ChatModelAgentConfig")
 	}
 	copied := *config
 	runner := &Runner{config: &copied, options: newRunnerOptions(options)}
-	if err := runner.checkConfiguration(context.Background()); err != nil {
+	router, err := runner.checkConfiguration(context.Background())
+	if err != nil {
 		return nil, err
 	}
+	runner.router = router
 	return runner, nil
 }
 
@@ -150,9 +158,11 @@ func NewRunnerWithBuilder(build AgentConfigBuilder, options ...Option) (*Runner,
 		return nil, errors.New("dexeino: NewRunnerWithBuilder needs an AgentConfigBuilder")
 	}
 	runner := &Runner{build: build, options: newRunnerOptions(options)}
-	if err := runner.checkConfiguration(context.Background()); err != nil {
+	router, err := runner.checkConfiguration(context.Background())
+	if err != nil {
 		return nil, err
 	}
+	runner.router = router
 	return runner, nil
 }
 
@@ -210,14 +220,30 @@ func (runner *Runner) BuildUserMessage(text string) (dexagents.FrameworkMessage,
 // RunModelStep makes one model call of the turn with a fresh Eino agent over the stored messages.
 //
 // The input is every stored message, then a tool result for each of the
-// turn's calls whose result is not stored yet. It returns
-// *dexagents.ToolCallsRequested when the model asked for tools and
+// turn's calls whose result is not stored yet. The model is offered the
+// agent's tools and the tools the WithToolSources sources list now. It
+// returns *dexagents.ToolCallsRequested when the model asked for tools and
 // *dexagents.TurnCompleted otherwise; both carry those tool results and the
-// model's message. Model errors come back with their HTTP status exposed (see
-// ModelAPIError), so the session backs off a transient error and ends the
-// turn on another 4xx. Since 0.6.16.
+// model's message. Model errors come back with their HTTP status where the
+// session reads it (see ModelAPIError), so the session backs off a transient
+// error and ends the turn on another 4xx.
+//
+// A stop that a retry would repeat ends the turn as failed at once, with a
+// *dexagents.TurnCompleted whose TurnError says why: a configuration from the
+// AgentConfigBuilder that NewRunner would refuse, a turn at the agent's
+// MaxIterations, a second model call in the Step, an Eino interrupt the
+// adapter did not raise, or tool calls that changed after the model call. Its
+// NewMessages hold only the unstored tool results, so every stored call keeps
+// its result; the model message of a refused call is not stored. The usage of
+// a model call that ran is recorded, and no retry pays for it again.
+//
+// Since 0.6.16.
 func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurnContext) (dexagents.AgentTurnOutcome, error) {
 	modelCalls, err := decodeRunState(turn.FrameworkRunState)
+	if err != nil {
+		return nil, err
+	}
+	unstoredResults, err := unstoredToolResults(turn)
 	if err != nil {
 		return nil, err
 	}
@@ -233,17 +259,18 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 		return nil, err
 	}
 	if err := refuseUnsupportedConfig(config); err != nil {
-		return runner.endTurnAsFailed(err.Error(), dexagents.AgentUsage{})
+		return endTurnAsFailed("the agent configuration cannot run in Dex Step mode: "+err.Error(),
+			dexagents.AgentUsage{}, unstoredResults)
 	}
 	if limit := maxModelCallsPerTurn(config); modelCalls >= limit {
-		return runner.endTurnAsFailed(fmt.Sprintf(
-			"the turn reached the Eino agent's MaxIterations of %d model calls", limit), dexagents.AgentUsage{})
+		return endTurnAsFailed(fmt.Sprintf(
+			"the turn reached the Eino agent's MaxIterations of %d model calls", limit), dexagents.AgentUsage{}, unstoredResults)
 	}
 	tools, err := runner.assembleAgentTools(ctx, config)
 	if err != nil {
 		return nil, err
 	}
-	unstoredResults, err := unstoredToolResults(turn)
+	sourceTools, sourceStubs, err := runner.listSourceTools(ctx, turn, tools)
 	if err != nil {
 		return nil, err
 	}
@@ -252,74 +279,80 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 		return nil, err
 	}
 	run := newModelCallRun(turn)
-	agent, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, run))
+	agent, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, run, sourceStubs))
 	if err != nil {
 		return nil, fmt.Errorf("dexeino: build the Eino agent: %w", err)
 	}
 	einoRunner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: runner.options.isStreaming})
 	drained := drainModelRun(einoRunner.Run(ctx, input))
-	return runner.modelCallOutcome(turn, tools, run, drained, modelCalls, unstoredResults)
+	return runner.modelCallOutcome(modelCallResult{
+		turn: turn, tools: tools, sourceTools: sourceTools, offeredToolCount: len(tools.ordered) + len(sourceStubs),
+		run: run, drained: drained, modelCalls: modelCalls, unstoredResults: unstoredResults,
+	})
 }
 
-func (runner *Runner) modelCallOutcome(
-	turn dexagents.AgentTurnContext,
-	tools agentTools,
-	run *modelCallRun,
-	drained drainedModelRun,
-	modelCalls int,
-	unstoredResults []*schema.Message,
-) (dexagents.AgentTurnOutcome, error) {
+// modelCallResult is what modelCallOutcome turns into the Step's outcome.
+type modelCallResult struct {
+	turn             dexagents.AgentTurnContext
+	tools            agentTools
+	sourceTools      *dexagents.SourceToolListing
+	offeredToolCount int
+	run              *modelCallRun
+	drained          drainedModelRun
+	modelCalls       int
+	unstoredResults  []*schema.Message
+}
+
+func (runner *Runner) modelCallOutcome(result modelCallResult) (dexagents.AgentTurnOutcome, error) {
+	run, drained := result.run, result.drained
 	usage := run.modelCallUsage()
 	run.mutex.Lock()
 	isSecondCallTried := run.isSecondCallTried
 	offered := maps.Clone(run.offeredTools)
 	run.mutex.Unlock()
 	if isSecondCallTried || errors.Is(drained.err, errSecondModelCall) {
-		return runner.endTurnAsFailed("the Eino agent tried a second model call in one RunModel Step; "+
-			"a Handler or model wrapper that calls the model again is not supported", usage)
+		return endTurnAsFailed("the Eino agent tried a second model call in one RunModel Step; "+
+			"a Handler or model wrapper that calls the model again is not supported", usage, result.unstoredResults)
 	}
 	if drained.err != nil {
 		return nil, fmt.Errorf("the Eino agent run failed: %w", drained.err)
 	}
 	if len(drained.foreignInterrupts) > 0 {
-		return runner.endTurnAsFailed(fmt.Sprintf("an Eino interrupt that the adapter did not raise stopped the run (%s); "+
-			"Dex approvals replace Eino human-in-the-loop interrupts", strings.Join(drained.foreignInterrupts, ", ")), usage)
+		return endTurnAsFailed(fmt.Sprintf("an Eino interrupt that the adapter did not raise stopped the run (%s); "+
+			"Dex approvals replace Eino human-in-the-loop interrupts", strings.Join(drained.foreignInterrupts, ", ")),
+			usage, result.unstoredResults)
 	}
 	message := run.capturedMessage()
 	if message == nil {
 		return nil, errors.New("dexeino: the Eino agent run ended without a model message")
 	}
-	newMessages, err := encodeMessages(append(append([]*schema.Message{}, unstoredResults...), message))
+	newMessages, err := encodeMessages(append(append([]*schema.Message{}, result.unstoredResults...), message))
 	if err != nil {
 		return nil, err
 	}
 	requested := toolCallIDSet(message.ToolCalls)
 	if len(message.ToolCalls) == 0 {
 		if len(drained.gatedCalls) > 0 {
-			return runner.endTurnAsFailed("the Eino agent stopped at tool calls its model message does not contain", usage)
+			return endTurnAsFailed("the Eino agent stopped at tool calls its model message does not contain",
+				usage, result.unstoredResults)
 		}
 		return &dexagents.TurnCompleted{NewMessages: newMessages, Usage: usage}, nil
 	}
-	if !sameToolCallIDs(requested, drained.gatedCalls) && !(len(drained.gatedCalls) == 0 && len(tools.ordered) == 0) {
-		return runner.endTurnAsFailed("the Eino agent's tool calls changed after the model call; "+
-			"a Handler that rewrites the model message's tool calls is not supported", usage)
+	if !sameToolCallIDs(requested, drained.gatedCalls) && !(len(drained.gatedCalls) == 0 && result.offeredToolCount == 0) {
+		return endTurnAsFailed("the Eino agent's tool calls changed after the model call; "+
+			"a Handler that rewrites the model message's tool calls is not supported", usage, result.unstoredResults)
 	}
-	encodedState, err := json.Marshal(runState{Version: runStateVersion, ModelCalls: ptr(modelCalls + 1)})
+	encodedState, err := json.Marshal(runState{Version: runStateVersion, ModelCalls: ptr(result.modelCalls + 1)})
 	if err != nil {
 		return nil, err
 	}
 	toolCalls := make([]dexagents.DeferredToolCall, 0, len(message.ToolCalls))
 	for _, call := range message.ToolCalls {
-		arguments := call.Function.Arguments
-		if strings.TrimSpace(arguments) == "" {
-			arguments = "{}"
+		deferred, err := runner.deferredToolCall(result, offered, call)
+		if err != nil {
+			return nil, err
 		}
-		toolCalls = append(toolCalls, dexagents.DeferredToolCall{
-			ToolCallID: call.ID,
-			ToolName:   call.Function.Name,
-			Arguments:  arguments,
-			Policy:     runner.modelCallToolPolicy(turn, tools, offered, call.Function.Name),
-		})
+		toolCalls = append(toolCalls, deferred)
 	}
 	return &dexagents.ToolCallsRequested{
 		FrameworkRunState: string(encodedState),
@@ -329,28 +362,54 @@ func (runner *Runner) modelCallOutcome(
 	}, nil
 }
 
+// deferredToolCall builds a call through the source that listed its tool, or as a call of an agent tool.
+func (runner *Runner) deferredToolCall(result modelCallResult, offered map[string]bool, call schema.ToolCall) (dexagents.DeferredToolCall, error) {
+	arguments := call.Function.Arguments
+	if strings.TrimSpace(arguments) == "" {
+		arguments = "{}"
+	}
+	if result.sourceTools != nil && result.sourceTools.HasTool(call.Function.Name) {
+		built, err := result.sourceTools.DeferredToolCall(result.turn, call.ID, call.Function.Name, arguments)
+		if err != nil {
+			return dexagents.DeferredToolCall{}, err
+		}
+		if built != nil {
+			return *built, nil
+		}
+	}
+	return dexagents.DeferredToolCall{
+		ToolCallID: call.ID,
+		ToolName:   call.Function.Name,
+		Arguments:  arguments,
+		Policy:     runner.modelCallToolPolicy(result.turn, result.tools, offered, call.Function.Name),
+	}, nil
+}
+
 // endTurnAsFailed ends the turn without a final answer, for a reason a retry would repeat.
 //
-// The Go core has no TurnCompleted.TurnError yet, so this returns an error,
-// and RunModel ends the turn after its attempts.
-func (runner *Runner) endTurnAsFailed(reason string, usage dexagents.AgentUsage) (dexagents.AgentTurnOutcome, error) {
-	return nil, &turnEndingError{reason: reason, usage: usage}
+// It returns a TurnCompleted with TurnError, so RunModel ends the turn without
+// retries; its NewMessages hold only the turn's unstored tool results.
+func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults []*schema.Message) (dexagents.AgentTurnOutcome, error) {
+	newMessages, err := encodeMessages(unstoredResults)
+	if err != nil {
+		return nil, err
+	}
+	return &dexagents.TurnCompleted{NewMessages: newMessages, Usage: usage, TurnError: &reason}, nil
 }
 
-// turnEndingError is the error endTurnAsFailed returns until the core can end a turn without retries.
-type turnEndingError struct {
-	reason string
-	usage  dexagents.AgentUsage
-}
-
-func (failure *turnEndingError) Error() string {
-	return "dexeino: " + failure.reason
-}
-
-// ExecuteDeferredToolCall runs one Eino tool call through a one-call compose.ToolsNode.
+// ExecuteDeferredToolCall runs one tool call: an Eino tool's through a one-call compose.ToolsNode,
+// a tool source's through its source.
 //
-// The ToolsNode has the agent's tools, ToolAliases, ToolArgumentsHandler, and
-// tool middlewares, plus the Handlers' tool wrappers, in Eino's order, so
+// A call that a WithToolSources source built runs first and alone through
+// dexagents.ToolSourceRouter.ExecuteDeferredToolCall, with ctx and call
+// unchanged, and returns what the source returns: the agent's tool
+// middlewares and Handler tool wrappers never wrap it, and the
+// AgentConfigBuilder is not called. When this Worker has no source of that
+// name, the error fails the attempt, so the call's effect decides its
+// outcome.
+//
+// For an Eino tool, the ToolsNode has the agent's tools, ToolAliases,
+// ToolArgumentsHandler, and tool middlewares, plus the Handlers' tool wrappers, in Eino's order, so
 // compose.GetToolCallID and ToolCallContextFrom work inside the tool. A tool
 // the deploy no longer has, or that the model invented, returns a
 // *dexagents.ToolExecutionError "unknown tool <name>", so the model sees why.
@@ -359,6 +418,9 @@ func (failure *turnEndingError) Error() string {
 // decides the outcome from the call's effect. Since 0.6.16.
 func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagents.DeferredToolExecution) (dexagents.DeferredToolOutcome, error) {
 	record := call.ToolCall
+	if runner.router.IsSourceToolCall(record) {
+		return runner.router.ExecuteDeferredToolCall(ctx, call)
+	}
 	config, err := runner.buildAgentConfig(ctx, AgentBuildContext{
 		Purpose: BuildPurposeToolCall, FlowID: call.FlowID, TurnID: record.TurnID, Attempt: call.Attempt,
 		SessionSettings: map[string]any{}, ToolCallID: record.ToolCallID,
@@ -457,29 +519,37 @@ func (runner *Runner) buildAgentConfig(ctx context.Context, build AgentBuildCont
 	return &agentConfig{agent: *source}, nil
 }
 
-// checkConfiguration builds the configuration once and refuses one the adapter cannot run in Step mode.
-func (runner *Runner) checkConfiguration(ctx context.Context) error {
+// checkConfiguration refuses a configuration the adapter cannot run in Step mode and returns its tool source router.
+func (runner *Runner) checkConfiguration(ctx context.Context) (*dexagents.ToolSourceRouter, error) {
 	config, err := runner.buildAgentConfig(ctx, AgentBuildContext{Purpose: BuildPurposeCheck, SessionSettings: map[string]any{}})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := refuseUnsupportedConfig(config); err != nil {
-		return fmt.Errorf("dexeino: %w", err)
+		return nil, fmt.Errorf("dexeino: %w", err)
 	}
 	tools, err := runner.assembleAgentTools(ctx, config)
 	if err != nil {
-		return fmt.Errorf("dexeino: %w", err)
+		return nil, fmt.Errorf("dexeino: %w", err)
 	}
 	if err := runner.checkToolEffects(tools); err != nil {
-		return fmt.Errorf("dexeino: %w", err)
+		return nil, fmt.Errorf("dexeino: %w", err)
+	}
+	router, err := newToolSourceRouter(runner.options, reservedToolNames(tools))
+	if err != nil {
+		return nil, fmt.Errorf("dexeino: %w", err)
+	}
+	sourceStubs, err := cachedSourceToolStubs(router)
+	if err != nil {
+		return nil, fmt.Errorf("dexeino: %w", err)
 	}
 	if _, err := compose.NewToolNode(ctx, toolStepNodeConfig(config, tools.baseTools())); err != nil {
-		return fmt.Errorf("dexeino: the agent's tools do not form a ToolsNode: %w", err)
+		return nil, fmt.Errorf("dexeino: the agent's tools do not form a ToolsNode: %w", err)
 	}
-	if _, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, newModelCallRun(dexagents.AgentTurnContext{}))); err != nil {
-		return fmt.Errorf("dexeino: Eino refuses the agent configuration: %w", err)
+	if _, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, newModelCallRun(dexagents.AgentTurnContext{}), sourceStubs)); err != nil {
+		return nil, fmt.Errorf("dexeino: Eino refuses the agent configuration: %w", err)
 	}
-	return nil
+	return router, nil
 }
 
 // refuseUnsupportedConfig returns an error for a configuration that would make several model calls in a Step or run a tool there.

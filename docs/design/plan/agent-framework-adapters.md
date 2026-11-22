@@ -99,7 +99,7 @@ this plan needs it, and the cores do not implement it.
 | Mastra | Step mode | Client tools: the agent stops with their calls instead of running them | Agent messages | Send the tool results back as client tool results and call the agent again |
 | OpenAI Agents SDK | Step mode | A `needs_approval` gate on every function tool; the run stops with `result.interruptions` after one model call | `RunState.to_json()` / `RunState.from_json()`, which also holds the current agent after a handoff | Approve each interruption whose record is final, and the tool wrapper's `on_invoke_tool` returns the Dex result instead of running the tool; reject with the rejection message |
 | Claude Agent SDK | Whole-turn harness | No clean stop: the CLI runs the turn's model calls and tools itself | Session transcript through `SessionStore`, resumed by session ID | No injection; tools run inside the harness |
-| CloudWeGo Eino ADK `ChatModelAgent` (Go) | Step mode, stateless replay | The adapter's first Handler turns every tool call, and every unknown tool, into `tool.Interrupt`; the run ends with one `Interrupted` event that names every call | Only the turn's model call count; no Eino checkpoint | A fresh `adk.Runner.Run` over the stored messages plus one `role=tool` message per final record |
+| CloudWeGo Eino ADK `ChatModelAgent` (Go) | Step mode, stateless replay | The adapter's first Handler turns every tool call, every tool source tool, and every unknown tool into `tool.Interrupt`; the run ends with one `Interrupted` event that names every call | Only the turn's model call count; no Eino checkpoint | A fresh `adk.Runner.Run` over the stored messages plus one `role=tool` message per final record |
 
 Notes:
 
@@ -118,9 +118,16 @@ Notes:
   wrappers, never around the interrupt. Configurations that make several model
   calls in one Step (`ModelRetryConfig`, `ModelFailoverConfig`, the
   summarization middleware) or end a turn on a tool (`ReturnDirectly`, `Exit`)
-  refuse to build, and Eino sub-agent transfer is not supported. The adapter
-  inherits the Go core's subset: no steering, `cancel_turn`, questions,
-  compaction, tool sources, images, or spans.
+  refuse to build, and Eino sub-agent transfer is not supported. A stop that
+  a retry would repeat, such as a second model call in one Step or a turn at
+  `MaxIterations`, ends the turn with `TurnCompleted.TurnError`, so no paid
+  retry follows. Tool source tools (`WithToolSources`, such as Connectors as
+  tools) are offered as Eino tools whose bodies never run; the tool Step
+  routes their calls through `ToolSourceRouter` before and outside the
+  `compose.ToolsNode`, with the source's `ToolSourceReference`, while Eino's
+  own tools keep a nil reference. The adapter inherits the Go core's subset:
+  no steering, `cancel_turn`, questions, compaction, the MCP tool source,
+  images, or spans.
 
 ## Effects and policies
 

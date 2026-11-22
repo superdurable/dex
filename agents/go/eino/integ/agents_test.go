@@ -37,6 +37,8 @@ const (
 	einoDeadlineAgentFlowType  = "EinoDeadlineAgent"
 	einoSettingsAgentFlowType  = "EinoSettingsAgent"
 	einoOpenAIAgentFlowType    = "EinoOpenAIAgent"
+	einoConnectorAgentFlowType = "EinoConnectorAgent"
+	einoGuardedAgentFlowType   = "EinoGuardedAgent"
 	approvalDeadline           = 2 * time.Second
 	instructionV1              = "You are the Eino test agent."
 	instructionV2              = "You are the Eino test agent, version 2."
@@ -113,7 +115,23 @@ func newEinoAgentFlows(coordinationDir string, deploy agentDeploy, openAIBaseURL
 	if err != nil {
 		return nil, err
 	}
-	return []dex.Flow{scripted, streaming, deadline, settings, openAI}, nil
+	ledger, err := newLedgerToolSource(coordination)
+	if err != nil {
+		return nil, err
+	}
+	connector, err := dexeino.NewAgentSessionFlow(newConfig(conversation), einoConnectorAgentFlowType,
+		append(options, dexeino.WithToolSources(ledger))...)
+	if err != nil {
+		return nil, err
+	}
+	guardedConfig := newConfig(conversation)
+	guardedConfig.MaxIterations = 1
+	guardedConfig.Handlers = append(guardedConfig.Handlers, &doubleCallingHandler{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}})
+	guarded, err := dexeino.NewAgentSessionFlow(guardedConfig, einoGuardedAgentFlowType, options...)
+	if err != nil {
+		return nil, err
+	}
+	return []dex.Flow{scripted, streaming, deadline, settings, openAI, connector, guarded}, nil
 }
 
 // newSettingsAgentFlow builds an agent whose builder picks the model the session settings name.
@@ -317,13 +335,26 @@ func (scripted *scriptedChatModel) WithTools([]*schema.ToolInfo) (model.ToolCall
 	return scripted, nil
 }
 
-func (scripted *scriptedChatModel) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (scripted *scriptedChatModel) Generate(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.Message, error) {
 	scripted.coordination.recordCall("model")
+	scripted.recordOfferedTools(options)
 	return scripted.respond(ctx, input)
 }
 
-func (scripted *scriptedChatModel) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+// recordOfferedTools writes the names of the tools this model call offers to "offered-tools".
+func (scripted *scriptedChatModel) recordOfferedTools(options []model.Option) {
+	names := []string{}
+	for _, info := range model.GetCommonOptions(&model.Options{}, options...).Tools {
+		names = append(names, info.Name)
+	}
+	if err := os.WriteFile(filepath.Join(scripted.coordination.dir, "offered-tools"), []byte(strings.Join(names, ",")), 0o644); err != nil {
+		panic(err)
+	}
+}
+
+func (scripted *scriptedChatModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	scripted.coordination.recordCall("model")
+	scripted.recordOfferedTools(options)
 	lastUser, _, _ := conversationTail(input)
 	if lastUser == "think slowly" && !scripted.coordination.hasMarker("model-attempt-1") {
 		reader, writer := schema.Pipe[*schema.Message](1)
@@ -454,6 +485,27 @@ func (scripted *scriptedChatModel) respond(ctx context.Context, input []*schema.
 		return answer("Plain: " + outputs[0])
 	case lastUser == "think slowly":
 		return answer("answered after the restart")
+	case lastUser == "ledger turn":
+		if isFirst {
+			return calls(toolCall("call_lookup", "lookup_order", `{"order_id":"1"}`),
+				toolCall("call_balance", "fake-ledger_get_balance", `{"accountId":"acct-1"}`),
+				toolCall("call_note", "fake-ledger_post_note", `{"accountId":"acct-1","text":"hello"}`))
+		}
+		scripted.coordination.writeMarker("ledger-final.reached")
+		if err := scripted.coordination.waitForRelease(ctx, "ledger-final"); err != nil {
+			return nil, err
+		}
+		return answer("Ledger: " + strings.Join(outputs, "; "))
+	case lastUser == "rejected note":
+		if isFirst {
+			return calls(toolCall("call_reject", "fake-ledger_post_note", `{"accountId":"acct-1","text":"reject this"}`))
+		}
+		return answer("Note: " + outputs[0])
+	case lastUser == "payout":
+		if isFirst {
+			return calls(toolCall("call_payout", "fake-ledger_create_payout", `{"accountId":"acct-2","amount":5}`))
+		}
+		return answer("Payout: " + outputs[0])
 	default:
 		for _, text := range userTexts {
 			if strings.HasPrefix(text, dexagents.TurnFailureNoteHeader) {
@@ -471,6 +523,38 @@ func toolCall(id, name, arguments string) schema.ToolCall {
 func withUsage(message *schema.Message) *schema.Message {
 	message.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{PromptTokens: 10, CompletionTokens: 5}}
 	return message
+}
+
+// doubleCallingHandler calls the model twice when the user says "call twice", as a retrying wrapper would.
+type doubleCallingHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+}
+
+func (handler *doubleCallingHandler) WrapModel(_ context.Context, inner model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+	return &doubleCallingModel{inner: inner}, nil
+}
+
+type doubleCallingModel struct {
+	inner model.BaseModel[*schema.Message]
+}
+
+func (double *doubleCallingModel) Generate(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.Message, error) {
+	message, err := double.inner.Generate(ctx, input, options...)
+	if err != nil {
+		return nil, err
+	}
+	if lastUser, _, _ := conversationTail(input); lastUser != "call twice" {
+		return message, nil
+	}
+	return double.inner.Generate(ctx, input, options...)
+}
+
+func (double *doubleCallingModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	message, err := double.Generate(ctx, input, options...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.StreamReaderFromArray([]*schema.Message{message}), nil
 }
 
 // namedChatModel answers with its own name and the instruction it received.

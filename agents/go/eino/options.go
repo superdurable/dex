@@ -33,13 +33,15 @@ func (option optionFunc) applyOption(options *runnerOptions) {
 }
 
 type runnerOptions struct {
-	toolPolicies         map[string]dexagents.ToolPolicy
-	toolEffects          map[string]dexagents.ToolEffect
-	defaultToolEffect    dexagents.ToolEffect
-	hasDefaultToolEffect bool
-	isStreaming          bool
-	logger               *slog.Logger
-	sessionOptions       []dexagents.AgentSessionOption
+	toolPolicies             map[string]dexagents.ToolPolicy
+	toolEffects              map[string]dexagents.ToolEffect
+	defaultToolEffect        dexagents.ToolEffect
+	hasDefaultToolEffect     bool
+	isStreaming              bool
+	toolSources              []dexagents.ToolSource
+	toolSourceListingTimeout *time.Duration
+	logger                   *slog.Logger
+	sessionOptions           []dexagents.AgentSessionOption
 }
 
 func newRunnerOptions(options []Option) runnerOptions {
@@ -113,6 +115,48 @@ func WithDefaultToolEffect(effect dexagents.ToolEffect) Option {
 func WithStreaming(isStreaming bool) Option {
 	return optionFunc(func(options *runnerOptions) {
 		options.isStreaming = isStreaming
+	})
+}
+
+// WithToolSources adds tool sources, such as a connectortools.ConnectorToolSource, whose tools the
+// agent lists at run time.
+//
+// In every RunModel the runner lists each source, waiting at most the listing
+// timeout, and offers the listed tools to the model after the agent's own
+// tools, as Eino tools whose bodies never run. A source whose listing fails or
+// takes longer offers no tools in that model call. A call of a listed tool is
+// built by its source, which picks the effect, the approval, and the write
+// ordering; a session policy reaches the source through the turn. The call
+// runs in its own tool Step through that source, before and outside Eino's
+// tool node, so ToolCallMiddlewares and Handler tool wrappers never wrap it,
+// on any Worker that has a source of the same SourceName. A name that neither
+// the agent nor a listing offered fails as an unknown tool without an
+// approval. Construction returns an error when two sources share a SourceName
+// or a declared source tool name repeats an agent tool, a tool alias, or
+// another source's tool. Later calls add to earlier ones.
+//
+//	source, err := connectortools.NewConnectorToolSource([]*connectortools.ConnectorTool{reply})
+//	if err != nil {
+//		return err
+//	}
+//	flow, err := dexeino.NewAgentSessionFlow(config, "SupportAgent", dexeino.WithToolSources(source))
+//
+// Since 0.6.16.
+func WithToolSources(sources ...dexagents.ToolSource) Option {
+	copied := slices.Clone(sources)
+	return optionFunc(func(options *runnerOptions) {
+		options.toolSources = append(options.toolSources, copied...)
+	})
+}
+
+// WithToolSourceListingTimeout sets how long one model call waits for each tool source's listing.
+//
+// The default is dexagents.DefaultToolSourceListingTimeout, 10 seconds. It
+// must be positive: construction returns an error for zero or a negative
+// timeout. Since 0.6.16.
+func WithToolSourceListingTimeout(timeout time.Duration) Option {
+	return optionFunc(func(options *runnerOptions) {
+		options.toolSourceListingTimeout = &timeout
 	})
 }
 

@@ -5,7 +5,9 @@ go 1.26.0
 require (
 	github.com/cloudwego/eino v0.9.23
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
+	github.com/eino-contrib/jsonschema v1.0.3
 	github.com/stretchr/testify v1.11.1
+	github.com/superdurable/dex-connectors-library/sdkgo v0.39.0
 	github.com/superdurable/dex/agents/go/core v0.6.16
 	github.com/superdurable/dex/sdk-go v1.45.6
 )
@@ -22,7 +24,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.4.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/goph/emperror v0.17.2 // indirect

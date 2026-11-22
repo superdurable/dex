@@ -98,29 +98,70 @@ func (double doubleCallingModel) Stream(ctx context.Context, input []*schema.Mes
 	return schema.StreamReaderFromArray([]*schema.Message{message}), nil
 }
 
-// A wrapper that makes a second model call fails the Step before the second call reaches the model.
-func TestSecondModelCallInOneStepIsRefused(t *testing.T) {
+// requireTurnError returns the TurnError of an outcome that ends the turn as failed without an error.
+func requireTurnError(t *testing.T, outcome dexagents.AgentTurnOutcome, err error) *dexagents.TurnCompleted {
+	t.Helper()
+	require.NoError(t, err, "a stop a retry would repeat is no Step error, so RunModel never pays for it again")
+	completed, isCompleted := outcome.(*dexagents.TurnCompleted)
+	require.True(t, isCompleted, "outcome %T", outcome)
+	require.NotNil(t, completed.TurnError)
+	return completed
+}
+
+// A wrapper that makes a second model call ends the turn as failed, with the one call it made billed.
+func TestSecondModelCallInOneStepEndsTheTurnAsFailed(t *testing.T) {
 	scripted := echoModel()
 	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
 		Handlers: []adk.ChatModelAgentMiddleware{doubleCallingHandler{&adk.BaseChatModelAgentMiddleware{}}}}
 	runner, err := dexeino.NewRunner(config)
 	require.NoError(t, err)
 	state := newTurnState(t, runner, "hello")
-	_, err = runner.RunModelStep(context.Background(), state.context())
-	require.ErrorContains(t, err, "second model call")
+	outcome, err := runner.RunModelStep(context.Background(), state.context())
+	completed := requireTurnError(t, outcome, err)
+	require.Contains(t, *completed.TurnError, "second model call")
+	require.Equal(t, int64(1), completed.Usage.ModelCalls, "the call that ran is billed")
+	require.Empty(t, completed.NewMessages, "the refused call's message is not stored")
 	require.Equal(t, 1, scripted.calls(), "the second call never reaches the model")
 }
 
-// The turn's model calls stop at the agent's MaxIterations, Eino's per-run limit.
-func TestMaxIterationsEndsTheTurn(t *testing.T) {
-	scripted := echoModel()
-	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted, MaxIterations: 2}
-	runner, err := dexeino.NewRunner(config)
+// The turn's model calls stop at the agent's MaxIterations, Eino's per-run limit; the unstored
+// tool results are stored, so every stored call keeps its result.
+func TestMaxIterationsEndsTheTurnAsFailed(t *testing.T) {
+	scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+		return toolCallMessage(call("call_1", "lookup_order", `{"id":"1"}`)), nil
+	}}
+	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted, MaxIterations: 1,
+		ToolsConfig: toolsConfig(noopTool("lookup_order"))}
+	runner, err := dexeino.NewRunner(config, dexeino.WithDefaultToolEffect(dexagents.ToolEffectRead))
 	require.NoError(t, err)
 	state := newTurnState(t, runner, "hello")
-	state.runState = ptr(`{"v":1,"model_calls":2}`)
-	_, err = runner.RunModelStep(context.Background(), state.context())
-	require.ErrorContains(t, err, "MaxIterations of 2 model calls")
+	state.runModel(runner)
+	require.Empty(t, state.runTools(runner))
+	outcome, err := runner.RunModelStep(context.Background(), state.context())
+	completed := requireTurnError(t, outcome, err)
+	require.Equal(t, "the turn reached the Eino agent's MaxIterations of 1 model calls", *completed.TurnError)
+	require.Zero(t, completed.Usage.ModelCalls)
+	require.Len(t, completed.NewMessages, 1)
+	require.Equal(t, dexagents.MessageRoleTool, completed.NewMessages[0].Role)
+	require.Equal(t, "call_1", *completed.NewMessages[0].ToolCallID)
+	require.Equal(t, 1, scripted.calls())
+}
+
+// A builder configuration that NewRunner would refuse ends the turn as failed before any model call.
+func TestRefusedBuilderConfigurationEndsTheTurnAsFailed(t *testing.T) {
+	scripted := echoModel()
+	runner, err := dexeino.NewRunnerWithBuilder(func(_ context.Context, build dexeino.AgentBuildContext) (*adk.ChatModelAgentConfig, error) {
+		config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted}
+		if build.Purpose == dexeino.BuildPurposeModelCall {
+			config.ModelRetryConfig = &adk.ModelRetryConfig{MaxRetries: 2}
+		}
+		return config, nil
+	})
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "hello")
+	outcome, err := runner.RunModelStep(context.Background(), state.context())
+	completed := requireTurnError(t, outcome, err)
+	require.Contains(t, *completed.TurnError, "cannot run in Dex Step mode: ModelRetryConfig")
 	require.Zero(t, scripted.calls())
 }
 
@@ -167,7 +208,7 @@ func TestStreamingWritesDeltasAndCapturesTheMessage(t *testing.T) {
 	require.Equal(t, []string{"reasoning_delta:checking", "text_delta:Hello ", "text_delta:there"}, deltas)
 }
 
-// httpStatusCodeError has the status field of go-openai's and Ark's errors, which the Go core does not read.
+// httpStatusCodeError has the status field of go-openai's and Ark's errors, which the Go core reads since 0.6.16.
 type httpStatusCodeError struct{ HTTPStatusCode int }
 
 func (failure *httpStatusCodeError) Error() string {
@@ -185,7 +226,16 @@ type headerError struct {
 
 func (failure *headerError) Error() string { return "limited" }
 
-// A model error keeps its chain and exposes its HTTP status in a field the Go core reads.
+// headerWrapper carries response headers around an error that holds the status.
+type headerWrapper struct {
+	Header http.Header
+	cause  error
+}
+
+func (wrapper *headerWrapper) Error() string { return "request failed: " + wrapper.cause.Error() }
+func (wrapper *headerWrapper) Unwrap() error { return wrapper.cause }
+
+// A model error keeps its chain; the adapter wraps it only to expose a status or headers the Go core would not read.
 func TestModelErrorsExposeTheirHTTPStatus(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		failure    error
@@ -193,10 +243,12 @@ func TestModelErrorsExposeTheirHTTPStatus(t *testing.T) {
 		status     int
 		retryAfter string
 	}{
-		"HTTPStatusCode":         {&httpStatusCodeError{HTTPStatusCode: 429}, true, 429, ""},
-		"wrapped HTTPStatusCode": {fmt.Errorf("openai: %w", &httpStatusCodeError{HTTPStatusCode: 503}), true, 503, ""},
-		"with headers": {&headerError{HTTPStatusCode: 429, Header: http.Header{"Retry-After": []string{"7"}}},
-			true, 429, "7"},
+		"HTTPStatusCode the core reads":         {&httpStatusCodeError{HTTPStatusCode: 429}, false, 429, ""},
+		"wrapped HTTPStatusCode the core reads": {fmt.Errorf("openai: %w", &httpStatusCodeError{HTTPStatusCode: 503}), false, 503, ""},
+		"HTTPStatusCode with headers the core would not read": {&headerError{HTTPStatusCode: 429,
+			Header: http.Header{"Retry-After": []string{"7"}}}, true, 429, "7"},
+		"headers outside the HTTPStatusCode error": {&headerWrapper{Header: http.Header{"Retry-After": []string{"3"}},
+			cause: &httpStatusCodeError{HTTPStatusCode: 503}}, true, 503, "3"},
 		"StatusCode already readable": {&statusCodeError{StatusCode: 400}, false, 400, ""},
 	} {
 		for _, isStreaming := range []bool{false, true} {
@@ -225,7 +277,7 @@ func TestModelErrorsExposeTheirHTTPStatus(t *testing.T) {
 
 // A mid-stream error is exposed like one at the start of the call.
 func TestMidStreamModelErrorIsExposed(t *testing.T) {
-	failing := &midStreamModel{failure: &httpStatusCodeError{HTTPStatusCode: 502}}
+	failing := &midStreamModel{failure: &headerError{HTTPStatusCode: 502, Header: http.Header{"Retry-After": []string{"2"}}}}
 	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: failing}
 	runner, err := dexeino.NewRunner(config, dexeino.WithStreaming(true))
 	require.NoError(t, err)
@@ -343,16 +395,17 @@ func purposes(builds []dexeino.AgentBuildContext) []dexeino.BuildPurpose {
 	return result
 }
 
-// An Eino interrupt the adapter did not raise ends the run instead of being treated as a tool call.
-func TestForeignInterruptFailsTheStep(t *testing.T) {
+// An Eino interrupt the adapter did not raise ends the turn as failed instead of being treated as a tool call.
+func TestForeignInterruptEndsTheTurnAsFailed(t *testing.T) {
 	scripted := echoModel()
 	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
 		Handlers: []adk.ChatModelAgentMiddleware{interruptingHandler{&adk.BaseChatModelAgentMiddleware{}}}}
 	runner, err := dexeino.NewRunner(config)
 	require.NoError(t, err)
 	state := newTurnState(t, runner, "hello")
-	_, err = runner.RunModelStep(context.Background(), state.context())
-	require.ErrorContains(t, err, "did not raise")
+	outcome, err := runner.RunModelStep(context.Background(), state.context())
+	completed := requireTurnError(t, outcome, err)
+	require.Contains(t, *completed.TurnError, "did not raise")
 }
 
 type interruptingHandler struct {

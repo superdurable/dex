@@ -211,8 +211,8 @@ the session stalls, and it records a later attempt of a connector write
 Recorded 2026-11-21, at the request of a co-owner of the project, who asked
 for Dex support for CloudWeGo Eino and an Eino version of an existing agent
 tested end to end. It reverses "framework adapters" in "What Go will not get"
-above. The rest of that decision stands: Go still stops at the session core
-for every other contract feature.
+above. The rest of that decision stands: past the session core, Go gains only
+Connectors as tools (the decision above) and the adapter itself.
 
 **What ships:** module `github.com/superdurable/dex/agents/go/eino` (package
 `dexeino`) runs an Eino ADK `ChatModelAgent` on the Go core's session Flow.
@@ -231,8 +231,13 @@ for every other contract feature.
   history.
 - **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
   `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, and any
-  tool without a Dex effect. A model wrapper that makes a second model call
-  fails the Step.
+  tool without a Dex effect. A model wrapper that tries a second model call
+  ends the turn as failed with `TurnCompleted.TurnError`, with the one call
+  billed and no paid retry.
+- **Connectors as tools:** `dexeino.WithToolSources` offers a tool source's
+  tools to the model beside the agent's own, and runs each call through the
+  source in the Dex tool Step, before and outside Eino's tool node, as
+  `builtinloop.WithToolSources` does.
 - **Versions:** `github.com/cloudwego/eino` v0.9.23 or later; CI also runs the
   suite against the newest v0.10.0 alpha. Component mode, Eino models on the
   built-in loop, does not ship now.
@@ -246,14 +251,12 @@ for every other contract feature.
   compaction;
 - no images in user messages;
 - no GenAI spans and no `ModelCallMetadata`;
-- no `TurnContinued` and no `TurnCompleted.TurnError`, so a deliberate turn
-  failure is retried by `RunModel` before the turn fails;
-- no session ending at the run-state limit, which the replay mode makes
-  unlikely because its run state is a model call count;
-- tool sources (Connectors as tools, MCP) only once the Go core gains them;
+- no `TurnContinued`;
+- no MCP tool source, tool tasks, or connector approval display;
 - one language per Flow type.
 
-Core fixes that the adapter needs, `TurnCompleted.TurnError`, status
-classification from `HTTPStatusCode`, Role validation before storing messages,
-and session ending at the state limit, are separate Go core changes.
+The Go core changes the adapter relies on ship in the same release:
+`TurnCompleted.TurnError`, status classification from `HTTPStatusCode`, Role
+validation before storing messages, session ending at the state limit, and
+the tool sources of the decision above.
 

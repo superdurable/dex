@@ -48,7 +48,14 @@
 // WithDefaultToolEffect. Construction fails for a tool without one, and for
 // configurations that would make more than one model call in a Step or run a
 // tool inside RunModel: ModelRetryConfig, ModelFailoverConfig, Exit,
-// ToolsConfig.ReturnDirectly, and the summarization middleware.
+// ToolsConfig.ReturnDirectly, and the summarization middleware. A stop that
+// a retry would repeat, such as a second model call in one Step, ends the turn
+// as failed with dexagents.TurnCompleted.TurnError.
+//
+// WithToolSources offers the tools of a dexagents.ToolSource, such as the
+// Connector operations of a connectortools.ConnectorToolSource, beside the
+// agent's own. Their calls run through the source in their tool Steps,
+// outside Eino's tool node and tool middlewares.
 //
 // Since 0.6.16.
 package dexeino

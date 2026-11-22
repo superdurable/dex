@@ -19,15 +19,20 @@ const genaiPackagePath = "google.golang.org/genai"
 // ModelAPIError carries the HTTP status of a failed model call where the Dex session reads it.
 //
 // The Go core reads a model call's HTTP status from an error in the chain that
-// has a StatusCode int field or a Response *http.Response field. Several Eino
-// model packages keep the status elsewhere: the OpenAI-compatible clients of
-// eino-ext (openai, qwen, openrouter, deepseek through go-openai) and Ark use
-// HTTPStatusCode, and the genai SDK of the gemini client uses Code. The
-// adapter wraps such an error in ModelAPIError, so a 429 or 5xx backs off and
-// retries and another 4xx ends the turn at once, as for the Dex model clients.
-// Response is set when the original error carried response headers, so a
-// Retry-After header still sets the wait. Unwrap returns the original error,
-// so errors.As still finds the provider's own error type. Since 0.6.16.
+// has a StatusCode int field, a Response *http.Response field, or, since
+// 0.6.16, an HTTPStatusCode int field, the field of go-openai, which the
+// OpenAI-compatible clients of eino-ext (openai, qwen, openrouter, deepseek)
+// use, and of the Ark SDK. Such an error reaches the session unchanged. The
+// adapter wraps an error in ModelAPIError only where that would lose
+// something: the genai SDK of the gemini client keeps the status in Code, and
+// an error with an HTTPStatusCode field may carry response headers the core
+// does not read. A 429 or 5xx then backs off and retries, and another 4xx ends
+// the turn at once, as for the Dex model clients. Response is set when the
+// original error carried response headers, so a Retry-After header still sets
+// the wait. Unwrap returns the original error, so errors.As still finds the
+// provider's own error type.
+//
+// Since 0.6.16.
 type ModelAPIError struct {
 	// StatusCode is the HTTP status of the model API's answer.
 	StatusCode int
@@ -46,32 +51,33 @@ func (modelError *ModelAPIError) Unwrap() error {
 	return modelError.cause
 }
 
-// exposeModelHTTPStatus wraps a model error whose HTTP status the Go core cannot read.
+// exposeModelHTTPStatus wraps a model error whose HTTP status or headers the Go core would not read.
 func exposeModelHTTPStatus(err error) error {
 	if err == nil {
 		return nil
 	}
-	isReadable := false
 	status := 0
 	var headers http.Header
+	isUnchanged := false
 	visitErrorChain(err, func(current error) bool {
 		value, isStruct := structValue(current)
 		if !isStruct {
 			return false
 		}
-		if coreReadsStatus(value) {
-			isReadable = true
-			return true
-		}
-		if status == 0 {
-			status = foreignHTTPStatus(value)
-		}
 		if headers == nil {
 			headers = responseHeaders(value)
 		}
+		if coreStatus, isCoreHeaders := coreReadStatus(value); coreStatus != 0 {
+			// The core stops at this error, so wrap only to hand it headers it would not read.
+			status, isUnchanged = coreStatus, isCoreHeaders || headers == nil
+			return true
+		}
+		if status == 0 {
+			status = genaiHTTPStatus(value)
+		}
 		return false
 	})
-	if isReadable || status < 100 || status > 599 {
+	if isUnchanged || !isHTTPStatus(status) {
 		return err
 	}
 	exposed := &ModelAPIError{StatusCode: status, cause: err}
@@ -114,24 +120,34 @@ func structValue(err error) (reflect.Value, bool) {
 	return value, value.Kind() == reflect.Struct
 }
 
-// coreReadsStatus mirrors the fields the Go core's model-error classifier reads.
-func coreReadsStatus(value reflect.Value) bool {
-	if field := value.FieldByName("StatusCode"); field.IsValid() && field.CanInt() {
-		status := field.Int()
-		return status >= 100 && status <= 599
-	}
+// coreReadStatus returns the HTTP status the Go core reads from one error, or 0, and whether it reads headers there.
+//
+// It mirrors the core's classifier: Response, then StatusCode, then HTTPStatusCode.
+func coreReadStatus(value reflect.Value) (int, bool) {
+	status := 0
+	isHeaders := false
 	if field := value.FieldByName("Response"); field.IsValid() && field.CanInterface() {
 		if response, isResponse := field.Interface().(*http.Response); isResponse && response != nil {
-			return true
+			status, isHeaders = response.StatusCode, true
 		}
 	}
-	return false
+	if field := value.FieldByName("StatusCode"); field.IsValid() && field.CanInt() {
+		status = int(field.Int())
+	}
+	if field := value.FieldByName("HTTPStatusCode"); !isHTTPStatus(status) && field.IsValid() && field.CanInt() {
+		status = int(field.Int())
+	}
+	if !isHTTPStatus(status) {
+		return 0, false
+	}
+	return status, isHeaders
 }
 
-func foreignHTTPStatus(value reflect.Value) int {
-	if field := value.FieldByName("HTTPStatusCode"); field.IsValid() && field.CanInt() {
-		return int(field.Int())
-	}
+func isHTTPStatus(status int) bool {
+	return status >= 100 && status <= 599
+}
+
+func genaiHTTPStatus(value reflect.Value) int {
 	if value.Type().PkgPath() == genaiPackagePath {
 		if field := value.FieldByName("Code"); field.IsValid() && field.CanInt() {
 			return int(field.Int())

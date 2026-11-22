@@ -324,11 +324,11 @@ func (counting *countingModel) Stream(ctx context.Context, input []*schema.Messa
 //
 // Tool middlewares, aliases, and the arguments handler run in the tool Step,
 // so the model call's ToolsNode only gates calls.
-func modelCallAgentConfig(config *agentConfig, run *modelCallRun) *adk.ChatModelAgentConfig {
+func modelCallAgentConfig(config *agentConfig, run *modelCallRun, sourceStubs []tool.BaseTool) *adk.ChatModelAgentConfig {
 	agent := config.agent
 	agent.ToolsConfig = adk.ToolsConfig{
 		ToolsNodeConfig: compose.ToolsNodeConfig{
-			Tools:               slices.Clone(config.agent.ToolsConfig.Tools),
+			Tools:               append(slices.Clone(config.agent.ToolsConfig.Tools), sourceStubs...),
 			UnknownToolsHandler: run.gateUnknownToolCall,
 			ExecuteSequentially: true,
 		},

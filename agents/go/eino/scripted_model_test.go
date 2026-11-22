@@ -29,9 +29,10 @@ type scriptedChatModel struct {
 	respond func(input []*schema.Message) (*schema.Message, error)
 	chunks  func(message *schema.Message) []*schema.Message
 
-	mutex  sync.Mutex
-	inputs [][]*schema.Message
-	tools  [][]string
+	mutex     sync.Mutex
+	inputs    [][]*schema.Message
+	tools     [][]string
+	toolInfos [][]*schema.ToolInfo
 }
 
 func (scripted *scriptedChatModel) record(input []*schema.Message, options []model.Option) {
@@ -39,10 +40,12 @@ func (scripted *scriptedChatModel) record(input []*schema.Message, options []mod
 	defer scripted.mutex.Unlock()
 	scripted.inputs = append(scripted.inputs, input)
 	var names []string
-	for _, info := range model.GetCommonOptions(&model.Options{}, options...).Tools {
+	infos := model.GetCommonOptions(&model.Options{}, options...).Tools
+	for _, info := range infos {
 		names = append(names, info.Name)
 	}
 	scripted.tools = append(scripted.tools, names)
+	scripted.toolInfos = append(scripted.toolInfos, infos)
 }
 
 func (scripted *scriptedChatModel) calls() int {
@@ -155,7 +158,7 @@ func (state *turnState) runModel(runner *dexeino.Runner) dexagents.AgentTurnOutc
 				ToolCallID: requested.ToolCallID, TurnID: state.turnID, ToolName: requested.ToolName,
 				Arguments: requested.Arguments, Effect: requested.Policy.Effect,
 				RequiresApproval: requested.Policy.IsApprovalRequired(), Status: dexagents.ToolCallStatusApproved,
-				DeferralOrder: int64(len(state.records) + index),
+				DeferralOrder: int64(len(state.records) + index), ToolSourceReference: requested.ToolSourceReference,
 			}
 		}
 	case *dexagents.TurnCompleted:
