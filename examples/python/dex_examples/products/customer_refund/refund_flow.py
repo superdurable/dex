@@ -26,6 +26,7 @@ from dex import (
     Channel,
     Context,
     Flow,
+    FlowStatus,
     PersistenceSchema,
     RetryPolicy,
     Step,
@@ -205,6 +206,10 @@ class CloseCase(Step[RefundCase]):
         return graceful_complete(input.outcome)
 
 
+class RefundNotAwaitingManagerError(ValueError):
+    """Raised when a manager decides a refund that is no longer awaiting approval."""
+
+
 class CustomerRefundFlow(Flow[RefundRequest]):
     def __init__(
         self, billing: FakeBillingService, email: FakeEmailService, model: MockMessageModel
@@ -249,7 +254,7 @@ class CustomerRefundFlow(Flow[RefundRequest]):
         if not input.reason.strip():
             raise ValueError("a reason is required")
         if CASE_STATUS.get(context) != AWAITING_MANAGER:
-            raise ValueError("this refund is not waiting for a manager")
+            raise RefundNotAwaitingManagerError("this refund is not waiting for a manager")
         CASE_STATUS.set(context, "approved")
         MANAGER_DECISIONS.publish(context, ManagerDecision(approved=True, reason=input.reason))
 
@@ -268,6 +273,29 @@ class CustomerRefundFlow(Flow[RefundRequest]):
         if not input.reason.strip():
             raise ValueError("a reason is required")
         if CASE_STATUS.get(context) != AWAITING_MANAGER:
-            raise ValueError("this refund is not waiting for a manager")
+            raise RefundNotAwaitingManagerError("this refund is not waiting for a manager")
         CASE_STATUS.set(context, "rejected")
         MANAGER_DECISIONS.publish(context, ManagerDecision(approved=False, reason=input.reason))
+
+
+REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE = (
+    f"{RefundNotAwaitingManagerError.__module__}.{RefundNotAwaitingManagerError.__qualname__}"
+)
+
+
+def refund_run_status(status: FlowStatus | None) -> str:
+    match status:
+        case FlowStatus.RUNNING:
+            return "running"
+        case FlowStatus.COMPLETED:
+            return "completed"
+        case FlowStatus.FAILED:
+            return "failed"
+        case FlowStatus.CANCELED:
+            return "canceled"
+        case FlowStatus.TERMINATED:
+            return "terminated"
+        case FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+            return "timeout"
+        case _:
+            return "unknown"

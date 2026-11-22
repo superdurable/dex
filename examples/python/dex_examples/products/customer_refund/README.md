@@ -27,9 +27,13 @@ with `IdempotencyKeyConflict`.
 | [`worker.py`](worker.py) | The Worker. It uploads the generated design. |
 | [`start.py`](start.py) | Starts one refund with a Flow ID and a scenario. |
 | [`decide.py`](decide.py) | Approves or rejects a waiting refund. |
+| [`controller.py`](controller.py) | The HTTP routes on the shared example server. |
 
-The integration test is
-[`tests/integ/test_customer_refund.py`](../../../tests/integ/test_customer_refund.py).
+The integration tests are
+[`tests/integ/test_customer_refund.py`](../../../tests/integ/test_customer_refund.py)
+for the standalone Worker and
+[`tests/integ/test_customer_refund_controller.py`](../../../tests/integ/test_customer_refund_controller.py)
+for the shared example server.
 
 ## Run it
 
@@ -85,6 +89,31 @@ uv run --frozen python -m dex_examples.products.customer_refund.billing_service
 The Worker ID has the form `refund-worker-<random>`, so **Serving Worker ID**
 in Dex Web shows no host name. Set `DEX_FLOW_SERVICE_ADDRESS` when Dex is not
 at `127.0.0.1:8801`.
+
+## Run it on the shared example server
+
+The shared example server (`uv run --frozen python main.py`, HTTP
+`127.0.0.1:8080`) also registers `CustomerRefundFlow`, always in the normal
+billing mode, with the same ledger. The sync server in
+[`sync-python/`](../../../sync-python/) serves the same routes on `8081`:
+
+| Route | Query | What it does |
+| --- | --- | --- |
+| `GET /products/customer-refund/manager-approval/start` | `workflowId` (optional), `scenario` (default `normal`) | Starts a refund and returns its Flow ID and run ID once the policy check is done. Without `workflowId` it mints a unique `customer-refund-...` ID. Returns 504 if the policy check does not finish within 10 seconds. |
+| `GET /products/customer-refund/manager-approval/decide` | `workflowId`, `decision` (`approve` or `reject`), `reason` | Calls Approve refund or Reject refund. A missing Flow ID or blank reason returns 400. A closed refund, an unknown Flow ID, or an ID for a different Flow type returns 404. A running refund that is not waiting for a manager, or a decision that another call is making, returns 409. |
+| `GET /products/customer-refund/manager-approval/describe` | `workflowId` | Returns `flowID`, the run `status`, and the `case-status` and `refund-id` Attributes as `caseStatus` and `refundId`. `refundId` is `null` until a refund is issued. A missing Flow ID returns 400. An unknown Flow ID or an ID for a different Flow type returns 404. |
+
+Every route also accepts `flowId` in place of `workflowId`.
+
+```bash
+curl 'http://127.0.0.1:8080/products/customer-refund/manager-approval/start?workflowId=refund5'
+curl 'http://127.0.0.1:8080/products/customer-refund/manager-approval/decide?workflowId=refund5&decision=approve&reason=Outage%20confirmed'
+curl 'http://127.0.0.1:8080/products/customer-refund/manager-approval/describe?workflowId=refund5'
+```
+
+Do not run the shared server and the standalone refund Worker against the same
+Dex at once. Both serve `CustomerRefundFlow`, so either one can take a run's
+tasks, with its own billing mode and payload key.
 
 ## Scenarios
 

@@ -34,6 +34,7 @@ from dex_examples.patterns.interruptible.interruptible_execution_flow import (
 )
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.step.step_flow import StepFlow
+from dex_examples.products.customer_refund.refund_settings import new_refund_flow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
@@ -57,6 +58,8 @@ class SyncExampleApp:
         self.step = StepFlow()
         self.channel = ChannelFlow()
         self.money_transfer = MoneyTransferFlow(service)
+        # The shared server always runs the normal billing mode.
+        self.customer_refund = new_refund_flow("normal", config.customer_refund_ledger_path)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
         self.interruptible = InterruptibleFlow()
@@ -67,6 +70,7 @@ class SyncExampleApp:
             self.step,
             self.channel,
             self.money_transfer,
+            self.customer_refund,
             self.engagement,
             self.subscription,
             self.interruptible,

@@ -130,6 +130,29 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "products",
+    id: "customer-refund-manager-approval",
+    title: "Customer refund with manager approval",
+    flowIdPrefix: "customer-refund",
+    note: "Start returns after the policy check. The deny and small scenarios may already be past the manager approval stage. The normal and fail-then-succeed scenarios wait for a manager: decide with a reason, then describe.",
+    endpoints: [
+      endpoint("GET", "/products/customer-refund/manager-approval/start", "Start", [
+        flowId(),
+        query("scenario", {
+          type: "select",
+          options: ["normal", "fail-then-succeed", "deny", "small"],
+          default: "normal",
+        }),
+      ]),
+      endpoint("GET", "/products/customer-refund/manager-approval/decide", "Approve or reject", [
+        flowId(),
+        query("decision", { type: "select", options: ["approve", "reject"], default: "approve" }),
+        query("reason", { default: "Outage confirmed" }),
+      ]),
+      endpoint("GET", "/products/customer-refund/manager-approval/describe", "Describe", [flowId()]),
+    ],
+  },
+  {
+    group: "products",
     id: "signup",
     title: "User onboarding process",
     flowIdPrefix: "signup-user",

@@ -27,6 +27,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from dex import (
@@ -36,6 +37,7 @@ from dex import (
     FlowStatus,
     PayloadEncryptionOptions,
     Registry,
+    StartFlowOptions,
     ValueMappingError,
     WaitForAttributeOptions,
     Worker,
@@ -51,6 +53,7 @@ from dex_examples.products.customer_refund.refund_flow import (
     REFUND_ID,
     CustomerRefundFlow,
     DecisionReason,
+    RefundRequest,
 )
 from dex_examples.products.customer_refund.refund_settings import (
     new_refund_flow,
@@ -71,6 +74,9 @@ class RefundTestbed:
     def __init__(self, directory: Path, encryption: PayloadEncryptionOptions | None) -> None:
         self.directory = directory
         self.encryption = encryption
+        # The shared ExampleApp Worker also serves this Flow type on the default task queue.
+        self.task_queue = f"customer-refund-test-{uuid4().hex[:12]}"
+        self.start_options = StartFlowOptions(task_queue=self.task_queue)
         self.billing = FakeBillingService(directory / "ledger.sqlite3")
         self.email = FakeEmailService(directory / "ledger.sqlite3")
         self.flow = self.new_flow("normal")
@@ -88,6 +94,7 @@ class RefundTestbed:
     def running_worker(self, billing_mode: str = "normal") -> Iterator[None]:
         cache = open_cache(self.directory / f"worker-cache-{billing_mode}")
         options = refund_worker_options(server_address(), self.encryption)
+        options = replace(options, pull=replace(options.pull, task_queue=self.task_queue))
         worker = Worker(Registry((self.new_flow(billing_mode),)), cache, options)
         thread = threading.Thread(target=worker.start, daemon=True)
         try:
@@ -98,6 +105,9 @@ class RefundTestbed:
             worker.close()
             thread.join(timeout=10)
             cache.close()
+
+    def start_refund(self, flow_id: str, request: RefundRequest) -> None:
+        self.client.start_flow(self.flow, flow_id, request, self.start_options)
 
     def wait_for_manager(self, flow_id: str) -> None:
         self.client.wait_for_attribute_match(
@@ -126,7 +136,7 @@ def test_manager_approves_the_northstar_refund(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["normal"])
+        testbed.start_refund(flow_id, SCENARIOS["normal"])
         testbed.wait_for_manager(flow_id)
         testbed.client.invoke_rpc(
             testbed.flow.approve_refund, flow_id, DecisionReason("Outage confirmed")
@@ -146,7 +156,7 @@ def test_manager_rejects_the_refund(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["normal"])
+        testbed.start_refund(flow_id, SCENARIOS["normal"])
         testbed.wait_for_manager(flow_id)
         testbed.client.invoke_rpc(
             testbed.flow.reject_refund, flow_id, DecisionReason("Credit offered instead")
@@ -164,7 +174,7 @@ def test_blank_reason_is_refused_and_a_later_decision_still_counts(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["normal"])
+        testbed.start_refund(flow_id, SCENARIOS["normal"])
         testbed.wait_for_manager(flow_id)
         with pytest.raises(WorkerInvocationError, match="a reason is required"):
             testbed.client.invoke_rpc(testbed.flow.approve_refund, flow_id, DecisionReason("   "))
@@ -194,7 +204,7 @@ def test_policy_denial_names_the_failed_rule(
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
         request = replace(SCENARIOS["normal"], order_id=order_id)
-        testbed.client.start_flow(testbed.flow, flow_id, request)
+        testbed.start_refund(flow_id, request)
         result = testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
     assert result.single_output(str) == "denied"
@@ -210,7 +220,7 @@ def test_refund_succeeds_after_payment_timeouts(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["fail-then-succeed"])
+        testbed.start_refund(flow_id, SCENARIOS["fail-then-succeed"])
         testbed.wait_for_manager(flow_id)
         testbed.client.invoke_rpc(
             testbed.flow.approve_refund, flow_id, DecisionReason("Outage confirmed")
@@ -230,7 +240,7 @@ def test_time_travel_reuses_an_issued_refund(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker():
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["small"])
+        testbed.start_refund(flow_id, SCENARIOS["small"])
         testbed.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         first_refunds = testbed.billing.list_refunds()
         first_attempt = current_run_attempt(flow_id)
@@ -252,7 +262,7 @@ def test_time_travel_issues_the_refund_a_missing_call_skipped(
 ) -> None:
     flow_id = new_flow_id("refund")
     with testbed.running_worker("call-missing"):
-        testbed.client.start_flow(testbed.flow, flow_id, SCENARIOS["normal"])
+        testbed.start_refund(flow_id, SCENARIOS["normal"])
         testbed.wait_for_manager(flow_id)
         testbed.client.invoke_rpc(
             testbed.flow.approve_refund, flow_id, DecisionReason("Outage confirmed")
@@ -281,7 +291,7 @@ def test_encryption_keeps_case_status_readable(
     flow_id = new_flow_id("refund")
     try:
         with encrypted.running_worker():
-            encrypted.client.start_flow(encrypted.flow, flow_id, SCENARIOS["small"])
+            encrypted.start_refund(flow_id, SCENARIOS["small"])
             encrypted.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         message = encrypted.client.get_attributes(flow_id, CUSTOMER_MESSAGE)[CUSTOMER_MESSAGE]
         assert "refunded 49.00 USD" in message
