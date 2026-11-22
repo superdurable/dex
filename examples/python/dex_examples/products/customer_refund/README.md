@@ -99,9 +99,9 @@ billing mode, with the same ledger. The sync server in
 
 | Route | Query | What it does |
 | --- | --- | --- |
-| `GET /products/customer-refund/manager-approval/start` | `workflowId` (optional), `scenario` (default `normal`) | Starts a refund and returns its Flow ID and run ID once the policy check is done. Without `workflowId` it mints a unique `customer-refund-...` ID. |
-| `GET /products/customer-refund/manager-approval/decide` | `workflowId`, `decision` (`approve` or `reject`), `reason` | Calls Approve refund or Reject refund. A blank reason returns 400; a run that is not waiting for a manager, or a decision that another call is making, returns 409. |
-| `GET /products/customer-refund/manager-approval/describe` | `workflowId` | Returns `flowID`, the run `status`, and the `case-status` and `refund-id` Attributes as `caseStatus` and `refundId`. |
+| `GET /products/customer-refund/manager-approval/start` | `workflowId` (optional), `scenario` (default `normal`) | Starts a refund and returns its Flow ID and run ID once the policy check is done. Without `workflowId` it mints a unique `customer-refund-...` ID. Returns 504 if the policy check does not finish within 10 seconds. |
+| `GET /products/customer-refund/manager-approval/decide` | `workflowId`, `decision` (`approve` or `reject`), `reason` | Calls Approve refund or Reject refund. A missing Flow ID or blank reason returns 400. A closed refund, an unknown Flow ID, or an ID for a different Flow type returns 404. A running refund that is not waiting for a manager, or a decision that another call is making, returns 409. |
+| `GET /products/customer-refund/manager-approval/describe` | `workflowId` | Returns `flowID`, the run `status`, and the `case-status` and `refund-id` Attributes as `caseStatus` and `refundId`. `refundId` is `null` until a refund is issued. A missing Flow ID returns 400. An unknown Flow ID or an ID for a different Flow type returns 404. |
 
 Every route also accepts `flowId` in place of `workflowId`.
 

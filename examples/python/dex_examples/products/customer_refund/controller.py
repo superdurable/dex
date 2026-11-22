@@ -38,6 +38,7 @@ from dex_examples.products.customer_refund.refund_flow import (
     REFUND_ID,
     REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE,
     DecisionReason,
+    refund_run_status,
 )
 from dex_examples.products.customer_refund.start import SCENARIOS
 from dex_examples.shared.query import (
@@ -47,7 +48,7 @@ from dex_examples.shared.query import (
 )
 
 CHECK_POLICY_STEP = StepExecutionId("CheckPolicy")
-CHECK_POLICY_TIMEOUT = timedelta(seconds=10)
+CHECK_POLICY_TIMEOUT_SECONDS = 10
 
 
 def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -107,11 +108,16 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
             await app_state.client.wait_for_step_completion(
                 flow_id,
                 CHECK_POLICY_STEP,
-                WaitForStepCompletionOptions(request_timeout=CHECK_POLICY_TIMEOUT),
+                WaitForStepCompletionOptions(
+                    request_timeout=timedelta(seconds=CHECK_POLICY_TIMEOUT_SECONDS)
+                ),
             )
         except RequestTimeoutError:
-            return _error_response("refund policy check did not finish within 10 seconds", 504)
-        except FlowNotActiveOrNotFoundError:
+            return _error_response(
+                f"refund policy check did not finish within {CHECK_POLICY_TIMEOUT_SECONDS} seconds",
+                504,
+            )
+        except (FlowClosingError, FlowNotActiveOrNotFoundError):
             # Denied and small refunds can close before the wait attaches.
             pass
         return started_flow(flow_id, run_id)
@@ -149,7 +155,7 @@ def create_customer_refund_blueprint(app_state: ExampleApp) -> Blueprint:
         return jsonify(
             {
                 "flowID": flow_id,
-                "status": description.status.value,
+                "status": refund_run_status(description.status),
                 "caseStatus": values.get(CASE_STATUS),
                 "refundId": values.get(REFUND_ID),
             }

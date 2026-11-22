@@ -26,6 +26,7 @@ from dex import (
     Channel,
     Context,
     Flow,
+    FlowStatus,
     PersistenceSchema,
     RetryPolicy,
     Step,
@@ -205,6 +206,10 @@ class CloseCase(Step[RefundCase]):
         return graceful_complete(input.outcome)
 
 
+class RefundNotAwaitingManagerError(ValueError):
+    """Raised when a manager decides a refund that is no longer awaiting approval."""
+
+
 class CustomerRefundFlow(Flow[RefundRequest]):
     def __init__(
         self, billing: FakeBillingService, email: FakeEmailService, model: MockMessageModel
@@ -273,10 +278,24 @@ class CustomerRefundFlow(Flow[RefundRequest]):
         MANAGER_DECISIONS.publish(context, ManagerDecision(approved=False, reason=input.reason))
 
 
-class RefundNotAwaitingManagerError(ValueError):
-    pass
-
-
 REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE = (
     f"{RefundNotAwaitingManagerError.__module__}.{RefundNotAwaitingManagerError.__qualname__}"
 )
+
+
+def refund_run_status(status: FlowStatus | None) -> str:
+    match status:
+        case FlowStatus.RUNNING:
+            return "running"
+        case FlowStatus.COMPLETED:
+            return "completed"
+        case FlowStatus.FAILED:
+            return "failed"
+        case FlowStatus.CANCELED:
+            return "canceled"
+        case FlowStatus.TERMINATED:
+            return "terminated"
+        case FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+            return "timeout"
+        case _:
+            return "unknown"

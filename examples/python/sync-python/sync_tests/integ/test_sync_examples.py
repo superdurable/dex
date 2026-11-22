@@ -17,6 +17,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+import grpc
 import pytest
 from dex_examples.products.customer_refund.billing_service import FakeBillingService
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
@@ -40,6 +41,8 @@ from dex import (
     Attribute,
     AttributeMatch,
     Client,
+    ErrorSubStatus,
+    FlowClosingError,
     FlowStatus,
     IdReusePolicy,
     StartFlowOptions,
@@ -250,13 +253,17 @@ def test_customer_refund_decide_refuses_an_unknown_decision(app: SyncExampleApp)
     assert refused.get_json() == {"error": "decision must be approve or reject"}
 
 
-@pytest.mark.parametrize(("scenario", "outcome"), [("small", "refunded"), ("deny", "denied")])
+@pytest.mark.parametrize(
+    ("scenario", "outcome", "simulate_closing"),
+    [("small", "refunded", False), ("deny", "denied", False), ("deny", "denied", True)],
+)
 def test_customer_refund_start_succeeds_when_the_run_closes_before_the_policy_wait(
     app: SyncExampleApp,
     client: Client,
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
     outcome: str,
+    simulate_closing: bool,
 ) -> None:
     http_client = create_app(app).test_client()
     wait_for_step = client.wait_for_step_completion
@@ -265,6 +272,14 @@ def test_customer_refund_start_succeeds_when_the_run_closes_before_the_policy_wa
         flow_id: str, step: StepExecutionId, options: WaitForStepCompletionOptions
     ) -> None:
         client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        if simulate_closing:
+            raise FlowClosingError(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                ErrorSubStatus.FLOW_CLOSING,
+                "Flow is closing",
+                "wait_for_step_completion",
+                flow_id,
+            )
         wait_for_step(flow_id, step, options)
 
     monkeypatch.setattr(client, "wait_for_step_completion", wait_for_policy_after_close)

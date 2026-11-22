@@ -19,17 +19,26 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable
 
+import grpc
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.http_app import create_app
 from dex_examples.products.customer_refund.billing_service import FakeBillingService
 from dex_examples.products.customer_refund.email_service import FakeEmailService
+from dex_examples.products.customer_refund.refund_flow import refund_run_status
 from quart.typing import TestClientProtocol as QuartTestClient
 from tests.integ.conftest import WAIT_TIMEOUT
 from tests.refund_rpc_gate import AsyncRefundRpcGate
 
-from dex import AsyncClient, StepExecutionId, WaitForStepCompletionOptions
+from dex import (
+    AsyncClient,
+    ErrorSubStatus,
+    FlowClosingError,
+    FlowStatus,
+    StepExecutionId,
+    WaitForStepCompletionOptions,
+)
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex.dexpb.dex_pb2 import InvokeWorkerRPCRequest, InvokeWorkerRPCResponse
 
@@ -37,6 +46,22 @@ pytestmark = pytest.mark.integ
 
 ROUTE_PREFIX = "/products/customer-refund/manager-approval"
 APPROVAL = {"decision": "approve", "reason": "Outage confirmed"}
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (FlowStatus.RUNNING, "running"),
+        (FlowStatus.COMPLETED, "completed"),
+        (FlowStatus.FAILED, "failed"),
+        (FlowStatus.CANCELED, "canceled"),
+        (FlowStatus.TERMINATED, "terminated"),
+        (FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY, "timeout"),
+        (None, "unknown"),
+    ],
+)
+def test_refund_run_status(status: FlowStatus | None, expected: str) -> None:
+    assert refund_run_status(status) == expected
 
 
 async def _get_json(
@@ -218,17 +243,21 @@ async def test_decide_reports_rpc_lock_conflict(
         assert refused == {"error": "another decision is changing this refund; try again"}
     finally:
         gate.release_lock.set()
-        assert await winner == {"flowID": flow_id, "decision": "approve"}
+    assert await winner == {"flowID": flow_id, "decision": "approve"}
     await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
-@pytest.mark.parametrize(("scenario", "outcome"), [("small", "refunded"), ("deny", "denied")])
+@pytest.mark.parametrize(
+    ("scenario", "outcome", "simulate_closing"),
+    [("small", "refunded", False), ("deny", "denied", False), ("deny", "denied", True)],
+)
 async def test_start_returns_a_flow_id_when_the_run_closes_before_the_policy_wait(
     app: ExampleApp,
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
     outcome: str,
+    simulate_closing: bool,
 ) -> None:
     http_client = create_app(app).test_client()
     wait_for_step = client.wait_for_step_completion
@@ -237,6 +266,14 @@ async def test_start_returns_a_flow_id_when_the_run_closes_before_the_policy_wai
         flow_id: str, step: StepExecutionId, options: WaitForStepCompletionOptions
     ) -> None:
         await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        if simulate_closing:
+            raise FlowClosingError(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                ErrorSubStatus.FLOW_CLOSING,
+                "Flow is closing",
+                "wait_for_step_completion",
+                flow_id,
+            )
         await wait_for_step(flow_id, step, options)
 
     monkeypatch.setattr(client, "wait_for_step_completion", wait_for_policy_after_close)

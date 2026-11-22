@@ -38,6 +38,7 @@ from dex_examples.products.customer_refund.refund_flow import (
     REFUND_ID,
     REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE,
     DecisionReason,
+    refund_run_status,
 )
 from dex_examples.products.customer_refund.start import SCENARIOS
 from dex_examples.products.engagement.engagement_input import EngagementInput
@@ -53,6 +54,8 @@ from sync_examples.query import (
     required_query,
     started_flow,
 )
+
+CHECK_POLICY_TIMEOUT_SECONDS = 10
 
 
 def create_app(app_state: SyncExampleApp) -> Flask:
@@ -195,11 +198,15 @@ def _customer_refund(app_state: SyncExampleApp) -> Blueprint:
             app_state.client.wait_for_step_completion(
                 flow_id,
                 StepExecutionId("CheckPolicy"),
-                WaitForStepCompletionOptions(request_timeout=timedelta(seconds=10)),
+                WaitForStepCompletionOptions(
+                    request_timeout=timedelta(seconds=CHECK_POLICY_TIMEOUT_SECONDS)
+                ),
             )
         except RequestTimeoutError:
-            return jsonify({"error": "refund policy check did not finish within 10 seconds"}), 504
-        except FlowNotActiveOrNotFoundError:
+            return jsonify({
+                "error": f"refund policy check did not finish within {CHECK_POLICY_TIMEOUT_SECONDS} seconds"
+            }), 504
+        except (FlowClosingError, FlowNotActiveOrNotFoundError):
             # Denied and small refunds can close before the wait attaches.
             pass
         # Same keys as the async app, so every language returns flowID and runID.
@@ -238,7 +245,7 @@ def _customer_refund(app_state: SyncExampleApp) -> Blueprint:
         return jsonify(
             {
                 "flowID": flow_id,
-                "status": description.status.value,
+                "status": refund_run_status(description.status),
                 "caseStatus": values.get(CASE_STATUS),
                 "refundId": values.get(REFUND_ID),
             }
