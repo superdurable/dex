@@ -28,14 +28,14 @@ No user-visible changes.
 
 **Fixed**
 
-- Workers now accept omitted input for inputless RPCs, including calls from TypeScript Clients before 1.45.8. RPCs that declare input still reject an omission with **ValueMappingException**. (#2034) [Reference](/reference/java/rpc#api-names).
+- Workers accept omitted input for inputless RPCs, including calls from TypeScript Clients before 1.45.8 that failed with **Value has no concrete kind**. RPCs that declare input still reject omissions with **ValueMappingException**. (#2034)
 
 ### 1.45.7 (2026-11-18) {#v1-45-7}
 
 **Added**
 
 - **PullWorkerOptions.Builder.minOpenSlots** lets a pull Worker vary open streams with load when set below **maxConcurrentTasks**. The default equals **maxConcurrentTasks**, keeping the stream count fixed. [Reference](/reference/java/workers#capacity-and-shutdown).
-- Adaptive Workers warn and clamp **maxConcurrentTasks** to **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without reporting **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
+- Adaptive Workers warn and clamp **maxConcurrentTasks** when it exceeds **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without a **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
 - **Worker.getPullSlotStreamState** returns a **PullSlotStreamState** snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters.
 
 **Changed**
@@ -46,7 +46,7 @@ No user-visible changes.
 
 **Added**
 
-- **GracefulCompletion.requested()** lets a Step wait for a request and **Context.isGracefulCompletionConditionCompleted()** reports whether it arrived. Requires Dex Server 0.1.34 or later and protocol 7. [Reference](/reference/java/waits#graceful-completion-requests).
+- **GracefulCompletion.requested()** waits for a Flow’s graceful completion request. **Context.isGracefulCompletionConditionCompleted()** reports whether the Flow has one. Requires Server protocol 7 (Dex Server 0.1.34+). [Reference](/reference/java/waits#graceful-completion-requests).
 - **StopType.GRACEFUL_COMPLETE**, **StopType.FORCE_COMPLETE**, and the **StopFlowOptions(StopType, String, Object)** constructor let **Client.stopFlow** complete a Flow with a result, like the **gracefulComplete** and **forceComplete** Step decisions. They need Dex Server 0.1.34 or newer.
 - **Context.supportsGracefulCompletionCondition** uses the negotiated protocol to report whether **waitFor** can use **GracefulCompletion.requested** on the connected Server. The default method returns false. [Reference](/reference/java/waits#graceful-completion-requests).
 
@@ -54,9 +54,9 @@ No user-visible changes.
 
 **Added**
 
-- **Client.cloneForkFlow** copies a run's current or earlier state into a new Flow while the source keeps running. Requires Dex server-zd 0.1.33 or later and throws **IllegalStateException** on older Servers. [Reference](/reference/server/runtime-client#clone-fork).
-- **TimeTravelType.EVENT_ID** and **TimeTravelOptions.Builder.eventId** select a point after an event, and **TimeTravelOptions.Builder.subFlowResetPolicy** governs SubFlow waits. **TimeTravelType.CURRENT** is for **cloneForkFlow** only. [Reference](/reference/server/runtime-client#time-travel).
-- **FlowErrorType.SUB_FLOW_ABANDONED** replaces **null** when Time Travel's SubFlow reset policy fails a restored SubFlow wait. Add it to exhaustive **FlowErrorType** matches. [Reference](/reference/server/runtime-client#sub-flows-across-a-time-travel).
+- **Client.cloneForkFlow** copies run state to a new Flow without stopping the source. **CloneForkFlowOptions** selects the point and **CloneForkFlowResult** identifies it. Requires server-zd 0.1.33+ or throws **IllegalStateException**. [Reference](/reference/server/runtime-client#clone-fork).
+- **TimeTravelType.EVENT_ID** with **TimeTravelOptions.Builder.eventId** targets the post-event state. **TimeTravelOptions.Builder.subFlowResetPolicy** governs restored SubFlow waits. **TimeTravelType.CURRENT** is for **cloneForkFlow** only. [Reference](/reference/server/runtime-client#time-travel).
+- **FlowErrorType.SUB_FLOW_ABANDONED** replaces a **null** error type in failed child results when Time Travel’s SubFlow reset policy fails a restored wait. Handle it in exhaustive **FlowErrorType** matches. [Reference](/reference/server/runtime-client#sub-flows-across-a-time-travel).
 
 **Fixed**
 
@@ -66,7 +66,7 @@ No user-visible changes.
 
 **Added**
 
-- Set named queues with **PullWorkerOptions.Builder.taskQueue**, **StartFlowOptions.Builder.taskQueue**, and **SubFlowOptions.Builder.taskQueue**. Named queues require Server protocol 5, and SubFlows inherit the parent's queue by default. [Reference](/reference/java/workers#task-queues).
+- **PullWorkerOptions.Builder.taskQueue**, **StartFlowOptions.Builder.taskQueue**, and **SubFlowOptions.Builder.taskQueue** name queues (protocol 5). **PullQueueRegistrationState.getTaskQueue** and **PullRegistrationError.getTaskQueue** report them. [Reference](/reference/java/workers#task-queues).
 
 ### 1.45.0 (2026-11-11) {#v1-45-0}
 
@@ -93,8 +93,8 @@ No user-visible changes.
 
 **Added**
 
-- **Join** and **JoinRound** coordinate parallel branches in one Flow. Use **Join.fork** or **Join.forkWithRoundKey** to start a round, collect branch results, and use **forRemainingBranches** before the next round. [Reference](/reference/java/waits).
-- **StepDecision.goToMany(List)** and **RPCResult.of(output, List)** accept lists of movements like the varargs forms. A literal **null** argument now fails to compile due to overload ambiguity. [Reference](/reference/java/step-decisions#gotomulti).
+- **Join** and **JoinRound** coordinate parallel branches in one Flow. Start a round with **Join.fork** or **Join.forkWithRoundKey**, report results with **endBranch** or **reportBranchResult**, and reset with **forRemainingBranches**. [Reference](/reference/java/waits).
+- **StepDecision.goToMany(List)** and **RPCResult.of(output, List)** accept a list of movements like the varargs forms. Passing literal **null** for the movements now fails to compile as ambiguous. It previously threw at runtime. [Reference](/reference/java/step-decisions#gotomulti).
 
 ## 1.43 {#v1-43}
 

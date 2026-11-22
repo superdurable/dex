@@ -26,7 +26,7 @@ This page lists user-visible changes to the Go SDK, newest first. Each section c
 
 **Added**
 
-- Set **PayloadEncryptionOptions** on **ClientOptions** and **WorkerOptions** to encrypt payloads before sending them to Dex. Readers decrypt them and pass plaintext through, so both kinds of Flows can share a Worker. [Reference](/reference/server/payload-encryption).
+- Set **PayloadEncryptionOptions** on **ClientOptions** and **WorkerOptions** to send eligible values as ciphertext that Dex stores as-is. Readers decrypt those values and pass plaintext through, so both kinds of Flows can share a Worker. [Reference](/reference/server/payload-encryption).
 - The built-in **AESGCMPayloadCodec** uses AES-256-GCM, with optional gzip compression. **FilePayloadEncryptionKeyProvider** reads keys from a JSON key file and supports key rotation. Implement **PayloadCodec** or **PayloadEncryptionKeyProvider** to use your own key management.
 - Worker error details and stack traces, ForceFail reasons, and Stop, Time Travel, and clone-fork reasons are encrypted too, in a **dex-encoded:** text format.
 - The **Plaintext** Attribute option keeps an Attribute in clear. **WaitForAttributeMatch** and Action conditions need an Indexed or **Plaintext** Attribute when encryption is on. An encrypted Attribute synced to the Attribute Store needs a bytea column.
@@ -40,8 +40,8 @@ No user-visible changes.
 
 **Added**
 
-- Set **PullWorkerOptions.MinOpenSlots** below **MaxConcurrentTasks** to vary open streams with load. Both count reserved RPC slots and defaulting the floor to **MaxConcurrentTasks** keeps the stream count fixed. [Reference](/reference/go/workers#capacity-and-shutdown).
-- Adaptive Workers warn and clamp **MaxConcurrentTasks** to **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without reporting **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
+- Set **PullWorkerOptions.MinOpenSlots** below **MaxConcurrentTasks** to vary open streams with load. Both limits count reserved RPC slots. The floor defaults to **MaxConcurrentTasks**, keeping the stream count fixed. [Reference](/reference/go/workers#capacity-and-shutdown).
+- Adaptive Workers warn and clamp **MaxConcurrentTasks** when it exceeds **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without a **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
 - **Worker.PullSlotStreamState** returns a snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters.
 - **SupportedServerProtocolVersionRange** returns the inclusive range of Dex Server protocol versions the Go SDK negotiates with, so a tool can check compatibility before it connects.
 
@@ -53,7 +53,7 @@ No user-visible changes.
 
 **Added**
 
-- **GracefulCompletionRequested** lets a Step wait for a request and **IsGracefulCompletionConditionCompleted** reports whether it arrived. Requires Server protocol 7 (server-zd 0.1.34 or later). [Reference](/reference/go/waits#graceful-completion-requests).
+- **GracefulCompletionRequested** waits for a Flow’s graceful completion request and **IsGracefulCompletionConditionCompleted** reports whether the Flow has one. Requires Server protocol 7 (server-zd 0.1.34 or later). [Reference](/reference/go/waits#graceful-completion-requests).
 - **GracefulCompleteFlow** and **ForceCompleteFlow** stop types and **StopOptions.Output** let **Client.StopFlow** complete a Flow with a result, like the **GracefulComplete** and **ForceComplete** Step decisions. They need a server that supports the complete stop types.
 - **SupportsGracefulCompletionCondition** uses the negotiated protocol to report whether **WaitFor** can use **GracefulCompletionRequested**. Use it to stay compatible with Servers older than protocol 7. [Reference](/reference/go/waits#graceful-completion-requests).
 
@@ -61,7 +61,7 @@ No user-visible changes.
 
 **Added**
 
-- **Client.CloneForkFlow** copies a run's state at a selected point, including **TimeTravelToCurrent**, into a new Flow without stopping the source. Requires Server protocol 6 (server-zd 0.1.33 or later). [Reference](/reference/server/runtime-client#clone-fork).
+- **Client.CloneForkFlow** copies run state into a new Flow, leaving the source running. **CloneForkFlowOptions** takes **TimeTravelToCurrent** and the call returns **CloneForkFlowResult**. Requires Server protocol 6 (server-zd 0.1.33+). [Reference](/reference/server/runtime-client#clone-fork).
 - **Client.TimeTravel** returns to the point after one history event with **TimeTravelByEventID** and **TimeTravelOptions.EventID**, and takes a **SubFlowResetPolicy** that decides what happens to the SubFlow conditions of restored Steps.
 - **FlowErrorSubFlowAbandoned** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **Execute** reads it from **SubFlowResult** like any other failed child.
 
@@ -79,24 +79,24 @@ No user-visible changes.
 
 **Added**
 
-- Set **RPCInvokeOptions.RequestID** on **Client.InvokeRPCWithOptions** to apply Flow changes at most once across retries. Transactional or locking RPCs return the recorded reply, and nil keeps the generated ID. [API reference](pathname:///api/go/latest/dex/#type-rpcinvokeoptions).
+- Reuse **RPCInvokeOptions.RequestID** with **Client.InvokeRPCWithOptions** for at-most-once Flow changes. Retries of transactional or locking RPCs return the recorded reply, and nil keeps the generated ID. [Reference](/reference/server/runtime-data#rpc-request-ids).
 
 ### 1.45.2 (2026-11-14) {#v1-45-2}
 
 **Added**
 
-- **ClientOnlyFlow** types RPCs and Streams served by other Workers for **Client.InvokeRPC** and **Client.ReadStream**. **NewRegistry** rejects Steps and **NewWorker** returns **ClientOnlyFlowError** for a client-only Flow. [API reference](pathname:///api/go/latest/dex/#type-clientonlyflow).
-- Set named queues with **PullWorkerOptions.TaskQueue**, **StartFlowOptions.TaskQueue**, and **SubFlowOptions.TaskQueue**. Requires Server protocol 5. [Go Workers](/reference/go/workers#task-queue) and [API reference](pathname:///api/go/latest/dex/#type-pullworkeroptions).
+- **ClientOnlyFlow** types remote RPCs and Streams. **NewRegistry** rejects its Steps and **NewWorker** returns **ClientOnlyFlowError** if it is registered. **IsClientOnlyFlow** checks the marker. [API source](https://github.com/superdurable/dex/blob/sdk-go/v1.45.2/sdk-go/dex/client_only_flow.go).
+- **PullWorkerOptions.TaskQueue**, **StartFlowOptions.TaskQueue**, and **SubFlowOptions.TaskQueue** name queues (Server protocol 5). **DefaultTaskQueue** selects the default, and **PullRegistrationState** and **PullRegistrationError** report the queue. [Go Workers](/reference/go/workers#task-queue).
 
 ### 1.45.0 (2026-11-11) {#v1-45-0}
 
 **Breaking**
 
-- A custom Step type containing "-" can no longer start SubFlows, and a **SubFlow** Condition from **WaitFor** logs a warning and fails the attempt without retry. Change **GetStepType** to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
+- A custom Step type containing "-" can no longer start SubFlows. If **WaitFor** returns a **SubFlow** Condition, the Worker logs a warning and Dex Server fails the attempt without retry. Change **GetStepType** to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
 
 **Added**
 
-- **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload registered Flow graphs at startup and warn on failure. **ReadFlowDefinitionFiles** reads graph files and **Client.UploadFlowDefinitions** reports upload outcomes. [Reference](/reference/go/workers#flow-definitions).
+- **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload Flow graphs at startup. **ReadFlowDefinitionFiles** reads files and **Client.UploadFlowDefinitions** uploads them and reports **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
 
 **Fixed**
 
@@ -112,7 +112,7 @@ No user-visible changes.
 
 **Added**
 
-- **Join** and **JoinRound** coordinate parallel branches in one Flow. Use **DefineJoin** and **Join.Fork** to start a round, collect branch results, and wait for late results before reusing the Join. [API reference](pathname:///api/go/latest/dex/#type-join).
+- **Join** and **JoinRound** coordinate parallel branches in one Flow. Define a Join with **DefineJoin**, start a round with **Join.Fork**, and use **Join.ForRemainingBranches** to wait for outstanding results before the next round. [API reference](pathname:///api/go/latest/dex/#type-join).
 
 ## 1.43 {#v1-43}
 
@@ -130,7 +130,7 @@ No user-visible changes.
 
 **Added**
 
-- **NewStandaloneContext** and **StandaloneContextOptions** run Steps outside a Worker. Supply an **Attempt** and use hooks to capture heartbeats, locals, and events. [API reference](pathname:///api/go/latest/dex/#type-standalonecontextoptions).
+- **NewStandaloneContext** and **StandaloneContextOptions** create a **Context** for running Step code outside a Worker. Supply an **Attempt** and use hooks to capture heartbeats, locals, and events. [API reference](pathname:///api/go/latest/dex/#type-standalonecontextoptions).
 
 ## 1.40 {#v1-40}
 
