@@ -18,8 +18,10 @@ and the Go core, but not the TypeScript packages.
 
 Any other file under agents/, such as the conformance suite, a schema, or a
 script, and any workflow selects every package. Markdown outside a package
-selects nothing, because no package test reads it. Agents CI reads no file
-outside agents/ and .github/workflows/; it downloads a released dexcli.
+selects nothing, because no package test reads it. Agents CI reads one file
+outside agents/ and .github/workflows/: script/release/check_agents_go_modules.py,
+which Release Tooling CI tests against this repository. It downloads a
+released dexcli.
 """
 
 from __future__ import annotations

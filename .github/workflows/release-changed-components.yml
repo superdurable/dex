@@ -227,7 +227,6 @@ jobs:
           AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
           AGENTS_TAG: ${{ needs.plan.outputs.agents_tag }}
           AGENTS_BASELINE: ${{ needs.plan.outputs.agents_baseline }}
-          AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}
         run: |
           # Each release's notes list only its own change-log items; never GitHub-generated notes.
           selected=(
@@ -255,11 +254,6 @@ jobs:
                 --output "${release_notes}"
               gh release create "${tag}" --target "${GITHUB_SHA}" --title "Dex agents ${version}" \
                 --notes-file "${release_notes}" --latest=false
-              # Go fetches each agents Go module from its own tag, agents/go/<module>/v<version>, on this commit.
-              read -r -a agents_go_tags <<< "${AGENTS_GO_TAGS}"
-              for go_tag in "${agents_go_tags[@]}"; do
-                git push origin "${GITHUB_SHA}:refs/tags/${go_tag}"
-              done
               continue
             fi
             python3 script/release/component_release_notes.py "${component}" "${version}" \
@@ -517,6 +511,26 @@ jobs:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
         run: gh run watch "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --exit-status
 
+  # Go fetches each agents Go module from its own tag on the release commit. A rerun pushes only missing tags.
+  publish-agents-go-tags:
+    name: Push agents Go module tags
+    needs: [plan, create-releases]
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.agents == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Push the tags onto the release commit
+        # bash -eo pipefail, so tee never hides a failed push.
+        shell: bash
+        env:
+          AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}
+        run: |
+          read -r -a agents_go_tags <<< "${AGENTS_GO_TAGS}"
+          python3 script/release/push_agents_go_tags.py --commit "${GITHUB_SHA}" "${agents_go_tags[@]}" |
+            tee -a "${GITHUB_STEP_SUMMARY}"
+
   publish-web:
     name: Publish Dex Web
     needs: [plan, create-releases]
@@ -585,6 +599,7 @@ jobs:
       - publish-web-embedded
       - publish-cli
       - publish-agents
+      - publish-agents-go-tags
       - verify-compatibility-registries
     runs-on: ubuntu-latest
     steps:
@@ -609,6 +624,7 @@ jobs:
           CLI_RESULT: ${{ needs.publish-cli.result }}
           AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
           AGENTS_RESULT: ${{ needs.publish-agents.result }}
+          AGENTS_GO_TAGS_RESULT: ${{ needs.publish-agents-go-tags.result }}
           COMPATIBILITY_RESULT: ${{ needs.verify-compatibility-registries.result }}
         run: |
           {
@@ -626,6 +642,7 @@ jobs:
               "Embedded Dex Web Go module:${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
               "CLI:${CLI_SELECTED}:${CLI_RESULT}" \
               "Agents packages:${AGENTS_SELECTED}:${AGENTS_RESULT}" \
+              "Agents Go module tags:${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}" \
               "Compatibility file versions:true:${COMPATIBILITY_RESULT}"; do
               name="${result%%:*}"
               remainder="${result#*:}"
@@ -648,6 +665,7 @@ jobs:
             "${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
             "${CLI_SELECTED}:${CLI_RESULT}" \
             "${AGENTS_SELECTED}:${AGENTS_RESULT}" \
+            "${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}" \
             "true:${COMPATIBILITY_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then
               exit 1

@@ -71,19 +71,20 @@ class AgentsReleaseStampIntegrationTest(unittest.TestCase):
                 destination.mkdir(parents=True)
                 for filename in filenames:
                     shutil.copy2(source / filename, destination / filename)
-        # The repository's Go modules as they are; today none requires another agents module.
-        self.repository_go_mods = sorted(stamp.GO_MODULES_DIR.glob("*/go.mod"))
-        self.assertTrue(self.repository_go_mods)
-        for go_mod in self.repository_go_mods:
-            destination = self.agents_directory / go_mod.relative_to(stamp.AGENTS_DIR)
-            destination.parent.mkdir(parents=True)
-            shutil.copy2(go_mod, destination)
+        # The fixture Go modules require the core, so only the core comes from the repository.
+        self.copy_repository_go_mods([stamp.GO_MODULES_DIR / "core/go.mod"])
 
     def run_stamp(self, version: str, check: bool = False, go: bool = False) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(self.script), version, *(["--check"] if check else []), *(["--go"] if go else [])],
             capture_output=True, text=True,
         )
+
+    def copy_repository_go_mods(self, go_mods: list[Path]) -> None:
+        for go_mod in go_mods:
+            destination = self.agents_directory / go_mod.relative_to(stamp.AGENTS_DIR)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(go_mod, destination)
 
     def write_go_module(self, directory: str, text: str) -> Path:
         path = self.agents_directory / "go" / directory / "go.mod"
@@ -95,9 +96,19 @@ class AgentsReleaseStampIntegrationTest(unittest.TestCase):
         return {path: path.read_text() for path in sorted((self.agents_directory / "go").glob("*/go.mod"))}
 
     def test_go_stamp_leaves_the_repository_go_modules_unchanged(self) -> None:
+        repository_go_mods = sorted(stamp.GO_MODULES_DIR.glob("*/go.mod"))
+        self.copy_repository_go_mods(repository_go_mods)
         originals = self.go_mod_texts()
-        self.assertEqual(len(originals), len(self.repository_go_mods))
-        for version in ("0.6.16", "0.7.0-rc.1"):
+        self.assertEqual(len(originals), len(repository_go_mods))
+        # The repository's agents Go modules require each other at one version, which the stamp keeps.
+        required_versions = {
+            fields[1].removeprefix("v")
+            for go_mod in repository_go_mods
+            for _, verb, fields in stamp.go_mod_directives(go_mod.read_text().split("\n"))
+            if verb == "require" and fields[0].startswith(stamp.GO_MODULE_PATH_PREFIX)
+        }
+        self.assertLessEqual(len(required_versions), 1, required_versions)
+        for version in sorted(required_versions) or ("0.6.16", "0.7.0-rc.1"):
             for check in (False, True):
                 result = self.run_stamp(version, check=check, go=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -126,6 +137,29 @@ class AgentsReleaseStampIntegrationTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"{fixture}: not stamped", result.stderr)
         self.assertEqual(self.go_mod_texts(), stamped)
+
+    def test_go_stamp_refuses_a_checkout_without_a_module_git_tracks(self) -> None:
+        self.write_go_module("fixture", GO_FIXTURE)
+        root = self.agents_directory.parent
+        for arguments in (
+            ("init", "--quiet", "-b", "main"),
+            ("config", "user.name", "Release Test"),
+            ("config", "user.email", "release-test@example.com"),
+            ("add", "."),
+            ("commit", "--quiet", "-m", "agents packages"),
+            ("sparse-checkout", "set", "--cone", "agents/script", "agents/go/core"),
+        ):
+            subprocess.run(("git", *arguments), cwd=root, check=True, capture_output=True)
+        self.assertFalse((self.agents_directory / "go/fixture/go.mod").exists())
+        for check in (False, True):
+            with self.subTest(check=check):
+                result = self.run_stamp("0.6.16", check=check, go=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("agents/go/fixture/go.mod: git tracks it, but this checkout does not have it", result.stderr)
+        subprocess.run(("git", "sparse-checkout", "disable"), cwd=root, check=True, capture_output=True)
+        result = self.run_stamp("0.6.16", go=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("core v0.6.16", (self.agents_directory / "go/fixture/go.mod").read_text())
 
     def test_package_stamp_leaves_go_modules_to_the_go_stamp(self) -> None:
         fixture = self.write_go_module("fixture", GO_FIXTURE)

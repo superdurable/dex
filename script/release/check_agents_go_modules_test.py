@@ -80,7 +80,8 @@ class CheckAgentsGoModulesTest(unittest.TestCase):
         self.assert_one_error(
             "0.6.17",
             f"agents/go/adapter/go.mod: requires {CORE} v0.6.16, not the release version v0.6.17",
-            "stamp_agents_release_version.py 0.6.17 --go",
+            # The stamp reads pyproject.toml with tomllib, so it needs Python 3.11, as Agents CI runs it.
+            "run uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py 0.6.17 --go",
         )
 
     def test_agents_modules_require_each_other_at_one_version(self) -> None:
@@ -180,9 +181,49 @@ class CheckAgentsGoModulesTest(unittest.TestCase):
             self.assertEqual(go_module_errors(Path(empty_repository), "0.6.16"), [])
             self.assertEqual(go_module_tags(Path(empty_repository), "0.6.16"), [])
 
+    def test_a_sparse_checkout_without_a_module_fails(self) -> None:
+        self.commit_fixture()
+        self.git("sparse-checkout", "set", "--cone", "agents/go/core")
+        self.assertFalse((self.repository / "agents/go/adapter/go.mod").exists())
+        missing = "agents/go/adapter/go.mod: git tracks it, but this checkout does not have it"
+        for version in (None, "0.6.16"):
+            with self.subTest(version=version):
+                self.assert_one_error(version, missing, "git sparse-checkout add agents/go")
+        result = self.run_check("--version", "0.6.16")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn(missing, result.stderr)
+
+    def test_a_release_checks_the_go_mods_of_the_commit_it_tags(self) -> None:
+        self.commit_fixture()
+        # The tags name HEAD, which still requires the core at v0.6.16.
+        self.write_module("adapter", ADAPTER_GO_MOD.replace(f"{CORE} v0.6.16", f"{CORE} v0.6.17"))
+        self.assertEqual(go_module_errors(self.repository), [])
+        self.assert_one_error(
+            "0.6.17", "agents/go/adapter/go.mod: differs from HEAD", "commit or discard the change"
+        )
+        self.git("checkout", "--", "agents/go/adapter/go.mod")
+        self.write_module("second", f"module github.com/superdurable/dex/agents/go/second\n\ngo 1.26.0\n")
+        self.assertEqual(go_module_errors(self.repository), [])
+        self.assert_one_error("0.6.16", "agents/go/second/go.mod: differs from HEAD")
+        self.git("add", "agents/go/second/go.mod")
+        self.assert_one_error("0.6.16", "agents/go/second/go.mod: differs from HEAD")
+        self.git("commit", "--quiet", "-m", "second")
+        self.assertEqual(go_module_errors(self.repository, "0.6.16"), [])
+
     def test_this_repository_passes(self) -> None:
         self.assertEqual(go_module_errors(REPOSITORY), [])
         self.assertIn("agents/go/core/v0.6.16", go_module_tags(REPOSITORY, "0.6.16"))
+
+    def commit_fixture(self) -> None:
+        self.git("init", "--quiet", "-b", "main")
+        self.git("config", "user.name", "Release Test")
+        self.git("config", "user.email", "release-test@example.com")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "agents Go modules")
+
+    def git(self, *arguments: str) -> None:
+        subprocess.run(("git", *arguments), cwd=self.repository, check=True, capture_output=True, text=True)
 
     def run_check(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

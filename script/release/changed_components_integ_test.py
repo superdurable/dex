@@ -358,14 +358,32 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
         self.assertIn('-f "publish=true"', coordinated_workflow)
 
-    def test_coordinated_release_pushes_agents_go_tags_with_the_agents_release(self) -> None:
+    def test_coordinated_release_pushes_agents_go_tags_in_their_own_job(self) -> None:
         workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("agents_go_tags: ${{ steps.plan.outputs.agents_go_tags }}", workflow)
-        self.assertIn("AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}", workflow)
-        agents_release = workflow.index('--title "Dex agents ${version}"')
-        go_tags = workflow.index('git push origin "${GITHUB_SHA}:refs/tags/${go_tag}"')
-        self.assertLess(agents_release, go_tags)
-        self.assertLess(go_tags, workflow.index("continue", agents_release))
+        # A failed push inside create-releases would skip every publisher, and its rerun stops at the first Release.
+        create_releases = workflow.split("\n  create-releases:\n", 1)[1].split("\n  snapshot-references:\n", 1)[0]
+        self.assertNotIn("git push", create_releases)
+        self.assertNotIn("agents_go_tags", create_releases)
+        go_tags_job = workflow.split("\n  publish-agents-go-tags:\n", 1)[1].split("\n\n  ", 1)[0]
+        self.assertIn("needs: [plan, create-releases]", go_tags_job)
+        self.assertEqual(
+            workflow_job_if(workflow, "publish-agents-go-tags"),
+            workflow_job_if(workflow, "publish-agents"),
+        )
+        self.assertIn("permissions:\n      contents: write\n", go_tags_job)
+        self.assertIn("shell: bash\n", go_tags_job)
+        self.assertIn("AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}", go_tags_job)
+        self.assertIn(
+            'python3 script/release/push_agents_go_tags.py --commit "${GITHUB_SHA}" "${agents_go_tags[@]}"', go_tags_job
+        )
+        for block in workflow_run_blocks(go_tags_job):
+            self.assertNotIn("${{", block)
+        complete = workflow.split("\n  complete:\n", 1)[1]
+        self.assertIn("      - publish-agents-go-tags\n", complete)
+        self.assertIn("AGENTS_GO_TAGS_RESULT: ${{ needs.publish-agents-go-tags.result }}", complete)
+        self.assertIn('"Agents Go module tags:${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}"', complete)
+        self.assertIn('"${AGENTS_SELECTED}:${AGENTS_GO_TAGS_RESULT}"', complete)
 
     def test_coordinated_release_uses_each_component_version(self) -> None:
         workflow = CHANGED_COMPONENTS_WORKFLOW.read_text(encoding="utf-8")

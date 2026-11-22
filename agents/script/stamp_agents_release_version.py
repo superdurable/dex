@@ -20,10 +20,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 AGENTS_DIR = Path(__file__).resolve().parents[1]
 # A "cli/<name>" package lives in agents/cli/<language>/<name>; the others in agents/<language>/<name>.
@@ -178,8 +179,34 @@ def go_module_path(lines: list[str]) -> str | None:
     return next((fields[0] for _, verb, fields in go_mod_directives(lines) if verb == "module" and fields), None)
 
 
+def go_mods_missing_from_checkout() -> list[str]:
+    """Returns each agents/go/<module>/go.mod that git tracks but the checkout lacks, or none outside git."""
+    repository = AGENTS_DIR.parent
+    toplevel = subprocess.run(
+        ("git", "-C", str(repository), "rev-parse", "--show-toplevel"), capture_output=True, text=True
+    )
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != repository.resolve():
+        return []
+    tracked = subprocess.run(
+        ("git", "-C", str(repository), "ls-files", "-z", "--", "agents/go"), check=True, capture_output=True, text=True
+    ).stdout.split("\0")
+    return [
+        path for path in tracked
+        if len(PurePosixPath(path).parts) == 4 and path.endswith("/go.mod") and not (repository / path).is_file()
+    ]
+
+
 def agents_go_modules() -> dict[str, Path]:
     """Maps each agents Go module path to its go.mod; the tag agents/go/<directory>/v<version> resolves it."""
+    missing = go_mods_missing_from_checkout()
+    if missing:
+        raise StampMismatchError(
+            "\n".join(
+                f"{path}: git tracks it, but this checkout does not have it, as in a sparse checkout; "
+                "stamp a checkout with all of agents/go, for example after git sparse-checkout add agents/go"
+                for path in missing
+            )
+        )
     modules: dict[str, Path] = {}
     for go_mod in sorted(GO_MODULES_DIR.glob("*/go.mod")):
         expected = GO_MODULE_PATH_PREFIX + go_mod.parent.name

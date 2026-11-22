@@ -20,6 +20,9 @@ agents/go/<module>/go.mod must:
   require each other at one version; --version names the one the release must carry;
 - have no other replace or exclude directive.
 
+Git decides which modules exist: a module that git tracks but the checkout lacks, as in a sparse checkout,
+fails the check. With --version, each go.mod must also match HEAD, the commit the tags name.
+
 A required release that does not exist fails `go mod verify` in the module's ci.sh, which downloads it,
 so this check reads only the go.mod files. With --version it prints the Go tag of each module, one per
 line. The go.mod parsing matches agents/script/stamp_agents_release_version.py --go, which writes the
@@ -30,10 +33,11 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 AGENTS_GO_DIRECTORY = "agents/go"
@@ -47,6 +51,7 @@ GO_VERSION_PATTERN = re.compile(
 # The pseudo-version forms of golang.org/x/mod/module: a commit, not a release.
 GO_PSEUDO_VERSION_PATTERN = re.compile(r"^v[0-9]+\.(0\.0-|[0-9]+\.[0-9]+-([^+]*\.)?0\.)[0-9]{14}-[A-Za-z0-9]+$")
 GO_MOD_TOKEN_PATTERN = re.compile(r'"(?:[^"\\]|\\.)*"|`[^`]*`|[()]|[^\s()"`]+')
+STAMP_COMMAND = "uv run --no-project --python 3.11 python agents/script/stamp_agents_release_version.py"
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,48 @@ def agents_go_mods(repository: Path) -> list[GoMod]:
     return [read_go_mod(path) for path in sorted((repository / AGENTS_GO_DIRECTORY).glob("*/go.mod"))]
 
 
+def is_agents_go_mod(path: str) -> bool:
+    parts = PurePosixPath(path).parts
+    return len(parts) == 4 and "/".join(parts[:2]) == AGENTS_GO_DIRECTORY and parts[3] == "go.mod"
+
+
+def git_output(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ("git", "-C", str(repository), *arguments), check=True, capture_output=True, text=True
+    ).stdout
+
+
+def is_git_checkout_root(repository: Path) -> bool:
+    result = subprocess.run(
+        ("git", "-C", str(repository), "rev-parse", "--show-toplevel"), capture_output=True, text=True
+    )
+    return result.returncode == 0 and Path(result.stdout.strip()).resolve() == repository.resolve()
+
+
+def checkout_errors(repository: Path, version: str | None) -> list[str]:
+    """Returns why the go.mod files on disk are not the ones git tracks, or no errors outside a git checkout."""
+    if not is_git_checkout_root(repository):
+        return []
+    tracked = git_output(repository, "ls-files", "-z", "--", AGENTS_GO_DIRECTORY).split("\0")
+    missing = [path for path in tracked if is_agents_go_mod(path) and not (repository / path).is_file()]
+    errors = [
+        f"{path}: git tracks it, but this checkout does not have it, as in a sparse checkout; check a checkout "
+        f"with all of {AGENTS_GO_DIRECTORY}, for example after git sparse-checkout add {AGENTS_GO_DIRECTORY}"
+        for path in missing
+    ]
+    if version is not None:
+        status = git_output(
+            repository, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--",
+            AGENTS_GO_DIRECTORY,
+        )
+        changed = sorted({entry[3:] for entry in status.split("\0") if is_agents_go_mod(entry[3:])} - set(missing))
+        errors.extend(
+            f"{path}: differs from HEAD, but the release tags name that commit; commit or discard the change first"
+            for path in changed
+        )
+    return errors
+
+
 def go_module_tags(repository: Path, version: str) -> list[str]:
     """Returns the release tag of each agents Go module, such as agents/go/core/v0.6.16."""
     return [f"{AGENTS_GO_DIRECTORY}/{go_mod.path.parent.name}/v{version}" for go_mod in agents_go_mods(repository)]
@@ -122,7 +169,9 @@ def go_module_errors(repository: Path, version: str | None = None) -> list[str]:
     go_mods = agents_go_mods(repository)
     known_modules = {AGENTS_MODULE_PREFIX + go_mod.path.parent.name for go_mod in go_mods}
     release_version = None if version is None else f"v{version}"
-    errors = [] if release_version is None else release_version_errors(release_version)
+    errors = checkout_errors(repository, version)
+    if release_version is not None:
+        errors.extend(release_version_errors(release_version))
     agents_requires: dict[str, list[str]] = {}
     for go_mod in go_mods:
         name = go_mod.path.relative_to(repository).as_posix()
@@ -151,7 +200,7 @@ def go_module_errors(repository: Path, version: str | None = None) -> list[str]:
                 elif release_version is not None and required != release_version:
                     errors.append(
                         f"{name}: requires {module} {required}, not the release version {release_version}; "
-                        f"run python3 agents/script/stamp_agents_release_version.py {version} --go"
+                        f"run {STAMP_COMMAND} {version} --go"
                     )
             elif module.startswith(SUPERDURABLE_MODULE_PREFIX):
                 if GO_PSEUDO_VERSION_PATTERN.fullmatch(required):
