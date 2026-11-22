@@ -11,6 +11,8 @@ package builtinloop_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -140,4 +142,36 @@ func TestABuiltinLoopRefusesASourceToolNamedLikeAFunctionTool(t *testing.T) {
 	_, err = builtinloop.NewAgentDefinition("support", "Help.", model,
 		builtinloop.WithToolSources(&ledgerSource{}), builtinloop.WithToolSourceListingTimeout(-time.Second))
 	require.ErrorContains(t, err, "listing timeout must be positive")
+}
+
+// An explicit zero timeout is refused, as in the other cores, instead of meaning the default.
+func TestABuiltinLoopRefusesAZeroToolSourceListingTimeout(t *testing.T) {
+	t.Parallel()
+	model := agentstest.NewScriptedModelClient(func(builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
+		return agentstest.ScriptedModelReply{Text: "done"}, nil
+	})
+	_, err := builtinloop.NewAgentDefinition("support", "Help.", model,
+		builtinloop.WithToolSources(&ledgerSource{}), builtinloop.WithToolSourceListingTimeout(0))
+	require.EqualError(t, err, "tool source listing timeout must be positive")
+	_, err = builtinloop.NewAgentDefinition("support", "Help.", model, builtinloop.WithToolSourceListingTimeout(0))
+	require.EqualError(t, err, "tool source listing timeout must be positive", "a definition without sources refuses it too")
+	_, err = builtinloop.NewAgentDefinition("support", "Help.", model,
+		builtinloop.WithToolSources(&ledgerSource{}), builtinloop.WithToolSourceListingTimeout(time.Millisecond))
+	require.NoError(t, err)
+}
+
+// The built-in loop stores the envelope key that names.json fixes for every core.
+func TestTheBuiltinLoopEnvelopeKeyIsTheSharedOne(t *testing.T) {
+	t.Parallel()
+	text, err := os.ReadFile(filepath.Join("..", "..", "..", "conformance", "names.json"))
+	require.NoError(t, err)
+	var names struct {
+		StepwiseToolSourceReference struct {
+			Keys struct {
+				SourceName string `json:"source_name"`
+			} `json:"keys"`
+		} `json:"stepwise_tool_source_reference"`
+	}
+	require.NoError(t, json.Unmarshal(text, &names))
+	require.Equal(t, names.StepwiseToolSourceReference.Keys.SourceName, builtinloop.ToolSourceEnvelopeKey)
 }

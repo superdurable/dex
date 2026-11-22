@@ -257,15 +257,18 @@ func (source *ConnectorToolSource) ToolCallStepOptions(toolCall dexagents.AgentT
 
 // ExecuteDeferredToolCall checks, decodes, and runs one call, then maps the selected branch.
 //
-// ctx must be the tool Step's dex.Context, which the session passes to the
-// runner. It returns the result value as JSON text, bounded by the result
-// bound. It returns a *dexagents.ToolExecutionError when the arguments break
-// the schema or do not decode, or the operation selected a rejected or failed
-// branch, and a *dexagents.ToolOutcomeUnknownError when it selected an unknown
-// branch. Any other error fails the attempt, so the tool Step's retry policy
-// and then the call's effect decide: an *sdkgo.RetryError for a connector
-// Retry, an error when this source no longer has the tool or ctx is not a
-// dex.Context, and the operation's panic or result encoding error.
+// The operation runs with call.StepContext, the tool Step's dex.Context, so
+// ctx may be any context derived from it, such as one a framework's tool node
+// or a tracing span adds values to. When call.StepContext is nil, ctx itself
+// must be the tool Step's dex.Context. It returns the result value as JSON
+// text, bounded by the result bound. It returns a *dexagents.ToolExecutionError
+// when the arguments break the schema or do not decode, or the operation
+// selected a rejected or failed branch, and a *dexagents.ToolOutcomeUnknownError
+// when it selected an unknown branch. Any other error fails the attempt, so the
+// tool Step's retry policy and then the call's effect decide: an
+// *sdkgo.RetryError for a connector Retry, an error when this source no longer
+// has the tool or neither call.StepContext nor ctx is a dex.Context, and the
+// operation's panic or result encoding error.
 //
 // Since 0.6.16.
 func (source *ConnectorToolSource) ExecuteDeferredToolCall(
@@ -284,8 +287,12 @@ func (source *ConnectorToolSource) ExecuteDeferredToolCall(
 	if problem := tool.inputSchema.findInputViolation(values); problem != "" {
 		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf("invalid arguments for %s: %s", tool.name, problem)}
 	}
-	stepContext, isStepContext := ctx.(dex.Context)
-	if !isStepContext || stepContext == nil {
+	stepContext := call.StepContext
+	if stepContext == nil {
+		// A direct caller, such as a test, may pass the Step's dex.Context as ctx.
+		stepContext, _ = ctx.(dex.Context)
+	}
+	if stepContext == nil {
 		return nil, errors.New("a connector tool call needs the tool Step's dex.Context")
 	}
 	var runOptions []sdkgo.RunOption

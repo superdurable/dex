@@ -508,6 +508,39 @@ func TestACallOutsideAToolStepOrOfAGoneToolFailsTheAttempt(t *testing.T) {
 	require.False(t, errors.As(err, &toolError), "the effect class decides a removed tool's outcome")
 }
 
+type derivedContextKey struct{}
+
+// A source runs a call under the execution's StepContext, even when ctx is a derived context.
+func TestACallWithADerivedContextRunsWithTheExecutionsStepContext(t *testing.T) {
+	t.Parallel()
+	tools := newLedgerTools(t)
+	source := tools.source(t)
+	deferred := defer_(t, source, nil, "fake-ledger_send_message", `{"accountId": "a-1", "text": "hello"}`)
+	record := dexagents.AgentToolCall{
+		ToolCallID: deferred.ToolCallID, TurnID: "turn-1", ToolName: deferred.ToolName, Arguments: deferred.Arguments,
+		Effect: deferred.Policy.Effect, Status: dexagents.ToolCallStatusApproved, ToolSourceReference: deferred.ToolSourceReference,
+	}
+	stepContext := singledispatchtest.NewContext("session-derived", "CallSingleAttemptTool-1")
+	derived := context.WithValue(stepContext, derivedContextKey{}, "span")
+	var checkpoint *string
+	execution := dexagents.DeferredToolExecution{
+		FlowID: stepContext.FlowID(), ToolCall: record, Attempt: 1,
+		Heartbeat: func() error { return nil }, HeartbeatCheckpoint: checkpoint,
+		SaveHeartbeatCheckpoint: func(saved string) error { checkpoint = &saved; return nil },
+	}
+
+	_, err := source.ExecuteDeferredToolCall(derived, execution)
+	require.EqualError(t, err, "a connector tool call needs the tool Step's dex.Context", "a derived ctx alone names no Step")
+	require.Zero(t, tools.provider.Sends("sendMessage"))
+
+	execution.StepContext = stepContext
+	outcome, err := source.ExecuteDeferredToolCall(derived, execution)
+	require.NoError(t, err)
+	require.Equal(t, `{"id":"sendMessage-1"}`, outcome.(*dexagents.ToolExecutionResult).Output)
+	require.NotNil(t, checkpoint, "the fence kept its marker in the Step's checkpoint")
+	require.Equal(t, 1, tools.provider.Sends("sendMessage"))
+}
+
 func ptr[Value any](value Value) *Value {
 	return &value
 }

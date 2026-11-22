@@ -154,12 +154,13 @@ func WithToolSources(sources ...dexagents.ToolSource) AgentDefinitionOption {
 // WithToolSourceListingTimeout sets how long one model call waits for each tool source's listing.
 //
 // The default is dexagents.DefaultToolSourceListingTimeout, 10 seconds. It
-// must be positive.
+// must be positive: NewAgentDefinition returns an error for zero or a
+// negative timeout, as the other cores do.
 //
 // Since 0.6.16.
 func WithToolSourceListingTimeout(timeout time.Duration) AgentDefinitionOption {
 	return agentDefinitionOptionFunc(func(definition *AgentDefinition) {
-		definition.toolSourceListingTimeout = timeout
+		definition.toolSourceListingTimeout = &timeout
 	})
 }
 
@@ -232,7 +233,7 @@ type AgentDefinition struct {
 	interruptDeadline        time.Duration
 	eventStreamCapacityBytes int64
 	toolSources              []dexagents.ToolSource
-	toolSourceListingTimeout time.Duration
+	toolSourceListingTimeout *time.Duration
 	toolSourceRouter         *dexagents.ToolSourceRouter
 }
 
@@ -277,14 +278,14 @@ func NewAgentDefinition(name string, instructions string, model ModelClient, opt
 		}
 		names = append(names, tool.name)
 	}
-	listingTimeout := definition.toolSourceListingTimeout
-	if listingTimeout == 0 {
-		listingTimeout = dexagents.DefaultToolSourceListingTimeout
-	}
-	router, err := dexagents.NewToolSourceRouter(definition.toolSources,
+	routerOptions := []dexagents.ToolSourceRouterOption{
 		dexagents.WithReservedToolNames(names...),
-		dexagents.WithToolSourceListingTimeout(listingTimeout),
-		dexagents.WithToolSourceEnvelopeKey(ToolSourceEnvelopeKey))
+		dexagents.WithToolSourceEnvelopeKey(ToolSourceEnvelopeKey),
+	}
+	if definition.toolSourceListingTimeout != nil {
+		routerOptions = append(routerOptions, dexagents.WithToolSourceListingTimeout(*definition.toolSourceListingTimeout))
+	}
+	router, err := dexagents.NewToolSourceRouter(definition.toolSources, routerOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -458,8 +459,8 @@ func (runner *BuiltinLoopAgentRunner) RunModelStep(
 //
 // It returns the tool output, or a *dexagents.ToolExecutionError when the tool
 // is unknown, the arguments break its schema, or the tool returned one. A call
-// that a tool source built runs through that source, with ctx, the tool
-// Step's dex.Context, and returns what the source returns; when this Worker
+// that a tool source built runs through that source, with ctx and call
+// unchanged, and returns what the source returns; when this Worker
 // has no source of that name, the error fails the attempt, so the call's
 // effect class decides its outcome.
 //

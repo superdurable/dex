@@ -52,9 +52,27 @@ func newConnectorAgentFlow(coordinationDir string) (dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
+	getBalanceOnce, err := sdkgo.NewQueryAgentTool[fakeledger.GetBalanceInput, fakeledger.Balance](
+		fakeledger.GetBalance{Provider: provider, MaximumAttempts: 1}, fakeledger.Connection, fakeledger.GetBalanceMetadataWithAttempts(1))
+	if err != nil {
+		return nil, err
+	}
+	type configuredTool struct {
+		agentTool sdkgo.AgentTool
+		options   []connectortools.ConnectorToolOption
+	}
 	tools := []*connectortools.ConnectorTool{}
-	for _, agentTool := range []sdkgo.AgentTool{getBalance, createPayout, postNote, sendMessage} {
-		tool, err := connectortools.NewConnectorTool(agentTool)
+	for _, configured := range []configuredTool{
+		{agentTool: getBalance, options: []connectortools.ConnectorToolOption{connectortools.WithMaxResultBytes(ledgerResultMaxBytes)}},
+		{agentTool: createPayout},
+		{agentTool: postNote},
+		{agentTool: sendMessage},
+		{agentTool: getBalanceOnce, options: []connectortools.ConnectorToolOption{connectortools.WithToolName("fake-ledger_get_balance_once")}},
+		{agentTool: sendMessage, options: []connectortools.ConnectorToolOption{
+			connectortools.WithToolName("fake-ledger_send_approved_message"), connectortools.WithRequiresApproval(true),
+		}},
+	} {
+		tool, err := connectortools.NewConnectorTool(configured.agentTool, configured.options...)
 		if err != nil {
 			return nil, err
 		}
@@ -64,22 +82,56 @@ func newConnectorAgentFlow(coordinationDir string) (dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
+	agent := ledgerAgent{coordinationDir: coordinationDir}
 	definition, err := builtinloop.NewAgentDefinition("ledger", "You manage ledger accounts.",
-		agentstest.NewScriptedModelClient(respondAsLedgerAgent), builtinloop.WithToolSources(source))
+		agentstest.NewScriptedModelClient(agent.respond), builtinloop.WithToolSources(source))
 	if err != nil {
 		return nil, err
 	}
-	return builtinloop.NewBuiltinAgentSessionFlow(definition, connectorAgentFlowType)
+	return dexagents.NewAgentSessionFlow(derivedContextRunner{builtinloop.NewBuiltinLoopAgentRunner(definition)},
+		connectorAgentFlowType)
 }
 
-// respondAsLedgerAgent calls the tools the last user text names, then reports every result:
+// ledgerResultMaxBytes bounds getBalance's results, so a padded balance reaches the model truncated.
+const ledgerResultMaxBytes = 256
+
+type derivedContextKey struct{}
+
+// derivedContextRunner passes tools a context derived from the Step's, as a framework's tool node does.
+type derivedContextRunner struct {
+	*builtinloop.BuiltinLoopAgentRunner
+}
+
+func (runner derivedContextRunner) ExecuteDeferredToolCall(
+	ctx context.Context,
+	call dexagents.DeferredToolExecution,
+) (dexagents.DeferredToolOutcome, error) {
+	derived := context.WithValue(ctx, derivedContextKey{}, call.ToolCall.ToolCallID)
+	return runner.BuiltinLoopAgentRunner.ExecuteDeferredToolCall(derived, call)
+}
+
+// ledgerAgent is the connector agent's scripted model.
+type ledgerAgent struct {
+	coordinationDir string
+}
+
+// respond calls the tools the last user text names, then reports every result:
 // "balance <account>", "send <text>", "payout <amount>", "note <text> | send <text>", which asks
-// for a read and two writes in one response, and "notepay <text>", a note and then a payout.
-func respondAsLedgerAgent(request builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
+// for a read and two writes in one response, and "notepay <text>", a note and then a payout. Also
+// "bigbalance <padding>", "balanceonce <account>" with one attempt, "approvedsend <text>", which
+// waits for approval, and "paynote <text>", a payout and then a note. A word "hold-final:<gate>"
+// holds the model call that reports the results at that gate.
+func (agent ledgerAgent) respond(request builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
 	userTexts := agentstest.UserTexts(request)
-	lastText := userTexts[len(userTexts)-1]
+	lastText, holdGate := cutHoldFinalGate(userTexts[len(userTexts)-1])
 	results := agentstest.ToolResults(request)
 	if len(results) > 0 {
+		if holdGate != "" {
+			writeMarker(agent.coordinationDir, holdGate+".reached")
+			if err := waitForRelease(agent.coordinationDir, holdGate); err != nil {
+				return agentstest.ScriptedModelReply{}, err
+			}
+		}
 		outputs := make([]string, 0, len(results))
 		for _, result := range results {
 			outputs = append(outputs, result.ToolName+": "+result.Output)
@@ -104,6 +156,21 @@ func respondAsLedgerAgent(request builtinloop.ModelRequest) (agentstest.Scripted
 			return agentstest.ScriptedModelReply{}, err
 		}
 		return toolCalls(call("fake-ledger_create_payout", map[string]any{"accountId": "a-1", "amount": amount})), nil
+	case "bigbalance":
+		var padding int
+		if _, err := fmt.Sscan(argument, &padding); err != nil {
+			return agentstest.ScriptedModelReply{}, err
+		}
+		return toolCalls(call("fake-ledger_get_balance", map[string]any{"accountId": "a-1", "padding": padding})), nil
+	case "balanceonce":
+		return toolCalls(call("fake-ledger_get_balance_once", map[string]any{"accountId": argument})), nil
+	case "approvedsend":
+		return toolCalls(call("fake-ledger_send_approved_message", map[string]any{"accountId": "a-1", "text": argument})), nil
+	case "paynote":
+		return toolCalls(
+			call("fake-ledger_create_payout", map[string]any{"accountId": "a-1", "amount": 9}),
+			call("fake-ledger_post_note", map[string]any{"accountId": "a-1", "text": argument}),
+		), nil
 	case "notepay":
 		return toolCalls(
 			call("fake-ledger_post_note", map[string]any{"accountId": "a-1", "text": argument}),
@@ -121,6 +188,20 @@ func respondAsLedgerAgent(request builtinloop.ModelRequest) (agentstest.Scripted
 	}
 }
 
+// cutHoldFinalGate removes a "hold-final:<gate>" word from text and returns the gate, or "".
+func cutHoldFinalGate(text string) (string, string) {
+	words := []string{}
+	gate := ""
+	for _, word := range strings.Fields(text) {
+		if name, isGate := strings.CutPrefix(word, "hold-final:"); isGate {
+			gate = name
+			continue
+		}
+		words = append(words, word)
+	}
+	return strings.Join(words, " "), gate
+}
+
 func (stack *agentTestStack) ledger() *fakeledger.Provider {
 	return fakeledger.NewProvider(stack.coordinationDir)
 }
@@ -134,6 +215,21 @@ func (stack *agentTestStack) finalAttempt(sessionID string, stepType string) int
 	})
 	require.GreaterOrEqual(stack.t, index, 0, "no completed %s", stepType)
 	return history[index].FinalAttempt
+}
+
+// heldTurnRecords reads the turn's final records at its held last model call; a finished turn deletes them.
+func (stack *agentTestStack) heldTurnRecords(sessionID string, gate string) map[string]dexagents.AgentToolCall {
+	stack.t.Helper()
+	stack.waitForMarker(gate + ".reached")
+	snapshot, err := stack.sessions(connectorAgentFlowType).GetAgentSnapshot(context.Background(), sessionID)
+	require.NoError(stack.t, err)
+	records := map[string]dexagents.AgentToolCall{}
+	for _, record := range snapshot.ToolCalls {
+		require.True(stack.t, record.Status.IsFinal(), "%s is %s", record.ToolName, record.Status)
+		records[record.ToolName] = record
+	}
+	stack.releaseMarker(gate)
+	return records
 }
 
 // A limited Connector write whose Worker is SIGKILLed after the send retries in the same tool Step,
@@ -296,6 +392,153 @@ func TestAQueuedConnectorWriteAsksForApprovalOnlyWhenItsTurnComes(t *testing.T) 
 		`fake-ledger_post_note: {"id":"postNote-1"}`,
 		`fake-ledger_create_payout: {"amount":9,"payoutId":"createPayout-2"}`,
 	}, "\n"), *snapshot.Messages[len(snapshot.Messages)-1].Text)
+}
+
+// A limited write whose responses are all lost records outcome_unknown at its send cap, with attempts left.
+func TestALimitedConnectorWriteThatNeverConfirmsRecordsOutcomeUnknownAtItsCap(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "lost", ptr("send lose-always hold-final:lost"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	record := stack.heldTurnRecords("lost", "lost")["fake-ledger_send_message"]
+	snapshot := stack.waitForTurnCount(connectorAgentFlowType, "lost", 1)
+	require.Nil(t, snapshot.State.LastTurnError)
+	require.Equal(t, dexagents.ToolCallStatusOutcomeUnknown, record.Status)
+	require.Equal(t, "fake-ledger sendMessage returned uncertain: TRANSPORT: read-back found no message", *record.Error)
+	require.Equal(t, dexagents.OutcomeUnknownToolResult, *snapshot.Messages[2].ToolOutput)
+	require.Equal(t, 3, stack.ledger().Sends("sendMessage"), "the send cap")
+	// Three lost sends, then one read-back at the cap; the operation allows five attempts.
+	require.Equal(t, 4, stack.finalAttempt("lost", "CallSingleAttemptTool"))
+	require.NotContains(t, stack.executedStepTypes("lost"), "RecordToolOutcomeUnknown")
+}
+
+// An approved limited write survives a restart while it waits, and reads back after a SIGKILL.
+func TestAnApprovedConnectorWriteKilledAfterItsSendReadsBackOnTheRetry(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	worker := stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+	ctx := context.Background()
+
+	_, err := sessions.StartSession(ctx, "approved-send",
+		ptr("approvedsend hello gate-after-send:approved-send hold-final:approved-send-final"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	snapshot := stack.waitForPendingInterrupts(connectorAgentFlowType, "approved-send", 1)
+	require.Equal(t, "fake-ledger_send_approved_message", snapshot.PendingInterrupts[0].ToolName)
+	require.Equal(t, dexagents.ToolEffectNonIdempotentWrite, snapshot.ToolCalls[0].Effect)
+	worker.Kill()
+	worker = stack.startWorker()
+
+	isResolved, err := sessions.ResolveInterrupt(ctx, "approved-send", snapshot.PendingInterrupts[0].InterruptID, true, nil)
+	require.NoError(t, err)
+	require.True(t, isResolved)
+	stack.waitForMarker("approved-send.reached")
+	worker.Kill()
+	stack.startWorker()
+
+	record := stack.heldTurnRecords("approved-send", "approved-send-final")["fake-ledger_send_approved_message"]
+	require.Equal(t, dexagents.ToolCallStatusSucceeded, record.Status)
+	snapshot = stack.waitForTurnCount(connectorAgentFlowType, "approved-send", 1)
+	require.Equal(t, `{"id":"sendMessage-1"}`, *snapshot.Messages[2].ToolOutput)
+	require.Equal(t, 1, stack.ledger().Sends("sendMessage"), "the retry read the write back instead of sending again")
+	require.Equal(t, 2, stack.finalAttempt("approved-send", "CallSingleAttemptTool"))
+	require.Equal(t, []string{"StartAgentSession", "RunModel", "AwaitToolApproval", "CallSingleAttemptTool", "ResumeTurn", "RunModel"},
+		stack.executedStepTypes("approved-send"))
+}
+
+// A Connector result longer than its bound reaches the model truncated, and the record keeps the full size.
+func TestATruncatedConnectorResultRecordsItsFullSize(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "big", ptr("bigbalance 400 hold-final:big"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	record := stack.heldTurnRecords("big", "big")["fake-ledger_get_balance"]
+	full := `{"accountId":"a-1","amount":1250,"filler":"` + strings.Repeat("x", 400) + `"}`
+	require.Equal(t, dexagents.ToolCallStatusSucceeded, record.Status)
+	require.NotNil(t, record.TruncatedOutputBytes)
+	require.Equal(t, int64(len(full)), *record.TruncatedOutputBytes)
+	require.Equal(t, full[:ledgerResultMaxBytes]+"\n"+strings.ReplaceAll(connectortools.ConnectorResultTruncatedNote,
+		"{total_bytes}", fmt.Sprint(len(full))), *record.Output)
+	snapshot := stack.waitForTurnCount(connectorAgentFlowType, "big", 1)
+	require.Equal(t, *record.Output, *snapshot.Messages[2].ToolOutput)
+}
+
+// A Connector Query keeps its operation's attempt limit in CallTool, here one attempt instead of three.
+func TestAConnectorQueryKeepsItsOperationsAttemptLimit(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "read-once", ptr("balanceonce retry-once hold-final:read-once"),
+		dex.StartFlowOptions{})
+	require.NoError(t, err)
+	record := stack.heldTurnRecords("read-once", "read-once")["fake-ledger_get_balance_once"]
+	require.Equal(t, dexagents.ToolCallStatusFailed, record.Status)
+	stack.waitForTurnCount(connectorAgentFlowType, "read-once", 1)
+	require.Equal(t, 1, stack.ledger().Calls("getBalance"), "the retry the connector asked for had no attempt left")
+	require.Contains(t, stack.executedStepTypes("read-once"), "RecordToolFailure")
+}
+
+// A rejected approval of the first Connector write skips the later write of the response without running it.
+func TestARejectedConnectorWriteSkipsTheLaterWrites(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+	ctx := context.Background()
+
+	_, err := sessions.StartSession(ctx, "rejected", ptr("paynote after the payout hold-final:rejected"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	snapshot := stack.waitForPendingInterrupts(connectorAgentFlowType, "rejected", 1)
+	require.Equal(t, "fake-ledger_create_payout", snapshot.PendingInterrupts[0].ToolName)
+	require.True(t, snapshot.ToolCalls[1].WriteQueued)
+	isResolved, err := sessions.ResolveInterrupt(ctx, "rejected", snapshot.PendingInterrupts[0].InterruptID, false, ptr("not today"))
+	require.NoError(t, err)
+	require.True(t, isResolved)
+
+	records := stack.heldTurnRecords("rejected", "rejected")
+	require.Equal(t, dexagents.ToolCallStatusRejected, records["fake-ledger_create_payout"].Status)
+	skipped := records["fake-ledger_post_note"]
+	require.Equal(t, dexagents.ToolCallStatusFailed, skipped.Status)
+	require.True(t, skipped.Skipped)
+	require.Equal(t, dexagents.ToolCallNotRunErrorPrefix+": "+dexagents.ToolCallSkippedAfterWriteDetail, *skipped.Error)
+	require.Zero(t, stack.ledger().Calls("postNote"))
+	require.Zero(t, stack.ledger().Calls("createPayout"))
+	stack.waitForTurnCount(connectorAgentFlowType, "rejected", 1)
+}
+
+// A single-attempt write SIGKILLed mid-call records outcome_unknown and skips the later write; the read succeeds.
+func TestASingleAttemptConnectorWriteKilledMidCallSkipsTheLaterWrites(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	worker := stack.startWorker()
+	sessions := stack.sessions(connectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "kill-note",
+		ptr("note gate-after-send:kill-note | send after hold-final:kill-note-final"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	stack.waitForMarker("kill-note.reached")
+	worker.Kill()
+	stack.startWorker()
+
+	records := stack.heldTurnRecords("kill-note", "kill-note-final")
+	require.Equal(t, dexagents.ToolCallStatusOutcomeUnknown, records["fake-ledger_post_note"].Status)
+	require.Equal(t, dexagents.ToolCallStatusSucceeded, records["fake-ledger_get_balance"].Status)
+	require.True(t, records["fake-ledger_send_message"].Skipped)
+	require.Equal(t, dexagents.ToolCallNotRunErrorPrefix+": "+dexagents.ToolCallSkippedAfterWriteDetail,
+		*records["fake-ledger_send_message"].Error)
+	require.Equal(t, []string{"postNote-1"}, stack.ledger().Writes("postNote"))
+	require.Equal(t, 1, stack.ledger().Calls("postNote"), "the note never ran again")
+	require.Zero(t, stack.ledger().Calls("sendMessage"))
+	stack.waitForTurnCount(connectorAgentFlowType, "kill-note", 1)
+	require.Contains(t, stack.executedStepTypes("kill-note"), "RecordToolOutcomeUnknown")
 }
 
 func countOf(values []string, value string) int {

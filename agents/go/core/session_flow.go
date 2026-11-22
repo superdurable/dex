@@ -865,34 +865,52 @@ func (step RunModel) Execute(ctx dex.Context, _ *CompactContextInput) (*dex.Step
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
 	}
-	orderedWriteDecision, err := step.session.continueOrderedWrites(ctx)
+	queuedWrite, isQueuedWriteSkipped, err := step.session.continueOrderedWrites(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if orderedWriteDecision != nil {
-		return orderedWriteDecision, nil
+	if isQueuedWriteSkipped {
+		// The skips commit before the model call, so readers see them while the model runs.
+		return dex.GoTo(RunModel{session: step.session}, (*CompactContextInput)(nil)), nil
 	}
-	result, err := step.session.runModelCall(ctx)
-	var endsTurn *errModelCallEndsTurn
-	if errors.As(err, &endsTurn) {
-		return step.session.failTurnAfterModelCall(ctx, endsTurn)
+	var startedToolCalls []AgentToolCall
+	if queuedWrite != nil {
+		startedToolCalls = []AgentToolCall{*queuedWrite}
+	} else {
+		result, err := step.session.runModelCall(ctx)
+		var endsTurn *errModelCallEndsTurn
+		if errors.As(err, &endsTurn) {
+			return step.session.failTurnAfterModelCall(ctx, endsTurn)
+		}
+		var retryAfter *dex.RetryAfterError
+		if err != nil && !errors.As(err, &retryAfter) && ctx.Err() == nil && ctx.Attempt() >= modelCallMaximumAttempts {
+			// The Dex retry policy also counts the transient retries, so the last attempt for any other error ends the turn.
+			return step.session.failTurnAfterModelCall(ctx, err)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if result.isTurnOver {
+			return dex.GoTo(AwaitUserMessage{session: step.session}, nil), nil
+		}
+		startedToolCalls = result.requestedToolCalls
 	}
-	var retryAfter *dex.RetryAfterError
-	if err != nil && !errors.As(err, &retryAfter) && ctx.Err() == nil && ctx.Attempt() >= modelCallMaximumAttempts {
-		// The Dex retry policy also counts the transient retries, so the last attempt for any other error ends the turn.
-		return step.session.failTurnAfterModelCall(ctx, err)
+	// The movements stay inline so dexcli visualize draws every tool Step transition.
+	movements := make([]dex.StepMovement, 0, len(startedToolCalls)+1)
+	for _, toolCall := range startedToolCalls {
+		switch {
+		case toolCall.RequiresApproval:
+			movements = append(movements, dex.MovementOf(AwaitToolApproval{session: step.session}, toolCall.ToolCallID,
+				dex.WithStepOptions(toolApprovalMovementOptions(toolCall.ToolCallID))))
+		case toolCall.Effect.isMultiAttempt():
+			movements = append(movements, dex.MovementOf(CallTool{session: step.session}, toolCall.ToolCallID,
+				dex.WithStepOptions(step.session.callToolMovementOptions(toolCall))))
+		default:
+			movements = append(movements, dex.MovementOf(CallSingleAttemptTool{session: step.session}, toolCall.ToolCallID,
+				dex.WithStepOptions(step.session.callSingleAttemptToolMovementOptions(toolCall))))
+		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	if result.isTurnOver {
-		return dex.GoTo(AwaitUserMessage{session: step.session}, nil), nil
-	}
-	movements := make([]dex.StepMovement, 0, len(result.requestedToolCalls)+1)
-	for _, toolCall := range result.requestedToolCalls {
-		movements = append(movements, step.session.startedToolCallMovement(toolCall))
-	}
-	movements = append(movements, dex.MovementOf(ResumeTurn{session: step.session}, len(result.requestedToolCalls)))
+	movements = append(movements, dex.MovementOf(ResumeTurn{session: step.session}, len(startedToolCalls)))
 	return dex.GoToMany(movements...), nil
 }
 
@@ -960,8 +978,12 @@ func (step AwaitToolApproval) Execute(ctx dex.Context, toolCallID string) (*dex.
 			dex.WithStepOptions(toolApprovalMovementOptions(toolCallID)))), nil
 	case outcome == approvalFinished:
 		return dex.DeadEnd(), nil
+	case toolCall.Effect.isMultiAttempt():
+		return dex.GoToMany(dex.MovementOf(CallTool{session: step.session}, toolCallID,
+			dex.WithStepOptions(step.session.callToolMovementOptions(toolCall)))), nil
 	default:
-		return dex.GoToMany(step.session.toolStepMovement(toolCall)), nil
+		return dex.GoToMany(dex.MovementOf(CallSingleAttemptTool{session: step.session}, toolCallID,
+			dex.WithStepOptions(step.session.callSingleAttemptToolMovementOptions(toolCall)))), nil
 	}
 }
 
@@ -1008,7 +1030,7 @@ func (step CallTool) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecis
 // ToolCallStepOptions.BoundedResendExecuteRetry. Changed in 0.6.16.
 //
 // dex:group group-id:tools group-label:"Tools"
-// dex:explanation text:"Run one non-idempotent or unclassified tool call in a single attempt."
+// dex:explanation text:"Run one non-idempotent or unclassified tool call once, or up to its bounded resend attempts."
 type CallSingleAttemptTool struct {
 	dex.StepDefaultsNoWaitFor[string]
 	session *AgentSessionFlow
@@ -1719,30 +1741,34 @@ func (flow *AgentSessionFlow) recordStartedToolCall(
 }
 
 // continueOrderedWrites starts the turn's next queued write, or skips every queued write after one
-// that did not succeed. It returns nil when the turn has no queued write.
-func (flow *AgentSessionFlow) continueOrderedWrites(ctx dex.Context) (*dex.StepDecision, error) {
+// that did not succeed.
+//
+// It returns the record of the write that starts now, which RunModel moves to its approval wait or
+// tool Step with ResumeTurn waiting for it; true when it recorded the queued writes skipped, so
+// RunModel runs again; or nil and false when the turn has no queued write.
+func (flow *AgentSessionFlow) continueOrderedWrites(ctx dex.Context) (*AgentToolCall, bool, error) {
 	state, err := requireAgentState(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	turnID, err := requireActiveTurnID(state)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	toolCalls, err := readTurnToolCalls(ctx, &turnID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	queued := []AgentToolCall{}
 	for _, toolCall := range toolCalls {
 		if toolCall.WriteQueued {
 			queued = append(queued, toolCall)
 		} else if !toolCall.Status.IsFinal() {
-			return nil, fmt.Errorf("turn %s resumed before every tool call finished", turnID)
+			return nil, false, fmt.Errorf("turn %s resumed before every tool call finished", turnID)
 		}
 	}
 	if len(queued) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	events := flow.eventWriter(ctx, &turnID)
 	next := queued[0]
@@ -1756,15 +1782,14 @@ func (flow *AgentSessionFlow) continueOrderedWrites(ctx dex.Context) (*dex.StepD
 	if previousWrite != nil && previousWrite.Status != ToolCallStatusSucceeded {
 		for _, toolCall := range queued {
 			if err := recordUnscheduledToolCall(ctx, skippedToolCall(toolCall), events); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
-		// The skips commit before the model call, so readers see them while the model runs.
-		return dex.GoTo(RunModel{session: flow}, (*CompactContextInput)(nil)), nil
+		return nil, true, nil
 	}
 	interrupts, err := readPendingInterrupts(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	next.WriteQueued = false
 	next.Status = ToolCallStatusApproved
@@ -1773,16 +1798,16 @@ func (flow *AgentSessionFlow) continueOrderedWrites(ctx dex.Context) (*dex.StepD
 	}
 	interrupts, err = flow.recordStartedToolCall(ctx, next, interrupts, time.Now(), events)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := PendingInterruptsAttribute.Set(ctx, interrupts); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	state.Status = AgentSessionStatusRunningTools
 	if err := AgentStateAttribute.Set(ctx, state); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return dex.GoToMany(flow.startedToolCallMovement(next), dex.MovementOf(ResumeTurn{session: flow}, 1)), nil
+	return &next, false, nil
 }
 
 // skippedToolCall returns the final record of a queued write that write ordering skipped.
@@ -1926,6 +1951,7 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 		Heartbeat:               heartbeats.record,
 		HeartbeatCheckpoint:     heartbeats.previousCheckpoint,
 		SaveHeartbeatCheckpoint: heartbeats.saveCheckpoint,
+		StepContext:             ctx,
 	}
 	var result DeferredToolOutcome
 	err = flow.withBackgroundHeartbeats(ctx, heartbeats.record, func() error {
@@ -2171,26 +2197,6 @@ func (flow *AgentSessionFlow) doBuildUnfinishedTurnMessages(
 	return messages, nil
 }
 
-// startedToolCallMovement returns the movement of a call that starts now: its approval wait or its tool Step.
-func (flow *AgentSessionFlow) startedToolCallMovement(toolCall AgentToolCall) dex.StepMovement {
-	if toolCall.RequiresApproval {
-		return dex.MovementOf(AwaitToolApproval{session: flow}, toolCall.ToolCallID,
-			dex.WithStepOptions(toolApprovalMovementOptions(toolCall.ToolCallID)))
-	}
-	return flow.toolStepMovement(toolCall)
-}
-
-// toolStepMovement returns the movement to the call's tool Step, with the runner's options for it.
-func (flow *AgentSessionFlow) toolStepMovement(toolCall AgentToolCall) dex.StepMovement {
-	overrides := flow.toolCallStepOverrides(toolCall)
-	if toolCall.Effect.isMultiAttempt() {
-		return dex.MovementOf(CallTool{session: flow}, toolCall.ToolCallID,
-			dex.WithStepOptions(flow.callToolMovementOptions(toolCall.ToolCallID, overrides)))
-	}
-	return dex.MovementOf(CallSingleAttemptTool{session: flow}, toolCall.ToolCallID,
-		dex.WithStepOptions(flow.callSingleAttemptToolMovementOptions(toolCall.ToolCallID, overrides)))
-}
-
 // toolCallStepOverrides returns the runner's options for one call's tool Step, or nil for the defaults.
 func (flow *AgentSessionFlow) toolCallStepOverrides(toolCall AgentToolCall) *ToolCallStepOptions {
 	provider, isProvider := flow.runner.(ToolCallStepOptionsProvider)
@@ -2207,9 +2213,10 @@ func (flow *AgentSessionFlow) toolCallStepOverrides(toolCall AgentToolCall) *Too
 	return overrides
 }
 
-// callToolMovementOptions loads only the call's record in CallTool and RecordToolFailure.
-func (flow *AgentSessionFlow) callToolMovementOptions(toolCallID string, overrides *ToolCallStepOptions) *dex.StepOptions {
-	recordLoad := []dex.AttributeMapLoad{AgentToolCallsAttributeMap.Load(toolCallID)}
+// callToolMovementOptions loads only the call's record in CallTool and RecordToolFailure, with the runner's options for the call.
+func (flow *AgentSessionFlow) callToolMovementOptions(toolCall AgentToolCall) *dex.StepOptions {
+	overrides := flow.toolCallStepOverrides(toolCall)
+	recordLoad := []dex.AttributeMapLoad{AgentToolCallsAttributeMap.Load(toolCall.ToolCallID)}
 	options := CallTool{}.GetStepOptions()
 	recoveryOptions := RecordToolFailure{}.GetStepOptions()
 	options.ExecuteLoadAttributeMaps, recoveryOptions.ExecuteLoadAttributeMaps = nil, nil
@@ -2227,9 +2234,10 @@ func (flow *AgentSessionFlow) callToolMovementOptions(toolCallID string, overrid
 	return options
 }
 
-// callSingleAttemptToolMovementOptions loads only the call's record in both of its Steps.
-func (flow *AgentSessionFlow) callSingleAttemptToolMovementOptions(toolCallID string, overrides *ToolCallStepOptions) *dex.StepOptions {
-	recordLoad := []dex.AttributeMapLoad{AgentToolCallsAttributeMap.Load(toolCallID)}
+// callSingleAttemptToolMovementOptions loads only the call's record in both of its Steps, with the runner's options for the call.
+func (flow *AgentSessionFlow) callSingleAttemptToolMovementOptions(toolCall AgentToolCall) *dex.StepOptions {
+	overrides := flow.toolCallStepOverrides(toolCall)
+	recordLoad := []dex.AttributeMapLoad{AgentToolCallsAttributeMap.Load(toolCall.ToolCallID)}
 	options := CallSingleAttemptTool{}.GetStepOptions()
 	recoveryOptions := RecordToolOutcomeUnknown{}.GetStepOptions()
 	options.ExecuteLoadAttributeMaps, recoveryOptions.ExecuteLoadAttributeMaps = nil, nil

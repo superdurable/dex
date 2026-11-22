@@ -437,6 +437,10 @@ type AgentFrameworkRunner interface {
   attempt saved with `SaveHeartbeatCheckpoint`. Every heartbeat of a tool Step
   repeats the latest checkpoint, as in the Python core, because a bare
   heartbeat would clear it.
+- `DeferredToolExecution.StepContext` is the tool Step's `dex.Context`. A
+  tool source reads its Step from it, never from the identity of `ctx`, so a
+  runner may pass a tool a context derived from the Step's, such as one that a
+  framework's tool node or a tracing span adds values to.
 
 ## Effects and policies
 
@@ -505,16 +509,17 @@ How a call maps to Steps:
 
 | Operation | Effect | Step | Attempts | Default approval |
 | --- | --- | --- | --- | --- |
-| Query | `read` | `CallTool` | The operation's retry policy, at most 3 | No |
+| Query | `read` | `CallTool` | The operation's retry policy, at most 3 | The metadata's `IsApprovalRecommended` |
 | Mutation with `IsRetrySafe` | `idempotent_write` | `CallTool` | The operation's retry policy, at most 3 | The metadata's `IsApprovalRecommended` |
 | Mutation whose `RepeatOnUnknown` is `limited` | `non_idempotent_write` | `CallSingleAttemptTool` | The operation's attempts, at least the send cap | The metadata's `IsApprovalRecommended` |
 | Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool` | One | The metadata's `IsApprovalRecommended` |
 
 - Each call is one operation invocation in its own tool Step, through
-  `AgentTool.RunAttemptWithOptions` with the tool Step's `dex.Context`. The
-  Call ID derives from the Flow ID and the tool Step's execution ID, so every
-  attempt of the call keeps it and its idempotency key, on a Worker of any
-  core.
+  `AgentTool.RunAttemptWithOptions` with the tool Step's `dex.Context`, which
+  the source reads from `DeferredToolExecution.StepContext`; a runner may pass
+  the source a context derived from the Step's. The Call ID derives from the
+  Flow ID and the tool Step's execution ID, so every attempt of the call keeps
+  it and its idempotency key, on a Worker of any core.
 - The arguments are checked against the metadata's `InputSchema` first, with
   the other cores' texts, such as `invalid arguments for
   slack_post_thread_reply: arguments.text is required`, and then decoded into
@@ -547,6 +552,15 @@ How a call maps to Steps:
 Limits: a call that waits for approval carries no approval display yet, so an
 approval UI shows its arguments. Requires
 `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0 or later.
+
+**Upgrade rule: stop or drain every Go Worker of a Flow type built from agents
+0.6.15 or earlier before a Worker with tool sources serves that Flow type.**
+Do not roll such a Flow type back below 0.6.16 while a session has a queued
+connector write or a connector call in flight. An older Go Worker waits
+forever for a queued write that only a 0.6.16 `RunModel` starts, so the
+session stalls. It also has no source for a connector call, so a later attempt
+of a write records `failed` instead of `outcome_unknown`, and the model may
+send that write again.
 
 ## Message storage
 
@@ -722,8 +736,16 @@ as children of the test binary:
 - Connector tools: a limited write SIGKILLed after its send that reads back on
   the retry without a second send, a refusal after a send that is never resent,
   a Query retried in `CallTool`, a write that waits for its recommended
-  approval, a queued write that asks for approval only when its turn comes, and
-  writes run in the model's order and skipped after one fails;
+  approval, a queued write that asks for approval only when its turn comes,
+  writes run in the model's order and skipped after one fails or is rejected,
+  a limited write that never confirms and records `outcome_unknown` at its
+  cap, an approved limited write that survives a Worker restart while it waits
+  and reads back after a SIGKILL, a single-attempt write SIGKILLed mid-call
+  that skips the later writes, a Query held to its operation's one attempt, and
+  a truncated result that records its full size, all with a runner that passes
+  the tools a derived context;
+- `dexcli visualize` of `session_flow.go`: every move to a tool Step is drawn
+  and no Step is unreachable;
 - every wire value the Python core encodes, decoded and re-encoded byte for
   byte after canonicalization, plus event payloads, built-in loop framework items,
   the turn-failure note, function tool argument errors, and an Anthropic item

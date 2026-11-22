@@ -12,10 +12,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -262,4 +265,44 @@ func (EchoTestRunner) RunModelStep(context.Context, AgentTurnContext) (AgentTurn
 
 func (EchoTestRunner) ExecuteDeferredToolCall(context.Context, DeferredToolExecution) (DeferredToolOutcome, error) {
 	return nil, &ToolExecutionError{Message: "no tools"}
+}
+
+// Every core reads every written form of names.json's envelopes, and the Go form canonicalizes to the shared one.
+func TestTheGoCoreReadsEveryCoresToolSourceEnvelope(t *testing.T) {
+	t.Parallel()
+	text, err := os.ReadFile(filepath.Join("..", "..", "conformance", "names.json"))
+	require.NoError(t, err)
+	var names struct {
+		StepwiseToolSourceReference struct {
+			Keys struct {
+				SourceName string `json:"source_name"`
+				Reference  string `json:"reference"`
+			} `json:"keys"`
+			Cases []struct {
+				SourceName string   `json:"source_name"`
+				Reference  *string  `json:"reference"`
+				Written    []string `json:"written"`
+				Canonical  string   `json:"canonical"`
+			} `json:"cases"`
+		} `json:"stepwise_tool_source_reference"`
+	}
+	require.NoError(t, json.Unmarshal(text, &names))
+	envelopes := names.StepwiseToolSourceReference
+	require.Equal(t, toolSourceReferenceKey, envelopes.Keys.Reference)
+	require.NotEmpty(t, envelopes.Cases)
+	for _, envelopeCase := range envelopes.Cases {
+		for _, written := range envelopeCase.Written {
+			sourceName, reference, isEnveloped := readToolSourceEnvelope(&written, envelopes.Keys.SourceName)
+			require.True(t, isEnveloped, written)
+			require.Equal(t, envelopeCase.SourceName, sourceName, written)
+			require.Equal(t, envelopeCase.Reference, reference, written)
+		}
+		own, err := writeToolSourceEnvelope(envelopes.Keys.SourceName, envelopeCase.SourceName, envelopeCase.Reference)
+		require.NoError(t, err)
+		parsed, err := pythonjson.ParseOrdered([]byte(own))
+		require.NoError(t, err)
+		canonical, err := pythonjson.Marshal(parsed, pythonjson.Options{IsCompact: true, ShouldSortKeys: true, ShouldEscapeNonASCII: true})
+		require.NoError(t, err)
+		require.Equal(t, envelopeCase.Canonical, canonical, envelopeCase.SourceName)
+	}
 }

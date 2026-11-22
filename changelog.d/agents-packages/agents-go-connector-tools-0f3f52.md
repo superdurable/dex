@@ -11,6 +11,8 @@ section: Connectors as tools in the Go core
   runs one operation invocation in its own tool Step through
   `RunAttemptWithOptions` with the tool Step's `dex.Context`, so the connector's
   Call ID, idempotency key, and single-dispatch fence apply on every attempt.
+  The source reads that Step from the new `DeferredToolExecution.StepContext`,
+  so a runner may pass it a context derived from the Step's.
 - The arguments are checked against the `InputSchema` before the call, branches
   map as in the other cores (a success branch is **succeeded**, **uncertain**
   and a branch listed **unknown** are **outcome_unknown**, every other branch is
@@ -33,3 +35,10 @@ section: Connectors as tools in the Go core
   `BoundedResendExecuteRetry` gives a call more than one attempt in
   `CallSingleAttemptTool`. `ResolveToolPolicy` keeps an explicit policy's
   `MaxSends`. A call that waits for approval carries no approval display yet.
+- Upgrade rule: stop or drain every Go Worker of a Flow type built from 0.6.15
+  or earlier before a Worker with tool sources serves that Flow type, and do
+  not roll such a Flow type back below 0.6.16 while a session has a queued
+  connector write or a connector call in flight. An older Go Worker waits
+  forever for a queued write that only a 0.6.16 `RunModel` starts, and it
+  records a later attempt of a connector write **failed** instead of
+  **outcome_unknown**, so the model may send the write again.

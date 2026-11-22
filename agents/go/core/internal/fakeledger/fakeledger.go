@@ -271,19 +271,35 @@ func gateName(text string, prefix string) string {
 // GetBalance is the Query getBalance.
 type GetBalance struct {
 	Provider *Provider
+	// MaximumAttempts is the definition's attempt limit; zero keeps the connector's default policy.
+	MaximumAttempts int32
 }
 
-// GetBalanceDefinition is getBalance's definition.
+// GetBalanceDefinition is getBalance's definition with the connector's default retry policy.
 func GetBalanceDefinition() sdkgo.QueryDefinition {
-	return sdkgo.QueryDefinition{
+	return GetBalanceDefinitionWithAttempts(0)
+}
+
+// GetBalanceDefinitionWithAttempts is getBalance's definition with an attempt limit, or the default
+// policy for zero.
+func GetBalanceDefinitionWithAttempts(maximumAttempts int32) sdkgo.QueryDefinition {
+	definition := sdkgo.QueryDefinition{
 		Operation:    sdkgo.OperationRef{ConnectorID: ConnectorID, OperationID: "getBalance"},
 		Branches:     branches("found", "notFound", "invalidResponse", sdkgo.DefectBranchID),
 		StepDefaults: stepDefaults(),
 	}
+	if maximumAttempts > 0 {
+		retry := sdkgo.DefaultConnectorStepExecuteRetryPolicy()
+		retry.MaximumAttempts = maximumAttempts
+		definition.StepDefaults.ExecuteRetry = retry
+	}
+	return definition
 }
 
 // Definition returns the definition.
-func (GetBalance) Definition() sdkgo.QueryDefinition { return GetBalanceDefinition() }
+func (operation GetBalance) Definition() sdkgo.QueryDefinition {
+	return GetBalanceDefinitionWithAttempts(operation.MaximumAttempts)
+}
 
 // Invoke reads the balance.
 func (operation GetBalance) Invoke(call sdkgo.Call, input GetBalanceInput) sdkgo.QueryAttempt[Balance] {
@@ -308,7 +324,13 @@ func (operation GetBalance) Invoke(call sdkgo.Call, input GetBalanceInput) sdkgo
 
 // GetBalanceMetadata is getBalance's reviewed agent metadata.
 func GetBalanceMetadata() sdkgo.AgentToolMetadata {
-	definition := GetBalanceDefinition()
+	return GetBalanceMetadataWithAttempts(0)
+}
+
+// GetBalanceMetadataWithAttempts is getBalance's reviewed agent metadata for an attempt limit, or the
+// default policy for zero.
+func GetBalanceMetadataWithAttempts(maximumAttempts int32) sdkgo.AgentToolMetadata {
+	definition := GetBalanceDefinitionWithAttempts(maximumAttempts)
 	return sdkgo.AgentToolMetadata{
 		Operation:      definition.Operation,
 		Kind:           sdkgo.AgentOperationKindQuery,

@@ -30,8 +30,10 @@ const DefaultToolSourceListingTimeout = 10 * time.Second
 // FrameworkToolSourceEnvelopeKey is the default key of the source name in the envelope that a
 // ToolSourceRouter stores as AgentToolCall.ToolSourceReference.
 //
-// It is the key the Python and TypeScript framework adapters store, so a record
-// one of them wrote routes to the same source on a Go Worker.
+// It is the default key of the Python core's FrameworkToolSourceRouter, which
+// the Python framework adapters store. The TypeScript framework adapters store
+// a key of their own per framework, such as "mastra_tool_source". The built-in
+// loop stores builtinloop.ToolSourceEnvelopeKey instead.
 //
 // Since 0.6.16.
 const FrameworkToolSourceEnvelopeKey = "dex_tool_source"
@@ -109,8 +111,9 @@ type ToolSource interface {
 	// turn.ToolPolicies, so session policies win. An error fails the RunModel attempt.
 	DeferredToolCall(turn AgentTurnContext, call SourceToolCall) (DeferredToolCall, error)
 	// ExecuteDeferredToolCall runs one approved call in its tool Step. ctx is the tool Step's
-	// dex.Context. call.ToolCall.ToolSourceReference holds the source's own reference. It returns
-	// what AgentFrameworkRunner.ExecuteDeferredToolCall returns.
+	// context or one derived from it, so read the Step from call.StepContext, never from ctx.
+	// call.ToolCall.ToolSourceReference holds the source's own reference. It returns what
+	// AgentFrameworkRunner.ExecuteDeferredToolCall returns.
 	ExecuteDeferredToolCall(ctx context.Context, call DeferredToolExecution) (DeferredToolOutcome, error)
 }
 
@@ -442,8 +445,10 @@ func (router *ToolSourceRouter) IsSourceToolCall(toolCall AgentToolCall) bool {
 //
 // The source receives the whole DeferredToolExecution, with its own
 // reference in place of the envelope, so it keeps the Step context, the
-// heartbeat checkpoint, and the attempt. ctx must be the tool Step's context,
-// which the session passes to the runner. It returns the source's outcome
+// heartbeat checkpoint, and the attempt. ctx is the context the runner got
+// from the session, or one derived from it, such as one that a framework's
+// tool node adds values to; the source reads the Step from
+// call.StepContext, not from ctx. It returns the source's outcome
 // and error, or an error when no source built the call or the source that
 // built it is not configured on this Worker; that error fails the attempt, so
 // the call's effect class decides its outcome.
