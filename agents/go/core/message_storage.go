@@ -53,6 +53,12 @@ func (flow *AgentSessionFlow) appendMessages(
 	if senderNames != nil && len(senderNames) != len(messages) {
 		panic("appendMessages: senderNames must be nil or have one value per message")
 	}
+	for position, message := range messages {
+		// Every reader of a stored message rejects another role, so storing one breaks the session.
+		if !message.Role.IsValid() {
+			return state, fmt.Errorf("message %d to store has role %q, which is not user, assistant, or tool", position, message.Role)
+		}
+	}
 	if len(messages) == 0 && !isTurnStart {
 		return state, AgentStateAttribute.Set(ctx, state)
 	}

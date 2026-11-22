@@ -224,7 +224,14 @@ func truncateNoteOutcome(outcome string) string {
 // framework input from FrameworkItem alone. Set the Tool fields only when the
 // item carries exactly one tool call or result.
 type FrameworkMessage struct {
-	// Role is the author of the item. It must be user, assistant, or tool.
+	// Role is the author of the item. It must be user, assistant, or tool; MessageRole.IsValid
+	// checks it. The session never stores any other value, the empty string included, because
+	// every reader of a stored message rejects it. Such a message in TurnCompleted.NewMessages or
+	// ToolCallsRequested.NewMessages fails the turn at once (see AgentFrameworkRunner.RunModelStep),
+	// one from UnfinishedTurnMessageBuilder is logged and dropped, and one from BuildUserMessage
+	// fails the Step attempt.
+	//
+	// Changed in 0.6.16: an invalid Role in NewMessages fails the turn instead of being stored.
 	Role MessageRole
 	// FrameworkItem is the framework-native JSON text, replayed unchanged.
 	FrameworkItem string
@@ -278,7 +285,8 @@ type AgentTurnOutcome interface {
 type TurnCompleted struct {
 	// NewMessages are the turn's items that the session has not stored yet, in order. For a
 	// runner that never sets ToolCallsRequested.NewMessages, that is every item the turn produced
-	// after its user message. The session appends them in one commit.
+	// after its user message. The session appends them in one commit. Each Role must be valid; see
+	// FrameworkMessage.Role.
 	NewMessages []FrameworkMessage
 	// Usage is the usage of this model call only.
 	Usage AgentUsage
@@ -293,8 +301,8 @@ type TurnCompleted struct {
 	// fix. The next turn that completes clears LastTurnError. Snapshots show the text, so keep
 	// secrets out of it.
 	//
-	// A blank text is a runner defect: the turn fails at once without storing NewMessages; see
-	// AgentFrameworkRunner.RunModelStep. This is the Python core's turn_error and the TypeScript
+	// A blank text is a runner defect: the turn fails at once without storing NewMessages, as for
+	// an invalid Role; see AgentFrameworkRunner.RunModelStep. This is the Python core's turn_error and the TypeScript
 	// core's turnError.
 	//
 	// Since 0.6.16.
@@ -320,6 +328,7 @@ type ToolCallsRequested struct {
 	// Usage is the usage of this model call only.
 	Usage AgentUsage
 	// NewMessages are items the session appends in the same commit that records the tool calls.
+	// Each Role must be valid; see FrameworkMessage.Role.
 	NewMessages []FrameworkMessage
 }
 
@@ -515,10 +524,14 @@ type AgentFrameworkRunner interface {
 	// session records the outcome's Usage, stores nothing else from it, and ends the turn as
 	// RecordTurnFailure does, with a LastTurnError that names the defect. The defects are
 	// ToolCallsRequested.NewMessages from a runner that does not implement
-	// UnfinishedTurnMessageBuilder (MissingUnfinishedTurnMessageBuilder) and a blank
-	// TurnCompleted.TurnError.
+	// UnfinishedTurnMessageBuilder (MissingUnfinishedTurnMessageBuilder), a message in
+	// TurnCompleted.NewMessages or ToolCallsRequested.NewMessages whose Role is not user,
+	// assistant, or tool, such as `TurnCompleted.NewMessages[0] has role "", which is not user,
+	// assistant, or tool`, and a blank TurnCompleted.TurnError.
 	//
-	// Changed in 0.6.16: a blank TurnCompleted.TurnError fails the turn.
+	// Changed in 0.6.16: an invalid Role in NewMessages and a blank TurnCompleted.TurnError fail
+	// the turn. Before, a message with an invalid Role was stored, and every later
+	// get_agent_snapshot and list_agent_messages call failed to decode it.
 	RunModelStep(ctx context.Context, turn AgentTurnContext) (AgentTurnOutcome, error)
 	// ExecuteDeferredToolCall runs the real tool once. It returns *ToolExecutionResult, a
 	// *ToolExecutionError for a failure the model sees, or another error that fails the attempt.

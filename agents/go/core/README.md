@@ -379,9 +379,16 @@ type AgentFrameworkRunner interface {
   it, and ends the turn as `RecordTurnFailure` does, with this
   `LastTurnError`: `MissingUnfinishedTurnMessageBuilder` for
   `ToolCallsRequested.NewMessages` from a runner without
-  `UnfinishedTurnMessageBuilder`, or
+  `UnfinishedTurnMessageBuilder`;
+  `TurnCompleted.NewMessages[0] has role "", which is not user, assistant, or tool`
+  for a message in `TurnCompleted.NewMessages` or
+  `ToolCallsRequested.NewMessages` whose role is not `user`, `assistant`, or
+  `tool`, since 0.6.16; or
   `TurnCompleted.TurnError for <turn> must be a non-blank string` for a blank
-  `TurnError`.
+  `TurnError`. Every reader of a stored message rejects another role, so
+  before 0.6.16 such a message broke `get_agent_snapshot` and
+  `list_agent_messages` for the rest of the session. Map framework roles with
+  `MessageRole.IsValid`.
 - `ExecuteDeferredToolCall` runs one tool, possibly concurrently with others.
   A `*ToolExecutionError` records `failed` with its message and is not
   retried; any other error fails the Step attempt. On attempt 2 or later of a

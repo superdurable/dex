@@ -68,6 +68,17 @@ func (role *MessageRole) UnmarshalText(text []byte) error {
 	return decodeWireEnum(text, role, "MessageRole", MessageRoleUser, MessageRoleAssistant, MessageRoleTool)
 }
 
+// IsValid reports whether the role is one of the three contract values: user, assistant, or tool.
+//
+// It returns false for the empty string and for any other text. The session stores only messages
+// with a valid role, because every reader of a stored message rejects any other value. Check it in
+// a framework adapter that maps framework roles to MessageRole.
+//
+// Since 0.6.16.
+func (role MessageRole) IsValid() bool {
+	return role == MessageRoleUser || role == MessageRoleAssistant || role == MessageRoleTool
+}
+
 // AgentMessageOrigin names why the session wrote a user message itself, in AgentMessage.Origin.
 //
 // A later release may add values, and decoding keeps a value this release does not know. Show a

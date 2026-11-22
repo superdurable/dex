@@ -214,3 +214,18 @@ func TestToolCallNotesMatchTheConformanceSuite(t *testing.T) {
 		require.Equal(t, textCase.Text, note, "turn_failure_note[%d]", index)
 	}
 }
+
+// Only the three contract roles are valid; every reader of a stored message rejects any other.
+func TestMessageRoleIsValidOnlyForTheContractValues(t *testing.T) {
+	t.Parallel()
+	for _, role := range []MessageRole{MessageRoleUser, MessageRoleAssistant, MessageRoleTool} {
+		require.True(t, role.IsValid(), role)
+		var decoded MessageRole
+		require.NoError(t, json.Unmarshal([]byte(`"`+string(role)+`"`), &decoded))
+	}
+	for _, role := range []MessageRole{"", "system", "bot", "User", " user"} {
+		require.False(t, role.IsValid(), role)
+		var decoded MessageRole
+		require.Error(t, json.Unmarshal([]byte(`"`+string(role)+`"`), &decoded), role)
+	}
+}

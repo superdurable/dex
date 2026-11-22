@@ -1406,6 +1406,10 @@ func (flow *AgentSessionFlow) runModelCall(ctx dex.Context) (modelCallResult, er
 			return modelCallResult{isTurnOver: true}, flow.failTurnForRunnerDefect(
 				ctx, state, turnID, toolCalls, events, typed.Usage, MissingUnfinishedTurnMessageBuilder)
 		}
+		if defect := invalidMessageRoleDefect("ToolCallsRequested.NewMessages", typed.NewMessages); defect != "" {
+			return modelCallResult{isTurnOver: true},
+				flow.failTurnForRunnerDefect(ctx, state, turnID, toolCalls, events, typed.Usage, defect)
+		}
 		requested, err := flow.startToolCalls(ctx, state, turnID, toolCalls, typed, events)
 		return modelCallResult{requestedToolCalls: requested}, err
 	default:
@@ -1432,8 +1436,21 @@ func (flow *AgentSessionFlow) failTurnForRunnerDefect(
 
 // turnCompletedDefect returns the turn error for a TurnCompleted that the session must not store, or "".
 func turnCompletedDefect(turnID string, outcome *TurnCompleted) string {
+	if defect := invalidMessageRoleDefect("TurnCompleted.NewMessages", outcome.NewMessages); defect != "" {
+		return defect
+	}
 	if outcome.TurnError != nil && isBlankText(*outcome.TurnError) {
 		return fmt.Sprintf("TurnCompleted.TurnError for %s must be a non-blank string", turnID)
+	}
+	return ""
+}
+
+// invalidMessageRoleDefect names the first message whose role no reader of a stored message accepts, or "".
+func invalidMessageRoleDefect(field string, messages []FrameworkMessage) string {
+	for position, message := range messages {
+		if !message.Role.IsValid() {
+			return fmt.Sprintf("%s[%d] has role %q, which is not user, assistant, or tool", field, position, message.Role)
+		}
 	}
 	return ""
 }
@@ -1861,6 +1878,9 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		if err != nil {
 			return err
 		}
+		if note.Role != MessageRoleUser {
+			return errors.New("BuildUserMessage must return a user message")
+		}
 		messages = append(messages, note)
 		noteOrigin := AgentMessageOriginTurnFailureNote
 		origins = append(origins, &noteOrigin)
@@ -1928,9 +1948,7 @@ func (flow *AgentSessionFlow) doBuildUnfinishedTurnMessages(
 		return nil, err
 	}
 	for _, message := range messages {
-		switch message.Role {
-		case MessageRoleUser, MessageRoleAssistant, MessageRoleTool:
-		default:
+		if !message.Role.IsValid() {
 			return nil, fmt.Errorf("unfinished turn message has role %q", message.Role)
 		}
 	}

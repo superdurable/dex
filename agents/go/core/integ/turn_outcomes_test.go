@@ -222,6 +222,10 @@ func TestOutcomeTheSessionMustNotStoreFailsTheTurnAtOnce(t *testing.T) {
 		userText      string
 		expectedError string
 	}{
+		{"TurnCompletedWithoutARole", "answer without a role",
+			`TurnCompleted.NewMessages[0] has role "", which is not user, assistant, or tool`},
+		{"ToolCallsRequestedWithAnUnknownRole", "call a tool with a bad role",
+			`ToolCallsRequested.NewMessages[0] has role "bot", which is not user, assistant, or tool`},
 		{"BlankTurnError", "stop with a blank reason", "TurnCompleted.TurnError for turn-1 must be a non-blank string"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
