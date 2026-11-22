@@ -23,6 +23,7 @@ import { AttributeMatch, stringCodec } from "@superdurable/dex";
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
 import { jobProgress } from "../../src/patterns/polling/polling-flow.js";
+import { AWAITING_MANAGER, caseStatus } from "../../src/products/customer-refund/refund-flow.js";
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
 
 let server: SampleServer;
@@ -128,6 +129,27 @@ test("product order-processing start approve", async () => {
   requireOk(
     await get("/products/order-processing/describe", { workflowId }),
     "order-processing/describe",
+  );
+});
+
+test("product customer-refund manager-approval start decide describe", async () => {
+  const start = await get("/products/customer-refund/manager-approval/start");
+  requireOk(start, "customer-refund/manager-approval/start");
+  const flowId = (start.json as { flowId: string }).flowId;
+  await server.client.waitForAttributeMatch(flowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
+    requestTimeoutMs: 30_000,
+  });
+  requireOk(
+    await get("/products/customer-refund/manager-approval/decide", {
+      flowId,
+      decision: "approve",
+      reason: "Outage confirmed",
+    }),
+    "customer-refund/manager-approval/decide",
+  );
+  requireOk(
+    await get("/products/customer-refund/manager-approval/describe", { flowId }),
+    "customer-refund/manager-approval/describe",
   );
 });
 

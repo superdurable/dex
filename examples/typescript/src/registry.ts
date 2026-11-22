@@ -92,6 +92,7 @@ import {
   createVercelAiOrderSupportFlow,
   loadVercelAiOrderSupportModel,
 } from "./products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.js";
+import { newSharedServerRefundFlow } from "./products/customer-refund/refund-settings.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
@@ -105,6 +106,7 @@ import { openSlackConnectionFromProject } from "./shared/slack-connector-tools.j
 import { environmentOr } from "./config/env.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+const customerRefundFlow = newSharedServerRefundFlow();
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
@@ -129,6 +131,7 @@ const piOrderSupportFlow = createPiOrderSupportFlow(orderDesk, loadPiOrderSuppor
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
   orderProcessingFlow,
+  customerRefundFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,
@@ -199,6 +202,7 @@ export function createExampleRegistry(): Registry {
 export {
   moneyTransferFlow,
   orderProcessingFlow,
+  customerRefundFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,

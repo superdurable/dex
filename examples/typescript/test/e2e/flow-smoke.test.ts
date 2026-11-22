@@ -18,9 +18,12 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import test from "node:test";
 
+import { AttributeMatch, StepExecutionId } from "@superdurable/dex";
+
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
 import { attributeFlow } from "../../src/primitives/attribute/attribute-flow.js";
+import { AWAITING_MANAGER, caseStatus } from "../../src/products/customer-refund/refund-flow.js";
 import {
   assertFlowSmokeNoUnexpectedFailures,
   assertFlowSmokeStartStep,
@@ -77,6 +80,11 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     {
       name: "products/order-processing",
       trigger: () => triggerGet(context, "/products/order-processing/start"),
+      flags: defaultFlags(),
+    },
+    {
+      name: "products/customer-refund/manager-approval",
+      trigger: () => triggerGet(context, "/products/customer-refund/manager-approval/start"),
       flags: defaultFlags(),
     },
     {
@@ -478,6 +486,78 @@ test("attribute read requires workflowId", async () => {
   assert.equal(response.status, 400, body);
   assert.deepEqual(JSON.parse(body), { error: "workflowId is required" });
 });
+
+test("customer refund routes start, approve, and describe a refund", async () => {
+  const flowId = newFlowId("customer-refund");
+  const start = await refundRoute("start", { flowId });
+  assert.equal(start.status, 200, start.text);
+  assert.equal(start.body.flowId, flowId);
+  assert.equal(start.body.scenario, "normal");
+  assert.ok(start.body.runId, start.text);
+
+  await server.client.waitForAttributeMatch(flowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
+    requestTimeoutMs: 30_000,
+  });
+  const awaiting = await refundRoute("describe", { flowId });
+  assert.equal(awaiting.status, 200, awaiting.text);
+  assert.equal(awaiting.body["case-status"], AWAITING_MANAGER);
+  assert.equal(awaiting.body.status, "running");
+
+  const approve = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  assert.equal(approve.status, 200, approve.text);
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage);
+
+  const closed = await refundRoute("describe", { flowId });
+  assert.equal(closed.status, 200, closed.text);
+  assert.equal(closed.body.status, "completed");
+  assert.equal(closed.body["case-status"], "closed-refunded");
+  assert.match(String(closed.body["refund-id"]), /^rf_\d+$/);
+});
+
+test("customer refund decide refuses a blank reason, an unknown decision, and a closed run", async () => {
+  const flowId = newFlowId("customer-refund-small");
+  const start = await refundRoute("start", { flowId, scenario: "small" });
+  assert.equal(start.status, 200, start.text);
+
+  const blank = await refundRoute("decide", { flowId, decision: "approve", reason: "  " });
+  assert.equal(blank.status, 400, blank.text);
+  assert.deepEqual(blank.body, { error: "a reason is required" });
+  const unknown = await refundRoute("decide", { flowId, decision: "maybe", reason: "Outage confirmed" });
+  assert.equal(unknown.status, 400, unknown.text);
+
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage);
+  const closed = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  assert.equal(closed.status, 404, closed.text);
+});
+
+test("customer refund decide refuses a run that is not waiting for a manager", async () => {
+  const flowId = newFlowId("customer-refund-deny");
+  const start = await refundRoute("start", { flowId, scenario: "deny" });
+  assert.equal(start.status, 200, start.text);
+  await server.client.waitForStepCompletion(flowId, StepExecutionId.of("CheckPolicy"), { requestTimeoutMs: 30_000 });
+  const decide = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  // A denied run refuses the RPC while open, and reports not found once closed.
+  assert.ok(decide.status === 409 || decide.status === 404, decide.text);
+});
+
+test("customer refund start refuses an unknown scenario and describe a missing Flow", async () => {
+  const start = await refundRoute("start", { scenario: "unknown" });
+  assert.equal(start.status, 400, start.text);
+  const missing = await refundRoute("describe", { flowId: newFlowId("customer-refund-missing") });
+  assert.equal(missing.status, 404, missing.text);
+});
+
+async function refundRoute(
+  action: "start" | "decide" | "describe",
+  query: Record<string, string>,
+): Promise<{ status: number; text: string; body: Record<string, unknown> }> {
+  const url = `${context.baseUrl}/products/customer-refund/manager-approval/${action}?${new URLSearchParams(query)}`;
+  const response = await fetch(url);
+  const text = await response.text();
+  return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
 
 function attributeReadUrl(query: Record<string, string>): string {
   return `${context.baseUrl}/primitives/attribute/read?${new URLSearchParams(query)}`;

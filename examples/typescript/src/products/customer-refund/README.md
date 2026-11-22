@@ -35,11 +35,31 @@ environment's refund.
 | [`worker.ts`](worker.ts) | The Worker. It uploads the generated design. |
 | [`start.ts`](start.ts) | Starts one refund with a Flow ID and a scenario. |
 | [`decide.ts`](decide.ts) | Approves or rejects a waiting refund. |
+| [`controller.ts`](controller.ts) | The HTTP routes of the shared example server. |
 
 The integration test is
 [`test/integ/customer-refund.test.ts`](../../../test/integ/customer-refund.test.ts).
-This example runs its own Worker. The HTTP sample in `src/main.ts` does not
-register it.
+The steps below run this example's own Worker and commands.
+
+## Run it with the shared example server
+
+The shared example server (`npm start`, from `src/main.ts`) also registers
+this Flow, with the normal billing mode only. It serves these routes:
+
+| Route | What it does |
+| --- | --- |
+| `GET /products/customer-refund/manager-approval/start?flowId=<id>&scenario=<scenario>` | Starts a refund. `flowId` is optional; `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
+| `GET /products/customer-refund/manager-approval/decide?flowId=<id>&decision=<approve or reject>&reason=<text>` | Approves or rejects a refund that waits for a manager. |
+| `GET /products/customer-refund/manager-approval/describe?flowId=<id>` | Returns the run status, `case-status`, and `refund-id`. |
+
+`decide` answers 400 for a blank reason, 409 when the refund is not waiting
+for a manager or another decision holds its lock, and 404 when the run is
+closed. The server keeps its ledgers in `.customer-refund/`; set
+`REFUND_LEDGER_DIR` to use another folder.
+
+Stop the shared server before you run this example's own Worker against the
+same Dex. Both serve `CustomerRefundFlow`, so either one could run a Step,
+and the `call-missing` story would not show the missing refund.
 
 ## Run it
 
@@ -229,7 +249,10 @@ each policy denial, the fail-then-succeed refund and its History, the missing
 billing call fixed with `dexcli flow time-travel`, Time Travel after a
 successful refund, the design and its Actions, and encryption. They need
 `dexcli` on `PATH` or in `DEXCLI_PATH`. `npm run test:integ` and
-`./run-integration-tests.sh` run them with the other examples. `npm test`
+`./run-integration-tests.sh` run them with the other examples. `npm run smoke`
+checks the shared server's routes in
+[`test/e2e/flow-smoke.test.ts`](../../../test/e2e/flow-smoke.test.ts).
+`npm test`
 runs
 [`test/workflow/customer-refund-ledgers.test.ts`](../../../test/workflow/customer-refund-ledgers.test.ts),
 which needs no Dex. It holds each ledger's lock while several processes

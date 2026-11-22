@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-/** Settings shared by the refund Worker, the start and decide commands, and the tests. */
+/** Settings shared by the refund Worker, the start and decide commands, the shared server, and the tests. */
 
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import {
   AesGcmPayloadCodec,
@@ -52,6 +53,12 @@ export function readRefundEnvironment(): RefundEnvironment {
     serverAddress: process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801",
     payloadKeyFile: process.env.REFUND_PAYLOAD_KEY_FILE ?? "",
   };
+}
+
+/** Returns the shared example server's normal-billing Flow; REFUND_LEDGER_DIR moves its ledgers. */
+export function newSharedServerRefundFlow(): CustomerRefundFlow {
+  const ledgerDirectory = process.env.REFUND_LEDGER_DIR || dirname(DEFAULT_BILLING_LEDGER);
+  return newRefundFlow("normal", join(ledgerDirectory, "billing.sqlite"), join(ledgerDirectory, "emails.sqlite"));
 }
 
 /** Reads REFUND_BILLING_MODE; only the Worker uses it. */
