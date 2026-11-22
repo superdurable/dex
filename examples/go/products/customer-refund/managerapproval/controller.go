@@ -83,8 +83,13 @@ func (controller *controller) start(request *gin.Context) {
 		waitContext, flowID, dex.StepExecutionID{StepType: dex.GetFinalStepType(CheckPolicy{})},
 		dex.WaitForStepCompletionOptions{},
 	)
+	respondRefundStart(request, flowID, runID, err)
+}
+
+func respondRefundStart(request *gin.Context, flowID, runID string, err error) {
 	var inactive *dex.FlowNotActiveOrNotFoundError
-	if errors.As(err, &inactive) {
+	var closing *dex.FlowClosingError
+	if errors.As(err, &inactive) || errors.As(err, &closing) {
 		err = nil
 	}
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
@@ -132,7 +137,7 @@ func respondDecisionError(request *gin.Context, err error) {
 	var unavailable *dex.FlowNotActiveOrNotFoundError
 	var notFound *dex.FlowNotFoundError
 	switch {
-	case errors.As(err, &refused) && refused.Worker != nil && refused.Worker.Type == notAwaitingManagerErrorType:
+	case errors.As(err, &refused) && IsRefundNotAwaitingManager(refused.Worker):
 		request.JSON(http.StatusConflict, gin.H{"error": refused.Worker.Detail})
 	case errors.As(err, &lockConflict):
 		request.JSON(http.StatusConflict, gin.H{"error": "another decision on this refund is in progress"})
@@ -143,6 +148,12 @@ func respondDecisionError(request *gin.Context, err error) {
 	default:
 		httputil.Respond(request, nil, err)
 	}
+}
+
+func IsRefundNotAwaitingManager(worker *dex.WorkerError) bool {
+	// Go SDK reports *errors.joinError as the type (#1054).
+	return worker != nil && worker.Detail == notAwaitingManagerMessage &&
+		(worker.Type == notAwaitingManagerErrorType || worker.Type == "*errors.joinError")
 }
 
 func (controller *controller) describe(request *gin.Context) {
@@ -165,7 +176,7 @@ func (controller *controller) describe(request *gin.Context) {
 	}
 	httputil.Respond(request, gin.H{
 		"flowID":     flowID,
-		"status":     info.Status.String(),
+		"status":     refundStatusName(info.Status),
 		"caseStatus": optionalRefundAttribute(caseStatus, attributes.IsSet(CaseStatus)),
 		"refundId":   optionalRefundAttribute(refundID, attributes.IsSet(RefundID)),
 	}, err)
@@ -185,6 +196,25 @@ func (controller *controller) describeRefund(request *gin.Context, flowID string
 		return info, true
 	}
 	return dex.FlowInfo{}, false
+}
+
+func refundStatusName(status dex.FlowStatus) string {
+	switch status {
+	case dex.FlowRunning:
+		return "running"
+	case dex.FlowCompleted:
+		return "completed"
+	case dex.FlowFailed:
+		return "failed"
+	case dex.FlowCanceled:
+		return "canceled"
+	case dex.FlowTerminated:
+		return "terminated"
+	case dex.FlowServerSideTimeoutInternalOnly:
+		return "timeout"
+	default:
+		return "unknown"
+	}
 }
 
 func optionalRefundAttribute(value string, isSet bool) any {

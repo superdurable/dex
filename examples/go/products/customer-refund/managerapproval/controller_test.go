@@ -30,6 +30,30 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
+func TestRespondRefundStart(t *testing.T) {
+	serviceError := &dex.ServiceError{Detail: "wait for CheckPolicy"}
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		body   string
+	}{
+		{"Step completed", nil, http.StatusOK, `{"flowID":"refund-1","runID":"run-1"}`},
+		{"Flow is closing", &dex.FlowClosingError{ServiceError: serviceError}, http.StatusOK, `{"flowID":"refund-1","runID":"run-1"}`},
+		{"Flow is inactive", &dex.FlowNotActiveOrNotFoundError{ServiceError: serviceError}, http.StatusOK, `{"flowID":"refund-1","runID":"run-1"}`},
+		{"Wait failed", serviceError, http.StatusInternalServerError, `{"error":"` + serviceError.Error() + `"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request, _ := gin.CreateTestContext(response)
+			respondRefundStart(request, "refund-1", "run-1", test.err)
+			require.Equal(t, test.status, response.Code)
+			require.JSONEq(t, test.body, response.Body.String())
+		})
+	}
+}
+
 func TestRespondDecisionError(t *testing.T) {
 	serviceError := &dex.ServiceError{Detail: "invoke refund decision"}
 	tests := []struct {
@@ -62,5 +86,20 @@ func TestRespondDecisionError(t *testing.T) {
 			require.Equal(t, test.expectedStatus, response.Code)
 			require.JSONEq(t, `{"error":"`+test.expectedMessage+`"}`, response.Body.String())
 		})
+	}
+}
+
+func TestRefundStatusName(t *testing.T) {
+	for status, name := range map[dex.FlowStatus]string{
+		dex.FlowRunning:                       "running",
+		dex.FlowCompleted:                     "completed",
+		dex.FlowFailed:                        "failed",
+		dex.FlowCanceled:                      "canceled",
+		dex.FlowTerminated:                    "terminated",
+		dex.FlowServerSideTimeoutInternalOnly: "timeout",
+		0:                                     "unknown",
+		255:                                   "unknown",
+	} {
+		require.Equal(t, name, refundStatusName(status), "Flow status %d", status)
 	}
 }

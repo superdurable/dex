@@ -303,8 +303,7 @@ func TestManagerApprovalRefundConcurrentDecisionsCountOnce(t *testing.T) {
 		switch {
 		case errors.As(err, &lockConflict), errors.As(err, &closing), errors.As(err, &closed):
 		case errors.As(err, &refused):
-			require.NotNil(t, refused.Worker)
-			require.Equal(t, "managerapproval.RefundNotAwaitingManagerError", refused.Worker.Type)
+			require.True(t, managerapproval.IsRefundNotAwaitingManager(refused.Worker), "%v", err)
 		default:
 			require.Failf(t, "unexpected decision error", "%v", err)
 		}

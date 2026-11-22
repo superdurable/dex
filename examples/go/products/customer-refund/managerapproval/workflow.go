@@ -338,10 +338,10 @@ func (*ManagerApprovalRefundFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*d
 	}}, nil
 }
 
-//dex:field attribute-key:customer-email value-type:string description:"Customer\u0020email"editable:false ui-slot:title
-//dex:field attribute-key:case-status value-type:string description:"Case\u0020status"editable:false ui-slot:status
-//dex:field attribute-key:refund-id value-type:string description:"Refund\u0020ID"editable:false
-//dex:field attribute-key:customer-message value-type:string description:"Customer\u0020message"editable:false
+// dex:field attribute-key:customer-email value-type:string description:"Customer email" editable:false ui-slot:title
+// dex:field attribute-key:case-status value-type:string description:"Case status" editable:false ui-slot:status
+// dex:field attribute-key:refund-id value-type:string description:"Refund ID" editable:false
+// dex:field attribute-key:customer-message value-type:string description:"Customer message" editable:false
 func (*ManagerApprovalRefundFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	values, err := readViewAttributes(ctx, CustomerEmail, CaseStatus, RefundID, CustomerMessage)
 	if err != nil {
@@ -403,8 +403,7 @@ func publishManagerDecision(
 		return nil, err
 	}
 	if status != AwaitingManager {
-		// Preserve the application error type through the SDK's RPC wrapper with zero retry delay.
-		return nil, &dex.RetryAfterError{Cause: RefundNotAwaitingManagerError{}}
+		return nil, RefundNotAwaitingManagerError{}
 	}
 	decidedStatus := "rejected"
 	if approved {
