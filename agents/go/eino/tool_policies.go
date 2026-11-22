@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"reflect"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -29,7 +28,23 @@ import (
 //
 // WithToolPolicies and WithToolEffects override the declared effect. The
 // effect's default approval applies. A tool that a Handler adds in BeforeAgent
-// may declare its effect the same way. Since 0.6.16.
+// may declare its effect the same way.
+//
+// To declare the effect of an Eino tool you did not write, such as an
+// adk.NewAgentTool tool, embed it in a type of yours:
+//
+//	type checkoutTool struct{ tool.InvokableTool }
+//
+//	func (checkoutTool) DexToolEffect() dexagents.ToolEffect {
+//		return dexagents.ToolEffectNonIdempotentWrite
+//	}
+//
+// The adapter finds Eino's agent tools, skill tool, and plantask tools inside
+// such a type, so it gets the handling of the tool it embeds: a failed tool of
+// a sub-agent is decided by the effect, an agent tool made with
+// adk.WithFullChatHistoryAsInput is refused, and plantask calls run in the
+// model's order. A type that holds the Eino tool in a named field, or calls it
+// from its own code, is a tool of its own, and gets none of this. Since 0.6.16.
 type ToolEffectDeclarer interface {
 	// DexToolEffect returns the tool's effect. It must be a valid dexagents.ToolEffect.
 	DexToolEffect() dexagents.ToolEffect
@@ -228,11 +243,12 @@ const einoPlanTaskPackagePath = "github.com/cloudwego/eino/adk/middlewares/plant
 // alone, possibly on another Worker, so no lock can hold across the calls; the
 // session's ordered writes give the same order instead.
 func runsInTheModelsOrder(candidate tool.BaseTool) bool {
-	toolType := reflect.TypeOf(candidate)
-	for toolType != nil && toolType.Kind() == reflect.Pointer {
-		toolType = toolType.Elem()
+	for _, value := range embeddedToolStructs(candidate) {
+		if value.Type().PkgPath() == einoPlanTaskPackagePath {
+			return true
+		}
 	}
-	return toolType != nil && toolType.PkgPath() == einoPlanTaskPackagePath
+	return false
 }
 
 // isOrderedCall reports whether a requested call of a name no source offered runs in the model's order.

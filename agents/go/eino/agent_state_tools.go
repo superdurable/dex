@@ -32,21 +32,76 @@ const einoNoAgentHubText = "AgentHub is not configured"
 
 // einoToolStruct returns the struct behind an Eino tool of package packagePath and generic type typeName, if it is one.
 func einoToolStruct(candidate tool.BaseTool, packagePath, typeName string) (reflect.Value, bool) {
-	value := reflect.ValueOf(candidate)
+	value, isStruct := structBehind(reflect.ValueOf(candidate))
+	return value, isStruct && isEinoToolType(value.Type(), packagePath, typeName)
+}
+
+// embeddedEinoToolStruct returns the struct of the Eino tool of package packagePath and generic type typeName
+// that a tool is or embeds, if there is one.
+//
+// A type that embeds an Eino tool, such as one that adds a DexToolEffect
+// method, runs the Eino tool's methods.
+func embeddedEinoToolStruct(candidate tool.BaseTool, packagePath, typeName string) (reflect.Value, bool) {
+	for _, value := range embeddedToolStructs(candidate) {
+		if isEinoToolType(value.Type(), packagePath, typeName) {
+			return value, true
+		}
+	}
+	return reflect.Value{}, false
+}
+
+// isEinoToolType reports whether a struct type is the Eino tool of package packagePath and generic type typeName.
+func isEinoToolType(structType reflect.Type, packagePath, typeName string) bool {
+	return structType.PkgPath() == packagePath && strings.HasPrefix(structType.Name(), typeName+"[")
+}
+
+// baseToolType is the interface type of every Eino tool.
+var baseToolType = reflect.TypeFor[tool.BaseTool]()
+
+// maxEmbeddedToolStructs bounds the search, which a tool embedding a pointer to itself would never end.
+const maxEmbeddedToolStructs = 16
+
+// embeddedToolStructs returns the struct behind a tool, then the structs behind the tools it embeds, at any
+// depth and outermost first, at most maxEmbeddedToolStructs of them.
+func embeddedToolStructs(candidate tool.BaseTool) []reflect.Value {
+	var structs []reflect.Value
+	pending := []reflect.Value{reflect.ValueOf(candidate)}
+	for len(pending) > 0 && len(structs) < maxEmbeddedToolStructs {
+		value, isStruct := structBehind(pending[0])
+		pending = pending[1:]
+		if !isStruct {
+			continue
+		}
+		structs = append(structs, value)
+		for index := range value.NumField() {
+			if isEmbeddedTool(value.Type().Field(index)) {
+				pending = append(pending, value.Field(index))
+			}
+		}
+	}
+	return structs
+}
+
+// isEmbeddedTool reports whether a struct field embeds a tool, by interface, by pointer, or by value.
+func isEmbeddedTool(field reflect.StructField) bool {
+	return field.Anonymous && (field.Type.Implements(baseToolType) || reflect.PointerTo(field.Type).Implements(baseToolType))
+}
+
+// structBehind returns the struct that value holds through pointers and interfaces, and false when it holds none.
+func structBehind(value reflect.Value) (reflect.Value, bool) {
 	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
 		if value.IsNil() {
 			return reflect.Value{}, false
 		}
 		value = value.Elem()
 	}
-	isEinoTool := value.Kind() == reflect.Struct && value.Type().PkgPath() == packagePath &&
-		strings.HasPrefix(value.Type().Name(), typeName+"[")
-	return value, isEinoTool
+	return value, value.Kind() == reflect.Struct
 }
 
-// isHistoryReadingAgentTool reports whether a tool is an Eino agent tool made with adk.WithFullChatHistoryAsInput.
+// isHistoryReadingAgentTool reports whether a tool is or embeds an Eino agent tool made with
+// adk.WithFullChatHistoryAsInput.
 func isHistoryReadingAgentTool(candidate tool.BaseTool) bool {
-	value, isAgentTool := einoToolStruct(candidate, einoADKPackagePath, "typedAgentTool")
+	value, isAgentTool := embeddedEinoToolStruct(candidate, einoADKPackagePath, "typedAgentTool")
 	if !isAgentTool {
 		return false
 	}
@@ -76,6 +131,7 @@ func refuseHistoryReadingAgentTools(tools agentTools) error {
 //
 // Eino's skill tool reads the history first, so such a call failed before doing anything.
 func agentStateFailure(toolName string, candidate tool.BaseTool, err error) *dexagents.ToolExecutionError {
+	// Not a type that embeds the skill tool: its own code may have run before the skill tool failed.
 	skillTool, isSkillTool := einoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool")
 	switch {
 	case !isSkillTool:
@@ -106,10 +162,10 @@ func innermostError(err error) error {
 }
 
 // runsAnEinoAgent reports whether a tool runs a whole Eino agent in its call: an adk.NewAgentTool tool, or the skill
-// middleware's tool, whose fork skills run a sub-agent.
+// middleware's tool, whose fork skills run a sub-agent, or a type that embeds one of them.
 func runsAnEinoAgent(candidate tool.BaseTool) bool {
-	_, isAgentTool := einoToolStruct(candidate, einoADKPackagePath, "typedAgentTool")
-	_, isSkillTool := einoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool")
+	_, isAgentTool := embeddedEinoToolStruct(candidate, einoADKPackagePath, "typedAgentTool")
+	_, isSkillTool := embeddedEinoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool")
 	return isAgentTool || isSkillTool
 }
 

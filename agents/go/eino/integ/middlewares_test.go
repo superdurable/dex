@@ -285,23 +285,8 @@ func middlewareScenarios() map[string]middlewareScenario {
 			expectations: []string{"researcher=the researcher sub-agent got 2 messages"},
 		},
 		"agenttoolwrite": {
-			rounds: [][]schema.ToolCall{{toolCall("checkout_7", "checkout", `{"request":"Check out order 7."}`)}},
-			configure: func(config *adk.ChatModelAgentConfig, coordination coordinationFiles) error {
-				charge := coordination.tool("charge_card", func(ctx context.Context, _ map[string]any) (string, error) {
-					coordination.recordSubAgentCall(ctx, "charge_card")
-					return "charged", nil
-				})
-				receipt := coordination.tool("send_receipt", func(ctx context.Context, _ map[string]any) (string, error) {
-					coordination.recordSubAgentCall(ctx, "send_receipt")
-					return "", &dexagents.ToolExecutionError{Message: "no email on file"}
-				})
-				config.ToolsConfig.ToolCallMiddlewares = append(config.ToolsConfig.ToolCallMiddlewares, passSessionToSubAgentTools())
-				checkout, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "checkout",
-					Description: "Checks out an order.", Instruction: "You check out.", Model: &checkoutModel{},
-					ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{charge, receipt}}}})
-				config.ToolsConfig.Tools = append(config.ToolsConfig.Tools, adk.NewAgentTool(context.Background(), checkout))
-				return err
-			},
+			rounds:    [][]schema.ToolCall{{toolCall("checkout_7", "checkout", `{"request":"Check out order 7."}`)}},
+			configure: configureCheckoutAgentTool(func(agentTool tool.BaseTool) tool.BaseTool { return agentTool }),
 			options: []dexeino.Option{dexeino.WithToolPolicies(map[string]dexagents.ToolPolicy{
 				"checkout": {Effect: dexagents.ToolEffectNonIdempotentWrite, RequiresApproval: ptr(false)}})},
 			// The sub-agent charged the card before its receipt tool failed, so the CallSingleAttemptTool
@@ -310,6 +295,17 @@ func middlewareScenarios() map[string]middlewareScenario {
 			expectations: []string{"checkout=" + dexagents.OutcomeUnknownToolResult},
 			// The sub-agent's tools are not the Step's call, so they do not see its ToolCallContext.
 			toolRuns: map[string]int{"charge_card": 1, "send_receipt": 1, "charge_card-leaked": 0, "send_receipt-leaked": 0},
+		},
+		"agenttooldeclared": {
+			rounds: [][]schema.ToolCall{{toolCall("checkout_8", "checkout", `{"request":"Check out order 8."}`)}},
+			configure: configureCheckoutAgentTool(func(agentTool tool.BaseTool) tool.BaseTool {
+				return declaredCheckoutTool{agentTool.(tool.InvokableTool)}
+			}),
+			// The embedding type declares non_idempotent_write, whose default approval applies.
+			approvals:    []string{"checkout"},
+			steps:        [][]string{{"AwaitToolApproval", "RecordToolOutcomeUnknown"}},
+			expectations: []string{"checkout=" + dexagents.OutcomeUnknownToolResult},
+			toolRuns:     map[string]int{"charge_card": 1, "send_receipt": 1, "charge_card-leaked": 0, "send_receipt-leaked": 0},
 		},
 		"eventsenders": {
 			rounds: [][]schema.ToolCall{{toolCall("events_lookup", "lookup_order", `{"order_id":"6"}`)}},
@@ -477,6 +473,33 @@ type skillAgents struct{}
 
 func (skillAgents) Get(ctx context.Context, _ string, _ *skill.AgentHubOptions) (adk.Agent, error) {
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{Name: "triage", Description: "Triages.", Model: &subAgentModel{name: "triage"}})
+}
+
+// configureCheckoutAgentTool adds a checkout agent tool, passed through declare, whose sub-agent charges and then fails.
+func configureCheckoutAgentTool(declare func(tool.BaseTool) tool.BaseTool) func(*adk.ChatModelAgentConfig, coordinationFiles) error {
+	return func(config *adk.ChatModelAgentConfig, coordination coordinationFiles) error {
+		charge := coordination.tool("charge_card", func(ctx context.Context, _ map[string]any) (string, error) {
+			coordination.recordSubAgentCall(ctx, "charge_card")
+			return "charged", nil
+		})
+		receipt := coordination.tool("send_receipt", func(ctx context.Context, _ map[string]any) (string, error) {
+			coordination.recordSubAgentCall(ctx, "send_receipt")
+			return "", &dexagents.ToolExecutionError{Message: "no email on file"}
+		})
+		config.ToolsConfig.ToolCallMiddlewares = append(config.ToolsConfig.ToolCallMiddlewares, passSessionToSubAgentTools())
+		checkout, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "checkout",
+			Description: "Checks out an order.", Instruction: "You check out.", Model: &checkoutModel{},
+			ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{charge, receipt}}}})
+		config.ToolsConfig.Tools = append(config.ToolsConfig.Tools, declare(adk.NewAgentTool(context.Background(), checkout)))
+		return err
+	}
+}
+
+// declaredCheckoutTool gives the checkout agent tool its effect by embedding it, as the README shows.
+type declaredCheckoutTool struct{ tool.InvokableTool }
+
+func (declaredCheckoutTool) DexToolEffect() dexagents.ToolEffect {
+	return dexagents.ToolEffectNonIdempotentWrite
 }
 
 // checkoutModel charges the card, then sends the receipt, then answers.

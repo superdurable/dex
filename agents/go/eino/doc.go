@@ -74,7 +74,9 @@
 // tool's or fork skill's sub-agent fails the attempt of a call whose effect
 // is not read, so its effect decides the outcome. Such a sub-agent tool is
 // not a Dex tool call, so ToolCallContextFrom returns false in it, and in the
-// sub-agent's model, Handlers, and ToolArgumentsHandler.
+// sub-agent's model, Handlers, and ToolArgumentsHandler. The adapter finds
+// Eino's plantask, agent, and skill tools also inside a type that embeds one,
+// such as a ToolEffectDeclarer that gives an agent tool its effect.
 //
 // WithToolSources offers the tools of a dexagents.ToolSource, such as the
 // Connector operations of a connectortools.ConnectorToolSource, beside the

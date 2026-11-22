@@ -607,6 +607,178 @@ func TestSubAgentToolFailuresAreDecidedByTheirEffect(t *testing.T) {
 	}
 }
 
+// declaredEinoTool gives an Eino tool a Dex effect through ToolEffectDeclarer by embedding it.
+type declaredEinoTool struct {
+	tool.InvokableTool
+	effect dexagents.ToolEffect
+}
+
+func (declared declaredEinoTool) DexToolEffect() dexagents.ToolEffect { return declared.effect }
+
+// auditedEinoTool embeds a declaredEinoTool, so the Eino tool is two embeddings down.
+type auditedEinoTool struct{ declaredEinoTool }
+
+// pointerInfoEinoTool embeds an Eino tool and reports its Info through a pointer receiver.
+type pointerInfoEinoTool struct{ tool.InvokableTool }
+
+func (wrapped *pointerInfoEinoTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return wrapped.InvokableTool.Info(ctx)
+}
+
+// declaredPointerInfoEinoTool embeds a pointerInfoEinoTool by value, so only its pointer is a tool.
+type declaredPointerInfoEinoTool struct{ pointerInfoEinoTool }
+
+func (*declaredPointerInfoEinoTool) DexToolEffect() dexagents.ToolEffect {
+	return dexagents.ToolEffectNonIdempotentWrite
+}
+
+// selfEmbeddingTool embeds a pointer to itself, so its embedded tools never end.
+type selfEmbeddingTool struct {
+	*selfEmbeddingTool
+	funcTool
+}
+
+func (looped selfEmbeddingTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return looped.funcTool.Info(ctx)
+}
+
+func (looped selfEmbeddingTool) InvokableRun(ctx context.Context, arguments string, options ...tool.Option) (string, error) {
+	return looped.funcTool.InvokableRun(ctx, arguments, options...)
+}
+
+// declaringHandler runs another Handler and declares an effect, by name, for each tool it adds.
+type declaringHandler struct {
+	adk.ChatModelAgentMiddleware
+	effects map[string]dexagents.ToolEffect
+}
+
+// declareAddedTools returns tools with each one from index added on wrapped in a declaredEinoTool.
+func (handler declaringHandler) declareAddedTools(ctx context.Context, tools []tool.BaseTool, added int) []tool.BaseTool {
+	declared := append([]tool.BaseTool{}, tools[:added]...)
+	for _, candidate := range tools[added:] {
+		info, err := candidate.Info(ctx)
+		if err != nil {
+			panic(err)
+		}
+		declared = append(declared, declaredEinoTool{candidate.(tool.InvokableTool), handler.effects[info.Name]})
+	}
+	return declared
+}
+
+// A tool type that embeds an Eino tool runs the Eino tool, so it keeps the Eino tool's protections.
+func TestEinoToolsThatAToolTypeEmbedsKeepTheirProtections(t *testing.T) {
+	write := dexagents.ToolEffectNonIdempotentWrite
+	runCheckout := func(t *testing.T, config *adk.ChatModelAgentConfig, toolName, arguments string) error {
+		config.Name, config.Description = "agent", "Test agent."
+		config.Model = roundsModel([]schema.ToolCall{call("call_checkout", toolName, arguments)})
+		runner, err := dexeino.NewRunner(config)
+		require.NoError(t, err)
+		state := newTurnState(t, runner, "check out order 7")
+		state.runModel(runner)
+		require.Equal(t, write, state.records["call_checkout"].Effect, "the effect the embedding type declares")
+		_, err = runner.ExecuteDeferredToolCall(context.Background(), dexagents.DeferredToolExecution{
+			FlowID: "session", ToolCall: state.records["call_checkout"], IdempotencyKey: "session/turn-1/call_checkout", Attempt: 1,
+		})
+		return err
+	}
+	requireDecidedByTheEffect := func(t *testing.T, err error, toolName string) {
+		var toolError *dexagents.ToolExecutionError
+		require.False(t, errors.As(err, &toolError), "the sub-agent charged first: %v", err)
+		require.ErrorContains(t, err, "tool "+toolName+" runs an Eino agent, and a tool of that agent failed, "+
+			"so the agent's earlier tools may have taken effect: ")
+	}
+
+	for name, declare := range map[string]func(tool.InvokableTool) tool.BaseTool{
+		"embedded":                   func(inner tool.InvokableTool) tool.BaseTool { return declaredEinoTool{inner, write} },
+		"embedded twice, by pointer": func(inner tool.InvokableTool) tool.BaseTool { return &auditedEinoTool{declaredEinoTool{inner, write}} },
+		"embedded by value with pointer methods": func(inner tool.InvokableTool) tool.BaseTool {
+			return &declaredPointerInfoEinoTool{pointerInfoEinoTool{inner}}
+		},
+	} {
+		t.Run("agent tool "+name, func(t *testing.T) {
+			var charges atomic.Int64
+			agentTool := adk.NewAgentTool(context.Background(), checkoutSubAgent(t, &charges)).(tool.InvokableTool)
+			err := runCheckout(t, &adk.ChatModelAgentConfig{ToolsConfig: toolsConfig(declare(agentTool))}, "checkout", `{"request":"order 7"}`)
+			require.Equal(t, int64(1), charges.Load())
+			requireDecidedByTheEffect(t, err, "checkout")
+		})
+	}
+
+	t.Run("fork skill", func(t *testing.T) {
+		var charges atomic.Int64
+		skills, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: checkoutSkills{},
+			AgentHub: checkoutAgentHub{t, &charges}})
+		require.NoError(t, err)
+		err = runCheckout(t, &adk.ChatModelAgentConfig{Handlers: []adk.ChatModelAgentMiddleware{
+			declaringHandler{skills, map[string]dexagents.ToolEffect{"skill": write}}}}, "skill", `{"skill":"checkout"}`)
+		require.Equal(t, int64(1), charges.Load())
+		requireDecidedByTheEffect(t, err, "skill")
+	})
+
+	t.Run("skill that forks with context", func(t *testing.T) {
+		var runs atomic.Int64
+		skills, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: skillBackend{}, AgentHub: skillAgentHub{&runs}})
+		require.NoError(t, err)
+		err = runCheckout(t, &adk.ChatModelAgentConfig{Handlers: []adk.ChatModelAgentMiddleware{
+			declaringHandler{skills, map[string]dexagents.ToolEffect{"skill": write}}}}, "skill", `{"skill":"review"}`)
+		require.ErrorContains(t, err, "failed to get messages from state")
+		var toolError *dexagents.ToolExecutionError
+		require.False(t, errors.As(err, &toolError), "the embedding type's own code may have run first: %v", err)
+		require.Equal(t, int64(0), runs.Load())
+	})
+
+	t.Run("agent tool that reads the agent history", func(t *testing.T) {
+		var runs atomic.Int64
+		fullHistory := declaredEinoTool{historyReadingAgentTool(t, &runs, adk.WithFullChatHistoryAsInput()).(tool.InvokableTool),
+			dexagents.ToolEffectRead}
+		question := roundsModel([]schema.ToolCall{call("call_research", "researcher", `{"request":"why"}`)})
+		_, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: question,
+			ToolsConfig: toolsConfig(fullHistory)})
+		require.ErrorContains(t, err, `tool "researcher" is an Eino agent tool with WithFullChatHistoryAsInput`)
+
+		added, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: question,
+			Handlers: []adk.ChatModelAgentMiddleware{countingToolHandler{&adk.BaseChatModelAgentMiddleware{}, &atomic.Int64{}, fullHistory}}})
+		require.NoError(t, err)
+		state := newTurnState(t, added, "research")
+		state.runModel(added)
+		failures := state.runTools(added)
+		var toolError *dexagents.ToolExecutionError
+		require.ErrorAs(t, failures["call_research"], &toolError, "a definite failure: nothing ran")
+		require.Contains(t, toolError.Message, "WithFullChatHistoryAsInput")
+		require.Equal(t, int64(0), runs.Load(), "the sub-agent never ran")
+	})
+
+	t.Run("plantask tools", func(t *testing.T) {
+		tasks, err := plantask.New(context.Background(), &plantask.Config{Backend: &memoryTaskFiles{files: map[string]string{}},
+			BaseDir: "/tasks"})
+		require.NoError(t, err)
+		lookup := declaringFuncTool{funcTool{name: "lookup_order", run: func(context.Context, string) (string, error) {
+			return "shipped", nil
+		}}, dexagents.ToolEffectRead}
+		runner, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.",
+			ToolsConfig: toolsConfig(lookup), Handlers: []adk.ChatModelAgentMiddleware{declaringHandler{tasks,
+				map[string]dexagents.ToolEffect{"TaskCreate": write, "TaskGet": dexagents.ToolEffectRead,
+					"TaskList": dexagents.ToolEffectRead, "TaskUpdate": write}}},
+			Model: roundsModel([]schema.ToolCall{
+				call("create_docs", "TaskCreate", `{"subject":"Write the docs","description":"Docs."}`),
+				call("create_tests", "TaskCreate", `{"subject":"Write the tests","description":"Tests."}`),
+				call("lookup", "lookup_order", `{"id":"1"}`),
+			})})
+		require.NoError(t, err)
+		requested := newTurnState(t, runner, "plan the release").runModel(runner).(*dexagents.ToolCallsRequested)
+		require.Equal(t, map[string]bool{"create_docs": true, "create_tests": true, "lookup": false}, orderedCalls(requested))
+		require.Equal(t, write, requested.ToolCalls[0].Policy.Effect, "the effect the embedding type declares")
+	})
+
+	t.Run("tool that embeds itself", func(t *testing.T) {
+		looped := &selfEmbeddingTool{funcTool: noopTool("lookup")}
+		looped.selfEmbeddingTool = looped
+		_, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: echoModel(),
+			ToolsConfig: toolsConfig(looped)}, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"lookup": dexagents.ToolEffectRead}))
+		require.NoError(t, err, "the search of embedded tools ends")
+	})
+}
+
 // callContexts records what each place a tool Step runs sees from ToolCallContextFrom.
 type callContexts struct {
 	mutex sync.Mutex

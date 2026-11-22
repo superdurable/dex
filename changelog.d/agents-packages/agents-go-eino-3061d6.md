@@ -30,6 +30,10 @@ section: Eino adapter
   their shared lock makes them in one Eino run. A `ToolExecutionError` from a
   tool of an agent tool's or fork skill's sub-agent fails a call whose effect
   is not `read`, so its effect decides the outcome.
+- The adapter finds Eino's agent, skill, and plantask tools also inside a
+  type that embeds one, such as a `ToolEffectDeclarer` that gives an agent
+  tool its effect, so the type keeps the Eino tool's sub-agent failure
+  handling, history refusal, and call order.
 - A sub-agent that a tool runs, such as an agent tool's, gets no
   `ToolCallContext` in its tools, model, Handlers, or `ToolArgumentsHandler`,
   so its inner calls never share the agent tool's `IdempotencyKey`.

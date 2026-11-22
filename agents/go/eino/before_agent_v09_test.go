@@ -33,3 +33,14 @@ func (handler failingLookupHandler) BeforeAgent(ctx context.Context, agentContex
 	agentContext.Tools = append(agentContext.Tools, handler.addedTool)
 	return ctx, agentContext, nil
 }
+
+// BeforeAgent runs the wrapped Handler's BeforeAgent and declares the effect of each tool it adds.
+func (handler declaringHandler) BeforeAgent(ctx context.Context, agentContext *adk.ChatModelAgentContext) (context.Context, *adk.ChatModelAgentContext, error) {
+	added := len(agentContext.Tools)
+	ctx, agentContext, err := handler.ChatModelAgentMiddleware.BeforeAgent(ctx, agentContext)
+	if err != nil {
+		return ctx, agentContext, err
+	}
+	agentContext.Tools = handler.declareAddedTools(ctx, agentContext.Tools, added)
+	return ctx, agentContext, nil
+}

@@ -234,6 +234,8 @@ Connectors as tools (the decision above) and the adapter itself.
   `ToolExecutionError` from a tool of an agent tool's or fork skill's sub-agent
   fails the attempt of a call whose effect is not `read`, because the
   sub-agent's earlier tools may have run, so the call's effect decides.
+  These rules also find the Eino tool inside a user type that embeds it, such
+  as a `ToolEffectDeclarer` that gives an agent tool its effect.
   This is the built-in loop's shape, so a deploy that renames a tool or changes
   the instruction never breaks an open turn. A checkpoint-and-resume mode was
   prototyped and rejected: its checkpoint pins the agent name, the tool list,
