@@ -26,6 +26,7 @@ import {
   StepExecutionId,
   WorkerInvocationError,
   type Client,
+  type FlowStatus,
 } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
@@ -58,14 +59,14 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
         });
       } catch (error) {
         // A policy denial or a small refund can finish before the wait attaches.
-        if (!(error instanceof FlowNotActiveOrNotFoundError)) {
+        if (!(error instanceof FlowNotActiveOrNotFoundError || error instanceof FlowClosingError)) {
           throw error;
         }
       }
       response.json({ flowID: flowId, runID: runId });
     } catch (error) {
       if (error instanceof FlowAlreadyStartedError) {
-        response.status(409).json({ error: `Flow ID ${flowId} is already used; choose another one` });
+        response.status(409).json({ error: "this refund already exists" });
         return;
       }
       if (error instanceof RequestTimeoutError) {
@@ -108,15 +109,15 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
         return;
       }
       if (error instanceof RpcLockConflictError) {
-        response.status(409).json({ error: `another decision on refund ${flowId} is being processed` });
+        response.status(409).json({ error: "another decision for this refund is in progress" });
         return;
       }
       if (error instanceof FlowClosingError) {
-        response.status(409).json({ error: error.message });
+        response.status(409).json({ error: "this refund is closing" });
         return;
       }
       if (error instanceof WorkerInvocationError && error.workerErrorType === REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE) {
-        response.status(409).json({ error: error.message });
+        response.status(409).json({ error: "this refund is not waiting for a manager" });
         return;
       }
       throw error;
@@ -138,7 +139,7 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
       const [status, issuedRefundId] = await client.getAttributes(flowId, caseStatus, refundId);
       response.json({
         flowID: flowId,
-        status: run.status.toLowerCase(),
+        status: flowStatusName(run.status),
         caseStatus: status ?? null,
         refundId: issuedRefundId || null,
       });
@@ -154,6 +155,22 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
   router.use(sendRefundError);
 
   return router;
+}
+
+export function flowStatusName(status: FlowStatus): string {
+  switch (status) {
+    case "running":
+    case "completed":
+    case "failed":
+    case "terminated":
+      return status;
+    case "cancelled":
+      return "canceled";
+    case "serverSideTimeoutInternalOnly":
+      return "timeout";
+    default:
+      return "unknown";
+  }
 }
 
 const sendRefundError: ErrorRequestHandler = (error: unknown, _request, response, _next) => {

@@ -620,7 +620,7 @@ test("customer refund concurrent decisions have exactly one winner", async () =>
   assert.equal(running.body.status, "running");
   const repeated = await refundRoute("decide", decision);
   assertRefundError(repeated, 409);
-  assert.match(String(repeated.body.error), /not waiting for a manager/);
+  assert.deepEqual(repeated.body, { error: "this refund is not waiting for a manager" });
 
   const result = await server.client.waitForFlow(workflowId, 30_000);
   assert.equal(result.status, "completed", result.errorMessage);
@@ -671,7 +671,7 @@ test("customer refund decides distinguish a held lock from a Worker failure", as
       await Promise.race([flow.lockAcquired.wait, heldLock.then(() => assert.fail("refund lock was released early"))]);
       const conflict = await refundRoute("decide", decision);
       assertRefundError(conflict, 409);
-      assert.deepEqual(conflict.body, { error: `another decision on refund ${workflowId} is being processed` });
+      assert.deepEqual(conflict.body, { error: "another decision for this refund is in progress" });
     } finally {
       flow.releaseLock.signal();
       await heldLock;
@@ -702,7 +702,9 @@ test("customer refund start refuses an unknown scenario and a duplicate Flow ID"
   const workflowId = newFlowId("customer-refund-duplicate");
   const first = await refundRoute("start", { workflowId });
   assert.equal(first.status, 200, first.text);
-  assertRefundError(await refundRoute("start", { workflowId }), 409);
+  const duplicate = await refundRoute("start", { workflowId });
+  assertRefundError(duplicate, 409);
+  assert.deepEqual(duplicate.body, { error: "this refund already exists" });
 });
 
 test("customer refund describe and decide require a Flow ID and refuse an unknown Flow", async () => {
