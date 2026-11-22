@@ -483,7 +483,8 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 //
 // For an Eino tool, the ToolsNode has the agent's tools, ToolAliases,
 // ToolArgumentsHandler, and tool middlewares, plus the Handlers' tool wrappers, in Eino's order, so
-// compose.GetToolCallID and ToolCallContextFrom work inside the tool. A tool
+// compose.GetToolCallID and ToolCallContextFrom work inside the tool; ToolCallContextFrom returns
+// false in the tools that the tool runs through a ToolsNode of their own, such as a sub-agent's. A tool
 // the deploy no longer has, or that the model invented, returns a
 // *dexagents.ToolExecutionError "unknown tool <name>", so the model sees why.
 // A call whose record has a weaker effect than this deploy gives its tool, or
@@ -556,7 +557,7 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 	if err != nil {
 		return nil, fmt.Errorf("dexeino: build the tool Step's ToolsNode: %w", err)
 	}
-	ctx = context.WithValue(ctx, toolCallContextKey{}, ToolCallContext{
+	ctx = withToolStepCall(ctx, ToolCallContext{
 		FlowID: call.FlowID, TurnID: record.TurnID, ToolCallID: record.ToolCallID, ToolName: record.ToolName,
 		IdempotencyKey: call.IdempotencyKey, Attempt: call.Attempt, Effect: record.Effect, Events: call.Events,
 		Heartbeat: call.Heartbeat, HeartbeatCheckpoint: call.HeartbeatCheckpoint, SaveHeartbeatCheckpoint: call.SaveHeartbeatCheckpoint,

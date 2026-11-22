@@ -288,13 +288,14 @@ func middlewareScenarios() map[string]middlewareScenario {
 			rounds: [][]schema.ToolCall{{toolCall("checkout_7", "checkout", `{"request":"Check out order 7."}`)}},
 			configure: func(config *adk.ChatModelAgentConfig, coordination coordinationFiles) error {
 				charge := coordination.tool("charge_card", func(ctx context.Context, _ map[string]any) (string, error) {
-					coordination.recordSessionCall(ctx, "charge_card")
+					coordination.recordSubAgentCall(ctx, "charge_card")
 					return "charged", nil
 				})
 				receipt := coordination.tool("send_receipt", func(ctx context.Context, _ map[string]any) (string, error) {
-					coordination.recordSessionCall(ctx, "send_receipt")
+					coordination.recordSubAgentCall(ctx, "send_receipt")
 					return "", &dexagents.ToolExecutionError{Message: "no email on file"}
 				})
+				config.ToolsConfig.ToolCallMiddlewares = append(config.ToolsConfig.ToolCallMiddlewares, passSessionToSubAgentTools())
 				checkout, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "checkout",
 					Description: "Checks out an order.", Instruction: "You check out.", Model: &checkoutModel{},
 					ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{charge, receipt}}}})
@@ -307,7 +308,8 @@ func middlewareScenarios() map[string]middlewareScenario {
 			// attempt fails, and its failure route records the call's outcome unknown.
 			steps:        [][]string{{"RecordToolOutcomeUnknown"}},
 			expectations: []string{"checkout=" + dexagents.OutcomeUnknownToolResult},
-			toolRuns:     map[string]int{"charge_card": 1, "send_receipt": 1},
+			// The sub-agent's tools are not the Step's call, so they do not see its ToolCallContext.
+			toolRuns: map[string]int{"charge_card": 1, "send_receipt": 1, "charge_card-leaked": 0, "send_receipt-leaked": 0},
 		},
 		"eventsenders": {
 			rounds: [][]schema.ToolCall{{toolCall("events_lookup", "lookup_order", `{"order_id":"6"}`)}},

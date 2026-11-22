@@ -26,6 +26,7 @@ import (
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/stretchr/testify/require"
 
@@ -520,6 +521,171 @@ func TestSubAgentToolFailuresAreDecidedByTheirEffect(t *testing.T) {
 				require.ErrorContains(t, err, "tool "+toolName+" runs an Eino agent, and a tool of that agent failed, "+
 					"so the agent's earlier tools may have taken effect: ")
 			}
+		})
+	}
+}
+
+// callContexts records what each place a tool Step runs sees from ToolCallContextFrom.
+type callContexts struct {
+	mutex sync.Mutex
+	seen  []string
+}
+
+func (contexts *callContexts) record(where string, ctx context.Context) {
+	toolCall, isToolStep := dexeino.ToolCallContextFrom(ctx)
+	line := where + ": none"
+	if isToolStep {
+		line = fmt.Sprintf("%s: %s %s %s %s", where, toolCall.ToolCallID, toolCall.ToolName, toolCall.Effect, toolCall.IdempotencyKey)
+	}
+	contexts.mutex.Lock()
+	defer contexts.mutex.Unlock()
+	contexts.seen = append(contexts.seen, line)
+}
+
+// recordingToolHandler records what its tool wrapper sees.
+type recordingToolHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+	contexts *callContexts
+}
+
+func (handler recordingToolHandler) WrapInvokableToolCall(_ context.Context, endpoint adk.InvokableToolCallEndpoint, _ *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
+	return func(ctx context.Context, arguments string, options ...tool.Option) (string, error) {
+		handler.contexts.record("handler wrapper", ctx)
+		return endpoint(ctx, arguments, options...)
+	}, nil
+}
+
+// recordingSubAgent returns an Eino agent whose model refunds two orders, then answers. One of its
+// calls has the agent tool's call ID, as a model that numbers its calls from one gives.
+func recordingSubAgent(t *testing.T, contexts *callContexts) adk.Agent {
+	refund := funcTool{name: "refund_order", run: func(ctx context.Context, arguments string) (string, error) {
+		contexts.record("refund_order "+compose.GetToolCallID(ctx), ctx)
+		return "refunded", nil
+	}}
+	refunds, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "billing",
+		Description: "Refunds orders.", Model: roundsModel([]schema.ToolCall{
+			call("call_billing", "refund_order", `{"id":"A"}`), call("sub_refund_b", "refund_order", `{"id":"B"}`)}),
+		ToolsConfig: toolsConfig(refund)})
+	require.NoError(t, err)
+	return refunds
+}
+
+type recordingAgentHub struct {
+	t        *testing.T
+	contexts *callContexts
+}
+
+func (hub recordingAgentHub) Get(context.Context, string, *skill.AgentHubOptions) (adk.Agent, error) {
+	return recordingSubAgent(hub.t, hub.contexts), nil
+}
+
+// billingSkills serves one fork skill whose sub-agent is the recording billing agent.
+type billingSkills struct{}
+
+func (billingSkills) List(context.Context) ([]skill.FrontMatter, error) {
+	return []skill.FrontMatter{{Name: "billing", Description: "Refunds in a sub-agent.", Context: skill.ContextModeFork}}, nil
+}
+
+func (billingSkills) Get(context.Context, string) (skill.Skill, error) {
+	return skill.Skill{FrontMatter: skill.FrontMatter{Name: "billing", Description: "Refunds in a sub-agent.",
+		Context: skill.ContextModeFork}, Content: "Refund the orders.", BaseDirectory: "/skills/billing"}, nil
+}
+
+// nestedToolsNodeTool runs refund_order through a ToolsNode of its own, as a composite tool may.
+type nestedToolsNodeTool struct {
+	t        *testing.T
+	contexts *callContexts
+}
+
+func (nested nestedToolsNodeTool) Info(context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{Name: "billing", Desc: "Refunds orders.",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{"request": {Type: schema.String}})}, nil
+}
+
+func (nested nestedToolsNodeTool) InvokableRun(ctx context.Context, _ string, _ ...tool.Option) (string, error) {
+	refund := funcTool{name: "refund_order", run: func(ctx context.Context, arguments string) (string, error) {
+		nested.contexts.record("refund_order "+compose.GetToolCallID(ctx), ctx)
+		return "refunded", nil
+	}}
+	node, err := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{Tools: []tool.BaseTool{refund}})
+	if err != nil {
+		return "", err
+	}
+	results, err := node.Invoke(ctx, schema.AssistantMessage("", []schema.ToolCall{
+		call("call_billing", "refund_order", `{"id":"A"}`), call("sub_refund_b", "refund_order", `{"id":"B"}`)}))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d refunds", len(results)), nil
+}
+
+// The tools that a tool runs, such as an agent tool's or a fork skill's sub-agent tools, are not the
+// tool Step's call: they run again whenever the Step does, so sharing the Step's IdempotencyKey would
+// let a key-deduplicating API drop the second refund. ToolCallContextFrom returns false in them,
+// even when a nested call has the Step's call ID. The Step's own ToolArgumentsHandler, tool
+// middlewares, and Handler tool wrappers still get the Step's call, also when the Step's context
+// already is inside an Eino tool call.
+func TestToolsThatAToolRunsDoNotGetItsToolCallContext(t *testing.T) {
+	const stepCall = "call_billing billing non_idempotent_write session/turn-1/call_billing"
+	for name, shape := range map[string]string{"agent tool": "agent tool", "fork skill": "fork skill",
+		"tool with its own ToolsNode": "nested ToolsNode", "agent tool, Step context inside a ToolsNode": "inside"} {
+		t.Run(name, func(t *testing.T) {
+			contexts := &callContexts{}
+			toolName, arguments := "billing", `{"request":"refund A and B"}`
+			config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent."}
+			switch shape {
+			case "agent tool", "inside":
+				config.ToolsConfig = toolsConfig(adk.NewAgentTool(context.Background(), recordingSubAgent(t, contexts)))
+			case "fork skill":
+				handler, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: billingSkills{},
+					AgentHub: recordingAgentHub{t, contexts}})
+				require.NoError(t, err)
+				config.Handlers = []adk.ChatModelAgentMiddleware{handler}
+				toolName, arguments = "skill", `{"skill":"billing"}`
+			default:
+				config.ToolsConfig = toolsConfig(nestedToolsNodeTool{t, contexts})
+			}
+			config.ToolsConfig.ToolArgumentsHandler = func(ctx context.Context, _ string, arguments string) (string, error) {
+				contexts.record("arguments handler", ctx)
+				return arguments, nil
+			}
+			config.ToolsConfig.ToolCallMiddlewares = []compose.ToolMiddleware{{Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+				return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
+					contexts.record("middleware", ctx)
+					return next(ctx, input)
+				}
+			}}}
+			config.Handlers = append(config.Handlers, recordingToolHandler{&adk.BaseChatModelAgentMiddleware{}, contexts})
+			config.Model = roundsModel([]schema.ToolCall{call("call_billing", toolName, arguments)})
+			runner, err := dexeino.NewRunner(config, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+				toolName: dexagents.ToolEffectNonIdempotentWrite}))
+			require.NoError(t, err)
+			state := newTurnState(t, runner, "refund orders A and B")
+			state.runModel(runner)
+			runStep := func(ctx context.Context, _ string) (string, error) {
+				_, err := runner.ExecuteDeferredToolCall(ctx, dexagents.DeferredToolExecution{
+					FlowID: "session", ToolCall: state.records["call_billing"], IdempotencyKey: "session/turn-1/call_billing", Attempt: 1,
+				})
+				return "ran", err
+			}
+			if shape == "inside" {
+				harness, err := compose.NewToolNode(context.Background(), &compose.ToolsNodeConfig{
+					Tools: []tool.BaseTool{funcTool{name: "harness", run: runStep}}})
+				require.NoError(t, err)
+				_, err = harness.Invoke(context.Background(), toolCallMessage(call("call_harness", "harness", `{}`)))
+				require.NoError(t, err)
+			} else {
+				_, err = runStep(context.Background(), "")
+				require.NoError(t, err)
+			}
+			expectedStepCall := strings.Replace(stepCall, "billing non_idempotent", toolName+" non_idempotent", 1)
+			require.ElementsMatch(t, []string{
+				"arguments handler: " + expectedStepCall,
+				"middleware: " + expectedStepCall,
+				"handler wrapper: " + expectedStepCall,
+				"refund_order call_billing: none",
+				"refund_order sub_refund_b: none",
+			}, contexts.seen)
 		})
 	}
 }

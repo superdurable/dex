@@ -278,13 +278,35 @@ func (coordination coordinationFiles) recordCall(name string) {
 	_ = file.Close()
 }
 
-// recordSessionCall counts one run of a tool per session, in "<name>-<session ID>.calls".
-func (coordination coordinationFiles) recordSessionCall(ctx context.Context, name string) {
-	toolCall, isToolStep := dexeino.ToolCallContextFrom(ctx)
-	if !isToolStep {
-		panic(name + " ran outside a tool Step")
+// subAgentSessionKey carries the session ID that passSessionToSubAgentTools gives a sub-agent's tools.
+type subAgentSessionKey struct{}
+
+// passSessionToSubAgentTools is a tool middleware that gives the tools a tool runs, such as an agent
+// tool's sub-agent tools, the session ID of the tool Step's call.
+func passSessionToSubAgentTools() compose.ToolMiddleware {
+	return compose.ToolMiddleware{Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+		return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
+			if toolCall, isToolStep := dexeino.ToolCallContextFrom(ctx); isToolStep {
+				ctx = context.WithValue(ctx, subAgentSessionKey{}, toolCall.FlowID)
+			}
+			return next(ctx, input)
+		}
+	}}
+}
+
+// recordSubAgentCall counts one run of a sub-agent's tool per session, in "<name>-<session ID>.calls".
+//
+// The session comes from passSessionToSubAgentTools. Such a tool is not the tool Step's call, so a run
+// that sees the Step's ToolCallContext is counted as "<name>-leaked" instead.
+func (coordination coordinationFiles) recordSubAgentCall(ctx context.Context, name string) {
+	sessionID, hasSession := ctx.Value(subAgentSessionKey{}).(string)
+	if !hasSession {
+		panic(name + " ran without the session of its agent tool's call")
 	}
-	coordination.recordCall(name + "-" + toolCall.FlowID)
+	if _, isToolStep := dexeino.ToolCallContextFrom(ctx); isToolStep {
+		name += "-leaked"
+	}
+	coordination.recordCall(name + "-" + sessionID)
 }
 
 func (coordination coordinationFiles) writeMarker(name string) {

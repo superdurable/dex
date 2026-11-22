@@ -30,6 +30,8 @@ section: Eino adapter
   their shared lock makes them in one Eino run. A `ToolExecutionError` from a
   tool of an agent tool's or fork skill's sub-agent fails a call whose effect
   is not `read`, so its effect decides the outcome.
+- The tools of a sub-agent that a tool runs, such as an agent tool's, get no
+  `ToolCallContext`, so they never share the agent tool's `IdempotencyKey`.
 - A stop that a retry would repeat ends the turn as failed with
   `TurnCompleted.TurnError`, with no paid retry: a second model call in one
   Step, a Handler that answers from another model, a turn at
