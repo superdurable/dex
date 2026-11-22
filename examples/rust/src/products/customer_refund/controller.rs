@@ -106,11 +106,15 @@ async fn start_refund(
     let CustomerRefundState { client, flow } = state;
     match run_blocking(move || {
         let run_id = client.start_flow(&flow, &flow_id, scenario.refund_request())?;
-        client.wait_for_step_completion(
+        match client.wait_for_step_completion(
             &flow_id,
             StepExecutionId::of(flow.check_policy()),
             WaitForStepCompletionOptions::new().request_timeout(START_READY_TIMEOUT),
-        )?;
+        ) {
+            // A small or denied refund can close before the wait begins; it passed CheckPolicy.
+            Ok(()) | Err(SdkError::FlowNotActiveOrNotFound { .. }) => {}
+            Err(error) => return Err(error),
+        }
         Ok(StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),

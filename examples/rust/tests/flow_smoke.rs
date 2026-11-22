@@ -689,6 +689,50 @@ fn customer_refund_controller_rejects_and_describes() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
+fn customer_refund_controller_starts_runs_that_skip_the_manager() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let small_flow_id = start_customer_refund(&http_client, "small");
+    let deny_flow_id = start_customer_refund(&http_client, "deny");
+
+    wait_for_completed_refund(environment, &small_flow_id);
+    let small_refund_ids = refund_ids_in_ledger(environment, &small_flow_id);
+    assert_eq!(small_refund_ids.len(), 1, "{small_refund_ids:?}");
+    assert!(
+        small_refund_ids[0].starts_with("rf_"),
+        "{small_refund_ids:?}"
+    );
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &small_flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": small_flow_id,
+            "status": "completed",
+            "caseStatus": "closed-refunded",
+            "refundId": small_refund_ids[0],
+        })
+    );
+
+    wait_for_completed_refund(environment, &deny_flow_id);
+    assert!(refund_ids_in_ledger(environment, &deny_flow_id).is_empty());
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &deny_flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": deny_flow_id,
+            "status": "completed",
+            "caseStatus": "closed-denied",
+            "refundId": null,
+        })
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
 fn customer_refund_controller_conflicts_when_not_awaiting_manager() {
     let environment = shared_flow_smoke_environment();
     let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
