@@ -26,6 +26,10 @@ section: Eino adapter
   v0.9.23 ships runs under Dex, and the integration tests run each one that
   runs in `Generate` and streaming mode. A before-model hook that clears a
   tool result in place changes only that model call's input.
+- Eino's plantask calls run in the model's order, one write at a time, as
+  their shared lock makes them in one Eino run. A `ToolExecutionError` from a
+  tool of an agent tool's or fork skill's sub-agent fails a call whose effect
+  is not `read`, so its effect decides the outcome.
 - A stop that a retry would repeat ends the turn as failed with
   `TurnCompleted.TurnError`, with no paid retry: a second model call in one
   Step, a Handler that answers from another model, a turn at

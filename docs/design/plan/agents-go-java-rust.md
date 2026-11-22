@@ -227,7 +227,12 @@ Connectors as tools (the decision above) and the adapter itself.
   The tool Step first checks the arguments, after Eino's `ToolAliases` and
   `ToolArgumentsHandler`, against the tool's current schema with the built-in
   loop's JSON Schema subset and texts, so a stored call that a deploy's renamed
-  parameter rejects is refused before any tool code runs.
+  parameter rejects is refused before any tool code runs. Eino's plantask
+  tools, which share a lock in one Eino run, are marked
+  `DeferredToolCall.Ordered`, so their writes run one at a time in the model's
+  order. A `ToolExecutionError` from a tool of an agent tool's or fork skill's
+  sub-agent fails the attempt of a call whose effect is not `read`, because the
+  sub-agent's earlier tools may have run, so the call's effect decides.
   This is the built-in loop's shape, so a deploy that renames a tool or changes
   the instruction never breaks an open turn. A checkpoint-and-resume mode was
   prototyped and rejected: its checkpoint pins the agent name, the tool list,

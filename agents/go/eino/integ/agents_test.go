@@ -278,6 +278,15 @@ func (coordination coordinationFiles) recordCall(name string) {
 	_ = file.Close()
 }
 
+// recordSessionCall counts one run of a tool per session, in "<name>-<session ID>.calls".
+func (coordination coordinationFiles) recordSessionCall(ctx context.Context, name string) {
+	toolCall, isToolStep := dexeino.ToolCallContextFrom(ctx)
+	if !isToolStep {
+		panic(name + " ran outside a tool Step")
+	}
+	coordination.recordCall(name + "-" + toolCall.FlowID)
+}
+
 func (coordination coordinationFiles) writeMarker(name string) {
 	if err := os.WriteFile(filepath.Join(coordination.dir, name), nil, 0o644); err != nil {
 		panic(err)

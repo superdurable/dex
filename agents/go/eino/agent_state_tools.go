@@ -9,11 +9,14 @@
 package dexeino
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
 )
@@ -75,4 +78,54 @@ func agentStateFailure(toolName string, candidate tool.BaseTool, err error) *dex
 	}
 	return &dexagents.ToolExecutionError{Message: "tool " + toolName + " runs a skill with context fork_with_context, " +
 		"which reads the Eino agent's history, and a Dex tool Step does not have it; use context fork instead"}
+}
+
+// runsAnEinoAgent reports whether a tool runs a whole Eino agent in its call: an adk.NewAgentTool tool, or the skill
+// middleware's tool, whose fork skills run a sub-agent.
+func runsAnEinoAgent(candidate tool.BaseTool) bool {
+	_, isAgentTool := einoToolStruct(candidate, einoADKPackagePath, "typedAgentTool")
+	_, isSkillTool := einoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool")
+	return isAgentTool || isSkillTool
+}
+
+// subAgentFailures is the innermost tool middleware of a call, whose effect is not read, of a tool that runs an Eino agent.
+//
+// Eino returns the error of a sub-agent's tool from the agent tool unchanged
+// or wrapped, so a *dexagents.ToolExecutionError there is the inner tool's
+// answer, given after the sub-agent's earlier tools may have taken effect. The
+// middleware turns it into an error without that type, so the session decides
+// the call's outcome from its effect, as for any other tool error. It wraps
+// only the tool, so a refusal before the tool runs stays definite.
+func subAgentFailures(toolName string) compose.ToolMiddleware {
+	return compose.ToolMiddleware{
+		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+			return subAgentFailureEndpoint(toolName, next)
+		},
+		Streamable: func(next compose.StreamableToolEndpoint) compose.StreamableToolEndpoint {
+			return subAgentFailureEndpoint(toolName, next)
+		},
+		EnhancedInvokable: func(next compose.EnhancedInvokableToolEndpoint) compose.EnhancedInvokableToolEndpoint {
+			return subAgentFailureEndpoint(toolName, next)
+		},
+		EnhancedStreamable: func(next compose.EnhancedStreamableToolEndpoint) compose.EnhancedStreamableToolEndpoint {
+			return subAgentFailureEndpoint(toolName, next)
+		},
+	}
+}
+
+// subAgentFailureEndpoint returns next's error without its *dexagents.ToolExecutionError type.
+func subAgentFailureEndpoint[Output any](
+	toolName string,
+	next func(ctx context.Context, input *compose.ToolInput) (Output, error),
+) func(ctx context.Context, input *compose.ToolInput) (Output, error) {
+	return func(ctx context.Context, input *compose.ToolInput) (Output, error) {
+		output, err := next(ctx, input)
+		var toolError *dexagents.ToolExecutionError
+		if err == nil || !errors.As(err, &toolError) {
+			return output, err
+		}
+		var failed Output
+		return failed, fmt.Errorf("tool %s runs an Eino agent, and a tool of that agent failed, "+
+			"so the agent's earlier tools may have taken effect: %s", toolName, err.Error())
+	}
 }

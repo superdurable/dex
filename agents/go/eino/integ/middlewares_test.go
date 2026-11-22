@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/filesystem"
@@ -47,7 +48,8 @@ type middlewareScenario struct {
 	options   []dexeino.Option
 	// approvals are the tools that wait for a Dex approval, in order.
 	approvals []string
-	// steps are the tool Step types after the first RunModel, one group per round, in any order within a round.
+	// steps are the completed tool Step types after the first RunModel, one group per round, in any order within a
+	// round. Ordered writes after the first start one per round, from a RunModel that makes no model call.
 	steps [][]string
 	// expectations check the final answer, which lists every tool result the model saw as "<tool>=<result>".
 	expectations []string
@@ -55,6 +57,8 @@ type middlewareScenario struct {
 	modelInput []string
 	// storedResults checks the stored tool results by tool call ID.
 	storedResults map[string]string
+	// toolRuns checks how many times a tool that counts its runs per session ran.
+	toolRuns map[string]int
 }
 
 // The modes every middleware Flow runs in.
@@ -231,6 +235,23 @@ func middlewareScenarios() map[string]middlewareScenario {
 			steps:        [][]string{{"AwaitToolApproval", "CallSingleAttemptTool"}, {"CallTool"}},
 			expectations: []string{`TaskCreate={"result":"Task #1 created successfully: Write the docs"}`, `TaskList={"result":"#1 [pending] Write the docs"}`},
 		},
+		"plantaskparallel": {
+			rounds: [][]schema.ToolCall{{
+				toolCall("create_docs", "TaskCreate", `{"subject":"Write the docs","description":"Docs.","activeForm":"Writing the docs"}`),
+				toolCall("create_tests", "TaskCreate", `{"subject":"Write the tests","description":"Tests.","activeForm":"Writing the tests"}`),
+			}},
+			configure: func(config *adk.ChatModelAgentConfig, _ coordinationFiles) error {
+				handler, err := plantask.New(context.Background(), &plantask.Config{Backend: &slowTaskFiles{newTaskFiles()}, BaseDir: "/tasks"})
+				config.Handlers = append(config.Handlers, handler)
+				return err
+			},
+			options: []dexeino.Option{dexeino.WithToolPolicies(map[string]dexagents.ToolPolicy{
+				"TaskCreate": {Effect: dexagents.ToolEffectNonIdempotentWrite, RequiresApproval: ptr(false)}})},
+			// The second TaskCreate starts after the first one finished, from a RunModel that makes no model call.
+			steps: [][]string{{"CallSingleAttemptTool"}, {"CallSingleAttemptTool"}},
+			expectations: []string{`TaskCreate={"result":"Task #1 created successfully: Write the docs"}`,
+				`TaskCreate={"result":"Task #2 created successfully: Write the tests"}`},
+		},
 		"skill": {
 			rounds: [][]schema.ToolCall{{toolCall("skill_notes", "skill", `{"skill":"release_notes"}`), toolCall("skill_triage", "skill", `{"skill":"triage"}`)}},
 			configure: func(config *adk.ChatModelAgentConfig, _ coordinationFiles) error {
@@ -262,6 +283,31 @@ func middlewareScenarios() map[string]middlewareScenario {
 			},
 			steps:        [][]string{{"CallTool"}},
 			expectations: []string{"researcher=the researcher sub-agent got 2 messages"},
+		},
+		"agenttoolwrite": {
+			rounds: [][]schema.ToolCall{{toolCall("checkout_7", "checkout", `{"request":"Check out order 7."}`)}},
+			configure: func(config *adk.ChatModelAgentConfig, coordination coordinationFiles) error {
+				charge := coordination.tool("charge_card", func(ctx context.Context, _ map[string]any) (string, error) {
+					coordination.recordSessionCall(ctx, "charge_card")
+					return "charged", nil
+				})
+				receipt := coordination.tool("send_receipt", func(ctx context.Context, _ map[string]any) (string, error) {
+					coordination.recordSessionCall(ctx, "send_receipt")
+					return "", &dexagents.ToolExecutionError{Message: "no email on file"}
+				})
+				checkout, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "checkout",
+					Description: "Checks out an order.", Instruction: "You check out.", Model: &checkoutModel{},
+					ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{charge, receipt}}}})
+				config.ToolsConfig.Tools = append(config.ToolsConfig.Tools, adk.NewAgentTool(context.Background(), checkout))
+				return err
+			},
+			options: []dexeino.Option{dexeino.WithToolPolicies(map[string]dexagents.ToolPolicy{
+				"checkout": {Effect: dexagents.ToolEffectNonIdempotentWrite, RequiresApproval: ptr(false)}})},
+			// The sub-agent charged the card before its receipt tool failed, so the CallSingleAttemptTool
+			// attempt fails, and its failure route records the call's outcome unknown.
+			steps:        [][]string{{"RecordToolOutcomeUnknown"}},
+			expectations: []string{"checkout=" + dexagents.OutcomeUnknownToolResult},
+			toolRuns:     map[string]int{"charge_card": 1, "send_receipt": 1},
 		},
 		"eventsenders": {
 			rounds: [][]schema.ToolCall{{toolCall("events_lookup", "lookup_order", `{"order_id":"6"}`)}},
@@ -395,6 +441,14 @@ func (backend *taskFiles) Delete(_ context.Context, request *plantask.DeleteRequ
 	return nil
 }
 
+// slowTaskFiles is taskFiles with the latency of a shared store, so parallel calls would overlap.
+type slowTaskFiles struct{ *taskFiles }
+
+func (backend *slowTaskFiles) LsInfo(ctx context.Context, request *plantask.LsInfoRequest) ([]plantask.FileInfo, error) {
+	time.Sleep(100 * time.Millisecond)
+	return backend.taskFiles.LsInfo(ctx, request)
+}
+
 // memorySkills is a skill Backend with an inline skill and a fork skill.
 type memorySkills struct{}
 
@@ -421,6 +475,37 @@ type skillAgents struct{}
 
 func (skillAgents) Get(ctx context.Context, _ string, _ *skill.AgentHubOptions) (adk.Agent, error) {
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{Name: "triage", Description: "Triages.", Model: &subAgentModel{name: "triage"}})
+}
+
+// checkoutModel charges the card, then sends the receipt, then answers.
+type checkoutModel struct{}
+
+func (checkout *checkoutModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	rounds := 0
+	for _, message := range input {
+		if message.Role == schema.Assistant && len(message.ToolCalls) > 0 {
+			rounds++
+		}
+	}
+	switch rounds {
+	case 0:
+		return schema.AssistantMessage("", []schema.ToolCall{toolCall("sub_charge", "charge_card", `{}`)}), nil
+	case 1:
+		return schema.AssistantMessage("", []schema.ToolCall{toolCall("sub_receipt", "send_receipt", `{}`)}), nil
+	}
+	return schema.AssistantMessage("checked out", nil), nil
+}
+
+func (checkout *checkoutModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	message, err := checkout.Generate(ctx, input, options...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.StreamReaderFromArray([]*schema.Message{message}), nil
+}
+
+func (checkout *checkoutModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return checkout, nil
 }
 
 // subAgentModel answers a sub-agent's one model call with the number of messages it got.
@@ -594,5 +679,8 @@ func (stack *agentTestStack) runMiddlewareScenario(t *testing.T, name, mode stri
 	}
 	for toolCallID, expected := range scenario.storedResults {
 		require.Contains(t, stored[toolCallID], expected, "stored result of %s", toolCallID)
+	}
+	for toolName, expected := range scenario.toolRuns {
+		require.Equal(t, expected, stack.callCount(toolName+"-"+sessionID), "runs of %s", toolName)
 	}
 }

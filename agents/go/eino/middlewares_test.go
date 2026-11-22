@@ -13,13 +13,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/filesystem"
 	fsmiddleware "github.com/cloudwego/eino/adk/middlewares/filesystem"
+	"github.com/cloudwego/eino/adk/middlewares/plantask"
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
 	"github.com/cloudwego/eino/components/tool"
@@ -295,6 +298,228 @@ func TestFilesystemReadFileFollowsItsSchema(t *testing.T) {
 			}
 			require.Empty(t, failures)
 			require.Equal(t, "     1\thello", *state.records["call_read"].Output)
+		})
+	}
+}
+
+// memoryTaskFiles is a plantask Backend in memory, keyed by full path.
+type memoryTaskFiles struct {
+	mutex sync.Mutex
+	files map[string]string
+}
+
+func (backend *memoryTaskFiles) LsInfo(_ context.Context, request *plantask.LsInfoRequest) ([]plantask.FileInfo, error) {
+	backend.mutex.Lock()
+	defer backend.mutex.Unlock()
+	var infos []plantask.FileInfo
+	for path := range backend.files {
+		if filepath.Dir(path) == strings.TrimSuffix(request.Path, "/") {
+			infos = append(infos, plantask.FileInfo{Path: path})
+		}
+	}
+	return infos, nil
+}
+
+func (backend *memoryTaskFiles) Read(_ context.Context, request *plantask.ReadRequest) (*filesystem.FileContent, error) {
+	backend.mutex.Lock()
+	defer backend.mutex.Unlock()
+	content, isFound := backend.files[request.FilePath]
+	if !isFound {
+		return nil, fmt.Errorf("no task file %s", request.FilePath)
+	}
+	return &filesystem.FileContent{Content: content}, nil
+}
+
+func (backend *memoryTaskFiles) Write(_ context.Context, request *plantask.WriteRequest) error {
+	backend.mutex.Lock()
+	defer backend.mutex.Unlock()
+	backend.files[request.FilePath] = request.Content
+	return nil
+}
+
+func (backend *memoryTaskFiles) Delete(_ context.Context, request *plantask.DeleteRequest) error {
+	backend.mutex.Lock()
+	defer backend.mutex.Unlock()
+	delete(backend.files, request.FilePath)
+	return nil
+}
+
+// orderedCalls returns whether each requested call runs in the model's order, by tool call ID.
+func orderedCalls(requested *dexagents.ToolCallsRequested) map[string]bool {
+	ordered := map[string]bool{}
+	for _, toolCall := range requested.ToolCalls {
+		ordered[toolCall.ToolCallID] = toolCall.Ordered
+	}
+	return ordered
+}
+
+// Eino's plantask tools share one lock per agent run, so in native Eino two TaskCreate calls of one
+// response take task numbers one after the other. Dex runs each call in its own Step, possibly on
+// another Worker, so the adapter asks the session to run the plantask calls in the model's order:
+// the session starts one write at a time and ignores the order for a read. Other tools still run
+// in parallel.
+func TestPlanTaskCallsRunInTheModelsOrder(t *testing.T) {
+	backend := &memoryTaskFiles{files: map[string]string{}}
+	handler, err := plantask.New(context.Background(), &plantask.Config{Backend: backend, BaseDir: "/tasks"})
+	require.NoError(t, err)
+	scripted := roundsModel([]schema.ToolCall{
+		call("create_docs", "TaskCreate", `{"subject":"Write the docs","description":"Docs."}`),
+		call("create_tests", "TaskCreate", `{"subject":"Write the tests","description":"Tests."}`),
+		call("list_tasks", "TaskList", `{}`),
+		call("lookup", "lookup_order", `{"id":"1"}`),
+	})
+	lookup := funcTool{name: "lookup_order", run: func(context.Context, string) (string, error) { return "shipped", nil }}
+	runner, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+		ToolsConfig: toolsConfig(lookup), Handlers: []adk.ChatModelAgentMiddleware{handler}},
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"TaskCreate": dexagents.ToolEffectNonIdempotentWrite,
+			"TaskList": dexagents.ToolEffectRead, "lookup_order": dexagents.ToolEffectRead}))
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "plan the release")
+	requested := state.runModel(runner).(*dexagents.ToolCallsRequested)
+	require.Equal(t, map[string]bool{"create_docs": true, "create_tests": true, "list_tasks": true, "lookup": false},
+		orderedCalls(requested))
+
+	for _, id := range []string{"create_docs", "create_tests"} {
+		outcome, err := runner.ExecuteDeferredToolCall(context.Background(), dexagents.DeferredToolExecution{
+			FlowID: "session", ToolCall: state.records[id], IdempotencyKey: "session/turn-1/" + id, Attempt: 1,
+		})
+		require.NoError(t, err)
+		state.records[id] = dexagents.AgentToolCall{ToolCallID: id, Output: ptr(outcome.(*dexagents.ToolExecutionResult).Output)}
+	}
+	require.Equal(t, `{"result":"Task #1 created successfully: Write the docs"}`, *state.records["create_docs"].Output)
+	require.Equal(t, `{"result":"Task #2 created successfully: Write the tests"}`, *state.records["create_tests"].Output)
+}
+
+// failingLookupHandler adds its tool in the Eino run, and its BeforeAgent fails every later time,
+// as when a registry it reads becomes unreachable.
+type failingLookupHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+	calls     *atomic.Int64
+	addedTool tool.BaseTool
+}
+
+// When RunModel cannot read the tools the Handlers add, because a BeforeAgent fails outside the Eino
+// run, it cannot tell a plantask call from another, so every call of a Handler-added tool waits
+// for an approval and runs in the model's order.
+func TestHandlerAddedCallsRunInTheModelsOrderWhenTheirToolsCannotBeRead(t *testing.T) {
+	added := funcTool{name: "add_note", run: func(context.Context, string) (string, error) { return "added", nil }}
+	lookup := funcTool{name: "lookup_order", run: func(context.Context, string) (string, error) { return "shipped", nil }}
+	scripted := roundsModel([]schema.ToolCall{call("note_1", "add_note", `{}`), call("note_2", "add_note", `{}`),
+		call("lookup", "lookup_order", `{}`)})
+	runner, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+		ToolsConfig: toolsConfig(lookup),
+		Handlers:    []adk.ChatModelAgentMiddleware{failingLookupHandler{&adk.BaseChatModelAgentMiddleware{}, &atomic.Int64{}, added}}},
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"add_note": dexagents.ToolEffectIdempotentWrite,
+			"lookup_order": dexagents.ToolEffectRead}))
+	require.NoError(t, err)
+	requested := newTurnState(t, runner, "take notes").runModel(runner).(*dexagents.ToolCallsRequested)
+	require.Equal(t, map[string]bool{"note_1": true, "note_2": true, "lookup": false}, orderedCalls(requested))
+	for _, toolCall := range requested.ToolCalls[:2] {
+		require.Equal(t, dexagents.ToolEffectUnclassified, toolCall.Policy.Effect)
+		require.True(t, toolCall.Policy.IsApprovalRequired())
+	}
+}
+
+// checkoutSubAgent returns an Eino agent whose model charges the card, then sends the receipt, then
+// answers. The receipt tool fails as a definite ToolExecutionError.
+func checkoutSubAgent(t *testing.T, charges *atomic.Int64) adk.Agent {
+	charge := funcTool{name: "charge_card", run: func(context.Context, string) (string, error) {
+		charges.Add(1)
+		return "charged", nil
+	}}
+	receipt := funcTool{name: "send_receipt", run: func(context.Context, string) (string, error) {
+		return "", &dexagents.ToolExecutionError{Message: "no email on file"}
+	}}
+	checkout, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "checkout",
+		Description: "Checks out an order.", Model: roundsModel(
+			[]schema.ToolCall{call("sub_charge", "charge_card", `{}`)},
+			[]schema.ToolCall{call("sub_receipt", "send_receipt", `{}`)},
+		), ToolsConfig: toolsConfig(charge, receipt)})
+	require.NoError(t, err)
+	return checkout
+}
+
+// checkoutSkills serves one fork skill whose sub-agent is the checkout agent.
+type checkoutSkills struct{}
+
+func (checkoutSkills) List(context.Context) ([]skill.FrontMatter, error) {
+	return []skill.FrontMatter{{Name: "checkout", Description: "Checks out in a sub-agent.", Context: skill.ContextModeFork}}, nil
+}
+
+func (checkoutSkills) Get(context.Context, string) (skill.Skill, error) {
+	return skill.Skill{FrontMatter: skill.FrontMatter{Name: "checkout", Description: "Checks out in a sub-agent.",
+		Context: skill.ContextModeFork}, Content: "Check out the order.", BaseDirectory: "/skills/checkout"}, nil
+}
+
+type checkoutAgentHub struct {
+	t       *testing.T
+	charges *atomic.Int64
+}
+
+func (hub checkoutAgentHub) Get(context.Context, string, *skill.AgentHubOptions) (adk.Agent, error) {
+	return checkoutSubAgent(hub.t, hub.charges), nil
+}
+
+// An agent tool, or a fork skill, runs a whole Eino agent in its tool Step. When a tool of that
+// agent fails with a ToolExecutionError, the agent's earlier tools may have taken effect, so the
+// failure is not the agent tool's definite answer: the attempt fails, and the session decides the
+// outcome from the agent tool's effect. A read keeps the definite failure, which a read records
+// anyway. The agent tool's own argument check, before anything ran, stays definite.
+func TestSubAgentToolFailuresAreDecidedByTheirEffect(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		effect       dexagents.ToolEffect
+		isDefinite   bool
+		usesSkill    bool
+		arguments    string
+		chargesAfter int64
+	}{
+		"agent tool, non_idempotent_write": {effect: dexagents.ToolEffectNonIdempotentWrite, chargesAfter: 1},
+		"agent tool, idempotent_write":     {effect: dexagents.ToolEffectIdempotentWrite, chargesAfter: 1},
+		"agent tool, unclassified":         {effect: dexagents.ToolEffectUnclassified, chargesAfter: 1},
+		"agent tool, read":                 {effect: dexagents.ToolEffectRead, isDefinite: true, chargesAfter: 1},
+		"fork skill, non_idempotent_write": {effect: dexagents.ToolEffectNonIdempotentWrite, usesSkill: true, chargesAfter: 1},
+		"fork skill, read":                 {effect: dexagents.ToolEffectRead, usesSkill: true, isDefinite: true, chargesAfter: 1},
+		"agent tool arguments the schema rejects": {effect: dexagents.ToolEffectNonIdempotentWrite, isDefinite: true,
+			arguments: `{"request":7}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var charges atomic.Int64
+			toolName, arguments := "checkout", `{"request":"order 7"}`
+			config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent."}
+			if testCase.usesSkill {
+				handler, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: checkoutSkills{},
+					AgentHub: checkoutAgentHub{t, &charges}})
+				require.NoError(t, err)
+				config.Handlers = []adk.ChatModelAgentMiddleware{handler}
+				toolName, arguments = "skill", `{"skill":"checkout"}`
+			} else {
+				config.ToolsConfig = toolsConfig(adk.NewAgentTool(context.Background(), checkoutSubAgent(t, &charges)))
+			}
+			if testCase.arguments != "" {
+				arguments = testCase.arguments
+			}
+			config.Model = roundsModel([]schema.ToolCall{call("call_checkout", toolName, arguments)})
+			runner, err := dexeino.NewRunner(config, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{toolName: testCase.effect}))
+			require.NoError(t, err)
+			state := newTurnState(t, runner, "check out order 7")
+			state.runModel(runner)
+			require.Equal(t, testCase.effect, state.records["call_checkout"].Effect)
+			_, err = runner.ExecuteDeferredToolCall(context.Background(), dexagents.DeferredToolExecution{
+				FlowID: "session", ToolCall: state.records["call_checkout"], IdempotencyKey: "session/turn-1/call_checkout", Attempt: 1,
+			})
+			require.Equal(t, testCase.chargesAfter, charges.Load())
+			var toolError *dexagents.ToolExecutionError
+			if testCase.arguments != "" {
+				require.ErrorAs(t, err, &toolError)
+				require.Equal(t, "invalid arguments for checkout: arguments.request must be string", toolError.Message)
+				return
+			}
+			require.ErrorContains(t, err, "no email on file")
+			require.Equal(t, testCase.isDefinite, errors.As(err, &toolError), "definite failure: %v", err)
+			if !testCase.isDefinite {
+				require.ErrorContains(t, err, "tool "+toolName+" runs an Eino agent, and a tool of that agent failed, "+
+					"so the agent's earlier tools may have taken effect: ")
+			}
 		})
 	}
 }

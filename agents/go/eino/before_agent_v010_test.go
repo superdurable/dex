@@ -12,6 +12,7 @@ package dexeino_test
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -25,5 +26,17 @@ func (handler countingToolHandler) BeforeAgent(
 	if handler.addedTool != nil {
 		agentContext.Tools = append(agentContext.Tools, handler.addedTool)
 	}
+	return ctx, agentContext, nil
+}
+
+// BeforeAgent adds the handler's tool on its first call and fails on every later one.
+func (handler failingLookupHandler) BeforeAgent(
+	ctx context.Context,
+	agentContext *adk.ChatModelAgentContext[*schema.Message],
+) (context.Context, *adk.ChatModelAgentContext[*schema.Message], error) {
+	if handler.calls.Add(1) > 1 {
+		return ctx, agentContext, errors.New("the tool registry is unreachable")
+	}
+	agentContext.Tools = append(agentContext.Tools, handler.addedTool)
 	return ctx, agentContext, nil
 }

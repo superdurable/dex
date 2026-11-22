@@ -436,6 +436,7 @@ func (runner *Runner) deferredToolCall(
 		ToolName:   call.Function.Name,
 		Arguments:  arguments,
 		Policy:     runner.modelCallToolPolicy(result.turn, result.tools, offered, handlerAdded, call.Function.Name),
+		Ordered:    isOrderedCall(result.tools, offered, handlerAdded, call.Function.Name),
 	}, nil
 }
 
@@ -500,7 +501,11 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // a call of an agent tool made with adk.WithFullChatHistoryAsInput, which a
 // Handler added, and a call of the skill middleware's tool that runs a skill
 // with context fork_with_context return a *dexagents.ToolExecutionError
-// before anything runs. Since 0.6.16.
+// before anything runs. An adk.NewAgentTool tool and the skill middleware's
+// tool run a whole Eino agent, whose earlier tools may have run when one of
+// its tools returns a *dexagents.ToolExecutionError, so for a call whose
+// effect is not read that error fails the attempt with its text, without its
+// type, and the call's effect decides its outcome. Since 0.6.16.
 func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagents.DeferredToolExecution) (dexagents.DeferredToolOutcome, error) {
 	record := call.ToolCall
 	if runner.router.IsSourceToolCall(record) {
@@ -543,7 +548,11 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 	if err != nil {
 		return nil, err
 	}
-	node, err := compose.NewToolNode(ctx, toolStepNodeConfig(config, nodeTools, checkArguments))
+	nodeConfig := toolStepNodeConfig(config, nodeTools, checkArguments)
+	if record.Effect != dexagents.ToolEffectRead && runsAnEinoAgent(entry.tool) {
+		nodeConfig.ToolCallMiddlewares = append(nodeConfig.ToolCallMiddlewares, subAgentFailures(record.ToolName))
+	}
+	node, err := compose.NewToolNode(ctx, nodeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("dexeino: build the tool Step's ToolsNode: %w", err)
 	}

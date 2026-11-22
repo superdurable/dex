@@ -252,6 +252,17 @@ call's effect: a `read` retries, and a write that may have run records
 `outcome_unknown`. Return `ToolExecutionError` only for an answer that settles
 the call, such as invalid arguments or a refusal before anything changed.
 
+A tool that runs a whole Eino agent, an `adk.NewAgentTool` tool or the skill
+middleware's `skill` tool with a fork skill, returns the error of the
+sub-agent's failed tool. A `ToolExecutionError` there is the inner tool's
+answer, and the sub-agent's earlier tools may have run, so for a call whose
+effect is not `read` the adapter fails the attempt with the error's text and
+without its type. The effect then decides: a `non_idempotent_write` or
+`unclassified` call records `outcome_unknown`, and an `idempotent_write`
+retries. A `read` call keeps it as a definite failure. A tool of your own that
+runs other tools should pass an inner `ToolExecutionError` on only when
+nothing ran before it.
+
 `utils.WrapToolWithErrorHandler` turns every tool error into ordinary result
 text. Under Dex that hides a crash as a success, so a write that may have run
 would read as succeeded. Do not wrap Dex tools with it.
@@ -490,12 +501,12 @@ the middleware a backend that every Worker reaches, not an in-memory one.
 | `dynamictool/toolsearch.New` | Runs, in both modes | `tool_search` is a `read`. Give each dynamic tool its effect; it is offered by name, as a Handler-added tool. In native mode (`UseModelToolSearch: true`) the model gets a placeholder as the `tool_search` result; see Message fidelity |
 | `filesystem.New` | Runs | `ls`, `read_file`, `glob`, and `grep` are `read`; `write_file` is an `idempotent_write`; `edit_file` and `execute` are `non_idempotent_write`. `execute` runs the `Shell` or `StreamingShell` in its tool Step. The schemas of `read_file`, `glob`, and `edit_file` mark `offset` and `limit`, `path`, and `replace_all` as required, although their descriptions say they may be left out. The tool Step checks arguments against the schema, so a call without them gets `invalid arguments for read_file: arguments.offset is required`. To accept such calls, fill the fields in a `ToolArgumentsHandler`, which runs before the check |
 | `filesystem.NewMiddleware` (deprecated) | Runs | Its tools and its large-result offloading run in the tool Step. The offloaded result is written to the backend there, at `/large_tool_result/<tool call ID>`, so a retry writes the same file |
-| `plantask.New` | Runs | `TaskCreate` is a `non_idempotent_write`, because it takes the next task number; `TaskUpdate` is an `idempotent_write`; `TaskGet` and `TaskList` are `read` |
+| `plantask.New` | Runs | `TaskCreate` is a `non_idempotent_write`, because it takes the next task number; `TaskUpdate` is an `idempotent_write`; `TaskGet` and `TaskList` are `read`. In one Eino run the four tools share a lock, so the calls of one response take task numbers one after another. Under Dex each call is its own Step, so the adapter marks plantask calls `DeferredToolCall.Ordered`: the session runs their writes one at a time in the model's order, and when one does not succeed, records the later ones as not run, so the model may make them again. `TaskGet` and `TaskList` run in parallel with the writes and may read a task list that a write is changing |
 | `reduction.New` | Runs | Truncation runs in the tool Step, so the stored result is the truncated text, and its offloaded file is written there. The clear phase runs in `BeforeModelRewriteState` before every model call, over the stored messages, and changes only that call's input. With a backend, the clear phase writes the cleared content inside `RunModel`, at every model call over the threshold and on each retry, to the same path, so the backend's `Write` must be safe to repeat |
 | `reduction.NewClearToolResult`, `reduction.NewToolResultMiddleware` (deprecated) | Runs | They clear old tool results in place before the model call. The model call sees the placeholder, and Dex stores the result the tool returned |
-| `skill.NewMiddleware`, `skill.New` (deprecated) | Runs inline and `context: fork` skills | A fork skill's sub-agent, with its model calls and tools, runs inside the `skill` tool Step, so give `skill` the effect of what its sub-agents do. A `context: fork_with_context` skill reads the agent's history in the tool Step, which a Dex tool Step does not have, so its call fails as a `ToolExecutionError` that names the mode, before anything runs. A skill's `model` in inline mode does not switch the model: it lasts one Eino run, and each model call is a new run. Choose the model with an `AgentConfigBuilder` |
+| `skill.NewMiddleware`, `skill.New` (deprecated) | Runs inline and `context: fork` skills | A fork skill's sub-agent, with its model calls and tools, runs inside the `skill` tool Step, so give `skill` the effect of what its sub-agents do; a `ToolExecutionError` from a sub-agent's tool is handled as for `adk.NewAgentTool`. A `context: fork_with_context` skill reads the agent's history in the tool Step, which a Dex tool Step does not have, so its call fails as a `ToolExecutionError` that names the mode, before anything runs. A skill's `model` in inline mode does not switch the model: it lasts one Eino run, and each model call is a new run. Choose the model with an `AgentConfigBuilder` |
 | `summarization.New` | Refused at construction | It makes its own model call before a model call |
-| `adk.NewAgentTool` | Runs | The sub-agent, with its model calls and tools, runs inside the agent tool's Step. An agent tool made with `adk.WithFullChatHistoryAsInput` reads the agent's history in its tool Step, so it is refused at construction, and a call of one that a Handler adds fails as a `ToolExecutionError` before it runs. Pass what the sub-agent needs in the call's arguments |
+| `adk.NewAgentTool` | Runs | The sub-agent, with its model calls and tools, runs inside the agent tool's Step, so give the agent tool the effect of what its sub-agent does. A `ToolExecutionError` from a sub-agent's tool fails the attempt of a call whose effect is not `read`, so the effect decides the outcome; see Effects and policies. An agent tool made with `adk.WithFullChatHistoryAsInput` reads the agent's history in its tool Step, so it is refused at construction, and a call of one that a Handler adds fails as a `ToolExecutionError` before it runs. Pass what the sub-agent needs in the call's arguments |
 | `adk.NewEventSenderModelWrapper`, `adk.NewEventSenderToolWrapper` | Runs | The model call's Eino events are not read, and the tool Step skips Eino's own Handlers; the session writes its own events |
 | `prebuilt/deep`, `prebuilt/supervisor`, `prebuilt/planexecute` | Not accepted | Their `New` returns a built agent, not a `ChatModelAgentConfig`, so they do not compile as an argument. For a deep agent, pass a `ChatModelAgentConfig` with the `filesystem.New` and `plantask.New` Handlers and each sub-agent as an `adk.NewAgentTool`. A supervisor's transfer and plan-execute's agent loop make several model calls in one Step |
 
@@ -555,7 +566,11 @@ which these tests do not cover.
 - **Tools must be safe for concurrent use**, because the calls of one model
   response run as parallel Steps, possibly in one Worker, in any order. For
   this reason `ToolsConfig.ExecuteSequentially` refuses to build. When one call
-  needs another's result, let the model make them in separate responses.
+  needs another's result, let the model make them in separate responses. A
+  lock that tools share in one Eino run, such as one a Handler's `BeforeAgent`
+  creates for the tools it adds, does not hold across Steps; the adapter runs
+  Eino's plantask calls in order for this reason, and other such tools need a
+  lock in their shared backend.
 - **Go core gaps.** The adapter runs on the Go core, which has no steering or
   `cancel_turn`, questions or tool input requests, compaction, the MCP tool
   source, tool tasks, images, plans, GenAI spans, `ModelCallMetadata`, or an

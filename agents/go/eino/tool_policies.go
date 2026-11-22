@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -211,8 +212,38 @@ func (runner *Runner) modelCallToolPolicy(
 
 // handlerAddedToolEffects are the effects of the tools the Handlers' BeforeAgent hooks add, by name.
 type handlerAddedToolEffects struct {
-	effects   map[string]*dexagents.ToolEffect
+	effects map[string]*dexagents.ToolEffect
+	// ordered names the tools whose calls run in the model's order.
+	ordered   map[string]bool
 	lookupErr error
+}
+
+// einoPlanTaskPackagePath is the package of Eino's plantask middleware, whose tools share one lock per agent run.
+const einoPlanTaskPackagePath = "github.com/cloudwego/eino/adk/middlewares/plantask"
+
+// runsInTheModelsOrder reports whether a tool's calls of one model response must run one at a time, in the model's order.
+//
+// Eino's plantask tools take task numbers and update task files under a lock
+// that BeforeAgent creates for one agent run. Each Dex tool Step runs its call
+// alone, possibly on another Worker, so no lock can hold across the calls; the
+// session's ordered writes give the same order instead.
+func runsInTheModelsOrder(candidate tool.BaseTool) bool {
+	toolType := reflect.TypeOf(candidate)
+	for toolType != nil && toolType.Kind() == reflect.Pointer {
+		toolType = toolType.Elem()
+	}
+	return toolType != nil && toolType.PkgPath() == einoPlanTaskPackagePath
+}
+
+// isOrderedCall reports whether a requested call of a name no source offered runs in the model's order.
+//
+// When the Handler-added tools could not be read, any of them may be a
+// plantask tool, so their calls run in order too.
+func isOrderedCall(tools agentTools, offered map[string]bool, handlerAdded handlerAddedToolEffects, toolName string) bool {
+	if entry, isAgentTool := tools.lookup(toolName); isAgentTool {
+		return runsInTheModelsOrder(entry.tool)
+	}
+	return offered[toolName] && (handlerAdded.lookupErr != nil || handlerAdded.ordered[toolName])
 }
 
 // findHandlerAddedToolEffects returns the effects of the tools that the Handlers' BeforeAgent hooks add.
@@ -223,7 +254,7 @@ func (runner *Runner) findHandlerAddedToolEffects(ctx context.Context, config *a
 			slog.Any("error", err))
 		return handlerAddedToolEffects{lookupErr: err}
 	}
-	found := handlerAddedToolEffects{effects: map[string]*dexagents.ToolEffect{}}
+	found := handlerAddedToolEffects{effects: map[string]*dexagents.ToolEffect{}, ordered: map[string]bool{}}
 	for _, candidate := range extended {
 		entry, err := runner.describeAgentTool(ctx, candidate)
 		if err != nil {
@@ -231,6 +262,7 @@ func (runner *Runner) findHandlerAddedToolEffects(ctx context.Context, config *a
 		}
 		if _, isAgentTool := tools.byName[entry.name]; !isAgentTool {
 			found.effects[entry.name] = entry.effect
+			found.ordered[entry.name] = runsInTheModelsOrder(candidate)
 		}
 	}
 	return found
