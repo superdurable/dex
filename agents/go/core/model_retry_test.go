@@ -11,6 +11,7 @@ package dexagents
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"syscall"
 	"testing"
@@ -109,4 +110,108 @@ func TestPermanentErrorEndsTheTurnAndAnUnknownOneGoesToTheAttemptLimit(t *testin
 	bug := errors.New("the runner has a bug")
 	require.Same(t, bug, decideModelCallError(bug, 2, policy, 0))
 	require.Same(t, bug, decideModelCallError(bug, 3, policy, 0))
+}
+
+// goOpenAIStyleAPIError has the fields of go-openai's APIError, which eino-ext OpenAI-family models return.
+type goOpenAIStyleAPIError struct {
+	Code           any
+	Message        string
+	HTTPStatus     string
+	HTTPStatusCode int
+}
+
+func (apiError *goOpenAIStyleAPIError) Error() string { return apiError.Message }
+
+// goOpenAIStyleRequestError has the fields of go-openai's RequestError, which wraps the transport error.
+type goOpenAIStyleRequestError struct {
+	HTTPStatus     string
+	HTTPStatusCode int
+	Err            error
+	Body           []byte
+}
+
+func (requestError *goOpenAIStyleRequestError) Error() string { return "request failed" }
+
+func (requestError *goOpenAIStyleRequestError) Unwrap() error { return requestError.Err }
+
+// arkStyleAPIError has the fields of the Volcengine Ark SDK's APIError, which the eino-ext ark model returns.
+type arkStyleAPIError struct {
+	Code           string
+	Message        string
+	HTTPStatusCode int
+	RequestId      string
+}
+
+func (apiError arkStyleAPIError) Error() string { return apiError.Message }
+
+// codeOnlyError has only a Code field, as many errors that are not HTTP answers do.
+type codeOnlyError struct {
+	Code int
+}
+
+func (codeError *codeOnlyError) Error() string { return fmt.Sprintf("code %d", codeError.Code) }
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func TestModelErrorsWithAnHTTPStatusCodeFieldAreClassifiedByStatus(t *testing.T) {
+	t.Parallel()
+	wrapped := func(err error) error { return fmt.Errorf("[NodeRunError] failed to create chat completion: %w", err) }
+	for _, status := range []int{408, 409, 429, 500, 503} {
+		kind, _ := classifyModelError(wrapped(&goOpenAIStyleAPIError{Code: "rate_limit", HTTPStatusCode: status}))
+		require.Equal(t, modelErrorTransient, kind, "go-openai APIError %d", status)
+		kind, _ = classifyModelError(wrapped(&goOpenAIStyleRequestError{HTTPStatusCode: status, Err: errors.New("bad gateway")}))
+		require.Equal(t, modelErrorTransient, kind, "go-openai RequestError %d", status)
+		kind, _ = classifyModelError(wrapped(arkStyleAPIError{Code: "ServerOverloaded", HTTPStatusCode: status}))
+		require.Equal(t, modelErrorTransient, kind, "Ark APIError %d", status)
+	}
+	for _, status := range []int{400, 401, 403, 404} {
+		kind, _ := classifyModelError(wrapped(&goOpenAIStyleAPIError{Code: 400, HTTPStatusCode: status}))
+		require.Equal(t, modelErrorPermanent, kind, "go-openai APIError %d", status)
+		kind, _ = classifyModelError(wrapped(arkStyleAPIError{Code: "InvalidParameter", HTTPStatusCode: status}))
+		require.Equal(t, modelErrorPermanent, kind, "Ark APIError %d", status)
+	}
+	var endsTurn *errModelCallEndsTurn
+	policy, err := resolveModelRetryPolicy(ModelRetryPolicy{})
+	require.NoError(t, err)
+	require.ErrorAs(t, decideModelCallError(wrapped(&goOpenAIStyleAPIError{HTTPStatusCode: 401}), 1, policy, 0), &endsTurn)
+	var retryAfter *dex.RetryAfterError
+	require.ErrorAs(t, decideModelCallError(wrapped(&goOpenAIStyleAPIError{HTTPStatusCode: 429}), 1, policy, 0), &retryAfter)
+}
+
+func TestARequestErrorWithoutAStatusIsClassifiedByWhatItWraps(t *testing.T) {
+	t.Parallel()
+	kind, _ := classifyModelError(&goOpenAIStyleRequestError{Err: &net.OpError{Op: "dial", Err: timeoutError{}}})
+	require.Equal(t, modelErrorTransient, kind)
+	kind, _ = classifyModelError(&goOpenAIStyleRequestError{Err: errors.New("unexpected response")})
+	require.Equal(t, modelErrorUnknown, kind)
+}
+
+func TestACodeFieldIsNotReadAsAnHTTPStatus(t *testing.T) {
+	t.Parallel()
+	for _, code := range []int{400, 429, 503} {
+		kind, _ := classifyModelError(&codeOnlyError{Code: code})
+		require.Equal(t, modelErrorUnknown, kind, code)
+	}
+	kind, _ := classifyModelError(&goOpenAIStyleAPIError{Code: 429, Message: "no HTTP answer"})
+	require.Equal(t, modelErrorUnknown, kind, "APIError.Code is the provider's error code, not the status")
+}
+
+// statusCodeAndHTTPStatusCodeError has both status fields; StatusCode wins when it holds a status.
+type statusCodeAndHTTPStatusCodeError struct {
+	StatusCode     int
+	HTTPStatusCode int
+}
+
+func (statusError *statusCodeAndHTTPStatusCodeError) Error() string { return "two status fields" }
+
+func TestStatusCodeWinsOverHTTPStatusCode(t *testing.T) {
+	t.Parallel()
+	kind, _ := classifyModelError(&statusCodeAndHTTPStatusCodeError{StatusCode: 429, HTTPStatusCode: 400})
+	require.Equal(t, modelErrorTransient, kind)
+	kind, _ = classifyModelError(&statusCodeAndHTTPStatusCodeError{HTTPStatusCode: 400})
+	require.Equal(t, modelErrorPermanent, kind, "a zero StatusCode is no status")
 }

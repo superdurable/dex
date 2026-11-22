@@ -287,8 +287,12 @@ sorts the error into three kinds:
 
 The status comes from an error in the chain with a `StatusCode` field or a
 `Response *http.Response` field, as the OpenAI and Anthropic Go SDKs' errors
-have, so wrap the client's error with `%w`. `WithModelRetryPolicy` changes the
-backoff.
+have, so wrap the client's error with `%w`. An error with an `HTTPStatusCode`
+int field gives its status too, as the errors of go-openai and the Volcengine
+Ark SDK have; CloudWeGo eino-ext's OpenAI-family and Ark model clients return
+them. Those errors carry no headers, so they get the backoff without
+`Retry-After`. A `Code` field is never read as a status, because SDKs keep the
+provider's own error code there. `WithModelRetryPolicy` changes the backoff.
 
 An item replays unchanged to a client with the same provider and API, and as
 its text and tool calls to any other, so a session can change model between
