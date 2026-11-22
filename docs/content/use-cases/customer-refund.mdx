@@ -10,7 +10,7 @@ import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic
 
 A customer asks for a refund. The Flow checks the order and the refund policy, waits for a manager when the amount is large, issues the refund, and tells the customer. This page has three Flows for this process: one short Flow to read first, and two larger Go Flows.
 
-**SDK:** Python (refund with manager approval), Go (deterministic policy and agentic review)
+**SDK:** Python, TypeScript, Java, and Rust (refund with manager approval), Go (deterministic policy and agentic review)
 
 ## Refund with manager approval {#refund-with-manager-approval}
 
@@ -18,9 +18,11 @@ Northstar Studio asks for a refund of a 1,249.00 USD subscription renewal after 
 
 <DocsFlowDefinitionGraph graph={readableFlow} />
 
+The graph comes from the Python example. The TypeScript example has the same Steps, groups, Attributes, Channel, and transitions. Its RPCs are named `approveRefund` and `rejectRefund`. Its **Check policy** has one denial branch instead of two.
+
 **Check policy** applies the refund policy. It denies a charge older than 30 days or one with no recorded outage. It sends an amount over 1,000 USD to **Request manager approval**, and refunds a smaller amount at once. **Request manager approval** waits for one message on a Channel, then refunds or denies by the manager's decision.
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -56,18 +58,199 @@ class RequestManagerApproval(Step[RefundCase]):
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    final class CheckPolicy implements Step<RefundCase> {
+        @Override
+        public Class<RefundCase> getInputType() {
+            return RefundCase.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final RefundCase input) {
+            final Order order = input.order();
+            final boolean outsideWindow = order.daysSinceCharge() > REFUND_WINDOW_DAYS;
+            final boolean noOutage = order.outageHours() == 0;
+            if (outsideWindow || noOutage) {
+                CASE_STATUS.set(context, "denied");
+                final String note;
+                if (outsideWindow && noOutage) {
+                    note = "The charge is outside the 30-day window and no outage was recorded.";
+                } else if (outsideWindow) {
+                    note = "The charge is outside the 30-day window.";
+                } else {
+                    note = "No outage was recorded for this order.";
+                }
+                return StepDecision.goTo(WriteCustomerMessage.class, input.withOutcome("denied", note));
+            }
+            if (order.amountUsd() > MANAGER_APPROVAL_LIMIT_USD) {
+                CASE_STATUS.set(context, AWAITING_MANAGER);
+                return StepDecision.goTo(RequestManagerApproval.class, input);
+            }
+            return StepDecision.goTo(IssueRefund.class, input);
+        }
+    }
+
+    /** Wait for a manager to approve or reject the refund. */
+    final class RequestManagerApproval implements Step<RefundCase> {
+        @Override
+        public Class<RefundCase> getInputType() {
+            return RefundCase.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final RefundCase input) {
+            return Wait.until(MANAGER_DECISIONS.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final RefundCase input) {
+            final ManagerDecision decision = MANAGER_DECISIONS.getConditionResults(context).get(0);
+            if (decision.approved()) {
+                return StepDecision.goTo(IssueRefund.class, input);
+            }
+            CASE_STATUS.set(context, "denied");
+            return StepDecision.goTo(
+                    WriteCustomerMessage.class, input.withOutcome("denied", decision.reason()));
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class CheckPolicy implements Step<RefundCase> {
+  public getStepType(): string {
+    return "CheckPolicy";
+  }
+
+  public execute(context: Context, input: RefundCase): StepDecision {
+    const order = input.order;
+    const windowExpired = order.daysSinceCharge > REFUND_WINDOW_DAYS;
+    const noOutage = order.outageHours === 0;
+    if (windowExpired || noOutage) {
+      caseStatus.set(context, "denied");
+      const notes = [
+        windowExpired ? WINDOW_EXPIRED_NOTE : "",
+        noOutage ? NO_OUTAGE_NOTE : "",
+      ];
+      return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note: notes.join(" ").trim() });
+    }
+    if (order.amountUsd > MANAGER_APPROVAL_LIMIT_USD) {
+      caseStatus.set(context, AWAITING_MANAGER);
+      return goTo(RequestManagerApproval, input);
+    }
+    return goTo(IssueRefund, input);
+  }
+}
+
+// dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Wait for a manager to approve or reject the refund."
+class RequestManagerApproval implements Step<RefundCase> {
+  public getStepType(): string {
+    return "RequestManagerApproval";
+  }
+
+  public waitFor(_context: Context, _input: RefundCase): Wait {
+    return Wait.until(managerDecisions.forOne());
+  }
+
+  public execute(context: Context, input: RefundCase): StepDecision {
+    const [decision] = managerDecisions.results(context);
+    if (decision.approved) {
+      return goTo(IssueRefund, input);
+    }
+    caseStatus.set(context, "denied");
+    return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note: decision.reason });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for CheckPolicy {
+    type Input = RefundCase;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let order = &input.order;
+        let mut denial_reasons = Vec::new();
+        if order.days_since_charge > REFUND_WINDOW_DAYS {
+            denial_reasons.push("The charge is outside the 30-day refund window.");
+        }
+        if order.outage_hours == 0 {
+            denial_reasons.push("No service outage was recorded for this charge.");
+        }
+        if !denial_reasons.is_empty() {
+            CASE_STATUS.set(context, CaseStatus::Denied)?;
+            let note = denial_reasons.join(" ");
+            let denied = ResolvedCase::new(input, RefundOutcome::Denied, note);
+            return Ok(StepDecision::go_to(
+                &WriteCustomerMessage::new(&self.services),
+                denied,
+            ));
+        }
+        if order.amount_cents > MANAGER_APPROVAL_LIMIT_CENTS {
+            CASE_STATUS.set(context, CaseStatus::AwaitingManager)?;
+            return Ok(StepDecision::go_to(
+                &RequestManagerApproval::new(&self.services),
+                input,
+            ));
+        }
+        Ok(StepDecision::go_to(
+            &IssueRefund::new(&self.services),
+            input,
+        ))
+    }
+}
+
+impl Step for RequestManagerApproval {
+    type Input = RefundCase;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(MANAGER_DECISIONS.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let decision = MANAGER_DECISIONS
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| HandlerError::new("MissingManagerDecision", "no manager decision"))?;
+        if decision.approved {
+            return Ok(StepDecision::go_to(
+                &IssueRefund::new(&self.services),
+                input,
+            ));
+        }
+        CASE_STATUS.set(context, CaseStatus::Denied)?;
+        let denied = ResolvedCase::new(input, RefundOutcome::Denied, decision.reason);
+        Ok(StepDecision::go_to(
+            &WriteCustomerMessage::new(&self.services),
+            denied,
+        ))
+    }
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-The **Approve refund** and **Reject refund** RPCs publish the manager's decision to that Channel. Each one declares a Dex Web Action with a required reason. Dex Web offers the Actions only while `case-status` is `awaiting-manager`, and each RPC checks that status again before it publishes.
+An approve RPC and a reject RPC publish the manager's decision to that Channel. Each one requires a reason and checks that `case-status` is `awaiting-manager` before it publishes. In the Python and TypeScript examples, each RPC also declares a Dex Web Action, **Approve refund** or **Reject refund**. Dex Web offers the Actions only while `case-status` is `awaiting-manager`.
 
 The example adds what a production refund needs:
 
 - **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each. This holds because every Worker shares the same persistent ledger of the local fake services.
 - **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first. The final **Issue refund** event in Dex Web then shows that attempt 3 succeeded and keeps the details of the last failure.
-- The Worker uploads the design that `dexcli visualize` generates, so Dex Web draws this graph on each run.
-- With a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
+- In Python and TypeScript, the Worker uploads the design that `dexcli visualize` generates, so Dex Web draws this graph on each run.
+- In Python and TypeScript, with a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
 
-The [example folder](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund) has the commands for each scenario: approval, a refund that fails and then succeeds, a missing billing call that Time Travel fixes, and encryption.
+The Java and Rust examples approve or reject with their own `decide` command. The Java and Rust SDKs cannot declare Dex Web Actions or encrypt payloads. `dexcli visualize` reads Go, Python, and TypeScript sources only, so these Workers upload no design and their runs have no **Design** view in Dex Web.
+
+The example folders for [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund), and [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) have the commands for each scenario: approval, a refund that fails and then succeeds, and a missing billing call that Time Travel fixes. The Python and TypeScript folders also show encryption.
 
 ## Deterministic policy
 

@@ -10,7 +10,7 @@ import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic
 
 客户申请退款。Flow 检查订单和退款政策，金额较大时等待经理审批，然后退款并通知客户。本页包含这个流程的三个 Flow：一个适合先读的短 Flow，以及两个更大的 Go Flow。
 
-**SDK：** Python（经理审批的退款）、Go（确定性策略和 agentic 审核）
+**SDK：** Python、TypeScript、Java 和 Rust（经理审批的退款）、Go（确定性策略和 agentic 审核）
 
 ## 经理审批的退款 {#refund-with-manager-approval}
 
@@ -18,9 +18,11 @@ Northstar Studio 在一次服务中断后，申请退还一笔 1,249.00 USD 的�
 
 <DocsFlowDefinitionGraph graph={readableFlow} />
 
+这张图来自 Python 示例。TypeScript 示例的 Step、分组、Attribute、Channel 和跳转都相同。它的 RPC 名为 `approveRefund` 和 `rejectRefund`。它的 **Check policy** 只有一条拒绝分支，而不是两条。
+
 **Check policy** 应用退款政策。超过 30 天的扣款，或没有记录到服务中断的扣款，会被拒绝。超过 1,000 USD 的金额进入 **Request manager approval**，较小的金额直接退款。**Request manager approval** 在一个 Channel 上等待一条消息，再按经理的决定退款或拒绝。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -56,18 +58,199 @@ class RequestManagerApproval(Step[RefundCase]):
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    final class CheckPolicy implements Step<RefundCase> {
+        @Override
+        public Class<RefundCase> getInputType() {
+            return RefundCase.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final RefundCase input) {
+            final Order order = input.order();
+            final boolean outsideWindow = order.daysSinceCharge() > REFUND_WINDOW_DAYS;
+            final boolean noOutage = order.outageHours() == 0;
+            if (outsideWindow || noOutage) {
+                CASE_STATUS.set(context, "denied");
+                final String note;
+                if (outsideWindow && noOutage) {
+                    note = "The charge is outside the 30-day window and no outage was recorded.";
+                } else if (outsideWindow) {
+                    note = "The charge is outside the 30-day window.";
+                } else {
+                    note = "No outage was recorded for this order.";
+                }
+                return StepDecision.goTo(WriteCustomerMessage.class, input.withOutcome("denied", note));
+            }
+            if (order.amountUsd() > MANAGER_APPROVAL_LIMIT_USD) {
+                CASE_STATUS.set(context, AWAITING_MANAGER);
+                return StepDecision.goTo(RequestManagerApproval.class, input);
+            }
+            return StepDecision.goTo(IssueRefund.class, input);
+        }
+    }
+
+    /** Wait for a manager to approve or reject the refund. */
+    final class RequestManagerApproval implements Step<RefundCase> {
+        @Override
+        public Class<RefundCase> getInputType() {
+            return RefundCase.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final RefundCase input) {
+            return Wait.until(MANAGER_DECISIONS.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final RefundCase input) {
+            final ManagerDecision decision = MANAGER_DECISIONS.getConditionResults(context).get(0);
+            if (decision.approved()) {
+                return StepDecision.goTo(IssueRefund.class, input);
+            }
+            CASE_STATUS.set(context, "denied");
+            return StepDecision.goTo(
+                    WriteCustomerMessage.class, input.withOutcome("denied", decision.reason()));
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class CheckPolicy implements Step<RefundCase> {
+  public getStepType(): string {
+    return "CheckPolicy";
+  }
+
+  public execute(context: Context, input: RefundCase): StepDecision {
+    const order = input.order;
+    const windowExpired = order.daysSinceCharge > REFUND_WINDOW_DAYS;
+    const noOutage = order.outageHours === 0;
+    if (windowExpired || noOutage) {
+      caseStatus.set(context, "denied");
+      const notes = [
+        windowExpired ? WINDOW_EXPIRED_NOTE : "",
+        noOutage ? NO_OUTAGE_NOTE : "",
+      ];
+      return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note: notes.join(" ").trim() });
+    }
+    if (order.amountUsd > MANAGER_APPROVAL_LIMIT_USD) {
+      caseStatus.set(context, AWAITING_MANAGER);
+      return goTo(RequestManagerApproval, input);
+    }
+    return goTo(IssueRefund, input);
+  }
+}
+
+// dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Wait for a manager to approve or reject the refund."
+class RequestManagerApproval implements Step<RefundCase> {
+  public getStepType(): string {
+    return "RequestManagerApproval";
+  }
+
+  public waitFor(_context: Context, _input: RefundCase): Wait {
+    return Wait.until(managerDecisions.forOne());
+  }
+
+  public execute(context: Context, input: RefundCase): StepDecision {
+    const [decision] = managerDecisions.results(context);
+    if (decision.approved) {
+      return goTo(IssueRefund, input);
+    }
+    caseStatus.set(context, "denied");
+    return goTo(WriteCustomerMessage, { ...input, outcome: "denied", note: decision.reason });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for CheckPolicy {
+    type Input = RefundCase;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let order = &input.order;
+        let mut denial_reasons = Vec::new();
+        if order.days_since_charge > REFUND_WINDOW_DAYS {
+            denial_reasons.push("The charge is outside the 30-day refund window.");
+        }
+        if order.outage_hours == 0 {
+            denial_reasons.push("No service outage was recorded for this charge.");
+        }
+        if !denial_reasons.is_empty() {
+            CASE_STATUS.set(context, CaseStatus::Denied)?;
+            let note = denial_reasons.join(" ");
+            let denied = ResolvedCase::new(input, RefundOutcome::Denied, note);
+            return Ok(StepDecision::go_to(
+                &WriteCustomerMessage::new(&self.services),
+                denied,
+            ));
+        }
+        if order.amount_cents > MANAGER_APPROVAL_LIMIT_CENTS {
+            CASE_STATUS.set(context, CaseStatus::AwaitingManager)?;
+            return Ok(StepDecision::go_to(
+                &RequestManagerApproval::new(&self.services),
+                input,
+            ));
+        }
+        Ok(StepDecision::go_to(
+            &IssueRefund::new(&self.services),
+            input,
+        ))
+    }
+}
+
+impl Step for RequestManagerApproval {
+    type Input = RefundCase;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(MANAGER_DECISIONS.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let decision = MANAGER_DECISIONS
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| HandlerError::new("MissingManagerDecision", "no manager decision"))?;
+        if decision.approved {
+            return Ok(StepDecision::go_to(
+                &IssueRefund::new(&self.services),
+                input,
+            ));
+        }
+        CASE_STATUS.set(context, CaseStatus::Denied)?;
+        let denied = ResolvedCase::new(input, RefundOutcome::Denied, decision.reason);
+        Ok(StepDecision::go_to(
+            &WriteCustomerMessage::new(&self.services),
+            denied,
+        ))
+    }
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
-**Approve refund** 和 **Reject refund** 两个 RPC 把经理的决定发布到这个 Channel。每个 RPC 都声明了一个需要填写原因的 Dex Web Action。只有 `case-status` 为 `awaiting-manager` 时，Dex Web 才提供这两个 Action；每个 RPC 发布之前也会再次检查这个状态。
+一个批准 RPC 和一个拒绝 RPC 把经理的决定发布到这个 Channel。每个 RPC 都要求填写原因，并在发布之前检查 `case-status` 是否为 `awaiting-manager`。在 Python 和 TypeScript 示例中，每个 RPC 还声明了一个 Dex Web Action：**Approve refund** 或 **Reject refund**。只有 `case-status` 为 `awaiting-manager` 时，Dex Web 才提供这两个 Action。
 
 这个示例还包含生产环境的退款需要的几项内容：
 
 - **Issue refund** 和 **Send message** 向 billing 和 email 传入幂等 key。Time Travel 点之后的 Step 会再次运行，这些 key 保证退款和邮件都只有一次。前提是所有 Worker 共用本地 fake 服务的同一份持久账本。
 - **Issue refund** 遇到支付超时，每 5 秒重试一次。一个运行可以先要求两次超时。这时 Dex Web 中最后一个 **Issue refund** 事件显示第 3 次尝试成功，并保留最近一次失败的详情。
-- Worker 上传 `dexcli visualize` 生成的设计，所以 Dex Web 会在每个运行上绘制这张图。
-- 提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
+- 在 Python 和 TypeScript 中，Worker 上传 `dexcli visualize` 生成的设计，所以 Dex Web 会在每个运行上绘制这张图。
+- 在 Python 和 TypeScript 中，提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
 
-[示例文件夹](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用，以及加密。
+Java 和 Rust 示例用各自的 `decide` 命令批准或拒绝退款。Java 和 Rust SDK 不能声明 Dex Web Action，也不能加密 payload。`dexcli visualize` 只读取 Go、Python 和 TypeScript 源码，所以这两个示例的 Worker 不上传设计，它们的运行在 Dex Web 中没有 **Design** 视图。
+
+[Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)、[TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund)、[Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund) 和 [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) 的示例文件夹列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用。Python 和 TypeScript 文件夹还展示了加密。
 
 ## 确定性策略
 
