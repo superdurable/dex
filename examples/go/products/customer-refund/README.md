@@ -151,8 +151,8 @@ curl 'http://127.0.0.1:8080/products/customer-refund/manager-approval/decide?flo
 `start` mints a Flow ID with the prefix `customer-refund` when `flowId` is
 absent, and `scenario` defaults to `normal`. `describe` returns `flowID`, the
 run `status`, `caseStatus`, and `refundId`. `decide` returns 400 for a blank
-reason and 409 when the run is not waiting for a manager or another decision
-holds the lock.
+reason, 409 when a running refund is not waiting for a manager or another
+decision holds the lock, and 404 when the run is closed or unknown.
 
 ### Run it with its own Worker
 

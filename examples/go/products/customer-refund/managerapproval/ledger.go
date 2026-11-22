@@ -49,8 +49,7 @@ type ledgerRows struct {
 	SentEmailKeys []string          `json:"sentEmailKeys"`
 }
 
-// RefundLedger is a JSON file that every process using one directory shares.
-// A file lock serializes each read-modify-write, so one key gets one row.
+// RefundLedger is a file-locked JSON ledger, shared by every process using its directory.
 type RefundLedger struct {
 	directory string
 }

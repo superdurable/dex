@@ -18,9 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Command decide waits until a refund asks for a manager, then approves or rejects it.
-//
-// Usage: decide FLOW_ID approve|reject REASON
+// Command decide approves or rejects a waiting refund: decide FLOW_ID approve|reject REASON.
 package main
 
 import (

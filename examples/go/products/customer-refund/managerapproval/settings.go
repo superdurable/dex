@@ -135,8 +135,7 @@ func FlowDefinitionPaths(directory string) []string {
 	return []string{filepath.Clean(directory)}
 }
 
-// OpenCommandClient opens the Client of the start and decide commands, with the environment's settings.
-// Close the Client, then the cache.
+// OpenCommandClient opens the commands' Client from the environment; close the Client, then the cache.
 func OpenCommandClient(flow *ManagerApprovalRefundFlow) (*dex.Client, *blobcache.Cache, error) {
 	encryption, err := NewFilePayloadEncryption(os.Getenv("REFUND_PAYLOAD_KEY_FILE"))
 	if err != nil {
