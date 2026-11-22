@@ -30,7 +30,8 @@
 // Connector operations as tools through a ToolSource, and agentstest has a
 // scripted model client and a private engine for tests. Package remotesession is a Go
 // Client for sessions that Python or TypeScript Workers serve, with every
-// RPC of their contract.
+// RPC of their contract. Module github.com/superdurable/dex/agents/go/eino
+// runs CloudWeGo Eino ADK agents on this Flow.
 //
 //	flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, "SupportAgent")
 //	if err != nil {

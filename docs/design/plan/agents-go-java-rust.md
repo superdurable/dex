@@ -1,6 +1,6 @@
 # Dex Agents for Go, Java, and Rust
 
-Status: Go core shipped at a reduced scope; Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
+Status: Go core shipped at a reduced scope, with the Eino adapter added on request (2026-11-21); Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
 and [agent-framework-adapters.md](agent-framework-adapters.md).
 
 Dex Agents ships for Python and TypeScript. This addendum brings the same
@@ -155,7 +155,7 @@ It depends on `RPCOptions.Name` in the Go SDK (#1200).
 
 **What Go will not get:** questions, `durable_wait`, steering and
 cancellation, plans, compaction, tool tasks, MCP, spans, UI streams, or
-framework adapters.
+framework adapters. The 2026-11-21 Eino decision below reverses the last item.
 
 **What follows from that:**
 - A Flow type is served by Workers of one language only. A guard fails a
@@ -205,3 +205,55 @@ Flow type back below 0.6.16 while a session has a queued connector write or a
 connector call in flight. An older Go Worker never starts a queued write, so
 the session stalls, and it records a later attempt of a connector write
 `failed` instead of `outcome_unknown`.
+
+## Decision: Go gets the Eino adapter (2026-11-21)
+
+Recorded 2026-11-21, at the request of a co-owner of the project, who asked
+for Dex support for CloudWeGo Eino and an Eino version of an existing agent
+tested end to end. It reverses "framework adapters" in "What Go will not get"
+above. The rest of that decision stands: Go still stops at the session core
+for every other contract feature.
+
+**What ships:** module `github.com/superdurable/dex/agents/go/eino` (package
+`dexeino`) runs an Eino ADK `ChatModelAgent` on the Go core's session Flow.
+
+- **Integration mode: stateless replay Step mode.** Every `RunModel` builds a
+  fresh `ChatModelAgent` and `adk.Runner` from the user's
+  `ChatModelAgentConfig` and runs it over the stored messages, with no Eino
+  `CheckPointStore` and no resume. An adapter Handler, first in `Handlers`,
+  turns every tool call into an Eino interrupt, so the run stops after one
+  model call. Tool calls run in Dex tool Steps through a one-call
+  `compose.ToolsNode` with the agent's tool middlewares and Handler wrappers.
+  This is the built-in loop's shape, so a deploy that renames a tool or changes
+  the instruction never breaks an open turn. A checkpoint-and-resume mode was
+  prototyped and rejected: its checkpoint pins the agent name, the tool list,
+  and the instruction for the rest of a turn, and grows four to six times the
+  history.
+- **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
+  `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, and any
+  tool without a Dex effect. A model wrapper that makes a second model call
+  fails the Step.
+- **Versions:** `github.com/cloudwego/eino` v0.9.23 or later; CI also runs the
+  suite against the newest v0.10.0 alpha. Component mode, Eino models on the
+  built-in loop, does not ship now.
+- **Release:** the module requires the core at the agents version plus
+  `replace ... => ../core`. First Go tags `agents/go/core/v<version>` and
+  `agents/go/eino/v<version>` go on the same commit as `agents/v<version>`,
+  which settles decision 7 for Go.
+
+**What the Eino adapter inherits from the Go core:**
+- no steering, `cancel_turn`, questions, tool input requests, plans, or
+  compaction;
+- no images in user messages;
+- no GenAI spans and no `ModelCallMetadata`;
+- no `TurnContinued` and no `TurnCompleted.TurnError`, so a deliberate turn
+  failure is retried by `RunModel` before the turn fails;
+- no session ending at the run-state limit, which the replay mode makes
+  unlikely because its run state is a model call count;
+- tool sources (Connectors as tools, MCP) only once the Go core gains them;
+- one language per Flow type.
+
+Core fixes that the adapter needs, `TurnCompleted.TurnError`, status
+classification from `HTTPStatusCode`, Role validation before storing messages,
+and session ending at the state limit, are separate Go core changes.
+

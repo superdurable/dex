@@ -32,6 +32,8 @@ rests on ordinary Steps, Attributes, Channels, and Timers.
 | `agents/typescript/mastra` (`@superdurable/dex-agents-mastra`) | TypeScript | Mastra |
 | `agents/typescript/claude-agent-sdk` (`@superdurable/dex-agents-claude-agent-sdk`) | TypeScript | Claude Agent SDK |
 | `agents/typescript/pi` (`@superdurable/dex-agents-pi`) | TypeScript | Pi: pi-ai models and Pi tools on Stepwise mode |
+| `agents/go/core` (`github.com/superdurable/dex/agents/go/core`, package `dexagents`) | Go | Shared session Flow, a subset of the contract |
+| `agents/go/eino` (`github.com/superdurable/dex/agents/go/eino`, package `dexeino`) | Go | CloudWeGo Eino ADK `ChatModelAgent` |
 
 Each package has its own manifest and lockfile, so adapters pin framework
 versions independently and never share a lock. An adapter depends on its
@@ -39,7 +41,10 @@ language core through a path dependency (`{ path = "../core", editable = true }`
 for uv, `"file:../core"` for npm). Every package depends on the released Dex SDK
 from the public registry, never on `sdk-python/` or `sdk-typescript/` by path:
 Python `dex-python-sdk==1.30.0`, TypeScript the latest released
-`@superdurable/dex` on npm.
+`@superdurable/dex` on npm. A Go adapter requires the Go core at the agents
+version with `replace github.com/superdurable/dex/agents/go/core => ../core`,
+the Go module equivalent of the path dependency, and the released
+`github.com/superdurable/dex/sdk-go` that the core requires.
 
 Source files use the Sustainable Use License header (`new`), the same as
 `sdk-python/dex`. `agents` is in `included_prefixes` and `forced_new_prefixes`
@@ -94,6 +99,7 @@ this plan needs it, and the cores do not implement it.
 | Mastra | Step mode | Client tools: the agent stops with their calls instead of running them | Agent messages | Send the tool results back as client tool results and call the agent again |
 | OpenAI Agents SDK | Step mode | A `needs_approval` gate on every function tool; the run stops with `result.interruptions` after one model call | `RunState.to_json()` / `RunState.from_json()`, which also holds the current agent after a handoff | Approve each interruption whose record is final, and the tool wrapper's `on_invoke_tool` returns the Dex result instead of running the tool; reject with the rejection message |
 | Claude Agent SDK | Whole-turn harness | No clean stop: the CLI runs the turn's model calls and tools itself | Session transcript through `SessionStore`, resumed by session ID | No injection; tools run inside the harness |
+| CloudWeGo Eino ADK `ChatModelAgent` (Go) | Step mode, stateless replay | The adapter's first Handler turns every tool call, and every unknown tool, into `tool.Interrupt`; the run ends with one `Interrupted` event that names every call | Only the turn's model call count; no Eino checkpoint | A fresh `adk.Runner.Run` over the stored messages plus one `role=tool` message per final record |
 
 Notes:
 
@@ -104,6 +110,17 @@ Notes:
   run in the harness and are at-least-once: a `RunModel` retry repeats them.
 - Each adapter documents every tool kind it cannot defer and treats it as
   at-least-once.
+- The Eino adapter keeps no Eino checkpoint between Steps. Each `RunModel`
+  builds a new agent from the current configuration, so the instruction and
+  tools of the current deploy apply to every model call. Tool calls run in the
+  tool Step through a one-call `compose.ToolsNode` with the agent's
+  `ToolCallMiddlewares`, `AgentMiddleware.WrapToolCall`, and Handler tool
+  wrappers, never around the interrupt. Configurations that make several model
+  calls in one Step (`ModelRetryConfig`, `ModelFailoverConfig`, the
+  summarization middleware) or end a turn on a tool (`ReturnDirectly`, `Exit`)
+  refuse to build, and Eino sub-agent transfer is not supported. The adapter
+  inherits the Go core's subset: no steering, `cancel_turn`, questions,
+  compaction, tool sources, images, or spans.
 
 ## Effects and policies
 
