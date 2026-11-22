@@ -10,7 +10,7 @@ Agent 可以把官方 [Connector](/concepts/connector) 的 operation 当作 tool
 
 ## 工作方式 {#connectors-as-tools}
 
-`ConnectorToolSource` 提供你指定的 operation，Agent 把它作为 tool source 接收（Python 中是 `tool_sources`，TypeScript 中是 `toolSources`）。每次调用都在自己的 tool Step 中运行一个 operation，因此 Call ID、幂等键和 credential 的行为与在 Connector Step 中相同。每次尝试的 Call ID 都保持不变。
+`ConnectorToolSource` 提供你指定的 operation，Agent 把它作为 tool source 接收（Python 中是 `tool_sources`，TypeScript 中是 `toolSources`，Go 中是 `WithToolSources` 选项）。每次调用都在自己的 tool Step 中运行一个 operation，因此 Call ID、幂等键和 credential 的行为与在 Connector Step 中相同。每次尝试的 Call ID 都保持不变。
 
 “连接 Connector”一节展示了每个框架的接法；[内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 展示了不用框架的接法。[Connector tools reference](/reference/agents/connector-tools)（英文）介绍 package、tool 名称、结果大小和 connection。
 
@@ -63,9 +63,13 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
 
 ### 示例中的 Slack tool {#slack-connector-tool}
 
-配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app。
+配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app 和每个示例使用的 Slack Connector 版本。
 
-`postThreadReply` 是单次尝试 Mutation，所以每次发帖只在 `CallSingleAttemptTool` 中运行一次，Worker 崩溃也不会让它发送两次。示例还设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。
+每个示例都设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**，Go 中是 `connectortools.WithRequiresApproval(true)`），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。审批之后，发帖在 `CallSingleAttemptTool` 中运行。
+
+在 Python 和 TypeScript 示例中，`postThreadReply` 是单次尝试 Mutation。每次发帖只运行一次，Worker 崩溃也不会让它发送两次。
+
+在 Go 示例中，`postThreadReply` 采用有限次重发，所以发帖时 Worker 崩溃可能造成重复回复，总共最多发出 3 次。[The Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）说明 Connector 什么时候会再次发送。
 
 ### 提供 tool {#offer-connector-tools}
 
@@ -73,6 +77,7 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
     typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+    go: 'examples/go/agent-harnesses/ordersupport/slack_connector_tools.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -152,6 +157,47 @@ export function createSlackConnectorToolSources(slack: Connection | undefined): 
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="go">
+
+添加 Slack Connector 模块 `github.com/superdurable/dex-connectors-library/connectors/slack/go`。`connectortools` 包是 Go core 的一部分。
+
+Worker 从项目配置中打开 Slack connection **support-slack**。`connectortools.NewConnectorTool` 把 operation 的 agent tool 变成 tool，由 `connectortools.NewConnectorToolSource` 持有。没有这个 connection 时，Agent 不会得到 Slack tool。
+
+```go
+// NewSlackToolSources returns the Slack tool source, or no source when connection is nil.
+//
+// The source offers one tool, slack_post_thread_reply. Each call runs in its
+// own tool Step with the Connector's Call ID, after a person approves it. It
+// returns an error when the Connector's agent tools cannot be built.
+func NewSlackToolSources(connection *slack.Connection) ([]dexagents.ToolSource, error) {
+	if connection == nil {
+		return nil, nil
+	}
+	agentTools, err := connection.AgentTools()
+	if err != nil {
+		return nil, err
+	}
+	tools := []*connectortools.ConnectorTool{}
+	for _, agentTool := range agentTools {
+		if agentTool.Metadata().ToolName != SlackPostThreadReplyToolName {
+			continue
+		}
+		// Every post waits for a person, whatever the manifest recommends.
+		tool, err := connectortools.NewConnectorTool(agentTool, connectortools.WithRequiresApproval(true))
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, tool)
+	}
+	source, err := connectortools.NewConnectorToolSource(tools)
+	if err != nil {
+		return nil, err
+	}
+	return []dexagents.ToolSource{source}, nil
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 Worker 在启动时打开一次 connection，每个 Agent 都使用它：
@@ -160,6 +206,7 @@ Worker 在启动时打开一次 connection，每个 Agent 都使用它：
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
     typescript: 'examples/typescript/src/registry.ts',
+    go: 'examples/go/agent-harnesses/cmd/order-support/main.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -181,6 +228,21 @@ async def main() -> None:
 ```typescript
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	// One Slack connection for the agent; without it the agent offers no Slack tool.
+	slackConnection, err := ordersupport.OpenSlackProjectConnection(ctx)
+	if err != nil {
+		return err
+	}
+	slackToolSources, err := ordersupport.NewSlackToolSources(slackConnection)
+	if err != nil {
+		return err
+	}
 ```
 
 </SdkSnippet>
@@ -219,6 +281,28 @@ Agent 把这个 tool source 和它自己的 tool 一起传入：
     },
     claudeAgentSdkOrderSupportFlowType,
   );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/agent-harnesses/ordersupport/eino_order_support.go',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+	return dexeino.NewAgentSessionFlow(config, EinoOrderSupportFlowType,
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+			"look_up_order": dexagents.ToolEffectRead,
+			// Not safe to repeat, so Dex asks for approval first and runs it at most once.
+			"cancel_order": dexagents.ToolEffectNonIdempotentWrite,
+		}),
+		dexeino.WithToolSources(toolSources...))
 ```
 
 </SdkSnippet>
@@ -538,7 +622,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 ### 调用如何运行 {#connector-tool-calls}
 
-如 [Slack tool](#slack-connector-tool) 所述，每次调用 `slack_post_thread_reply` 都要先经人批准，然后在自己的 `CallSingleAttemptTool` Step 中只运行一次。各框架这样把调用交给这个 Step：
+如 [Slack tool](#slack-connector-tool) 所述，每次调用 `slack_post_thread_reply` 都要先经人批准，然后在自己的 `CallSingleAttemptTool` Step 中运行：在 Python 和 TypeScript 示例中只运行一次，在 Go 示例中采用有限次重发。各框架这样把调用交给这个 Step：
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -546,6 +630,11 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 在 Claude Agent SDK 中，Connector Tool Call 一律不在 CLI 内部运行，读操作也一样。每次调用都会结束当前 segment，并在自己的 tool Step 中运行，因为 Connector 需要这个 Step 来提供 Call ID。之后恢复运行的 CLI 会拿到记录下来的结果。CLI 看到的 tool 名称是 `mcp__tools__slack_post_thread_reply`；tool policy、审批和记录使用 `slack_post_thread_reply`。
 
 同一个模型响应中的调用，每次只有一个离开 turn，到它的 tool Step 中运行。适配器会在 turn 内拒绝该响应中后面的写操作，因此它不会运行，也不留下记录；模型读取前一个写操作的结果后，再决定是否重新调用后面的写操作。不要把 Connector tool 放进 `allowed_tools`（`allowedTools`）：它们的调用必须离开 CLI，所以这样的条目会让 `RunModel` 这次尝试失败。
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+`dexeino.WithToolSources` 把 Connector tool 放在 Agent 自己的 tool 之后提供，input schema 保持 source 写的样子。适配器的 Handler 像对待其他调用一样，在这些调用处停下这次运行。调用在它的 tool Step 中通过 source 运行，不经过 Eino 的 tool node、tool middleware 和 Handler 的 tool wrapper，所以 Eino 的重试或错误处理不会再次发送写入；只有 Connector 的有限次重发会再次发送。审批由 source 决定。在 Go 中，等待审批的调用没有审批展示，所以审批界面显示它的参数。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
