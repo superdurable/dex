@@ -10,11 +10,13 @@ import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic
 
 客户申请退款。Flow 检查订单和退款政策，金额较大时等待经理审批，然后退款并通知客户。本页包含这个流程的三个 Flow：一个适合先读的短 Flow，以及两个更大的 Go Flow。
 
-**SDK：** Python、TypeScript、Java 和 Rust（经理审批的退款）、Go（确定性策略和 agentic 审核）
+**SDK：** Python、Go、TypeScript、Java 和 Rust（经理审批的退款）。Go 还涵盖确定性策略和 agentic 审核。
 
 ## 经理审批的退款 {#refund-with-manager-approval}
 
 Northstar Studio 在一次服务中断后，申请退还一笔 1,249.00 USD 的订阅续费。`CustomerRefundFlow` 运行八个 Step，分为 Intake、Evidence、Control、Resolution 和 Close 几组。
+
+Go 示例使用 `ManagerApprovalRefundFlow`，因为确定性策略的 Go 示例已经使用了 `CustomerRefundFlow`。
 
 <DocsFlowDefinitionGraph graph={readableFlow} />
 
@@ -22,7 +24,7 @@ Northstar Studio 在一次服务中断后，申请退还一笔 1,249.00 USD 的�
 
 **Check policy** 应用退款政策。超过 30 天的扣款，或没有记录到服务中断的扣款，会被拒绝。超过 1,000 USD 的金额进入 **Request manager approval**，1,000 USD 或以下的金额直接退款。**Request manager approval** 在一个 Channel 上等待一条消息，再按经理的决定退款或拒绝。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', go: 'examples/go/products/customer-refund/managerapproval/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -55,6 +57,58 @@ class RequestManagerApproval(Step[RefundCase]):
             return go_to(IssueRefund, input)
         CASE_STATUS.set(context, "denied")
         return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=decision.reason))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Refund, deny, or ask a manager, by the refund policy."
+type CheckPolicy struct {
+	dex.StepDefaultsNoWaitFor[RefundCase]
+}
+
+func (CheckPolicy) Execute(ctx dex.Context, input RefundCase) (*dex.StepDecision, error) {
+	order := input.Order
+	if order.DaysSinceCharge > RefundWindowDays {
+		return denyRefund(ctx, input, refundWindowDeniedNote)
+	}
+	if order.OutageHours == 0 {
+		return denyRefund(ctx, input, noInterruptionDeniedNote)
+	}
+	if order.AmountUSD > ManagerApprovalLimitUSD {
+		if err := CaseStatus.Set(ctx, AwaitingManager); err != nil {
+			return nil, err
+		}
+		return dex.GoTo(RequestManagerApproval{}, input), nil
+	}
+	return dex.GoTo(IssueRefund{}, input), nil
+}
+
+// dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Wait for a manager to approve or reject the refund."
+type RequestManagerApproval struct {
+	dex.StepDefaults
+}
+
+func (RequestManagerApproval) WaitFor(dex.Context, RefundCase) (*dex.Wait, error) {
+	return dex.Until(managerDecisions.ForOne()), nil
+}
+
+func (RequestManagerApproval) Execute(ctx dex.Context, input RefundCase) (*dex.StepDecision, error) {
+	decisions, err := managerDecisions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(decisions) != 1 {
+		return nil, fmt.Errorf("expected one manager decision, got %d", len(decisions))
+	}
+	if decisions[0].Approved {
+		return dex.GoTo(IssueRefund{}, input), nil
+	}
+	return denyRefund(ctx, input, decisions[0].Reason)
+}
 ```
 
 </SdkSnippet>
@@ -253,18 +307,20 @@ impl Step for RequestManagerApproval {
 </SdkSnippet>
 </SdkTabs>
 
-一个批准 RPC 和一个拒绝 RPC 把经理的决定发布到这个 Channel。每个 RPC 都要求填写原因，并在发布之前检查 `case-status` 是否为 `awaiting-manager`。在 Python 和 TypeScript 示例中，每个 RPC 还声明了一个 Dex Web Action：**Approve refund** 或 **Reject refund**。运行等待经理审批时，把 **Working as** 切换到有退款权限的用户，Dex Web 就会显示这两个 Action。这两个示例也有 `decide` 命令。
+一个批准 RPC 和一个拒绝 RPC 把经理的决定发布到这个 Channel。每个 RPC 都要求填写原因，并在发布之前检查 `case-status` 是否为 `awaiting-manager`。在 Python、Go 和 TypeScript 示例中，每个 RPC 还声明了一个 Dex Web Action：**Approve refund** 或 **Reject refund**。运行等待经理审批时，把 **Working as** 切换到有退款权限的用户，Dex Web 就会显示这两个 Action。五个语言的示例都提供 `decide` 命令。
 
 这个示例还包含生产环境的退款需要的几项内容：
 
 - **Issue refund** 和 **Send message** 向 billing 和 email 传入幂等 key。Time Travel 点之后的 Step 会再次运行，这些 key 保证退款和邮件都只有一次。前提是所有 Worker 共用本地 fake 服务的同一份持久账本。
 - **Issue refund** 遇到支付超时，每 5 秒重试一次。一个运行可以先要求两次超时。这时 Dex Web 中最后一个 **Issue refund** 事件显示第 3 次尝试成功，并保留最近一次失败的详情。
-- 在 Python 和 TypeScript 中，先用 `dexcli visualize` 生成设计。Worker 启动时上传它，运行在 Dex Web 中的 **Design** 视图就会显示这张图。
-- 在 Python 和 TypeScript 中，提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
+- 在 Python、Go 和 TypeScript 中，先用 `dexcli visualize` 生成设计。Worker 启动时上传它，运行在 Dex Web 中的 **Design** 视图就会显示这张图。
+- 在 Python、Go 和 TypeScript 中，提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
 
 Java 和 Rust 示例用各自的 `decide` 命令批准或拒绝退款。Java 和 Rust SDK 不能声明 Dex Web Action，也不能加密 payload。这两个示例没有配置设计，所以它们运行的 **Design** 视图显示空状态。`dexcli visualize` 读取 Go、Python 和 TypeScript 源码。
 
-[Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)、[TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund)、[Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund) 和 [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) 的示例文件夹列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用。Python 和 TypeScript 文件夹还展示了加密。
+[Go](https://github.com/superdurable/dex/tree/main/examples/go/products/customer-refund/managerapproval)、[Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)、[TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund)、[Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund) 和 [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) 的示例文件夹列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用。Go、Python 和 TypeScript 示例还展示了加密。
+
+在[示例 playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中选择 **Customer refund with manager approval**，即可用任一语言启动经理审批 Flow、提交决定或查看结果。
 
 ## 确定性策略
 

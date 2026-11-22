@@ -1,0 +1,1107 @@
+{
+  "schemaVersion": "2.0",
+  "generatedAt": "2026-11-22T01:17:19Z",
+  "valid": true,
+  "source": {
+    "language": "go",
+    "path": "examples/go/products/customer-refund/managerapproval/workflow.go"
+  },
+  "flow": {
+    "name": "ManagerApprovalRefundFlow",
+    "startStepId": "step:ReceiveRequest",
+    "span": {
+      "startLine": 285,
+      "startColumn": 1,
+      "endLine": 296,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:CheckPolicy",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:CheckPolicy",
+      "phase": "execute",
+      "span": {
+        "startLine": 137,
+        "startColumn": 1,
+        "endLine": 152,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "decision:rpc:ApproveRefund:381:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:ApproveRefund",
+      "phase": "rpc",
+      "span": {
+        "startLine": 381,
+        "startColumn": 9,
+        "endLine": 381,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexDisplay:350:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexDisplay",
+      "phase": "rpc",
+      "span": {
+        "startLine": 350,
+        "startColumn": 9,
+        "endLine": 355,
+        "endColumn": 4
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexSummary:335:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexSummary",
+      "phase": "rpc",
+      "span": {
+        "startLine": 335,
+        "startColumn": 9,
+        "endLine": 338,
+        "endColumn": 4
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:RejectRefund:389:9",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:RejectRefund",
+      "phase": "rpc",
+      "span": {
+        "startLine": 389,
+        "startColumn": 9,
+        "endLine": 389,
+        "endColumn": 50
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:CheckOrder:128:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CheckOrder",
+      "phase": "execute",
+      "span": {
+        "startLine": 128,
+        "startColumn": 9,
+        "endLine": 128,
+        "endColumn": 74
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CheckPolicy:149:10",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CheckPolicy",
+      "condition": "order.AmountUSD \u003e ManagerApprovalLimitUSD",
+      "phase": "execute",
+      "span": {
+        "startLine": 149,
+        "startColumn": 10,
+        "endLine": 149,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CheckPolicy:151:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CheckPolicy",
+      "condition": "!(order.AmountUSD \u003e ManagerApprovalLimitUSD)",
+      "phase": "execute",
+      "span": {
+        "startLine": 151,
+        "startColumn": 9,
+        "endLine": 151,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CloseCase:253:9",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CloseCase",
+      "phase": "execute",
+      "span": {
+        "startLine": 253,
+        "startColumn": 9,
+        "endLine": 253,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:IssueRefund:209:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:IssueRefund",
+      "phase": "execute",
+      "span": {
+        "startLine": 209,
+        "startColumn": 9,
+        "endLine": 209,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ReceiveRequest:113:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ReceiveRequest",
+      "phase": "execute",
+      "span": {
+        "startLine": 113,
+        "startColumn": 9,
+        "endLine": 113,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RequestManagerApproval:173:10",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RequestManagerApproval",
+      "condition": "decisions[0].Approved",
+      "phase": "execute",
+      "span": {
+        "startLine": 173,
+        "startColumn": 10,
+        "endLine": 173,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:SendMessage:240:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:SendMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 240,
+        "startColumn": 9,
+        "endLine": 240,
+        "endColumn": 37
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:WriteCustomerMessage:225:9",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:WriteCustomerMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 225,
+        "startColumn": 9,
+        "endLine": 225,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:CaseStatus",
+      "kind": "attribute",
+      "name": "case-status",
+      "span": {
+        "startLine": 58,
+        "startColumn": 2,
+        "endLine": 58,
+        "endColumn": 77
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:CustomerEmail",
+      "kind": "attribute",
+      "name": "customer-email",
+      "span": {
+        "startLine": 59,
+        "startColumn": 2,
+        "endLine": 59,
+        "endColumn": 80
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:CustomerMessage",
+      "kind": "attribute",
+      "name": "customer-message",
+      "span": {
+        "startLine": 65,
+        "startColumn": 2,
+        "endLine": 65,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:RefundID",
+      "kind": "attribute",
+      "name": "refund-id",
+      "span": {
+        "startLine": 64,
+        "startColumn": 2,
+        "endLine": 64,
+        "endColumn": 60
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:channel:managerDecisions",
+      "kind": "channel",
+      "name": "manager-decisions",
+      "span": {
+        "startLine": 68,
+        "startColumn": 5,
+        "endLine": 68,
+        "endColumn": 79
+      },
+      "resource": {
+        "valueType": "ManagerDecision"
+      }
+    },
+    {
+      "id": "rpc:ApproveRefund",
+      "kind": "rpc",
+      "name": "ApproveRefund",
+      "span": {
+        "startLine": 377,
+        "startColumn": 1,
+        "endLine": 382,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "rpc:GetDexDisplay",
+      "kind": "rpc",
+      "name": "GetDexDisplay",
+      "span": {
+        "startLine": 345,
+        "startColumn": 1,
+        "endLine": 356,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "rpc:GetDexSummary",
+      "kind": "rpc",
+      "name": "GetDexSummary",
+      "span": {
+        "startLine": 330,
+        "startColumn": 1,
+        "endLine": 339,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "rpc:RejectRefund",
+      "kind": "rpc",
+      "name": "RejectRefund",
+      "span": {
+        "startLine": 385,
+        "startColumn": 1,
+        "endLine": 390,
+        "endColumn": 2
+      }
+    },
+    {
+      "id": "step:CheckOrder",
+      "kind": "step",
+      "name": "CheckOrder",
+      "phase": "execute",
+      "span": {
+        "startLine": 288,
+        "startColumn": 3,
+        "endLine": 288,
+        "endColumn": 52
+      },
+      "metadata": {
+        "explanation": "Look up the order in billing."
+      }
+    },
+    {
+      "id": "step:CheckPolicy",
+      "kind": "step",
+      "name": "CheckPolicy",
+      "phase": "execute",
+      "span": {
+        "startLine": 289,
+        "startColumn": 3,
+        "endLine": 289,
+        "endColumn": 32
+      },
+      "metadata": {
+        "explanation": "Refund, deny, or ask a manager, by the refund policy."
+      }
+    },
+    {
+      "id": "step:CloseCase",
+      "kind": "step",
+      "name": "CloseCase",
+      "phase": "execute",
+      "span": {
+        "startLine": 294,
+        "startColumn": 3,
+        "endLine": 294,
+        "endColumn": 30
+      },
+      "metadata": {
+        "explanation": "Close the case with its outcome."
+      }
+    },
+    {
+      "id": "step:IssueRefund",
+      "kind": "step",
+      "name": "IssueRefund",
+      "phase": "execute",
+      "span": {
+        "startLine": 291,
+        "startColumn": 3,
+        "endLine": 291,
+        "endColumn": 53
+      },
+      "metadata": {
+        "explanation": "Refund the order through billing, once per case."
+      }
+    },
+    {
+      "id": "step:ReceiveRequest",
+      "kind": "step",
+      "name": "ReceiveRequest",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 287,
+        "startColumn": 3,
+        "endLine": 287,
+        "endColumn": 40
+      },
+      "metadata": {
+        "explanation": "Record the refund request and the customer's email address."
+      }
+    },
+    {
+      "id": "step:RequestManagerApproval",
+      "kind": "step",
+      "name": "RequestManagerApproval",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 290,
+        "startColumn": 3,
+        "endLine": 290,
+        "endColumn": 43
+      },
+      "metadata": {
+        "explanation": "Wait for a manager to approve or reject the refund."
+      }
+    },
+    {
+      "id": "step:SendMessage",
+      "kind": "step",
+      "name": "SendMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 293,
+        "startColumn": 3,
+        "endLine": 293,
+        "endColumn": 49
+      },
+      "metadata": {
+        "explanation": "Email the message to the customer, once per case."
+      }
+    },
+    {
+      "id": "step:WriteCustomerMessage",
+      "kind": "step",
+      "name": "WriteCustomerMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 292,
+        "startColumn": 3,
+        "endLine": 292,
+        "endColumn": 58
+      },
+      "metadata": {
+        "explanation": "Ask the model to write the customer message."
+      }
+    },
+    {
+      "id": "wait:RequestManagerApproval:161:9",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:RequestManagerApproval",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 161,
+        "startColumn": 9,
+        "endLine": 161,
+        "endColumn": 45
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "manager-decisions.for 1",
+            "resourceId": "resource:channel:managerDecisions",
+            "span": {
+              "startLine": 161,
+              "startColumn": 19,
+              "endLine": 161,
+              "endColumn": 44
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:CheckOrder:128:9",
+      "to": "step:CheckPolicy",
+      "label": "GoTo",
+      "span": {
+        "startLine": 128,
+        "startColumn": 9,
+        "endLine": 128,
+        "endColumn": 74
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:CheckPolicy:149:10",
+      "to": "step:RequestManagerApproval",
+      "label": "GoTo",
+      "span": {
+        "startLine": 149,
+        "startColumn": 10,
+        "endLine": 149,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:CheckPolicy:151:9",
+      "to": "step:IssueRefund",
+      "label": "GoTo",
+      "span": {
+        "startLine": 151,
+        "startColumn": 9,
+        "endLine": 151,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:IssueRefund:209:9",
+      "to": "step:WriteCustomerMessage",
+      "label": "GoTo",
+      "span": {
+        "startLine": 209,
+        "startColumn": 9,
+        "endLine": 209,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:ReceiveRequest:113:9",
+      "to": "step:CheckOrder",
+      "label": "GoTo",
+      "span": {
+        "startLine": 113,
+        "startColumn": 9,
+        "endLine": 113,
+        "endColumn": 38
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:RequestManagerApproval:173:10",
+      "to": "step:IssueRefund",
+      "label": "GoTo",
+      "span": {
+        "startLine": 173,
+        "startColumn": 10,
+        "endLine": 173,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "decision:step:SendMessage:240:9",
+      "to": "step:CloseCase",
+      "label": "GoTo",
+      "span": {
+        "startLine": 240,
+        "startColumn": 9,
+        "endLine": 240,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:step:WriteCustomerMessage:225:9",
+      "to": "step:SendMessage",
+      "label": "GoTo",
+      "span": {
+        "startLine": 225,
+        "startColumn": 9,
+        "endLine": 225,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:CaseStatus",
+      "to": "rpc:ApproveRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 400,
+        "startColumn": 17,
+        "endLine": 400,
+        "endColumn": 36
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:CaseStatus",
+      "to": "rpc:RejectRefund",
+      "label": "Get",
+      "span": {
+        "startLine": 400,
+        "startColumn": 17,
+        "endLine": 400,
+        "endColumn": 36
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:channel:managerDecisions",
+      "to": "step:RequestManagerApproval",
+      "label": "GetConditionResults",
+      "span": {
+        "startLine": 165,
+        "startColumn": 20,
+        "endLine": 165,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "wait_condition",
+      "from": "resource:channel:managerDecisions",
+      "to": "wait:RequestManagerApproval:161:9",
+      "label": "manager-decisions.for 1",
+      "span": {
+        "startLine": 161,
+        "startColumn": 19,
+        "endLine": 161,
+        "endColumn": 44
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_lock",
+      "from": "rpc:ApproveRefund",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 315,
+        "startColumn": 40,
+        "endLine": 315,
+        "endColumn": 69
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ApproveRefund"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_write",
+      "from": "rpc:ApproveRefund",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 412,
+        "startColumn": 12,
+        "endLine": 412,
+        "endColumn": 46
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_publish",
+      "from": "rpc:ApproveRefund",
+      "to": "resource:channel:managerDecisions",
+      "label": "Publish",
+      "span": {
+        "startLine": 415,
+        "startColumn": 12,
+        "endLine": 415,
+        "endColumn": 100
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_lock",
+      "from": "rpc:RejectRefund",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 323,
+        "startColumn": 40,
+        "endLine": 323,
+        "endColumn": 69
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "RejectRefund"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_write",
+      "from": "rpc:RejectRefund",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 412,
+        "startColumn": 12,
+        "endLine": 412,
+        "endColumn": 46
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_publish",
+      "from": "rpc:RejectRefund",
+      "to": "resource:channel:managerDecisions",
+      "label": "Publish",
+      "span": {
+        "startLine": 415,
+        "startColumn": 12,
+        "endLine": 415,
+        "endColumn": 100
+      },
+      "metadata": {
+        "function": "publishManagerDecision",
+        "phase": "rpc",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_write",
+      "from": "step:CheckPolicy",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 146,
+        "startColumn": 13,
+        "endLine": 146,
+        "endColumn": 49
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_write",
+      "from": "step:CloseCase",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 250,
+        "startColumn": 12,
+        "endLine": 250,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_write",
+      "from": "step:IssueRefund",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 204,
+        "startColumn": 12,
+        "endLine": 204,
+        "endColumn": 43
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_write",
+      "from": "step:IssueRefund",
+      "to": "resource:attribute:RefundID",
+      "label": "Set",
+      "span": {
+        "startLine": 201,
+        "startColumn": 12,
+        "endLine": 201,
+        "endColumn": 39
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_write",
+      "from": "step:ReceiveRequest",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 107,
+        "startColumn": 12,
+        "endLine": 107,
+        "endColumn": 43
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "resource_write",
+      "from": "step:ReceiveRequest",
+      "to": "resource:attribute:CustomerEmail",
+      "label": "Set",
+      "span": {
+        "startLine": 110,
+        "startColumn": 12,
+        "endLine": 110,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "resource_write",
+      "from": "step:RequestManagerApproval",
+      "to": "resource:attribute:CaseStatus",
+      "label": "Set",
+      "span": {
+        "startLine": 257,
+        "startColumn": 12,
+        "endLine": 257,
+        "endColumn": 46
+      },
+      "metadata": {
+        "function": "denyRefund",
+        "phase": "execute",
+        "via": "helper"
+      }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "resource_write",
+      "from": "step:WriteCustomerMessage",
+      "to": "resource:attribute:CustomerMessage",
+      "label": "Set",
+      "span": {
+        "startLine": 221,
+        "startColumn": 12,
+        "endLine": 221,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "intake",
+      "label": "Intake",
+      "stepIds": [
+        "step:ReceiveRequest"
+      ]
+    },
+    {
+      "id": "evidence",
+      "label": "Evidence",
+      "stepIds": [
+        "step:CheckOrder",
+        "step:CheckPolicy"
+      ]
+    },
+    {
+      "id": "control",
+      "label": "Control",
+      "stepIds": [
+        "step:RequestManagerApproval"
+      ]
+    },
+    {
+      "id": "resolution",
+      "label": "Resolution",
+      "stepIds": [
+        "step:IssueRefund"
+      ]
+    },
+    {
+      "id": "close",
+      "label": "Close",
+      "stepIds": [
+        "step:WriteCustomerMessage",
+        "step:SendMessage",
+        "step:CloseCase"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": [
+        {
+          "attributeKey": "case-status",
+          "valueType": "string",
+          "editable": false,
+          "description": "Case status"
+        },
+        {
+          "attributeKey": "customer-email",
+          "valueType": "string",
+          "editable": false,
+          "description": "Customer email"
+        }
+      ]
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": [
+        {
+          "attributeKey": "customer-email",
+          "valueType": "string",
+          "editable": false,
+          "description": "Customer email",
+          "uiSlot": "title"
+        },
+        {
+          "attributeKey": "case-status",
+          "valueType": "string",
+          "editable": false,
+          "description": "Case status",
+          "uiSlot": "status"
+        },
+        {
+          "attributeKey": "refund-id",
+          "valueType": "string",
+          "editable": false,
+          "description": "Refund ID"
+        },
+        {
+          "attributeKey": "customer-message",
+          "valueType": "string",
+          "editable": false,
+          "description": "Customer message"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "rpcName": "ApproveRefund",
+        "label": "Approve refund",
+        "requiredPermission": "refund.manage",
+        "condition": {
+          "attributeKey": "case-status",
+          "operator": "in",
+          "values": [
+            "awaiting-manager"
+          ]
+        },
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "reason",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Reason"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "RejectRefund",
+        "label": "Reject refund",
+        "requiredPermission": "refund.manage",
+        "condition": {
+          "attributeKey": "case-status",
+          "operator": "in",
+          "values": [
+            "awaiting-manager"
+          ]
+        },
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "reason",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Reason"
+            }
+          ]
+        }
+      }
+    ],
+    "start": {
+      "stepType": "ReceiveRequest",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "customer",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "customerEmail",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "orderId",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "paymentTimeoutsToSimulate",
+            "required": false,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
