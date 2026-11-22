@@ -118,89 +118,19 @@ for the Dex SDK and framework versions each release supports.
 
 ### Changed
 
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`:
-  `connectors.mcp: auto` runs `dexcli connectors mcp --exit-on-stdin-close`
-  for this machine's `~/.dex/connectors/connections.json` and uses the URL of
-  its `{"type":"ready","url":...}` line, with any `dex.server`. The startup
-  waits at most 120 seconds and reads at most 1 MiB of that line. The command
-  owns the child from its spawn, in its own process group, and logs its stderr
-  to `~/.dex/agents/dexcli-connectors-mcp.log`. It stops the child before a
-  `dexcli dev` it started, also on a signal while it owns the child: it closes
-  the child's stdin, then sends SIGTERM and SIGKILL to the group while the
-  child still runs, and sends no signal after that. Every startup outcome but a
-  valid ready line stops the child first.
-  With `dex.server: auto`, it starts after `dexcli dev` is ready, and a failed
-  start falls back to `<Dex Web URL>/mcp`. With a URL `dex.server`, a missing or
-  empty `connections.json`, a `dexcli` that may not support the command (usage
-  exit code 2 and no output), or a failed start keeps connector tools off, and
-  the new optional `DexServerConnection.connectorsOffReason`
-  (`DexServerEndpoint.connectors_off_reason`) holds the line that says why. The
-  pinned `dexcli` is 1.47.7.
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: a session's
-  terminal lease lasts 600 seconds by default instead of 15, so a pause or a
-  lost connection of a few minutes no longer ends a chat. The configuration
-  file's new optional `sessions.lease_ttl_seconds`, an integer from 10 to
-  3600, sets it; a value outside that range fails the schema at
-  `/sessions/lease_ttl_seconds`, and the command exits with code 2.
-  `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`, from 1 to 3600, still overrides it,
-  and the command ignores any other value of the variable. The lease rules are
-  unchanged: the command renews every third of the TTL, a clean exit releases
-  the lease at once, and a waiting command still asks every second. A killed
-  or paused command now holds its session for up to 10 minutes by default.
-  Each lease read of an attempt waits at most 5 seconds, also while a pull
-  permit is active, so an unanswered read never holds a waiting command for
-  the rest of the longer permit.
-  New: `SessionsConfig.lease_ttl_seconds`,
-  `CommandEnvironment.has_session_lease_ttl_override` and
-  `resolve_session_lease_ttl_seconds`, `defaultSessionLeaseTtlSeconds` in the
-  TypeScript package index, `readSessionLeaseTtlOverrideSeconds`,
-  `resolveSessionLeaseTtlSeconds`, and `OpenedSessionWorker.leaseTtlSeconds`.
-  `CliEnvironment.sessionLeaseTtlSeconds` is now set only by a valid variable.
+- `connectors.mcp: auto` starts `dexcli connectors mcp --exit-on-stdin-close` for local connections, with a 120-second timeout and 1 MiB ready-line limit. Startup failures fall back to Dex Web MCP only with `dex.server: auto`. Requires `dexcli` 1.47.7. [Reference](/reference/agents/cli#connectors)
+- Terminal leases default to 600 seconds, up from 15. Set `sessions.lease_ttl_seconds` to 10–3600 or override it with `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS` (1–3600). Lease reads time out after 5 seconds. [Reference](/reference/agents/cli#one-terminal-per-session)
 
 ### Fixed
 
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: `init` on an
-  existing, valid configuration file replaces only the fields it asks about
-  (`model`, `system_prompt`, `connectors.enabled`, `workspace`, and the
-  `local_tools` switches) and keeps every other field, such as `dex.server`,
-  `dex.auth`, `dex.tls`, `connectors.mcp`, `mcp_servers`, `approval`, `media`,
-  `sessions`, and the harness sections. Before, it wrote the whole file from
-  its answers, and the command then used a local `dexcli dev`. The questions
-  offer the file's values as defaults, and `--yes` takes those same defaults.
-  An invalid file is copied to `NAME.yaml.bak` and
-  replaced, with one line that says so. The TypeScript core also asks for the
-  shell commands that run without approval, as the Python core does. `init`
-  writes the file and the backup through a temporary file and a rename, so a
-  crash never leaves a partial file, and it writes through a symbolic link to
-  the configuration without replacing the link. The merge rules are in
-  `agents/conformance/cli_init.json`.
+- `init` updates only prompted settings in a valid file, and `--yes` uses the existing values. It backs up invalid files as `NAME.yaml.bak`, writes atomically through symlinks, and prompts for shell commands that skip approval in both languages. [Reference](/reference/agents/cli#first-run)
 
 ## 0.6.8 (2026-11-14)
 
 ### Added
 
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: every new
-  session has `AgentHarness.flow_type` (`flowType`) itself and its own task
-  queue, from `session_task_queue` (`sessionTaskQueue`): `s-` and the first 20
-  hexadecimal characters of the SHA-256 of the session ID. The command builds
-  the session Flow twice, once with the harness's Flow type and once with the
-  environment-hashed one, and runs two Workers: one for the open session's
-  task queue, which it starts only after reading that the session's terminal
-  lease is free and stops when it releases the lease, and one on the default
-  task queue for this environment's earlier sessions. The acquire request
-  carries the command's environment. The rules, lines, and app Worker IDs are
-  in `agents/conformance/cli_session_task_queues.json`.
-- `dex-agents` and `@superdurable/dex-agents`: the session Flow registers the
-  `SessionLastTerminalEnvironment` Attribute, whose value type
-  `SessionTerminalEnvironment` is a map of text pairs.
-  `AcquireSessionTerminalLeaseRequest` has an optional `environment` map,
-  left out of the wire value when absent. When `acquire_session_terminal_lease`
-  gives the lease to a holder that did not hold it, it stores that map in the
-  Attribute. A renewal, a refused call, and a release leave it unchanged, so it
-  says where the session was last open. A Worker of an earlier release ignores
-  the field. The Go core declares the Attribute and the field, and
-  `remotesession` declares the Attribute. Names and golden values are in
-  `agents/conformance/names.json` and `values/`.
+- New sessions use `AgentHarness.flow_type` (`flowType`) and a per-session queue from `session_task_queue` (`sessionTaskQueue`). The CLI starts pulling that queue when the lease is free and still serves older sessions on the default queue. [Reference](/reference/agents/cli#resume)
+- `acquire_session_terminal_lease` stores the optional `environment` in `SessionLastTerminalEnvironment` on a new acquisition. Renewals, refusals, and releases leave it unchanged. Older Workers ignore the field.
 
 ### Changed
 
@@ -209,12 +139,7 @@ for the Dex SDK and framework versions each release supports.
   `PullWorkerOptions.taskQueue`, `StartFlowOptions.taskQueue`, and
   `FlowState.taskQueue` from that release.
 - The CLI commands download dexcli 1.47.5 when **DEXCLI** names none.
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: after a
-  terminal UI session switch, the launcher's chat launch document carries the
-  new session's own `flow_type` and no `previous_session_id`, and its notices
-  carry the takeover lines. The terminal UI handoff needs the
-  `launcher_session_switch` capability in `dexcli agents-tui --describe`;
-  without it the command uses the plain chat.
+- Terminal UI session switches now send the new `flow_type` and takeover notices without `previous_session_id`. The CLI falls back to plain chat unless `dexcli agents-tui --describe` reports `launcher_session_switch`. [Reference](/reference/agents/cli#one-terminal-per-session)
 - The Python agents packages and CLI commands depend on `dex-python-sdk`
   1.45.2, so an application can use `PullWorkerOptions.task_queue`,
   `StartFlowOptions.task_queue`, and `FlowState.task_queue` from that release.
@@ -229,81 +154,22 @@ for the Dex SDK and framework versions each release supports.
 
 ### Fixed
 
-- `@superdurable/dex-agents`: the optional peer `@superdurable/connectors-sdk`
-  now accepts any 0.9.x or 0.10.x (`^0.9.0 || ^0.10.0`, that is
-  `>=0.9.0 <0.11.0`) instead of exactly 0.9.0. An application that installs
-  a later Connector SDK, such as 0.9.1 or 0.10.0, or a Connector package that
-  pins one, such as `@superdurable/connector-slack` 0.6.0, no longer fails
-  `npm install` with `ERESOLVE` or needs npm `overrides`. This also applies
-  through the adapters that peer-depend on `@superdurable/dex-agents`, such as
-  `@superdurable/dex-agents-pi`. Connector SDK 0.11 and later stay outside the
-  range.
+- `@superdurable/dex-agents` accepts optional peer `@superdurable/connectors-sdk` versions `^0.9.0 || ^0.10.0`, up from exactly 0.9.0. Apps and adapters can install compatible Connector SDK patches or 0.10.x without npm overrides.
 
 ## 0.6.6 (2026-11-13)
 
 ### Added
 
-- Python Claude Agent SDK adapter: `ClaudeAgentRunner` polls and cancels the
-  tool tasks of its tool sources. A source call that returns
-  `ToolTaskStarted` waits for its task: `poll_tool_task` polls it through the
-  source on a Timer, and the resumed Claude session receives its result.
-  `cancel_turn` cancels the task through the source's `cancel_tool_task`
-  and records the call `outcome_unknown`. Before, such a call recorded `failed`
-  for a `read` tool and `outcome_unknown` otherwise. `McpToolSource` now sees
-  `supports_tool_tasks` set, so it hands the tasks of a Streamable HTTP
-  server to the session to poll instead of finishing them inside the tool
-  Step.
-  A task that a tool Step was already polling when its Worker upgrades stays
-  in that tool Step: a retried CallTool attempt resumes it from the heartbeat
-  checkpoint, and if the server no longer knows the task, that attempt sends
-  the call again with the same idempotency key. Only calls made after the
-  upgrade hand their tasks to the session.
-- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` polls and
-  cancels the tool tasks of its tool sources through the new `pollToolTask`
-  and `cancelToolTask`. A source call that returns `ToolTaskStarted` waits
-  for its task: the session polls it through the source on a Timer, and the
-  resumed Claude session receives its result. `cancel_turn` records the call
-  `outcome_unknown` and cancels the task through the source. A source call
-  that returns `ToolInputRequested` waits for the user's answer, and the
-  source runs the call again with it, as in the Python adapter. Before, a call
-  that started a task recorded `failed` for a `read` tool and
-  `outcome_unknown` otherwise, and a call that asked a question recorded
-  `failed`. `McpToolSource` now sees `supportsToolTasks` set, so it hands the
-  tasks of a Streamable HTTP server to the session to poll instead of
-  finishing them inside the tool Step. A task that a tool Step was already
-  polling when its Worker upgrades stays in that tool Step: a retried
-  `CallTool` attempt resumes it from the heartbeat checkpoint, and if the
-  server no longer knows the task, that attempt sends the call again with the
-  same idempotency key. Only calls made after the upgrade hand their tasks to
-  the session. The `dex-agents-claude-sdk` command gets the same behavior for
-  its MCP servers and connector tools.
+- Python `ClaudeAgentRunner` polls `ToolTaskStarted` through `poll_tool_task` and cancels it through `cancel_tool_task` on `cancel_turn`, recording `outcome_unknown`. In-flight `McpToolSource` tasks stay in their original tool Step and resend with the same idempotency key if lost.
+- `ClaudeAgentRunner` and `dex-agents-claude-sdk` now poll and cancel `ToolTaskStarted` through `pollToolTask` and `cancelToolTask`, with cancellation recording `outcome_unknown`. `ToolInputRequested` waits for the user's answer. MCP tasks already polling stay in their tool Step.
 
 ### Changed
 
-- `dex-agents`: `McpToolSource` marks the heartbeat checkpoint of a task it
-  hands to the session with `mcp_task_polled_by_session`, as the TypeScript
-  source does. A retried `CallTool` attempt returns the saved task as
-  `ToolTaskStarted` only when the checkpoint carries the marker, and
-  `will_resume_tool_task_without_sending` is `True` only then. A task saved
-  without it was polled inside its tool Step, so the retried attempt keeps
-  polling it there and sends the call again with the same idempotency key
-  when the server no longer knows the task.
+- `McpToolSource` only hands a retried `CallTool` task back to the session as `ToolTaskStarted` when the heartbeat has `mcp_task_polled_by_session`. Other tasks keep polling in the tool Step and resend with the same idempotency key if the server loses them.
 
 ### Fixed
 
-- `@superdurable/dex-agents-claude-agent-sdk`: `ClaudeAgentRunner` now
-  implements `AgentFrameworkRunner<DeferredToolOutcome>`, and its
-  `executeDeferredToolCall` returns `Promise<DeferredToolOutcome>` instead of
-  `Promise<ToolExecutionResult>`. `createClaudeAgentSessionFlow` returns
-  `AgentSessionFlow<ClaudeAgentRunner>` instead of `AgentSessionFlow`, as
-  `createBuiltinAgentSessionFlow` returns `AgentSessionFlow<BuiltinLoopAgentRunner>`.
-  The tool tasks and questions above need these types. Code that annotates
-  the Flow as a bare `AgentSessionFlow` drops the annotation, or writes
-  `AgentSessionFlow<ClaudeAgentRunner>`. A parameter that takes the Flow of
-  any adapter can use `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>`.
-  A subclass that overrides `executeDeferredToolCall` declares
-  `Promise<DeferredToolOutcome>`, and code that reads `.output` from its
-  result first checks that the outcome has no `kind`.
+- `executeDeferredToolCall` now returns `Promise<DeferredToolOutcome>`. Update overrides and check for no `kind` before `.output`. Infer or use `AgentSessionFlow<ClaudeAgentRunner>` for `createClaudeAgentSessionFlow`, or `AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>` for any adapter.
 
 ## 0.6.5 (2026-11-13)
 
@@ -322,25 +188,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
-  configuration file's optional `mcp_servers` map names remote MCP servers,
-  each with a `url`, `headers`, and `trust_tool_annotations`. The effective
-  configuration carries it as `mcp_servers` (`RemoteMcpServerConfig` values),
-  with header values as written. `resolve_mcp_servers` (`resolveMcpServers`)
-  expands each `${NAME}` header reference from the environment, treats
-  `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE` as not set, and
-  raises `McpServerSettingsError` with the setting and an exact message that
-  names the variable, never its value. `McpServersToolSource`, source name
-  `mcp_servers` (`MCP_SERVERS_TOOL_SOURCE_NAME`, `mcpServersToolSourceName`),
-  wraps `McpToolSource`, applies each turn's `approval.always`, and checks it
-  again in the tool Step. There it also refuses, unsent, a call that lacks the
-  approval or single attempt that the Worker's own `trust_tool_annotations:
-  false` requires, and it replaces every header and variable value of at least
-  8 characters with `[redacted]` in its log lines, errors, and tool output.
-  `mcp_server_secret_texts` (`mcpServerHeaderVariableValues`) returns the
-  secret texts to pass it. The new configuration error code is
-  `insecure_mcp_server_url`. The rules and cases are in
-  `agents/conformance/cli_config.json`.
+- `mcp_servers` configures remote MCP. Header expansion blocks `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE`; values ≥8 characters are redacted. Workers reject unsent calls missing required approval or single-attempt policy. [Reference](/reference/agents/cli#mcp-servers)
 - `@superdurable/dex-agents-pi-cli` and `dex-agents-deepagents-cli`: writes of
   `mcp_servers` tools wait for approval, as connector writes do.
 
@@ -348,26 +196,8 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- `dex-agents` and `@superdurable/dex-agents`: the session Flow registers the
-  `SessionTerminalLease` Attribute and the `acquire_session_terminal_lease`
-  and `release_session_terminal_lease` RPCs, with the values
-  `SessionTerminalLease`, `AcquireSessionTerminalLeaseRequest`,
-  `SessionTerminalLeaseResult`, and `ReleaseSessionTerminalLeaseRequest`.
-  Acquire succeeds when the lease is free, held by the same `holder_id`, or
-  expired, and otherwise returns the other holder's lease; acquiring again
-  renews it. Python's `AgentSessionClient` has
-  `acquire_session_terminal_lease` and `release_session_terminal_lease`.
-  The Go core declares the Attribute and the values, and `remotesession`
-  calls both RPCs. A Worker of an earlier release does not serve them, so call
-  them only after every Worker of the Flow type runs 0.6.3. Names and golden
-  values are in `agents/conformance/names.json` and `values/`.
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: a command
-  holds the terminal lease of the session it shows, renews it every 5 seconds
-  with a 15-second lease, and releases it on exit. A second command waits with
-  one status line that updates in place, then takes the session over. The
-  lines, spinner, and timing are in `agents/conformance/cli_session_lease.json`.
-  `CommandEnvironment.session_lease_ttl_seconds` reads the test override
-  `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`.
+- `SessionTerminalLease` and `acquire_session_terminal_lease` / `release_session_terminal_lease` let clients acquire a free or expired lease, renew their own, or release it. Upgrade all Workers of the Flow type to 0.6.3 first. [Reference](/reference/agents/cli#one-terminal-per-session)
+- Each CLI holds a 15-second terminal lease by default, renews it every 5 seconds, and releases it on exit. A second CLI waits to take over. Override with `DEX_AGENTS_SESSION_LEASE_TTL_SECONDS`. [Reference](/reference/agents/cli#one-terminal-per-session)
 - Terminal UI contract 1: the launch document's optional
   `capabilities.launcher_session_switch` and the terminal UI's
   `switch_session` message hand `/sessions` and `/new` back to the command,
@@ -386,71 +216,24 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
-  configuration file's optional `dex.auth` (`none`, `api_key`, or `bearer`)
-  and `dex.tls` (`ca_file`, `server_name`) connect the Worker, the Clients,
-  the Worker host, and the terminal UI to a remote Dex server that requires
-  TLS and a credential. Secrets come only from `DEX_API_KEY`,
-  `DEX_CREDENTIAL`, or a token file. `DEX_TOKEN_URL`, `DEX_SERVER_ID`,
-  `DEX_CREDENTIAL_FILE`, `DEX_TLS_CA_FILE`, and `DEX_TLS_SERVER_NAME`
-  override the matching fields. The file's `dex.auth` alone turns
-  authentication on.
-- New configuration error codes: `insecure_token_url`,
-  `auth_needs_server_url`, and `tls_needs_https_server`.
-  `EffectiveConfig.dex` carries `auth` and `tls`. In TypeScript both are
-  optional, so code that builds an `EffectiveConfig` itself keeps compiling.
-  `resolve_dex_connection_settings` (`resolveDexConnectionSettings`) returns
-  the connection settings without secrets. The `dex_connection` cases in
-  `agents/conformance/cli_config.json` fix the rules.
+- `dex.auth` and `dex.tls` enable authenticated TLS connections for remote commands. Authentication is enabled only by `dex.auth`, with credentials from `DEX_API_KEY`, `DEX_CREDENTIAL`, or a token file. [Reference](/reference/agents/cli#remote-server)
+- `resolve_dex_connection_settings` and `resolveDexConnectionSettings` return `EffectiveConfig.dex` connection settings without secrets. New validation codes are `insecure_token_url`, `auth_needs_server_url`, and `tls_needs_https_server`. [Reference](/reference/agents/cli#remote-server)
 - Terminal UI contract 1: the launch document's `dex.auth` and `dex.tls`
   carry the command's settings instead of `none` and the defaults. The
   terminal UI gets the one credential variable that `dex.auth` names.
-- The commands remove `DEX_API_KEY`, `DEX_CREDENTIAL`, and
-  `DEX_CREDENTIAL_FILE` from the environment of shell commands, browsers,
-  downloads, and `dexcli dev`, also without `dex.auth`. Only the Worker host
-  and the terminal UI get the one variable that the mode needs.
-  `childProcessVariables` (TypeScript) lacks them too, and the new
-  `removeDexSecretVariables` (`remove_dex_secret_variables`) does the removal.
-- `dex-agents`, `@superdurable/dex-agents`, and the Go core: the optional
-  `sender_name` (`senderName`, `SenderName`) on `AgentUserMessage`,
-  `SteerUserMessageRequest`, and `AgentMessage` holds a self-declared display
-  name of the person who sent a user message. The model sees the message as
-  `"<name>: <text>"` through the framework item, while `AgentMessage.text`
-  keeps the text as sent. `send_user_message` and `steer_user_message` return
-  false for a name that `is_valid_sender_name` (`isValidSenderName`,
-  `IsValidSenderName`) refuses, and for a name sent with `message_id`.
-  Encoding omits an absent name, and a Worker before this release ignores it.
+- CLI child processes lose `DEX_API_KEY`, `DEX_CREDENTIAL`, and `DEX_CREDENTIAL_FILE` even without `dex.auth`. Only the Worker host and terminal UI get the credential variable required by the selected mode. [Reference](/reference/agents/cli#remote-server)
+- `sender_name` (`senderName`, `SenderName`) adds a self-declared display name without changing `AgentMessage.text`. `send_user_message` and `steer_user_message` reject invalid names and names sent with `message_id`. [Reference](/reference/agents/dex-web#sender-names)
 - The session graph declares the optional `sender_name` input of the
   `steer_user_message` Action.
 - `describe_stored_message` (`describeStoredMessage`), which builds the text
   of a context summary prompt, shows a named user message as
   `user: <name>: <text>`.
-- `dex-agents-cli-core` and `@superdurable/dex-agents-cli-core`: the
-  `reasoning_effort` session setting sets the reasoning effort of every model
-  call from the next turn. A harness declares the values it maps with the
-  optional `supported_reasoning_efforts` (`supportedReasoningEfforts`), and the
-  turn's value is `ResolvedTurn.reasoning_effort` (`reasoningEffort`). A value
-  the harness does not declare fails the turn with
-  `unsupported_reasoning_effort`. A harness may also list
-  `suggested_models` (`suggestedModels`).
-- Python `resolve_turn_config` takes the supported values as the keyword
-  argument `supported_reasoning_efforts` and returns the turn's value in
-  `TurnConfigResolution.reasoning_effort`. TypeScript `resolveTurn` takes them
-  as a third argument and returns `TurnResolution`, with the value in
-  `reasoningEffort`. `TurnConfigResolver` takes them at construction in both.
-  All these additions are optional. A harness may not declare `default`,
-  which the terminal UI reserves, and a suggested model ID has no space or
-  control character.
+- `reasoning_effort` applies to every model call from the next turn. Harnesses declare `supported_reasoning_efforts` (`supportedReasoningEfforts`) and may list `suggested_models` (`suggestedModels`). Unsupported values fail the turn. [Reference](/reference/agents/cli#model-and-effort)
+- `resolve_turn_config`, `resolveTurn`, and `TurnConfigResolver` accept optional supported reasoning values and return the selected effort. The UI reserves `default`; suggested model IDs exclude spaces and control characters. [Reference](/reference/agents/cli#model-and-effort)
 - Terminal UI contract 1: the launch document carries the optional
   `display.models` and `capabilities.reasoning_effort`, which dexcli 1.47.0
   reads for `/model` and `/effort`. Older dexcli releases ignore them.
-- Harness commands: `dex-agents-claude-sdk` maps `reasoning_effort` to the
-  Claude Agent SDK `effort` (`low`, `medium`, `high`, `xhigh`, `max`). The
-  built-in commands, `dex-agents-openai-sdk`, `dex-agents-pydantic-ai`,
-  `dex-agents-vercel-ai`, and `dex-agents-pi` map `low`, `medium`, and `high`
-  to their SDK's reasoning option. `dex-agents-deepagents`,
-  `dex-agents-google-adk`, and `dex-agents-mastra` declare none yet. Every
-  command suggests a few models for `/model`.
+- `dex-agents-claude-sdk` maps `reasoning_effort` to `effort` with `low`, `medium`, `high`, `xhigh`, and `max`. Built-in, OpenAI, Pydantic AI, Vercel AI, and Pi support the first three. All commands suggest models for `/model`. [Reference](/reference/agents/cli#model-and-effort)
 
 ### Changed
 
@@ -469,12 +252,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Fixed
 
-- The terminal UI of the Python Agents CLI commands (`dex-agents-cli-core`) no
-  longer prints `The chat closed: dexcli closed the channel.` when you exit
-  normally after a turn failed. `dexcli` closing the channel and exiting by
-  itself is a normal end. The command still exits 1 after a failed turn, as
-  the plain chat does. The line still appears when `dexcli` closes the
-  channel and keeps running, or sends a malformed line.
+- The Python terminal UI exits normally after a failed turn without printing `The chat closed: dexcli closed the channel.` The exit code remains 1. A malformed line or a closed channel with `dexcli` still running still shows the warning.
 - The terminal UI of the Python Agents CLI commands now prints
   `The chat closed unexpectedly (dexcli exit 143).` when `dexcli` exits 143
   by itself, such as after a SIGTERM sent to `dexcli` alone, as the
@@ -484,15 +262,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Breaking
 
-- `dex-agents-deepagents` (Python): file writes and shell commands no longer
-  wait for approval by default, as in Deep Agents without `interrupt_on`.
-  Name `write_file`, `edit_file`, `delete`, `execute`, or `task` in
-  `approval.always` to make them wait. `local_tools.shell.allow` has no effect
-  on this command. The tool names are Deep Agents' own, so `read_file`,
-  `write_file`, and `edit_file` take `file_path` with an absolute path, and the
-  CLI core's `list_directory`, `search_files`, and `run_shell_command` are gone
-  from this command; a resumed session replays its earlier calls of them
-  unchanged.
+- `dex-agents-deepagents` uses native tools, with writes and shell commands running without approval by default. Add `write_file`, `edit_file`, `delete`, `execute`, or `task` to `approval.always`; `local_tools.shell.allow` is ignored. Use absolute `file_path` for `read_file`, `write_file`, and `edit_file`. Replace `list_directory`, `search_files`, and `run_shell_command` with native tools. [Reference](/reference/agents/cli#harness-tools)
 - `dex_agents_deepagents_cli`: `build_deep_agent` takes the workspace as a
   second argument, and `write_todos_tool` is removed; `write_todos` comes from
   LangChain's `TodoListMiddleware`.
@@ -527,152 +297,22 @@ for the Dex SDK and framework versions each release supports.
   `@superdurable/dex-agents-cli-core`) read `DEX_AGENTS_OPEN_BROWSER`. Set it
   to `0` or `false`, and a command at a terminal no longer opens the Dex Web
   Connectors page in a web browser. It still prints the page's URL.
-- Python and TypeScript cores: `ToolExecutionResult` has an optional
-  `is_finished_by_resumed_turn` (`isFinishedByResumedTurn`). A runner sets it
-  when its tool Step only approves a tool that really runs later, inside the
-  resumed `RunModel`, such as a Claude Code tool. The session still records
-  `succeeded` and writes `tool_call_started`, but writes no
-  `tool_call_finished`; the runner writes that event when the resumed turn
-  runs the call. Nothing new is stored, and runners that leave it unset
-  behave as before.
-- Go core: package `remotesession` calls agent sessions that Python or
-  TypeScript Workers serve, from a Go Client that serves none.
-  `RemoteSessionFlow` registers every session RPC of those cores with the same
-  names, locks, state loads, and wire values, including `answer_question`,
-  `cancel_turn`, `steer_user_message`, `delete_queued_message`,
-  `execute_plan`, and `send_user_message` with `plan_mode` and `images`, plus
-  the `AgentEvents` Stream; `RemoteSessionClient` types the calls. The flow is
-  client-only, so a Go Worker refuses it. The Go core adds the wire types
-  `ExecutePlanRequest`, `SteerUserMessageRequest`,
-  `DeleteQueuedMessageRequest`, `CancelTurnRequest`, and
-  `AnswerQuestionRequest`. The Go Worker's session Flow is unchanged.
-- Python and TypeScript cores: a tool approval can say what the call acts on
-  and what it does. New `AgentInterruptDisplay` `{target, summary, preview}`:
-  a tool source returns it in `DeferredToolCall.approval_display`
-  (`approvalDisplay`), and the session stores it in the new optional
-  `AgentInterrupt.display`, on the call's record as `approval_display`
-  (`approvalDisplay`), and in the `interrupt_raised` event's new `display`
-  key. A queued ordered write raises its approval later with the display its
-  source built. The session cuts a target over `MAX_APPROVAL_TARGET_BYTES`
-  (`maxApprovalTargetBytes`, 1 KiB) and a summary over
-  `MAX_APPROVAL_SUMMARY_BYTES` (`maxApprovalSummaryBytes`, 2 KiB), ending
-  them with `…`, and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES`
-  (`maxApprovalPreviewBytes`, 16 KiB). Each new field is `null` when there is
-  none, so a reader treats a missing display as "show the arguments"; a
-  Worker before 0.6.0 ignores the fields and drops them when it rewrites a
-  record or `PendingInterrupts`. The Go core decodes and keeps both fields.
-- Python and TypeScript cores: `ConnectorToolSource` sets the display of a call
-  that needs approval, with the new `build_connector_tool_approval_display`
-  (`buildConnectorToolApprovalDisplay`): the target is
-  `<connector>/<connection>`, and the summary names the operation, the
-  connection, and up to five short scalar arguments, never the operation's
-  description. A credential-like argument, such as `credentials`, `apiKey`, or
-  `PGPASSWORD`, shows `<redacted>`, and string values and names have common
-  credential shapes replaced. The new `is_credential_like_name`
-  (`isCredentialLikeName`) and `redact_inline_credentials`
-  (`redactInlineCredentials`) hold the rules, and
-  `agents/conformance/approval_display.json` fixes them for every core. This
-  redaction is best-effort hygiene for displayed text, not a security
-  boundary: the session stores the call's full arguments as before.
-- Python and TypeScript CLI cores: a `write_file` or `edit_file` approval names
-  the workspace path and carries a unified diff of the file as it is when the
-  model asks against the new content, with header lines that say so and
-  `\ No newline at end of file` markers. The preview reads the file with the
-  write's own link and workspace checks. It is left out for files or content
-  over 64 KiB, diffs over 200 lines, paths the write would refuse, content the
-  best-effort credential redaction changes, and credential files such as
-  `.env`, `.aws/credentials`, `.kube/config`, or `secrets.yaml`. A
-  `run_shell_command` approval names the working directory and the command
-  with common credential shapes redacted; the call's arguments keep the full
-  command. A connector tool's approval names its operation, connection, and
-  short arguments.
-- TypeScript CLI core (`@superdurable/dex-agents-cli-core`):
-  `AgentHarness.defaultWorkspaceLocation`. With `launch_directory`, the
-  workspace is the directory the command starts in when the file sets none,
-  and `init` writes no `workspace`. `resolveConfig` takes the harness's
-  default workspace as an optional fourth argument.
-  `ConnectorsMcpToolSource.deferredToolCall` and `executeDeferredToolCall`
-  take an optional name for `approval.always` to match, for a wrapper that
-  offers the tool under another name. All additions are optional, so existing
-  harnesses build and behave as before.
+- `ToolExecutionResult` adds `is_finished_by_resumed_turn` (`isFinishedByResumedTurn`) for approval-only Steps. Dex records `succeeded` and `tool_call_started`, and the resumed `RunModel` writes `tool_call_finished`.
+- Go Clients can call Python and TypeScript sessions with `remotesession`, `RemoteSessionFlow`, and `RemoteSessionClient`, including the `AgentEvents` Stream and session RPCs. The Flow is client-only and Go Workers refuse it.
+- `AgentInterruptDisplay` adds a target, summary, and preview to approvals. `DeferredToolCall.approval_display` (`approvalDisplay`) supplies them, with limits of 1 KiB, 2 KiB, and 16 KiB. Missing display falls back to arguments. Workers before 0.6.0 drop it on rewrite.
+- `ConnectorToolSource` shows the operation, connection, and up to five short arguments for approval via `build_connector_tool_approval_display` (`buildConnectorToolApprovalDisplay`). Credential redaction is best-effort and display-only. Stored arguments retain their full values.
+- `write_file` and `edit_file` approvals show a workspace-checked diff. Omit it for credential files, redacted content, refused paths, over 64 KiB, or over 200 lines. `run_shell_command` shows the working directory and a redacted command while stored arguments stay complete.
+- `AgentHarness.defaultWorkspaceLocation` lets TypeScript harnesses use `launch_directory` when no workspace is set, so `init` omits `workspace`. `ConnectorsMcpToolSource.deferredToolCall` and `executeDeferredToolCall` can match an alternate tool name in `approval.always`.
 - `@superdurable/dex-agents-pi-cli`: `PrefixedConnectorToolSource` and
   `collidingConnectorToolPrefix`, which offer the connector tools beside Pi's
   tools.
-- Python, TypeScript, and Go cores: a stored user message that the session
-  wrote itself carries the new optional `AgentMessage.origin`, so a client can
-  tell it apart from text a person typed. The values are `plan_execution` for
-  the message that starts an `execute_plan` turn, and `turn_failure_note`,
-  `turn_steered_note`, and `turn_cancelled_note` for the notes that tell the
-  model which tool calls of an ended turn ran. The new `AgentMessageOrigin`
-  names them. A message that a user sent, and every message stored before
-  0.6.0, has none. The wire field is `null` when absent; a Worker before
-  0.6.0 ignores it and drops it when it moves the message into an archive
-  chunk. Decoders keep a value they do not know, so a later value still
-  reads as a session-written message. The Go core decodes the field in
-  `remotesession` and sets `turn_failure_note` on its own turn-failure note.
-- Python and TypeScript cores: a session Flow can keep a summary for session
-  lists in three indexed Attributes. Turn it on with
-  `AgentSessionOptions.summary_attributes_indexed` (Python) or
-  `summaryAttributesIndexed` (TypeScript); it is off by default, and then the
-  Flow neither declares nor writes them. `flow.options` reports the setting.
-  `AgentSessionTitle` (FULL_TEXT, index key `text1`) is the first user
-  message with each run of ASCII whitespace made one space, cut to its first
-  80 Unicode code points, and only the first turn writes it.
-  `AgentSessionLastActivityAt` (DATETIME, `datetime1`) is the RFC 3339 time
-  the first attempt of the Step that started or ended the latest turn
-  started. `AgentSessionTurnCount` (INT, `int1`) is `AgentState.turn_count`
-  as of that Step. Python exports them as `AGENT_SESSION_TITLE`,
-  `AGENT_SESSION_LAST_ACTIVITY_AT`, and `AGENT_SESSION_TURN_COUNT`; the
-  TypeScript Flow has `agentSessionTitle`, `agentSessionLastActivityAt`, and
-  `agentSessionTurnCount`. The persisted format only gains these Attributes.
-- Adapter factories take the same option: Python `summary_attributes_indexed`
-  of `builtin_agent_session_flow`, `openai_agents_session_flow`,
-  `pydantic_ai_session_flow`, and `adk_agent_session_flow`; TypeScript
-  `summaryAttributesIndexed` of `createBuiltinAgentSessionFlow`,
-  `createOpenAIAgentsSessionFlow`, `createMastraAgentSessionFlow`,
-  `createVercelAiAgentSessionFlow`, and `createClaudeAgentSessionFlow`.
-- Before turning the option on: the title is the user's own words, and anyone
-  who can search the namespace's Flows reads it. With PostgreSQL search, a
-  Worker with the option fails to start with `FAILED_PRECONDITION` when the
-  namespace registered `text1`, `datetime1`, or `int1` with another type, or
-  when all three keys of one of these types are taken by other names.
-- Python and TypeScript cores: `list_agent_sessions` / `listAgentSessions`
-  reads one page of a session Flow type's sessions, with an optional title
-  search, in one `SearchFlows` call, without snapshots and without a Worker.
-  A title search raises `SessionTitleSearchUnavailableError` while the
-  namespace has not registered `text1`; another search error stays a
-  `DexServiceError`. `sort_agent_sessions_by_last_activity` /
-  `sortAgentSessionsByLastActivity` sorts loaded sessions, because Dex sorts
-  only by start or close time. `build_session_title` / `buildSessionTitle`
-  gives the title rule, which the conformance suite fixes in `names.json`
-  `session_titles`.
-- A session without the option, or one that an earlier release started,
-  lists without the summary and never matches a title search. An earlier
-  session gains the last activity time and the turn count at its next turn on
-  a Worker with the option. During a rolling upgrade, turns that an earlier
-  Worker or a Go Worker runs leave the summary as it was. An earlier session
-  with no turn yet gains a title at its first turn. Turning the option off
-  stops new writes; the values written before stay. A session that fails
-  because its state would exceed the server's limit can keep the values of its
-  last turn start.
-- Python and TypeScript CLI cores: a new `sessions.summary` setting, `auto`
-  by default, decides whether the commands' session Flows keep the summary.
-  `auto` keeps it only with `dex.server: auto`, the local `dexcli dev`, and
-  leaves a Dex server URL alone; `on` keeps it with any server; `off` never.
-  The CLI core passes the result to the harness as
-  `HarnessContext.is_session_summary_indexed` /
-  `HarnessContext.isSessionSummaryIndexed`; every built-in harness builds its
-  Flow with it, and the command refuses to start when a harness's Flow does
-  not follow it, in either direction. The check reads the Flow's persistence
-  schema, which decides the index keys the Worker registers, and its options;
-  it verifies what the Flow declares and does not sandbox harness code. A
-  custom harness must honor the field.
-  The TypeScript `EffectiveConfig` gains an optional `sessions` field, which
-  `resolveConfig` always sets. `sessions` loads up to five pages of 50
-  sessions, sorts them by last activity, says when more exist, and adds the
-  time of the latest turn, the turn count, and the title. The TypeScript line
-  keeps its tab-separated ID, status, and start time and appends the three
-  columns, with `—` for a missing value.
+- `AgentMessage.origin` distinguishes session-written `plan_execution`, `turn_failure_note`, `turn_steered_note`, and `turn_cancelled_note` from user input. Readers keep unknown values. Workers before 0.6.0 drop the field when archiving.
+- `AgentSessionOptions.summary_attributes_indexed` (`summaryAttributesIndexed`) adds indexed `AgentSessionTitle`, `AgentSessionLastActivityAt`, and `AgentSessionTurnCount`. It defaults to off. [Reference](/reference/agents/approvals#list-sessions)
+- Python and TypeScript adapter factories now accept `summary_attributes_indexed` or `summaryAttributesIndexed` for indexed session summaries. [Reference](/reference/agents/approvals#list-sessions)
+- Indexed titles expose the user's own words to anyone who can search the namespace. PostgreSQL index conflicts on `text1`, `datetime1`, or `int1` can prevent Worker startup with `FAILED_PRECONDITION`. [Reference](/reference/agents/approvals#list-sessions)
+- `list_agent_sessions` / `listAgentSessions` page through sessions with optional title search in one `SearchFlows` call, without a Worker. Use `sort_agent_sessions_by_last_activity` / `sortAgentSessionsByLastActivity` for loaded sessions. [Reference](/reference/agents/approvals#list-sessions)
+- Earlier sessions gain activity time and turn count on their next turn with indexing enabled; only sessions without prior turns can gain a title. Older and Go Workers leave summary values as-is. Turning indexing off keeps existing values. [Reference](/reference/agents/approvals#list-sessions)
+- `sessions.summary` defaults to `auto`, indexing only with `dex.server: auto`; `on` and `off` apply everywhere. Harnesses must honor it. `sessions` lists up to 250 sessions by latest activity, with turn time, count, and title. [Reference](/reference/agents/cli#configuration)
 - The Python CLI commands (`dex-agents-cli-core`) accept `--plain`, which
   keeps the chat in plain text lines instead of the `dexcli` terminal UI.
 - The TypeScript CLI commands (`@superdurable/dex-agents-cli-core`) take
@@ -682,51 +322,15 @@ for the Dex SDK and framework versions each release supports.
 
 ### Changed
 
-- `dex-agents-claude-sdk` (Python and TypeScript): the command no longer loads
-  MCP servers or claude.ai connectors from the user's Claude Code
-  configuration or login, such as a workspace `.mcp.json`, a user-scope MCP
-  server, or the Gmail and Google Drive connectors of a claude.ai account. Its
-  Claude Agent SDK options set `strictMcpConfig` (`strict_mcp_config`) and the
-  flag setting `disableClaudeAiConnectors`, so the model sees only Claude
-  Code's built-in tools, the browser tools, and the Dex connector tools, which
-  Dex approves and records as Steps. The Claude Agent SDK adapters keep their
-  defaults for applications.
-- **dex-agents-builtin** (Python and TypeScript): plan mode is on, and the
-  agent has the `write_todos` built-in tool next to `ask_user`. In the
-  terminal UI, `/plan` drafts a plan with `write_todos` only, and `/run`
-  approves it and runs it with every tool; the session API works too. The
-  plain chat has no plan commands.
+- `dex-agents-claude-sdk` uses `strictMcpConfig` (`strict_mcp_config`) and `disableClaudeAiConnectors` to block MCP servers and connectors from Claude Code configuration or login. The CLI uses built-in, browser, and Dex connector tools; application adapters keep their defaults.
+- **dex-agents-builtin** enables plan mode with `write_todos`. In the terminal UI, `/plan` drafts with that tool and `/run` approves and runs with every tool. The session API supports planning; the plain chat has no plan commands. [Reference](/reference/agents/cli#terminal-ui)
 - **dex-agents-builtin**: `write_todos` is now a reserved tool name, so a
   connector or local tool with that name fails the turn. Rename the
   conflicting tool, or use another harness.
-- Python CLI core, terminal UI: the startup notices of the Worker host, such
-  as connector tools that are unavailable, and the lines about a `dexcli dev`
-  that the command started, such as its log file, reach the terminal UI as
-  launch notices. Before, they were printed only before the terminal UI
-  covered the screen, so the user saw them after exiting.
-- Python and TypeScript CLI cores (`dex-agents-cli-core`,
-  `@superdurable/dex-agents-cli-core`): a `dexcli dev` that a command started
-  for `dex.server: auto` now stops when the command exits, instead of running
-  on. This covers `/exit`, the end of input, the Ctrl-C that exits, a failure,
-  SIGTERM, and SIGHUP, and the `run`, `sessions`, and `connectors`
-  subcommands. The command removes `~/.dex/agents/dexcli-dev.json`, sends
-  SIGTERM to the `dexcli dev` process group, which includes `dex-server-zd`,
-  then SIGKILL after 20 seconds, and prints "Stopped the dexcli dev this
-  command started." Another signal during those 20 seconds sends SIGKILL at
-  once. The command signals the group only while `dexcli dev` itself still
-  runs. After SIGTERM or SIGHUP it exits with 128 plus the signal number. The
-  startup line says that the server stops with the command.
-- A reused `dexcli dev` is never stopped: one you started, or one that another
-  command started. To share one server across sessions, run `dexcli dev`
-  yourself first, or set `dex.server`. A command that reused another command's
-  `dexcli dev` fails with exit code 1 and one short line when that server
-  stops. A command killed with SIGKILL, or one that crashes, leaves its
-  `dexcli dev` running; later commands reuse it and do not stop it.
-- On Windows, the TypeScript CLI core stops a started `dexcli dev` with
-  `taskkill /T`, then `taskkill /T /F`, so `dex-server-zd` stops too. The
-  Python CLI core sends CTRL_BREAK_EVENT first, then `taskkill /T /F`. It no
-  longer checks the recorded `dexcli dev` with `os.kill(pid, 0)`, which ends
-  that process on Windows.
+- The Python terminal UI displays Worker host startup notices and `dexcli dev` details, such as unavailable connectors and the local server's log path. [Reference](/reference/agents/cli#terminal-ui)
+- `dexcli dev` started for `dex.server: auto` now stops with the CLI on exit, failure, SIGTERM, or SIGHUP. The CLI removes `~/.dex/agents/dexcli-dev.json` and signals the running server's process group, escalating after 20 seconds or another signal. [Reference](/reference/agents/cli#dex-server)
+- CLI exit leaves reused `dexcli dev` running. Start your own or set `dex.server` to share it. If the reused server stops, the CLI exits 1. A crash or SIGKILL can leave a started server running for later reuse. [Reference](/reference/agents/cli#dex-server)
+- On Windows, TypeScript stops its `dexcli dev` tree with `taskkill /T` and then `taskkill /T /F`; Python sends CTRL_BREAK_EVENT first. Python stops using `os.kill(pid, 0)` for a check that could kill the server. [Reference](/reference/agents/cli#dex-server)
 - TypeScript CLI core: during the chat, the Dex SDK Worker's task stream
   reconnect messages go only to `~/.dex/agents/<harness>.log`, so a lost Dex
   server no longer prints stack traces into the chat. Other library warnings
@@ -752,85 +356,24 @@ for the Dex SDK and framework versions each release supports.
   per session under `~/.dex/agents/deepagents-artifacts`, which the command
   deletes at startup once its files are 30 days old. `write_todos` returns a
   graph `Command` that updates the todo list for the turn. Deep Agents' summarization stays off.
-- Python LangGraph adapter, behavior change: `should_defer_tool_calls_before_middleware`
-  now defaults to `True` in `LangGraphAgentRunner`,
-  `langchain_agent_session_flow`, and `langgraph_agent_session_flow`. In a
-  session the deferral is the outermost tool wrapper of every root graph tool
-  node that has an async tool wrapper, whatever the middleware order, and
-  each tool Step attempt runs the node's other middleware tool wrappers around
-  the tool. Middleware listed before `DurableToolCallMiddleware` no longer see
-  calls in `RunModel`, and middleware listed after it now run in the tool Step;
-  their side effects follow the tool's retry policy. Every call of such a
-  node with a wrapper besides the bare deferral, as in every `create_agent`
-  graph, stores the non-message graph state with its record, so N calls of
-  one model response store it N times. Pass
-  `should_defer_tool_calls_before_middleware=False` to keep the earlier
-  order. Each turn keeps the order its first model call used, recorded in its
-  run state and call records, so a Worker with the other setting finishes it
-  without running a wrapper twice; turns paused before this release keep the
-  middleware order. Known upgrade limitation: a turn in flight under a 0.5.x
-  runner that set the option to `True`, such as the 0.5.0
-  `dex-agents-deepagents`, recorded no order, so it finishes in the
-  middleware order and a wrapper listed before the deferral runs once in
-  `RunModel` where 0.5.x ran none; it never runs twice. A tool node without
-  wrappers, a tool node in a subgraph, and a node with only synchronous
-  wrappers are left unchanged. A tool name that root tool nodes with any
-  different tool wrappers share, a bare deferral and a wrapped node
-  included, now raises `ValueError` when the runner loads the graph.
+- LangGraph's `should_defer_tool_calls_before_middleware` defaults to `True`, running wrapped root tools' middleware in each Step attempt. Set `should_defer_tool_calls_before_middleware=False` for prior ordering. In-flight 0.5.x turns that opted in may run one earlier wrapper in `RunModel`.
 - Python LangGraph adapter: a tool Step that runs a tool node's wrappers no
   longer applies the node's `handle_tool_errors`, so an exception in the tool
   body, such as a `ValidationError`, fails the attempt and a write records
   `outcome_unknown`, as it does without wrappers.
 - Python LangGraph adapter: an `InjectedStore` parameter of a tool receives
   the compiled graph's store in its tool Step.
-- Every agents TypeScript package (`@superdurable/dex-agents`, the adapters,
-  `@superdurable/dex-agents-pi`, and the agent CLI packages) adds Node 26
-  (`^26.0.0`) to its **engines.node** range, so installing on Node 26 no longer
-  prints `EBADENGINE` warnings for them. The two Pi packages keep their
-  `^22.19.0` lower bound. Agents CI runs the TypeScript packages on Node 22
-  and Node 26.
-- `dex-agents-pi` (TypeScript) keeps Pi's own `read`, `grep`, `find`, `ls`,
-  `write`, `edit`, and `bash` with Pi's behavior, built from pi-coding-agent's
-  tool factories with their default local operations. Each call is still its
-  own Dex tool Step: reads retry, and `write`, `edit`, and `bash` never run
-  twice. `bash` output reaches the session as `pi.tool_progress` events while
-  it runs. The connector, web fetch, browser, and `ask_user` tools stay.
-  Connector writes always wait for approval, also when the connector marks
-  them idempotent. A connector tool whose name a Pi tool has gets the prefix
-  `connector_`, repeated until the name is free.
+- TypeScript agents packages now include Node 26 (`^26.0.0`) in **engines.node**, removing `EBADENGINE` warnings. The Pi packages still require `^22.19.0` as their lower bound.
+- `dex-agents-pi` keeps native `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` in separate Steps. Reads retry; writes and shell run once. `pi.tool_progress` streams shell output. Connector writes always require approval. [Reference](/reference/agents/cli#harness-tools)
 - Python and TypeScript CLI cores: the commands download `dexcli` 1.46.0,
   which has the terminal UI, instead of 1.45.0 when they find no `dexcli` of
   at least 1.46.0. A `dexcli` on `PATH` older than 1.46.0 is no longer used.
-- Python and TypeScript CLI cores: at a terminal, `run` now chats in the
-  `dexcli agents-tui` terminal UI by default. `--plain` keeps the plain text
-  chat. The plain chat is still used without a message when standard input or
-  output is not a terminal, when `TERM` is unset or `dumb`, on Windows, and in
-  `dex-agents-pi`; it is used with a `Plain chat:` line when `dexcli` has no
-  terminal UI or the terminal UI fails to start.
+- `run` defaults to `dexcli agents-tui` at a supported terminal. Use `--plain` for plain chat, also selected without a terminal, with unset or `dumb` `TERM`, on Windows, in `dex-agents-pi`, or when the terminal UI cannot start. [Reference](/reference/agents/cli#terminal-ui)
 
 ### Fixed
 
-- Python and TypeScript Claude Agent SDK adapters: when the user rejects a
-  call of a tool that runs inside the Claude Code CLI, such as `Write` or
-  `Bash`, the model now sees "The user rejected this Write call: not now"
-  instead of "PreToolUse:Write hook error: not now". The resumed PreToolUse
-  hook answers the rejected record with `ask`, and `can_use_tool` /
-  `canUseTool` denies the call with that text, which Claude Code passes to the
-  model without a prefix. A rejection without a reason reads "The user
-  rejected this Write call.", and deadline, planning-turn, and cancellation
-  rejections keep their recorded text. The session still records the call as
-  `rejected`.
-- Python and TypeScript Claude Agent SDK adapters: an approved call of a tool
-  that runs inside the Claude Code CLI writes one `tool_call_started`, from its
-  tool Step, and one `tool_call_finished`, from the CLI's tool result in the
-  resumed turn segment: `failed` when the run fails, such as a `Bash` command
-  that exits non-zero, and `succeeded` otherwise. A segment that ends without
-  that result, such as one that fails or is cancelled, writes
-  `outcome_unknown`. The tool Step returns `is_finished_by_resumed_turn`
-  (`isFinishedByResumedTurn`), so it no longer writes a `succeeded` finish for
-  the approval, and `dex-agents-claude-sdk` prints `[tool] Write started` and
-  `[tool] Write succeeded` once. A retried `RunModel` attempt runs the tool
-  again and reports it again, as every event of a retried attempt may repeat.
+- Python and TypeScript Claude Agent SDK adapters show the user's rejection reason for a Claude Code tool such as `Write` or `Bash` without a hook-error prefix. Other rejection text stays as recorded, and the call remains `rejected`.
+- Approved Claude Code calls emit `tool_call_started` from the tool Step and `tool_call_finished` from the resumed turn, recording `outcome_unknown` if it ends without a result. A retried `RunModel` can run the tool and emit its result again. [Reference](/reference/agents/changelog#v0-6-0)
 - `dex-agents-claude-sdk` (Python): Claude Code's standard error goes to the
   command's log file instead of the chat terminal, with OSC, CSI, and other
   terminal control sequences removed, so the cursor control sequence
