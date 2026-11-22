@@ -107,6 +107,14 @@ pub(crate) enum LeaseExpiryResponse {
     StopNodeOnly,
 }
 
+/// Where [`start_server`] gets the public API listener on `api.listen`.
+pub(crate) enum PublicApiListener {
+    /// `start_server` binds it after its configuration checks.
+    BindAfterConfigurationChecks,
+    /// Bound before any port 0 listener, which the kernel could give a just-freed `api.listen` port.
+    Bound(TcpListener),
+}
+
 /// A started server. Dropping it without [`RunningServer::shutdown`] aborts it.
 pub struct RunningServer {
     local_address: SocketAddr,
@@ -181,11 +189,12 @@ impl Drop for RunningServer {
     }
 }
 
-/// Starts a server from a validated configuration.
+/// Starts a server from a validated configuration, serving the public API on `public_api_listener`.
 ///
 /// The server stops `embedded_s3`, the dev mode emulator, last.
 pub(crate) async fn start_server(
     config: &Config,
+    public_api_listener: PublicApiListener,
     embedded_s3: Option<EmbeddedS3>,
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,
@@ -198,12 +207,12 @@ pub(crate) async fn start_server(
     let components = ComponentConfigs::from_config(config, should_take_over_held_lease)?;
     let authenticator =
         public_api_authentication::public_api_authenticator(&components.authenticators)?;
-    let listener = TcpListener::bind(config.api.listen)
-        .await
-        .map_err(|source| ServerError::Listen {
-            address: config.api.listen,
-            source,
-        })?;
+    let listener = match public_api_listener {
+        PublicApiListener::Bound(listener) => listener,
+        PublicApiListener::BindAfterConfigurationChecks => {
+            bind_public_api_listener(config.api.listen).await?
+        }
+    };
     let local_address = listener
         .local_addr()
         .map_err(|source| ServerError::Listen {
@@ -314,6 +323,17 @@ pub(crate) async fn start_server(
         #[cfg(feature = "test-util")]
         dev_object_store_for_test,
     }))
+}
+
+/// Binds the public API listener on `address`, the configured `api.listen`.
+///
+/// Returns [`ServerError::Listen`] naming `address` when the socket cannot be bound.
+pub(crate) async fn bind_public_api_listener(
+    address: SocketAddr,
+) -> Result<TcpListener, ServerError> {
+    TcpListener::bind(address)
+        .await
+        .map_err(|source| ServerError::Listen { address, source })
 }
 
 /// How the engine of a serving period gets its local store.

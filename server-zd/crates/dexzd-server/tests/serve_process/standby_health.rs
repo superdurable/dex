@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
@@ -15,6 +16,7 @@ use dexzd_server::{DevCommandOptions, start_dev_server};
 use s3local::{Durability, EtagMode, Store, StoreConfig};
 use s3local_server::SignatureVerification;
 use tempfile::TempDir;
+use tokio::sync::Notify;
 use tonic::Code;
 use tonic::transport::Channel;
 use tonic_health::pb::HealthCheckRequest;
@@ -128,14 +130,19 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     let parade_db_address = silent_parade_db
         .local_addr()
         .expect("the silent ParadeDB listener has an address");
-    let silent_parade_db_task = tokio::spawn(async move {
-        let mut connections = Vec::new();
-        loop {
-            let (stream, _) = silent_parade_db
-                .accept()
-                .await
-                .expect("the ParadeDB connection is accepted");
-            connections.push(stream);
+    let parade_db_connected = Arc::new(Notify::new());
+    let silent_parade_db_task = tokio::spawn({
+        let parade_db_connected = parade_db_connected.clone();
+        async move {
+            let mut connections = Vec::new();
+            loop {
+                let (stream, _) = silent_parade_db
+                    .accept()
+                    .await
+                    .expect("the ParadeDB connection is accepted");
+                connections.push(stream);
+                parade_db_connected.notify_one();
+            }
         }
     });
     let config_path = directory.path().join("overrides.yaml");
@@ -176,6 +183,10 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     })
     .await
     .expect("the waiting dev server opens its early listener");
+    // The listener binds before the embedded S3 emulator starts, so it accepts before the ParadeDB wait.
+    tokio::time::timeout(Duration::from_secs(10), parade_db_connected.notified())
+        .await
+        .expect("the waiting dev server connects to ParadeDB");
     assert!(
         !waiting.is_finished(),
         "the dev server must still wait for ParadeDB"
