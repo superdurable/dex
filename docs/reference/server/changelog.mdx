@@ -14,7 +14,7 @@ Released 2026-11-20 as [server-zd/v0.1.37](https://github.com/superdurable/dex/r
 
 ### Fixed
 
-- **SetAttributes**, **DeleteChannelMessage**, and **InvokeRPC** now compare only the request ID, as **StartFlow** does. A repeat with a recorded request ID gets the first request's reply and applies none of its own changes, even when its content differs. It no longer fails with INVALID_ARGUMENT "request ID ... was already used for a different request". Concurrent transactional or locking RPC calls with the same request ID share one handler execution whatever their inputs. [Reference](/reference/server/runtime-data#rpc-request-ids)
+- **SetAttributes**, **DeleteChannelMessage**, and **InvokeRPC** now return the recorded reply for a repeat ID even if inputs differ, like **StartFlow**. Concurrent transactional or locking RPCs with one ID share execution. [Reference](/reference/server/runtime-data#rpc-request-ids)
 
 ## 0.1.36 {#v0-1-36}
 
@@ -22,7 +22,7 @@ Released 2026-11-18 as [server-zd/v0.1.36](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **commit.batchWriteDeadline** sets how long object storage may take to accept one log batch, including retries, before the node stops. It defaults to 10 seconds, the earlier fixed limit, and must be positive and at most 5 minutes. Raise it when object storage can be slower than 10 seconds, such as on a busy test machine. [Reference](/reference/server/configuration#performance-tuning)
+- **commit.batchWriteDeadline** sets when the node stops waiting for an object storage batch write, including retries. It defaults to the previous 10-second limit and accepts positive values up to 5 minutes. [Reference](/reference/server/configuration#performance-tuning)
 
 ## 0.1.35 {#v0-1-35}
 
@@ -30,11 +30,11 @@ Released 2026-11-18 as [server-zd/v0.1.35](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **lease.renewalAttemptTimeout** sets how long one node lease renewal attempt may run while a retry still fits. Unset, the default, it stays one sixth of **lease.duration**, from 1 to 5 seconds. It must be positive and at most one third of **lease.duration**. [Reference](/reference/server/high-availability#lease)
+- **lease.renewalAttemptTimeout** caps a renewal attempt at up to one third of **lease.duration**. The default remains one sixth of **lease.duration**, clamped to 1–5 seconds. [Reference](/reference/server/high-availability#lease)
 
 ### Fixed
 
-- **dex-server-zd dev** keeps its node lease through slower renewal writes on a busy machine. Its **lease.duration** now defaults to 90 seconds instead of 30, and **lease.renewalAttemptTimeout** to 20 seconds. A renewal write may take up to 20 seconds, and a cut-off write is retried once within the about 60 seconds before the lease ends. A log write still stops the node when object storage does not accept it within 10 seconds. An override file that sets **lease.duration** keeps that value and the derived renewal attempt timeout. **dex-server-zd local** and **serve** keep their lease defaults. [Reference](/reference/server/high-availability#lease)
+- **dex-server-zd dev** raises **lease.duration** from 30 to 90 seconds and defaults **lease.renewalAttemptTimeout** to 20 seconds. A **lease.duration** override keeps the derived timeout. [Reference](/reference/server/high-availability#lease)
 
 ## 0.1.34 {#v0-1-34}
 
@@ -42,9 +42,9 @@ Released 2026-11-16 as [server-zd/v0.1.34](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **WaitingCondition.graceful_completion_conditions** adds a wait condition that completes once the Flow has a graceful completion request, from a **GracefulComplete** Step decision or **StopFlow** with **STOP_TYPE_GRACEFUL_COMPLETE**. A request made before the wait starts completes it at once, and a new request wakes only the Steps whose wait includes it. It works with every wait type; in an any-of wait it comes after Timer, Channel, and SubFlow conditions. **ConditionResults.graceful_completion_results** reports its status to **Execute**, and **WaitingConditionState.graceful_completion_conditions** shows it in the Flow state. A wait holds at most one. [Reference](/reference/server/step-and-flow-close#graceful-completion-condition).
+- **WaitingCondition.graceful_completion_conditions** lets a Step wait for a **GracefulComplete** decision or a graceful **StopFlow**. **ConditionResults.graceful_completion_results** reports it to **Execute**. [Reference](/reference/server/step-and-flow-close#graceful-completion-condition).
 - The server reports protocol version 7, which adds the graceful completion wait condition. Before you roll back to an older server, stop the Flows whose Steps wait on it. [Reference](/reference/server/upgrades).
-- **StopFlow** accepts **STOP_TYPE_GRACEFUL_COMPLETE** and **STOP_TYPE_FORCE_COMPLETE**, which complete a Flow from the client API with the same semantics as the **GracefulComplete** and **ForceComplete** Step decisions. The new optional **StopFlowRequest.output** becomes a Flow result whose Step type and Step execution ID are empty. A complete stop during a pending close returns **FAILED_PRECONDITION** with **FLOW_CLOSING**, and an output with any other stop type returns **INVALID_ARGUMENT**. An output that grows the active run state past its maximum returns **RESOURCE_EXHAUSTED**.
+- **StopFlow** adds **STOP_TYPE_GRACEFUL_COMPLETE** and **STOP_TYPE_FORCE_COMPLETE**, matching the Step decisions, with optional **StopFlowRequest.output** as a Flow result. A pending close rejects both with **FLOW_CLOSING**. [Reference](/reference/server/runtime-client#stop-a-flow).
 
 ## 0.1.33 {#v0-1-33}
 
@@ -52,14 +52,14 @@ Released 2026-11-15 as [server-zd/v0.1.33](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **CloneForkFlow** creates a new Flow whose first run starts from a copy of another Flow run's state, at its current state or at a point in its history. The call only reads the source run, and a running source keeps running. The new run copies Attributes, Channel messages, Steps, waits, and every value they hold, and leaves out history. Hard-delete Attributes take the source run's current values, as a time travel keeps them. **id_reuse_policy** decides on the new Flow ID as for StartFlow, **sub_flow_reset_policy** decides the copied SubFlow waits, and the Flow timeout restarts at the clone fork. See [Clone fork](/reference/server/runtime-client#clone-fork).
+- **CloneForkFlow** starts a new Flow from another run's state, with optional **id_reuse_policy** and **sub_flow_reset_policy**. It leaves the source running, omits history, copies current hard-delete values, and restarts the timeout. [Clone fork](/reference/server/runtime-client#clone-fork).
 - The server reports protocol version 6, which adds **CloneForkFlow**.
-- **ResetFlow** (Time Travel) can select its target by event ID: set **reset_type** to **FLOW_RESET_TYPE_EVENT_ID** and **event_id** to the **event_id** of an event that **GetHistoryEvents** returns. The run travels to the first point at or after that event where Time Travel can stop, as with a history event time. An event outside the selected **run_attempt**'s history or outside the window fails with **FAILED_PRECONDITION**. [Reference](/reference/server/runtime-client#time-travel).
-- **ResetFlow** takes a **sub_flow_reset_policy**. It decides what a Time Travel does with each SubFlow condition that a restored Step waits on: attach it to its child, restart the child, fail the condition with the new **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED** error type, or reject the Time Travel. The default is **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**. An attached condition whose child ended completes with that child's result, even when the parent had not received it yet. See [SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel).
+- **ResetFlow** accepts **FLOW_RESET_TYPE_EVENT_ID** in **reset_type** and an **event_id** from **GetHistoryEvents**. An event outside the selected **run_attempt** history or Time Travel window fails with **FAILED_PRECONDITION**. [Reference](/reference/server/runtime-client#time-travel).
+- **ResetFlow** adds **sub_flow_reset_policy** for SubFlow waits, defaulting to **SUB_FLOW_RESET_POLICY_ATTACH_ELSE_RESTART**. Failed waits get **FLOW_ERROR_TYPE_SUB_FLOW_ABANDONED**. [SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel).
 
 ### Fixed
 
-- Time Travel restarts the Flow timeout at the time travel, as if the run started then. Before, a restored Flow timeout kept the deadline from the run's start, so a run past that deadline timed out right after the time travel. A restored state whose timeout already fired, such as a running timeout handler, keeps that outcome.
+- Time Travel now gives a restored Flow its full timeout from the reset point. A timeout that already fired in the restored state stays fired. [Reference](/reference/server/runtime-client#time-travel).
 - A Time Travel no longer leaves the parent waiting forever on a child run that no longer exists, for example after its purge. It now rejects the request with **FAILED_PRECONDITION** and names each Step execution and child Flow ID, because such a child can be neither attached nor restarted.
 
 ## 0.1.32 {#v0-1-32}
@@ -68,7 +68,7 @@ Released 2026-11-14 as [server-zd/v0.1.32](https://github.com/superdurable/dex/r
 
 ### Fixed
 
-- A busy pull Worker stream now gets an empty keepalive response every **matching.pingInterval**, as an idle stream gets a **Ping**. A load balancer or proxy that counts idleness only in the server-to-client direction no longer resets a stream while a long Step or RPC runs; busy streams behind an AWS ALB were observed being reset this way. Every released SDK ignores the keepalive and sends no reply. [Reference](/reference/server/workers#server-and-network-setup).
+- Busy pull Worker streams now receive an empty keepalive every **matching.pingInterval** so proxies and load balancers keep them open during long Steps or RPCs. Existing SDKs ignore the keepalive. [Reference](/reference/server/workers#server-and-network-setup).
 
 ## 0.1.31 {#v0-1-31}
 
@@ -76,8 +76,8 @@ Released 2026-11-14 as [server-zd/v0.1.31](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **objectStore.versionDiscovery: head** lets **aliyunOSS** find the newest version of a replaced object, such as the cluster manifest or a node lease, with HEAD and GET requests of single objects instead of a listing. It then depends only on reads and writes of single objects being current, which Aliyun documents, and on no clock. The default stays **list**. Set **head** only on an empty prefix, such as a new cluster's; an existing prefix stays on **list**. A node with **head** marks the prefix with **version-discovery/head**, and a node with **list** fails to start on a marked prefix. On a prefix without the marker, a node with **head** fails to start when a listing shows versions; this check is best effort and reliable only where listings show every write. Every node that shares a **head** prefix must run 0.1.31 or later with **head**, and a rollback below 0.1.31 is not supported once a prefix uses **head**. **dexzd_object_store_versioned_listing_stale_total** gains the **newest_version_lookup** site. [Reference](/reference/server/object-storage#version-discovery).
-- **objectStore.provider: tencentCOS** lets **serve** keep its object storage in a Tencent COS bucket through the COS S3-compatible endpoint, such as **https://cos.ap-guangzhou.myqcloud.com**. The server creates objects with AppendObject, so the bucket must be single-AZ, must not use INTELLIGENT_TIERING, and must never have had versioning enabled; startup checks this. Objects that the server replaces, such as the cluster manifest and node leases, are stored as versions that the server manages. COS listings can repeat an earlier listing for a few seconds, so the server finds the newest version with HEAD requests, and **objectStore.versionDiscovery** must be **head**. **objectStore.hardDeleteStore.provider** accepts **tencentCOS** and defaults to it when the primary store uses it. With **tencentCOS**, **localStorage.writeBufferBytes** can be at most 1 GiB, and **commit.maxInFlight** can be at most 32. The server treats an empty object, which COS shows during an append and can keep after an interrupted one, as absent and creates its object over it. A listing request whose truncated pages hold no key after its position for 5 seconds fails as retryable. Snapshot retention keeps the snapshot that the cluster manifest points to, each snapshot pointed to within the last **snapshot.logDeletionDelay**, the newest **snapshot.retainedCount** snapshots of the running server, and the files of a failed snapshot upload until the server reads it or **snapshot.logDeletionDelay** passes. It deletes every other snapshot and file once it has stayed unprotected for **snapshot.logDeletionDelay**, measured on the server's monotonic clock from the first cleanup run that found it unprotected; a restart starts that wait again, and a replaced or failed snapshot normally stays about twice the delay. The server keeps these waits in memory, so a server process that runs for less than **snapshot.logDeletionDelay** deletes none of these objects. Back up a **tencentCOS** prefix by stopping its nodes, waiting at least one minute, downloading every object under it, and comparing two listings taken at least one minute apart with the download; COS listings are eventually consistent, so this reduces the chance of a missed object but cannot rule it out. A run purge deletes the run's referenced hard-delete objects by key and then needs two empty listings 5 seconds apart. Data cannot move between **tencentCOS** and other providers. [Reference](/reference/server/object-storage#tencent-cos).
+- **objectStore.versionDiscovery: head** adds HEAD/GET lookup for **aliyunOSS**, with **list** still the default. Use **head** on an empty prefix and every node on 0.1.31 or later, with no rollback below 0.1.31. [Reference](/reference/server/object-storage#version-discovery).
+- **objectStore.provider: tencentCOS** adds COS for **serve** and defaults hard-delete to COS. Use an empty prefix, **objectStore.versionDiscovery** set to **head**, and a single-AZ bucket without INTELLIGENT_TIERING or prior versioning. [Reference](/reference/server/object-storage#tencent-cos).
 
 ## 0.1.30 {#v0-1-30}
 
@@ -85,12 +85,7 @@ Released 2026-11-14 as [server-zd/v0.1.30](https://github.com/superdurable/dex/r
 
 ### Added
 
-- Named task queues. A Flow names its task queue in **WorkerTarget.task_queue** when it starts,
-  and only pull Workers registered on that task queue receive its Steps and RPCs, through its
-  sticky Worker or its Flow type queue inside the task queue. A Worker registers on one task
-  queue with **PollWorkerTaskRegister.task_queue**, and the server echoes it in
-  **PollWorkerTaskRegistered.task_queue**. Each app Worker serves one task queue. An empty
-  name keeps the default task queue, so existing Flows and Workers work as before.
+- **WorkerTarget.task_queue** routes a Flow's Steps and RPCs only to pull Workers on that queue. Each Worker registers one queue via **PollWorkerTaskRegister.task_queue**, and empty names use the default. [Reference](/reference/server/workers#named-task-queues).
 - A SubFlow inherits its parent's task queue. Its override may name another task queue, or
   select the default task queue with **dex.default**.
 - The task queue is fixed when a Flow starts. **UpdateFlowConfig** rejects a Worker target that
@@ -104,17 +99,17 @@ Released 2026-11-12 as [server-zd/v0.1.29](https://github.com/superdurable/dex/r
 
 ### Breaking
 
-- With the default **metrics.level** of **advanced**, **GET /metrics** no longer exports these families: **dexzd_snapshot_last_bytes**, **dexzd_startup_read_retries_total**, **dexzd_recovery_last_replayed_bytes**, **dexzd_matching_unsupported_type_entries**, **dexzd_matching_heads_restored_refs_total**, **dexzd_matching_heads_incomplete_scans_total**, **dexzd_step_task_queue_incomplete_seeks_total**, **dexzd_worker_stream_protocol_errors_total**, **dexzd_worker_stream_events_total**, **dexzd_attribute_sync_fenced_writes_total**, **dexzd_search_outbox_max_partition_entries**, **dexzd_search_outbox_projected_entries_total**, **dexzd_search_outbox_projected_runs_total**, **dexzd_search_outbox_ack_proposals_total**, **dexzd_search_initial_load_documents_total**, **dexzd_search_initial_loads_total**, **dexzd_search_projection_mode_skipped_partitions_total**, **dexzd_history_upload_concurrency_limit**, **dexzd_history_upload_in_flight_bytes**, **dexzd_history_upload_bytes_total**, **dexzd_history_reads_total**, **dexzd_history_value_revivals_total**, **dexzd_history_expired_objects_deleted_total**, **dexzd_history_orphan_objects_deleted_total**, **dexzd_hot_standby_lag_batches**, **dexzd_takeover_duration_seconds**, and, on Linux, **process_resident_memory_bytes**, **process_cpu_seconds_total**, **process_start_time_seconds**, and **process_open_fds**. Set **metrics.level** to **verbose** to export them again. [Reference](/reference/server/metrics#metrics-levels).
+- The default **metrics.level** of **advanced** drops the **verbose** families from **GET /metrics**, including internal, throughput, and Linux process metrics. Set **metrics.level** to **verbose** to restore all affected families. [Reference](/reference/server/metrics#metrics-levels).
 - Removed **dexzd_commit_batches_total**. It always equaled **dexzd_commit_latency_seconds_count**; use that series instead. [Reference](/reference/server/metrics#metrics-levels).
 
 ### Added
 
-- The server logs the effective values of **retention.closedFlowDuration**, **values.maxValueBytes**, **limits.maxFlowStateBytes**, **lifecycle.attemptDrainTimeout**, and **metrics.level** in one **effective configuration** INFO line at startup, including defaults for unset keys. **dev** and **local** also log **dev.durabilityMode**. [Reference](/reference/server/configuration#effective-configuration).
-- **metrics.level** selects which metric families **GET /metrics** exports: **basic** (golden signals for SLOs and paging alerts), **advanced** (the default; adds capacity, cost, and the lag and failure signals of each optional component), or **verbose** (adds internal mechanisms, throughput detail, and the Linux process metrics). Each level includes the families of the levels below it, and a family keeps the same labels and buckets at every level. The metrics page now lists every family with its type, labels, buckets, and level. [Reference](/reference/server/metrics#metrics-levels).
+- The **effective configuration** startup log reports values and defaults for retention, size limits, drain timeout, and **metrics.level**. **dev** and **local** also report **dev.durabilityMode**. [Reference](/reference/server/configuration#effective-configuration).
+- **metrics.level** controls metric exports at **basic**, **advanced** (default), or **verbose**. Higher levels include lower ones with the same labels and buckets. [Reference](/reference/server/metrics#metrics-levels).
 
 ### Changed
 
-- With **objectStore.provider: aliyunOSS**, the server keeps each replaced version of the manifest, the registry, node leases, and Flow definitions for at least 10 minutes instead of 60 seconds before it deletes it. Once every node runs this release, replacements stay correct while an OSS listing lags behind a write by less than 10 minutes; nodes of an older release still delete versions after 60 seconds. Each node keeps about 180 lease versions at the default **lease.duration**, with the same number of requests per renewal as before. The new **dexzd_object_store_versioned_listing_stale_total** counter, with a **site** label, counts listings that missed a version the node had just written; alert on any increase. [Reference](/reference/server/object-storage#aliyun-oss).
+- **objectStore.provider: aliyunOSS** retains replaced versions for at least 10 minutes, up from 60 seconds after all nodes upgrade. **dexzd_object_store_versioned_listing_stale_total** counts listings that miss newly written versions. [Reference](/reference/server/object-storage#aliyun-oss).
 
 ## 0.1.28 {#v0-1-28}
 
@@ -122,8 +117,8 @@ Released 2026-11-12 as [server-zd/v0.1.28](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **objectStore.provider: azureBlob** and **objectStore.provider: googleCloudStorage** let **serve** keep its object storage in Azure Blob Storage or Google Cloud Storage through each cloud's native API. Set the Azure storage account in **objectStore.azureAccount** and the container or bucket in **objectStore.bucket**. Credentials come from the environment or each cloud's default identity chain. Existing configurations keep using S3, and a prefix cannot switch providers. [Reference](/reference/server/configuration#azure-gcs).
-- **objectStore.hardDeleteStore.provider** selects the provider of the hard-delete destination: **s3**, **aliyunOSS**, **azureBlob**, or **googleCloudStorage**; **db9** is rejected. Without it, the destination uses **aliyunOSS** when the primary store does and **s3** otherwise, as before. **objectStore.hardDeleteStore.azureAccount** names its Azure storage account. [Reference](/reference/server/configuration#azure-gcs-switching).
+- **objectStore.provider: azureBlob** and **objectStore.provider: googleCloudStorage** add native storage for **serve** with environment or cloud credentials. S3 remains the default, and prefixes cannot switch providers. [Reference](/reference/server/configuration#azure-gcs).
+- **objectStore.hardDeleteStore.provider** picks the destination, defaulting to **aliyunOSS** for an OSS primary and **s3** otherwise. **objectStore.hardDeleteStore.azureAccount** sets the Azure account. [Reference](/reference/server/configuration#azure-gcs-switching).
 
 ## 0.1.27 {#v0-1-27}
 
@@ -131,7 +126,7 @@ Released 2026-11-12 as [server-zd/v0.1.27](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **objectStore.provider: aliyunOSS** lets **serve** keep its object storage in an Aliyun OSS bucket through the OSS S3-compatible endpoint, such as **https://s3.oss-cn-hangzhou.aliyuncs.com**. The bucket must never have had versioning enabled; startup checks this. Objects that the server replaces, such as the cluster manifest and node leases, are stored as versions that the server manages. Data cannot move between **aliyunOSS** and other providers. [Reference](/reference/server/object-storage#aliyun-oss).
+- **objectStore.provider: aliyunOSS** lets **serve** use Aliyun OSS via its S3-compatible endpoint. Use a bucket that has never enabled versioning and start with an empty prefix, since data cannot move across providers. [Reference](/reference/server/object-storage#aliyun-oss).
 
 ### Changed
 
@@ -153,15 +148,15 @@ Released 2026-11-11 as [server-zd/v0.1.26](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **FlowService.UploadFlowDefinitions**, **ListFlowDefinitions**, and **GetFlowDefinitions** store and read Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type, so that Dex Web can render Flows without a definition directory. An upload keeps the stored document unless the new one differs and has a strictly later **generated_at**, or the request sets **force**. Errors use the new **ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID** and **ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE**. [Reference](/reference/server/runtime-client#flow-definitions).
+- **FlowService.UploadFlowDefinitions**, **ListFlowDefinitions**, and **GetFlowDefinitions** let Dex Web use stored FDG 2.0 documents. A changed document replaces the stored one only with later **generated_at** or **force**. [Reference](/reference/server/runtime-client#flow-definitions).
 - **flowDefinitions.maxDefinitionBytes** (default 8 MiB) limits one uploaded Flow definition. [Reference](/reference/server/configuration#flow-definitions).
 - The only new persisted data is one object per uploaded Flow type under **PREFIX/registry/flow-definitions/**. It is outside the log and snapshots, and older server binaries never read it, so they keep working on the same prefix. [Reference](/reference/server/object-storage#flow-definitions).
-- **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/configuration#single-node-application-bucket).
+- **dev** and **local** add a separate loopback S3 bucket via **--application-s3-listen** and **--application-s3-bucket**. It stores data under **application-s3** and cannot expose the server's own bucket. [Reference](/reference/server/configuration#single-node-application-bucket).
 
 ### Fixed
 
-- A Step that a decision or an RPC cancels after its wait consumed Channel messages, but before its **Execute** result was saved, no longer loses those messages. They return to the front of their Channel or ChannelMap instance in their original order, and another wait can consume them, so a message can reach **Execute** twice. The server still drops them when the Flow close cancels the Step: a stop, a Flow timeout, a failure that closes the Flow, or a decision that cancels it and closes with **ForceComplete** or **ForceFail**. A Step that a commit cancels also no longer consumes that commit's own publications. [Reference](/reference/server/runtime-data#canceled-step-messages).
-- A **StartFlow** retry with the **request_id** that started the latest run of the Flow ID no longer goes through the ID reuse policy. It returns that run with **ignore_already_started_error**, or ALREADY_EXISTS / FLOW_ALREADY_STARTED without it. Before, **ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING** and **ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY** started a second run for the retry, and **ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING** terminated the run that the retried request had started. [Reference](/reference/go/start-flow-options#start-request-server-behavior).
+- Canceling a Step before its **Execute** result is saved returns consumed Channel messages to the front in order. A Flow close still drops them, and canceled Steps cannot consume the canceling commit's publications. [Reference](/reference/server/runtime-data#canceled-step-messages).
+- A **StartFlow** retry with the latest run's **request_id** bypasses ID reuse. It returns that run with **ignore_already_started_error**, or ALREADY_EXISTS / FLOW_ALREADY_STARTED without it. [Reference](/reference/go/start-flow-options#start-request-server-behavior).
 
 ## 0.1.25 {#v0-1-25}
 
@@ -169,7 +164,7 @@ Released 2026-11-09 as [server-zd/v0.1.25](https://github.com/superdurable/dex/r
 
 ### Breaking
 
-- **StepMethodFailure.backend_error** now holds the Flow error category name, **FLOW_ERROR_TYPE_WORKER_API_FAIL** or **FLOW_ERROR_TYPE_INTERNAL**, for a failed Step attempt. Before, it held the raw failure text. The Worker error detail, type, gRPC status, and stack trace are in the **original_worker_error** fields of **details**, and the server failure detail is in **details.detail**. The application failure text and history recorded before the upgrade are unchanged. Code that read the failure text from **backend_error** should read **details** instead.
+- **StepMethodFailure.backend_error** now holds **FLOW_ERROR_TYPE_WORKER_API_FAIL** or **FLOW_ERROR_TYPE_INTERNAL**, with older history and application text unchanged. Migrate to **details**, using **original_worker_error** fields for Worker detail, type, gRPC status, and stack trace or **details.detail** for server text.
 - Apply results change. Stop the standby and the active process, upgrade both binaries, then start the active process before the standby. A mixed-version pair diverges. [Reference](/reference/server/upgrades).
 
 ### Changed
@@ -184,7 +179,7 @@ Released 2026-11-09 as [server-zd/v0.1.24](https://github.com/superdurable/dex/r
 
 ### Added
 
-- **objectStore.provider: db9** lets **serve** keep its object storage in db9, a PostgreSQL-compatible database, instead of S3. Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Existing configurations keep using S3, and existing S3 data is not migrated. [Reference](/reference/server/object-storage#db9).
+- **objectStore.provider: db9** lets **serve** use db9 with **DEX_ZD_DB9_CONNECTION_STRING**. S3 remains the default and existing S3 data stays there. [Reference](/reference/server/object-storage#db9).
 
 ## 0.1.23 {#v0-1-23}
 
@@ -226,14 +221,14 @@ Released 2026-11-09 as [server-zd/v0.1.22](https://github.com/superdurable/dex/r
 
 ### Breaking
 
-- **dex-server-zd dev**, **dex-server-zd local**, and **dexcli dev** now default **history.offloadEnabled** to true. **serve** keeps false. An existing **dev** or **local** data directory turns offload on at its next start, and its running runs migrate their history to segments. Once offload has been on, do not run an earlier release on that data directory. To keep history on local disk, set **history.offloadEnabled** false in the overrides file before the first start. [Reference](/reference/server/configuration#history-offload).
+- **dex-server-zd dev**, **dex-server-zd local**, and **dexcli dev** now default **history.offloadEnabled** to true and migrate active histories on restart, while **serve** stays false. To keep local history, set **history.offloadEnabled** false before first start, as data directories with offload enabled require this release or later. [Reference](/reference/server/configuration#history-offload).
 - Stop the standby and the active process, upgrade both, then start. New log commands are unknown to older binaries, so a mixed pair halts. [Reference](/reference/server/upgrades).
 - GetHistoryEvents pages hold at most 1,000 events and return events only from the window start. Events before the window start are reported in the pruned range.
 - While history offload is on, a LoadBlobs request names at most 1,000 values. SDKs from 1.39.0 batch automatically.
 
 ### Added
 
-- History offload is complete but experimental. Run history is sealed into segments, uploaded under **history/** in the primary object store, read back for GetHistoryEvents, LoadBlobs, and time travel, and deleted from local disk after upload. Idle and closed runs clean up local history after **history.supersededValueGracePeriod** (default 10 minutes). [Reference](/reference/server/object-storage#history-offload).
+- Experimental history offload moves run history from disk to **history/** in the primary object store for reads and Time Travel. Idle and closed runs remove local history after **history.supersededValueGracePeriod**, default 10 minutes. [Reference](/reference/server/object-storage#history-offload).
 - Segments the window passed expire. Their objects are deleted one hour later when the per-run **FlowConfig.delete_expired_history_objects** is on, which is the default for **dev** and **local**. A periodic sweep removes orphaned **history/** objects.
 - The engine computes time travel and stages it for apply, so it works over history in object storage. A replay is bounded by **history.timeTravelReplayMemoryBytes** (default 1 GiB).
 - A history read cache is configured with **history.readCacheDirectory**, **history.readCacheMaxBytes** (default 1 GiB), and **history.objectReadConcurrency**.
@@ -266,7 +261,7 @@ Released 2026-11-07 as [server-zd/v0.1.21](https://github.com/superdurable/dex/r
 ### Changed
 
 - Only active state counts toward **limits.maxFlowStateBytes**. History and the superseded values kept for time travel no longer count.
-- **history.checkpointCommandInterval** is renamed to **history.checkpointCommandThreshold** and defaults to 1,000 commands, where it was 10,000. **history.checkpointMinWrittenBytes** is renamed to **history.checkpointRowWriteBytesThreshold**. The old keys work with a deprecation warning. [Reference](/reference/server/configuration#history-checkpoints).
+- **history.checkpointCommandInterval** becomes **history.checkpointCommandThreshold** (default 1,000, down from 10,000). **history.checkpointMinWrittenBytes** becomes **history.checkpointRowWriteBytesThreshold**, and old keys warn. [Reference](/reference/server/configuration#history-checkpoints).
 
 ### Fixed
 
