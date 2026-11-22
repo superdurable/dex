@@ -14,7 +14,7 @@ section: Eino adapter
   needs a Dex effect (`WithToolEffects`, `WithToolPolicies`,
   `ToolEffectDeclarer`, or `WithDefaultToolEffect`). Construction refuses
   `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`, `ReturnDirectly`, and the
-  summarization middleware. A stop that a retry would repeat, such as a second
+  summarization, automemory, and dream middlewares. A stop that a retry would repeat, such as a second
   model call in one Step or a turn at `MaxIterations`, ends the turn as failed
   with `TurnCompleted.TurnError`, with no paid retry. `WithToolSources` offers a
   tool source's tools, such as Connectors as tools from

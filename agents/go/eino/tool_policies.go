@@ -11,6 +11,7 @@ package dexeino
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -26,7 +27,8 @@ import (
 //	}
 //
 // WithToolPolicies and WithToolEffects override the declared effect. The
-// effect's default approval applies. Since 0.6.16.
+// effect's default approval applies. A tool that a Handler adds in BeforeAgent
+// may declare its effect the same way. Since 0.6.16.
 type ToolEffectDeclarer interface {
 	// DexToolEffect returns the tool's effect. It must be a valid dexagents.ToolEffect.
 	DexToolEffect() dexagents.ToolEffect
@@ -155,8 +157,15 @@ func (runner *Runner) checkToolEffects(tools agentTools) error {
 // modelCallToolPolicy returns the policy of one requested call of a name no source listing offered.
 //
 // A session policy wins, then the tool's effect, then the default. A name the
-// model was never offered fails fast in CallTool as an unknown tool.
-func (runner *Runner) modelCallToolPolicy(turn dexagents.AgentTurnContext, tools agentTools, offered map[string]bool, toolName string) dexagents.ToolPolicy {
+// model was never offered fails fast in CallTool as an unknown tool. The
+// effect of a Handler-added tool comes from handlerAdded, as in its tool Step.
+func (runner *Runner) modelCallToolPolicy(
+	turn dexagents.AgentTurnContext,
+	tools agentTools,
+	offered map[string]bool,
+	handlerAdded handlerAddedToolEffects,
+	toolName string,
+) dexagents.ToolPolicy {
 	_, isAgentTool := tools.lookup(toolName)
 	if runner.hasToolSources() && !isAgentTool && !offered[toolName] {
 		// As in the built-in loop: an unlisted name never reaches a source, so nobody approves it.
@@ -173,15 +182,45 @@ func (runner *Runner) modelCallToolPolicy(turn dexagents.AgentTurnContext, tools
 		return turn.ResolveToolPolicy(entry.name, entry.effect)
 	}
 	if offered[toolName] {
-		// A Handler added this tool at run time, so only WithToolEffects can name its effect.
-		var declared *dexagents.ToolEffect
-		if effect, isDeclared := runner.options.toolEffects[toolName]; isDeclared {
-			declared = &effect
+		// A Handler added this tool at run time, so WithToolEffects or its ToolEffectDeclarer names its effect.
+		if handlerAdded.lookupErr != nil {
+			// The tool Step may find a stricter effect than any guess, so ask a person.
+			unclassified := dexagents.ToolEffectUnclassified
+			return turn.ResolveToolPolicy(toolName, &unclassified)
 		}
-		return turn.ResolveToolPolicy(toolName, declared)
+		if effect, isAdded := handlerAdded.effects[toolName]; isAdded {
+			return turn.ResolveToolPolicy(toolName, effect)
+		}
 	}
 	isApprovalRequired := false
 	return dexagents.ToolPolicy{Effect: dexagents.ToolEffectRead, RequiresApproval: &isApprovalRequired}
+}
+
+// handlerAddedToolEffects are the effects of the tools the Handlers' BeforeAgent hooks add, by name.
+type handlerAddedToolEffects struct {
+	effects   map[string]*dexagents.ToolEffect
+	lookupErr error
+}
+
+// findHandlerAddedToolEffects returns the effects of the tools that the Handlers' BeforeAgent hooks add.
+func (runner *Runner) findHandlerAddedToolEffects(ctx context.Context, config *agentConfig, tools agentTools) handlerAddedToolEffects {
+	extended, err := handlerAddedTools(ctx, config, tools.baseTools())
+	if err != nil {
+		runner.options.logger.Warn("dexeino: a Handler's BeforeAgent failed while reading the effect of a tool it adds",
+			slog.Any("error", err))
+		return handlerAddedToolEffects{lookupErr: err}
+	}
+	found := handlerAddedToolEffects{effects: map[string]*dexagents.ToolEffect{}}
+	for _, candidate := range extended {
+		entry, err := runner.describeAgentTool(ctx, candidate)
+		if err != nil {
+			continue
+		}
+		if _, isAgentTool := tools.byName[entry.name]; !isAgentTool {
+			found.effects[entry.name] = entry.effect
+		}
+	}
+	return found
 }
 
 // toolStepPolicy returns the policy this deploy gives a tool the tool Step found.
@@ -210,4 +249,9 @@ func effectStrictness(effect dexagents.ToolEffect) int {
 // isStricterThanRecord reports whether this deploy gives the tool a stricter effect than its record has.
 func isStricterThanRecord(current dexagents.ToolPolicy, record dexagents.AgentToolCall) bool {
 	return effectStrictness(current.Effect) > effectStrictness(record.Effect)
+}
+
+// needsApprovalTheRecordLacks reports whether this deploy's policy needs an approval the call was recorded without.
+func needsApprovalTheRecordLacks(current dexagents.ToolPolicy, record dexagents.AgentToolCall) bool {
+	return current.IsApprovalRequired() && !record.RequiresApproval
 }

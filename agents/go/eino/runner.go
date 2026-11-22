@@ -25,8 +25,15 @@ import (
 	dexagents "github.com/superdurable/dex/agents/go/core"
 )
 
-// summarizationPackagePath is the Eino middleware that makes its own model call before each model call.
-const summarizationPackagePath = "github.com/cloudwego/eino/adk/middlewares/summarization"
+// modelCallingHandlerPackages are Eino middlewares that make their own model calls inside a Step, with the reason.
+var modelCallingHandlerPackages = map[string]string{
+	"github.com/cloudwego/eino/adk/middlewares/summarization": "the summarization middleware makes its own model call " +
+		"before a model call",
+	"github.com/cloudwego/eino/adk/middlewares/automemory": "the automemory middleware makes its own model calls " +
+		"to select memory topics and extract memories",
+	"github.com/cloudwego/eino/adk/middlewares/automemory/dream": "the dream middleware makes its own model calls " +
+		"to consolidate memories",
+}
 
 // defaultMaxIterations is Eino's default ChatModelAgentConfig.MaxIterations.
 const defaultMaxIterations = 20
@@ -132,8 +139,8 @@ type runState struct {
 // tools share a name, when the configuration makes more than one model call
 // in a Step or runs a tool inside RunModel (ModelRetryConfig,
 // ModelFailoverConfig, Exit, ToolsConfig.ReturnDirectly, and the
-// summarization middleware are refused), or when the WithToolSources sources
-// are refused (see WithToolSources). Since 0.6.16.
+// summarization, automemory, and dream middlewares are refused), or when the
+// WithToolSources sources are refused (see WithToolSources). Since 0.6.16.
 func NewRunner(config *adk.ChatModelAgentConfig, options ...Option) (*Runner, error) {
 	if config == nil {
 		return nil, errors.New("dexeino: NewRunner needs an Eino ChatModelAgentConfig")
@@ -230,12 +237,16 @@ func (runner *Runner) BuildUserMessage(text string) (dexagents.FrameworkMessage,
 //
 // A stop that a retry would repeat ends the turn as failed at once, with a
 // *dexagents.TurnCompleted whose TurnError says why: a configuration from the
-// AgentConfigBuilder that NewRunner would refuse, a turn at the agent's
-// MaxIterations, a second model call in the Step, an Eino interrupt the
-// adapter did not raise, or tool calls that changed after the model call. Its
-// NewMessages hold only the unstored tool results, so every stored call keeps
-// its result; the model message of a refused call is not stored. The usage of
-// a model call that ran is recorded, and no retry pays for it again.
+// AgentConfigBuilder that NewRunner would refuse (a refused setting or
+// middleware, two tools of one name, an alias that names another tool, or a
+// tool without a Dex effect), a turn at the agent's MaxIterations, a second
+// model call in the Step, an Eino interrupt the adapter did not raise, or
+// tool calls that changed after the model call. Its NewMessages hold only the
+// unstored tool results, so every stored call keeps its result; the model
+// message of a refused call is not stored. The usage of a model call that ran
+// is recorded, and no retry pays for it again. When the one model call failed
+// and a wrapper then tried a second, the failed call's error is returned
+// instead, so the session handles it as any model error.
 //
 // Since 0.6.16.
 func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurnContext) (dexagents.AgentTurnOutcome, error) {
@@ -258,17 +269,14 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseUnsupportedConfig(config); err != nil {
+	tools, err := runner.checkModelCallConfiguration(ctx, config)
+	if err != nil {
 		return endTurnAsFailed("the agent configuration cannot run in Dex Step mode: "+err.Error(),
 			dexagents.AgentUsage{}, unstoredResults)
 	}
 	if limit := maxModelCallsPerTurn(config); modelCalls >= limit {
 		return endTurnAsFailed(fmt.Sprintf(
 			"the turn reached the Eino agent's MaxIterations of %d model calls", limit), dexagents.AgentUsage{}, unstoredResults)
-	}
-	tools, err := runner.assembleAgentTools(ctx, config)
-	if err != nil {
-		return nil, err
 	}
 	sourceTools, sourceStubs, err := runner.listSourceTools(ctx, turn, tools)
 	if err != nil {
@@ -285,8 +293,8 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 	}
 	einoRunner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: runner.options.isStreaming})
 	drained := drainModelRun(einoRunner.Run(ctx, input))
-	return runner.modelCallOutcome(modelCallResult{
-		turn: turn, tools: tools, sourceTools: sourceTools, offeredToolCount: len(tools.ordered) + len(sourceStubs),
+	return runner.modelCallOutcome(ctx, modelCallResult{
+		turn: turn, config: config, tools: tools, sourceTools: sourceTools, offeredToolCount: len(tools.ordered) + len(sourceStubs),
 		run: run, drained: drained, modelCalls: modelCalls, unstoredResults: unstoredResults,
 	})
 }
@@ -294,6 +302,7 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 // modelCallResult is what modelCallOutcome turns into the Step's outcome.
 type modelCallResult struct {
 	turn             dexagents.AgentTurnContext
+	config           *agentConfig
 	tools            agentTools
 	sourceTools      *dexagents.SourceToolListing
 	offeredToolCount int
@@ -303,7 +312,7 @@ type modelCallResult struct {
 	unstoredResults  []*schema.Message
 }
 
-func (runner *Runner) modelCallOutcome(result modelCallResult) (dexagents.AgentTurnOutcome, error) {
+func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResult) (dexagents.AgentTurnOutcome, error) {
 	run, drained := result.run, result.drained
 	usage := run.modelCallUsage()
 	run.mutex.Lock()
@@ -311,6 +320,10 @@ func (runner *Runner) modelCallOutcome(result modelCallResult) (dexagents.AgentT
 	offered := maps.Clone(run.offeredTools)
 	run.mutex.Unlock()
 	if isSecondCallTried || errors.Is(drained.err, errSecondModelCall) {
+		if failure := run.failedModelCall(); failure != nil {
+			// The call that ran failed, so its error, not the refused retry, decides what the session does.
+			return nil, fmt.Errorf("the Eino agent's model call failed: %w", exposeModelHTTPStatus(failure))
+		}
 		return endTurnAsFailed("the Eino agent tried a second model call in one RunModel Step; "+
 			"a Handler or model wrapper that calls the model again is not supported", usage, result.unstoredResults)
 	}
@@ -346,9 +359,10 @@ func (runner *Runner) modelCallOutcome(result modelCallResult) (dexagents.AgentT
 	if err != nil {
 		return nil, err
 	}
+	handlerAdded := runner.handlerAddedToolEffectsOfCalls(ctx, result, offered, message.ToolCalls)
 	toolCalls := make([]dexagents.DeferredToolCall, 0, len(message.ToolCalls))
 	for _, call := range message.ToolCalls {
-		deferred, err := runner.deferredToolCall(result, offered, call)
+		deferred, err := runner.deferredToolCall(result, offered, handlerAdded, call)
 		if err != nil {
 			return nil, err
 		}
@@ -363,7 +377,12 @@ func (runner *Runner) modelCallOutcome(result modelCallResult) (dexagents.AgentT
 }
 
 // deferredToolCall builds a call through the source that listed its tool, or as a call of an agent tool.
-func (runner *Runner) deferredToolCall(result modelCallResult, offered map[string]bool, call schema.ToolCall) (dexagents.DeferredToolCall, error) {
+func (runner *Runner) deferredToolCall(
+	result modelCallResult,
+	offered map[string]bool,
+	handlerAdded handlerAddedToolEffects,
+	call schema.ToolCall,
+) (dexagents.DeferredToolCall, error) {
 	arguments := call.Function.Arguments
 	if strings.TrimSpace(arguments) == "" {
 		arguments = "{}"
@@ -381,8 +400,26 @@ func (runner *Runner) deferredToolCall(result modelCallResult, offered map[strin
 		ToolCallID: call.ID,
 		ToolName:   call.Function.Name,
 		Arguments:  arguments,
-		Policy:     runner.modelCallToolPolicy(result.turn, result.tools, offered, call.Function.Name),
+		Policy:     runner.modelCallToolPolicy(result.turn, result.tools, offered, handlerAdded, call.Function.Name),
 	}, nil
+}
+
+// handlerAddedToolEffectsOfCalls reads the effects of Handler-added tools, only when a call names one.
+func (runner *Runner) handlerAddedToolEffectsOfCalls(
+	ctx context.Context,
+	result modelCallResult,
+	offered map[string]bool,
+	calls []schema.ToolCall,
+) handlerAddedToolEffects {
+	for _, call := range calls {
+		name := call.Function.Name
+		_, isAgentTool := result.tools.lookup(name)
+		isSourceTool := result.sourceTools != nil && result.sourceTools.HasTool(name)
+		if offered[name] && !isAgentTool && !isSourceTool {
+			return runner.findHandlerAddedToolEffects(ctx, result.config, result.tools)
+		}
+	}
+	return handlerAddedToolEffects{}
 }
 
 // endTurnAsFailed ends the turn without a final answer, for a reason a retry would repeat.
@@ -413,7 +450,10 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // compose.GetToolCallID and ToolCallContextFrom work inside the tool. A tool
 // the deploy no longer has, or that the model invented, returns a
 // *dexagents.ToolExecutionError "unknown tool <name>", so the model sees why.
-// A *dexagents.ToolExecutionError anywhere in the tool's error chain is the
+// A call whose record has a weaker effect than this deploy gives its tool, or
+// no approval where this deploy's policy needs one, returns a
+// *dexagents.ToolExecutionError without running, so the model may call it
+// again under the current policy. A *dexagents.ToolExecutionError anywhere in the tool's error chain is the
 // call's definite failure. Any other error fails the attempt, and the session
 // decides the outcome from the call's effect. Since 0.6.16.
 func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagents.DeferredToolExecution) (dexagents.DeferredToolOutcome, error) {
@@ -442,8 +482,13 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 	if !isKnown {
 		return nil, &dexagents.ToolExecutionError{Message: "unknown tool " + record.ToolName}
 	}
-	if isStricterThanRecord(runner.toolStepPolicy(record.ToolName, entry), record) {
+	current := runner.toolStepPolicy(record.ToolName, entry)
+	if isStricterThanRecord(current, record) {
 		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf("tool %s now has a stricter effect than when the "+
+			"model called it, so it did not run; call it again to run it under its current policy", record.ToolName)}
+	}
+	if needsApprovalTheRecordLacks(current, record) {
+		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf("tool %s now needs an approval it did not have when the "+
 			"model called it, so it did not run; call it again to run it under its current policy", record.ToolName)}
 	}
 	node, err := compose.NewToolNode(ctx, toolStepNodeConfig(config, nodeTools))
@@ -525,14 +570,8 @@ func (runner *Runner) checkConfiguration(ctx context.Context) (*dexagents.ToolSo
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseUnsupportedConfig(config); err != nil {
-		return nil, fmt.Errorf("dexeino: %w", err)
-	}
-	tools, err := runner.assembleAgentTools(ctx, config)
+	tools, err := runner.checkModelCallConfiguration(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("dexeino: %w", err)
-	}
-	if err := runner.checkToolEffects(tools); err != nil {
 		return nil, fmt.Errorf("dexeino: %w", err)
 	}
 	router, err := newToolSourceRouter(runner.options, reservedToolNames(tools))
@@ -550,6 +589,21 @@ func (runner *Runner) checkConfiguration(ctx context.Context) (*dexagents.ToolSo
 		return nil, fmt.Errorf("dexeino: Eino refuses the agent configuration: %w", err)
 	}
 	return router, nil
+}
+
+// checkModelCallConfiguration applies the construction checks to one model call's configuration and returns its tools.
+func (runner *Runner) checkModelCallConfiguration(ctx context.Context, config *agentConfig) (agentTools, error) {
+	if err := refuseUnsupportedConfig(config); err != nil {
+		return agentTools{}, err
+	}
+	tools, err := runner.assembleAgentTools(ctx, config)
+	if err != nil {
+		return agentTools{}, err
+	}
+	if err := runner.checkToolEffects(tools); err != nil {
+		return agentTools{}, err
+	}
+	return tools, nil
 }
 
 // refuseUnsupportedConfig returns an error for a configuration that would make several model calls in a Step or run a tool there.
@@ -580,9 +634,8 @@ func refuseUnsupportedConfig(config *agentConfig) error {
 		for handlerType.Kind() == reflect.Pointer {
 			handlerType = handlerType.Elem()
 		}
-		if handlerType.PkgPath() == summarizationPackagePath {
-			return errors.New("the summarization middleware makes its own model call before a model call; " +
-				"Dex Step mode makes one model call per RunModel Step")
+		if reason, isRefused := modelCallingHandlerPackages[handlerType.PkgPath()]; isRefused {
+			return errors.New(reason + "; Dex Step mode makes one model call per RunModel Step")
 		}
 	}
 	return nil

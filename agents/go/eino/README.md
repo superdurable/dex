@@ -30,8 +30,11 @@ they are; the tests use `github.com/cloudwego/eino-ext/components/model/openai`.
 Connectors as tools use the core's package `connectortools`, which requires
 `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0 or later.
 
-The Go agents modules are not tagged yet. Until they are, depend on a commit
-of `main`.
+Each agents release tags this module as `agents/go/eino/v<version>`, starting
+with 0.6.16, on the same commit as the Go core tag it requires. Install a
+tagged version. A commit of `main` between releases does not resolve as a
+dependency, because its `go.mod` requires a core version that is not tagged
+yet, and Go ignores the module's `replace` of the core when you depend on it.
 
 ## Example
 
@@ -227,10 +230,15 @@ and may set `RequiresApproval`.
 
 A tool that a Handler adds in `BeforeAgent`, such as a filesystem or plan
 middleware tool, is not known at construction. It gets its effect from
-`WithToolEffects` or `WithToolPolicies` by name, or else the default effect,
-`unclassified` unless you set one. Pass policies and the default effect with
-this package's options, not through `WithSessionOptions`: the adapter reads
-them, and the session receives them too.
+`WithToolPolicies` or `WithToolEffects` by name, then from its own
+`DexToolEffect` method, or else the default effect, `unclassified` unless you
+set one. To find the tool, the adapter calls the Handlers' `BeforeAgent`
+again outside the Eino run: in `RunModel` when the model calls such a tool,
+to read its effect, and in its tool Step, to run it. Pass policies and the
+default effect with this package's options, not through `WithSessionOptions`:
+the adapter reads them, and the session receives them too. A tool Step
+compares the call's record with them, so a policy that only the session
+knows could stop its calls from running.
 
 A tool reports a failure that settles the call by returning a
 `*dexagents.ToolExecutionError`, directly or wrapped in its own error type. The
@@ -317,28 +325,33 @@ removes a tool, or changes the instruction, never breaks an open turn.
 
 Details that follow from it:
 
-- **Tool call IDs.** An empty ID, an ID with `/`, or an ID already used in the
-  turn is replaced with `<StepExecutionID>-<index>` before the message is
-  stored, so a retry of the same attempt stores the same IDs. Other IDs are
-  kept.
+- **Tool call IDs.** An empty or blank ID, an ID with `/`, or an ID already
+  used in the turn is replaced with `<StepExecutionID>-<index>` before the
+  message is stored, so a retry of the same attempt stores the same IDs. Other
+  IDs are kept.
 - **Unknown tools.** The adapter sets `UnknownToolsHandler`. A tool the model
   invents, or one a deploy renamed or removed, is deferred like a read (as
   `unclassified` without an approval when the agent has tool sources), and
   its tool Step answers `unknown tool <name>`, so the model sees why. On a later
   attempt of a write, the core records `outcome_unknown`, because the first
   attempt may have run under the old name.
-- **Stricter effects.** A tool Step does not run a call whose record has a
-  weaker effect than this deploy gives the tool, such as a name the model
-  invented that a later deploy added as a write. The model sees why and may
-  call it again under the new policy.
+- **Stricter policies.** A tool Step does not run a call whose record has a
+  weaker effect than this deploy gives the tool, or no approval where this
+  deploy's policy needs one, such as a name the model invented that a later
+  deploy added as a write. The model sees why and may call it again under the
+  new policy, which records the call with its approval.
 - **One model call.** A Handler or model wrapper that calls the model a second
   time ends the turn as failed before the second call reaches the model. The
-  one call that ran is billed, and no retry pays for it again.
+  one call that ran is billed, and no retry pays for it again. When that call
+  failed, its error reaches the session instead, as a model error: a 429 or
+  5xx backs off and `RunModel` retries, and no usage is billed for it.
 - **Turns that end as failed.** A stop that a retry would repeat ends the turn
   at once with `TurnCompleted.TurnError`: the second model call above, a turn
-  at `MaxIterations`, an Eino interrupt the adapter did not raise, tool calls
-  that a Handler changed after the model call, and a configuration from the
-  `AgentConfigBuilder` that construction would refuse. The session sets
+  at `MaxIterations`, an Eino interrupt that a Handler raised in `RunModel`,
+  tool calls that a Handler changed after the model call, and a model call
+  configuration from the `AgentConfigBuilder` that construction would refuse:
+  a refused setting or middleware, two tools of one name, an alias that names
+  another tool, or a tool without a Dex effect. The session sets
   `LastTurnError` to the reason and writes `turn_failed`; the next turn that
   completes clears it. The tool results the turn has not stored yet are
   stored, so every stored call keeps its result. The model message of the
@@ -354,7 +367,9 @@ Details that follow from it:
   and reasoning arrive as `text_delta` and `reasoning_delta` events. Without it
   the model call uses `Generate`, and the whole text is one delta.
 - **Usage.** `ResponseMeta.Usage` maps to the session's usage: prompt, completion,
-  cached prompt, and reasoning tokens.
+  cached prompt, and reasoning tokens. A streamed call keeps each field's
+  largest value across chunks, as Eino merges them, so input tokens reported
+  on the first chunk count.
 - **Turn limit.** `MaxIterations` (Eino's default 20) caps the model calls of one
   turn, as it caps one Eino run. A turn at the cap ends as failed with
   `TurnCompleted.TurnError` before another model call.
@@ -362,9 +377,12 @@ Details that follow from it:
 ## Messages
 
 Each stored `framework_item` is `{"type":"eino_message","format":1,"message":{...}}`,
-the Eino `schema.Message` as `encoding/json` writes it. Extra keys that Eino
-ADK sets for itself, such as `_eino_msg_id`, are dropped, so a retried model
-call stores the same bytes. Only user, assistant, and tool messages are
+the Eino `schema.Message` as `encoding/json` writes it. The Extra keys that
+Eino ADK sets for itself, `_eino_msg_id` and keys that start with
+`_eino_adk_`, are dropped, so a retried model call stores the same bytes.
+The other Extra keys are kept, including the replay keys of eino-ext model
+clients, such as the thinking and signature keys of the Claude client, so the
+next model call sends them back. Only user, assistant, and tool messages are
 stored; the instruction is rebuilt for every model call. `EncodeMessage` and
 `DecodeMessage` read and write these items.
 
@@ -384,12 +402,12 @@ its single tool call or result, when it has one.
 | Eino feature | Under Dex |
 | --- | --- |
 | `adk.Runner`, `TurnLoop`, `CheckPointStore`, `WithCheckPointID`, `ResumeWithParams` | The session Flow. Dex stores the messages and resumes from them |
-| Human-in-the-loop `tool.Interrupt` and `compose.Interrupt` | Dex approvals: give the tool `RequiresApproval` or a write effect, and answer with `resolve_interrupt`. An interrupt the adapter did not raise ends the turn as failed |
+| Human-in-the-loop `tool.Interrupt` and `compose.Interrupt` | Dex approvals: give the tool `RequiresApproval` or a write effect, and answer with `resolve_interrupt`. An interrupt that a Handler raises in `RunModel` ends the turn as failed. An interrupt that a tool raises fails its tool Step attempt, so the call's effect decides the outcome: a `read` retries and then records `failed`, and a write that may have run records `outcome_unknown` |
 | `ModelRetryConfig` | `RunModel` retries; tune it with `WithModelRetryPolicy`. Refused at construction |
 | `ModelFailoverConfig` | Choose the model per call with an `AgentConfigBuilder`. Refused at construction |
 | Sub-agents and `transfer_to_agent`, supervisor, plan-execute | Not supported: they make several model calls in one Step. Wrap a sub-agent as a tool instead |
 | `ToolsConfig.ReturnDirectly`, `Exit` | Refused at construction |
-| Summarization middleware | Refused at construction: it makes its own model call |
+| Summarization middleware, and the v0.10 automemory and dream middlewares | Refused at construction: they make their own model calls |
 | `UnknownToolsHandler` | Replaced by the adapter's, which answers `unknown tool <name>` |
 | Eino's tool event sender | `AgentEvents`; the session writes tool call events |
 
@@ -421,7 +439,9 @@ its single tool call or result, when it has one.
   default `GenModelInput` does not format the instruction.
 - **Message fidelity.** Stored messages round-trip through JSON. Replay fields
   that providers need, such as reasoning signatures, survive. Typed Go values in
-  `Extra` come back as JSON maps.
+  `Extra` come back as JSON maps. Handlers that run after the model call, and
+  the rest of the Eino run, already see the model's message that way, because
+  Eino copies the run state with a serializer that refuses unregistered types.
 - **Tools must be safe for concurrent use**, because the calls of one model
   response run as parallel Steps, possibly in one Worker.
 - **Go core gaps.** The adapter runs on the Go core, which has no steering or
@@ -440,7 +460,9 @@ tests use a test Connector whose operations run behind real
 `sdkgo.AgentTool`s. The integration tests run
 Workers as child processes and kill them to test crashes. It runs the suite a
 second time against the newest Eino v0.10.0 alpha in a temporary copy of the
-module, with build tag `eino_v010`.
+module, with build tag `eino_v010`, plus the tests in `testdata/eino_v010` of
+packages that only v0.10 has. A failed version lookup or an alpha that does
+not resolve fails the run; only an empty alpha list skips the second pass.
 
 ```bash
 DEXCLI=/path/to/dexcli ./ci.sh

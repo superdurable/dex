@@ -52,9 +52,14 @@ go run ../../../sdk-go/scripts/check-public-docs.go .
 go test -race -count=1 -v ./...
 
 # The second pass runs the same suite against the newest Eino v0.10.0 alpha in a temporary copy.
-alpha_version="$(go list -m -versions github.com/cloudwego/eino 2>/dev/null | tr ' ' '\n' | grep '^v0\.10\.0-alpha\.' | sort -t. -k4 -n | tail -1 || true)"
+# Only an empty alpha list skips it; a failed lookup or a listed alpha that does not resolve fails CI.
+if ! eino_versions="$(go list -m -versions github.com/cloudwego/eino)"; then
+  echo "Cannot list the github.com/cloudwego/eino versions for the Eino v0.10.0 alpha pass." >&2
+  exit 1
+fi
+alpha_version="$(tr ' ' '\n' <<<"$eino_versions" | grep '^v0\.10\.0-alpha\.' | sort -t. -k4 -n | tail -1 || true)"
 if [[ -z "$alpha_version" ]]; then
-  echo "Skipping the Eino v0.10.0 alpha pass: no github.com/cloudwego/eino v0.10.0-alpha.* version resolves." >&2
+  echo "Skipping the Eino v0.10.0 alpha pass: github.com/cloudwego/eino lists no v0.10.0-alpha.* version." >&2
   exit 0
 fi
 core_dir="$(cd ../core && pwd)"
@@ -62,11 +67,10 @@ alpha_dir="$(mktemp -d)"
 trap 'rm -rf "$alpha_dir"' EXIT
 cp -R . "$alpha_dir/eino"
 cd "$alpha_dir/eino"
+# Tests of packages that only Eino v0.10 has live in testdata, which the pinned module ignores.
+cp testdata/eino_v010/*_test.go .
 go mod edit -replace "github.com/superdurable/dex/agents/go/core=$core_dir"
-if ! go get "github.com/cloudwego/eino@$alpha_version"; then
-  echo "Skipping the Eino v0.10.0 alpha pass: github.com/cloudwego/eino@$alpha_version does not resolve." >&2
-  exit 0
-fi
+go get "github.com/cloudwego/eino@$alpha_version"
 go mod tidy
 echo "Eino alpha pass: github.com/cloudwego/eino $alpha_version"
 go vet -tags eino_v010 ./...

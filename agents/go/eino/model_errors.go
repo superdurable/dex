@@ -9,6 +9,7 @@
 package dexeino
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 )
@@ -30,7 +31,9 @@ const genaiPackagePath = "google.golang.org/genai"
 // the turn at once, as for the Dex model clients. Response is set when the
 // original error carried response headers, so a Retry-After header still sets
 // the wait. Unwrap returns the original error, so errors.As still finds the
-// provider's own error type.
+// provider's own error type. A model wrapper of your own may return one, such
+// as &dexeino.ModelAPIError{StatusCode: 503}, to give the session a status; its
+// text is then "the model API answered HTTP 503", and Unwrap returns nil.
 //
 // Since 0.6.16.
 type ModelAPIError struct {
@@ -41,12 +44,15 @@ type ModelAPIError struct {
 	cause    error
 }
 
-// Error returns the original error's text.
+// Error returns the original error's text, or "the model API answered HTTP <status>" for an error built without one.
 func (modelError *ModelAPIError) Error() string {
+	if modelError.cause == nil {
+		return fmt.Sprintf("the model API answered HTTP %d", modelError.StatusCode)
+	}
 	return modelError.cause.Error()
 }
 
-// Unwrap returns the original error.
+// Unwrap returns the original error, or nil for an error built without one.
 func (modelError *ModelAPIError) Unwrap() error {
 	return modelError.cause
 }

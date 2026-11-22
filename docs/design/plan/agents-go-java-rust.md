@@ -230,10 +230,10 @@ Connectors as tools (the decision above) and the adapter itself.
   and the instruction for the rest of a turn, and grows four to six times the
   history.
 - **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
-  `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, and any
-  tool without a Dex effect. A model wrapper that tries a second model call
-  ends the turn as failed with `TurnCompleted.TurnError`, with the one call
-  billed and no paid retry.
+  `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, the
+  v0.10 automemory and dream middlewares, and any tool without a Dex effect.
+  A model wrapper that tries a second model call ends the turn as failed with
+  `TurnCompleted.TurnError`, with the one call billed and no paid retry.
 - **Connectors as tools:** `dexeino.WithToolSources` offers a tool source's
   tools to the model beside the agent's own, and runs each call through the
   source in the Dex tool Step, before and outside Eino's tool node, as

@@ -117,11 +117,11 @@ Notes:
   `ToolCallMiddlewares`, `AgentMiddleware.WrapToolCall`, and Handler tool
   wrappers, never around the interrupt. Configurations that make several model
   calls in one Step (`ModelRetryConfig`, `ModelFailoverConfig`, the
-  summarization middleware) or end a turn on a tool (`ReturnDirectly`, `Exit`)
-  refuse to build, and Eino sub-agent transfer is not supported. A stop that
-  a retry would repeat, such as a second model call in one Step or a turn at
-  `MaxIterations`, ends the turn with `TurnCompleted.TurnError`, so no paid
-  retry follows. Tool source tools (`WithToolSources`, such as Connectors as
+  summarization, automemory, and dream middlewares) or end a turn on a tool
+  (`ReturnDirectly`, `Exit`) refuse to build, and Eino sub-agent transfer is
+  not supported. A stop that a retry would repeat, such as a second model call
+  in one Step or a turn at `MaxIterations`, ends the turn with
+  `TurnCompleted.TurnError`, so no paid retry follows. Tool source tools (`WithToolSources`, such as Connectors as
   tools) are offered as Eino tools whose bodies never run; the tool Step
   routes their calls through `ToolSourceRouter` before and outside the
   `compose.ToolsNode`, with the source's `ToolSourceReference`, while Eino's

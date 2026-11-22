@@ -33,8 +33,11 @@ const MessageItemType = "eino_message"
 // Since 0.6.16.
 const MessageItemFormat = 1
 
-// einoInternalExtraPrefix starts the Message.Extra keys that Eino ADK sets for itself, such as a random message ID.
-const einoInternalExtraPrefix = "_eino_"
+// einoADKMessageIDKey is the Message.Extra key of the random message ID that Eino ADK sets.
+const einoADKMessageIDKey = "_eino_msg_id"
+
+// einoADKExtraPrefix starts the other Message.Extra keys that Eino ADK sets for itself.
+const einoADKExtraPrefix = "_eino_adk_"
 
 type storedMessageItem struct {
 	Type    string          `json:"type"`
@@ -46,9 +49,11 @@ type storedMessageItem struct {
 //
 // The framework_item is a MessageItemType envelope of the message as
 // encoding/json writes it, so the stored bytes do not depend on the Go
-// toolchain. Extra keys that Eino ADK sets for itself, which start with
-// "_eino_", are dropped, so a retried model call stores the same bytes. The
-// role must be user, assistant, or tool: Dex stores no system messages. The
+// toolchain. The Extra keys that Eino ADK sets for itself, "_eino_msg_id"
+// and keys that start with "_eino_adk_", are dropped, so a retried model call
+// stores the same bytes. Other Extra keys are kept, including the replay keys
+// of eino-ext model clients, such as the thinking signature of the Claude
+// client. The role must be user, assistant, or tool: Dex stores no system messages. The
 // Text, ToolCallID, ToolName, ToolArguments, and ToolOutput fields describe the
 // message for snapshots; the tool fields are set only when the message carries
 // exactly one tool call or result. It returns an error for another role or a
@@ -192,7 +197,7 @@ func sessionRole(role schema.RoleType) (dexagents.MessageRole, error) {
 	}
 }
 
-// withoutEinoInternalExtra returns a copy of message without the Extra keys Eino sets for itself.
+// withoutEinoInternalExtra returns a copy of message without the Extra keys Eino ADK sets for itself.
 func withoutEinoInternalExtra(message *schema.Message) *schema.Message {
 	copied := *message
 	copied.Extra = withoutInternalKeys(message.Extra)
@@ -210,7 +215,9 @@ func withoutInternalKeys(extra map[string]any) map[string]any {
 		return nil
 	}
 	kept := maps.Clone(extra)
-	maps.DeleteFunc(kept, func(key string, _ any) bool { return strings.HasPrefix(key, einoInternalExtraPrefix) })
+	maps.DeleteFunc(kept, func(key string, _ any) bool {
+		return key == einoADKMessageIDKey || strings.HasPrefix(key, einoADKExtraPrefix)
+	})
 	if len(kept) == 0 {
 		return nil
 	}

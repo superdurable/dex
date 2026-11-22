@@ -113,6 +113,8 @@ type turnState struct {
 	runState *string
 	events   []dexagents.AgentEvent
 	attempt  int64
+	// defaultToolEffect is the session's default effect; "" means unclassified.
+	defaultToolEffect dexagents.ToolEffect
 }
 
 func newTurnState(t *testing.T, runner *dexeino.Runner, userText string) *turnState {
@@ -134,10 +136,14 @@ func (state *turnState) store(messages ...dexagents.FrameworkMessage) {
 }
 
 func (state *turnState) context() dexagents.AgentTurnContext {
+	defaultToolEffect := state.defaultToolEffect
+	if defaultToolEffect == "" {
+		defaultToolEffect = dexagents.ToolEffectUnclassified
+	}
 	return dexagents.AgentTurnContext{
 		FlowID: "session", TurnID: state.turnID, Attempt: state.attempt, Messages: state.messages,
 		FrameworkRunState: state.runState, ToolCalls: state.records, ToolPolicies: map[string]dexagents.ToolPolicy{},
-		DefaultToolEffect: dexagents.ToolEffectUnclassified, SessionSettings: map[string]any{},
+		DefaultToolEffect: defaultToolEffect, SessionSettings: map[string]any{},
 		Events: dexagents.NewAgentEventWriter(func(event dexagents.AgentEvent) error {
 			state.events = append(state.events, event)
 			return nil

@@ -269,3 +269,63 @@ func TestConstructionRefusesCollidingToolSources(t *testing.T) {
 	_, err := dexeino.NewRunner(newConfig(), effects, dexeino.WithToolSources(cachedSource{noteSource()}))
 	require.NoError(t, err, "a valid cached tool builds")
 }
+
+// A source call runs through its source alone, without the AgentConfigBuilder, so a builder that
+// fails in a tool Step never fails the attempt of a connector write.
+func TestSourceCallRunsWithoutTheBuilder(t *testing.T) {
+	scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+		return toolCallMessage(call("call_note", "ledger_post_note", `{"text":"hi"}`)), nil
+	}}
+	source := noteSource()
+	var mutex sync.Mutex
+	var builds []dexeino.AgentBuildContext
+	runner, err := dexeino.NewRunnerWithBuilder(func(_ context.Context, build dexeino.AgentBuildContext) (*adk.ChatModelAgentConfig, error) {
+		mutex.Lock()
+		builds = append(builds, build)
+		mutex.Unlock()
+		if build.Purpose == dexeino.BuildPurposeToolCall {
+			return nil, errors.New("the builder is down")
+		}
+		return &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted}, nil
+	}, dexeino.WithToolSources(source))
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "note")
+	state.runModel(runner)
+	require.Empty(t, state.runTools(runner))
+	require.Len(t, source.executions(), 1)
+	require.Equal(t, []dexeino.BuildPurpose{dexeino.BuildPurposeCheck, dexeino.BuildPurposeModelCall}, purposes(builds))
+}
+
+// The tools of each model call's build reserve their names, so a source tool that a run-time
+// agent tool shares a name with fails the attempt before the model call.
+func TestRunTimeAgentToolReservesItsNameFromSources(t *testing.T) {
+	scripted := echoModel()
+	runner, err := dexeino.NewRunnerWithBuilder(func(_ context.Context, build dexeino.AgentBuildContext) (*adk.ChatModelAgentConfig, error) {
+		config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted}
+		if build.Purpose == dexeino.BuildPurposeModelCall {
+			config.ToolsConfig = toolsConfig(noopTool("ledger_post_note"))
+		}
+		return config, nil
+	}, dexeino.WithDefaultToolEffect(dexagents.ToolEffectRead), dexeino.WithToolSources(noteSource()))
+	require.NoError(t, err)
+	_, err = runner.RunModelStep(context.Background(), newTurnState(t, runner, "note").context())
+	require.ErrorContains(t, err, "tool ledger_post_note of a tool source uses the name of a framework tool")
+	require.Zero(t, scripted.calls())
+}
+
+// With only source tools offered, a Handler that drops the model's tool calls still ends the turn as failed.
+func TestSourceOnlyAgentWhoseHandlerDropsToolCallsEndsTheTurnAsFailed(t *testing.T) {
+	scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+		return toolCallMessage(call("call_note", "ledger_post_note", `{"text":"hi"}`)), nil
+	}}
+	source := noteSource()
+	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+		Handlers: []adk.ChatModelAgentMiddleware{rewritingHandler{&adk.BaseChatModelAgentMiddleware{},
+			func(message *schema.Message) { message.ToolCalls = nil }}}}
+	runner, err := dexeino.NewRunner(config, dexeino.WithToolSources(source))
+	require.NoError(t, err)
+	outcome, err := runner.RunModelStep(context.Background(), newTurnState(t, runner, "note").context())
+	completed := requireTurnError(t, outcome, err)
+	require.Contains(t, *completed.TurnError, "tool calls changed after the model call")
+	require.Empty(t, source.executions())
+}

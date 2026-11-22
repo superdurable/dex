@@ -11,6 +11,7 @@ package dexeino
 import (
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -61,6 +63,7 @@ type modelCallRun struct {
 	mutex             sync.Mutex
 	captured          *schema.Message
 	modelCalls        int64
+	modelCallFailure  error
 	usage             dexagents.AgentUsage
 	offeredTools      map[string]bool
 	isSecondCallTried bool
@@ -89,12 +92,31 @@ func (run *modelCallRun) capturedMessage() *schema.Message {
 	return run.captured
 }
 
+// modelCallUsage returns the usage of the model call; a call that failed is not counted.
 func (run *modelCallRun) modelCallUsage() dexagents.AgentUsage {
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
 	usage := run.usage
-	usage.ModelCalls = run.modelCalls
+	if run.modelCallFailure == nil {
+		usage.ModelCalls = run.modelCalls
+	}
 	return usage
+}
+
+// failedModelCall returns the error of the one model call, or nil when it did not fail.
+func (run *modelCallRun) failedModelCall() error {
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	return run.modelCallFailure
+}
+
+func (run *modelCallRun) recordModelCallFailure(err error) error {
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	if run.modelCallFailure == nil {
+		run.modelCallFailure = err
+	}
+	return err
 }
 
 // beginModelCall counts one model call and reports whether it may run.
@@ -114,18 +136,17 @@ func (run *modelCallRun) beginModelCall(options []model.Option) bool {
 	return true
 }
 
+// recordUsage merges one message's usage into the call's, keeping each field's largest value as Eino merges chunks.
 func (run *modelCallRun) recordUsage(usage *schema.TokenUsage) {
 	if usage == nil {
 		return
 	}
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
-	run.usage = dexagents.AgentUsage{
-		InputTokens:       int64(usage.PromptTokens),
-		OutputTokens:      int64(usage.CompletionTokens),
-		CachedInputTokens: int64(usage.PromptTokenDetails.CachedTokens),
-		ReasoningTokens:   int64(usage.CompletionTokensDetails.ReasoningTokens),
-	}
+	run.usage.InputTokens = max(run.usage.InputTokens, int64(usage.PromptTokens))
+	run.usage.OutputTokens = max(run.usage.OutputTokens, int64(usage.CompletionTokens))
+	run.usage.CachedInputTokens = max(run.usage.CachedInputTokens, int64(usage.PromptTokenDetails.CachedTokens))
+	run.usage.ReasoningTokens = max(run.usage.ReasoningTokens, int64(usage.CompletionTokensDetails.ReasoningTokens))
 }
 
 // captureModelMessage stores the model's message with valid, unique tool call IDs and returns it for Eino.
@@ -144,13 +165,31 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	for index := range fixed.ToolCalls {
 		fixed.ToolCalls[index].ID = run.validToolCallID(fixed.ToolCalls[index].ID, index)
 	}
+	// Eino's interrupt copies its state with a serializer that refuses unregistered Extra types.
+	forEino, err := jsonDecodedCopy(&fixed)
+	if err != nil {
+		return nil, err
+	}
 	run.captured = withoutEinoInternalExtra(&fixed)
-	return &fixed, nil
+	return forEino, nil
+}
+
+// jsonDecodedCopy returns message as encoding/json decodes it, so Extra holds only JSON values.
+func jsonDecodedCopy(message *schema.Message) (*schema.Message, error) {
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		return nil, fmt.Errorf("dexeino: the model message does not encode as JSON: %w", err)
+	}
+	decoded := &schema.Message{}
+	if err := json.Unmarshal(encoded, decoded); err != nil {
+		return nil, fmt.Errorf("dexeino: decode the model message: %w", err)
+	}
+	return decoded, nil
 }
 
 // validToolCallID keeps a usable ID and otherwise synthesizes "<StepExecutionID>-<index>", which a retry repeats.
 func (run *modelCallRun) validToolCallID(toolCallID string, index int) string {
-	if toolCallID != "" && !strings.Contains(toolCallID, "/") && !run.usedToolCallIDs[toolCallID] {
+	if !isBlankToolCallID(toolCallID) && !strings.Contains(toolCallID, "/") && !run.usedToolCallIDs[toolCallID] {
 		run.usedToolCallIDs[toolCallID] = true
 		return toolCallID
 	}
@@ -161,6 +200,13 @@ func (run *modelCallRun) validToolCallID(toolCallID string, index int) string {
 	}
 	run.usedToolCallIDs[candidate] = true
 	return candidate
+}
+
+// isBlankToolCallID applies the session's blank rule: only Unicode spaces and the separators U+001C to U+001F.
+func isBlankToolCallID(toolCallID string) bool {
+	return strings.TrimFunc(toolCallID, func(character rune) bool {
+		return unicode.IsSpace(character) || (character >= 0x1C && character <= 0x1F)
+	}) == ""
 }
 
 func (run *modelCallRun) writeDeltas(message *schema.Message) error {
@@ -298,10 +344,13 @@ func (counting *countingModel) Generate(ctx context.Context, input []*schema.Mes
 		return nil, errSecondModelCall
 	}
 	message, err := counting.inner.Generate(ctx, input, options...)
-	if err == nil && message != nil && message.ResponseMeta != nil {
+	if err != nil {
+		return nil, counting.run.recordModelCallFailure(err)
+	}
+	if message != nil && message.ResponseMeta != nil {
 		counting.run.recordUsage(message.ResponseMeta.Usage)
 	}
-	return message, err
+	return message, nil
 }
 
 func (counting *countingModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -310,14 +359,14 @@ func (counting *countingModel) Stream(ctx context.Context, input []*schema.Messa
 	}
 	stream, err := counting.inner.Stream(ctx, input, options...)
 	if err != nil {
-		return nil, err
+		return nil, counting.run.recordModelCallFailure(err)
 	}
 	return schema.StreamReaderWithConvert(stream, func(chunk *schema.Message) (*schema.Message, error) {
 		if chunk != nil && chunk.ResponseMeta != nil {
 			counting.run.recordUsage(chunk.ResponseMeta.Usage)
 		}
 		return chunk, nil
-	}), nil
+	}, schema.WithErrWrapper(counting.run.recordModelCallFailure)), nil
 }
 
 // modelCallAgentConfig returns the agent config of one model call: the user's, with the gate and counter around it.

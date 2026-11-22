@@ -10,6 +10,7 @@ package dexeino_test
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -121,4 +122,40 @@ func TestJSONDecodedExtraInHistoryKeepsTheToolCalls(t *testing.T) {
 	requested, isRequested := state.runModel(runner).(*dexagents.ToolCallsRequested)
 	require.True(t, isRequested)
 	require.Len(t, requested.ToolCalls, 1)
+}
+
+// Provider replay keys in Extra, such as the eino-ext Claude thinking signature, are stored and
+// replayed with the model message; only ADK's own keys are dropped.
+func TestProviderReplayExtraKeysSurviveStorageAndReplay(t *testing.T) {
+	providerExtra := map[string]any{
+		"_eino_claude_thinking":            "I should look it up.",
+		"_eino_claude_thinking_signature":  "SIG_A==",
+		"_eino_deepseek_reasoning_content": "reasoning",
+	}
+	scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {
+		if input[len(input)-1].Role == schema.Tool {
+			return schema.AssistantMessage("done", nil), nil
+		}
+		message := toolCallMessage(call("toolu_1", "lookup_order", `{"id":"7"}`))
+		message.ReasoningContent = "I should look it up."
+		message.Extra = map[string]any{"_eino_msg_id": "random", "_eino_adk_runtime_generated_system_message": true}
+		maps.Copy(message.Extra, providerExtra)
+		return message, nil
+	}}
+	runner := readRunner(t, scripted)
+	state := newTurnState(t, runner, "lookup 7")
+	requested := state.runModel(runner).(*dexagents.ToolCallsRequested)
+	item := requested.NewMessages[0].FrameworkItem
+	require.NotContains(t, item, "_eino_msg_id")
+	require.NotContains(t, item, "_eino_adk_")
+	require.Empty(t, state.runTools(runner))
+	state.runModel(runner)
+	var replayed *schema.Message
+	for _, message := range scripted.lastInput() {
+		if message.Role == schema.Assistant {
+			replayed = message
+		}
+	}
+	require.NotNil(t, replayed)
+	require.Equal(t, providerExtra, replayed.Extra, "the Claude client rebuilds the thinking block from these keys")
 }

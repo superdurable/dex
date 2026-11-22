@@ -48,7 +48,8 @@
 // WithDefaultToolEffect. Construction fails for a tool without one, and for
 // configurations that would make more than one model call in a Step or run a
 // tool inside RunModel: ModelRetryConfig, ModelFailoverConfig, Exit,
-// ToolsConfig.ReturnDirectly, and the summarization middleware. A stop that
+// ToolsConfig.ReturnDirectly, and the summarization, automemory, and dream
+// middlewares. A stop that
 // a retry would repeat, such as a second model call in one Step, ends the turn
 // as failed with dexagents.TurnCompleted.TurnError.
 //

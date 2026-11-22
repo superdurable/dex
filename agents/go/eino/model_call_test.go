@@ -12,12 +12,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/stretchr/testify/require"
@@ -414,4 +416,225 @@ type interruptingHandler struct {
 
 func (interruptingHandler) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
 	return ctx, state, compose.Interrupt(ctx, "a person must look first")
+}
+
+// unregisteredExtra is a provider type that Eino's state serializer does not know.
+type unregisteredExtra struct{ Kind string }
+
+// A model message whose Extra holds a type Eino cannot serialize, such as eino-ext Claude's tool
+// search events, still stops at its tool calls, and the message is stored as JSON.
+func TestModelMessageWithAnUnregisteredExtraTypeStopsAtItsToolCalls(t *testing.T) {
+	for _, isStreaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("streaming=%v", isStreaming), func(t *testing.T) {
+			scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+				message := toolCallMessage(call("call_1", "lookup_order", `{"id":"7"}`))
+				message.Extra = map[string]any{"provider_events": []unregisteredExtra{{Kind: "search"}}}
+				message.ToolCalls[0].Extra = map[string]any{"provider_event": unregisteredExtra{Kind: "call"}}
+				return message, nil
+			}}
+			runner := readRunner(t, scripted, dexeino.WithStreaming(isStreaming))
+			state := newTurnState(t, runner, "lookup 7")
+			outcome, err := runner.RunModelStep(context.Background(), state.context())
+			require.NoError(t, err)
+			requested, isRequested := outcome.(*dexagents.ToolCallsRequested)
+			require.True(t, isRequested, "outcome %T", outcome)
+			require.Equal(t, "call_1", requested.ToolCalls[0].ToolCallID)
+			require.Contains(t, requested.NewMessages[0].FrameworkItem, `"provider_events":[{"Kind":"search"}]`)
+			require.Equal(t, 1, scripted.calls())
+		})
+	}
+}
+
+// A tool call ID of only whitespace is blank to the session, so it gets a synthesized ID too.
+func TestBlankToolCallIDsAreSynthesized(t *testing.T) {
+	scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+		return toolCallMessage(
+			call(" ", "lookup_order", `{"id":"1"}`),
+			call("\t\n", "lookup_order", `{"id":"2"}`),
+			call(" \u001f", "lookup_order", `{"id":"3"}`),
+			call(" call_padded ", "lookup_order", `{"id":"4"}`),
+		), nil
+	}}
+	runner := readRunner(t, scripted)
+	requested := newTurnState(t, runner, "lookup").runModel(runner).(*dexagents.ToolCallsRequested)
+	ids := []string{}
+	for _, deferred := range requested.ToolCalls {
+		ids = append(ids, deferred.ToolCallID)
+	}
+	require.Equal(t, []string{"RunModel-1-0", "RunModel-1-1", "RunModel-1-2", " call_padded "}, ids)
+}
+
+// retryingHandler retries a failed model call once, as a user's retry wrapper would.
+type retryingHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+}
+
+type retryingModel struct {
+	inner model.BaseModel[*schema.Message]
+}
+
+func (retryingHandler) WrapModel(_ context.Context, inner model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+	return retryingModel{inner: inner}, nil
+}
+
+func (retrying retryingModel) Generate(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.Message, error) {
+	message, err := retrying.inner.Generate(ctx, input, options...)
+	if err != nil {
+		return retrying.inner.Generate(ctx, input, options...)
+	}
+	return message, nil
+}
+
+func (retrying retryingModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	stream, err := retrying.inner.Stream(ctx, input, options...)
+	if err == nil {
+		var chunks []*schema.Message
+		for {
+			chunk, recvErr := stream.Recv()
+			if errors.Is(recvErr, io.EOF) {
+				return schema.StreamReaderFromArray(chunks), nil
+			}
+			if recvErr != nil {
+				break
+			}
+			chunks = append(chunks, chunk)
+		}
+	}
+	return retrying.inner.Stream(ctx, input, options...)
+}
+
+// When the one model call fails and a wrapper tries again, the first call's error reaches the
+// session, so the session backs off a 429 instead of ending the turn, and no usage is billed.
+func TestFailedModelCallErrorReachesTheSessionWhenAWrapperRetries(t *testing.T) {
+	rateLimited := &statusCodeError{StatusCode: 429}
+	for name, failing := range map[string]model.ToolCallingChatModel{
+		"failed call": &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+			return nil, rateLimited
+		}},
+		"failed mid-stream": &midStreamModel{failure: rateLimited},
+	} {
+		for _, isStreaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s streaming=%v", name, isStreaming), func(t *testing.T) {
+				config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: failing,
+					Handlers: []adk.ChatModelAgentMiddleware{retryingHandler{&adk.BaseChatModelAgentMiddleware{}}}}
+				runner, err := dexeino.NewRunner(config, dexeino.WithStreaming(isStreaming))
+				require.NoError(t, err)
+				state := newTurnState(t, runner, "hello")
+				outcome, err := runner.RunModelStep(context.Background(), state.context())
+				require.Nil(t, outcome)
+				require.ErrorIs(t, err, rateLimited, "the session classifies the call's own error")
+			})
+		}
+	}
+}
+
+// Streamed usage merges per field, as Eino merges chunks, so input tokens on the first chunk count.
+func TestStreamedUsageMergesEveryChunk(t *testing.T) {
+	scripted := &scriptedChatModel{
+		respond: func([]*schema.Message) (*schema.Message, error) { return schema.AssistantMessage("hi", nil), nil },
+		chunks: func(*schema.Message) []*schema.Message {
+			first := schema.AssistantMessage("h", nil)
+			first.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{PromptTokens: 100, CompletionTokens: 1,
+				PromptTokenDetails: schema.PromptTokenDetails{CachedTokens: 40}}}
+			last := schema.AssistantMessage("i", nil)
+			last.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{CompletionTokens: 50,
+				CompletionTokensDetails: schema.CompletionTokensDetails{ReasoningTokens: 9}}}
+			return []*schema.Message{first, last}
+		},
+	}
+	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted}
+	runner, err := dexeino.NewRunner(config, dexeino.WithStreaming(true))
+	require.NoError(t, err)
+	completed := newTurnState(t, runner, "hello").runModel(runner).(*dexagents.TurnCompleted)
+	require.Equal(t, dexagents.AgentUsage{InputTokens: 100, OutputTokens: 50, CachedInputTokens: 40, ReasoningTokens: 9, ModelCalls: 1},
+		completed.Usage)
+}
+
+// A ModelAPIError built without a cause, as a user's model wrapper may build one, names its status.
+func TestModelAPIErrorWithoutACauseNamesItsStatus(t *testing.T) {
+	modelError := &dexeino.ModelAPIError{StatusCode: 503}
+	require.Equal(t, "the model API answered HTTP 503", modelError.Error())
+	require.NoError(t, modelError.Unwrap())
+}
+
+// A run-time builder configuration whose tools construction would refuse ends the turn as failed
+// before any model call, as an unsupported setting does.
+func TestRefusedBuilderToolsEndTheTurnAsFailed(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		tools    []tool.BaseTool
+		aliases  map[string]compose.ToolAliasConfig
+		expected string
+	}{
+		"two tools of one name": {[]tool.BaseTool{noopTool("lookup"), noopTool("lookup")}, nil, `two tools are named "lookup"`},
+		"an alias of another tool": {[]tool.BaseTool{noopTool("lookup"), noopTool("refund")},
+			map[string]compose.ToolAliasConfig{"lookup": {NameAliases: []string{"refund"}}}, `"refund" of "lookup" is the name of another tool`},
+		"a tool without an effect": {[]tool.BaseTool{noopTool("lookup"), noopTool("refund")}, nil, `tool "refund" has no Dex effect`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			scripted := echoModel()
+			runner, err := dexeino.NewRunnerWithBuilder(func(_ context.Context, build dexeino.AgentBuildContext) (*adk.ChatModelAgentConfig, error) {
+				config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+					ToolsConfig: toolsConfig(noopTool("lookup"))}
+				if build.Purpose == dexeino.BuildPurposeModelCall {
+					config.ToolsConfig = toolsConfig(testCase.tools...)
+					config.ToolsConfig.ToolAliases = testCase.aliases
+				}
+				return config, nil
+			}, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"lookup": dexagents.ToolEffectRead}))
+			require.NoError(t, err)
+			outcome, err := runner.RunModelStep(context.Background(), newTurnState(t, runner, "hello").context())
+			completed := requireTurnError(t, outcome, err)
+			require.Contains(t, *completed.TurnError, "cannot run in Dex Step mode: ")
+			require.Contains(t, *completed.TurnError, testCase.expected)
+			require.Zero(t, scripted.calls())
+		})
+	}
+}
+
+// rewritingHandler changes the model's message in the agent state after the model call.
+type rewritingHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+	rewrite func(message *schema.Message)
+}
+
+func (handler rewritingHandler) AfterModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+	last := *state.Messages[len(state.Messages)-1]
+	handler.rewrite(&last)
+	state.Messages = append(state.Messages[:len(state.Messages)-1:len(state.Messages)-1], &last)
+	return ctx, state, nil
+}
+
+// A Handler that changes the model message's tool calls after the model call ends the turn as
+// failed, with the call billed, instead of failing the Step for a paid retry.
+func TestHandlerThatChangesToolCallsEndsTheTurnAsFailed(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		response func() *schema.Message
+		rewrite  func(message *schema.Message)
+		expected string
+	}{
+		"renamed call IDs": {func() *schema.Message { return toolCallMessage(call("call_1", "lookup_order", `{}`)) },
+			func(message *schema.Message) {
+				message.ToolCalls = []schema.ToolCall{call("call_other", "lookup_order", `{}`)}
+			}, "tool calls changed after the model call"},
+		"dropped calls": {func() *schema.Message { return toolCallMessage(call("call_1", "lookup_order", `{}`)) },
+			func(message *schema.Message) { message.ToolCalls = nil }, "tool calls changed after the model call"},
+		"added calls": {func() *schema.Message { return schema.AssistantMessage("no tools needed", nil) },
+			func(message *schema.Message) {
+				message.ToolCalls = []schema.ToolCall{call("call_added", "lookup_order", `{}`)}
+			}, "stopped at tool calls its model message does not contain"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) { return testCase.response(), nil }}
+			config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+				ToolsConfig: toolsConfig(noopTool("lookup_order")),
+				Handlers:    []adk.ChatModelAgentMiddleware{rewritingHandler{&adk.BaseChatModelAgentMiddleware{}, testCase.rewrite}}}
+			runner, err := dexeino.NewRunner(config, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"lookup_order": dexagents.ToolEffectRead}))
+			require.NoError(t, err)
+			outcome, err := runner.RunModelStep(context.Background(), newTurnState(t, runner, "lookup").context())
+			completed := requireTurnError(t, outcome, err)
+			require.Contains(t, *completed.TurnError, testCase.expected)
+			require.Equal(t, int64(1), completed.Usage.ModelCalls)
+			require.Empty(t, completed.NewMessages)
+		})
+	}
 }

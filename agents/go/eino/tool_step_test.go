@@ -209,3 +209,100 @@ func TestUnfinishedTurnMessagesPairEveryStoredCall(t *testing.T) {
 	require.Equal(t, "RunModel-1-0", *messages[0].ToolCallID)
 	require.Equal(t, "order 7 is shipped", *messages[0].ToolOutput)
 }
+
+// declaringFuncTool is a funcTool that declares its own Dex effect.
+type declaringFuncTool struct {
+	funcTool
+	effect dexagents.ToolEffect
+}
+
+func (declaring declaringFuncTool) DexToolEffect() dexagents.ToolEffect { return declaring.effect }
+
+// A tool that a Handler adds gets its declared effect in RunModel as in its tool Step, so it runs.
+func TestHandlerAddedToolKeepsItsDeclaredEffect(t *testing.T) {
+	for name, test := range map[string]struct {
+		declared, sessionDefault dexagents.ToolEffect
+		isApprovalRequired       bool
+	}{
+		"a write under a read default":        {dexagents.ToolEffectIdempotentWrite, dexagents.ToolEffectRead, false},
+		"a read under the default":            {dexagents.ToolEffectRead, dexagents.ToolEffectUnclassified, false},
+		"a single-attempt write under a read": {dexagents.ToolEffectNonIdempotentWrite, dexagents.ToolEffectRead, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var runs, handlerWraps atomic.Int64
+			dynamic := declaringFuncTool{effect: test.declared, funcTool: funcTool{name: "dynamic_write",
+				run: func(context.Context, string) (string, error) { runs.Add(1); return "wrote", nil }}}
+			scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {
+				if last := input[len(input)-1]; last.Role == schema.Tool {
+					return schema.AssistantMessage(last.Content, nil), nil
+				}
+				return toolCallMessage(call("call_write", "dynamic_write", `{}`)), nil
+			}}
+			config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+				Handlers: []adk.ChatModelAgentMiddleware{countingToolHandler{&adk.BaseChatModelAgentMiddleware{}, &handlerWraps, dynamic}}}
+			runner, err := dexeino.NewRunner(config, dexeino.WithDefaultToolEffect(test.sessionDefault))
+			require.NoError(t, err)
+			state := newTurnState(t, runner, "write")
+			state.defaultToolEffect = test.sessionDefault
+			requested := state.runModel(runner).(*dexagents.ToolCallsRequested)
+			require.Equal(t, test.declared, requested.ToolCalls[0].Policy.Effect)
+			require.Equal(t, test.isApprovalRequired, requested.ToolCalls[0].Policy.IsApprovalRequired())
+			require.Empty(t, state.runTools(runner))
+			require.Equal(t, int64(1), runs.Load())
+			require.Equal(t, "wrote [handler saw call_write]", *state.records["call_write"].Output)
+		})
+	}
+}
+
+// A call recorded without an approval does not run when this deploy's policy for its tool needs one.
+func TestToolStepRefusesACallThatNowNeedsApproval(t *testing.T) {
+	var runs atomic.Int64
+	refund := funcTool{name: "refund", run: func(context.Context, string) (string, error) { runs.Add(1); return "refunded", nil }}
+	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: echoModel(), ToolsConfig: toolsConfig(refund)}
+	runner, err := dexeino.NewRunner(config, dexeino.WithToolPolicies(map[string]dexagents.ToolPolicy{
+		"refund": {Effect: dexagents.ToolEffectRead, RequiresApproval: ptr(true)},
+	}))
+	require.NoError(t, err)
+	execute := func(record dexagents.AgentToolCall) error {
+		_, err := runner.ExecuteDeferredToolCall(context.Background(), dexagents.DeferredToolExecution{
+			FlowID: "session", Attempt: 1, ToolCall: record})
+		return err
+	}
+	record := dexagents.AgentToolCall{ToolCallID: "call", TurnID: "turn-1", ToolName: "refund", Arguments: "{}",
+		Effect: dexagents.ToolEffectRead, Status: dexagents.ToolCallStatusApproved}
+	var toolError *dexagents.ToolExecutionError
+	require.ErrorAs(t, execute(record), &toolError)
+	require.Contains(t, toolError.Message, "needs an approval")
+	require.Zero(t, runs.Load())
+
+	record.RequiresApproval = true
+	require.NoError(t, execute(record), "an approved call runs")
+	require.Equal(t, int64(1), runs.Load())
+}
+
+// With tool sources, a name the model invented is recorded without an approval; when a later deploy
+// adds it as a write that needs one, its tool Step does not run it.
+func TestInventedNameLaterAddedAsAnApprovalWriteDoesNotRunWithSources(t *testing.T) {
+	scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+		return toolCallMessage(call("call_refund", "refund", `{"id":"1"}`)), nil
+	}}
+	var middlewareRuns, handlerWraps atomic.Int64
+	before := sourceAgent(t, scripted, noteSource(), &middlewareRuns, &handlerWraps)
+	state := newTurnState(t, before, "refund 1")
+	requested := state.runModel(before).(*dexagents.ToolCallsRequested)
+	require.Equal(t, dexagents.ToolEffectUnclassified, requested.ToolCalls[0].Policy.Effect)
+	require.False(t, requested.ToolCalls[0].Policy.IsApprovalRequired())
+
+	var runs atomic.Int64
+	refund := funcTool{name: "refund", run: func(context.Context, string) (string, error) { runs.Add(1); return "refunded", nil }}
+	after, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: echoModel(),
+		ToolsConfig: toolsConfig(refund)},
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"refund": dexagents.ToolEffectNonIdempotentWrite}),
+		dexeino.WithToolSources(noteSource()))
+	require.NoError(t, err)
+	failures := state.runTools(after)
+	var toolError *dexagents.ToolExecutionError
+	require.ErrorAs(t, failures["call_refund"], &toolError)
+	require.Contains(t, toolError.Message, "call it again")
+	require.Zero(t, runs.Load(), "a write that needs approval never runs without one")
+}

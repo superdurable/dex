@@ -97,8 +97,9 @@ func WithToolEffects(toolEffects map[string]dexagents.ToolEffect) Option {
 //
 // It is forwarded as dexagents.WithDefaultToolEffect. Without it, construction
 // fails for a tool that has no effect from another source, and a tool that a
-// Handler adds at run time gets ToolEffectUnclassified, so its calls run once
-// and wait for approval. Since 0.6.16.
+// Handler adds at run time without a ToolEffectDeclarer method gets
+// ToolEffectUnclassified, so its calls run once and wait for approval.
+// Since 0.6.16.
 func WithDefaultToolEffect(effect dexagents.ToolEffect) Option {
 	return optionFunc(func(options *runnerOptions) {
 		options.defaultToolEffect = effect
@@ -217,7 +218,8 @@ func WithLogger(logger *slog.Logger) Option {
 // They apply after every other option, so they win. The adapter cannot read
 // them, so set tool policies and the default tool effect with
 // WithToolPolicies and WithDefaultToolEffect: a policy passed only here does
-// not count when construction checks that every tool has an effect.
+// not count when construction checks that every tool has an effect, or when a
+// tool Step compares a call's record with this deploy's policy for its tool.
 // Since 0.6.16.
 func WithSessionOptions(sessionOptions ...dexagents.AgentSessionOption) Option {
 	copied := slices.Clone(sessionOptions)
