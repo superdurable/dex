@@ -488,56 +488,64 @@ test("attribute read requires workflowId", async () => {
 });
 
 test("customer refund routes start, approve, and describe a refund", async () => {
-  const flowId = newFlowId("customer-refund");
-  const start = await refundRoute("start", { flowId });
+  const workflowId = newFlowId("customer-refund");
+  const start = await refundRoute("start", { workflowId });
   assert.equal(start.status, 200, start.text);
-  assert.equal(start.body.flowId, flowId);
+  assert.equal(start.body.flowID, workflowId);
   assert.equal(start.body.scenario, "normal");
-  assert.ok(start.body.runId, start.text);
+  assert.ok(start.body.runID, start.text);
 
-  await server.client.waitForAttributeMatch(flowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
+  await server.client.waitForAttributeMatch(workflowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
     requestTimeoutMs: 30_000,
   });
-  const awaiting = await refundRoute("describe", { flowId });
+  const awaiting = await refundRoute("describe", { workflowId });
   assert.equal(awaiting.status, 200, awaiting.text);
-  assert.equal(awaiting.body["case-status"], AWAITING_MANAGER);
+  assert.equal(awaiting.body.caseStatus, AWAITING_MANAGER);
   assert.equal(awaiting.body.status, "running");
 
-  const approve = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  const approve = await refundRoute("decide", { workflowId, decision: "approve", reason: "Outage confirmed" });
   assert.equal(approve.status, 200, approve.text);
-  const result = await server.client.waitForFlow(flowId, 30_000);
+  const result = await server.client.waitForFlow(workflowId, 30_000);
   assert.equal(result.status, "completed", result.errorMessage);
 
-  const closed = await refundRoute("describe", { flowId });
+  const closed = await refundRoute("describe", { workflowId });
   assert.equal(closed.status, 200, closed.text);
   assert.equal(closed.body.status, "completed");
-  assert.equal(closed.body["case-status"], "closed-refunded");
-  assert.match(String(closed.body["refund-id"]), /^rf_\d+$/);
+  assert.equal(closed.body.caseStatus, "closed-refunded");
+  assert.match(String(closed.body.refundId), /^rf_\d+$/);
+});
+
+test("customer refund start mints a Flow ID when none is given", async () => {
+  const start = await refundRoute("start", { scenario: "small" });
+  assert.equal(start.status, 200, start.text);
+  assert.match(String(start.body.flowID), /^customer-refund-\d+$/);
+  const result = await server.client.waitForFlow(String(start.body.flowID), 30_000);
+  assert.equal(result.status, "completed", result.errorMessage);
 });
 
 test("customer refund decide refuses a blank reason, an unknown decision, and a closed run", async () => {
-  const flowId = newFlowId("customer-refund-small");
-  const start = await refundRoute("start", { flowId, scenario: "small" });
+  const workflowId = newFlowId("customer-refund-small");
+  const start = await refundRoute("start", { workflowId, scenario: "small" });
   assert.equal(start.status, 200, start.text);
 
-  const blank = await refundRoute("decide", { flowId, decision: "approve", reason: "  " });
+  const blank = await refundRoute("decide", { workflowId, decision: "approve", reason: "  " });
   assert.equal(blank.status, 400, blank.text);
   assert.deepEqual(blank.body, { error: "a reason is required" });
-  const unknown = await refundRoute("decide", { flowId, decision: "maybe", reason: "Outage confirmed" });
+  const unknown = await refundRoute("decide", { workflowId, decision: "maybe", reason: "Outage confirmed" });
   assert.equal(unknown.status, 400, unknown.text);
 
-  const result = await server.client.waitForFlow(flowId, 30_000);
+  const result = await server.client.waitForFlow(workflowId, 30_000);
   assert.equal(result.status, "completed", result.errorMessage);
-  const closed = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  const closed = await refundRoute("decide", { workflowId, decision: "approve", reason: "Outage confirmed" });
   assert.equal(closed.status, 404, closed.text);
 });
 
 test("customer refund decide refuses a run that is not waiting for a manager", async () => {
-  const flowId = newFlowId("customer-refund-deny");
-  const start = await refundRoute("start", { flowId, scenario: "deny" });
+  const workflowId = newFlowId("customer-refund-deny");
+  const start = await refundRoute("start", { workflowId, scenario: "deny" });
   assert.equal(start.status, 200, start.text);
-  await server.client.waitForStepCompletion(flowId, StepExecutionId.of("CheckPolicy"), { requestTimeoutMs: 30_000 });
-  const decide = await refundRoute("decide", { flowId, decision: "approve", reason: "Outage confirmed" });
+  await server.client.waitForStepCompletion(workflowId, StepExecutionId.of("CheckPolicy"), { requestTimeoutMs: 30_000 });
+  const decide = await refundRoute("decide", { workflowId, decision: "approve", reason: "Outage confirmed" });
   // A denied run refuses the RPC while open, and reports not found once closed.
   assert.ok(decide.status === 409 || decide.status === 404, decide.text);
 });
@@ -545,7 +553,7 @@ test("customer refund decide refuses a run that is not waiting for a manager", a
 test("customer refund start refuses an unknown scenario and describe a missing Flow", async () => {
   const start = await refundRoute("start", { scenario: "unknown" });
   assert.equal(start.status, 400, start.text);
-  const missing = await refundRoute("describe", { flowId: newFlowId("customer-refund-missing") });
+  const missing = await refundRoute("describe", { workflowId: newFlowId("customer-refund-missing") });
   assert.equal(missing.status, 404, missing.text);
 });
 

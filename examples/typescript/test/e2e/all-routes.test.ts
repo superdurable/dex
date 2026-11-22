@@ -135,20 +135,20 @@ test("product order-processing start approve", async () => {
 test("product customer-refund manager-approval start decide describe", async () => {
   const start = await get("/products/customer-refund/manager-approval/start");
   requireOk(start, "customer-refund/manager-approval/start");
-  const flowId = (start.json as { flowId: string }).flowId;
-  await server.client.waitForAttributeMatch(flowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
+  const workflowId = (start.json as { flowID: string }).flowID;
+  await server.client.waitForAttributeMatch(workflowId, caseStatus, AttributeMatch.equalTo(AWAITING_MANAGER), {
     requestTimeoutMs: 30_000,
   });
   requireOk(
     await get("/products/customer-refund/manager-approval/decide", {
-      flowId,
+      workflowId,
       decision: "approve",
       reason: "Outage confirmed",
     }),
     "customer-refund/manager-approval/decide",
   );
   requireOk(
-    await get("/products/customer-refund/manager-approval/describe", { flowId }),
+    await get("/products/customer-refund/manager-approval/describe", { workflowId }),
     "customer-refund/manager-approval/describe",
   );
 });

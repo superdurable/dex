@@ -43,7 +43,7 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     try {
       const input = REFUND_SCENARIOS[scenario as RefundScenario];
       const runId = await client.startFlow(flow, flowId, input, startOptions());
-      response.json({ flowId, runId, scenario });
+      response.json({ flowID: flowId, runID: runId, scenario });
     } catch (error) {
       if (error instanceof FlowAlreadyStartedError) {
         response.status(409).json({ error: `Flow ID ${flowId} is already used; choose another one` });
@@ -58,7 +58,7 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     const decision = String(request.query.decision ?? "");
     const reason = String(request.query.reason ?? "").trim();
     if (flowId === "") {
-      response.status(400).json({ error: "flowId is required" });
+      response.status(400).json({ error: "workflowId is required" });
       return;
     }
     if (decision !== "approve" && decision !== "reject") {
@@ -73,7 +73,7 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
     const input: DecisionReason = { reason };
     try {
       await client.invokeRPC(rpc, flowId, input);
-      response.json({ flowId, decision });
+      response.json({ flowID: flowId, decision });
     } catch (error) {
       if (error instanceof FlowNotActiveOrNotFoundError) {
         response.status(404).json({ error: `refund ${flowId} is closed or does not exist` });
@@ -95,18 +95,18 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
   router.get("/manager-approval/describe", async (request, response) => {
     const flowId = flowIdFromQuery(request.query);
     if (flowId === "") {
-      response.status(400).json({ error: "flowId is required" });
+      response.status(400).json({ error: "workflowId is required" });
       return;
     }
     try {
       const run = await client.describeFlow(flowId);
       const [status, issuedRefundId] = await client.getAttributes(flowId, caseStatus, refundId);
       response.json({
-        flowId,
-        runId: run.runId,
+        flowID: flowId,
+        runID: run.runId,
         status: run.status,
-        "case-status": status ?? null,
-        "refund-id": issuedRefundId ?? null,
+        caseStatus: status ?? null,
+        refundId: issuedRefundId ?? null,
       });
     } catch (error) {
       if (error instanceof FlowNotFoundError) {
@@ -122,5 +122,5 @@ export function createCustomerRefundRouter(client: Client, flow: CustomerRefundF
 
 /** Reads the Flow ID from flowId, or from its alias workflowId. */
 function flowIdFromQuery(query: Record<string, unknown>): string {
-  return String(query.flowId ?? query.workflowId ?? "").trim();
+  return String(query.workflowId ?? query.flowId ?? "");
 }

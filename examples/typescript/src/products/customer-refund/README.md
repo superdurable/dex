@@ -48,9 +48,11 @@ this Flow, with the normal billing mode only. It serves these routes:
 
 | Route | What it does |
 | --- | --- |
-| `GET /products/customer-refund/manager-approval/start?flowId=<id>&scenario=<scenario>` | Starts a refund. `flowId` is optional; `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
-| `GET /products/customer-refund/manager-approval/decide?flowId=<id>&decision=<approve or reject>&reason=<text>` | Approves or rejects a refund that waits for a manager. |
-| `GET /products/customer-refund/manager-approval/describe?flowId=<id>` | Returns the run status, `case-status`, and `refund-id`. |
+| `GET /products/customer-refund/manager-approval/start?workflowId=<id>&scenario=<scenario>` | Starts a refund and returns `flowID` and `runID`. `workflowId` is optional; without it the server picks a `customer-refund-` Flow ID. `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
+| `GET /products/customer-refund/manager-approval/decide?workflowId=<id>&decision=<approve or reject>&reason=<text>` | Approves or rejects a refund that waits for a manager. |
+| `GET /products/customer-refund/manager-approval/describe?workflowId=<id>` | Returns the run `status`, and `caseStatus` and `refundId` from the `case-status` and `refund-id` Attributes. |
+
+Each route also accepts the Flow ID as `flowId`, like the order-processing routes.
 
 `decide` answers 400 for a blank reason, 409 when the refund is not waiting
 for a manager or another decision holds its lock, and 404 when the run is
