@@ -22,14 +22,16 @@ use axum::{
     routing::get,
 };
 use dex_sdk::{FlowStatus, SdkError};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde_json::json;
 
 use super::refund_flow::{
-    APPROVE_REFUND, CASE_STATUS, CaseStatus, CustomerRefundFlow, DecisionReason, REFUND_ID,
-    REJECT_REFUND,
+    APPROVE_REFUND, CASE_STATUS, CustomerRefundFlow, DecisionReason, REFUND_ID, REJECT_REFUND,
 };
 use super::refund_scenarios::RefundScenario;
-use crate::server::helpers::{ErrorBody, SharedClient, map_sdk_error, new_flow_id, run_blocking};
+use crate::server::helpers::{
+    ErrorBody, SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+};
 
 #[derive(Clone)]
 struct CustomerRefundState {
@@ -38,54 +40,28 @@ struct CustomerRefundState {
 }
 
 #[derive(Deserialize)]
-struct StartQuery {
+struct RefundQuery {
     #[serde(default, rename = "flowId")]
     flow_id: String,
+    /// An alias of flowId.
+    #[serde(default, rename = "workflowId")]
+    workflow_id: String,
     #[serde(default)]
     scenario: String,
-}
-
-#[derive(Deserialize)]
-struct DecideQuery {
-    #[serde(default, rename = "flowId")]
-    flow_id: String,
     #[serde(default)]
     decision: String,
     #[serde(default)]
     reason: String,
 }
 
-#[derive(Deserialize)]
-struct DescribeQuery {
-    #[serde(default, rename = "flowId")]
-    flow_id: String,
-}
-
-#[derive(Serialize)]
-struct StartRefundResponse {
-    #[serde(rename = "flowID")]
-    flow_id: String,
-    #[serde(rename = "runID")]
-    run_id: String,
-    scenario: String,
-}
-
-#[derive(Serialize)]
-struct DecideRefundResponse {
-    #[serde(rename = "flowID")]
-    flow_id: String,
-    decision: String,
-}
-
-#[derive(Serialize)]
-struct DescribeRefundResponse {
-    #[serde(rename = "flowID")]
-    flow_id: String,
-    status: &'static str,
-    #[serde(rename = "case-status")]
-    case_status: Option<CaseStatus>,
-    #[serde(rename = "refund-id")]
-    refund_id: Option<String>,
+impl RefundQuery {
+    fn flow_id(&self) -> String {
+        if self.workflow_id.is_empty() {
+            self.flow_id.clone()
+        } else {
+            self.workflow_id.clone()
+        }
+    }
 }
 
 pub fn mount(client: SharedClient, flow: CustomerRefundFlow) -> Router {
@@ -107,7 +83,7 @@ pub fn mount(client: SharedClient, flow: CustomerRefundFlow) -> Router {
 
 async fn start_refund(
     State(state): State<CustomerRefundState>,
-    Query(query): Query<StartQuery>,
+    Query(query): Query<RefundQuery>,
 ) -> Response {
     let scenario = if query.scenario.is_empty() {
         RefundScenario::Normal
@@ -117,31 +93,27 @@ async fn start_refund(
             Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
         }
     };
-    let flow_id = if query.flow_id.is_empty() {
-        new_flow_id("customer-refund")
-    } else {
-        query.flow_id
+    let flow_id = match query.flow_id() {
+        flow_id if flow_id.is_empty() => new_flow_id("customer-refund"),
+        flow_id => flow_id,
     };
     let CustomerRefundState { client, flow } = state;
     match run_blocking(move || {
         client
             .start_flow(&flow, &flow_id, scenario.refund_request())
-            .map(|run_id| StartRefundResponse {
-                flow_id,
-                run_id,
-                scenario: scenario.to_string(),
-            })
+            .map(|run_id| StartResponse { flow_id, run_id })
     }) {
-        Ok(response) => Json(response).into_response(),
+        Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
 async fn decide_refund(
     State(state): State<CustomerRefundState>,
-    Query(query): Query<DecideQuery>,
+    Query(query): Query<RefundQuery>,
 ) -> Response {
-    if query.flow_id.is_empty() {
+    let flow_id = query.flow_id();
+    if flow_id.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "flowId is required".to_string());
     }
     let rpc = match query.decision.as_str() {
@@ -154,31 +126,25 @@ async fn decide_refund(
             );
         }
     };
-    let DecideQuery {
-        flow_id,
-        decision,
-        reason,
+    let RefundQuery {
+        decision, reason, ..
     } = query;
-    let response_flow_id = flow_id.clone();
     match run_blocking(move || {
         state
             .client
             .invoke_rpc(&flow_id, rpc, DecisionReason { reason })
+            .map(|()| json!({ "flowID": flow_id, "decision": decision }))
     }) {
-        Ok(()) => Json(DecideRefundResponse {
-            flow_id: response_flow_id,
-            decision,
-        })
-        .into_response(),
+        Ok(value) => ok_json(value),
         Err(error) => map_decide_error(error),
     }
 }
 
 async fn describe_refund(
     State(state): State<CustomerRefundState>,
-    Query(query): Query<DescribeQuery>,
+    Query(query): Query<RefundQuery>,
 ) -> Response {
-    let flow_id = query.flow_id;
+    let flow_id = query.flow_id();
     if flow_id.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "flowId is required".to_string());
     }
@@ -187,14 +153,14 @@ async fn describe_refund(
         let (case_status, refund_id) = state
             .client
             .get_attributes(&flow_id, (&*CASE_STATUS, &*REFUND_ID))?;
-        Ok(DescribeRefundResponse {
-            flow_id,
-            status: flow_status_name(run.status),
-            case_status,
-            refund_id,
-        })
+        Ok(json!({
+            "flowID": flow_id,
+            "status": flow_status_name(run.status),
+            "case-status": case_status,
+            "refund-id": refund_id,
+        }))
     }) {
-        Ok(response) => Json(response).into_response(),
+        Ok(value) => ok_json(value),
         Err(error @ SdkError::FlowNotFound { .. }) => {
             error_response(StatusCode::NOT_FOUND, error.to_string())
         }
