@@ -42,8 +42,8 @@ for the standalone Worker and
 for the HTTP routes.
 
 You can run the example two ways: through the shared Spring Boot application
-of `examples/java`, or with its own Worker and command. Only the own Worker
-has the `call-missing` billing mode for the Time Travel story.
+of `examples/java`, or with its own Worker and command. Only the standalone
+Worker has the `call-missing` billing mode for the Time Travel story.
 
 ## Run it in the shared application
 
@@ -64,18 +64,28 @@ curl 'localhost:8080/products/customer-refund/manager-approval/describe?flowId=r
 ```
 
 Like the order-processing routes, each route takes the Flow ID as `flowId` or
-its alias `workflowId`, and `start` returns `flowID` and `runID`. `start`
-takes an optional Flow ID; without one it creates
-`customer-refund-<number>`. Its `scenario` is one of the
-[scenarios](#scenarios) and defaults to `normal`. `decide` does not wait: it
-returns 409 until `case-status` is `awaiting-manager`, and also when another
-decision holds the `case-status` lock. A missing Flow ID, a blank reason, or
-an unknown decision returns 400, and an unknown Flow ID returns 404.
-`describe` returns the run's `status`, and the `case-status` and `refund-id`
-Attributes as `caseStatus` and `refundId`.
+its alias `workflowId`, and `start` returns `flowID` and `runID`. An empty
+query value counts as absent. `start` takes an optional Flow ID; without one
+it creates `customer-refund-<number>`. Its `scenario` is one of the
+[scenarios](#scenarios) and defaults to `normal`. Like order-processing,
+`start` returns once the run has passed **CheckPolicy**, waiting up to 10
+seconds, so a `normal` refund already waits for the manager. A Flow ID that
+is already started returns 409.
 
-The shared application and the own Worker both serve this Flow type. Stop the
-shared application before you follow the own-Worker stories below. Otherwise
+`decide` does not wait. It returns 409 when the refund is not waiting for a
+manager, when another decision holds the `case-status` lock, or when the run
+is closing. A missing Flow ID, a blank reason, or an unknown decision returns
+400. A closed run, an unknown Flow ID, or a run of another Flow type returns
+404. Every error body is `{"error": "..."}`.
+
+`describe` returns `flowID`, the run's `status` in lowercase, such as
+`running` or `completed`, and the `case-status` and `refund-id` Attributes as
+`caseStatus` and `refundId`. A value that is not set yet is `null`. A Flow ID
+of another Flow type returns 404.
+
+The shared application and the standalone Worker both serve this Flow type.
+Stop the shared application before you follow the standalone Worker stories
+below. Otherwise
 it can serve their runs with normal billing.
 
 ## Run it with its own Worker
@@ -229,8 +239,13 @@ runs them with the rest of the Java examples.
 
 `CustomerRefundControllerIntegTest` calls the HTTP routes' controller with the
 shared integration Worker: an approval, a rejection, a second decision while
-the refund retries, and the 400 and 404 errors. Its ledgers live in a
-temporary directory.
+the refund retries, racing decisions, a run of another Flow type, and the
+400, 404, and 409 errors. Its ledgers live in a temporary directory.
+
+The shared integration Worker, the shared application in the flow smoke
+test, and the standalone Workers of `CustomerRefundIntegTest` all serve this
+Flow type. Do not run these suites in parallel against one Dex address.
+Gradle runs them one after another.
 
 The ledger tests need no Dex server. In one JVM, they race billing calls and
 email calls with the same key and with different keys, also through a
