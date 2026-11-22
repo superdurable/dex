@@ -18,12 +18,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from component_changelogs import (
+    NO_CHANGES_TEXT,
+    OLDER_RELEASES_PREFIX,
+    RELEASED_MENTION,
     TARGETS as CHANGELOG_TARGETS,
     ChangelogError,
     ChangelogTarget,
     entry_key,
-    RELEASED_MENTION,
     parse_entry,
+    parse_release_sections,
     release_key,
     split_entries,
 )
@@ -41,9 +44,6 @@ DOCS_SITE_URL = "https://docs.superdurable.io"
 BREAKING_SECTION = "Breaking"
 BREAKING_HEADING = "## Breaking Changes"
 NO_BREAKING_CHANGES = "None."
-NO_CHANGES_TEXT = "No user-visible changes."
-OLDER_RELEASES_PREFIX = "Older releases:"
-
 FENCE_PATTERN = re.compile(r"^\s*(```|~~~)")
 BLOCK_START_PATTERN = re.compile(r"^\s*([-*+]\s|\d+[.)]\s|#|>|\||<|(-\s*){3,}$|(\*\s*){3,}$|(_\s*){3,}$)")
 QUOTE_PATTERN = re.compile(r"^\s*>\s?(.*)$")
@@ -94,49 +94,56 @@ def build_release_notes(
 
 
 def build_docs_release_notes(target: ChangelogTarget, changelog_text: str, version: str) -> str:
-    """Returns the notes of exactly the items that version shipped, from a docs change log entry.
-
-    A patch folded into its minor's entry contributes only the items marked "Since <version>.".
-    """
+    """Returns the notes of exactly the items that version shipped, from a docs change log."""
     try:
         key = release_key(target, version)
         _, blocks = split_entries(changelog_text)
-        entries = [parse_entry(block) for block in blocks]
-        entry = next((entry for entry in entries if entry_key(target, entry.heading) == key), None)
+        block = next((block for block in blocks if entry_key(target, block.splitlines()[0]) == key), None)
+        if block is None:
+            raise ReleaseNotesError(f"{target.output} has no {key} entry")
+        entry = parse_entry(block)
+        if target.uses_release_sections and not any(line.startswith("Released ") for line in entry.preamble):
+            release = next((release for release in parse_release_sections(target, block) if release.version == version), None)
+            if release is None:
+                raise unrecorded_release_error(target, version)
+            prose = [line for line in release.preamble if line and line != NO_CHANGES_TEXT]
+            return render_docs_release_notes(target, entry.heading, prose, release.sections)
     except ChangelogError as error:
         raise ReleaseNotesError(str(error)) from error
-    if entry is None:
-        raise ReleaseNotesError(f"{target.output} has no {key} entry")
     first_version = released_versions(target, entry.preamble, version)[0]
     is_first_release = version == first_version
 
-    paragraphs: list[str] = []
+    prose = []
     if is_first_release:
         prose = [line for line in entry.preamble if line and not line.startswith("Released ") and line != NO_CHANGES_TEXT]
-        if prose:
-            paragraphs.append("\n".join(prose))
-    breaking_items: list[ChangelogItem] = []
-    sections: list[tuple[str, list[ChangelogItem]]] = []
+    sections: list[tuple[str, list[str]]] = []
     for name, lines in entry.sections:
         selected = [
-            item
+            line
             for item in split_items(target, name, lines)
             if item.since_version == version or (is_first_release and item.since_version is None)
+            for line in item.lines
         ]
-        if name == BREAKING_SECTION:
-            breaking_items.extend(selected)
-        elif selected:
+        if selected:
             sections.append((name, selected))
+    return render_docs_release_notes(target, entry.heading, prose, sections)
 
-    parts = [BREAKING_HEADING, render_items(breaking_items) if breaking_items else NO_BREAKING_CHANGES]
-    if not sections and not paragraphs and not breaking_items:
+
+def render_docs_release_notes(
+    target: ChangelogTarget, heading: str, prose: list[str], sections: list[tuple[str, list[str]]]
+) -> str:
+    breaking_lines = [line for name, lines in sections if name == BREAKING_SECTION for line in lines]
+    parts = [BREAKING_HEADING, "\n".join(breaking_lines) if breaking_lines else NO_BREAKING_CHANGES]
+    if not sections and not prose:
         parts.append(NO_CHANGES_TEXT)
-    parts.extend(paragraphs)
-    for name, items in sections:
-        parts.extend((f"## {name}", render_items(items)))
-    anchor = HEADING_ANCHOR.search(entry.heading)
+    if prose:
+        parts.append("\n".join(prose))
+    for name, lines in sections:
+        if name != BREAKING_SECTION:
+            parts.extend((f"## {name}", "\n".join(lines)))
+    anchor = HEADING_ANCHOR.search(heading)
     if anchor is None:
-        raise ReleaseNotesError(f"{target.output}: the {key} heading has no {{#anchor}}")
+        raise ReleaseNotesError(f"{target.output}: the heading {heading!r} has no {{#anchor}}")
     changelog_url = f"{DOCS_SITE_URL}/{posixpath.dirname(target.output).removeprefix('docs/')}/changelog"
     # Joining first keeps a link destination that a soft wrap split in one line.
     body = rewrite_docs_links(join_wrapped_lines("\n\n".join(parts)), changelog_url)
@@ -154,11 +161,15 @@ def released_versions(target: ChangelogTarget, preamble: list[str], version: str
         if mention.group("tag").startswith(target.tag_prefix)
     ]
     if version not in versions:
-        raise ReleaseNotesError(
-            f"{target.output} does not record {target.tag(version)} yet. Merge its release-prep pull request first: "
-            f"python3 script/release/changelog_fragments.py prepare {target.name} --version {version} --date <YYYY-MM-DD>"
-        )
+        raise unrecorded_release_error(target, version)
     return versions
+
+
+def unrecorded_release_error(target: ChangelogTarget, version: str) -> ReleaseNotesError:
+    return ReleaseNotesError(
+        f"{target.output} does not record {target.tag(version)} yet. Merge its release-prep pull request first: "
+        f"python3 script/release/changelog_fragments.py prepare {target.name} --version {version} --date <YYYY-MM-DD>"
+    )
 
 
 def split_items(target: ChangelogTarget, section: str, lines: list[str]) -> list[ChangelogItem]:
@@ -214,10 +225,6 @@ def trim_trailing_blank_lines(lines: list[str]) -> list[str]:
     while end > 0 and not lines[end - 1].strip():
         end -= 1
     return lines[:end]
-
-
-def render_items(items: list[ChangelogItem]) -> str:
-    return "\n".join(line for item in items for line in item.lines)
 
 
 def rewrite_docs_links(markdown: str, changelog_url: str) -> str:

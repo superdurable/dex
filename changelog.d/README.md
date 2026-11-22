@@ -55,6 +55,10 @@ section: Fixed
   `agents-packages` may also name a topic, such as `Dex MCP conventions`.
 - Fragments for the docs change logs follow the docs prose rules: **bold**
   for identifiers, no inline backticks, and no braces or `<`.
+- Each bullet in a new fragment can contain up to 300 characters, or 500 in
+  Breaking. The limit counts Markdown characters, including link targets,
+  and treats a wrapped line break as one space. Start with what changed and
+  link to a reference page for details.
 - A change that ships in several components adds one fragment per target.
 
 Check a fragment with `python3 script/release/changelog_fragments.py lint`.
@@ -82,17 +86,19 @@ Components take the release version and may share one pull request:
 python3 script/release/changelog_fragments.py prepare go,java,python,rust,typescript,web,cli --version 1.45.0 --date <YYYY-MM-DD>
 ```
 
-- A new minor, or each server-zd `0.1.N`, gets a new entry with its Released
-  line. Each agents package release gets its own `agents/CHANGELOG.md` entry.
-- A patch folds into its minor's entry: the Released line lists it, and its
-  items end with "Since 1.NN.P".
-- Preparing a version again, after a fragment landed late, folds the new
-  fragments into the existing entry.
+- Each SDK, cli, web, and agents docs release gets its own dated section under
+  its minor and a row in the minor's index table. The release-prep pull request
+  writes both, newest first. The row links to the section and the GitHub
+  release, and counts the items in each change category.
+- Each server-zd `0.1.N` gets an entry with its Released line. Each agents
+  package release gets its own `agents/CHANGELOG.md` entry.
+- Preparing the newest version again after a fragment lands adds the new
+  items to that version and updates its index row where applicable.
 - `--allow-empty` releases a component with no fragments as
   "No user-visible changes."
 - A newest entry from before fragments, marked "Not released yet" or
   "Unreleased", becomes the release entry, with its items kept.
-- Older entries never change.
+- Older release sections stay unchanged.
 
 Merge the release-prep pull request before the tag.
 `python3 script/release/changelog_fragments.py check-ready <component> <version>`
@@ -140,10 +146,8 @@ from that component's change log, never from GitHub-generated notes, which
 list every pull request in the repository between two tags.
 `script/release/component_release_notes.py` builds them:
 
-- The SDKs, web, cli, and server read
-  `docs/reference/<component>/changelog.mdx`. The notes hold exactly the items
-  of that version: a patch's items are the ones marked "Since 1.NN.P", and the
-  first release of an entry takes the unmarked items. They start with
+- The SDKs, web, cli, and server read the version's items from
+  `docs/reference/<component>/changelog.mdx`. The notes start with
   **Breaking Changes**, which lists the version's Breaking items, or "None."
   only when it has none. They end with a link to the change log entry.
 - agents reads the `## X.Y.Z` section of `agents/CHANGELOG.md` and links the

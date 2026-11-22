@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import server_zd_compatibility as compatibility  # noqa: E402
+from component_changelogs import TARGETS, ReleaseSection, render_release_minor, version_anchor  # noqa: E402
 
 SCRIPT = Path(__file__).with_name("server_zd_compatibility.py")
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -32,7 +33,6 @@ DOCS_INTRO = "---\nid: changelog\ntitle: Change log\n---\n\n# Change log\n\nUser
 URL = "https://github.com/superdurable/dex/releases/tag/"
 SDK_SOURCES = {client.name: client.protocol_source for client in compatibility.SDK_CLIENTS}
 SERVER_SOURCE = compatibility.SERVER_PROTOCOL_SOURCE
-TAG_PREFIXES = {"go": "sdk-go/v", "python": "sdk-python/v", "typescript": "sdk-typescript/v", "java": "sdk-java/v", "rust": "sdk-rust/v"}
 RULES = {
     "oldestSupportedServerZd": "0.1.2",
     "serverZd": [{"since": "0.1.0", "protocol": {"min": 1, "max": 4}}, {"since": "0.1.3", "protocol": {"min": 1, "max": 5}}],
@@ -144,7 +144,7 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
                     "agents/v0.1.0", "agents/v0.2.0"):
             self.git("tag", tag)
         for name in ("python", "typescript", "java", "rust"):
-            self.git("tag", f"{TAG_PREFIXES[name]}1.0.0")
+            self.git("tag", TARGETS[name].tag("1.0.0"))
         self.write(SERVER_SOURCE, server_source(5))
         self.write(SDK_SOURCES["go"], client_source(5, 5))
         # Only the untagged newest agents release, 0.3.0, ships gamma.
@@ -480,17 +480,24 @@ class ServerZdCompatibilityIntegrationTest(unittest.TestCase):
     def write_changelogs(
         self, go: list[list[str]], cli: list[list[str]], agents: list[str], servers: list[str] | None = None
     ) -> None:
-        def entries(prefix: str, groups: list[list[str]]) -> str:
-            return "".join(released_entry(".".join(group[0].split(".")[:2]), prefix, group) for group in groups)
+        def entries(name: str, groups: list[list[str]]) -> str:
+            blocks = []
+            for group in groups:
+                minor = group[0].rsplit(".", 1)[0]
+                releases = [
+                    ReleaseSection(version, "2026-11-01", [], [("Added", ["- A change."])])
+                    for version in reversed(group)
+                ]
+                blocks.append(render_release_minor(TARGETS[name], f"## {minor} {{#{version_anchor(minor)}}}", releases, "", is_last=False))
+            return "".join(blocks)
 
-        self.write("docs/reference/go/changelog.mdx", DOCS_INTRO + entries("sdk-go/v", go))
-        self.write("docs/reference/cli/changelog.mdx", DOCS_INTRO + entries("cli-v", cli))
+        self.write("docs/reference/go/changelog.mdx", DOCS_INTRO + entries("go", go))
+        self.write("docs/reference/cli/changelog.mdx", DOCS_INTRO + entries("cli", cli))
         for name in ("python", "typescript", "java", "rust"):
-            self.write(f"docs/reference/{name}/changelog.mdx", DOCS_INTRO + entries(TAG_PREFIXES[name], [["1.0.0"]]))
+            self.write(f"docs/reference/{name}/changelog.mdx", DOCS_INTRO + entries(name, [["1.0.0"]]))
         self.write("docs/reference/server/changelog.mdx", DOCS_INTRO + "".join(
             released_entry(version, "server-zd/v", [version]) for version in servers or ["0.1.3", "0.1.2", "0.1.1"]))
-        self.write("docs/reference/agents/changelog.mdx", DOCS_INTRO + "".join(
-            released_entry(".".join(version.split(".")[:2]), "agents/v", [version]) for version in reversed(agents)))
+        self.write("docs/reference/agents/changelog.mdx", DOCS_INTRO + entries("agents", [[version] for version in reversed(agents)]))
 
     def write_pins(self, sdk_version: str) -> None:
         manifest = json.dumps({"name": "core", "peerDependencies": {"@superdurable/dex": sdk_version}})

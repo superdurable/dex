@@ -24,6 +24,7 @@ from component_changelogs import (  # noqa: E402
     PendingItem,
     assemble_release,
     parse_entry,
+    parse_release_sections,
     split_entries,
 )
 from component_release_notes import (  # noqa: E402
@@ -460,13 +461,18 @@ class CurrentChangelogPartitionTest(unittest.TestCase):
     """Every item of every current docs change log belongs to exactly one release of its entry."""
 
     def test_items_partition_by_release(self) -> None:
-        for component, target_name in sorted(COMPONENT_CHANGELOG_TARGETS.items()):
-            if component == "agents":
+        for component, target in sorted(TARGETS.items()):
+            if target.style != "docs":
                 continue
-            target = TARGETS[target_name]
             changelog = (REPOSITORY_ROOT / target.output).read_text(encoding="utf-8")
             _, blocks = split_entries(changelog)
             for block in blocks:
+                if target.uses_release_sections:
+                    for release in parse_release_sections(target, block):
+                        with self.subTest(component=component, version=release.version):
+                            if component != "agents":
+                                build_component_release_notes(component, changelog, release.version, None, "superdurable/dex")
+                    continue
                 entry = parse_entry(block)
                 released_lines = [line for line in entry.preamble if line.startswith("Released ")]
                 if not released_lines:
@@ -491,12 +497,10 @@ class CurrentChangelogPartitionTest(unittest.TestCase):
 class WrappedChangelogTextTest(unittest.TestCase):
     """Soft wraps that prepare or an author leaves must not change which release an item belongs to."""
 
-    RELEASED_LINE = (
-        "Released 2026-12-01 as [sdk-go/v1.2.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.2.0)."
-    )
-
     def prepared_changelog(self) -> str:
-        changelog = f"# Change log\n\n## 1.2 {{#v1-2}}\n\n{self.RELEASED_LINE}\n\n### Added\n\n- First.\n"
+        changelog = assemble_release(
+            TARGETS["go"], "# Change log\n\n", [PendingItem("Added", ("- First.",))], "1.2.0", "2026-12-01", False,
+        )
         fragment = PendingItem(
             "Added",
             (
@@ -509,22 +513,26 @@ class WrappedChangelogTextTest(unittest.TestCase):
 
     def test_prepared_patch_with_split_links(self) -> None:
         changelog = self.prepared_changelog()
-        self.assertIn("pathname:///api/go/latest/dex/#type-worker) wrap. Since 1.2.1.", changelog)
+        self.assertIn("pathname:///api/go/latest/dex/#type-worker) wrap.", changelog)
         notes = build_component_release_notes("go", changelog, "1.2.1", None, "superdurable/dex")
         self.assertEqual(
             notes,
             "## Breaking Changes\n\nNone.\n\n## Added\n\n"
             "- Patch item whose [reference](https://docs.superdurable.io/reference/go/workers) and "
-            "[API reference](https://docs.superdurable.io/api/go/latest/dex/#type-worker) wrap. Since 1.2.1.\n\n"
+            "[API reference](https://docs.superdurable.io/api/go/latest/dex/#type-worker) wrap.\n\n"
             "Full change log: https://docs.superdurable.io/reference/go/changelog#v1-2\n",
         )
         notes = build_component_release_notes("go", changelog, "1.2.0", None, "superdurable/dex")
         self.assertIn("## Added\n\n- First.\n\nFull change log:", notes)
 
     def test_since_marker_split_by_a_soft_wrap(self) -> None:
-        changelog = self.prepared_changelog().replace(
-            "- First.\n",
-            "- Wrapped item whose marker wraps. Since\n  1.2.1.\n  - A sub-bullet.\n- First.\n",
+        changelog = (
+            "# Change log\n\n## 1.2 {#v1-2}\n\n"
+            "Released 2026-12-01 as [sdk-go/v1.2.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.2.0); "
+            "1.2.1 released 2026-12-02 as [sdk-go/v1.2.1](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.2.1).\n\n"
+            "### Added\n\n"
+            "- Wrapped item whose marker wraps. Since\n  1.2.1.\n  - A sub-bullet.\n"
+            "- First.\n- Patch item. Since 1.2.1.\n"
         )
         _, blocks = split_entries(changelog)
         entry = parse_entry(blocks[0])

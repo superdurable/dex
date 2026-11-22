@@ -15,7 +15,7 @@ from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from component_release_notes import ReleaseNotesError, build_component_release_notes  # noqa: E402
+from component_release_notes import ReleaseNotesError, build_component_release_notes, component_changelog_path  # noqa: E402
 from update_release_notes import component_release, update_release_notes  # noqa: E402
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -42,8 +42,7 @@ class FakeGitHub:
 
 
 def current_notes(component: str, version: str, previous_tag: str | None = None) -> str:
-    target = {"server": "docs/reference/server/changelog.mdx", "agents": "agents/CHANGELOG.md"}[component]
-    changelog = (REPOSITORY_ROOT / target).read_text(encoding="utf-8")
+    changelog = (REPOSITORY_ROOT / component_changelog_path(component)).read_text(encoding="utf-8")
     return build_component_release_notes(component, changelog, version, previous_tag, REPOSITORY)
 
 
@@ -69,6 +68,13 @@ class UpdateReleaseNotesTest(unittest.TestCase):
         message = update_release_notes("server-zd/v0.1.32", REPOSITORY, REPOSITORY_ROOT, github.run)
         self.assertIn("already has", message)
         self.assertEqual(github.edited_notes, [])
+
+    def test_web_notes_use_the_exact_dated_release(self) -> None:
+        github = FakeGitHub("")
+        update_release_notes("web/v1.45.18", REPOSITORY, REPOSITORY_ROOT, github.run)
+        self.assertEqual(github.edited_notes, [current_notes("web", "1.45.18")])
+        self.assertIn("skips write reapply by default", github.edited_notes[0])
+        self.assertNotIn("Since 1.45.18.", github.edited_notes[0])
 
     def test_agents_notes_link_the_previous_stable_tag(self) -> None:
         github = FakeGitHub("", agents_tags=("agents/v0.6.9", "agents/v0.6.10", "agents/v0.6.11", "agents/v0.7.0-rc.1"))

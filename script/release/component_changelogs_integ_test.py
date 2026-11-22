@@ -23,10 +23,13 @@ SERVER_CHANGELOG = "docs/reference/server/changelog.mdx"
 AGENTS_CHANGELOG = "docs/reference/agents/changelog.mdx"
 AGENTS_PACKAGES_CHANGELOG = "agents/CHANGELOG.md"
 DOCS_INTRO = "---\nid: changelog\ntitle: Change log\n---\n\n# Change log\n\nUser-visible changes, newest first.\n\n"
+INDEX_HEADER = "| Version | Released | Changes | Release |\n| --- | --- | --- | --- |\n"
 GO_RELEASED_1_44 = (
     "## 1.44 {#v1-44}\n\n"
-    "Released 2026-11-10 as [sdk-go/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.44.0).\n\n"
-    "### Added\n\n- **Join** synchronizes branches.\n"
+    + INDEX_HEADER
+    + "| [1.44.0](#v1-44-0) | 2026-11-10 | 1 added | [sdk-go/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.44.0) |\n\n"
+    "### 1.44.0 (2026-11-10) {#v1-44-0}\n\n"
+    "**Added**\n\n- **Join** synchronizes branches.\n"
 )
 GO_LEGACY_1_45 = (
     "## 1.45 {#v1-45}\n\n"
@@ -43,8 +46,10 @@ AGENTS_DOCS = (
     + "## Unreleased {#unreleased}\n\nNot released yet. The next agents release ships these changes.\n\n"
     "### Added\n\n- **McpToolSource** follows the conventions.\n\n"
     "## 0.4 {#v0-4}\n\n"
-    "Released 2026-11-10 as [agents/v0.4.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.4.0).\n\n"
-    "### Added\n\n- Connector tools.\n"
+    + INDEX_HEADER
+    + "| [0.4.0](#v0-4-0) | 2026-11-10 | 1 added | [agents/v0.4.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.4.0) |\n\n"
+    "### 0.4.0 (2026-11-10) {#v0-4-0}\n\n"
+    "**Added**\n\n- Connector tools.\n"
 )
 AGENTS_PACKAGES = (
     "# Changelog\n\nAll agents packages share this changelog.\n\n"
@@ -57,13 +62,13 @@ NEW_PR_NUMBER = "9000"
 
 def next_release(changelog: str) -> str:
     """Returns the version the newest entry of a real change log releases next: its own key, or the next minor."""
-    heading = re.search(r"^## (\d+)\.(\d+)(?:\.(\d+))? \{#v[0-9-]+\}\n\n(?P<state>Not released|Released)", changelog, re.M)
+    heading = re.search(r"^## (\d+)\.(\d+)(?:\.(\d+))? \{#v[0-9-]+\}\n\n", changelog, re.M)
     unreleased = re.search(r"^## Unreleased", changelog, re.M)
     if unreleased and (heading is None or unreleased.start() < heading.start()):
         major, minor, _ = (int(part) for part in re.search(r"agents%2Fv(\d+)\.(\d+)\.(\d+)", changelog).groups())
         return f"{major}.{minor + 1}.0"
     major, minor, patch = (int(part) if part else 0 for part in heading.group(1, 2, 3))
-    if heading.group("state") == "Not released":
+    if changelog[heading.end() :].startswith("Not released"):
         return f"{major}.{minor}.{patch}"
     return f"{major}.{minor}.{patch + 1}" if heading.group(3) else f"{major}.{minor + 1}.0"
 
@@ -112,6 +117,19 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         self.write(topic, "---\nsection: Images\n---\n- `MediaStore` keeps images.\n")
         self.assertEqual(self.run_script("lint", topic).returncode, 0)
 
+    def test_new_fragment_length_limits_do_not_apply_to_landed_fragments(self) -> None:
+        path = "changelog.d/go/long-aaaaaa.md"
+        for section, limit in (("Fixed", 300), ("Breaking", 500)):
+            with self.subTest(section=section):
+                wrapped_bullet = f"---\nsection: {section}\n---\n- {'a' * (limit - 2)}\n  b"
+                self.write(path, wrapped_bullet + "\n")
+                self.assertEqual(self.run_script("lint", path).returncode, 0)
+                self.write(path, wrapped_bullet + "c\n")
+                self.assertIn(f"bullet 1 has {limit + 1} characters; limit {limit}", self.run_script("lint", path, check=False).stderr)
+        self.commit("land existing long fragment")
+        self.assertEqual(self.run_script("lint", path).returncode, 0)
+        self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
+
     def test_prepare_absorbs_the_legacy_entry_and_keeps_older_entries(self) -> None:
         self.write("changelog.d/go/b-fix-000002.md", "---\nsection: Fixed\n---\n- A fragment fix.\n")
         self.write("changelog.d/go/a-api-000001.md", "---\nsection: Added\n---\n- **Join.Reset** resets a round.\n")
@@ -122,14 +140,16 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
             self.read(GO_CHANGELOG),
             DOCS_INTRO
             + "## 1.45 {#v1-45}\n\n"
-            "Released 2026-11-12 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0).\n\n"
-            "### Added\n\n- **Join.Reset** resets a round.\n\n"
-            "### Fixed\n\n- A legacy fix.\n- A fragment fix.\n\n"
+            + INDEX_HEADER
+            + "| [1.45.0](#v1-45-0) | 2026-11-12 | 1 added, 2 fixed | [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0) |\n\n"
+            "### 1.45.0 (2026-11-12) {#v1-45-0}\n\n"
+            "**Added**\n\n- **Join.Reset** resets a round.\n\n"
+            "**Fixed**\n\n- A legacy fix.\n- A fragment fix.\n\n"
             + GO_RELEASED_1_44,
         )
         self.assertEqual(sorted(path.name for path in (self.repository / "changelog.d/go").iterdir()), [".gitkeep"])
 
-    def test_prepare_folds_a_patch_and_a_repeated_prepare_into_the_minor(self) -> None:
+    def test_prepare_adds_a_patch_section_and_a_repeated_prepare_updates_it(self) -> None:
         self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
         self.commit("1.45.0")
         self.write("changelog.d/go/patch-000001.md", "---\nsection: Fixed\n---\n- A patch fix.\n")
@@ -140,16 +160,20 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
 
         changelog = self.read(GO_CHANGELOG)
         self.assertIn(
-            "Released 2026-11-12 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0); "
-            "1.45.1 released 2026-11-13 as [sdk-go/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.1).\n",
+            "| [1.45.1](#v1-45-1) | 2026-11-13 | 1 changed, 1 fixed | [sdk-go/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.1) |\n"
+            "| [1.45.0](#v1-45-0) | 2026-11-12 | 1 fixed | [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0) |\n",
             changelog,
         )
-        self.assertEqual(changelog.count("1.45.1 released"), 1)
-        self.assertIn("### Changed\n\n- A late change. Since 1.45.1.\n\n### Fixed\n\n- A legacy fix.\n- A patch fix. Since 1.45.1.\n", changelog)
+        self.assertEqual(changelog.count("### 1.45.1 "), 1)
+        self.assertIn(
+            "### 1.45.1 (2026-11-13) {#v1-45-1}\n\n**Changed**\n\n- A late change.\n\n**Fixed**\n\n- A patch fix.\n\n"
+            "### 1.45.0 (2026-11-12) {#v1-45-0}\n\n**Fixed**\n\n- A legacy fix.\n",
+            changelog,
+        )
         self.assertEqual(changelog.count("## 1.45 "), 1)
         self.assertTrue(changelog.endswith(GO_RELEASED_1_44))
 
-    def test_prepare_marks_the_end_of_wrapped_and_single_line_patch_bullets(self) -> None:
+    def test_prepare_preserves_wrapped_and_single_line_patch_bullets(self) -> None:
         self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
         self.commit("1.45.0")
         self.write(
@@ -167,17 +191,17 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
 
         changelog = self.read(GO_CHANGELOG)
         self.assertIn(
-            "### Changed\n\n"
-            "- A wrapped change\n  that spans\n  three lines. Since 1.45.1.\n"
-            "- A late wrapped\n  change. Since 1.45.1.\n"
-            "- A late single change. Since 1.45.1.\n\n"
-            "### Fixed\n\n- A legacy fix.\n- A single fix. Since 1.45.1.\n",
+            "**Changed**\n\n"
+            "- A wrapped change\n  that spans\n  three lines.\n"
+            "- A late wrapped\n  change.\n"
+            "- A late single change.\n\n"
+            "**Fixed**\n\n- A single fix.\n",
             changelog,
         )
-        self.assertEqual(changelog.count("Since 1.45.1."), 4)
+        self.assertIn("| 3 changed, 1 fixed |", changelog)
         self.assertTrue(changelog.endswith(GO_RELEASED_1_44))
 
-    def test_prepare_marks_the_parent_text_of_patch_bullets_with_sub_bullets_or_fences(self) -> None:
+    def test_prepare_preserves_sub_bullets_and_fences_and_counts_top_level_bullets(self) -> None:
         self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
         self.commit("1.45.0")
         self.write(
@@ -192,12 +216,12 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
 
         changelog = self.read(GO_CHANGELOG)
         self.assertIn(
-            "### Changed\n\n"
-            "- Use this: Since 1.45.1.\n  ```go\n  x := 1\n  ```\n"
-            "- A parent change\n  over two lines: Since 1.45.1.\n  - child one.\n  - child two.\n\n",
+            "**Changed**\n\n"
+            "- Use this:\n  ```go\n  x := 1\n  ```\n"
+            "- A parent change\n  over two lines:\n  - child one.\n  - child two.\n\n",
             changelog,
         )
-        self.assertEqual(changelog.count("Since 1.45.1."), 2)
+        self.assertIn("| 2 changed |", changelog)
 
     def test_prepare_writes_a_new_entry_and_needs_allow_empty_without_changes(self) -> None:
         java = "docs/reference/java/changelog.mdx"
@@ -212,7 +236,9 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
             self.read(java),
             DOCS_INTRO
             + "## 1.45 {#v1-45}\n\n"
-            "Released 2026-11-12 as [sdk-java/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.45.0).\n\n"
+            + INDEX_HEADER
+            + "| [1.45.0](#v1-45-0) | 2026-11-12 | no user-visible changes | [sdk-java/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.45.0) |\n\n"
+            "### 1.45.0 (2026-11-12) {#v1-45-0}\n\n"
             "No user-visible changes.\n\n"
             + before[len(DOCS_INTRO) :],
         )
@@ -237,39 +263,39 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
 
         self.assertNotIn("No user-visible changes.", self.read(java))
         self.assertIn(
-            "Released 2026-11-12 as [sdk-java/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.45.0).\n\n"
-            "### Fixed\n\n- A late fix.\n\n## 1.44 ",
+            "### 1.45.0 (2026-11-12) {#v1-45-0}\n\n"
+            "**Fixed**\n\n- A late fix.\n\n## 1.44 ",
             self.read(java),
         )
 
-    def test_check_ready_parses_the_released_line(self) -> None:
+    def test_check_ready_validates_the_index_and_release_section(self) -> None:
         self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
         prepared = self.read(GO_CHANGELOG)
         url = "https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0"
         cases = {
-            "unencoded URL": (url, url.replace("%2F", "/"), "URL"),
-            "impossible date": ("Released 2026-11-12", "Released 2026-02-30", "date 2026-02-30"),
-            "wrong tag": ("[sdk-go/v1.45.0]", "[sdk-go-v1.45.0]", "names sdk-go-v1.45.0"),
-            "other version": ("v1.45.0", "v1.45.2", "does not name sdk-go/v1.45.0"),
-            "malformed": ("Released 2026-11-12 as ", "Released on 2026-11-12 as ", "must read 'Released YYYY-MM-DD"),
-            "missing": (f"Released 2026-11-12 as [sdk-go/v1.45.0]({url}).\n\n", "", "exactly one Released line"),
+            "unencoded URL": (url, url.replace("%2F", "/"), "release index does not match"),
+            "impossible date": ("(2026-11-12)", "(2026-02-30)", "invalid release heading"),
+            "wrong tag": ("[sdk-go/v1.45.0]", "[sdk-go-v1.45.0]", "release index does not match"),
+            "wrong section anchor": ("{#v1-45-0}", "{#v1-45-2}", "invalid release heading"),
+            "wrong count": ("| 1 fixed |", "| 2 fixed |", "release index does not match"),
+            "missing heading": ("### 1.45.0 ", "## 1.45.0 ", "needs a dated release section"),
         }
         for name, (old, new, message) in cases.items():
             with self.subTest(name=name):
-                self.write(GO_CHANGELOG, prepared.replace(old, new, 2 if name == "other version" else 1))
+                self.write(GO_CHANGELOG, prepared.replace(old, new, 1))
                 result = self.run_script("check-ready", "go", "1.45.0", check=False)
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(message, result.stderr)
         self.write(GO_CHANGELOG, prepared)
         self.assertEqual(self.run_script("check-ready", "go", "1.45.0").returncode, 0)
 
-    def test_check_ready_accepts_a_folded_patch_and_rejects_a_bad_later_mention(self) -> None:
+    def test_check_ready_accepts_a_patch_and_rejects_a_bad_release_link(self) -> None:
         self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
         self.write("changelog.d/go/patch-000001.md", "---\nsection: Fixed\n---\n- A patch fix.\n")
         self.run_script("prepare", "go", "--version", "1.45.1", "--date", "2026-11-13")
         self.assertEqual(self.run_script("check-ready", "go", "1.45.1").returncode, 0)
         self.write(GO_CHANGELOG, self.read(GO_CHANGELOG).replace("sdk-go%2Fv1.45.1", "sdk-go%2Fv1.45.9"))
-        self.assertIn("URL", self.run_script("check-ready", "go", "1.45.1", check=False).stderr)
+        self.assertIn("release index does not match", self.run_script("check-ready", "go", "1.45.1", check=False).stderr)
 
     def test_server_release_workflows_fail_before_building_without_the_entry(self) -> None:
         workflows = {
@@ -312,8 +338,10 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         docs = self.read(AGENTS_CHANGELOG)
         self.assertIn(
             "## 0.5 {#v0-5}\n\n"
-            "Released 2026-11-12 as [agents/v0.5.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.5.0).\n\n"
-            "### Added\n\n- **McpToolSource** follows the conventions.\n\n### Fixed\n\n- **Session** fix.\n\n## 0.4 {#v0-4}",
+            + INDEX_HEADER
+            + "| [0.5.0](#v0-5-0) | 2026-11-12 | 1 added, 1 fixed | [agents/v0.5.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.5.0) |\n\n"
+            "### 0.5.0 (2026-11-12) {#v0-5-0}\n\n"
+            "**Added**\n\n- **McpToolSource** follows the conventions.\n\n**Fixed**\n\n- **Session** fix.\n\n## 0.4 {#v0-4}",
             docs,
         )
         self.assertNotIn("Unreleased", docs)
@@ -457,8 +485,7 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
                 before = self.read(output)
                 self.run_script("prepare", component, "--version", version, "--date", "2026-11-12", "--allow-empty")
                 self.assertEqual(self.run_script("check-ready", component, version).returncode, 0)
-                released = before.index("\nReleased ")
-                older = before[before.rindex("\n## ", 0, released) + 1 :]
+                older = before[re.search(r"^## \d", before, re.M).start() :]
                 self.assertTrue(self.read(output).endswith(older), output)
 
     def land(self, path: str, text: str) -> None:

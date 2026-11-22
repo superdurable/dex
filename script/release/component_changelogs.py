@@ -36,6 +36,16 @@ RELEASED_LATER = re.compile(
 )
 RELEASED_MENTION = re.compile(r"[Rr]eleased (?P<date>\d{4}-\d{2}-\d{2}) as \[(?P<tag>[^\]]+)\]")
 VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+RELEASE_SECTION_HEADING = re.compile(
+    r"^### (?P<version>\d+\.\d+\.\d+) \((?P<date>\d{4}-\d{2}-\d{2})\) \{#(?P<anchor>v[0-9-]+)\}$",
+    re.MULTILINE,
+)
+RELEASE_INDEX_HEADER = (
+    "| Version | Released | Changes | Release |",
+    "| --- | --- | --- | --- |",
+)
+RELEASE_LABELS = {f"**{name}**": name for name in STANDARD_SECTIONS}
+OLDER_RELEASES_PREFIX = "Older releases:"
 
 
 class ChangelogError(Exception):
@@ -52,6 +62,10 @@ class ChangelogTarget:
     def tag(self, version: str) -> str:
         return f"{self.tag_prefix}{version}"
 
+    @property
+    def uses_release_sections(self) -> bool:
+        return self.style == DOCS_STYLE and self.name != "server"
+
 
 @dataclass(frozen=True)
 class PendingItem:
@@ -62,6 +76,14 @@ class PendingItem:
 @dataclass
 class Entry:
     heading: str
+    preamble: list[str]
+    sections: list[tuple[str, list[str]]]
+
+
+@dataclass
+class ReleaseSection:
+    version: str
+    date: str
     preamble: list[str]
     sections: list[tuple[str, list[str]]]
 
@@ -97,8 +119,8 @@ def assemble_release(
 ) -> str:
     """Returns the change log with version released from items and any legacy unreleased entry.
 
-    A version whose entry already exists, such as a patch or a repeated prepare, folds into it.
-    Older entries stay byte-identical. Raises ChangelogError when the release does not fit.
+    A repeated prepare adds items to the existing version. Older releases stay byte-identical.
+    Raises ChangelogError when the release does not fit.
     """
     patch = version_parts(version)[2]
     key = release_key(target, version)
@@ -115,7 +137,10 @@ def assemble_release(
     if not pending and not legacy_sections and not is_empty_allowed:
         raise ChangelogError(f"{target.output}: no fragments for {version}; pass --allow-empty to release without changes")
 
-    newest_key = entry_key(target, parse_entry(blocks[0]).heading) if blocks else None
+    newest_key = entry_key(target, blocks[0].splitlines()[0]) if blocks else None
+    if target.uses_release_sections:
+        pending = [PendingItem(name, tuple(lines)) for name, lines in legacy_sections] + pending
+        return intro + assemble_release_section(target, blocks, newest_key, key, version, release_date, pending)
     if newest_key == key:
         pending = [PendingItem(name, tuple(lines)) for name, lines in legacy_sections] + pending
         entry = parse_entry(blocks[0])
@@ -133,6 +158,133 @@ def assemble_release(
     else:
         raise ChangelogError(f"{target.output}: release {version} is older than the newest entry {newest_key}")
     return intro + render_entry(entry, is_last=not rest) + "".join(rest)
+
+
+def assemble_release_section(
+    target: ChangelogTarget,
+    blocks: list[str],
+    newest_key: str | None,
+    key: str,
+    version: str,
+    release_date: str,
+    pending: Sequence[PendingItem],
+) -> str:
+    heading = f"## {key} {{#{version_anchor(key)}}}"
+    releases: list[ReleaseSection] = []
+    footer = ""
+    minor_prose = ""
+    rest = blocks
+    if newest_key == key:
+        heading = blocks[0].splitlines()[0]
+        releases = parse_release_sections(target, blocks[0])
+        footer = split_older_releases(blocks[0])[1]
+        after_index = blocks[0].partition(render_release_index(target, releases))[2]
+        minor_prose = after_index.partition("\n### ")[0].strip()
+        rest = blocks[1:]
+    elif newest_key is not None and key_tuple(key) < key_tuple(newest_key):
+        raise ChangelogError(f"{target.output}: release {version} is older than the newest entry {newest_key}")
+
+    if releases and version_parts(version) < version_parts(releases[0].version):
+        raise ChangelogError(f"{target.output}: release {version} is older than {releases[0].version}")
+    if releases and releases[0].version == version:
+        release = releases[0]
+    else:
+        release = ReleaseSection(version, release_date, [], [])
+        releases.insert(0, release)
+    release.sections = merge_sections(release.sections, pending)
+    return render_release_minor(target, heading, releases, footer, is_last=not rest, minor_prose=minor_prose) + "".join(rest)
+
+
+def parse_release_sections(target: ChangelogTarget, block: str) -> list[ReleaseSection]:
+    """Read a minor's dated sections and verify that its index matches them."""
+    block, _ = split_older_releases(block)
+    heading, _, content = block.partition("\n")
+    key = entry_key(target, heading)
+    headings = list(RELEASE_SECTION_HEADING.finditer(content))
+    if not headings:
+        raise ChangelogError(f"{target.output}: the {key} entry needs a dated release section")
+    releases = []
+    ends = [*(match.start() for match in headings[1:]), len(content)]
+    for match, end in zip(headings, ends):
+        version, release_date, anchor = match.group("version", "date", "anchor")
+        if release_key(target, version) != key or not is_calendar_date(release_date) or anchor != version_anchor(version):
+            raise ChangelogError(f"{target.output}: invalid release heading {match.group()!r} under {heading}")
+        if releases and version_parts(releases[-1].version) <= version_parts(version):
+            raise ChangelogError(f"{target.output}: the {key} release sections must be unique and newest first")
+        release = ReleaseSection(version, release_date, [], [])
+        lines = release.preamble
+        for line in content[match.end() : end].splitlines():
+            if line.startswith("### "):
+                raise ChangelogError(f"{target.output}: invalid release heading {line!r} under {heading}")
+            if line in RELEASE_LABELS:
+                lines = []
+                release.sections.append((RELEASE_LABELS[line], lines))
+            else:
+                lines.append(line)
+        release.preamble = trim_blank_lines(release.preamble)
+        release.sections = [(name, trim_blank_lines(lines)) for name, lines in release.sections]
+        labels = [name for name, _ in release.sections]
+        if labels != [name for name in STANDARD_SECTIONS if name in labels] or any(
+            not lines or not lines[0].startswith("- ") for _, lines in release.sections
+        ):
+            raise ChangelogError(f"{target.output}: invalid change labels or bullets in {version}")
+        if (NO_CHANGES_TEXT in release.preamble) != (not release.sections):
+            raise ChangelogError(f"{target.output}: inconsistent empty release section for {version}")
+        releases.append(release)
+    intro = content[: headings[0].start()].strip()
+    index, _, _ = intro.partition("\n\n")
+    if index != render_release_index(target, releases):
+        raise ChangelogError(f"{target.output}: the {key} release index does not match its sections")
+    return releases
+
+
+def render_release_minor(
+    target: ChangelogTarget,
+    heading: str,
+    releases: Sequence[ReleaseSection],
+    footer: str,
+    *,
+    is_last: bool,
+    minor_prose: str = "",
+) -> str:
+    parts = [heading, render_release_index(target, releases)]
+    if minor_prose:
+        parts.append(minor_prose)
+    for release in releases:
+        parts.append(f"### {release.version} ({release.date}) {{#{version_anchor(release.version)}}}")
+        prose = [line for line in release.preamble if line != NO_CHANGES_TEXT]
+        if prose:
+            parts.append("\n".join(prose))
+        if not release.sections:
+            parts.append(NO_CHANGES_TEXT)
+        for name, lines in release.sections:
+            parts.extend((f"**{name}**", "\n".join(lines)))
+    if footer:
+        parts.append(footer)
+    return "\n\n".join(parts) + ("\n" if is_last else "\n\n")
+
+
+def render_release_index(target: ChangelogTarget, releases: Sequence[ReleaseSection]) -> str:
+    rows = list(RELEASE_INDEX_HEADER)
+    for release in releases:
+        version = release.version
+        tag = target.tag(version)
+        counts = ", ".join(
+            f"{sum(line.startswith('- ') for line in lines)} {name.lower()}"
+            for name, lines in release.sections
+        )
+        changes = counts or "no user-visible changes"
+        rows.append(f"| [{version}](#{version_anchor(version)}) | {release.date} | {changes} | [{tag}]({release_url(tag)}) |")
+    return "\n".join(rows)
+
+
+def version_anchor(version: str) -> str:
+    return f"v{version.replace('.', '-')}"
+
+
+def split_older_releases(block: str) -> tuple[str, str]:
+    body, marker, footer = block.partition(f"\n{OLDER_RELEASES_PREFIX}")
+    return body, (marker.lstrip("\n") + footer).rstrip("\n")
 
 
 def readiness_errors(target: ChangelogTarget, changelog: str, fragment_count: int, version: str) -> list[str]:
@@ -156,6 +308,14 @@ def readiness_errors(target: ChangelogTarget, changelog: str, fragment_count: in
         heading = PACKAGES_HEADING.fullmatch(entry.heading)
         if heading is None or heading.group("key") != version or not is_calendar_date(heading.group("date")):
             errors.append(f"{target.output}: the newest entry must be '## {version} (YYYY-MM-DD)'")
+        return errors
+    if target.uses_release_sections:
+        try:
+            releases = parse_release_sections(target, blocks[0])
+        except ChangelogError as error:
+            return errors + [str(error)]
+        if version not in {release.version for release in releases}:
+            errors.append(f"{target.output}: the {key} entry does not record {target.tag(version)}")
         return errors
     return errors + released_line_errors(target, entry, key, version)
 
@@ -227,6 +387,11 @@ def newest_release(target: ChangelogTarget, changelog: str) -> tuple[str, str] |
     if target.style == PACKAGES_STYLE:
         heading = PACKAGES_HEADING.fullmatch(entry.heading)
         return (heading.group("key"), heading.group("date")) if heading else None
+    if target.uses_release_sections:
+        if is_legacy_entry(entry):
+            return None
+        release = parse_release_sections(target, blocks[0])[0]
+        return release.version, release.date
     mentions = [mention for line in entry.preamble for mention in RELEASED_MENTION.finditer(line)]
     if not mentions or not mentions[-1].group("tag").startswith(target.tag_prefix):
         return None
