@@ -35,6 +35,9 @@ var errClientClosed = errors.New("dex: Client is closed")
 
 const serverCappedLongPollSeconds = int32(math.MaxInt32)
 
+// waitDeadlineAnswerMargin exceeds the Server's 200 ms early answer to a wait, with slack for scheduling stalls.
+const waitDeadlineAnswerMargin = time.Second
+
 // ClientOptions configures the FlowService client.
 type ClientOptions struct {
 	// FlowServiceAddress is Dex's gRPC target. Default: "localhost:8801".
@@ -888,6 +891,9 @@ func (client *Client) StopFlow(
 // options controls whether Step completion results are included. The server may end one long poll
 // at its configured cap and return LongPollTimeoutError; callers may repeat the call. Use
 // context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
+// A wait that ends at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
+// Changed in 1.45.17: a long-poll cap that expires earlier than that returns LongPollTimeoutError
+// instead of context.DeadlineExceeded.
 // Canceling this wait does not stop the Flow. Call StopFlow separately to request a stop.
 // A terminal failed or canceled Flow is returned in FlowResult.Status, not as a Go error.
 // Missing Flows return FlowNotFoundError; context, transport, and hydration failures return errors.
@@ -1273,6 +1279,9 @@ func (client *Client) UpdateFlowConfig(
 // Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
+// The method calls the Server again each time one long poll reaches the Server's cap.
+// Changed in 1.45.17: a ctx deadline or RequestTimeout longer than that cap no longer ends the wait
+// at the cap with context.DeadlineExceeded or RequestTimeoutError.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
@@ -1458,6 +1467,10 @@ func (client *Client) WriteStream(
 // current head. The call blocks until a message arrives, the server's long-poll cap expires, or ctx
 // is canceled. Use context.WithTimeout to impose a shorter Go-side deadline. Pass the returned
 // StreamMessage.ResumeToken unchanged to resume after this message.
+// An expired long-poll cap returns LongPollTimeoutError; call again with the same resumeToken.
+// A wait that ends at, or within one second of, ctx's deadline returns context.DeadlineExceeded.
+// Changed in 1.45.17: a long-poll cap that expires earlier than that returns LongPollTimeoutError
+// instead of context.DeadlineExceeded.
 func (client *Client) ReadStream(
 	ctx context.Context,
 	flowID string,
@@ -1632,6 +1645,9 @@ func streamMessagesPageTarget(
 // Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
+// The method calls the Server again each time one long poll reaches the Server's cap.
+// Changed in 1.45.17: a ctx deadline or RequestTimeout longer than that cap no longer ends the wait
+// at the cap with context.DeadlineExceeded or RequestTimeoutError.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
@@ -1851,10 +1867,12 @@ func translateDurableWaitRPCError(
 	if status.Code(err) == codes.DeadlineExceeded {
 		// Transport deadlines can fire before the matching context timer.
 		contextDeadline, hasContextDeadline := ctx.Deadline()
-		if hasContextDeadline && (!requestBudget.hasDeadline() || !contextDeadline.After(requestBudget.deadline)) {
+		isContextDeadlineFirst := hasContextDeadline &&
+			(!requestBudget.hasDeadline() || !contextDeadline.After(requestBudget.deadline))
+		if isContextDeadlineFirst && isWaitDeadlineReached(contextDeadline) {
 			return context.DeadlineExceeded
 		}
-		if requestBudget.hasDeadline() {
+		if requestBudget.hasDeadline() && isWaitDeadlineReached(requestBudget.deadline) {
 			return newRequestTimeoutError(op, flowID)
 		}
 	}
@@ -1872,12 +1890,18 @@ func translateWaitRPCError(
 		return contextErr
 	}
 	if status.Code(err) == codes.DeadlineExceeded {
-		_, hasDeadline := ctx.Deadline()
-		if hasDeadline {
+		// Farther from the deadline, the Server's own status applies, such as its long-poll cap.
+		contextDeadline, hasDeadline := ctx.Deadline()
+		if hasDeadline && isWaitDeadlineReached(contextDeadline) {
 			return context.DeadlineExceeded
 		}
 	}
 	return translateRPCError(err, op, flowID, target)
+}
+
+// isWaitDeadlineReached returns true when deadline has passed or is at most waitDeadlineAnswerMargin away.
+func isWaitDeadlineReached(deadline time.Time) bool {
+	return time.Until(deadline) <= waitDeadlineAnswerMargin
 }
 
 func isPrimitiveValue(value *dexpb.Value) bool {
