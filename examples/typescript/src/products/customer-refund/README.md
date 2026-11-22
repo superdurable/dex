@@ -35,11 +35,36 @@ environment's refund.
 | [`worker.ts`](worker.ts) | The Worker. It uploads the generated design. |
 | [`start.ts`](start.ts) | Starts one refund with a Flow ID and a scenario. |
 | [`decide.ts`](decide.ts) | Approves or rejects a waiting refund. |
+| [`controller.ts`](controller.ts) | The HTTP routes of the shared example server. |
 
 The integration test is
 [`test/integ/customer-refund.test.ts`](../../../test/integ/customer-refund.test.ts).
-This example runs its own Worker. The HTTP sample in `src/main.ts` does not
-register it.
+The steps below run this example's own Worker and commands.
+
+## Run it with the shared example server
+
+The shared example server (`npm start`, from `src/main.ts`) also registers
+this Flow, with the normal billing mode only. It serves these routes:
+
+| Route | What it does |
+| --- | --- |
+| `GET /products/customer-refund/manager-approval/start?workflowId=<id>&scenario=<scenario>` | Starts a refund and waits up to 10 seconds for `CheckPolicy` before returning `flowID` and `runID`. The server picks a `customer-refund-` Flow ID when no ID is supplied. `scenario` is `normal` (the default), `fail-then-succeed`, `deny`, or `small`. |
+| `GET /products/customer-refund/manager-approval/decide?workflowId=<id>&decision=<approve or reject>&reason=<text>` | Approves or rejects a refund that waits for a manager. |
+| `GET /products/customer-refund/manager-approval/describe?workflowId=<id>` | Returns `flowID`, the run `status`, and `caseStatus` and `refundId` from the `case-status` and `refund-id` Attributes. `refundId` is `null` until a refund is issued. |
+
+Each route also accepts the Flow ID as `flowId`, like the order-processing routes.
+
+For the `normal` scenario, call `decide` as soon as `start` succeeds. A duplicate
+start returns 409, and a policy check that exceeds the wait returns 504.
+`decide` returns 400 for invalid input and 409 if the refund is no longer
+awaiting a manager, another decision holds its lock, or the run is closing.
+`describe` and `decide` return 404 for unknown refunds or another Flow type.
+`decide` also returns 404 for closed runs. The server keeps its ledgers in
+`.customer-refund/`. Set `REFUND_LEDGER_DIR` to use another folder.
+
+Stop the shared server before you run this example's own Worker against the
+same Dex. Both serve `CustomerRefundFlow`, so either one could run a Step,
+and the `call-missing` story would not show the missing refund.
 
 ## Run it
 
@@ -229,7 +254,10 @@ each policy denial, the fail-then-succeed refund and its History, the missing
 billing call fixed with `dexcli flow time-travel`, Time Travel after a
 successful refund, the design and its Actions, and encryption. They need
 `dexcli` on `PATH` or in `DEXCLI_PATH`. `npm run test:integ` and
-`./run-integration-tests.sh` run them with the other examples. `npm test`
+`./run-integration-tests.sh` run them with the other examples. `npm run smoke`
+checks the shared server's routes in
+[`test/e2e/flow-smoke.test.ts`](../../../test/e2e/flow-smoke.test.ts).
+`npm test`
 runs
 [`test/workflow/customer-refund-ledgers.test.ts`](../../../test/workflow/customer-refund-ledgers.test.ts),
 which needs no Dex. It holds each ledger's lock while several processes

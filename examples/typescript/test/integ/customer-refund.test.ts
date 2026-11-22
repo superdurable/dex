@@ -49,10 +49,12 @@ import {
   AWAITING_MANAGER,
   CustomerRefundFlow,
   NO_OUTAGE_NOTE,
+  REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE,
   WINDOW_EXPIRED_NOTE,
   caseStatus,
   customerMessage,
   refundId,
+  type RefundRequest,
 } from "../../src/products/customer-refund/refund-flow.js";
 import {
   FLOW_DEFINITIONS_DIR,
@@ -110,6 +112,7 @@ class RefundTestbed {
   public readonly flow: CustomerRefundFlow;
   public readonly client: Client;
   private readonly cache: BlobCache;
+  private readonly taskQueue = `refund-test-${randomUUID()}`;
 
   public constructor(
     private readonly directory: string,
@@ -126,6 +129,10 @@ class RefundTestbed {
     return newRefundFlow(billingMode, this.billing.ledgerPath, this.email.ledgerPath);
   }
 
+  public startRefund(flowId: string, input: RefundRequest): Promise<string> {
+    return this.client.startFlow(this.flow, flowId, input, { taskQueue: this.taskQueue });
+  }
+
   /** Runs work while a Worker built from the Worker entrypoint's options serves the Flow. */
   public async withWorker(
     flow: CustomerRefundFlow,
@@ -138,7 +145,11 @@ class RefundTestbed {
     process.chdir(workingDirectory);
     let worker: Worker;
     try {
-      worker = new Worker(new Registry([flow]), cache, refundWorkerOptions(serverAddress, this.payloadCodec));
+      const options = refundWorkerOptions(serverAddress, this.payloadCodec);
+      worker = new Worker(new Registry([flow]), cache, {
+        ...options,
+        pull: { ...options.pull, taskQueue: this.taskQueue },
+      });
     } catch (failure) {
       cache.close();
       throw failure;
@@ -187,7 +198,7 @@ test("a manager approves the Northstar refund", async () => {
     const flowId = newFlowId();
     let output = "";
     await bed.withWorker(bed.newFlow("normal"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.normal);
       await bed.waitForManager(flowId);
       await bed.client.invokeRPC(bed.flow.approveRefund, flowId, { reason: "Outage confirmed" });
       const result = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
@@ -209,7 +220,7 @@ test("a manager rejects the refund", async () => {
     const flowId = newFlowId();
     let output = "";
     await bed.withWorker(bed.newFlow("normal"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.normal);
       await bed.waitForManager(flowId);
       await bed.client.invokeRPC(bed.flow.rejectRefund, flowId, { reason: "Credit offered instead" });
       output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
@@ -227,7 +238,7 @@ test("a blank reason is refused and a later valid decision is accepted", async (
     const flowId = newFlowId();
     let output = "";
     await bed.withWorker(bed.newFlow("normal"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.normal);
       await bed.waitForManager(flowId);
       for (const rpc of [bed.flow.approveRefund, bed.flow.rejectRefund]) {
         await assert.rejects(
@@ -254,7 +265,7 @@ for (const second of ["approve", "reject"] as const) {
       let output = "";
       let approvedWins = false;
       await bed.withWorker(bed.newFlow("normal"), async () => {
-        await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+        await bed.startRefund(flowId, REFUND_SCENARIOS.normal);
         await bed.waitForManager(flowId);
         const secondRpc = second === "approve" ? bed.flow.approveRefund : bed.flow.rejectRefund;
         const outcomes = await Promise.allSettled([
@@ -268,7 +279,8 @@ for (const second of ["approve", "reject"] as const) {
             // The loser either meets the winner's lock or runs after it and sees the new state.
             assert.ok(
               failure instanceof RpcLockConflictError
-                || (failure instanceof WorkerInvocationError && /not waiting for a manager/.test(failure.message)),
+                || (failure instanceof WorkerInvocationError
+                  && failure.workerErrorType === REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE),
               String(failure),
             );
           }
@@ -292,7 +304,7 @@ test("the policy denies an old charge", async () => {
     const flowId = newFlowId();
     let output = "";
     await bed.withWorker(bed.newFlow("normal"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.deny);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.deny);
       output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
     });
 
@@ -314,7 +326,7 @@ test("the denial note names only the policy condition that applies", async () =>
     await bed.withWorker(bed.newFlow("normal"), async () => {
       for (const { orderId, note, absent } of cases) {
         const flowId = newFlowId();
-        await bed.client.startFlow(bed.flow, flowId, { ...REFUND_SCENARIOS.normal, orderId });
+        await bed.startRefund(flowId, { ...REFUND_SCENARIOS.normal, orderId });
         const output = (await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS)).singleOutput(stringCodec);
         assert.equal(output, "denied");
         const [message] = await bed.client.getAttributes(flowId, customerMessage);
@@ -332,7 +344,7 @@ test("the refund succeeds after two payment timeouts", async () => {
     const billing = new TimeoutCountingBillingService(bed.billing.ledgerPath);
     const flow = new CustomerRefundFlow(billing, bed.email, new MockMessageModel());
     await bed.withWorker(flow, async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS["fail-then-succeed"]);
+      await bed.startRefund(flowId, REFUND_SCENARIOS["fail-then-succeed"]);
       await bed.waitForManager(flowId);
       await bed.client.invokeRPC(bed.flow.approveRefund, flowId, { reason: "Outage confirmed" });
       const result = await bed.client.waitForFlow(flowId, 90_000);
@@ -354,7 +366,7 @@ test("time travel issues the refund that a missing billing call skipped", async 
   await withTestbed(async (bed) => {
     const flowId = newFlowId();
     await bed.withWorker(bed.newFlow("call-missing"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.normal);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.normal);
       await bed.waitForManager(flowId);
       await bed.client.invokeRPC(bed.flow.approveRefund, flowId, { reason: "Outage confirmed" });
       const broken = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
@@ -382,7 +394,7 @@ test("time travel after a successful refund reuses its refund ID", async () => {
   await withTestbed(async (bed) => {
     const flowId = newFlowId();
     await bed.withWorker(bed.newFlow("normal"), async () => {
-      await bed.client.startFlow(bed.flow, flowId, REFUND_SCENARIOS.small);
+      await bed.startRefund(flowId, REFUND_SCENARIOS.small);
       const first = await bed.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
       assert.equal(first.status, "completed", first.errorMessage);
     });
@@ -441,7 +453,7 @@ test("encryption keeps case-status readable without the key", async () => {
     try {
       const flowId = newFlowId();
       await encrypted.withWorker(encrypted.newFlow("normal"), async () => {
-        await encrypted.client.startFlow(encrypted.flow, flowId, REFUND_SCENARIOS.small);
+        await encrypted.startRefund(flowId, REFUND_SCENARIOS.small);
         await encrypted.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
       });
       const [message] = await encrypted.client.getAttributes(flowId, customerMessage);

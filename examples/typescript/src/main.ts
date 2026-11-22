@@ -58,6 +58,8 @@ import { createWaitTypesRouter } from "./primitives/wait-types/controller.js";
 import { loadAiAgentSessionKey } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentRouter } from "./products/ai-agent/controller.js";
 import { createOrderSupportRouter } from "./products/agent-harnesses/order-support/order-support-routes.js";
+import { createCustomerRefundRouter } from "./products/customer-refund/controller.js";
+import { newSharedServerRefundFlow } from "./products/customer-refund/refund-settings.js";
 import { createEngagementRouter } from "./products/engagement/controller.js";
 import { createJobPostingRouter } from "./products/job-post/controller.js";
 import { createMicroserviceRouter } from "./products/microservices/controller.js";
@@ -86,9 +88,10 @@ export interface SampleServer {
   close(): Promise<void>;
 }
 
-export async function startSampleServer(): Promise<SampleServer> {
+export async function startSampleServer(refundLedgerDirectory?: string): Promise<SampleServer> {
   const env = loadEnv();
-  const registry = createExampleRegistry();
+  const customerRefundFlow = newSharedServerRefundFlow(refundLedgerDirectory);
+  const registry = createExampleRegistry(customerRefundFlow);
   const blobCache = openBlobCache({
     directory: env.blobCacheDir,
     maxBytes: 1 << 30,
@@ -104,6 +107,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use(express.json());
   app.use("/products/money-transfer", createMoneyTransferRouter(client));
   app.use("/products/order-processing", createOrderProcessingRouter(client, orderProcessingFlow));
+  app.use("/products/customer-refund", createCustomerRefundRouter(client, customerRefundFlow));
   app.use("/products/microservices", createMicroserviceRouter(client));
   app.use("/products/engagement", createEngagementRouter(client));
   app.use("/products/subscription", createSubscriptionRouter(client));

@@ -44,6 +44,7 @@ import type { MockMessageModel } from "./message-model.js";
 export const REFUND_WINDOW_DAYS = 30;
 export const MANAGER_APPROVAL_LIMIT_USD = 1000.0;
 export const AWAITING_MANAGER = "awaiting-manager";
+export const REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE = "RefundNotAwaitingManagerError";
 export const MANAGE_REFUNDS_PERMISSION = "refund.manage";
 export const WINDOW_EXPIRED_NOTE = "The charge is outside the 30-day refund window.";
 export const NO_OUTAGE_NOTE = "No service outage was recorded for this charge.";
@@ -233,6 +234,13 @@ class CloseCase implements Step<RefundCase> {
   }
 }
 
+class RefundNotAwaitingManagerError extends Error {
+  public constructor() {
+    super("this refund is not waiting for a manager");
+    this.name = REFUND_NOT_AWAITING_MANAGER_ERROR_TYPE;
+  }
+}
+
 export class CustomerRefundFlow implements Flow<RefundRequest> {
   private readonly receiveRequest: ReceiveRequest;
   private readonly checkOrder: CheckOrder;
@@ -292,7 +300,7 @@ export class CustomerRefundFlow implements Flow<RefundRequest> {
       throw new Error("a reason is required");
     }
     if (caseStatus.get(context) !== AWAITING_MANAGER) {
-      throw new Error("this refund is not waiting for a manager");
+      throw new RefundNotAwaitingManagerError();
     }
     caseStatus.set(context, "approved");
     managerDecisions.publish(context, { approved: true, reason });
@@ -313,7 +321,7 @@ export class CustomerRefundFlow implements Flow<RefundRequest> {
       throw new Error("a reason is required");
     }
     if (caseStatus.get(context) !== AWAITING_MANAGER) {
-      throw new Error("this refund is not waiting for a manager");
+      throw new RefundNotAwaitingManagerError();
     }
     caseStatus.set(context, "rejected");
     managerDecisions.publish(context, { approved: false, reason });

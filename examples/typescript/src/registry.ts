@@ -92,6 +92,7 @@ import {
   createVercelAiOrderSupportFlow,
   loadVercelAiOrderSupportModel,
 } from "./products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.js";
+import { newSharedServerRefundFlow } from "./products/customer-refund/refund-settings.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
@@ -192,8 +193,8 @@ export const allExampleFlows: readonly Flow<any>[] = [
   ...workflowPatternFlows,
 ];
 
-export function createExampleRegistry(): Registry {
-  return new Registry(allExampleFlows);
+export function createExampleRegistry(customerRefundFlow = newSharedServerRefundFlow()): Registry {
+  return new Registry([...allExampleFlows, customerRefundFlow]);
 }
 
 export {
