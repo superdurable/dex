@@ -62,6 +62,7 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/wait-types"
 	"github.com/superdurable/dex/examples/go/products/customer-refund/agentic"
 	"github.com/superdurable/dex/examples/go/products/customer-refund/deterministic"
+	"github.com/superdurable/dex/examples/go/products/customer-refund/managerapproval"
 	refundmodel "github.com/superdurable/dex/examples/go/products/customer-refund/model"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
@@ -90,6 +91,8 @@ var (
 	JobPosting      *jobpost.JobPostingFlow
 	CustomerRefund  *deterministic.CustomerRefundFlow
 	AgenticRefund   *agentic.AgenticCustomerRefundFlow
+	// ManagerApprovalRefund always runs the normal billing mode.
+	ManagerApprovalRefund *managerapproval.ManagerApprovalRefundFlow
 
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
@@ -148,6 +151,11 @@ var (
 // New constructs every sample flow. getClient may return nil until the Client
 // is created; flows that need it call the provider at Execute/RPC time.
 func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow {
+	return NewWithRefundLedgerDirectory(applicationSvc, getClient, managerapproval.DefaultLedgerDirectory)
+}
+
+// NewWithRefundLedgerDirectory constructs the sample flows with a custom manager-approval refund ledger directory.
+func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient ClientProvider, refundLedgerDirectory string) []dex.Flow {
 	if applicationSvc == nil {
 		panic("workflows: application service is required")
 	}
@@ -166,6 +174,10 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	refundService := refundmodel.NewFakeService()
 	CustomerRefund = deterministic.NewCustomerRefundFlow(refundService)
 	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService, newDemoOpenAIConnection())
+	refundServices := managerapproval.NewRefundServices(refundLedgerDirectory)
+	ManagerApprovalRefund = managerapproval.NewManagerApprovalRefundFlow(
+		refundServices.Billing, refundServices.Email, &managerapproval.MockMessageModel{},
+	)
 
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingJobs = patternspolling.NewFakeJobService()
@@ -234,6 +246,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		JobPosting,
 		CustomerRefund,
 		AgenticRefund,
+		ManagerApprovalRefund,
 		CronSchedule,
 		Polling,
 		Interruptible,

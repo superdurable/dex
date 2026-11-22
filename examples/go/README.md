@@ -164,7 +164,7 @@ details.
 - [User onboarding process](./products/signup)
 - [Job posting](./products/job-post)
 - [Deal DSL](./products/deal-dsl) (separate UI and `dex-deal-dsl` binary)
-- [Customer refund](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows)
+- [Customer refund](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows, and a manager-approval Flow with [shared HTTP routes](./products/customer-refund/README.md#on-the-example-server) and a [standalone Worker and commands](./products/customer-refund/README.md#run-it-with-its-own-worker))
 - [AI Agent](./products/ai-agent) (a durable chat agent with approvals, Timers, failure routes and a Slack connector Step; separate `dex-ai-agent` binary)
 - [Connector factory](./products/connector-factory) (OpenAI operation-specific factories, recovery, Result Attributes, and Streams)
 - [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate Go module)

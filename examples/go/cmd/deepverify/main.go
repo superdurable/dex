@@ -136,7 +136,10 @@ func main() {
 
 func newVerifyClient() (*dex.Client, func(), error) {
 	var client *dex.Client
-	flows := registry.New(service.NewMyService(), func() *dex.Client { return client })
+	flows := registry.New(
+		service.NewMyService(),
+		func() *dex.Client { return client },
+	)
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, nil, err
