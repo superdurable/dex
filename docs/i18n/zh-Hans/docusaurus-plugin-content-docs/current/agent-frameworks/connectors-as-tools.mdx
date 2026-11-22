@@ -63,13 +63,13 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
 
 ### 示例中的 Slack tool {#slack-connector-tool}
 
-配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app。
+配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app 和每个示例使用的 Slack Connector 版本。
 
 每个示例都设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**，Go 中是 `connectortools.WithRequiresApproval(true)`），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。审批之后，发帖在 `CallSingleAttemptTool` 中运行。
 
-Python 和 TypeScript 示例使用 Slack Connector 0.2.0，其中 `postThreadReply` 是单次尝试 Mutation。每次发帖只运行一次，Worker 崩溃也不会让它发送两次。
+在 Python 和 TypeScript 示例中，`postThreadReply` 是单次尝试 Mutation。每次发帖只运行一次，Worker 崩溃也不会让它发送两次。
 
-Go 示例使用 Slack Connector v1.8.1，其中 `postThreadReply` 采用有限次重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先回读这个 thread，只有找不到回复时才再次发送。所以崩溃可能造成重复回复，总共最多发出 3 次。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
+在 Go 示例中，`postThreadReply` 采用有限次重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先回读这个 thread，只有找不到回复时才再次发送。所以崩溃可能造成重复回复，总共最多发出 3 次。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
 
 ### 提供 tool {#offer-connector-tools}
 
@@ -622,7 +622,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 ### 调用如何运行 {#connector-tool-calls}
 
-如 [Slack tool](#slack-connector-tool) 所述，每次调用 `slack_post_thread_reply` 都要先经人批准，然后在自己的 `CallSingleAttemptTool` Step 中只运行一次。各框架这样把调用交给这个 Step：
+如 [Slack tool](#slack-connector-tool) 所述，每次调用 `slack_post_thread_reply` 都要先经人批准，然后在自己的 `CallSingleAttemptTool` Step 中运行：在 Python 和 TypeScript 示例中只运行一次，在 Go 示例中采用有限次重发。各框架这样把调用交给这个 Step：
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -634,7 +634,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 </FrameworkTab>
 <FrameworkTab framework="eino">
 
-`dexeino.WithToolSources` 把 Connector tool 放在 Agent 自己的 tool 之后提供，input schema 保持 source 写的样子。适配器的 Handler 像对待其他调用一样，在这些调用处停下这次运行。调用在它的 tool Step 中通过 source 运行，不经过 Eino 的 tool node、tool middleware 和 Handler 的 tool wrapper，所以 Eino 的重试或错误处理永远不会把一个写入发送两次。审批由 source 决定。在 Go 中，等待审批的调用没有审批展示，所以审批界面显示它的参数。
+`dexeino.WithToolSources` 把 Connector tool 放在 Agent 自己的 tool 之后提供，input schema 保持 source 写的样子。适配器的 Handler 像对待其他调用一样，在这些调用处停下这次运行。调用在它的 tool Step 中通过 source 运行，不经过 Eino 的 tool node、tool middleware 和 Handler 的 tool wrapper，所以 Eino 的重试或错误处理不会再次发送写入；只有 Connector 的有限次重发会再次发送。审批由 source 决定。在 Go 中，等待审批的调用没有审批展示，所以审批界面显示它的参数。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

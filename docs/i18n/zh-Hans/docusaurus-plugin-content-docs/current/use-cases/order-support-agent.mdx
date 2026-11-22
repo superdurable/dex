@@ -1527,13 +1527,13 @@ Dex Web 显示 Session 的 Step。Go core 不提供 Session graph，所以请通
 
 ```bash
 cd examples/go/agent-harnesses
-go run ./cmd/order-support
+GOWORK=off go run ./cmd/order-support
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-应用在 **127.0.0.1:8082** 上提供服务。Dex Web 在 `http://127.0.0.1:8802`。
+`GOWORK=off` 让示例按自己的 `go.mod` 构建，不使用仓库的 Go workspace。应用在 **127.0.0.1:8082** 上提供服务。Dex Web 在 `http://127.0.0.1:8802`。
 
 需要 Go 1.26 或更高版本。没有设置 `DEX_EINO_MODEL` 时，Agent 使用 `mock/order-support`，一个不需要 key 的本地 demo 模型。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
 

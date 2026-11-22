@@ -1527,13 +1527,13 @@ Dex Web shows the session's Steps. The Go core ships no session graph, so approv
 
 ```bash
 cd examples/go/agent-harnesses
-go run ./cmd/order-support
+GOWORK=off go run ./cmd/order-support
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The app serves on **127.0.0.1:8082**. Dex Web is at `http://127.0.0.1:8802`.
+`GOWORK=off` builds the example from its own `go.mod`, outside the repository's Go workspace. The app serves on **127.0.0.1:8082**. Dex Web is at `http://127.0.0.1:8802`.
 
 It needs Go 1.26 or later. Without `DEX_EINO_MODEL`, the agent uses `mock/order-support`, a local demo model that needs no key. It calls `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order 1002".
 

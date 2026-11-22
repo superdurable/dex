@@ -63,13 +63,13 @@ The example adds the Slack tool `slack_post_thread_reply`, which replies in a Sl
 
 ### The Slack tool in the example {#slack-connector-tool}
 
-With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app.
+With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app and the Slack Connector release of each example.
 
 Every example sets `requires_approval=True` (**requiresApproval: true** in TypeScript, `connectortools.WithRequiresApproval(true)` in Go), so every post waits in `AwaitToolApproval` for a person. After approval, the post runs in `CallSingleAttemptTool`.
 
-The Python and TypeScript examples use the Slack Connector 0.2.0, where `postThreadReply` is a single-attempt Mutation. A post runs once, and a Worker crash never sends it twice.
+In the Python and TypeScript examples, `postThreadReply` is a single-attempt Mutation. A post runs once, and a Worker crash never sends it twice.
 
-The Go example uses the Slack Connector v1.8.1, which gives `postThreadReply` bounded resends with at most 3 sends. After a Worker crash during a post, the Connector reads the thread back first and sends again only when it cannot find the reply. So a crash can post a duplicate reply, up to 3 posts in all. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
+In the Go example, `postThreadReply` has bounded resends, with at most 3 sends. After a Worker crash during a post, the Connector reads the thread back first and sends again only when it cannot find the reply. So a crash can post a duplicate reply, up to 3 posts in all. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
 
 ### Offer the tool {#offer-connector-tools}
 
@@ -622,7 +622,7 @@ The agent takes the Slack tool source next to the MCP tool source:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it, as [the Slack tool](#slack-connector-tool) explains. Your framework hands the call to that Step this way:
+Each call of `slack_post_thread_reply` runs in its own `CallSingleAttemptTool` Step after a person approves it: once in the Python and TypeScript examples, and with bounded resends in the Go example, as [the Slack tool](#slack-connector-tool) explains. Your framework hands the call to that Step this way:
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -634,7 +634,7 @@ One call of a model response at a time leaves the turn to run in its tool Step. 
 </FrameworkTab>
 <FrameworkTab framework="eino">
 
-`dexeino.WithToolSources` offers the Connector tools after the agent's own tools, with the input schemas as the source wrote them. The adapter's Handler stops the run at their calls like any other. A call runs in its tool Step through the source, outside Eino's tool node, tool middlewares, and Handler tool wrappers, so an Eino retry or error handler never sends a write twice. The source decides approval. In Go, a call that waits for approval carries no approval display, so an approval UI shows its arguments.
+`dexeino.WithToolSources` offers the Connector tools after the agent's own tools, with the input schemas as the source wrote them. The adapter's Handler stops the run at their calls like any other. A call runs in its tool Step through the source, outside Eino's tool node, tool middlewares, and Handler tool wrappers, so an Eino retry or error handler never sends a write again; only the Connector's bounded resends can. The source decides approval. In Go, a call that waits for approval carries no approval display, so an approval UI shows its arguments.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

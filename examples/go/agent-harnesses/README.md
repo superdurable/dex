@@ -51,9 +51,14 @@ Start `dexcli dev`, then:
 
 ```bash
 cd examples/go/agent-harnesses
-go run ./cmd/agent-quick-start eino "Look up order 1001"
-go run ./cmd/agent-quick-start eino "Cancel order 1002"
+GOWORK=off go run ./cmd/agent-quick-start eino "Look up order 1001"
+GOWORK=off go run ./cmd/agent-quick-start eino "Cancel order 1002"
 ```
+
+`GOWORK=off` builds this module from its own `go.mod`. The repository's
+`go.work` does not list it, so in a clone of the repository a plain `go run`
+stops with a workspace error. In a folder downloaded on its own, as the quick
+start does, `GOWORK=off` changes nothing.
 
 The second command asks before `cancel_order` runs. Pass `--approve` to
 approve without asking. Stop the program at the prompt, then run it again with
@@ -102,7 +107,7 @@ Start `dexcli dev`, then:
 
 ```bash
 cd examples/go/agent-harnesses
-go run ./cmd/order-support
+GOWORK=off go run ./cmd/order-support
 ```
 
 The app serves the agent's session routes on `127.0.0.1:8082`
@@ -143,7 +148,7 @@ after it, from a `CallSingleAttemptTool` Step. The tests read the Flow history
 with `dexcli` (`DEXCLI_PATH`, `DEXCLI`, or `PATH`).
 
 ```bash
-DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 go test -race -count=1 ./...
+DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 GOWORK=off go test -race -count=1 ./...
 ```
 
 `../run-e2e-tests.sh` runs them with the other Go example tests when it gets no

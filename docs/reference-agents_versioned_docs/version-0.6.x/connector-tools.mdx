@@ -248,6 +248,13 @@ The agent examples open the Slack connection **support-slack**. Without a
 project configuration, or without that connection in it, they log one line and
 run without the Slack tool.
 
+The Python and TypeScript examples use the Slack Connector 0.2.0, whose
+**postThreadReply** is a single-attempt Mutation: a post runs once in
+`CallSingleAttemptTool`. The Go example uses the Slack Connector v1.8.1, whose
+**postThreadReply** declares **repeatOnUnknown: limited** with **maxSends** 3.
+Its posts have [bounded resends](#bounded-resends), so after a Worker crash a
+reply can be posted up to 3 times.
+
 The Slack app needs the bot scope **chat:write**, and its bot must be a member
 of the channel. After a Worker stops during a post, the Connector reads the
 thread back to learn whether the reply was sent. That needs the user scopes
