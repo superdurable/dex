@@ -14,10 +14,6 @@ generate_flow_definition() {
   if [[ -n "${DEX_FLOW_PYTHON:-}" && "${source_path}" == *.py ]]; then
     arguments+=(--python "${DEX_FLOW_PYTHON}")
   fi
-  if [[ "${source_path}" == examples/typescript/*.ts && -z "${DEX_TYPESCRIPT_COMPILER:-}" && ! -d examples/typescript/node_modules/typescript ]]; then
-    echo "error: ${source_path} needs the typescript package; run npm ci in examples/typescript or set DEX_TYPESCRIPT_COMPILER" >&2
-    exit 1
-  fi
   # Stamp generatedAt with the source's last commit time so regeneration is stable.
   local source_commit_time
   source_commit_time="$(git log -1 --format=%ct -- "${source_path}")"
@@ -36,7 +32,6 @@ generate_flow_definition examples/python/dex_examples/products/money-transfer/mo
 generate_flow_definition examples/python/dex_examples/products/subscription/subscription_flow.py subscription
 generate_flow_definition examples/python/dex_examples/products/signup/user_signup_flow.py user-onboarding-process
 generate_flow_definition examples/python/dex_examples/products/customer_refund/refund_flow.py customer-refund-python
-generate_flow_definition examples/typescript/src/products/customer-refund/refund-flow.ts customer-refund-typescript
 generate_flow_definition examples/go/products/customer-refund/deterministic/workflow.go customer-refund
 generate_flow_definition examples/go/products/customer-refund/agentic/workflow.go customer-refund-agentic
 generate_flow_definition examples/go/products/connector-factory/workflow.go connector-factory

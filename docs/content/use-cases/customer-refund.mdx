@@ -18,9 +18,9 @@ Northstar Studio asks for a refund of a 1,249.00 USD subscription renewal after 
 
 <DocsFlowDefinitionGraph graph={readableFlow} />
 
-The graph comes from the Python example. The TypeScript example has the same Steps, groups, Attributes, Channel, and transitions. Its RPCs are named `approveRefund` and `rejectRefund`. Its **Check policy** has one denial branch instead of two.
+The graph comes from the Python example. The TypeScript example has the same Steps, groups, Attributes, and Channel. Its **Check policy** has one denial branch instead of two, and the other transitions are the same. Its RPCs are named `approveRefund` and `rejectRefund`.
 
-**Check policy** applies the refund policy. It denies a charge older than 30 days or one with no recorded outage. It sends an amount over 1,000 USD to **Request manager approval**, and refunds a smaller amount at once. **Request manager approval** waits for one message on a Channel, then refunds or denies by the manager's decision.
+**Check policy** applies the refund policy. It denies a charge older than 30 days or one with no recorded outage. It sends an amount over 1,000 USD to **Request manager approval**, and refunds 1,000 USD or less at once. **Request manager approval** waits for one message on a Channel, then refunds or denies by the manager's decision.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
 <SdkSnippet lang="python">
@@ -207,6 +207,20 @@ impl Step for CheckPolicy {
     }
 }
 
+/// Control: wait for a manager to approve or reject the refund.
+#[derive(Clone)]
+pub struct RequestManagerApproval {
+    services: Arc<RefundServices>,
+}
+
+impl RequestManagerApproval {
+    fn new(services: &Arc<RefundServices>) -> Self {
+        Self {
+            services: Arc::clone(services),
+        }
+    }
+}
+
 impl Step for RequestManagerApproval {
     type Input = RefundCase;
 
@@ -239,16 +253,16 @@ impl Step for RequestManagerApproval {
 </SdkSnippet>
 </SdkTabs>
 
-An approve RPC and a reject RPC publish the manager's decision to that Channel. Each one requires a reason and checks that `case-status` is `awaiting-manager` before it publishes. In the Python and TypeScript examples, each RPC also declares a Dex Web Action, **Approve refund** or **Reject refund**. Dex Web offers the Actions only while `case-status` is `awaiting-manager`.
+An approve RPC and a reject RPC publish the manager's decision to that Channel. Each one requires a reason and checks that `case-status` is `awaiting-manager` before it publishes. In the Python and TypeScript examples, each RPC also declares a Dex Web Action, **Approve refund** or **Reject refund**. While the run waits for the manager, set **Working as** to a user with the refund permission, and Dex Web shows the two Actions. These two examples also have a `decide` command.
 
 The example adds what a production refund needs:
 
 - **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each. This holds because every Worker shares the same persistent ledger of the local fake services.
 - **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first. The final **Issue refund** event in Dex Web then shows that attempt 3 succeeded and keeps the details of the last failure.
-- In Python and TypeScript, the Worker uploads the design that `dexcli visualize` generates, so Dex Web draws this graph on each run.
+- In Python and TypeScript, generate the design with `dexcli visualize`. The Worker uploads it at start, and the run's **Design** view in Dex Web shows the graph.
 - In Python and TypeScript, with a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
 
-The Java and Rust examples approve or reject with their own `decide` command. The Java and Rust SDKs cannot declare Dex Web Actions or encrypt payloads. `dexcli visualize` reads Go, Python, and TypeScript sources only, so these Workers upload no design and their runs have no **Design** view in Dex Web.
+The Java and Rust examples approve or reject with their own `decide` command. The Java and Rust SDKs cannot declare Dex Web Actions or encrypt payloads. These two examples configure no design, so the **Design** view of their runs shows its empty state. `dexcli visualize` reads Go, Python, and TypeScript sources.
 
 The example folders for [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund), and [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) have the commands for each scenario: approval, a refund that fails and then succeeds, and a missing billing call that Time Travel fixes. The Python and TypeScript folders also show encryption.
 
