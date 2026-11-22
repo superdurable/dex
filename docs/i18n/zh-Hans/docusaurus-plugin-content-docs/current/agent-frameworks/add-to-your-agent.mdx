@@ -64,14 +64,14 @@ Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Work
 <SdkSnippet lang="go">
 
 ```bash
-go get github.com/superdurable/dex/agents/go/eino github.com/cloudwego/eino@v0.9.23
+go get github.com/superdurable/dex/agents/go/eino
 go get github.com/cloudwego/eino-ext/components/model/openai
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-适配器需要 Go 1.26 或更高版本，以及 Eino v0.9.23 或更高版本。它会引入同一版本的 Go core `github.com/superdurable/dex/agents/go/core`。第二行安装示例使用的 eino-ext 模型客户端；请安装你的 Agent 使用的那一个。版本见[安装 package](/reference/agents/install#go)。
+适配器需要 Go 1.26 或更高版本，以及 Eino v0.9.23 或更高版本：`go get` 会把更旧的 Eino 升级到 v0.9.23，已有的更新版本保持不变。它会引入同一版本的 Go core `github.com/superdurable/dex/agents/go/core`。第二行安装示例使用的 eino-ext 模型客户端；请安装你的 Agent 使用的那一个。版本见[安装 package](/reference/agents/install#go)。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

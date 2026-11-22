@@ -47,14 +47,15 @@ Flow. Go modules come from the Go module proxy, and they need Go 1.26 or
 later.
 
 ```bash
-go get github.com/superdurable/dex/agents/go/eino github.com/cloudwego/eino@v0.9.23
+go get github.com/superdurable/dex/agents/go/eino
 go get github.com/cloudwego/eino-ext/components/model/openai
 ```
 
 The adapter requires the Go core, **github.com/superdurable/dex/agents/go/core**
 (package **dexagents**), at the same version, and the Dex Go SDK that the core
 requires. It needs **github.com/cloudwego/eino** v0.9.23 or later, and the
-0.6.16 tests ran against v0.9.23 and v0.10.0-alpha.35. The second line adds
+0.6.16 tests ran against v0.9.23 and v0.10.0-alpha.35. `go get` raises an
+older Eino to v0.9.23 and keeps a newer one. The second line adds
 the eino-ext model client the examples use; add the one your agent uses.
 
 Each agents release tags both Go modules on the same commit, such as

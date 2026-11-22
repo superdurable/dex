@@ -55,7 +55,7 @@ Agent 需要 **Steer**、`cancel_turn`、上下文压缩、提问或计划时，
 
 下一个 `RunModel` 是在已存储的消息和已记录的结果上的一次新的 Eino 运行。Dex 不使用 Eino 的 `CheckPointStore`，所以每次模型调用都用当前部署的 instruction 和 tool。
 
-Eino 的 tool 本身没有 effect。用 `WithToolEffects`、`WithToolPolicies` 或 `DexToolEffect` 方法给每个 tool 一个 effect。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。
+用 `WithToolEffects`、`WithToolPolicies` 或 `DexToolEffect` 方法给每个 Eino tool 一个 Dex effect，因为 Eino 的 tool 本身没有 effect。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -181,7 +181,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 
 | 功能 | Python 和 TypeScript 适配器 | Python 和 TypeScript 的内置 Agent Loop，以及 Pi | Eino |
 | --- | --- | --- | --- |
-| 排队消息、**Steer** 和 `cancel_turn` | 是 | 是 | 只有排队消息 |
+| 排队消息、`delete_queued_message`、**Steer** 和 `cancel_turn` | 是 | 是 | 只有排队消息 |
 | Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 | 否 |
 | 向用户提问（`ask_user`） | 否 | 是 | 否 |
 | Plan（plan mode 和 `execute_plan`） | 否 | 是 | 否 |
@@ -213,7 +213,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - 每个 `RunModel` 都是一次新的 Eino 运行。run-local 值、session 值和 middleware 缓存在每次模型调用时都从空开始。
 - tool Step 按 tool 的 schema 检查参数，这可能比 Eino 自己的解码更严格。把 `utils.InferTool` 中的可选字段标为 `omitempty`，其他调用在 `ToolArgumentsHandler` 里转换。
 - tool 确定失败时返回 `*dexagents.ToolExecutionError`。`utils.WrapToolWithErrorHandler` 会把每个错误变成结果文本，于是一个可能已经执行的写入会显示为成功；Dex 的 tool 不要用它包装。
-- Go core 提供 Session 的核心功能：审批、tool effect、Connector tool、排队消息和 AgentEvents Stream。它没有 **Steer**、`cancel_turn`、提问、tool input request、计划、上下文压缩、图片、MCP tool source、spend-limit hook、GenAI span 和 UI stream。等待审批的 Connector 调用没有审批展示。每个 Agent Flow type 只用一种语言的 Worker 运行。
+- Go core 提供 Session 的核心功能：审批、tool effect、Connector tool、排队消息和 AgentEvents Stream。它没有 **Steer**、`cancel_turn`、`delete_queued_message`、提问、tool input request、计划、上下文压缩、图片、MCP tool source、spend-limit hook、GenAI span 和 UI stream。响应丢失后要重发消息时，先用 `GetAgentSnapshot` 查找这条消息，因为多出的副本会留在队列里，并单独运行一个 turn。等待审批的 Connector 调用没有审批展示。每个 Agent Flow type 只用一种语言的 Worker 运行。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

@@ -69,7 +69,7 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
 
 在 Python 和 TypeScript 示例中，`postThreadReply` 是单次尝试 Mutation。每次发帖只运行一次，Worker 崩溃也不会让它发送两次。
 
-在 Go 示例中，`postThreadReply` 采用有限次重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先回读这个 thread，只有找不到回复时才再次发送。所以崩溃可能造成重复回复，总共最多发出 3 次。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
+在 Go 示例中，`postThreadReply` 采用有限次重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先看上一次尝试有没有保存回复的时间戳。已保存的时间戳只回读，绝不重发：Connector 在这个 thread 里查找这条回复，找不到时，这次调用记录为 `outcome_unknown`。时间戳丢失时（例如请求还在途中时 Worker 崩溃），没有可以回读的内容，所以 Connector 直接再次发送。因此崩溃可能造成重复回复，总共最多发出 3 次。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
 
 ### 提供 tool {#offer-connector-tools}
 

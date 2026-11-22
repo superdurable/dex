@@ -55,7 +55,7 @@ Each tool call runs in its own Step, in parallel: `CallTool` for a read or an id
 
 The next `RunModel` is a new Eino run over the stored messages and the recorded results. No Eino `CheckPointStore` is used, so the instruction and the tools of the current deploy apply to every model call.
 
-Eino tools carry no effect. Give each one an effect with `WithToolEffects`, `WithToolPolicies`, or a `DexToolEffect` method. A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`.
+Give each Eino tool a Dex effect with `WithToolEffects`, `WithToolPolicies`, or a `DexToolEffect` method; Eino tools carry none. A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -181,7 +181,7 @@ Some session features depend on the harness:
 
 | Feature | Python and TypeScript adapters | Python and TypeScript built-in loop, and Pi | Eino |
 | --- | --- | --- | --- |
-| Queued messages, **Steer**, and `cancel_turn` | Yes | Yes | Queued messages only |
+| Queued messages, `delete_queued_message`, **Steer**, and `cancel_turn` | Yes | Yes | Queued messages only |
 | Context compaction by Dex | Yes, except the Claude Agent SDK | Yes | No |
 | Questions to the user (`ask_user`) | No | Yes | No |
 | Plans (plan mode and `execute_plan`) | No | Yes | No |
@@ -213,7 +213,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 - Each `RunModel` is a new Eino run. Run-local values, session values, and middleware caches start empty at every model call.
 - The tool Step checks arguments against the tool's schema, which can be stricter than Eino's decoding. Mark optional `utils.InferTool` fields `omitempty`, and convert other calls in a `ToolArgumentsHandler`.
 - Return `*dexagents.ToolExecutionError` for a definite tool failure. `utils.WrapToolWithErrorHandler` turns every error into result text, so a write that may have run would read as succeeded; leave Dex tools unwrapped.
-- The Go core covers the session core: approvals, tool effects, Connector tools, queued messages, and the AgentEvents Stream. It has no **Steer**, `cancel_turn`, questions, tool input requests, plans, context compaction, images, MCP tool source, spend-limit hook, GenAI spans, or UI streams. A Connector call that waits for approval carries no approval display. Serve each agent Flow type with Workers of one language.
+- The Go core covers the session core: approvals, tool effects, Connector tools, queued messages, and the AgentEvents Stream. It has no **Steer**, `cancel_turn`, `delete_queued_message`, questions, tool input requests, plans, context compaction, images, MCP tool source, spend-limit hook, GenAI spans, or UI streams. Before you resend a message whose response was lost, look for it with `GetAgentSnapshot`, because a second copy stays queued and runs its own turn. A Connector call that waits for approval carries no approval display. Serve each agent Flow type with Workers of one language.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

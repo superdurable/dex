@@ -84,9 +84,12 @@ The Worker opens the Slack connection `support-slack` from the project
 configuration and holds no Slack token.
 
 The Slack Connector v1.8.1 gives `postThreadReply` bounded resends. After a
-Worker crash during a post, the Connector reads the thread back first and sends
-again only when it cannot find the reply. So a crash can post a duplicate
-reply, up to 3 posts in all.
+Worker crash during a post, the Connector checks whether the earlier attempt
+saved the reply's timestamp. A saved timestamp is read back and never resent:
+when the reply is not in the thread, the call records `outcome_unknown`. A
+lost timestamp, such as after a crash while the request was in flight, leaves
+nothing to read back, so the Connector sends again. So a crash can post a
+duplicate reply, up to 3 posts in all.
 
 - **Local development**: set `DEX_CONNECTOR_CONFIG_FILE` to the
   `connections.json` that Dex Web saves, by default
