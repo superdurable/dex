@@ -6,3 +6,4 @@ spring:
 dex:
   server-address: ${DEX_FLOW_SERVICE_ADDRESS:localhost:8801}
   blob-cache-dir: ${DEX_BLOB_CACHE_DIR:${java.io.tmpdir}/dex-java-examples-blobs}
+  customer-refund-ledger-dir: ${DEX_CUSTOMER_REFUND_LEDGER_DIR:.customer-refund}
