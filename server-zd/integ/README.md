@@ -2,8 +2,10 @@
 
 This standalone Go module exercises dex-server-zd through its public gRPC APIs
 and pull Worker protocol. Each scenario launches an isolated dev process with
-its own data directory and ephemeral listener. Cleanup stops and reaps that
-process, including when a test fails.
+its own data directory and listener. The listener port comes from 20000-32767,
+below the Linux and macOS ephemeral ranges, so the server's own port-0
+listeners cannot take it. Cleanup stops and reaps that process, including when
+a test fails.
 
 The module path is `github.com/superdurable/dex/server-zd/integ`. It imports
 protocol types from `sdk-go/gen/dexpb` and pointer helpers from `sdk-go/dex/ptr`.
