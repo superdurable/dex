@@ -34,6 +34,8 @@ Supported:
 - the turn-failure note;
 - incremental turn messages (A1: `ToolCallsRequested.NewMessages` and
   `UnfinishedTurnMessageBuilder`);
+- `TurnCompleted.TurnError`, which ends a turn as failed without a retry, as
+  `turn_error` in Python and `turnError` in TypeScript do (since 0.6.16);
 - session settings and `update_session_settings`, with the built-in loop model
   resolver;
 - the built-in agent loop, with function tools;
@@ -49,9 +51,11 @@ any of them. A Go Client still calls their RPCs on those Workers with package
 Not supported yet: the built-in loop hook that ends or continues a turn at
 the end of each loop iteration (`decideTurnContinuation` in TypeScript,
 `decide_turn_continuation` in Python), and the `TurnContinued` runner outcome
-and `TurnCompleted` turn error behind it. A Go `RunModel` that takes over a
-continued turn ignores the extra run state key and makes the next model call,
-with the continuation message as the last user text.
+behind it. A runner can still end a turn as failed with
+`TurnCompleted.TurnError`, and the Go built-in loop never sets it. A Go
+`RunModel` that takes over a continued turn ignores the extra run state key and
+makes the next model call, with the continuation message as the last user
+text.
 
 ### One language per Flow type
 
@@ -361,6 +365,23 @@ type AgentFrameworkRunner interface {
   policy from `turn.ResolveToolPolicy`. A runner that sets
   `ToolCallsRequested.NewMessages` implements `UnfinishedTurnMessageBuilder`;
   `RecordTurnFailure` stores what it returns before the turn-failure note.
+- `TurnCompleted.TurnError`, since 0.6.16, ends the turn as failed instead of
+  completed, in the same commit: the session stores `NewMessages`, records
+  `Usage`, sets `LastTurnError` to the text, and writes `turn_failed` instead
+  of `turn_completed`. No retry and no `RecordTurnFailure` run, and no
+  turn-failure note is stored, because `NewMessages` already say what the
+  turn did. Use it for a deliberate stop that a retry would repeat, such as a
+  limit the runner enforces, and return an error for a failure that a retry
+  may fix. The next turn that completes clears `LastTurnError`.
+- An outcome that the session must not store fails the turn at once in
+  `RunModel`, with no retry, because a retry would only repeat the paid model
+  call. The session records the outcome's `Usage`, stores nothing else from
+  it, and ends the turn as `RecordTurnFailure` does, with this
+  `LastTurnError`: `MissingUnfinishedTurnMessageBuilder` for
+  `ToolCallsRequested.NewMessages` from a runner without
+  `UnfinishedTurnMessageBuilder`, or
+  `TurnCompleted.TurnError for <turn> must be a non-blank string` for a blank
+  `TurnError`.
 - `ExecuteDeferredToolCall` runs one tool, possibly concurrently with others.
   A `*ToolExecutionError` records `failed` with its message and is not
   retried; any other error fails the Step attempt. On attempt 2 or later of a
@@ -499,6 +520,9 @@ as children of the test binary:
 - SIGKILL during `CallSingleAttemptTool` (`outcome_unknown`) and during
   `RunModel` (only that model call reruns);
 - the turn-failure note after a write ran;
+- `TurnCompleted.TurnError` ending a turn as failed with no retry, its usage
+  and messages stored, and the next turn clearing it, and an outcome the
+  session must not store failing its turn at once with its usage recorded;
 - snapshot and message paging, including pages across window and chunk
   boundaries;
 - rollover into many chunks with a SIGKILL during the `RunModel` whose commit

@@ -28,7 +28,11 @@ const (
 	// AgentEventTypeTurnCompleted means the turn produced its final answer. Payload
 	// {"message_count"}, the messages the turn appended after its user message.
 	AgentEventTypeTurnCompleted AgentEventType = "turn_completed"
-	// AgentEventTypeTurnFailed means RecordTurnFailure ended the turn. Payload {"error"}.
+	// AgentEventTypeTurnFailed means the turn ended as failed. Payload {"error"}, the turn's
+	// AgentState.LastTurnError. RecordTurnFailure writes it, and so does RunModel for a
+	// TurnCompleted with TurnError, instead of turn_completed.
+	//
+	// Changed in 0.6.16: RunModel writes it for TurnCompleted.TurnError.
 	AgentEventTypeTurnFailed AgentEventType = "turn_failed"
 	// AgentEventTypeTextDelta is visible model text. Payload {"text"}.
 	AgentEventTypeTextDelta AgentEventType = "text_delta"

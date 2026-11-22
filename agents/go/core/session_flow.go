@@ -1396,21 +1396,46 @@ func (flow *AgentSessionFlow) runModelCall(ctx dex.Context) (modelCallResult, er
 	}
 	switch typed := outcome.(type) {
 	case *TurnCompleted:
+		if defect := turnCompletedDefect(turnID, typed); defect != "" {
+			return modelCallResult{isTurnOver: true},
+				flow.failTurnForRunnerDefect(ctx, state, turnID, toolCalls, events, typed.Usage, defect)
+		}
 		return modelCallResult{isTurnOver: true}, flow.completeTurn(ctx, state, turnID, toolCalls, typed, events)
 	case *ToolCallsRequested:
 		if _, isIncremental := flow.runner.(UnfinishedTurnMessageBuilder); len(typed.NewMessages) > 0 && !isIncremental {
-			// A runner defect: a retry would only repeat the paid model call.
-			if err := flow.recordUsage(ctx, events, typed.Usage); err != nil {
-				return modelCallResult{}, err
-			}
-			return modelCallResult{isTurnOver: true},
-				flow.failTurnWithRecords(ctx, state, turnID, toolCalls, events, MissingUnfinishedTurnMessageBuilder)
+			return modelCallResult{isTurnOver: true}, flow.failTurnForRunnerDefect(
+				ctx, state, turnID, toolCalls, events, typed.Usage, MissingUnfinishedTurnMessageBuilder)
 		}
 		requested, err := flow.startToolCalls(ctx, state, turnID, toolCalls, typed, events)
 		return modelCallResult{requestedToolCalls: requested}, err
 	default:
 		return modelCallResult{}, fmt.Errorf("RunModelStep must return *TurnCompleted or *ToolCallsRequested, got %T", outcome)
 	}
+}
+
+// failTurnForRunnerDefect records the model call's usage and fails the turn without storing the outcome.
+func (flow *AgentSessionFlow) failTurnForRunnerDefect(
+	ctx dex.Context,
+	state AgentState,
+	turnID string,
+	toolCalls []AgentToolCall,
+	events *AgentEventWriter,
+	usage AgentUsage,
+	defect string,
+) error {
+	// A retry would only repeat the paid model call.
+	if err := flow.recordUsage(ctx, events, usage); err != nil {
+		return err
+	}
+	return flow.failTurnWithRecords(ctx, state, turnID, toolCalls, events, defect)
+}
+
+// turnCompletedDefect returns the turn error for a TurnCompleted that the session must not store, or "".
+func turnCompletedDefect(turnID string, outcome *TurnCompleted) string {
+	if outcome.TurnError != nil && isBlankText(*outcome.TurnError) {
+		return fmt.Sprintf("TurnCompleted.TurnError for %s must be a non-blank string", turnID)
+	}
+	return ""
 }
 
 func (flow *AgentSessionFlow) turnContext(
@@ -1491,8 +1516,15 @@ func (flow *AgentSessionFlow) completeTurn(
 	state.ActiveTurnID = nil
 	state.AcceptsTurnControl = false
 	state.LastTurnError = nil
+	if outcome.TurnError != nil {
+		turnError := *outcome.TurnError
+		state.LastTurnError = &turnError
+	}
 	if err := AgentStateAttribute.Set(ctx, state); err != nil {
 		return err
+	}
+	if state.LastTurnError != nil {
+		return events.WriteEvent(AgentEventTypeTurnFailed, map[string]any{"error": *state.LastTurnError})
 	}
 	messageCount := storedTurnMessageCount + int64(len(outcome.NewMessages))
 	if err := events.WriteEvent(AgentEventTypeTurnCompleted, map[string]any{"message_count": messageCount}); err != nil {

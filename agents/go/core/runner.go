@@ -266,7 +266,15 @@ type AgentTurnOutcome interface {
 	agentTurnOutcome()
 }
 
-// TurnCompleted reports that the model call produced the turn's final answer.
+// TurnCompleted reports that the model call produced the turn's final answer, or ended the turn on
+// purpose.
+//
+// The session stores NewMessages, records Usage, deletes the turn's tool call records and
+// FrameworkRunState, and waits for the next user message, all in one commit. Set TurnError to end
+// the turn as failed instead of completed:
+//
+//	stop := "the turn used more than 20 model calls"
+//	return &dexagents.TurnCompleted{NewMessages: messages, Usage: usage, TurnError: &stop}, nil
 type TurnCompleted struct {
 	// NewMessages are the turn's items that the session has not stored yet, in order. For a
 	// runner that never sets ToolCallsRequested.NewMessages, that is every item the turn produced
@@ -274,6 +282,23 @@ type TurnCompleted struct {
 	NewMessages []FrameworkMessage
 	// Usage is the usage of this model call only.
 	Usage AgentUsage
+	// TurnError is error text that ends the turn as failed instead of completed, or nil to
+	// complete the turn.
+	//
+	// The session still stores NewMessages and records Usage in the same commit. It then sets
+	// AgentState.LastTurnError to this text and writes a turn_failed event instead of
+	// turn_completed. It stores no turn-failure note, because NewMessages already say what the
+	// turn did. No retry follows, so use it only for a deliberate stop that a retry would repeat,
+	// such as a limit the runner enforces; return an error instead for a failure that a retry may
+	// fix. The next turn that completes clears LastTurnError. Snapshots show the text, so keep
+	// secrets out of it.
+	//
+	// A blank text is a runner defect: the turn fails at once without storing NewMessages; see
+	// AgentFrameworkRunner.RunModelStep. This is the Python core's turn_error and the TypeScript
+	// core's turnError.
+	//
+	// Since 0.6.16.
+	TurnError *string
 }
 
 func (*TurnCompleted) agentTurnOutcome() {}
@@ -484,6 +509,16 @@ type AgentFrameworkRunner interface {
 	BuildUserMessage(text string) (FrameworkMessage, error)
 	// RunModelStep makes at most one model call and runs no tool it can defer. It returns
 	// *TurnCompleted or *ToolCallsRequested; an error fails the RunModel attempt.
+	//
+	// An outcome that the session must not store is a runner defect, and the turn fails at once
+	// in that RunModel attempt, because a retry would only repeat the paid model call. The
+	// session records the outcome's Usage, stores nothing else from it, and ends the turn as
+	// RecordTurnFailure does, with a LastTurnError that names the defect. The defects are
+	// ToolCallsRequested.NewMessages from a runner that does not implement
+	// UnfinishedTurnMessageBuilder (MissingUnfinishedTurnMessageBuilder) and a blank
+	// TurnCompleted.TurnError.
+	//
+	// Changed in 0.6.16: a blank TurnCompleted.TurnError fails the turn.
 	RunModelStep(ctx context.Context, turn AgentTurnContext) (AgentTurnOutcome, error)
 	// ExecuteDeferredToolCall runs the real tool once. It returns *ToolExecutionResult, a
 	// *ToolExecutionError for a failure the model sees, or another error that fails the attempt.
