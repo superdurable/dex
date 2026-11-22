@@ -56,6 +56,12 @@
 // model call returns through the Handlers' WrapModel, so change the message
 // there: a change after the model call ends the turn the same way.
 //
+// A tool Step checks the call's arguments, after Eino's ToolAliases and
+// ToolArgumentsHandler convert them, against the schema the tool's Info
+// reports now, as the Go built-in loop does. Arguments that break it, such as
+// a stored call after a deploy renamed a required parameter, return a
+// *dexagents.ToolExecutionError before any tool middleware or the tool runs.
+//
 // WithToolSources offers the tools of a dexagents.ToolSource, such as the
 // Connector operations of a connectortools.ConnectorToolSource, beside the
 // agent's own, with their input schemas as the source wrote them. Their

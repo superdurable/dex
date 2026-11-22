@@ -35,6 +35,24 @@ func TestHallucinatedToolIsAnsweredAsUnknown(t *testing.T) {
 	require.Equal(t, int64(2), snapshot.Usage.ModelCalls, "no paid retry")
 }
 
+// A first attempt whose arguments break the tool's schema is a definite failure the model reads; no tool code runs.
+func TestArgumentsTheSchemaRejectsAreAFailedCallTheModelSees(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(einoAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "numeric-id", ptr("numeric order id"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	snapshot := stack.waitForTurnCount(einoAgentFlowType, "numeric-id", 1)
+	require.Nil(t, snapshot.State.LastTurnError)
+	// "The tool call failed: " is the result text of a failed call, unlike outcome_unknown's.
+	require.Equal(t, "Lookup: The tool call failed: invalid arguments for lookup_order: arguments.order_id must be string",
+		*snapshot.Messages[3].Text)
+	require.Zero(t, stack.callCount("lookup_order")+stack.callCount("middleware")+stack.callCount("handler"))
+	require.Equal(t, 1, stack.finalAttempt("numeric-id", "CallTool"), "a refusal is not retried")
+}
+
 // Empty, "/"-containing, and duplicate tool call IDs get valid unique IDs before they are stored.
 func TestInvalidToolCallIDsAreReplacedBeforeTheyAreStored(t *testing.T) {
 	t.Parallel()

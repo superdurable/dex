@@ -487,7 +487,13 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // *dexagents.ToolExecutionError without running, so the model may call it
 // again under the current policy. A *dexagents.ToolExecutionError anywhere in the tool's error chain is the
 // call's definite failure. Any other error fails the attempt, and the session
-// decides the outcome from the call's effect. Since 0.6.16.
+// decides the outcome from the call's effect. After Eino's argument conversion
+// (ArgumentsAliases, then ToolArgumentsHandler) and before the tool
+// middlewares, the arguments are checked against the schema the tool's Info
+// reports now, with the Go built-in loop's JSON Schema subset and texts: a
+// call they break, such as a stored call after a deploy renamed a required
+// parameter, returns the *dexagents.ToolExecutionError "invalid arguments for
+// <name>: <problem>" without running. Since 0.6.16.
 func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagents.DeferredToolExecution) (dexagents.DeferredToolOutcome, error) {
 	record := call.ToolCall
 	if runner.router.IsSourceToolCall(record) {
@@ -523,7 +529,11 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf("tool %s now needs an approval it did not have when the "+
 			"model called it, so it did not run; call it again to run it under its current policy", record.ToolName)}
 	}
-	node, err := compose.NewToolNode(ctx, toolStepNodeConfig(config, nodeTools))
+	checkArguments, err := argumentsCheck(ctx, record.ToolName, entry.tool)
+	if err != nil {
+		return nil, err
+	}
+	node, err := compose.NewToolNode(ctx, toolStepNodeConfig(config, nodeTools, checkArguments))
 	if err != nil {
 		return nil, fmt.Errorf("dexeino: build the tool Step's ToolsNode: %w", err)
 	}

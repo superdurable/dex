@@ -224,6 +224,10 @@ Connectors as tools (the decision above) and the adapter itself.
   turns every tool call into an Eino interrupt, so the run stops after one
   model call. Tool calls run in Dex tool Steps through a one-call
   `compose.ToolsNode` with the agent's tool middlewares and Handler wrappers.
+  The tool Step first checks the arguments, after Eino's `ToolAliases` and
+  `ToolArgumentsHandler`, against the tool's current schema with the built-in
+  loop's JSON Schema subset and texts, so a stored call that a deploy's renamed
+  parameter rejects is refused before any tool code runs.
   This is the built-in loop's shape, so a deploy that renames a tool or changes
   the instruction never breaks an open turn. A checkpoint-and-resume mode was
   prototyped and rejected: its checkpoint pins the agent name, the tool list,

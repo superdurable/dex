@@ -203,8 +203,10 @@ StartAgentSession -> RunModel -> CallTool(lookup_order) -> ResumeTurn -> RunMode
   from the agent's `ToolsNodeConfig`: its tools, `ToolAliases`,
   `ToolArgumentsHandler`, and `ToolCallMiddlewares`, then each
   `AgentMiddleware.WrapToolCall`, then the `Handlers`' tool wrappers, in Eino's
-  order. `compose.GetToolCallID` and `ToolCallContextFrom` work inside the
-  tool. A call of a tool source's tool runs through its source instead; see
+  order. Before any tool middleware runs, the Step checks the arguments, as
+  Eino converted them, against the tool's current schema.
+  `compose.GetToolCallID` and `ToolCallContextFrom` work inside the tool. A
+  call of a tool source's tool runs through its source instead; see
   [Connectors as tools](#connectors-as-tools).
 - **`ResumeTurn`** waits for every result, and the next `RunModel` makes the
   next model call. A final answer ends the turn.
@@ -355,6 +357,22 @@ Details that follow from it:
   deploy's policy needs one, such as a name the model invented that a later
   deploy added as a write. The model sees why and may call it again under the
   new policy, which records the call with its approval.
+- **Arguments.** A tool Step checks the call's arguments against the schema
+  that the tool's `Info` reports now, with the Go built-in loop's JSON Schema
+  subset: `type`, `enum`, `anyOf`, `properties`, `required`,
+  `additionalProperties`, `items`, `minimum`, and `maximum`. Eino converts the
+  arguments first, with `ToolAliases` argument aliases and then
+  `ToolArgumentsHandler`. The check runs next, before the tool middlewares, the
+  `Handlers`' tool wrappers, and the tool. Arguments that break the schema, or
+  that are not a JSON object, do not run, and the model sees `invalid arguments
+  for <name>: <problem>`, the built-in loop's text. This protects a call that
+  a deploy interrupted: Dex runs it again with its stored arguments, and after
+  a deploy that renamed a parameter, a typed tool such as one from
+  `utils.InferTool` would decode the old names into zero values. On that later
+  attempt of a write, the core records `outcome_unknown`, because the first
+  attempt may have run. The stored arguments stay as the model sent them. To
+  keep old calls running after a rename, map the old names with
+  `ArgumentsAliases`.
 - **One model call.** A Handler or model wrapper that calls the model a second
   time ends the turn as failed before the second call reaches the model. The
   one call that ran is billed, and no retry pays for it again. When that call
@@ -469,6 +487,10 @@ its single tool call or result, when it has one.
    a Handler's `BeforeModelRewriteState`. Let every `WrapModel` call the model
    it receives and return its error, with no fallback to another model. Choose
    the model per call with an `AgentConfigBuilder`.
+7. Convert arguments, such as renamed parameters, with `ToolAliases`
+   argument aliases or `ToolArgumentsHandler`, not in a tool middleware or a
+   Handler's tool wrapper: the tool Step checks the arguments against the
+   tool's schema after the conversion and before the wrappers.
 
 ## Limits
 

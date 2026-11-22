@@ -78,8 +78,9 @@ func refuseUnknownToolCall(_ context.Context, toolName string, _ string) (string
 //
 // The order is Eino's, outermost first: ToolsConfig.ToolCallMiddlewares, then
 // AgentMiddleware.WrapToolCall, then the Handlers' tool wrappers.
-func toolStepNodeConfig(config *agentConfig, tools []tool.BaseTool) *compose.ToolsNodeConfig {
-	middlewares := slices.Clone(config.agent.ToolsConfig.ToolCallMiddlewares)
+// Adapter middlewares in outermost wrap all of them.
+func toolStepNodeConfig(config *agentConfig, tools []tool.BaseTool, outermost ...compose.ToolMiddleware) *compose.ToolsNodeConfig {
+	middlewares := append(slices.Clone(outermost), config.agent.ToolsConfig.ToolCallMiddlewares...)
 	for _, agentMiddleware := range config.agent.Middlewares {
 		middlewares = append(middlewares, agentMiddleware.WrapToolCall)
 	}

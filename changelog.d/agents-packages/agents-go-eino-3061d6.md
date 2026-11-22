@@ -12,6 +12,10 @@ section: Eino adapter
 - Each tool call runs in its own Dex tool Step through a one-call
   `compose.ToolsNode` with the agent's tool middlewares and Handler wrappers,
   where `compose.GetToolCallID` and `ToolCallContextFrom` work.
+- The tool Step checks each call's arguments, after Eino's `ToolAliases` and
+  `ToolArgumentsHandler`, against the tool's current schema with the built-in
+  loop's JSON Schema subset and texts, so a stored call whose parameter a
+  deploy renamed is refused before any tool code runs.
 - Every tool needs a Dex effect: `WithToolEffects`, `WithToolPolicies`,
   `ToolEffectDeclarer`, or `WithDefaultToolEffect`.
 - Construction refuses `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`,

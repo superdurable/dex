@@ -22,6 +22,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
@@ -56,6 +57,8 @@ const (
 	deployRemoved agentDeploy = "removed"
 	// deployInstructionV2 changes the instruction.
 	deployInstructionV2 agentDeploy = "instruction_v2"
+	// deployParametersRenamed makes issue_refund an Eino typed tool whose required parameter is order_number.
+	deployParametersRenamed agentDeploy = "parameters_renamed"
 )
 
 // newEinoAgentFlows builds every test Flow around one coordination directory.
@@ -232,11 +235,25 @@ func scriptedTools(coordination coordinationFiles, deploy agentDeploy) ([]tool.B
 	case deployRenamed:
 		refund.name = "refund_payment"
 		tools = append(tools, refund)
+	case deployParametersRenamed:
+		renamed, err := utils.InferTool("issue_refund", "Refunds an order.", func(_ context.Context, arguments renamedRefundArguments) (string, error) {
+			coordination.recordCall("issue_refund")
+			return fmt.Sprintf("refunded order %q", arguments.OrderNumber), nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, renamed)
 	case deployRemoved:
 	default:
 		return nil, fmt.Errorf("unknown deploy %q", deploy)
 	}
 	return tools, nil
+}
+
+// renamedRefundArguments are issue_refund's arguments after deployParametersRenamed.
+type renamedRefundArguments struct {
+	OrderNumber string `json:"order_number" jsonschema:"required"`
 }
 
 // coordinationFiles are the files a test and its Worker children share.
@@ -453,6 +470,11 @@ func (scripted *scriptedChatModel) respond(ctx context.Context, input []*schema.
 			return calls(toolCall("call_blocking", "blocking_read", `{}`))
 		}
 		return answer("Instruction: " + input[0].Content + "; " + outputs[0])
+	case lastUser == "numeric order id":
+		if isFirst {
+			return calls(toolCall("call_lookup", "lookup_order", `{"order_id":5}`))
+		}
+		return answer("Lookup: " + outputs[0])
 	case lastUser == "hallucinate":
 		if isFirst {
 			return calls(toolCall("call_ghost", "ghost_tool", `{}`))
