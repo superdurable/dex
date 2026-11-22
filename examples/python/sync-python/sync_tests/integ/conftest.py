@@ -41,6 +41,9 @@ def sync_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SyncExampleAp
         ),
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-sync-examples-blob-cache"),
+        customer_refund_ledger_path=(
+            tmp_path_factory.mktemp("sync-customer-refund-ledger") / "ledger.sqlite3"
+        ),
     )
     app = SyncExampleApp(config)
     try:

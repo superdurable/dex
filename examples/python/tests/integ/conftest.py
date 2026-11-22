@@ -71,6 +71,9 @@ async def example_app(
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
         agent_mcp_config=_agent_mcp_config(tmp_path_factory),
+        customer_refund_ledger_path=(
+            tmp_path_factory.mktemp("customer-refund-ledger") / "ledger.sqlite3"
+        ),
     )
     app = ExampleApp(config, slack_mock.connection())
     try:

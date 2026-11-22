@@ -138,6 +138,7 @@ from dex_examples.products.ai_agent.ai_agent_session import (
     build_ai_agent_session_flow,
     load_mcp_servers,
 )
+from dex_examples.products.customer_refund.refund_settings import new_refund_flow
 from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
@@ -172,6 +173,8 @@ class ExampleApp:
 
         self.money_transfer = MoneyTransferFlow(service)
         self.order_processing = OrderProcessingFlow(service)
+        # The shared server always runs the normal billing mode.
+        self.customer_refund = new_refund_flow("normal", config.customer_refund_ledger_path)
         self.orchestration = OrchestrationFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
@@ -255,6 +258,7 @@ class ExampleApp:
         flows: list[Flow[Any]] = [
             self.money_transfer,
             self.order_processing,
+            self.customer_refund,
             self.orchestration,
             self.engagement,
             self.subscription,

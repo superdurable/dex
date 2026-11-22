@@ -105,6 +105,13 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             lambda c: trigger_get("/products/order-processing/start", {}),
         ),
         FlowSmokeEntry(
+            "products/customer-refund/manager-approval",
+            lambda c: trigger_get(
+                "/products/customer-refund/manager-approval/start",
+                {"workflowId": new_id("customer-refund"), "scenario": "normal"},
+            ),
+        ),
+        FlowSmokeEntry(
             "products/subscription",
             lambda c: trigger_get("/products/subscription/start", {}),
         ),

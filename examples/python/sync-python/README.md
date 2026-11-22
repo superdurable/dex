@@ -9,12 +9,13 @@ Requires Python 3.11+.
 The samples use concrete SDK errors for missing, inactive, and duplicate Flows
 instead of inspecting Dex sub-status metadata.
 
-Six Flows:
+Seven Flows:
 
 | Demo | Route prefix | Notes |
 |------|--------------|--------|
 | Basic | `/primitives/step` | smallest Flow |
 | Money transfer | `/products/money-transfer` | saga |
+| Customer refund | `/products/customer-refund/manager-approval` | manager approval RPCs; same routes as the async app |
 | Engagement | `/products/engagement` | channels + RPC |
 | Subscription | `/products/subscription` | timers |
 | Parent–child | `/patterns/parent-child` | sync `Client` inside `Step.execute` |

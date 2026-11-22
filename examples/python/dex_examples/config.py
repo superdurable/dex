@@ -27,6 +27,7 @@ from dex_examples.products.ai_agent.ai_agent_session import (
     DEFAULT_SYSTEM_PROMPT,
     DEMO_MODEL,
 )
+from dex_examples.products.customer_refund.ledger_database import DEFAULT_LEDGER_DATABASE
 
 DEMO_MINI_MODEL = "mock/dex-mini"
 
@@ -45,6 +46,8 @@ class ExamplesConfig:
     agent_mcp_config: Path | None = None
     # Signs AI Agent session tokens. A random key ends every token when the process restarts.
     agent_session_key: bytes = field(default_factory=lambda: secrets.token_bytes(32), repr=False)
+    # The fake billing and email ledger that the customer refund example writes.
+    customer_refund_ledger_path: Path = DEFAULT_LEDGER_DATABASE
 
     @staticmethod
     def from_env() -> ExamplesConfig:

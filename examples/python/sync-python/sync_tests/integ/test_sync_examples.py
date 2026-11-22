@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
+from dex_examples.products.customer_refund.start import SCENARIOS
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.engagement.status import Status
@@ -26,6 +27,7 @@ from dex_examples.products.subscription.subscription import Subscription
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import DEFAULT_TIMEOUT, start_options
+from sync_examples.http_app import create_app
 from sync_examples.wait import (
     WAIT_TIMEOUT,
     flow_status_or_none,
@@ -66,6 +68,55 @@ def test_money_transfer_completes_the_saga(
     output = client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
     assert "transfer is done" in output
     assert "from from-account to to-account for amount 100" in output
+
+
+def test_customer_refund_routes_approve_and_describe(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    http_client = create_app(app).test_client()
+    route_prefix = "/products/customer-refund/manager-approval"
+    flow_id = new_flow_id("sync-customer-refund")
+    started = http_client.get(
+        f"{route_prefix}/start", query_string={"workflowId": flow_id, "scenario": "normal"}
+    )
+    assert started.status_code == 200, started.get_json()
+    assert started.get_json()["flowID"] == flow_id
+    waiting = http_client.get(f"{route_prefix}/describe", query_string={"workflowId": flow_id})
+    assert waiting.get_json()["caseStatus"] == "awaiting-manager"
+
+    blank = http_client.get(
+        f"{route_prefix}/decide",
+        query_string={"flowId": flow_id, "decision": "approve", "reason": " "},
+    )
+    assert blank.status_code == 400
+    assert blank.get_json() == {"error": "a reason is required"}
+    approved = http_client.get(
+        f"{route_prefix}/decide",
+        query_string={"flowId": flow_id, "decision": "approve", "reason": "Outage confirmed"},
+    )
+    assert approved.status_code == 200, approved.get_json()
+    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "refunded"
+
+    closed = http_client.get(f"{route_prefix}/describe", query_string={"flowId": flow_id})
+    assert closed.get_json()["caseStatus"] == "closed-refunded"
+    assert closed.get_json()["refundId"].startswith("rf_")
+    late = http_client.get(
+        f"{route_prefix}/decide",
+        query_string={"flowId": flow_id, "decision": "reject", "reason": "Too late"},
+    )
+    assert late.status_code == 409
+
+
+def test_customer_refund_policy_denial_completes(
+    app: SyncExampleApp,
+    client: Client,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("sync-customer-refund")
+    client.start_flow(app.customer_refund, flow_id, SCENARIOS["deny"], start_options())
+    assert client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str) == "denied"
 
 
 def test_engagement_accept_completes(

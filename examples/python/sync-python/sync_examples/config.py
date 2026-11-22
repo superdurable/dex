@@ -21,6 +21,8 @@ from pathlib import Path
 
 from dex import StartFlowOptions
 
+from dex_examples.products.customer_refund.ledger_database import DEFAULT_LEDGER_DATABASE
+
 
 DEFAULT_TIMEOUT = timedelta(hours=1)
 
@@ -30,6 +32,8 @@ class SyncExamplesConfig:
     server_address: str
     http_address: str
     blob_cache_dir: Path
+    # The fake billing and email ledger that the customer refund example writes.
+    customer_refund_ledger_path: Path = DEFAULT_LEDGER_DATABASE
 
     @staticmethod
     def from_env() -> SyncExamplesConfig:
