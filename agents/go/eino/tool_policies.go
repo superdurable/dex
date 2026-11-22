@@ -103,12 +103,25 @@ func (runner *Runner) describeAgentTool(ctx context.Context, candidate tool.Base
 	}
 	info, err := candidate.Info(ctx)
 	if err != nil {
-		return agentTool{}, fmt.Errorf("read the tool's Info: %w", err)
+		return agentTool{}, &toolInfoError{cause: err}
 	}
 	if info == nil || info.Name == "" {
 		return agentTool{}, fmt.Errorf("the tool %T has no name", candidate)
 	}
 	return agentTool{name: info.Name, tool: candidate, effect: runner.frameworkEffect(info.Name, candidate)}, nil
+}
+
+// toolInfoError is a failed Info call of a tool, which a retry may fix, unlike a refused configuration.
+type toolInfoError struct {
+	cause error
+}
+
+func (failure *toolInfoError) Error() string {
+	return "read the tool's Info: " + failure.cause.Error()
+}
+
+func (failure *toolInfoError) Unwrap() error {
+	return failure.cause
 }
 
 // frameworkEffect returns the effect WithToolEffects or the tool itself declares, or nil.

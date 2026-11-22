@@ -167,6 +167,52 @@ func TestRefusedBuilderConfigurationEndsTheTurnAsFailed(t *testing.T) {
 	require.Zero(t, scripted.calls())
 }
 
+// flakyInfoTool's Info fails while failing is set, as a tool that loads its schema from a registry may.
+type flakyInfoTool struct {
+	funcTool
+	failing *atomic.Bool
+}
+
+func (flaky flakyInfoTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	if flaky.failing.Load() {
+		return nil, errors.New("schema registry: connection reset")
+	}
+	return flaky.funcTool.Info(ctx)
+}
+
+// A tool whose Info fails in a model call fails the attempt, so RunModel retries it, instead of
+// ending the turn the way a refused configuration does.
+func TestToolInfoFailureInAModelCallFailsTheAttempt(t *testing.T) {
+	for name, isBuilder := range map[string]bool{"a fixed configuration": false, "a builder": true} {
+		t.Run(name, func(t *testing.T) {
+			scripted := echoModel()
+			failing := &atomic.Bool{}
+			config := func() *adk.ChatModelAgentConfig {
+				return &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+					ToolsConfig: toolsConfig(flakyInfoTool{funcTool: noopTool("lookup_order"), failing: failing})}
+			}
+			effects := dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"lookup_order": dexagents.ToolEffectRead})
+			runner, err := dexeino.NewRunner(config(), effects)
+			if isBuilder {
+				runner, err = dexeino.NewRunnerWithBuilder(func(context.Context, dexeino.AgentBuildContext) (*adk.ChatModelAgentConfig, error) {
+					return config(), nil
+				}, effects)
+			}
+			require.NoError(t, err)
+			state := newTurnState(t, runner, "hello")
+			failing.Store(true)
+			outcome, err := runner.RunModelStep(context.Background(), state.context())
+			require.ErrorContains(t, err, "schema registry: connection reset")
+			require.Nil(t, outcome)
+			require.Zero(t, scripted.calls())
+			failing.Store(false)
+			completed := state.runModel(runner).(*dexagents.TurnCompleted)
+			require.Nil(t, completed.TurnError)
+			require.Equal(t, "You said: hello", *completed.NewMessages[0].Text)
+		})
+	}
+}
+
 // With streaming, text and reasoning reach AgentEvents as deltas, and streamed tool calls get IDs.
 func TestStreamingWritesDeltasAndCapturesTheMessage(t *testing.T) {
 	scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {

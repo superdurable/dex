@@ -52,12 +52,15 @@
 // middlewares. It also refuses ToolsConfig.ExecuteSequentially, because Dex
 // runs the tool calls of one model response as parallel Steps. A stop that
 // a retry would repeat, such as a second model call in one Step, ends the turn
-// as failed with dexagents.TurnCompleted.TurnError.
+// as failed with dexagents.TurnCompleted.TurnError. Dex stores the message the
+// model call returns through the Handlers' WrapModel, so change the message
+// there: a change after the model call ends the turn the same way.
 //
 // WithToolSources offers the tools of a dexagents.ToolSource, such as the
 // Connector operations of a connectortools.ConnectorToolSource, beside the
-// agent's own. Their calls run through the source in their tool Steps,
-// outside Eino's tool node and tool middlewares.
+// agent's own, with their input schemas as the source wrote them. Their
+// calls run through the source in their tool Steps, outside Eino's tool node
+// and tool middlewares.
 //
 // Since 0.6.16.
 package dexeino

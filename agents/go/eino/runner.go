@@ -242,13 +242,17 @@ func (runner *Runner) BuildUserMessage(text string) (dexagents.FrameworkMessage,
 // AgentConfigBuilder that NewRunner would refuse (a refused setting or
 // middleware, two tools of one name, an alias that names another tool, or a
 // tool without a Dex effect), a turn at the agent's MaxIterations, a second
-// model call in the Step, an Eino interrupt the adapter did not raise, or
-// tool calls that changed after the model call. Its NewMessages hold only the
-// unstored tool results, so every stored call keeps its result; the model
-// message of a refused call is not stored. The usage of a model call that ran
-// is recorded, and no retry pays for it again. When the one model call failed
-// and a wrapper then tried a second, the failed call's error is returned
-// instead, so the session handles it as any model error.
+// model call in the Step, a Handler's WrapModel that answers without calling
+// the model it wraps, an Eino interrupt the adapter did not raise, or a model
+// message that changed after the model call, such as tool call arguments or
+// text that a Handler's AfterModelRewriteState or an AgentMiddleware's
+// AfterChatModel rewrote. Its NewMessages hold only the unstored tool results,
+// so every stored call keeps its result; the model message of a refused call
+// is not stored. The usage of a model call that ran is recorded, and no retry
+// pays for it again. When the one model call failed and a wrapper then tried
+// a second, the failed call's error is returned instead, so the session
+// handles it as any model error. A tool whose Info fails returns an error,
+// so RunModel retries the attempt.
 //
 // Since 0.6.16.
 func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurnContext) (dexagents.AgentTurnOutcome, error) {
@@ -272,6 +276,10 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 		return nil, err
 	}
 	tools, err := runner.checkModelCallConfiguration(ctx, config)
+	var infoFailure *toolInfoError
+	if errors.As(err, &infoFailure) {
+		return nil, fmt.Errorf("dexeino: %w", err)
+	}
 	if err != nil {
 		return endTurnAsFailed("the agent configuration cannot run in Dex Step mode: "+err.Error(),
 			dexagents.AgentUsage{}, unstoredResults)
@@ -280,7 +288,7 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 		return endTurnAsFailed(fmt.Sprintf(
 			"the turn reached the Eino agent's MaxIterations of %d model calls", limit), dexagents.AgentUsage{}, unstoredResults)
 	}
-	sourceTools, sourceStubs, err := runner.listSourceTools(ctx, turn, tools)
+	sourceTools, err := runner.listSourceTools(ctx, turn, tools)
 	if err != nil {
 		return nil, err
 	}
@@ -289,14 +297,14 @@ func (runner *Runner) RunModelStep(ctx context.Context, turn dexagents.AgentTurn
 		return nil, err
 	}
 	run := newModelCallRun(turn)
-	agent, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, run, sourceStubs))
+	agent, err := adk.NewChatModelAgent(ctx, modelCallAgentConfig(config, run, sourceTools.stubs))
 	if err != nil {
 		return nil, fmt.Errorf("dexeino: build the Eino agent: %w", err)
 	}
 	einoRunner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: runner.options.isStreaming})
 	drained := drainModelRun(einoRunner.Run(ctx, input))
 	return runner.modelCallOutcome(ctx, modelCallResult{
-		turn: turn, config: config, tools: tools, sourceTools: sourceTools, offeredToolCount: len(tools.ordered) + len(sourceStubs),
+		turn: turn, config: config, tools: tools, sourceTools: sourceTools, offeredToolCount: len(tools.ordered) + len(sourceTools.stubs),
 		run: run, drained: drained, modelCalls: modelCalls, unstoredResults: unstoredResults,
 	})
 }
@@ -306,7 +314,7 @@ type modelCallResult struct {
 	turn             dexagents.AgentTurnContext
 	config           *agentConfig
 	tools            agentTools
-	sourceTools      *dexagents.SourceToolListing
+	sourceTools      offeredSourceTools
 	offeredToolCount int
 	run              *modelCallRun
 	drained          drainedModelRun
@@ -319,8 +327,14 @@ func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResu
 	usage := run.modelCallUsage()
 	run.mutex.Lock()
 	isSecondCallTried := run.isSecondCallTried
+	isModelNotCalled := run.isModelNotCalled
 	offered := maps.Clone(run.offeredTools)
 	run.mutex.Unlock()
+	if isModelNotCalled {
+		return endTurnAsFailed("a Handler's WrapModel answered without calling the model it wraps, so Dex cannot count "+
+			"the Step's model calls or see the tools that model was offered; choose the model with an AgentConfigBuilder instead",
+			usage, result.unstoredResults)
+	}
 	if isSecondCallTried || errors.Is(drained.err, errSecondModelCall) {
 		if failure := run.failedModelCall(); failure != nil {
 			// The call that ran failed, so its error, not the refused retry, decides what the session does.
@@ -351,11 +365,16 @@ func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResu
 			return endTurnAsFailed("the Eino agent stopped at tool calls its model message does not contain",
 				usage, result.unstoredResults)
 		}
+		if reason := run.messageChangedAfterModelCall(); reason != "" {
+			return endTurnAsFailed(reason, usage, result.unstoredResults)
+		}
 		return &dexagents.TurnCompleted{NewMessages: newMessages, Usage: usage}, nil
 	}
 	if !sameToolCallIDs(requested, drained.gatedCalls) && !(len(drained.gatedCalls) == 0 && result.offeredToolCount == 0) {
-		return endTurnAsFailed("the Eino agent's tool calls changed after the model call; "+
-			"a Handler that rewrites the model message's tool calls is not supported", usage, result.unstoredResults)
+		return endTurnAsFailed(toolCallsChangedReason, usage, result.unstoredResults)
+	}
+	if reason := run.messageChangedAfterModelCall(); reason != "" {
+		return endTurnAsFailed(reason, usage, result.unstoredResults)
 	}
 	encodedState, err := json.Marshal(runState{Version: runStateVersion, ModelCalls: ptr(result.modelCalls + 1)})
 	if err != nil {
@@ -389,8 +408,8 @@ func (runner *Runner) deferredToolCall(
 	if strings.TrimSpace(arguments) == "" {
 		arguments = "{}"
 	}
-	if result.sourceTools != nil && result.sourceTools.HasTool(call.Function.Name) {
-		built, err := result.sourceTools.DeferredToolCall(result.turn, call.ID, call.Function.Name, arguments)
+	if result.sourceTools.isOffered(call.Function.Name) {
+		built, err := result.sourceTools.listing.DeferredToolCall(result.turn, call.ID, call.Function.Name, arguments)
 		if err != nil {
 			return dexagents.DeferredToolCall{}, err
 		}
@@ -416,7 +435,7 @@ func (runner *Runner) handlerAddedToolEffectsOfCalls(
 	for _, call := range calls {
 		name := call.Function.Name
 		_, isAgentTool := result.tools.lookup(name)
-		isSourceTool := result.sourceTools != nil && result.sourceTools.HasTool(name)
+		isSourceTool := result.sourceTools.isOffered(name)
 		if offered[name] && !isAgentTool && !isSourceTool {
 			return runner.findHandlerAddedToolEffects(ctx, result.config, result.tools)
 		}

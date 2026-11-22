@@ -229,6 +229,85 @@ func TestListedToolWithABrokenSchemaIsNotOffered(t *testing.T) {
 	require.Equal(t, []string{"lookup_order", "ledger_post_note"}, scripted.tools[0])
 }
 
+// The model is offered a listed input schema as the source wrote it, with the keywords Eino's
+// JSON Schema type has no field for, so a draft-07 reference still resolves.
+func TestSourceToolSchemasReachTheModelUnchanged(t *testing.T) {
+	for name, listed := range map[string]string{
+		"draft-07 definitions": `{"type":"object","properties":{"a":{"$ref":"#/definitions/y"}},` +
+			`"definitions":{"y":{"type":"string"}}}`,
+		"2020-12 keywords": `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},` +
+			`"unevaluatedProperties":false,"dependentRequired":{"a":["b"]}}`,
+		"nullable and extension keys": `{"type":"object","x-custom":{"k":[1,2.5]},"properties":{` +
+			`"a":{"type":"string","nullable":true},"list":{"type":"array","items":{"type":"integer","x-unit":"cents"}},` +
+			`"any":{}},"additionalProperties":{}}`,
+		"keywords inside subschemas": `{"anyOf":[{"type":"object","properties":{"a":{"type":"string","nullable":true}}},` +
+			`{"type":"null"}],"$defs":{"z":{"type":"string","x-z":true}},"not":{"const":null}}`,
+		"empty and false values": `{"type":"object","properties":{"a":{"type":"string","description":"",` +
+			`"uniqueItems":false,"default":null}},"required":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {
+				if input[len(input)-1].Role == schema.Tool {
+					return schema.AssistantMessage("done", nil), nil
+				}
+				return toolCallMessage(call("call_note", "ledger_post_note", `{}`)), nil
+			}}
+			source := &recordingSource{name: "ledger", tools: []dexagents.SourceToolDefinition{
+				{Name: "ledger_post_note", Description: "Post a note.", InputSchema: json.RawMessage(listed)},
+			}}
+			var middlewareRuns, handlerWraps atomic.Int64
+			runner := sourceAgent(t, scripted, source, &middlewareRuns, &handlerWraps)
+			state := newTurnState(t, runner, "note")
+			requested := state.runModel(runner).(*dexagents.ToolCallsRequested)
+			offered, err := scripted.toolInfos[0][1].ToJSONSchema()
+			require.NoError(t, err)
+			offeredJSON, err := json.Marshal(offered)
+			require.NoError(t, err)
+			require.JSONEq(t, listed, string(offeredJSON))
+			require.NotNil(t, requested.ToolCalls[0].ToolSourceReference)
+			require.Empty(t, state.runTools(runner))
+			require.Len(t, source.executions(), 1)
+			state.runModel(runner)
+			offered, err = scripted.toolInfos[1][1].ToJSONSchema()
+			require.NoError(t, err)
+			offeredJSON, err = json.Marshal(offered)
+			require.NoError(t, err)
+			require.JSONEq(t, listed, string(offeredJSON), "the next model call offers it unchanged too")
+		})
+	}
+}
+
+// A listed tool the model is not offered is not built by its source: a call of its name is
+// unclassified without an approval, and its tool Step answers it as an unknown tool.
+func TestListedToolThatIsNotOfferedIsAnsweredAsUnknown(t *testing.T) {
+	for name, listed := range map[string]string{
+		"a schema that does not parse":   `[1, 2]`,
+		"a schema that does not survive": `{"type":"object","properties":{"id":{"type":"integer","const":12345678901234567890}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+				return toolCallMessage(call("call_broken", "ledger_broken", `{}`)), nil
+			}}
+			source := noteSource()
+			source.tools = append(source.tools, dexagents.SourceToolDefinition{Name: "ledger_broken", InputSchema: json.RawMessage(listed)})
+			var middlewareRuns, handlerWraps atomic.Int64
+			runner := sourceAgent(t, scripted, source, &middlewareRuns, &handlerWraps)
+			state := newTurnState(t, runner, "use the broken tool")
+			requested := state.runModel(runner).(*dexagents.ToolCallsRequested)
+			require.Equal(t, []string{"lookup_order", "ledger_post_note"}, scripted.tools[0])
+			deferred := requested.ToolCalls[0]
+			require.Nil(t, deferred.ToolSourceReference)
+			require.Equal(t, dexagents.ToolEffectUnclassified, deferred.Policy.Effect)
+			require.False(t, deferred.Policy.IsApprovalRequired())
+			failures := state.runTools(runner)
+			var toolError *dexagents.ToolExecutionError
+			require.ErrorAs(t, failures["call_broken"], &toolError)
+			require.Equal(t, "unknown tool ledger_broken", toolError.Message)
+			require.Empty(t, source.executions())
+		})
+	}
+}
+
 // cachedSource is a recordingSource whose CachedTools the construction check reads.
 type cachedSource struct {
 	*recordingSource

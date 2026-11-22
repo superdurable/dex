@@ -292,6 +292,14 @@ How a source tool works with Eino:
   argument schemas. Their bodies never run in `RunModel`: the adapter's gate
   stops the run at their calls like any other. A source whose listing fails or
   takes longer offers no tools in that model call, and the turn goes on.
+- **Schemas as the source wrote them.** The model gets each input schema with
+  every keyword the source wrote, including those that Eino's JSON Schema type
+  has no field for, such as draft-07 `definitions`, `nullable`, and `x-` keys,
+  so a `$ref` still resolves. A listed tool whose schema is not a JSON Schema,
+  or would still reach the model changed, is left out of that model call with a
+  warning in the log. A call of its name is not sent to the source: it is
+  deferred as `unclassified` without an approval, and its tool Step answers
+  `unknown tool <name>`.
 - **Built by the source.** The source picks each call's effect, approval, and
   write ordering, and stores its own reference with the call. A session
   `ToolPolicy` for the tool name reaches the source, so it may change the
@@ -345,18 +353,30 @@ Details that follow from it:
   time ends the turn as failed before the second call reaches the model. The
   one call that ran is billed, and no retry pays for it again. When that call
   failed, its error reaches the session instead, as a model error: a 429 or
-  5xx backs off and `RunModel` retries, and no usage is billed for it.
+  5xx backs off and `RunModel` retries, and no usage is billed for it. The
+  adapter counts calls of the agent's `Model`, so a Handler's `WrapModel`
+  must call the model it receives. One that answers from another model ends
+  the turn as failed, with the usage that model's message reports: choose the
+  model with an `AgentConfigBuilder` instead.
+- **The stored message.** Dex stores and runs the message that the model call
+  returned through the Handlers' `WrapModel`, so change the model's text or
+  tool calls there. A Handler's `AfterModelRewriteState` or an
+  `AgentMiddleware.AfterChatModel` that changes that message, such as its
+  arguments, a tool name, or its text, ends the turn as failed, because the
+  change would not reach the stored conversation or the tool Steps.
 - **Turns that end as failed.** A stop that a retry would repeat ends the turn
-  at once with `TurnCompleted.TurnError`: the second model call above, a turn
-  at `MaxIterations`, an Eino interrupt that a Handler raised in `RunModel`,
-  tool calls that a Handler changed after the model call, and a model call
-  configuration from the `AgentConfigBuilder` that construction would refuse:
-  a refused setting or middleware, two tools of one name, an alias that names
-  another tool, or a tool without a Dex effect. The session sets
-  `LastTurnError` to the reason and writes `turn_failed`; the next turn that
-  completes clears it. The tool results the turn has not stored yet are
-  stored, so every stored call keeps its result. The model message of the
-  refused call is not stored.
+  at once with `TurnCompleted.TurnError`: the second model call above, a
+  `WrapModel` that answers from another model, a turn at `MaxIterations`, an
+  Eino interrupt that a Handler raised in `RunModel`, a model message that an
+  after-model hook changed, and a model call configuration from the
+  `AgentConfigBuilder` that construction would refuse: a refused setting or
+  middleware, two tools of one name, an alias that names another tool, or a
+  tool without a Dex effect. The session sets `LastTurnError` to the reason
+  and writes `turn_failed`; the next turn that completes clears it. The tool
+  results the turn has not stored yet are stored, so every stored call keeps
+  its result. The model message of the refused call is not stored. A tool
+  whose `Info` fails is not a refusal: it fails the `RunModel` attempt, which
+  retries.
 - **Model errors.** The Go core reads the HTTP status of a failed model call
   from a `StatusCode`, `Response`, or `HTTPStatusCode` field, so go-openai and
   Ark errors reach it unchanged. The adapter's outermost model wrapper wraps an
@@ -427,6 +447,10 @@ its single tool call or result, when it has one.
 4. Replace Eino human-in-the-loop interrupts with Dex approvals.
 5. Return `*dexagents.ToolExecutionError` for definite tool failures, and stop
    using `utils.WrapToolWithErrorHandler`.
+6. Move changes to the model's message from a Handler's
+   `AfterModelRewriteState` or an `AgentMiddleware.AfterChatModel` into a
+   Handler's `WrapModel`, and let every `WrapModel` call the model it receives.
+   Choose the model per call with an `AgentConfigBuilder`.
 
 ## Limits
 

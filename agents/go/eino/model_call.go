@@ -9,6 +9,7 @@
 package dexeino
 
 import (
+	"bytes"
 	"context"
 	"encoding/gob"
 	"encoding/json"
@@ -54,6 +55,9 @@ func registerGobType(value any) {
 // errSecondModelCall is the error the innermost model wrapper returns instead of a second model call.
 var errSecondModelCall = errors.New("dexeino: the Eino agent tried a second model call in one RunModel Step")
 
+// errModelNotCalled stops a run whose model message did not come through the agent's model.
+var errModelNotCalled = errors.New("dexeino: a Handler's WrapModel answered without calling the model it wraps")
+
 // modelCallRun holds what one RunModel's Eino run observed. Each RunModel makes a new one.
 type modelCallRun struct {
 	events          *dexagents.AgentEventWriter
@@ -67,6 +71,11 @@ type modelCallRun struct {
 	usage             dexagents.AgentUsage
 	offeredTools      map[string]bool
 	isSecondCallTried bool
+	// isModelNotCalled is set when a Handler's WrapModel answered from a model the counter does not wrap.
+	isModelNotCalled bool
+	// handedMessage and finalMessage encode the message Eino got from the gate and the one it kept after its hooks.
+	handedMessage []byte
+	finalMessage  []byte
 }
 
 func newModelCallRun(turn dexagents.AgentTurnContext) *modelCallRun {
@@ -93,12 +102,17 @@ func (run *modelCallRun) capturedMessage() *schema.Message {
 }
 
 // modelCallUsage returns the usage of the model call; a call that failed is not counted.
+//
+// A message from a model the counter does not wrap counts as one call with the usage it reports.
 func (run *modelCallRun) modelCallUsage() dexagents.AgentUsage {
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
 	usage := run.usage
 	if run.modelCallFailure == nil {
 		usage.ModelCalls = run.modelCalls
+	}
+	if run.isModelNotCalled {
+		usage.ModelCalls = 1
 	}
 	return usage
 }
@@ -141,11 +155,15 @@ func (run *modelCallRun) beginModelCall(options []model.Option) bool {
 
 // recordUsage merges one message's usage into the call's, keeping each field's largest value as Eino merges chunks.
 func (run *modelCallRun) recordUsage(usage *schema.TokenUsage) {
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	run.mergeUsageLocked(usage)
+}
+
+func (run *modelCallRun) mergeUsageLocked(usage *schema.TokenUsage) {
 	if usage == nil {
 		return
 	}
-	run.mutex.Lock()
-	defer run.mutex.Unlock()
 	run.usage.InputTokens = max(run.usage.InputTokens, int64(usage.PromptTokens))
 	run.usage.OutputTokens = max(run.usage.OutputTokens, int64(usage.CompletionTokens))
 	run.usage.CachedInputTokens = max(run.usage.CachedInputTokens, int64(usage.PromptTokenDetails.CachedTokens))
@@ -162,6 +180,14 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	if run.captured != nil {
 		return nil, errSecondModelCall
 	}
+	if run.modelCalls == 0 {
+		// The counter never saw this call, so its tools, its usage, and a second call went unseen.
+		run.isModelNotCalled = true
+		if message.ResponseMeta != nil {
+			run.mergeUsageLocked(message.ResponseMeta.Usage)
+		}
+		return nil, errModelNotCalled
+	}
 	fixed := *message
 	fixed.Role = schema.Assistant
 	fixed.ToolCalls = slices.Clone(message.ToolCalls)
@@ -173,8 +199,68 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	if err != nil {
 		return nil, err
 	}
+	handed, err := encodeComparableMessage(forEino)
+	if err != nil {
+		return nil, err
+	}
 	run.captured = withoutEinoInternalExtra(&fixed)
+	run.handedMessage = handed
 	return forEino, nil
+}
+
+// recordFinalMessage is the last AfterChatModel hook: it records the message Eino goes on with.
+func (run *modelCallRun) recordFinalMessage(_ context.Context, state *adk.ChatModelAgentState) error {
+	var final []byte
+	if len(state.Messages) > 0 {
+		encoded, err := encodeComparableMessage(state.Messages[len(state.Messages)-1])
+		if err != nil {
+			return err
+		}
+		final = encoded
+	}
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	run.finalMessage = final
+	return nil
+}
+
+// encodeComparableMessage encodes a message without the Extra keys Eino ADK sets for itself.
+func encodeComparableMessage(message *schema.Message) ([]byte, error) {
+	if message == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(withoutEinoInternalExtra(message))
+	if err != nil {
+		return nil, fmt.Errorf("dexeino: the model message does not encode as JSON: %w", err)
+	}
+	return encoded, nil
+}
+
+// toolCallsChangedReason is the TurnError of a model message whose tool calls changed after the model call.
+const toolCallsChangedReason = "the Eino agent's tool calls changed after the model call; a Handler's " +
+	"AfterModelRewriteState or an AgentMiddleware's AfterChatModel that rewrites them is not supported, " +
+	"because Dex stores and runs the message the model call returned; change the message in a Handler's WrapModel instead"
+
+// messageChangedAfterModelCall returns the TurnError for a message the after-model hooks changed, or "".
+//
+// A final message the last hook never recorded counts as changed.
+func (run *modelCallRun) messageChangedAfterModelCall() string {
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	if bytes.Equal(run.handedMessage, run.finalMessage) {
+		return ""
+	}
+	var handed, final schema.Message
+	if json.Unmarshal(run.handedMessage, &handed) == nil && json.Unmarshal(run.finalMessage, &final) == nil {
+		handedCalls, handedErr := json.Marshal(handed.ToolCalls)
+		finalCalls, finalErr := json.Marshal(final.ToolCalls)
+		if handedErr == nil && finalErr == nil && !bytes.Equal(handedCalls, finalCalls) {
+			return toolCallsChangedReason
+		}
+	}
+	return "the Eino agent's model message changed after the model call; a Handler's AfterModelRewriteState or an " +
+		"AgentMiddleware's AfterChatModel that changes it is not supported, because Dex stores the message the model " +
+		"call returned; change the message in a Handler's WrapModel instead"
 }
 
 // jsonDecodedCopy returns message as encoding/json decodes it, so Extra holds only JSON values.
@@ -386,11 +472,13 @@ func modelCallAgentConfig(config *agentConfig, run *modelCallRun, sourceStubs []
 		},
 		EmitInternalEvents: config.agent.ToolsConfig.EmitInternalEvents,
 	}
-	agent.Middlewares = make([]adk.AgentMiddleware, 0, len(config.agent.Middlewares))
+	agent.Middlewares = make([]adk.AgentMiddleware, 0, len(config.agent.Middlewares)+1)
 	for _, middleware := range config.agent.Middlewares {
 		middleware.WrapToolCall = compose.ToolMiddleware{}
 		agent.Middlewares = append(agent.Middlewares, middleware)
 	}
+	// AfterChatModel hooks run after every Handler's AfterModelRewriteState, so the last one sees Eino's message.
+	agent.Middlewares = append(agent.Middlewares, adk.AgentMiddleware{AfterChatModel: run.recordFinalMessage})
 	agent.Handlers = make([]adk.ChatModelAgentMiddleware, 0, len(config.agent.Handlers)+2)
 	agent.Handlers = append(agent.Handlers, &toolCallGate{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}, run: run})
 	agent.Handlers = append(agent.Handlers, config.agent.Handlers...)
