@@ -27,47 +27,47 @@ This page lists user-visible changes to the TypeScript SDK, newest first. Each s
 
 **Added**
 
-- Added client-side payload encryption. Set **payloadCodec** in **ClientOptions** and **WorkerOptions**, and the SDK encrypts every Value it sends and decrypts every Value it receives, so the Dex Server stores only ciphertext and never holds keys. The built-in **AesGcmPayloadCodec** uses AES-256-GCM with optional gzip compression, and **FilePayloadEncryptionKeyProvider** reads keys from a JSON key file. Implement **PayloadCodec** for another scheme, such as a KMS.
+- Set **payloadCodec** in **ClientOptions** and **WorkerOptions** to encrypt payloads before storage and keep keys out of Dex. **AesGcmPayloadCodec** uses AES-256-GCM, and **FilePayloadEncryptionKeyProvider** reads JSON keys. [Reference](/reference/server/payload-encryption).
 - Worker error text and the reasons of **stopFlow**, **timeTravel**, and **cloneForkFlow** are encrypted too. Switch string, primitive, and error-text encryption off with **encryptStringValues**, **encryptPrimitiveValues**, and **encryptErrorText**.
-- Indexed Attributes stay in clear so Flow search keeps working. Declare an Attribute or AttributeMap with the new **plaintext()** option when the Server must read its value, for example for **waitForAttributeMatch** or an Action condition. With a codec, the SDK rejects those uses on an encrypted Attribute.
+- Indexed Attributes remain plaintext for search. Use **plaintext()** when the Server must read an Attribute or AttributeMap, as **waitForAttributeMatch** and Action conditions reject encrypted Attributes. [Reference](/reference/server/payload-encryption#plaintext-attributes).
 - The Go, Python, and TypeScript SDKs share the encryption format. The Java and Rust SDKs cannot read encrypted Flows yet.
 
 ### 1.45.8 (2026-11-18) {#v1-45-8}
 
 **Fixed**
 
-- **Client.invokeRPC** and **Client.invokeRPCWithOptions** send a null input for an RPC declared without input, as the Go, Java, Python, and Rust Clients do, instead of leaving it unset. Python and Java Workers before 1.45.8, and Rust Workers, fail such a call with **Value has no concrete kind**. (#2034)
+- **Client.invokeRPC** and **Client.invokeRPCWithOptions** now send null for inputless RPCs. Omitted input caused **Value has no concrete kind** on Python and Java Workers before 1.45.8 and on Rust Workers. (#2034)
 
 ### 1.45.7 (2026-11-18) {#v1-45-7}
 
 **Added**
 
-- **PullWorkerOptions.minOpenSlots** makes a pull Worker adaptive when it is below **maxConcurrentTasks**. The Worker keeps between the two counts of slot streams open, both including the reserved RPC slots: it doubles its Step-and-RPC streams when a task takes the last idle one, and every 30 seconds it half-closes half of the idle surplus. An idle adaptive Worker holds only its floor of Server streams. The default equals **maxConcurrentTasks**, which keeps the Worker fixed with unchanged stream behavior.
-- An adaptive Worker clamps **maxConcurrentTasks** above the Server's **matching.maxConcurrentTasksCap** to the cap with a warning. It treats a **RESOURCE_EXHAUSTED** registration of a growth stream, or of a reconnect after readiness, as a soft limit, without a **PullRegistrationError**. While growth rejections persist, it sends at most one growth batch per 30-second window. A soft-rejected floor or reconnect stream retries when another registered stream of the Worker ends, or at the next window.
+- **PullWorkerOptions.minOpenSlots** lets a pull Worker vary open streams with load when set below **maxConcurrentTasks**. The default equals **maxConcurrentTasks**, keeping the stream count fixed. [Reference](/reference/typescript/workers#capacity-and-shutdown).
+- Adaptive Workers warn and clamp **maxConcurrentTasks** to **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without reporting **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
 - **Worker.pullSlotStreamState** returns a snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters. **NODE_DEBUG=dex** logs each grow and shrink.
 
 **Changed**
 
-- **Worker.start** now resolves after one stream of each slot kind has registered, as in the other SDKs, instead of after the first stream of any kind. **waitPullRegistered** is unchanged. This readiness alignment is the behavior change that decision D13 of the adaptive slot stream design authorizes. **start** still rejects with **PullRegistrationError** when every stream of a slot kind is rejected before any of that kind registers.
-- A fixed pull Worker with **maxConcurrentTasks** unset now opens one stream first, learns the Server's **matching.maxConcurrentTasksCap** from its registration, and clamps its CPU-count default to the cap with a warning instead of failing to start. Its other streams open after that first registration. An explicit **maxConcurrentTasks** above the cap still fails to start, and a fixed Worker with an explicit value still opens all its streams at once.
+- **Worker.start** now waits for one registered stream of each slot kind. It rejects with **PullRegistrationError** if every stream of a kind is rejected before one registers. [Reference](/reference/server/workers#adaptive-slot-streams).
+- Fixed pull Workers with unset **maxConcurrentTasks** now warn and clamp the CPU-count default to **matching.maxConcurrentTasksCap**. An explicit limit above the cap still prevents startup. [Reference](/reference/server/workers#adaptive-slot-streams).
 - A pull Worker opens its RPC-only streams by slot kind instead of as the last slots, and an unset **reservedRpcTasks** reserves no slot when **minOpenSlots** is 1.
 
 ### 1.45.6 (2026-11-16) {#v1-45-6}
 
 **Added**
 
-- **GracefulCompletion.requested** creates a wait condition that completes once the Flow has a graceful completion request, from **Client.stopFlow** with **StopType.GRACEFUL_COMPLETE** or a **gracefulComplete** Step decision. The function **isGracefulCompletionConditionCompleted** reports the result in **execute**; it takes the Context, so the Context interface gains no member. The condition needs Dex Server 0.1.34 or newer; with an older Server the Step's **waitFor** fails with **GracefulCompletionConditionUnsupportedError**. The SDK now supports Server protocol version 7.
+- **GracefulCompletion.requested** lets a Step wait for a request and **isGracefulCompletionConditionCompleted** reads the result from Context. Requires Dex Server 0.1.34 or later and protocol 7. [Reference](/reference/typescript/waits#graceful-completion-requests).
 - **StopType.GRACEFUL_COMPLETE**, **StopType.FORCE_COMPLETE**, and **StopFlowOptions.output** let **Client.stopFlow** complete a Flow with a result, like the **gracefulComplete** and **forceComplete** Step decisions. They need Dex Server 0.1.34 or newer.
-- The function **supportsGracefulCompletionCondition** reports whether the connected Server supports **GracefulCompletion.requested**, from the protocol version the Worker negotiated, without a request. **waitFor** can add the condition only when it returns true and keep working with Servers older than protocol 7. It returns false for a Context that Dex did not create. [Reference](/reference/typescript/waits#graceful-completion-requests).
+- **supportsGracefulCompletionCondition** checks negotiated support for **GracefulCompletion.requested** before **waitFor** uses it, including on Servers older than protocol 7. It returns false for Contexts created outside Dex. [Reference](/reference/typescript/waits#graceful-completion-requests).
 
 ### 1.45.5 (2026-11-15) {#v1-45-5}
 
 **Added**
 
-- **Client.cloneForkFlow** creates a new Flow from a copy of another Flow run's state at one point, while the source run keeps running. **CloneForkFlowOptions** selects the point with **TimeTravelType**, including the new **CURRENT** default, and sets the request ID, ID reuse policy, already-started handling, configuration override, task queue, initial Attributes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the source run ID, run attempt, and event ID of the copied point. It requires Server protocol version 6, which server-zd 0.1.33 provides.
+- **Client.cloneForkFlow** copies run state into a new Flow while the source keeps running, with **CloneForkFlowOptions** defaulting to **CURRENT**. Requires Server protocol 6 (server-zd 0.1.33 or later). [Reference](/reference/server/runtime-client#clone-fork).
 - **Client.timeTravel** accepts **TimeTravelType.EVENT_ID** with **TimeTravelOptions.eventId**, and **TimeTravelOptions.subFlowResetPolicy** with the new **SubFlowResetPolicy** values decides what happens to SubFlow conditions that restored Steps wait on.
 - The SDK now negotiates Server protocol version 6.
-- **FlowErrorType.SUB_FLOW_ABANDONED** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **execute** reads it from **SubFlow.getConditionResults** like any other failed child. Code that matches every **FlowErrorType** value exhaustively, such as a **switch** with a **never** check, must handle the new value.
+- **FlowErrorType.SUB_FLOW_ABANDONED** marks a restored SubFlow wait failed by the Time Travel reset policy. Read it via **SubFlow.getConditionResults** and handle it in exhaustive **FlowErrorType** matches. [Reference](/reference/server/runtime-client#sub-flows-across-a-time-travel).
 
 **Fixed**
 
@@ -78,7 +78,7 @@ This page lists user-visible changes to the TypeScript SDK, newest first. Each s
 
 **Added**
 
-- **RPCInvokeOptions.requestId** sets the request ID of one **Client.invokeRPCWithOptions** call. Pass the same ID on every attempt, such as the ID of an event that is delivered at least once, and Dex Server applies the RPC's Flow changes at most once. A transactional or locking RPC answers a repeat from the recorded reply without running its handler again, and rejects a different request under the same ID with **DexServiceError** INVALID_ARGUMENT. Any other RPC runs its handler again; when that attempt changes Flow state or records an event, Dex Server discards those changes and returns the recorded reply, and when it changes no Flow state and records no event, the caller gets the attempt's new output. Use a transactional RPC when callers need the exact recorded reply. Without the option, each call still sends a new random request ID. [Reference](/reference/server/runtime-data#rpc-request-ids).
+- Reuse **RPCInvokeOptions.requestId** with **Client.invokeRPCWithOptions** for at-most-once Flow changes and the recorded reply for transactional or locking RPCs. The default is a new random ID per call. [Reference](/reference/server/runtime-data#rpc-request-ids).
 
 ### 1.45.3 (2026-11-14) {#v1-45-3}
 
@@ -90,23 +90,23 @@ This page lists user-visible changes to the TypeScript SDK, newest first. Each s
 
 **Added**
 
-- **PullWorkerOptions.taskQueue** makes a Worker pull one named task queue, and **StartFlowOptions.taskQueue** starts a Flow on one. Only Workers of that task queue run the Flow's Steps and RPCs, even when Workers of other task queues register the same Flow type. **SubFlowOptions.taskQueue** sends a SubFlow to another task queue; a SubFlow without it inherits its parent's task queue, and **dex.default** selects the default task queue. To serve several task queues, run one Worker per task queue. **PullQueueRegistrationState.taskQueue** and **PullRegistrationError.taskQueue** report the Worker's task queue. A named task queue requires Server protocol 5: the Worker and Client refuse it on an older Server, and a stream that the Server registers on a different task queue becomes a permanent rejection. [Reference](/reference/typescript/workers).
+- Set named queues with **PullWorkerOptions.taskQueue**, **StartFlowOptions.taskQueue**, and **SubFlowOptions.taskQueue**. Named queues require Server protocol 5, and SubFlows inherit the parent's queue by default. [Reference](/reference/typescript/workers).
 
 ### 1.45.1 (2026-11-13) {#v1-45-1}
 
 **Added**
 
-- **Client.getFlowState** reads the open Step executions of the current or latest Flow run and returns a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). Use it to tell a Flow that is still running from one whose active Step is failing and retrying. [Reference](/reference/typescript/client#api-names).
+- **Client.getFlowState** returns a **FlowState** with open Step executions, their current WaitFor or Execute attempts, and their latest attempt failures. [Reference](/reference/typescript/client#api-names).
 
 ### 1.45.0 (2026-11-11) {#v1-45-0}
 
 **Breaking**
 
-- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+- Steps with "-" in their Step type can no longer start SubFlows, and a **SubFlow.run** condition from **waitFor** logs a warning and fails without retry, failing the Flow under the default policy. If the Step starts SubFlows, change **getStepType** to return a name without "-". [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
 
 **Added**
 
-- **WorkerOptions.flowDefinitionPaths** and **WorkerOptions.flowDefinitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/typescript/workers#flow-definitions).
+- **WorkerOptions.flowDefinitionPaths** and **WorkerOptions.flowDefinitions** upload registered Flow graphs at startup, exposing **source.path** only as a relative path. Requires server-zd 0.1.26 or later. [Reference](/reference/typescript/workers#flow-definitions).
 - **Client.uploadFlowDefinitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/typescript/workers#flow-definitions).
 
 **Fixed**
@@ -123,7 +123,7 @@ This page lists user-visible changes to the TypeScript SDK, newest first. Each s
 
 **Added**
 
-- **Join** synchronizes parallel branches through a ChannelMap of branch results. **Join.fork** starts one round from a Step and creates its **JoinRound** token; **Join.forkWithRoundKey** does the same with an explicit key, for example in an RPC. Branches report with **Join.endBranch** or **Join.reportBranchResult**. The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches** and reads **Join.branchResults**. The next round resets the previous one with **Join.forRemainingBranches** and reads **Join.remainingBranchResults**. **joinRoundCodec** encodes a JoinRound as a JSON object with the fields **roundKey** and **branchCount**, and **PersistenceSchema.channels** accepts a Join. **Join.channelMap** is the registered ChannelMap, for reading a round's pending results, for example in an RPC; never publish to it directly. [Reference](/reference/typescript/waits).
+- **Join** coordinates parallel branches with **Join.fork** to start a **JoinRound** from a Step or **Join.forkWithRoundKey** to use an explicit key from an RPC. Use **Join.forRemainingBranches** before the next round. [Reference](/reference/typescript/waits).
 
 ## 1.43 {#v1-43}
 
@@ -149,7 +149,7 @@ This page lists user-visible changes to the TypeScript SDK, newest first. Each s
 
 **Added**
 
-- **FlowConfig.offloadHistory** chooses whether a run offloads its history to object storage. Omitting it means true. Set it to false for many short runs that close soon. Set it at start through **StartFlowOptions.configOverride** or in a SubFlow **configOverride**. A SubFlow otherwise inherits its parent's value, and **Client.updateFlowConfig** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+- **FlowConfig.offloadHistory** controls object storage offload at Flow start and defaults to true. SubFlows inherit it unless overridden at start, and it requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
 
 **Changed**
 
@@ -170,7 +170,7 @@ No user-visible changes.
 
 **Added**
 
-- **Action** and **whenAttributeMatches** declare an RPC that a person can invoke from Dex Web: pass a new **Action** with a label, a required permission, and a condition as the **action** option of **@rpc** or **declareRPCMethod**. The condition is optional. Workers send the Flow's Action permission mappings, and **startFlow** and SubFlow starts record the permissions the initial Attributes make available. This arrived in 1.39.1. [Reference](/reference/web/dex-web#actions).
+- Since 1.39.1, set **action** on **@rpc** or **declareRPCMethod** with an **Action** to expose the RPC in Dex Web. Each Action requires a permission and can use **whenAttributeMatches** to control availability. [Reference](/reference/web/dex-web#actions).
 - **FlowConfig.deleteExpiredHistoryObjects** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
 - **ActiveStepSearchMode.WITH_WAIT_FOR** and **ActiveStepSearchMode.DISABLED** match the Python and Go SDKs.
 
@@ -189,7 +189,7 @@ No user-visible changes.
 
 **Added**
 
-- **FlowConfig.historyWindowEvents** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **updateFlowConfig**, or override it for a SubFlow. Omitting it uses the server's **history.windowEvents** setting. Dex rejects a value that is not positive or exceeds **history.maxWindowEvents** with INVALID_ARGUMENT. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+- **FlowConfig.historyWindowEvents** controls recent history for reads and Time Travel at start or via **updateFlowConfig**. It requires server-zd 0.1.21 or later and defaults to **history.windowEvents**. [Reference](/reference/server/configuration#history-window).
 
 **Changed**
 
