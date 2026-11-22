@@ -33,9 +33,21 @@ refund.
 | [`refund_scenarios.rs`](refund_scenarios.rs) | The refund requests that `start` can send. |
 | [`refund_worker.rs`](refund_worker.rs) | Builds the Flow, runs its Worker, and opens a Client. |
 | [`../../bin/customer-refund.rs`](../../bin/customer-refund.rs) | The `worker`, `start`, `decide`, and `list-refunds` commands. |
+| [`controller.rs`](controller.rs) | The `start`, `decide`, and `describe` routes on the shared example server. |
 
 The integration test is
-[`tests/customer_refund.rs`](../../../tests/customer_refund.rs).
+[`tests/customer_refund.rs`](../../../tests/customer_refund.rs). The shared
+server's routes are covered by `tests/dex_integration.rs` and
+`tests/flow_smoke.rs`.
+
+## On the shared example server
+
+`cargo run --locked --bin dex-examples-rust` also serves this Flow, in the normal billing mode, under
+`/products/customer-refund/manager-approval/` (`start`, `decide`, and
+`describe`; see the [examples README](../../../README.md#products)). It uses
+the same `.customer-refund/` ledgers. Stop the shared server while you follow
+the steps below: its Worker would also pick up the runs, including the
+`call-missing` one.
 
 ## What the Rust version leaves out
 
@@ -191,3 +203,8 @@ missing billing call fixed with `dexcli flow time-travel`, and Time Travel
 after a refund. They need
 `dexcli` on `PATH` or in `DEXCLI_PATH`. `cargo test --lib customer_refund`
 runs the concurrent ledger tests without Dex.
+
+Stop the shared example server too, and do not run these tests in parallel
+with the other Rust suites against one Dex address. The Rust SDK has no
+per-Worker task queue, so any Worker that serves `CustomerRefundFlow` can take
+these runs, including the `call-missing` one.

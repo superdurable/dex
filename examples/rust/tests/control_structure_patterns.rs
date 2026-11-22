@@ -47,7 +47,7 @@ use dex_sdk::{
     WorkerOptions,
 };
 use tempfile::TempDir;
-use worker_harness::await_pull_registration;
+use worker_harness::{await_pull_registration, new_temporary_refund_flow};
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -58,6 +58,7 @@ struct ControlPatternsEnvironment {
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
     _cache_directory: TempDir,
+    _refund_ledger_directory: TempDir,
 }
 
 impl ControlPatternsEnvironment {
@@ -73,9 +74,13 @@ impl ControlPatternsEnvironment {
             )
             .expect("open control patterns cache"),
         );
+        let refund_ledger_directory =
+            tempfile::tempdir().expect("create control patterns refund ledger directory");
+        let (customer_refund_flow, _refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let client = Arc::new(
             Client::try_new(
-                create_example_registry(Arc::clone(&polling_jobs))
+                create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
                     .and_then(register_condition_order_probes)
                     .expect("register Rust examples"),
                 Arc::clone(&cache),
@@ -83,9 +88,10 @@ impl ControlPatternsEnvironment {
             )
             .expect("create control patterns Client"),
         );
-        let worker_registry = create_worker_registry(Arc::clone(&client), polling_jobs)
-            .and_then(register_condition_order_probes)
-            .expect("register Rust example Worker");
+        let worker_registry =
+            create_worker_registry(Arc::clone(&client), polling_jobs, customer_refund_flow)
+                .and_then(register_condition_order_probes)
+                .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
             .pull(example_pull_worker_options());
@@ -106,6 +112,7 @@ impl ControlPatternsEnvironment {
             worker_thread: Some(worker_thread),
             cache,
             _cache_directory: cache_directory,
+            _refund_ledger_directory: refund_ledger_directory,
         }
     }
 

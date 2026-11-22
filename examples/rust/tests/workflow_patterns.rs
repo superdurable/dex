@@ -90,7 +90,7 @@ use dex_sdk::{
     WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
-use worker_harness::await_pull_registration;
+use worker_harness::{await_pull_registration, new_temporary_refund_flow};
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const LOCK_CONFLICT_RETRY_INTERVAL: Duration = Duration::from_millis(50);
@@ -101,6 +101,7 @@ struct WorkflowPatternsEnvironment {
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
     _cache_directory: TempDir,
+    _refund_ledger_directory: TempDir,
 }
 
 impl WorkflowPatternsEnvironment {
@@ -117,16 +118,22 @@ impl WorkflowPatternsEnvironment {
             )
             .expect("open Workflow Patterns cache"),
         );
+        let refund_ledger_directory =
+            tempfile::tempdir().expect("create Workflow Patterns refund ledger directory");
+        let (customer_refund_flow, _refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let client = Arc::new(
             Client::try_new(
-                create_example_registry(Arc::clone(&polling_jobs)).expect("register Rust examples"),
+                create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
+                    .expect("register Rust examples"),
                 Arc::clone(&cache),
                 ClientOptions::new().server_address(server_address.clone()),
             )
             .expect("create Workflow Patterns Client"),
         );
-        let worker_registry = create_worker_registry(Arc::clone(&client), polling_jobs)
-            .expect("register Rust example Worker");
+        let worker_registry =
+            create_worker_registry(Arc::clone(&client), polling_jobs, customer_refund_flow)
+                .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
             .pull(example_pull_worker_options());
@@ -147,6 +154,7 @@ impl WorkflowPatternsEnvironment {
             worker_thread: Some(worker_thread),
             cache,
             _cache_directory: cache_directory,
+            _refund_ledger_directory: refund_ledger_directory,
         }
     }
 

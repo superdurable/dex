@@ -43,6 +43,9 @@ use dex_examples_rust::patterns::{
     timeout::FlowGracefulTimeout,
     wait_for_step_completion::WaitForStepCompletionFlow,
 };
+use dex_examples_rust::products::customer_refund::{
+    refund_config::BillingMode, refund_flow::CustomerRefundFlow, refund_worker::new_refund_flow,
+};
 use dex_examples_rust::products::{
     deal_dsl::DealDSLFlow, engagement::EngagementFlow, job_post::JobPostingFlow,
     microservices::OrchestrationFlow, money_transfer::MoneyTransferFlow,
@@ -82,7 +85,21 @@ use dex_examples_rust::{
     CONTROL_PATTERN_FLOW_TYPES, PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES,
     WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
 };
-use dex_sdk::Flow;
+use dex_sdk::{Flow, Registry, SdkResult};
+
+/// Builds the shared registry; the refund ledgers are never written because no Step runs.
+fn create_catalog_registry() -> SdkResult<Registry> {
+    create_example_registry(Arc::new(FakeJobService::default()), catalog_refund_flow())
+}
+
+fn catalog_refund_flow() -> CustomerRefundFlow {
+    let ledger_directory = std::env::temp_dir().join("dex-rust-catalog-customer-refund");
+    new_refund_flow(
+        BillingMode::Normal,
+        ledger_directory.join("billing-refunds.json"),
+        ledger_directory.join("sent-emails.json"),
+    )
+}
 
 #[test]
 fn catalog_matches_every_cross_language_example() {
@@ -95,6 +112,7 @@ fn catalog_matches_every_cross_language_example() {
         SubscriptionFlow::default().flow_type(),
         UserOnboardingFlow::default().flow_type(),
         JobPostingFlow::default().flow_type(),
+        catalog_refund_flow().flow_type(),
     ];
     let pattern_flows = [
         CronScheduleFlow::default().flow_type(),
@@ -124,17 +142,16 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 31);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 32);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        31
+        32
     );
-    create_example_registry(Arc::new(FakeJobService::default()))
-        .expect("all 31 example Flow definitions must register together");
+    create_catalog_registry().expect("all 32 example Flow definitions must register together");
 }
 
 #[test]
@@ -188,7 +205,7 @@ fn workflow_pattern_catalog_matches_the_mapping() {
         every_flow_type.len(),
         PRODUCT_FLOW_TYPES.len() + PATTERN_FLOW_TYPES.len() + WORKFLOW_PATTERN_FLOW_TYPES.len()
     );
-    create_example_registry(Arc::new(FakeJobService::default()))
+    create_catalog_registry()
         .expect("Workflow Patterns Flows must register with every other example");
 }
 
@@ -215,7 +232,7 @@ fn control_pattern_catalog_matches_every_flow() {
             + WORKFLOW_PATTERN_FLOW_TYPES.len()
             + CONTROL_PATTERN_FLOW_TYPES.len()
     );
-    create_example_registry(Arc::new(FakeJobService::default()))
+    create_catalog_registry()
         .expect("control pattern Flows must register with every other example");
 }
 

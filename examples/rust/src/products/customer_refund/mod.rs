@@ -15,6 +15,7 @@
 //! Customer refund: check a refund request, ask a manager when needed, refund, and tell the customer.
 
 pub mod billing_service;
+pub mod controller;
 pub mod email_service;
 mod json_ledger;
 pub mod message_model;

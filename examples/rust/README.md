@@ -40,7 +40,7 @@ Rust 1.97 or newer is required. Start Dex, then run the Worker and HTTP server:
 ```bash
 cd examples/rust
 dexcli dev
-cargo run --locked
+cargo run --locked --bin dex-examples-rust
 ```
 
 The examples share namespace-level slots by index type: `keyword1`,
@@ -74,7 +74,24 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
 | Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
-| Customer refund | [`CustomerRefundFlow`](src/products/customer_refund) | Manager approval through a Channel, a retried refund, and Time Travel; its own Worker and commands |
+| Customer refund | [`CustomerRefundFlow`](src/products/customer_refund/refund_flow.rs) | Manager approval through a Channel, a retried refund, and Time Travel; also its own Worker and commands |
+
+Customer refund routes on the shared server, which runs it in the normal billing mode:
+
+```text
+http://localhost:8080/products/customer-refund/manager-approval/start?scenario=normal
+http://localhost:8080/products/customer-refund/manager-approval/decide?flowId=<flowID>&decision=approve&reason=Outage%20confirmed
+http://localhost:8080/products/customer-refund/manager-approval/describe?flowId=<flowID>
+```
+
+`scenario` is `normal` (default), `fail-then-succeed`, `deny`, or `small`. `start`
+returns after **CheckPolicy** completes, so a `decide` right after it works for
+`normal`. `decide` returns 400 for a blank reason; 409 when the refund is not
+waiting for a manager, another decision holds the lock, or the run is closing;
+and 404 for an unknown run, a closed run, or a run of another Flow type.
+`describe` returns `flowID`, the run `status`, `caseStatus`, and `refundId`, and
+404 for an unknown run or another Flow type. The fake ledgers live in
+`.customer-refund/`.
 
 ## Patterns
 
@@ -127,14 +144,17 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 8 + 23
+The catalog integration test constructs every Flow, checks the exact 9 + 23
 mapping and the 36 Workflow Patterns Flows, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
-Deal DSL, and Failure Recovery Flows through the published Rust SDK. It then
-runs the Workflow Patterns and customer refund tests.
+Deal DSL, Customer Refund, and Failure Recovery Flows through the published Rust SDK. It then
+runs the Workflow Patterns and customer refund tests. Each test environment keeps
+the customer refund ledgers in its own temporary directory. Run the suites one at
+a time against one Dex address: every suite's Worker serves `CustomerRefundFlow`,
+so a parallel suite could take another suite's refund runs.
 
 All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.

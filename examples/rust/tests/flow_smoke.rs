@@ -17,7 +17,7 @@ mod worker_harness;
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Barrier, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -27,15 +27,18 @@ use common::{
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::primitives::attribute::flow::AttributeFlow;
+use dex_examples_rust::products::customer_refund::billing_service::FakeBillingService;
+use dex_examples_rust::products::customer_refund::refund_flow::{CASE_STATUS, CaseStatus};
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, Worker, WorkerOptions,
+    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult,
+    WaitForAttributeOptions, Worker, WorkerOptions,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use worker_harness::await_pull_registration;
+use worker_harness::{await_pull_registration, new_temporary_refund_flow};
 
 struct FlowSmokeEnvironment {
     client: Arc<Client>,
@@ -45,6 +48,8 @@ struct FlowSmokeEnvironment {
     http_base_url: String,
     _server_thread: Option<JoinHandle<()>>,
     _cache_directory: TempDir,
+    refund_billing: FakeBillingService,
+    _refund_ledger_directory: TempDir,
 }
 
 impl FlowSmokeEnvironment {
@@ -60,9 +65,13 @@ impl FlowSmokeEnvironment {
             .expect("open Rust flow smoke cache"),
         );
         let polling_jobs = Arc::new(FakeJobService::default());
+        let refund_ledger_directory =
+            tempfile::tempdir().expect("create Rust flow smoke refund ledger directory");
+        let (customer_refund_flow, refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let client = Arc::new(
             Client::try_new(
-                create_example_registry(Arc::clone(&polling_jobs))
+                create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
                     .expect("register Rust client examples"),
                 Arc::clone(&cache),
                 ClientOptions::new().server_address(&server_address),
@@ -74,8 +83,12 @@ impl FlowSmokeEnvironment {
             .pull(example_pull_worker_options());
         let worker = Arc::new(
             Worker::try_new(
-                create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))
-                    .expect("register Rust Worker examples"),
+                create_worker_registry(
+                    Arc::clone(&client),
+                    Arc::clone(&polling_jobs),
+                    customer_refund_flow.clone(),
+                )
+                .expect("register Rust Worker examples"),
                 Arc::clone(&cache),
                 worker_options,
             )
@@ -90,7 +103,7 @@ impl FlowSmokeEnvironment {
         client.health_check().expect("Dex health check");
 
         let http_port = available_http_port();
-        let router = build_router(Arc::clone(&client), polling_jobs);
+        let router = build_router(Arc::clone(&client), polling_jobs, customer_refund_flow);
         let server_thread = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -115,6 +128,8 @@ impl FlowSmokeEnvironment {
             http_base_url: format!("http://127.0.0.1:{http_port}"),
             _server_thread: Some(server_thread),
             _cache_directory: cache_directory,
+            refund_billing,
+            _refund_ledger_directory: refund_ledger_directory,
         }
     }
 }
@@ -148,6 +163,15 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             name: "products/order-processing",
             path: "/products/order-processing/start",
             query: HashMap::new(),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "products/customer-refund/manager-approval",
+            path: "/products/customer-refund/manager-approval/start",
+            query: HashMap::from([
+                ("flowId".into(), client.new_flow_id("customer-refund")),
+                ("scenario".into(), "normal".into()),
+            ]),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
@@ -567,6 +591,332 @@ fn attribute_read_requires_workflow_id() {
     assert_eq!(status, 400, "{body}");
     let error_body: Value = serde_json::from_str(&body).expect("parse Attribute read error");
     assert_eq!(error_body, json!({"error": "workflowId is required"}));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_approves_and_describes() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let (status, started) = get_customer_refund(&http_client, "start", &[]);
+    assert_eq!(status, 200, "{started}");
+    let flow_id = started["flowID"]
+        .as_str()
+        .expect("start returns flowID")
+        .to_string();
+    assert!(flow_id.starts_with("customer-refund-"), "{started}");
+    assert!(
+        started["runID"]
+            .as_str()
+            .is_some_and(|run_id| !run_id.is_empty()),
+        "{started}"
+    );
+    // start returns after CheckPolicy, so the run already waits for the manager.
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("workflowId", &flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": flow_id,
+            "status": "running",
+            "caseStatus": "awaiting-manager",
+            "refundId": null,
+        })
+    );
+
+    let (status, body) = get_customer_refund(
+        &http_client,
+        "decide",
+        &[("decision", "approve"), ("reason", "Outage confirmed")],
+    );
+    assert_eq!(status, 400, "{body}");
+    let (status, body) = decide_customer_refund(&http_client, &flow_id, "maybe", "Outage");
+    assert_eq!(status, 400, "{body}");
+    let (status, body) = decide_customer_refund(&http_client, &flow_id, "approve", "  ");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body, json!({ "error": "reason must not be blank" }));
+    let (status, body) =
+        decide_customer_refund(&http_client, &flow_id, "approve", "Outage confirmed");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body, json!({ "flowID": flow_id, "decision": "approve" }));
+
+    wait_for_completed_refund(environment, &flow_id);
+    let ledger_refund_ids = refund_ids_in_ledger(environment, &flow_id);
+    assert_eq!(ledger_refund_ids.len(), 1, "{ledger_refund_ids:?}");
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": flow_id,
+            "status": "completed",
+            "caseStatus": "closed-refunded",
+            "refundId": ledger_refund_ids[0],
+        })
+    );
+    let (status, body) = decide_customer_refund(&http_client, &flow_id, "reject", "Too late");
+    assert_eq!(status, 404, "a decision on a closed refund: {body}");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_rejects_and_describes() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = start_customer_refund(&http_client, "normal");
+    wait_for_refund_manager(environment, &flow_id);
+    let (status, body) =
+        decide_customer_refund(&http_client, &flow_id, "reject", "No outage on record");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body, json!({ "flowID": flow_id, "decision": "reject" }));
+    wait_for_completed_refund(environment, &flow_id);
+    assert!(refund_ids_in_ledger(environment, &flow_id).is_empty());
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": flow_id,
+            "status": "completed",
+            "caseStatus": "closed-denied",
+            "refundId": null,
+        })
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_starts_runs_that_skip_the_manager() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let small_flow_id = start_customer_refund(&http_client, "small");
+    let deny_flow_id = start_customer_refund(&http_client, "deny");
+
+    wait_for_completed_refund(environment, &small_flow_id);
+    let small_refund_ids = refund_ids_in_ledger(environment, &small_flow_id);
+    assert_eq!(small_refund_ids.len(), 1, "{small_refund_ids:?}");
+    assert!(
+        small_refund_ids[0].starts_with("rf_"),
+        "{small_refund_ids:?}"
+    );
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &small_flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": small_flow_id,
+            "status": "completed",
+            "caseStatus": "closed-refunded",
+            "refundId": small_refund_ids[0],
+        })
+    );
+
+    wait_for_completed_refund(environment, &deny_flow_id);
+    assert!(refund_ids_in_ledger(environment, &deny_flow_id).is_empty());
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &deny_flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(
+        described,
+        json!({
+            "flowID": deny_flow_id,
+            "status": "completed",
+            "caseStatus": "closed-denied",
+            "refundId": null,
+        })
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_conflicts_when_not_awaiting_manager() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    // IssueRefund then fails twice 5 seconds apart, so the run stays open after approval.
+    let flow_id = start_customer_refund(&http_client, "fail-then-succeed");
+    wait_for_refund_manager(environment, &flow_id);
+    let (status, body) =
+        decide_customer_refund(&http_client, &flow_id, "approve", "Outage confirmed");
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = decide_customer_refund(&http_client, &flow_id, "reject", "Too late");
+    assert_eq!(status, 409, "{body}");
+    // Closing the run keeps a later suite's Worker from issuing this refund.
+    wait_for_completed_refund(environment, &flow_id);
+    assert_eq!(refund_ids_in_ledger(environment, &flow_id).len(), 1);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_rejects_bad_requests() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let (status, body) = get_customer_refund(&http_client, "start", &[("scenario", "huge")]);
+    assert_eq!(status, 400, "{body}");
+
+    let unknown_flow_id = http_client.new_flow_id("customer-refund-unknown");
+    let (status, body) = decide_customer_refund(&http_client, &unknown_flow_id, "approve", " ");
+    assert_eq!(status, 400, "{body}");
+    let (status, body) = decide_customer_refund(
+        &http_client,
+        &unknown_flow_id,
+        "approve",
+        "Outage confirmed",
+    );
+    assert_eq!(status, 404, "{body}");
+    let (status, body) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &unknown_flow_id)]);
+    assert_eq!(status, 404, "{body}");
+
+    let transfer = http_client.trigger_get("/products/money-transfer/start", &HashMap::new());
+    let (status, body) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &transfer.flow_id)]);
+    assert_eq!(status, 404, "describe of another Flow type: {body}");
+    assert!(body["error"].is_string(), "{body}");
+    let (status, body) = decide_customer_refund(
+        &http_client,
+        &transfer.flow_id,
+        "approve",
+        "Outage confirmed",
+    );
+    assert_eq!(status, 404, "decide on another Flow type: {body}");
+
+    let flow_id = http_client.new_flow_id("customer-refund-duplicate");
+    let (status, body) = get_customer_refund(&http_client, "start", &[("flowId", &flow_id)]);
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = get_customer_refund(
+        &http_client,
+        "start",
+        &[("workflowId", ""), ("flowId", &flow_id), ("scenario", "")],
+    );
+    assert_eq!(status, 409, "duplicate start: {body}");
+    assert!(body["error"].is_string(), "{body}");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_controller_lets_one_of_two_racing_decisions_win() {
+    let environment = shared_flow_smoke_environment();
+    let http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = start_customer_refund(&http_client, "normal");
+    let barrier = Barrier::new(2);
+    let (approve, reject) = thread::scope(|scope| {
+        let decide_after_barrier = |decision: &'static str| {
+            let (http_client, flow_id, barrier) = (&http_client, &flow_id, &barrier);
+            scope.spawn(move || {
+                barrier.wait();
+                decide_customer_refund(http_client, flow_id, decision, "Racing decision")
+            })
+        };
+        let approve = decide_after_barrier("approve");
+        let reject = decide_after_barrier("reject");
+        (
+            approve.join().expect("approve thread"),
+            reject.join().expect("reject thread"),
+        )
+    });
+    let (winner, loser_status) = match (approve.0, reject.0) {
+        (200, status) => ("approve", status),
+        (status, 200) => ("reject", status),
+        statuses => panic!("exactly one decision wins: {statuses:?} {approve:?} {reject:?}"),
+    };
+    // The loser meets the lock, the changed case status, or the closed run.
+    assert!(
+        loser_status == 409 || loser_status == 404,
+        "losing decision returned {loser_status}: {approve:?} {reject:?}"
+    );
+    wait_for_completed_refund(environment, &flow_id);
+    let (expected_case_status, expected_refunds) = match winner {
+        "approve" => ("closed-refunded", 1),
+        _ => ("closed-denied", 0),
+    };
+    let (status, described) =
+        get_customer_refund(&http_client, "describe", &[("flowId", &flow_id)]);
+    assert_eq!(status, 200, "{described}");
+    assert_eq!(described["caseStatus"], expected_case_status, "{described}");
+    assert_eq!(
+        refund_ids_in_ledger(environment, &flow_id).len(),
+        expected_refunds
+    );
+}
+
+fn start_customer_refund(http_client: &FlowSmokeHttpClient, scenario: &str) -> String {
+    let (status, started) = get_customer_refund(http_client, "start", &[("scenario", scenario)]);
+    assert_eq!(status, 200, "{started}");
+    started["flowID"]
+        .as_str()
+        .expect("start returns flowID")
+        .to_string()
+}
+
+fn decide_customer_refund(
+    http_client: &FlowSmokeHttpClient,
+    flow_id: &str,
+    decision: &str,
+    reason: &str,
+) -> (u16, Value) {
+    get_customer_refund(
+        http_client,
+        "decide",
+        &[
+            ("flowId", flow_id),
+            ("decision", decision),
+            ("reason", reason),
+        ],
+    )
+}
+
+fn wait_for_refund_manager(environment: &FlowSmokeEnvironment, flow_id: &str) {
+    environment
+        .client
+        .wait_for_attribute_match(
+            flow_id,
+            &CASE_STATUS,
+            AttributeMatch::equal_to(CaseStatus::AwaitingManager),
+            WaitForAttributeOptions::new().request_timeout(Duration::from_secs(30)),
+        )
+        .expect("the refund waits for a manager");
+}
+
+fn wait_for_completed_refund(environment: &FlowSmokeEnvironment, flow_id: &str) {
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(flow_id, Duration::from_secs(45))
+        .expect("the refund closes");
+    assert_eq!(result.status(), FlowStatus::Completed);
+}
+
+/// Returns the refund IDs this environment's ledger holds for the run's idempotency key.
+fn refund_ids_in_ledger(environment: &FlowSmokeEnvironment, flow_id: &str) -> Vec<String> {
+    environment
+        .refund_billing
+        .list_refunds()
+        .expect("list this environment's refunds")
+        .into_iter()
+        .filter(|refund| refund.idempotency_key == format!("refund-{flow_id}"))
+        .map(|refund| refund.refund_id)
+        .collect()
+}
+
+fn get_customer_refund(
+    http_client: &FlowSmokeHttpClient,
+    action: &str,
+    query: &[(&str, &str)],
+) -> (u16, Value) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/products/customer-refund/manager-approval/{action}",
+            http_client.base_url
+        ))
+        .query(query)
+        .send()
+        .expect("GET a customer refund route");
+    let status = response.status().as_u16();
+    let body = response.json().expect("decode customer refund response");
+    (status, body)
 }
 
 fn get_attribute_read(http_client: &FlowSmokeHttpClient, query: &[(&str, &str)]) -> (u16, String) {

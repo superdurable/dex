@@ -34,6 +34,12 @@ use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::production::pull_workers::{
     GET_GREETING, GreetingFlow, is_pull_greeting_ready, start_pull_greeting, stop_pull_greeting,
 };
+use dex_examples_rust::products::customer_refund::billing_service::FakeBillingService;
+use dex_examples_rust::products::customer_refund::refund_flow::{
+    APPROVE_REFUND, CASE_STATUS, CaseStatus, CustomerRefundFlow, DecisionReason, REFUND_ID,
+    RefundOutcome,
+};
+use dex_examples_rust::products::customer_refund::refund_scenarios::RefundScenario;
 use dex_examples_rust::products::deal_dsl::{
     ConditionMessage, DEAL_CURRENT_STATE, DealDSLFlow, SEND_DEAL_CONDITION_MESSAGE,
     example_deal_start,
@@ -68,22 +74,30 @@ use dex_sdk::{
     WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
-use worker_harness::await_pull_registration;
+use worker_harness::{await_pull_registration, new_temporary_refund_flow};
 
 struct DexEnvironment {
     client: Client,
     polling_jobs: Arc<FakeJobService>,
+    customer_refund_flow: CustomerRefundFlow,
+    refund_billing: FakeBillingService,
     worker: Arc<Worker>,
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
     _cache_directory: TempDir,
+    _refund_ledger_directory: TempDir,
 }
 
 impl DexEnvironment {
     fn start() -> Self {
         let polling_jobs = Arc::new(FakeJobService::default());
+        let refund_ledger_directory =
+            tempfile::tempdir().expect("create Rust examples refund ledger directory");
+        let (customer_refund_flow, refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let registry =
-            create_example_registry(Arc::clone(&polling_jobs)).expect("register Rust examples");
+            create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
+                .expect("register Rust examples");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
         let cache_directory = tempfile::tempdir().expect("create Rust examples cache directory");
@@ -117,10 +131,13 @@ impl DexEnvironment {
         Self {
             client,
             polling_jobs,
+            customer_refund_flow,
+            refund_billing,
             worker,
             worker_thread: Some(worker_thread),
             cache,
             _cache_directory: cache_directory,
+            _refund_ledger_directory: refund_ledger_directory,
         }
     }
 
@@ -667,6 +684,64 @@ fn order_processing_ship_failure_refunds() {
         .single_output()
         .expect("decode Rust Order Processing refund output");
     assert_eq!(output, format!("refunded:{flow_id}"));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn customer_refund_manager_approval_happy_path() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("customer-refund");
+    environment
+        .client
+        .start_flow(
+            &environment.customer_refund_flow,
+            &flow_id,
+            RefundScenario::Normal.refund_request(),
+        )
+        .expect("start Rust Customer Refund Flow");
+    environment
+        .client
+        .wait_for_attribute_match(
+            &flow_id,
+            &CASE_STATUS,
+            AttributeMatch::equal_to(CaseStatus::AwaitingManager),
+            WaitForAttributeOptions::new().request_timeout(Duration::from_secs(30)),
+        )
+        .expect("Rust Customer Refund Flow waits for a manager");
+    environment
+        .client
+        .invoke_rpc(
+            &flow_id,
+            APPROVE_REFUND,
+            DecisionReason {
+                reason: "Outage confirmed".to_string(),
+            },
+        )
+        .expect("approve Rust Customer Refund Flow");
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("complete Rust Customer Refund Flow");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let outcome: RefundOutcome = result
+        .single_output()
+        .expect("decode Rust Customer Refund outcome");
+    assert_eq!(outcome, RefundOutcome::Refunded);
+    let (case_status, refund_id) = environment
+        .client
+        .get_attributes(&flow_id, (&*CASE_STATUS, &*REFUND_ID))
+        .expect("read Rust Customer Refund Attributes");
+    assert_eq!(case_status, Some(CaseStatus::ClosedRefunded));
+    let refund_id = refund_id.expect("the refund records a billing refund ID");
+    let ledger_refunds: Vec<(String, String)> = environment
+        .refund_billing
+        .list_refunds()
+        .expect("list this environment's refunds")
+        .into_iter()
+        .filter(|refund| refund.idempotency_key == format!("refund-{flow_id}"))
+        .map(|refund| (refund.refund_id, refund.order_id))
+        .collect();
+    assert_eq!(ledger_refunds, vec![(refund_id, "INV-1249".to_string())]);
 }
 
 fn start_order_processing(

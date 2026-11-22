@@ -26,7 +26,10 @@ use dex_sdk::{Registry, SdkResult};
 
 use crate::shared::MyDependencyService;
 
-pub fn register(registry: Registry) -> SdkResult<Registry> {
+pub fn register(
+    registry: Registry,
+    customer_refund_flow: customer_refund::refund_flow::CustomerRefundFlow,
+) -> SdkResult<Registry> {
     registry
         .register(money_transfer::MoneyTransferFlow::default())?
         .register(order_processing::OrderProcessingFlow::new(
@@ -37,5 +40,6 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?
         .register(signup::UserOnboardingFlow::default())?
-        .register(job_post::JobPostingFlow::default())
+        .register(job_post::JobPostingFlow::default())?
+        .register(customer_refund_flow)
 }
