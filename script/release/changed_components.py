@@ -18,6 +18,7 @@ from pathlib import Path
 
 from component_release_notes import ReleaseNotesError, build_component_release_notes, component_changelog_path
 from changelog_fragments import TreeReader, release_readiness_errors
+from check_agents_go_modules import go_module_errors, go_module_tags
 
 VERSION_PATTERN = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -177,6 +178,7 @@ def write_outputs(output_path: Path, versions: dict[str, str], allow_unchanged: 
     selections: list[tuple[Component, str | None, bool, str, str]] = []
     collisions: list[str] = []
     preflight_errors: list[str] = []
+    agents_go_tags: list[str] = []
     if not versions:
         print("Select at least one component version", file=sys.stderr)
         return 1
@@ -197,9 +199,16 @@ def write_outputs(output_path: Path, versions: dict[str, str], allow_unchanged: 
             # The release snapshots the reference from main, so its change-log entry must already be there.
             preflight_errors.extend(release_readiness_errors(TreeReader(Path.cwd(), None), component.key, component_version))
             preflight_errors.extend(release_notes_errors(component, component_version))
+        if selected and component.key == "agents":
+            # Go builds each agents Go module from its own tag on the release commit.
+            agents_go_tags = go_module_tags(Path.cwd(), component_version)
+            collisions.extend(tag for tag in agents_go_tags if tag_exists(tag))
+            preflight_errors.extend(
+                f"Agents Go modules: {error}" for error in go_module_errors(Path.cwd(), component_version)
+            )
 
     summary = ["### Component release plan", "", f"Allow unchanged: {'yes' if allow_unchanged else 'no'}", "", "| Component | Baseline | Result |", "|---|---|---|"]
-    output_lines = [f"agents_version={versions.get('agents', '')}"]
+    output_lines = [f"agents_version={versions.get('agents', '')}", f"agents_go_tags={' '.join(agents_go_tags)}"]
     for component, baseline, selected, target, skip_reason in selections:
         output_lines.extend(
             (
@@ -211,6 +220,8 @@ def write_outputs(output_path: Path, versions: dict[str, str], allow_unchanged: 
         )
         baseline_text = baseline or "none (first release)"
         result_text = f"release {target}" if selected else skip_reason
+        if component.key == "agents" and agents_go_tags:
+            result_text += " and " + ", ".join(agents_go_tags)
         summary.append(f"| {component.name} | {baseline_text} | {result_text} |")
 
     append_summary(summary)

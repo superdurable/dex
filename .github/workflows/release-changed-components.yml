@@ -100,6 +100,7 @@ jobs:
       agents_tag: ${{ steps.plan.outputs.agents_tag }}
       agents_baseline: ${{ steps.plan.outputs.agents_baseline }}
       agents_version: ${{ steps.plan.outputs.agents_version }}
+      agents_go_tags: ${{ steps.plan.outputs.agents_go_tags }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -226,6 +227,7 @@ jobs:
           AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
           AGENTS_TAG: ${{ needs.plan.outputs.agents_tag }}
           AGENTS_BASELINE: ${{ needs.plan.outputs.agents_baseline }}
+          AGENTS_GO_TAGS: ${{ needs.plan.outputs.agents_go_tags }}
         run: |
           # Each release's notes list only its own change-log items; never GitHub-generated notes.
           selected=(
@@ -253,6 +255,11 @@ jobs:
                 --output "${release_notes}"
               gh release create "${tag}" --target "${GITHUB_SHA}" --title "Dex agents ${version}" \
                 --notes-file "${release_notes}" --latest=false
+              # Go fetches each agents Go module from its own tag, agents/go/<module>/v<version>, on this commit.
+              read -r -a agents_go_tags <<< "${AGENTS_GO_TAGS}"
+              for go_tag in "${agents_go_tags[@]}"; do
+                git push origin "${GITHUB_SHA}:refs/tags/${go_tag}"
+              done
               continue
             fi
             python3 script/release/component_release_notes.py "${component}" "${version}" \
