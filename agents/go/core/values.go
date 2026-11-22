@@ -35,7 +35,8 @@ const (
 	AgentSessionStatusCompactingContext AgentSessionStatus = "compacting_context"
 	// AgentSessionStatusFailed means the session ended and takes no more messages. Its Flow closed
 	// failed, and AgentState.LastTurnError holds the reason. Python and TypeScript Workers write it;
-	// the Go core reads it.
+	// the Go core reads it, and since 0.6.16 writes it too, when a Step's commit would pass the
+	// Flow's state limit (see RecordToolFailure).
 	AgentSessionStatusFailed AgentSessionStatus = "failed"
 )
 

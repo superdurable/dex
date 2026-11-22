@@ -133,6 +133,13 @@ const (
 	recoveryRetryMaximumInterval = 5 * time.Second
 )
 
+// server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and
+// text: "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ...".
+const (
+	stateLimitErrorType = "ValueTooLarge"
+	stateLimitErrorText = "run state of "
+)
+
 // AgentSessionOption configures one AgentSessionFlow. Pass options to NewAgentSessionFlow.
 type AgentSessionOption interface {
 	applyAgentSession(options *agentSessionOptions)
@@ -1037,6 +1044,18 @@ func (step CallSingleAttemptTool) Execute(ctx dex.Context, toolCallID string) (*
 // with the recovery detail as the error. A call whose tool never ran becomes
 // failed with ToolCallNotRunErrorPrefix.
 //
+// When the attempts failed because their commit would pass the Flow's state
+// limit, server-zd's limits.maxFlowStateBytes, it ends the session instead: it
+// sets AgentState.Status to failed and LastTurnError to the recovery detail,
+// such as "run state of 140213 bytes exceeds the maximum of 131072 bytes",
+// clears the turn, FrameworkRunState, and PendingInterrupts, keeps the turn's
+// records, writes turn_failed, and fails the Flow with the detail. It stores
+// no turn messages, because this commit meets the same limit. Every later turn
+// would fail the same way, so the session stops taking messages.
+//
+// Changed in 0.6.16: a state-limit failure ends the session, as in the Python
+// and TypeScript cores.
+//
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Record a tool call whose attempts ran out as failed for a read or a never-run call and outcome unknown for a write."
 type RecordToolFailure struct {
@@ -1049,7 +1068,7 @@ func (RecordToolFailure) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions([]dex.AttributeDef{AgentToolCallsAttributeMap})
 }
 
-// Execute records the call's final status by its effect.
+// Execute records the call's final status by its effect, or ends a session at the state limit.
 func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1057,6 +1076,13 @@ func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	toolCall, err := AgentToolCallsAttributeMap.Get(ctx, toolCallID)
 	if err != nil {
@@ -1074,7 +1100,10 @@ func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.
 
 // RecordToolOutcomeUnknown records that a single-attempt tool call stopped without a result.
 //
-// A call whose tool never ran becomes failed with ToolCallNotRunErrorPrefix instead.
+// A call whose tool never ran becomes failed with ToolCallNotRunErrorPrefix instead. A state-limit
+// failure ends the session, as RecordToolFailure describes.
+//
+// Changed in 0.6.16: a state-limit failure ends the session.
 //
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Record a single-attempt tool call that stopped without a result as outcome unknown, or as failed when it never ran."
@@ -1088,7 +1117,8 @@ func (RecordToolOutcomeUnknown) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions([]dex.AttributeDef{AgentToolCallsAttributeMap})
 }
 
-// Execute records outcome_unknown with the recovery detail, or failed when the tool never ran.
+// Execute records outcome_unknown with the recovery detail, or failed when the tool never ran, or
+// ends a session at the state limit.
 func (step RecordToolOutcomeUnknown) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1096,6 +1126,13 @@ func (step RecordToolOutcomeUnknown) Execute(ctx dex.Context, toolCallID string)
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	toolCall, err := AgentToolCallsAttributeMap.Get(ctx, toolCallID)
 	if err != nil {
@@ -1184,7 +1221,12 @@ func (step ResumeTurn) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error
 //
 // RunModel reaches it when its attempts run out. It stores the runner's
 // unfinished-turn messages and the turn-failure note, deletes the turn's
-// records, and empties PendingInterrupts.
+// records, and empties PendingInterrupts. A state-limit failure ends the
+// session instead, as RecordToolFailure describes, and the session takes no
+// more messages.
+//
+// Changed in 0.6.16: a state-limit failure ends the session. Before, every
+// later turn failed with the same detail.
 //
 // dex:group group-id:model group-label:"Model"
 // dex:explanation text:"Record a turn whose model call failed after its retries, note which tool calls already ran, and wait for the user."
@@ -1204,7 +1246,7 @@ func (step RecordTurnFailure) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions(loads)
 }
 
-// Execute records the failure with the recovery detail.
+// Execute records the failure with the recovery detail, or ends a session at the state limit.
 func (step RecordTurnFailure) Execute(ctx dex.Context, _ *CompactContextInput) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1212,6 +1254,13 @@ func (step RecordTurnFailure) Execute(ctx dex.Context, _ *CompactContextInput) (
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	state, err := requireAgentState(ctx)
 	if err != nil {
@@ -1907,6 +1956,55 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		return err
 	}
 	return nil
+}
+
+// recordFailedSession records a session that reached the state limit, for the Step's ForceFail.
+//
+// This commit is checked against the same limit, so it stores no turn messages and keeps the turn's
+// records. When it does not fit, Dex fails the Flow with the same text and AgentState stays as it was.
+func (flow *AgentSessionFlow) recordFailedSession(ctx dex.Context, errorText string) error {
+	state, err := requireAgentState(ctx)
+	if err != nil {
+		return err
+	}
+	frameworkRunState, err := readOptionalAttribute(ctx, FrameworkRunStateAttribute)
+	if err != nil {
+		return err
+	}
+	if frameworkRunState != nil {
+		if err := FrameworkRunStateAttribute.Delete(ctx); err != nil {
+			return err
+		}
+	}
+	pending, err := readPendingInterrupts(ctx)
+	if err != nil {
+		return err
+	}
+	if len(pending) > 0 {
+		if err := PendingInterruptsAttribute.Set(ctx, []AgentInterrupt{}); err != nil {
+			return err
+		}
+	}
+	events := flow.eventWriter(ctx, state.ActiveTurnID)
+	if state.ActiveTurnID != nil {
+		state.TurnCount++
+	}
+	state.Status = AgentSessionStatusFailed
+	state.ActiveTurnID = nil
+	state.AcceptsTurnControl = false
+	state.LastTurnError = &errorText
+	if err := AgentStateAttribute.Set(ctx, state); err != nil {
+		return err
+	}
+	return events.WriteEvent(AgentEventTypeTurnFailed, map[string]any{"error": errorText})
+}
+
+// isStateLimitFailure reports whether a Step failed because its commit would pass the Flow's state limit.
+func isStateLimitFailure(recoveryError *dex.RecoveryErrorInfo) bool {
+	// The Server gives this failure no code of its own; a value over its own limit shares the type.
+	return recoveryError != nil &&
+		recoveryError.ErrorType == stateLimitErrorType &&
+		strings.Contains(recoveryError.Detail, stateLimitErrorText)
 }
 
 // buildUnfinishedTurnMessages returns the runner's unfinished-turn messages, or none when it failed.

@@ -481,6 +481,25 @@ wrote, keeps every message in `AgentMessages`. This release reads it as it is. E
 stores a message moves up to four chunks of its older messages, so a long
 history migrates over several commits and reads stay whole meanwhile.
 
+## At the state limit
+
+server-zd caps each Flow's active state at `limits.maxFlowStateBytes`. A Step
+whose commit would pass it fails with error type `ValueTooLarge` and a detail
+such as `run state of 140213 bytes exceeds the maximum of 131072 bytes`. Since
+0.6.16, when that failure reaches `RecordToolFailure`,
+`RecordToolOutcomeUnknown`, or `RecordTurnFailure`, the Go session ends, as a
+Python or TypeScript session does: the Step sets `AgentState.Status` to
+`failed` and `LastTurnError` to the detail, clears the turn,
+`FrameworkRunState`, and `PendingInterrupts`, keeps the turn's records,
+writes `turn_failed`, and fails the Flow with the detail as its reason. That
+commit meets the same limit, so it stores no turn messages. Messages queued
+before it stay in `AgentSnapshot.QueuedMessages` and never run, and
+`SendUserMessage` returns the Dex error for a closed Flow. Before 0.6.16 the
+session went on, and every later turn failed with the same detail. When even
+that small commit does not fit, Dex fails the Flow with the same reason and
+`AgentState` keeps its last value; read the reason from `Client.WaitForFlow`.
+Start a new session, or raise the limit, to go on.
+
 ## Flow shape
 
 ```text
@@ -495,6 +514,7 @@ CallTool(id) -> failure route RecordToolFailure(id)
 CallSingleAttemptTool(id) -> failure route RecordToolOutcomeUnknown(id)
 ResumeTurn -> RunModel
 RunModel -> failure route RecordTurnFailure -> AwaitUserMessage
+RecordToolFailure, RecordToolOutcomeUnknown, RecordTurnFailure -> ForceFail   at the state limit
 ```
 
 Every Step sets SYNC durability for its WaitFor and Execute. Each tool Step
@@ -527,6 +547,9 @@ as children of the test binary:
 - SIGKILL during `CallSingleAttemptTool` (`outcome_unknown`) and during
   `RunModel` (only that model call reruns);
 - the turn-failure note after a write ran;
+- a model answer and a read or write tool result that would pass
+  `limits.maxFlowStateBytes` ending the session with the reason, after one
+  model call and one tool run, with later messages left queued;
 - `TurnCompleted.TurnError` ending a turn as failed with no retry, its usage
   and messages stored, and the next turn clearing it, and an outcome the
   session must not store failing its turn at once with its usage recorded;

@@ -229,3 +229,17 @@ func TestMessageRoleIsValidOnlyForTheContractValues(t *testing.T) {
 		require.Error(t, json.Unmarshal([]byte(`"`+string(role)+`"`), &decoded), role)
 	}
 }
+
+// Only server-zd's state-limit failure ends the session; a value over its own limit shares the type.
+func TestStateLimitFailureNeedsTheTypeAndTheRunStateText(t *testing.T) {
+	t.Parallel()
+	for detail, isStateLimit := range map[string]bool{
+		"run state of 140213 bytes exceeds the maximum of 131072 bytes":        true,
+		"active run state of 183889 bytes exceeds the maximum of 131072 bytes": true,
+		"value of 200000 bytes exceeds the maximum of 131072 bytes":            false,
+	} {
+		require.Equal(t, isStateLimit, isStateLimitFailure(&dex.RecoveryErrorInfo{ErrorType: "ValueTooLarge", Detail: detail}), detail)
+		require.False(t, isStateLimitFailure(&dex.RecoveryErrorInfo{ErrorType: "FLOW_ERROR_TYPE_WORKER_API_FAIL", Detail: detail}), detail)
+	}
+	require.False(t, isStateLimitFailure(nil))
+}
