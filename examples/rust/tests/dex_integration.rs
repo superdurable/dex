@@ -34,6 +34,7 @@ use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::production::pull_workers::{
     GET_GREETING, GreetingFlow, is_pull_greeting_ready, start_pull_greeting, stop_pull_greeting,
 };
+use dex_examples_rust::products::customer_refund::billing_service::FakeBillingService;
 use dex_examples_rust::products::customer_refund::refund_flow::{
     APPROVE_REFUND, CASE_STATUS, CaseStatus, CustomerRefundFlow, DecisionReason, REFUND_ID,
     RefundOutcome,
@@ -79,6 +80,7 @@ struct DexEnvironment {
     client: Client,
     polling_jobs: Arc<FakeJobService>,
     customer_refund_flow: CustomerRefundFlow,
+    refund_billing: FakeBillingService,
     worker: Arc<Worker>,
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
@@ -91,7 +93,8 @@ impl DexEnvironment {
         let polling_jobs = Arc::new(FakeJobService::default());
         let refund_ledger_directory =
             tempfile::tempdir().expect("create Rust examples refund ledger directory");
-        let customer_refund_flow = new_temporary_refund_flow(refund_ledger_directory.path());
+        let (customer_refund_flow, refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let registry =
             create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
                 .expect("register Rust examples");
@@ -129,6 +132,7 @@ impl DexEnvironment {
             client,
             polling_jobs,
             customer_refund_flow,
+            refund_billing,
             worker,
             worker_thread: Some(worker_thread),
             cache,
@@ -728,10 +732,16 @@ fn customer_refund_manager_approval_happy_path() {
         .get_attributes(&flow_id, (&*CASE_STATUS, &*REFUND_ID))
         .expect("read Rust Customer Refund Attributes");
     assert_eq!(case_status, Some(CaseStatus::ClosedRefunded));
-    assert!(
-        refund_id.is_some_and(|refund_id| refund_id.starts_with("rf_")),
-        "the refund records a billing refund ID"
-    );
+    let refund_id = refund_id.expect("the refund records a billing refund ID");
+    let ledger_refunds: Vec<(String, String)> = environment
+        .refund_billing
+        .list_refunds()
+        .expect("list this environment's refunds")
+        .into_iter()
+        .filter(|refund| refund.idempotency_key == format!("refund-{flow_id}"))
+        .map(|refund| (refund.refund_id, refund.order_id))
+        .collect();
+    assert_eq!(ledger_refunds, vec![(refund_id, "INV-1249".to_string())]);
 }
 
 fn start_order_processing(

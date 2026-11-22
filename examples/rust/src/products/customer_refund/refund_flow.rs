@@ -414,6 +414,11 @@ impl CustomerRefundFlow {
         }
     }
 
+    /// Returns the Step that the shared server's start route waits for.
+    pub(crate) fn check_policy(&self) -> &CheckPolicy {
+        &self.check_policy
+    }
+
     fn approve_refund(&self, context: &mut Context, input: DecisionReason) -> HandlerResult<()> {
         record_manager_decision(context, true, input.reason)
     }

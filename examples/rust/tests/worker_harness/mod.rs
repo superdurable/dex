@@ -14,6 +14,7 @@
 
 use std::path::Path;
 
+use dex_examples_rust::products::customer_refund::billing_service::FakeBillingService;
 use dex_examples_rust::products::customer_refund::refund_config::BillingMode;
 use dex_examples_rust::products::customer_refund::refund_flow::CustomerRefundFlow;
 use dex_examples_rust::products::customer_refund::refund_worker::new_refund_flow;
@@ -23,12 +24,19 @@ use dex_sdk::Worker;
 const REFUND_BILLING_LEDGER_FILE: &str = "billing-refunds.json";
 const REFUND_EMAIL_LEDGER_FILE: &str = "sent-emails.json";
 
-/// Keeps the refund ledgers in a per-test directory so test binaries stay parallel-safe.
-pub(crate) fn new_temporary_refund_flow(ledger_directory: &Path) -> CustomerRefundFlow {
-    new_refund_flow(
+/// Returns the refund Flow and a reader of its billing ledger, both in a per-test directory.
+pub(crate) fn new_temporary_refund_flow(
+    ledger_directory: &Path,
+) -> (CustomerRefundFlow, FakeBillingService) {
+    let billing_ledger = ledger_directory.join(REFUND_BILLING_LEDGER_FILE);
+    let flow = new_refund_flow(
         BillingMode::Normal,
-        ledger_directory.join(REFUND_BILLING_LEDGER_FILE),
+        &billing_ledger,
         ledger_directory.join(REFUND_EMAIL_LEDGER_FILE),
+    );
+    (
+        flow,
+        FakeBillingService::new(billing_ledger, BillingMode::Normal),
     )
 }
 

@@ -76,7 +76,8 @@ impl ControlPatternsEnvironment {
         );
         let refund_ledger_directory =
             tempfile::tempdir().expect("create control patterns refund ledger directory");
-        let customer_refund_flow = new_temporary_refund_flow(refund_ledger_directory.path());
+        let (customer_refund_flow, _refund_billing) =
+            new_temporary_refund_flow(refund_ledger_directory.path());
         let client = Arc::new(
             Client::try_new(
                 create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())

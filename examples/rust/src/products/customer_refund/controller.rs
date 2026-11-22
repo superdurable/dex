@@ -21,7 +21,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use dex_sdk::{FlowStatus, SdkError};
+use std::time::Duration;
+
+use dex_sdk::{
+    Flow, FlowStatus, SdkError, SdkResult, StepExecutionId, WaitForStepCompletionOptions,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -32,6 +36,8 @@ use super::refund_scenarios::RefundScenario;
 use crate::server::helpers::{
     ErrorBody, SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
+
+const START_READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 struct CustomerRefundState {
@@ -99,11 +105,18 @@ async fn start_refund(
     };
     let CustomerRefundState { client, flow } = state;
     match run_blocking(move || {
-        client
-            .start_flow(&flow, &flow_id, scenario.refund_request())
-            .map(|run_id| StartResponse { flow_id, run_id })
+        let run_id = client.start_flow(&flow, &flow_id, scenario.refund_request())?;
+        client.wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(flow.check_policy()),
+            WaitForStepCompletionOptions::new().request_timeout(START_READY_TIMEOUT),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
+        Err(error @ SdkError::FlowAlreadyStarted { .. }) => {
+            error_response(StatusCode::CONFLICT, error.to_string())
+        }
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -126,18 +139,35 @@ async fn decide_refund(
             );
         }
     };
+    if query.reason.trim().is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "reason must not be blank".to_string(),
+        );
+    }
     let RefundQuery {
         decision, reason, ..
     } = query;
+    let missing_refund = format!("no customer refund {flow_id}");
     match run_blocking(move || {
+        if !is_customer_refund_run(&state, &flow_id)? {
+            return Ok(None);
+        }
         state
             .client
-            .invoke_rpc(&flow_id, rpc, DecisionReason { reason })
-            .map(|()| json!({ "flowID": flow_id, "decision": decision }))
+            .invoke_rpc(&flow_id, rpc, DecisionReason { reason })?;
+        Ok(Some(json!({ "flowID": flow_id, "decision": decision })))
     }) {
-        Ok(value) => ok_json(value),
+        Ok(Some(value)) => ok_json(value),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, missing_refund),
         Err(error) => map_decide_error(error),
     }
+}
+
+/// Returns whether the latest run of `flow_id` is a CustomerRefundFlow run.
+fn is_customer_refund_run(state: &CustomerRefundState, flow_id: &str) -> SdkResult<bool> {
+    let run = state.client.describe_flow(flow_id)?;
+    Ok(run.flow_type == state.flow.flow_type())
 }
 
 async fn describe_refund(
@@ -148,19 +178,24 @@ async fn describe_refund(
     if flow_id.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "flowId is required".to_string());
     }
+    let missing_refund = format!("no customer refund {flow_id}");
     match run_blocking(move || {
         let run = state.client.describe_flow(&flow_id)?;
+        if run.flow_type != state.flow.flow_type() {
+            return Ok(None);
+        }
         let (case_status, refund_id) = state
             .client
             .get_attributes(&flow_id, (&*CASE_STATUS, &*REFUND_ID))?;
-        Ok(json!({
+        Ok(Some(json!({
             "flowID": flow_id,
             "status": flow_status_name(run.status),
             "caseStatus": case_status,
             "refundId": refund_id,
-        }))
+        })))
     }) {
-        Ok(value) => ok_json(value),
+        Ok(Some(value)) => ok_json(value),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, missing_refund),
         Err(error @ SdkError::FlowNotFound { .. }) => {
             error_response(StatusCode::NOT_FOUND, error.to_string())
         }
@@ -168,23 +203,24 @@ async fn describe_refund(
     }
 }
 
-/// Maps the decision RPC's business rejections to 4xx; other failures stay 500.
+/// Maps the RPC's business rejection and lifecycle races to 4xx; other failures stay 500.
 fn map_decide_error(error: SdkError) -> Response {
     match &error {
-        SdkError::WorkerInvocation { worker, .. } => match worker.error_type() {
-            "BlankDecisionReason" => error_response(
-                StatusCode::BAD_REQUEST,
-                format!("BlankDecisionReason: {}", worker.detail()),
-            ),
-            "RefundNotAwaitingManager" => error_response(
+        SdkError::WorkerInvocation { worker, .. }
+            if worker.error_type() == "RefundNotAwaitingManager" =>
+        {
+            error_response(
                 StatusCode::CONFLICT,
                 format!("RefundNotAwaitingManager: {}", worker.detail()),
-            ),
-            _ => map_sdk_error(error).into_response(),
-        },
+            )
+        }
         SdkError::RpcLockConflict { .. } => {
             error_response(StatusCode::CONFLICT, format!("RpcLockConflict: {error}"))
         }
+        SdkError::FlowClosing { .. } => error_response(
+            StatusCode::CONFLICT,
+            format!("the refund is closing: {error}"),
+        ),
         SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. } => {
             error_response(StatusCode::NOT_FOUND, error.to_string())
         }

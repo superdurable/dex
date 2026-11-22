@@ -42,7 +42,7 @@ server's routes are covered by `tests/dex_integration.rs` and
 
 ## On the shared example server
 
-`cargo run --locked` also serves this Flow, in the normal billing mode, under
+`cargo run --locked --bin dex-examples-rust` also serves this Flow, in the normal billing mode, under
 `/products/customer-refund/manager-approval/` (`start`, `decide`, and
 `describe`; see the [examples README](../../../README.md#products)). It uses
 the same `.customer-refund/` ledgers. Stop the shared server while you follow
@@ -203,3 +203,8 @@ missing billing call fixed with `dexcli flow time-travel`, and Time Travel
 after a refund. They need
 `dexcli` on `PATH` or in `DEXCLI_PATH`. `cargo test --lib customer_refund`
 runs the concurrent ledger tests without Dex.
+
+Stop the shared example server too, and do not run these tests in parallel
+with the other Rust suites against one Dex address. The Rust SDK has no
+per-Worker task queue, so any Worker that serves `CustomerRefundFlow` can take
+these runs, including the `call-missing` one.

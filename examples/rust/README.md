@@ -40,7 +40,7 @@ Rust 1.97 or newer is required. Start Dex, then run the Worker and HTTP server:
 ```bash
 cd examples/rust
 dexcli dev
-cargo run --locked
+cargo run --locked --bin dex-examples-rust
 ```
 
 The examples share namespace-level slots by index type: `keyword1`,
@@ -84,11 +84,14 @@ http://localhost:8080/products/customer-refund/manager-approval/decide?flowId=<f
 http://localhost:8080/products/customer-refund/manager-approval/describe?flowId=<flowID>
 ```
 
-`scenario` is `normal` (default), `fail-then-succeed`, `deny`, or `small`. `decide`
-returns 400 for a blank reason, 409 when the refund is not waiting for a manager or
-another decision holds the lock, and 404 once the run has closed. `describe`
-returns `flowID`, the run `status`, `caseStatus`, and `refundId`. The fake ledgers
-live in `.customer-refund/`.
+`scenario` is `normal` (default), `fail-then-succeed`, `deny`, or `small`. `start`
+returns after **CheckPolicy** completes, so a `decide` right after it works for
+`normal`. `decide` returns 400 for a blank reason; 409 when the refund is not
+waiting for a manager, another decision holds the lock, or the run is closing;
+and 404 for an unknown run, a closed run, or a run of another Flow type.
+`describe` returns `flowID`, the run `status`, `caseStatus`, and `refundId`, and
+404 for an unknown run or another Flow type. The fake ledgers live in
+`.customer-refund/`.
 
 ## Patterns
 
@@ -149,7 +152,9 @@ The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
 Deal DSL, Customer Refund, and Failure Recovery Flows through the published Rust SDK. It then
 runs the Workflow Patterns and customer refund tests. Each test environment keeps
-the customer refund ledgers in its own temporary directory.
+the customer refund ledgers in its own temporary directory. Run the suites one at
+a time against one Dex address: every suite's Worker serves `CustomerRefundFlow`,
+so a parallel suite could take another suite's refund runs.
 
 All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
