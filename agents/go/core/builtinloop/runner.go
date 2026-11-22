@@ -28,6 +28,21 @@ const DefaultMaxModelCallsPerTurn = 100
 // limit; format it with the limit.
 const ToolCallLimitReachedResultFormat = "The tool call was not run: this turn reached its limit of %d model calls."
 
+// ToolSourceEnvelopeKey is the key of the source name in the envelope the built-in loop stores as
+// AgentToolCall.ToolSourceReference for a call that a tool source built.
+//
+// It is the key the Python and TypeScript built-in loops store, so a stored
+// call routes to the same source on a Worker of any core.
+//
+// Since 0.6.16.
+const ToolSourceEnvelopeKey = "stepwise_tool_source"
+
+// UnknownToolErrorFormat is the error of a call to a tool that no function tool or source listing
+// offers; format it with the tool name. The model sees it after "The tool call failed: ".
+//
+// Since 0.6.16.
+const UnknownToolErrorFormat = "unknown tool %s"
+
 // InstructionContext tells an instructions function which model call it serves.
 type InstructionContext struct {
 	// FlowID is the session ID, which is the Flow ID.
@@ -114,6 +129,40 @@ func WithFunctionTools(tools ...*FunctionTool) AgentDefinitionOption {
 	})
 }
 
+// WithToolSources adds tool sources, such as a connectortools.ConnectorToolSource, whose tools the
+// agent lists at run time.
+//
+// In every RunModel that offers tools, the runner lists each source, waiting
+// at most the listing timeout, and offers the listed tools after the function
+// tools. A source whose listing fails or takes longer offers no tools in that
+// model call. A call of a listed tool is built by its source, which picks the
+// effect, the approval, and the ordering, and runs in its own tool Step
+// through that source, on any Worker that has a source of the same
+// SourceName. A name that no listing offered fails as an unknown tool without
+// an approval. NewAgentDefinition returns an error when two sources share a
+// SourceName or a declared source tool name repeats a function tool or another
+// source's tool.
+//
+// Since 0.6.16.
+func WithToolSources(sources ...dexagents.ToolSource) AgentDefinitionOption {
+	copied := slices.Clone(sources)
+	return agentDefinitionOptionFunc(func(definition *AgentDefinition) {
+		definition.toolSources = append(definition.toolSources, copied...)
+	})
+}
+
+// WithToolSourceListingTimeout sets how long one model call waits for each tool source's listing.
+//
+// The default is dexagents.DefaultToolSourceListingTimeout, 10 seconds. It
+// must be positive.
+//
+// Since 0.6.16.
+func WithToolSourceListingTimeout(timeout time.Duration) AgentDefinitionOption {
+	return agentDefinitionOptionFunc(func(definition *AgentDefinition) {
+		definition.toolSourceListingTimeout = timeout
+	})
+}
+
 // WithToolPolicies sets policies by tool name; they override a function tool's own effect and approval.
 func WithToolPolicies(toolPolicies map[string]dexagents.ToolPolicy) AgentDefinitionOption {
 	copied := maps.Clone(toolPolicies)
@@ -182,6 +231,9 @@ type AgentDefinition struct {
 	maxModelCallsPerTurn     int
 	interruptDeadline        time.Duration
 	eventStreamCapacityBytes int64
+	toolSources              []dexagents.ToolSource
+	toolSourceListingTimeout time.Duration
+	toolSourceRouter         *dexagents.ToolSourceRouter
 }
 
 // NewAgentDefinition declares one built-in loop agent.
@@ -189,7 +241,8 @@ type AgentDefinition struct {
 // name is used in events and must not be blank. instructions are the system
 // instructions unless WithInstructionsFunction computes them. model must not
 // be nil. It returns an error for a blank name, two tools with one name, an
-// unknown default effect, or a non-positive model call limit.
+// unknown default effect, a non-positive model call limit, or tool sources
+// that dexagents.NewToolSourceRouter refuses.
 func NewAgentDefinition(name string, instructions string, model ModelClient, options ...AgentDefinitionOption) (*AgentDefinition, error) {
 	if model == nil {
 		panic("builtinloop: NewAgentDefinition needs a model client")
@@ -224,6 +277,18 @@ func NewAgentDefinition(name string, instructions string, model ModelClient, opt
 		}
 		names = append(names, tool.name)
 	}
+	listingTimeout := definition.toolSourceListingTimeout
+	if listingTimeout == 0 {
+		listingTimeout = dexagents.DefaultToolSourceListingTimeout
+	}
+	router, err := dexagents.NewToolSourceRouter(definition.toolSources,
+		dexagents.WithReservedToolNames(names...),
+		dexagents.WithToolSourceListingTimeout(listingTimeout),
+		dexagents.WithToolSourceEnvelopeKey(ToolSourceEnvelopeKey))
+	if err != nil {
+		return nil, err
+	}
+	definition.toolSourceRouter = router
 	return definition, nil
 }
 
@@ -234,8 +299,9 @@ func (definition *AgentDefinition) Name() string {
 
 // BuiltinLoopAgentRunner runs an AgentDefinition as the native Dex Agents loop, with no framework.
 //
-// It implements dexagents.AgentFrameworkRunner and
-// dexagents.UnfinishedTurnMessageBuilder. RunModelStep makes at most one
+// It implements dexagents.AgentFrameworkRunner,
+// dexagents.UnfinishedTurnMessageBuilder, and
+// dexagents.ToolCallStepOptionsProvider. RunModelStep makes at most one
 // model call, from committed state only. It stores every item as it appears:
 // the assistant item that asks for tools commits with the tool call records,
 // and the tool results commit with the next model call. A tool call is never
@@ -258,6 +324,9 @@ func NewBuiltinLoopAgentRunner(definition *AgentDefinition) *BuiltinLoopAgentRun
 	toolsByName := make(map[string]*FunctionTool, len(definition.tools))
 	for _, tool := range definition.tools {
 		toolsByName[tool.name] = tool
+	}
+	if definition.toolSourceRouter == nil {
+		panic("builtinloop: NewBuiltinLoopAgentRunner needs a definition from NewAgentDefinition")
 	}
 	return &BuiltinLoopAgentRunner{definition: definition, toolsByName: toolsByName}
 }
@@ -314,7 +383,14 @@ func (runner *BuiltinLoopAgentRunner) RunModelStep(
 		return nil, err
 	}
 	isToolBudgetSpent := modelCalls >= runner.definition.maxModelCallsPerTurn
-	request, err := runner.modelRequest(turn, unstoredResults, isToolBudgetSpent)
+	var sourceTools *dexagents.SourceToolListing
+	if !isToolBudgetSpent {
+		sourceTools, err = runner.definition.toolSourceRouter.ListSourceTools(ctx, turn)
+		if err != nil {
+			return nil, err
+		}
+	}
+	request, err := runner.modelRequest(turn, unstoredResults, isToolBudgetSpent, sourceTools)
 	if err != nil {
 		return nil, err
 	}
@@ -364,12 +440,11 @@ func (runner *BuiltinLoopAgentRunner) RunModelStep(
 	}
 	toolCalls := make([]dexagents.DeferredToolCall, 0, len(response.ToolCalls))
 	for _, call := range response.ToolCalls {
-		toolCalls = append(toolCalls, dexagents.DeferredToolCall{
-			ToolCallID: call.ToolCallID,
-			ToolName:   call.ToolName,
-			Arguments:  call.Arguments,
-			Policy:     runner.toolPolicy(turn, call.ToolName),
-		})
+		deferred, err := runner.deferredToolCall(turn, call, sourceTools)
+		if err != nil {
+			return nil, err
+		}
+		toolCalls = append(toolCalls, deferred)
 	}
 	return &dexagents.ToolCallsRequested{
 		FrameworkRunState: runState,
@@ -379,18 +454,27 @@ func (runner *BuiltinLoopAgentRunner) RunModelStep(
 	}, nil
 }
 
-// ExecuteDeferredToolCall runs one function tool call in its own Step.
+// ExecuteDeferredToolCall runs one function tool call, or one call that a tool source built, in its own Step.
 //
 // It returns the tool output, or a *dexagents.ToolExecutionError when the tool
-// is unknown, the arguments break its schema, or the tool returned one.
+// is unknown, the arguments break its schema, or the tool returned one. A call
+// that a tool source built runs through that source, with ctx, the tool
+// Step's dex.Context, and returns what the source returns; when this Worker
+// has no source of that name, the error fails the attempt, so the call's
+// effect class decides its outcome.
+//
+// Changed in 0.6.16: a call that a tool source built runs through that source.
 func (runner *BuiltinLoopAgentRunner) ExecuteDeferredToolCall(
 	ctx context.Context,
 	call dexagents.DeferredToolExecution,
 ) (dexagents.DeferredToolOutcome, error) {
 	record := call.ToolCall
+	if runner.definition.toolSourceRouter.IsSourceToolCall(record) {
+		return runner.definition.toolSourceRouter.ExecuteDeferredToolCall(ctx, call)
+	}
 	tool, isKnown := runner.toolsByName[record.ToolName]
 	if !isKnown {
-		return nil, &dexagents.ToolExecutionError{Message: "unknown tool " + record.ToolName}
+		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf(UnknownToolErrorFormat, record.ToolName)}
 	}
 	output, err := tool.Invoke(ctx, record.Arguments, ToolCallContext{
 		FlowID:         call.FlowID,
@@ -405,6 +489,17 @@ func (runner *BuiltinLoopAgentRunner) ExecuteDeferredToolCall(
 		return nil, err
 	}
 	return &dexagents.ToolExecutionResult{Output: output}, nil
+}
+
+// ToolCallStepOptions returns the options of a tool source's call for its tool Step.
+//
+// It returns nil for a function tool call and for a source without options,
+// or an error when the source that built the call is not configured on this
+// Worker, so the session uses the defaults.
+//
+// Since 0.6.16.
+func (runner *BuiltinLoopAgentRunner) ToolCallStepOptions(toolCall dexagents.AgentToolCall) (*dexagents.ToolCallStepOptions, error) {
+	return runner.definition.toolSourceRouter.ToolCallStepOptions(toolCall)
 }
 
 // BuildUnfinishedTurnMessages returns the results of the turn's tool calls that are not stored yet.
@@ -433,6 +528,7 @@ func (runner *BuiltinLoopAgentRunner) modelRequest(
 	turn dexagents.AgentTurnContext,
 	unstoredResults []ModelInputItem,
 	isToolBudgetSpent bool,
+	sourceTools *dexagents.SourceToolListing,
 ) (ModelRequest, error) {
 	instructions, err := runner.instructions(turn)
 	if err != nil {
@@ -467,6 +563,13 @@ func (runner *BuiltinLoopAgentRunner) modelRequest(
 	for _, tool := range runner.definition.tools {
 		request.Tools = append(request.Tools, tool.Definition())
 	}
+	if sourceTools != nil {
+		for _, tool := range sourceTools.Tools() {
+			request.Tools = append(request.Tools, ModelToolDefinition{
+				Name: tool.Name, Description: tool.Description, Parameters: tool.InputSchema,
+			})
+		}
+	}
 	return request, nil
 }
 
@@ -492,6 +595,36 @@ func (runner *BuiltinLoopAgentRunner) resolveModel(turn dexagents.AgentTurnConte
 		return nil, fmt.Errorf("the model resolver of agent %s returned no model client", runner.definition.name)
 	}
 	return model, nil
+}
+
+// deferredToolCall builds a call through the source that listed its tool, or as a function tool call.
+func (runner *BuiltinLoopAgentRunner) deferredToolCall(
+	turn dexagents.AgentTurnContext,
+	call ModelToolCall,
+	sourceTools *dexagents.SourceToolListing,
+) (dexagents.DeferredToolCall, error) {
+	if sourceTools != nil && sourceTools.HasTool(call.ToolName) {
+		built, err := sourceTools.DeferredToolCall(turn, call.ToolCallID, call.ToolName, call.Arguments)
+		if err != nil {
+			return dexagents.DeferredToolCall{}, err
+		}
+		if built != nil {
+			return *built, nil
+		}
+	}
+	_, isFunctionTool := runner.toolsByName[call.ToolName]
+	policy := runner.toolPolicy(turn, call.ToolName)
+	if len(runner.definition.toolSources) > 0 && !isFunctionTool {
+		// An unlisted name never reaches a source, so it fails without asking anyone to approve it.
+		isApprovalRequired := false
+		policy = dexagents.ToolPolicy{Effect: dexagents.ToolEffectUnclassified, RequiresApproval: &isApprovalRequired}
+	}
+	return dexagents.DeferredToolCall{
+		ToolCallID: call.ToolCallID,
+		ToolName:   call.ToolName,
+		Arguments:  call.Arguments,
+		Policy:     policy,
+	}, nil
 }
 
 func (runner *BuiltinLoopAgentRunner) toolPolicy(turn dexagents.AgentTurnContext, toolName string) dexagents.ToolPolicy {

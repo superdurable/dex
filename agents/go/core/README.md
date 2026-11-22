@@ -41,7 +41,9 @@ Supported:
   [At the state limit](#at-the-state-limit));
 - session settings and `update_session_settings`, with the built-in loop model
   resolver;
-- the built-in agent loop, with function tools;
+- the built-in agent loop, with function tools and tool sources;
+- Connectors as tools (package `connectortools`), with write ordering, bounded
+  resends, and per-call tool Step options;
 - the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients.
 
 Not planned for Go Workers: questions (`ask_user`, `answer_question`, tool
@@ -162,7 +164,10 @@ names, such as `send_user_message`, through `dex.RPCOptions.Name`, which the
 Go SDK gained after `sdk-go/v1.32.0`. Until a release contains it, `go.mod`
 requires a pseudo-version of that change. Package `remotesession` needs
 `dex.ClientOnlyFlow`, which the Go SDK adds in 1.46.0; until that release,
-`go.mod` requires a pseudo-version of the change too.
+`go.mod` requires a pseudo-version of the change too. Package `connectortools`
+needs `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0, which
+requires an earlier Dex Go SDK, so it does not change the SDK version the core
+builds with.
 
 ## Running an agent
 
@@ -259,6 +264,8 @@ the outcome-unknown text.
 | `WithMaxModelCallsPerTurn` | 100 | After this many model calls in a turn, the next call offers no tools |
 | `WithInterruptDeadline` | none | Deadline for approvals |
 | `WithEventStreamCapacityBytes` | 10 MiB | `AgentEvents` capacity |
+| `WithToolSources` | none | `dexagents.ToolSource` values, such as a `connectortools.ConnectorToolSource`, whose tools are listed in every `RunModel` and offered after the function tools |
+| `WithToolSourceListingTimeout` | 10 seconds | How long one model call waits for each source's listing; a source that fails or takes longer offers no tools in that call |
 
 Function tools come from `NewFunctionTool`, with a JSON Schema and a function
 of the raw JSON arguments, or `NewTypedFunctionTool`, which decodes the
@@ -410,6 +417,22 @@ type AgentFrameworkRunner interface {
   recovery detail, so the model may call the tool again. Any other progress
   records `failed` for a read and `outcome_unknown` otherwise.
 - `DeferredToolOutcome` is sealed and has one result, `*ToolExecutionResult`.
+  Its `TruncatedOutputBytes` records the full size of an output the tool cut.
+  A `*ToolOutcomeUnknownError` records `outcome_unknown` with its message and
+  is not retried, for a write that may have taken effect.
+- `DeferredToolCall.Ordered` runs a write after the turn's earlier ordered
+  writes: the session starts one at a time, raises its approval only when its
+  turn comes, and records the later ones `failed` with `Skipped` and
+  `ToolCallSkippedAfterWriteDetail` once one does not succeed. A runner that
+  implements `ToolCallStepOptionsProvider` gives a call's tool Step its own
+  timeout and retry policy; `BoundedResendExecuteRetry` gives a
+  `non_idempotent_write` call whose tool caps its own sends more than one
+  attempt in `CallSingleAttemptTool`.
+- `ToolSource` and `ToolSourceRouter` serve tools that a runner lists at run
+  time. The router lists every source, builds each call through its source,
+  stores the source name in an envelope around the source's reference, and
+  runs the call in its tool Step through that source. The built-in loop uses
+  it; a framework adapter uses it the same way.
 - `DeferredToolExecution.HeartbeatCheckpoint` is the checkpoint an earlier
   attempt saved with `SaveHeartbeatCheckpoint`. Every heartbeat of a tool Step
   repeats the latest checkpoint, as in the Python core, because a bare
@@ -430,6 +453,100 @@ type AgentFrameworkRunner interface {
 `WithMessageWindowSize` (default 64), `WithMessageChunkSize` (default 32),
 `WithMessageChunkMaxBytes` (default 1 MiB), `WithModelRetryPolicy` (default waits of 1 to 30 seconds, about two minutes in all), and `WithLogger`. `builtinloop.NewBuiltinAgentSessionFlow` accepts the same options
 after the Flow type.
+
+## Connectors as tools
+
+Package `connectortools` offers Dex Connector operations to an agent as tools,
+with the behavior of the Python core's `dex_agents.connectors` and the
+TypeScript core's `@superdurable/dex-agents/connectors`. A Go Connector
+package binds each operation reviewed for agents to a connection as an
+`sdkgo.AgentTool`; name the ones the agent may use:
+
+```go
+slackConnection, err := slack.NewProjectConnection(project, "support-slack")
+if err != nil {
+	return err
+}
+agentTools, err := slackConnection.AgentTools()
+if err != nil {
+	return err
+}
+tools := []*connectortools.ConnectorTool{}
+for _, agentTool := range agentTools {
+	if agentTool.Metadata().ToolName != "slack_post_thread_reply" {
+		continue
+	}
+	tool, err := connectortools.NewConnectorTool(agentTool)
+	if err != nil {
+		return err
+	}
+	tools = append(tools, tool)
+}
+source, err := connectortools.NewConnectorToolSource(tools)
+if err != nil {
+	return err
+}
+definition, err := builtinloop.NewAgentDefinition("support", "You answer support threads.", model,
+	builtinloop.WithToolSources(source))
+if err != nil {
+	return err
+}
+flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, "SupportAgent")
+```
+
+The tool name defaults to `<connectorId>_<operation in snake case>`, such as
+`slack_post_thread_reply`, and the description, argument schema, effect, and
+approval come from the metadata. Name tools of a second connection of the same
+operation yourself with `WithToolName`. `WithRequiresApproval` and
+`WithApprovalPredicate` override the metadata's approval recommendation, and a
+session `ToolPolicy` with `RequiresApproval` overrides both.
+
+How a call maps to Steps:
+
+| Operation | Effect | Step | Attempts | Default approval |
+| --- | --- | --- | --- | --- |
+| Query | `read` | `CallTool` | The operation's retry policy, at most 3 | No |
+| Mutation with `IsRetrySafe` | `idempotent_write` | `CallTool` | The operation's retry policy, at most 3 | The metadata's `IsApprovalRecommended` |
+| Mutation whose `RepeatOnUnknown` is `limited` | `non_idempotent_write` | `CallSingleAttemptTool` | The operation's attempts, at least the send cap | The metadata's `IsApprovalRecommended` |
+| Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool` | One | The metadata's `IsApprovalRecommended` |
+
+- Each call is one operation invocation in its own tool Step, through
+  `AgentTool.RunAttemptWithOptions` with the tool Step's `dex.Context`. The
+  Call ID derives from the Flow ID and the tool Step's execution ID, so every
+  attempt of the call keeps it and its idempotency key, on a Worker of any
+  core.
+- The arguments are checked against the metadata's `InputSchema` first, with
+  the other cores' texts, such as `invalid arguments for
+  slack_post_thread_reply: arguments.text is required`, and then decoded into
+  the operation's input. Either failure records `failed`; nothing runs.
+- A required branch records `succeeded` with the result value as compact JSON
+  with sorted keys, cut to 64 KiB (`WithMaxResultBytes`,
+  `WithSourceMaxResultBytes`) with `[Dex] truncated, <n> bytes`. `uncertain` and
+  a branch listed `unknown` record `outcome_unknown`; every other branch
+  records `failed` with `<connector> <operation> returned <branch>: <kind>:
+  <message>`. A connector Retry fails the attempt, after its delay in whole
+  seconds, so the tool Step's retry policy applies; when the attempts run out,
+  a Query records `failed` and a Mutation `outcome_unknown`.
+- A `limited` Mutation pins its send cap, the metadata's `MaxSends` or the
+  session `ToolPolicy.MaxSends`, in its tool source reference when `RunModel`
+  defers it, and passes it with `sdkgo.WithMaxSends` on every attempt, also
+  after a deploy that changes the metadata. The single-dispatch fence then
+  reads back and resends only while the call's sends stay below the cap, and a
+  definite refusal is never resent. The fence's markers are kept as the tool
+  Step's heartbeat checkpoint, so the session's background heartbeats keep
+  them.
+- Connector writes of one model response run one at a time in the model's
+  order, reads in parallel; a write whose approval is needed waits for it only
+  when its turn comes, and once a write does not succeed, the later ones record
+  `failed` with `skipped` set and never run.
+- The conformance file `agents/conformance/connector_tools.json` fixes the
+  argument checks, refused schemas, branch mapping, send caps, bounded resend
+  attempts and scenarios, argument refusals, default tool names, result text,
+  and truncation; `connectortools` runs every case.
+
+Limits: a call that waits for approval carries no approval display yet, so an
+approval UI shows its arguments. Requires
+`github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0 or later.
 
 ## Message storage
 
@@ -537,6 +654,8 @@ RunModel -> ToolCallsRequested -> GoToMany(
               AwaitToolApproval(id) -> CallTool(id) or CallSingleAttemptTool(id)   per call needing approval
               CallTool(id) or CallSingleAttemptTool(id)                            per other call
               ResumeTurn(expected result count))
+RunModel -> queued ordered write -> GoToMany(its approval or tool Step, ResumeTurn(1))
+RunModel -> skipped ordered writes -> RunModel
 CallTool(id) -> failure route RecordToolFailure(id)
 CallSingleAttemptTool(id) -> failure route RecordToolOutcomeUnknown(id)
 ResumeTurn -> RunModel
@@ -600,6 +719,11 @@ as children of the test binary:
   fails the session with a reason instead of stalling;
 - a heartbeat checkpoint carried across tool Step attempts, and no stale trace
   context on records;
+- Connector tools: a limited write SIGKILLed after its send that reads back on
+  the retry without a second send, a refusal after a send that is never resent,
+  a Query retried in `CallTool`, a write that waits for its recommended
+  approval, a queued write that asks for approval only when its turn comes, and
+  writes run in the model's order and skipped after one fails;
 - every wire value the Python core encodes, decoded and re-encoded byte for
   byte after canonicalization, plus event payloads, built-in loop framework items,
   the turn-failure note, function tool argument errors, and an Anthropic item

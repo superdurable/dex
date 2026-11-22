@@ -161,7 +161,11 @@ func newScriptedAgentFlows(coordinationDir string, refundDeploy refundToolDeploy
 	if err != nil {
 		return nil, err
 	}
-	return []dex.Flow{scripted, deadline, checkpoint, chunked, chunkedBytes, settings}, nil
+	connector, err := newConnectorAgentFlow(coordinationDir)
+	if err != nil {
+		return nil, err
+	}
+	return []dex.Flow{scripted, deadline, checkpoint, chunked, chunkedBytes, settings, connector}, nil
 }
 
 // newSettingsAgentFlow builds an agent whose model resolver picks the model the session settings name.

@@ -48,7 +48,7 @@ if [[ -n "$unformatted" ]]; then
   exit 1
 fi
 go vet ./...
-go run ../../../sdk-go/scripts/check-public-docs.go . ./builtinloop ./stepwise ./openaimodel ./anthropicmodel ./agentstest ./remotesession
+go run ../../../sdk-go/scripts/check-public-docs.go . ./builtinloop ./stepwise ./openaimodel ./anthropicmodel ./agentstest ./remotesession ./connectortools
 
 (cd ../../python/core && uv sync --locked --all-extras)
 (cd ../../typescript/core && npm ci && npm run build)

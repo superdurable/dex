@@ -26,8 +26,9 @@
 // language: a Go Step that finds state from those parts fails the session with
 // a reason instead of acting on it. Package
 // builtinloop is the built-in agent loop on this Flow; packages openaimodel and
-// anthropicmodel are its model clients, and agentstest has a scripted model
-// client and a private engine for tests. Package remotesession is a Go
+// anthropicmodel are its model clients, package connectortools offers Dex
+// Connector operations as tools through a ToolSource, and agentstest has a
+// scripted model client and a private engine for tests. Package remotesession is a Go
 // Client for sessions that Python or TypeScript Workers serve, with every
 // RPC of their contract.
 //
