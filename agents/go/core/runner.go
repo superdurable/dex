@@ -613,16 +613,20 @@ type DeferredToolExecution struct {
 	//
 	// It gives the Step execution ID, the attempt, and the attempt deadline,
 	// whatever context the runner passes to ExecuteDeferredToolCall, so a
-	// runner may pass a derived context, such as one that a framework's tool
-	// node or a tracing span adds values to. A ToolSource reads the Step from
-	// here, never from the identity of its ctx: connectortools derives the
-	// connector Call ID from its Step execution ID. Use it only during this
-	// call, never store it, and record heartbeats only through Heartbeat and
+	// runner may pass a derived context, such as one that a tracing span adds
+	// values to. A ToolSource reads the Step from here, never from the
+	// identity of its ctx: connectortools derives the connector Call ID from
+	// its Step execution ID. A runner still routes a source call before its
+	// framework's tool node and tool middleware; see
+	// ToolSourceRouter.ExecuteDeferredToolCall. Use it only during this call,
+	// never store it, and record heartbeats only through Heartbeat and
 	// SaveHeartbeatCheckpoint, because a bare heartbeat would drop the
 	// checkpoint.
 	//
 	// Since 0.6.16.
 	StepContext dex.Context
+	// sourceCall is the attempt's one tool source call; the session records its result.
+	sourceCall *toolSourceCall
 }
 
 // AgentFrameworkRunner runs one agent framework, or the built-in agent loop, inside the session Flow.
@@ -680,10 +684,13 @@ type AgentFrameworkRunner interface {
 	// that may have taken effect, or another error that fails the attempt. A *ToolExecutionError
 	// records failed, or outcome_unknown on a later attempt of a call that is not a read; see
 	// ToolExecutionError. ctx is the tool Step's dex.Context, and call.StepContext holds the same
-	// Step, so the runner may pass a tool or ToolSource a context derived from ctx.
+	// Step, so the runner may pass a tool a context derived from ctx. A call that a tool source
+	// built goes first, before any framework tool code, to
+	// ToolSourceRouter.ExecuteDeferredToolCall, and the session records the source's result.
 	//
-	// Changed in 0.6.16: a *ToolOutcomeUnknownError records outcome_unknown, and
-	// call.StepContext holds the tool Step's dex.Context.
+	// Changed in 0.6.16: a *ToolOutcomeUnknownError records outcome_unknown,
+	// call.StepContext holds the tool Step's dex.Context, and a tool source call
+	// records the source's result.
 	ExecuteDeferredToolCall(ctx context.Context, call DeferredToolExecution) (DeferredToolOutcome, error)
 }
 

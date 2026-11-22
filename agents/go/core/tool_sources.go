@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
@@ -110,8 +111,10 @@ type ToolSource interface {
 	// DeferredToolCall builds the call of one listed tool. Resolve the policy from
 	// turn.ToolPolicies, so session policies win. An error fails the RunModel attempt.
 	DeferredToolCall(turn AgentTurnContext, call SourceToolCall) (DeferredToolCall, error)
-	// ExecuteDeferredToolCall runs one approved call in its tool Step. ctx is the tool Step's
-	// context or one derived from it, so read the Step from call.StepContext, never from ctx.
+	// ExecuteDeferredToolCall runs one approved call in its tool Step. A runner reaches it
+	// through ToolSourceRouter.ExecuteDeferredToolCall, once per tool Step attempt and outside
+	// the framework's tool code. ctx is the tool Step's context, or one derived from it for
+	// values such as a tracing span, so read the Step from call.StepContext, never from ctx.
 	// call.ToolCall.ToolSourceReference holds the source's own reference. It returns what
 	// AgentFrameworkRunner.ExecuteDeferredToolCall returns.
 	ExecuteDeferredToolCall(ctx context.Context, call DeferredToolExecution) (DeferredToolOutcome, error)
@@ -443,18 +446,55 @@ func (router *ToolSourceRouter) IsSourceToolCall(toolCall AgentToolCall) bool {
 
 // ExecuteDeferredToolCall runs one call that a source built, in its tool Step, through that source.
 //
+// A runner calls it first in its own ExecuteDeferredToolCall, when
+// IsSourceToolCall reports the record, and returns its outcome and error
+// unchanged, as the Python and TypeScript adapters do. Call it once per tool
+// Step attempt, before and outside the framework's tool node, tool
+// middleware, and tool handlers: a retry inside the attempt would pass the
+// source the attempt's first heartbeat checkpoint again, so a connector's
+// single-dispatch fence could not see the earlier send, and an error handler
+// that turns an error into result text would record a write whose outcome is
+// unknown as succeeded. Pass the session's ctx, or one derived from it for
+// values such as a tracing span, and the session's DeferredToolExecution
+// unchanged.
+//
 // The source receives the whole DeferredToolExecution, with its own
 // reference in place of the envelope, so it keeps the Step context, the
-// heartbeat checkpoint, and the attempt. ctx is the context the runner got
-// from the session, or one derived from it, such as one that a framework's
-// tool node adds values to; the source reads the Step from
-// call.StepContext, not from ctx. It returns the source's outcome
-// and error, or an error when no source built the call or the source that
-// built it is not configured on this Worker; that error fails the attempt, so
-// the call's effect class decides its outcome.
+// heartbeat checkpoint, and the attempt; it reads the Step from
+// call.StepContext, not from ctx. It returns the source's outcome and error,
+// or an error when no source built the call or the source that built it is
+// not configured on this Worker; that error fails the attempt, so the call's
+// effect class decides its outcome.
+//
+// The session enforces the rule for the DeferredToolExecution it passed: a
+// second call in the same attempt runs no source and returns an error, and
+// the session records the first call's outcome and error, whatever the
+// runner returns.
 //
 // Since 0.6.16.
 func (router *ToolSourceRouter) ExecuteDeferredToolCall(
+	ctx context.Context,
+	call DeferredToolExecution,
+) (DeferredToolOutcome, error) {
+	if !call.sourceCall.claim() {
+		return nil, fmt.Errorf("the tool source call of %s already ran in this tool Step attempt; "+
+			"a runner calls ToolSourceRouter.ExecuteDeferredToolCall once per attempt, outside its framework's tool code",
+			call.ToolCall.ToolName)
+	}
+	isReturned := false
+	defer func() {
+		if !isReturned {
+			// The panic goes on; a framework that recovers it cannot record a result for the call.
+			call.sourceCall.finish(nil, fmt.Errorf("the tool source call of %s panicked", call.ToolCall.ToolName))
+		}
+	}()
+	outcome, err := router.executeSourceCall(ctx, call)
+	isReturned = true
+	call.sourceCall.finish(outcome, err)
+	return outcome, err
+}
+
+func (router *ToolSourceRouter) executeSourceCall(
 	ctx context.Context,
 	call DeferredToolExecution,
 ) (DeferredToolOutcome, error) {
@@ -464,6 +504,54 @@ func (router *ToolSourceRouter) ExecuteDeferredToolCall(
 	}
 	call.ToolCall.ToolSourceReference = reference
 	return source.ExecuteDeferredToolCall(ctx, call)
+}
+
+// toolSourceCall is the one source call that a ToolSourceRouter makes in one tool Step attempt.
+//
+// The session creates one per attempt in the DeferredToolExecution it passes the
+// runner; copies of the execution share it. The router claims it before the
+// source runs and finishes it with the source's result, and the session then
+// records that result instead of the runner's. A nil toolSourceCall, as in an
+// execution a test builds, checks nothing.
+type toolSourceCall struct {
+	isClaimed atomic.Bool
+	finished  chan struct{}
+	outcome   DeferredToolOutcome
+	err       error
+}
+
+func newToolSourceCall() *toolSourceCall {
+	return &toolSourceCall{finished: make(chan struct{})}
+}
+
+// claim reports whether this is the attempt's first source call.
+func (call *toolSourceCall) claim() bool {
+	return call == nil || call.isClaimed.CompareAndSwap(false, true)
+}
+
+// finish records the source's result; only the call that claimed it finishes it, once.
+func (call *toolSourceCall) finish(outcome DeferredToolOutcome, err error) {
+	if call == nil {
+		return
+	}
+	call.outcome, call.err = outcome, err
+	close(call.finished)
+}
+
+// result waits for the source call to finish and returns its result, and false when the router
+// made no source call in this attempt. The source call may outlive a runner that did not wait for
+// it; an error says so when ctx ends first.
+func (call *toolSourceCall) result(ctx context.Context, toolName string) (DeferredToolOutcome, error, bool) {
+	if call == nil || !call.isClaimed.Load() {
+		return nil, nil, false
+	}
+	select {
+	case <-call.finished:
+		return call.outcome, call.err, true
+	case <-ctx.Done():
+		return nil, fmt.Errorf("the tool source call of %s did not finish before its tool Step attempt ended: %w",
+			toolName, ctx.Err()), true
+	}
 }
 
 // ToolCallStepOptions returns the source's options for one call's tool Step.

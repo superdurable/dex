@@ -1952,12 +1952,24 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 		HeartbeatCheckpoint:     heartbeats.previousCheckpoint,
 		SaveHeartbeatCheckpoint: heartbeats.saveCheckpoint,
 		StepContext:             ctx,
+		sourceCall:              newToolSourceCall(),
 	}
 	var result DeferredToolOutcome
 	err = flow.withBackgroundHeartbeats(ctx, heartbeats.record, func() error {
 		var runErr error
 		result, runErr = flow.runner.ExecuteDeferredToolCall(ctx, execution)
-		return runErr
+		sourceResult, sourceErr, isSourceCall := execution.sourceCall.result(ctx, toolCall.ToolName)
+		if !isSourceCall {
+			return runErr
+		}
+		if result != sourceResult || !errors.Is(runErr, sourceErr) {
+			// Framework tool code around the source call changed its result; the source's decides.
+			flow.options.logger.Warn("dex-agents: the runner changed the result of a tool source call; "+
+				"the session records the source's result",
+				"tool_name", toolCall.ToolName, "source_error", sourceErr, "runner_error", runErr)
+		}
+		result = sourceResult
+		return sourceErr
 	})
 	var toolError *ToolExecutionError
 	if errors.As(err, &toolError) {

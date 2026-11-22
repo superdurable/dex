@@ -433,6 +433,18 @@ type AgentFrameworkRunner interface {
   stores the source name in an envelope around the source's reference, and
   runs the call in its tool Step through that source. The built-in loop uses
   it; a framework adapter uses it the same way.
+- A runner's `ExecuteDeferredToolCall` checks `router.IsSourceToolCall(record)`
+  first and returns `router.ExecuteDeferredToolCall(ctx, call)` with its
+  outcome and error unchanged, as every Python and TypeScript adapter does. It
+  calls the router once per tool Step attempt, before and outside the
+  framework's tool node, tool middleware, and tool handlers, which serve only
+  the framework's own tools. A retry inside the attempt would hand a
+  connector's single-dispatch fence the attempt's first checkpoint again, so it
+  could send again, and an error handler that turns an error into result text
+  would record a write whose outcome is unknown as `succeeded`. The session
+  enforces this for the `DeferredToolExecution` it passes: a second router call
+  in one attempt runs no source and returns an error, and the session records
+  the first call's outcome and error, whatever the runner returns.
 - `DeferredToolExecution.HeartbeatCheckpoint` is the checkpoint an earlier
   attempt saved with `SaveHeartbeatCheckpoint`. Every heartbeat of a tool Step
   repeats the latest checkpoint, as in the Python core, because a bare
@@ -440,7 +452,7 @@ type AgentFrameworkRunner interface {
 - `DeferredToolExecution.StepContext` is the tool Step's `dex.Context`. A
   tool source reads its Step from it, never from the identity of `ctx`, so a
   runner may pass a tool a context derived from the Step's, such as one that a
-  framework's tool node or a tracing span adds values to.
+  tracing span adds values to.
 
 ## Effects and policies
 
@@ -516,8 +528,9 @@ How a call maps to Steps:
 
 - Each call is one operation invocation in its own tool Step, through
   `AgentTool.RunAttemptWithOptions` with the tool Step's `dex.Context`, which
-  the source reads from `DeferredToolExecution.StepContext`; a runner may pass
-  the source a context derived from the Step's. The Call ID derives from the
+  the source reads from `DeferredToolExecution.StepContext`; a runner routes
+  the call to the source once per attempt, before its framework's tool code
+  (see the runner contract). The Call ID derives from the
   Flow ID and the tool Step's execution ID, so every attempt of the call keeps
   it and its idempotency key, on a Worker of any core.
 - The arguments are checked against the metadata's `InputSchema` first, with
@@ -743,7 +756,9 @@ as children of the test binary:
   and reads back after a SIGKILL, a single-attempt write SIGKILLed mid-call
   that skips the later writes, a Query held to its operation's one attempt, and
   a truncated result that records its full size, all with a runner that passes
-  the tools a derived context;
+  the tools a derived context; and a runner that runs source calls inside a
+  retry middleware and an error handler, where a limited write still stops at
+  its send cap and an unknown outcome still skips the later writes;
 - `dexcli visualize` of `session_flow.go`: every move to a tool Step is drawn
   and no Step is unreachable;
 - every wire value the Python core encodes, decoded and re-encoded byte for

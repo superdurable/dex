@@ -148,6 +148,80 @@ func TestARouterRunsOnlyTheCallsItsSourcesBuilt(t *testing.T) {
 	require.Error(t, err)
 }
 
+// panickingToolSource panics in every call, as a defective source would.
+type panickingToolSource struct {
+	*fakeToolSource
+}
+
+func (panickingToolSource) ExecuteDeferredToolCall(context.Context, DeferredToolExecution) (DeferredToolOutcome, error) {
+	panic("defective source")
+}
+
+// A runner may route a source call once per tool Step attempt; the session keeps the source's result.
+func TestARouterRunsASourceOncePerToolStepAttemptAndKeepsItsResult(t *testing.T) {
+	t.Parallel()
+	source := &fakeToolSource{name: "connectors"}
+	router, err := NewToolSourceRouter([]ToolSource{source})
+	require.NoError(t, err)
+	record := AgentToolCall{ToolName: "send", ToolSourceReference: ptr(`{"dex_tool_source": "connectors", "reference": null}`)}
+	execution := DeferredToolExecution{ToolCall: record, Attempt: 1, sourceCall: newToolSourceCall()}
+	_, _, isSourceCall := execution.sourceCall.result(context.Background(), "send")
+	require.False(t, isSourceCall, "no source call yet")
+
+	first, err := router.ExecuteDeferredToolCall(context.Background(), execution)
+	require.NoError(t, err)
+	copied := execution
+	for range 3 {
+		// A retry middleware, or a copy of the execution, calls the router again in the same attempt.
+		_, err = router.ExecuteDeferredToolCall(context.Background(), copied)
+		require.EqualError(t, err, "the tool source call of send already ran in this tool Step attempt; "+
+			"a runner calls ToolSourceRouter.ExecuteDeferredToolCall once per attempt, outside its framework's tool code")
+	}
+	require.Len(t, source.executed, 1, "the source ran once")
+	outcome, sourceErr, isSourceCall := execution.sourceCall.result(context.Background(), "send")
+	require.True(t, isSourceCall)
+	require.NoError(t, sourceErr)
+	require.Same(t, first, outcome, "the session records the first call's result")
+
+	gone := DeferredToolExecution{ToolCall: AgentToolCall{ToolName: "send", ToolSourceReference: ptr(`{"dex_tool_source": "mcp", "reference": null}`)},
+		sourceCall: newToolSourceCall()}
+	_, err = router.ExecuteDeferredToolCall(context.Background(), gone)
+	require.Error(t, err)
+	_, sourceErr, isSourceCall = gone.sourceCall.result(context.Background(), "send")
+	require.True(t, isSourceCall)
+	require.Equal(t, err, sourceErr, "a routing error is the source call's result too, so the effect decides")
+
+	for range 2 {
+		// An execution that the session did not build, as in a test, checks nothing.
+		_, err = router.ExecuteDeferredToolCall(context.Background(), DeferredToolExecution{ToolCall: record})
+		require.NoError(t, err)
+	}
+	require.Len(t, source.executed, 3)
+}
+
+// A source call that panicked, or that a runner left running, never records a result the runner returned.
+func TestASourceCallThatDidNotReturnFailsTheAttempt(t *testing.T) {
+	t.Parallel()
+	router, err := NewToolSourceRouter([]ToolSource{panickingToolSource{&fakeToolSource{name: "connectors"}}})
+	require.NoError(t, err)
+	record := AgentToolCall{ToolName: "send", ToolSourceReference: ptr(`{"dex_tool_source": "connectors", "reference": null}`)}
+	execution := DeferredToolExecution{ToolCall: record, sourceCall: newToolSourceCall()}
+	require.PanicsWithValue(t, "defective source", func() {
+		_, _ = router.ExecuteDeferredToolCall(context.Background(), execution)
+	}, "the router does not recover the panic")
+	_, sourceErr, isSourceCall := execution.sourceCall.result(context.Background(), "send")
+	require.True(t, isSourceCall)
+	require.EqualError(t, sourceErr, "the tool source call of send panicked")
+
+	running := newToolSourceCall()
+	require.True(t, running.claim())
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, sourceErr, isSourceCall = running.result(ended, "send")
+	require.True(t, isSourceCall)
+	require.EqualError(t, sourceErr, "the tool source call of send did not finish before its tool Step attempt ended: context canceled")
+}
+
 func TestARouterRefusesNameCollisionsAndBadOptions(t *testing.T) {
 	t.Parallel()
 	first := declaringToolSource{&fakeToolSource{name: "a", tools: []SourceToolDefinition{tool("send")}}}

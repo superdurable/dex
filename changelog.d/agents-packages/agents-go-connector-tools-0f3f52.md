@@ -13,6 +13,14 @@ section: Connectors as tools in the Go core
   Call ID, idempotency key, and single-dispatch fence apply on every attempt.
   The source reads that Step from the new `DeferredToolExecution.StepContext`,
   so a runner may pass it a context derived from the Step's.
+- A Go runner routes a call that a tool source built first, through
+  `ToolSourceRouter.ExecuteDeferredToolCall`, once per tool Step attempt and
+  before the framework's tool node, tool middleware, and tool handlers, as the
+  Python and TypeScript adapters do. The session enforces it: a second router
+  call in one attempt runs no source, and the session records the source's
+  outcome and error, whatever the runner returns, so a retry middleware cannot
+  resend a write past its fence and an error handler cannot record an unknown
+  outcome as **succeeded**.
 - The arguments are checked against the `InputSchema` before the call, branches
   map as in the other cores (a success branch is **succeeded**, **uncertain**
   and a branch listed **unknown** are **outcome_unknown**, every other branch is

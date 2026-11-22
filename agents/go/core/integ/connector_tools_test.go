@@ -29,8 +29,31 @@ import (
 // connectorAgentFlowType is a built-in loop agent whose tools are fake-ledger Connector operations.
 const connectorAgentFlowType = "ConnectorAgent"
 
+// toolNodeConnectorAgentFlowType is the connector agent behind toolNodeMiddlewareRunner.
+const toolNodeConnectorAgentFlowType = "ToolNodeConnectorAgent"
+
 // newConnectorAgentFlow builds the connector agent around the provider files in coordinationDir.
 func newConnectorAgentFlow(coordinationDir string) (dex.Flow, error) {
+	return newLedgerAgentFlow(coordinationDir, connectorAgentFlowType,
+		func(runner *builtinloop.BuiltinLoopAgentRunner) dexagents.AgentFrameworkRunner {
+			return derivedContextRunner{runner}
+		})
+}
+
+// newToolNodeConnectorAgentFlow builds the connector agent whose runner runs source calls inside a tool node.
+func newToolNodeConnectorAgentFlow(coordinationDir string) (dex.Flow, error) {
+	return newLedgerAgentFlow(coordinationDir, toolNodeConnectorAgentFlowType,
+		func(runner *builtinloop.BuiltinLoopAgentRunner) dexagents.AgentFrameworkRunner {
+			return toolNodeMiddlewareRunner{runner}
+		})
+}
+
+// newLedgerAgentFlow builds a fake-ledger connector agent of flowType behind the runner that wrap returns.
+func newLedgerAgentFlow(
+	coordinationDir string,
+	flowType string,
+	wrap func(*builtinloop.BuiltinLoopAgentRunner) dexagents.AgentFrameworkRunner,
+) (dex.Flow, error) {
 	provider := fakeledger.NewProvider(coordinationDir)
 	getBalance, err := sdkgo.NewQueryAgentTool[fakeledger.GetBalanceInput, fakeledger.Balance](
 		fakeledger.GetBalance{Provider: provider}, fakeledger.Connection, fakeledger.GetBalanceMetadata())
@@ -88,8 +111,7 @@ func newConnectorAgentFlow(coordinationDir string) (dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
-	return dexagents.NewAgentSessionFlow(derivedContextRunner{builtinloop.NewBuiltinLoopAgentRunner(definition)},
-		connectorAgentFlowType)
+	return dexagents.NewAgentSessionFlow(wrap(builtinloop.NewBuiltinLoopAgentRunner(definition)), flowType)
 }
 
 // ledgerResultMaxBytes bounds getBalance's results, so a padded balance reaches the model truncated.
@@ -97,7 +119,7 @@ const ledgerResultMaxBytes = 256
 
 type derivedContextKey struct{}
 
-// derivedContextRunner passes tools a context derived from the Step's, as a framework's tool node does.
+// derivedContextRunner passes tools a context derived from the Step's, as a tracing span does.
 type derivedContextRunner struct {
 	*builtinloop.BuiltinLoopAgentRunner
 }
@@ -108,6 +130,31 @@ func (runner derivedContextRunner) ExecuteDeferredToolCall(
 ) (dexagents.DeferredToolOutcome, error) {
 	derived := context.WithValue(ctx, derivedContextKey{}, call.ToolCall.ToolCallID)
 	return runner.BuiltinLoopAgentRunner.ExecuteDeferredToolCall(derived, call)
+}
+
+// toolNodeMiddlewareInvocations is how many times toolNodeMiddlewareRunner's retry middleware runs a failing call.
+const toolNodeMiddlewareInvocations = 5
+
+// toolNodeMiddlewareRunner runs every call, source calls too, the way a framework's tool node with
+// middleware would: a retry middleware runs a failing call again within the attempt, and an error
+// handler then returns the error as result text. A runner must route source calls before such code.
+type toolNodeMiddlewareRunner struct {
+	*builtinloop.BuiltinLoopAgentRunner
+}
+
+func (runner toolNodeMiddlewareRunner) ExecuteDeferredToolCall(
+	ctx context.Context,
+	call dexagents.DeferredToolExecution,
+) (dexagents.DeferredToolOutcome, error) {
+	var err error
+	for invocation := 0; invocation < toolNodeMiddlewareInvocations; invocation++ {
+		var outcome dexagents.DeferredToolOutcome
+		outcome, err = runner.BuiltinLoopAgentRunner.ExecuteDeferredToolCall(ctx, call)
+		if err == nil {
+			return outcome, nil
+		}
+	}
+	return &dexagents.ToolExecutionResult{Output: "tool error: " + err.Error()}, nil
 }
 
 // ledgerAgent is the connector agent's scripted model.
@@ -220,8 +267,14 @@ func (stack *agentTestStack) finalAttempt(sessionID string, stepType string) int
 // heldTurnRecords reads the turn's final records at its held last model call; a finished turn deletes them.
 func (stack *agentTestStack) heldTurnRecords(sessionID string, gate string) map[string]dexagents.AgentToolCall {
 	stack.t.Helper()
+	return stack.heldTurnRecordsOf(connectorAgentFlowType, sessionID, gate)
+}
+
+// heldTurnRecordsOf is heldTurnRecords for a session of flowType.
+func (stack *agentTestStack) heldTurnRecordsOf(flowType string, sessionID string, gate string) map[string]dexagents.AgentToolCall {
+	stack.t.Helper()
 	stack.waitForMarker(gate + ".reached")
-	snapshot, err := stack.sessions(connectorAgentFlowType).GetAgentSnapshot(context.Background(), sessionID)
+	snapshot, err := stack.sessions(flowType).GetAgentSnapshot(context.Background(), sessionID)
 	require.NoError(stack.t, err)
 	records := map[string]dexagents.AgentToolCall{}
 	for _, record := range snapshot.ToolCalls {
@@ -539,6 +592,46 @@ func TestASingleAttemptConnectorWriteKilledMidCallSkipsTheLaterWrites(t *testing
 	require.Zero(t, stack.ledger().Calls("sendMessage"))
 	stack.waitForTurnCount(connectorAgentFlowType, "kill-note", 1)
 	require.Contains(t, stack.executedStepTypes("kill-note"), "RecordToolOutcomeUnknown")
+}
+
+// A runner that runs a limited write inside a retry middleware within one attempt sends no more
+// than the send cap allows across attempts, and an error handler around it cannot hide the outcome.
+func TestASourceCallRunsOncePerAttemptWhateverMiddlewareTheRunnerRunsItIn(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(toolNodeConnectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "node-lost", ptr("send lose-always hold-final:node-lost"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	record := stack.heldTurnRecordsOf(toolNodeConnectorAgentFlowType, "node-lost", "node-lost")["fake-ledger_send_message"]
+	snapshot := stack.waitForTurnCount(toolNodeConnectorAgentFlowType, "node-lost", 1)
+	require.Nil(t, snapshot.State.LastTurnError)
+	require.Equal(t, dexagents.ToolCallStatusOutcomeUnknown, record.Status)
+	require.Equal(t, "fake-ledger sendMessage returned uncertain: TRANSPORT: read-back found no message", *record.Error)
+	require.Equal(t, 3, stack.ledger().Sends("sendMessage"), "the send cap holds although the middleware ran the call again")
+	require.Equal(t, 4, stack.finalAttempt("node-lost", "CallSingleAttemptTool"))
+}
+
+// A single-attempt write whose outcome is unknown skips the later writes, although an error handler
+// in the runner turned its error into result text.
+func TestAnUnknownSourceOutcomeSkipsTheLaterWritesWhateverTheRunnersErrorHandlerReturns(t *testing.T) {
+	t.Parallel()
+	stack := newAgentTestStack(t)
+	stack.startWorker()
+	sessions := stack.sessions(toolNodeConnectorAgentFlowType)
+
+	_, err := sessions.StartSession(context.Background(), "node-note",
+		ptr("note retry | send after hold-final:node-note"), dex.StartFlowOptions{})
+	require.NoError(t, err)
+	records := stack.heldTurnRecordsOf(toolNodeConnectorAgentFlowType, "node-note", "node-note")
+	require.Equal(t, dexagents.ToolCallStatusOutcomeUnknown, records["fake-ledger_post_note"].Status)
+	require.True(t, records["fake-ledger_send_message"].Skipped)
+	require.Equal(t, dexagents.ToolCallStatusSucceeded, records["fake-ledger_get_balance"].Status)
+	require.Equal(t, 1, stack.ledger().Calls("postNote"), "the middleware's retries never reached the operation")
+	require.Zero(t, stack.ledger().Calls("sendMessage"), "the write after an unknown outcome never ran")
+	stack.waitForTurnCount(toolNodeConnectorAgentFlowType, "node-note", 1)
+	require.Contains(t, stack.executedStepTypes("node-note"), "RecordToolOutcomeUnknown")
 }
 
 func countOf(values []string, value string) int {

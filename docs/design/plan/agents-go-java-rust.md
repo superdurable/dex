@@ -188,8 +188,10 @@ will not get" stands.
   `DeferredToolCall.Ordered` with write ordering; `ToolPolicy.MaxSends`;
   `ToolOutcomeUnknownError`; `ToolExecutionResult.TruncatedOutputBytes`;
   `ToolCallStepOptions` with `ToolCallStepOptionsProvider`; and
-  `DeferredToolExecution.StepContext`, so a framework adapter may run a source
-  tool under a derived context;
+  `DeferredToolExecution.StepContext`, so a source reads its tool Step whatever
+  context it gets. A framework adapter routes a source call before its
+  framework's tool node and tool middleware, once per attempt, as the Python
+  and TypeScript adapters do, and the session records the source's result;
 - `builtinloop.WithToolSources`. A framework adapter serves sources through
   `ToolSourceRouter` the same way.
 

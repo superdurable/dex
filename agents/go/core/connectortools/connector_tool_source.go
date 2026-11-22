@@ -257,10 +257,13 @@ func (source *ConnectorToolSource) ToolCallStepOptions(toolCall dexagents.AgentT
 
 // ExecuteDeferredToolCall checks, decodes, and runs one call, then maps the selected branch.
 //
-// The operation runs with call.StepContext, the tool Step's dex.Context, so
-// ctx may be any context derived from it, such as one a framework's tool node
-// or a tracing span adds values to. When call.StepContext is nil, ctx itself
-// must be the tool Step's dex.Context. It returns the result value as JSON
+// A runner reaches it through dexagents.ToolSourceRouter.ExecuteDeferredToolCall,
+// once per tool Step attempt and before any framework tool code, and returns
+// its outcome and error unchanged: a second call in one attempt would start
+// the fence from the attempt's first checkpoint again. The operation runs with
+// call.StepContext, the tool Step's dex.Context, so ctx may be a context
+// derived from it, such as one a tracing span adds values to. When
+// call.StepContext is nil, ctx itself must be the tool Step's dex.Context. It returns the result value as JSON
 // text, bounded by the result bound. It returns a *dexagents.ToolExecutionError
 // when the arguments break the schema or do not decode, or the operation
 // selected a rejected or failed branch, and a *dexagents.ToolOutcomeUnknownError

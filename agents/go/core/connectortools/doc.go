@@ -11,7 +11,9 @@
 // Name each reviewed operation an agent may use with NewConnectorTool, which
 // takes the operation's sdkgo.AgentTool, and put the tools in a
 // ConnectorToolSource. Pass the source to builtinloop.WithToolSources, or to
-// a framework adapter that accepts dexagents.ToolSource values. The tool
+// a framework adapter that accepts dexagents.ToolSource values and routes
+// their calls through a dexagents.ToolSourceRouter, outside its framework's
+// tool code. The tool
 // name, description, argument schema, effect, and approval default come from
 // the operation's reviewed agent metadata, which connectorctl generates from
 // the connector's manifest. No Connector is exposed by default.
