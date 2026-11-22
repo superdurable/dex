@@ -74,7 +74,20 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
 | Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
-| Customer refund | [`CustomerRefundFlow`](src/products/customer_refund) | Manager approval through a Channel, a retried refund, and Time Travel; its own Worker and commands |
+| Customer refund | [`CustomerRefundFlow`](src/products/customer_refund/refund_flow.rs) | Manager approval through a Channel, a retried refund, and Time Travel; also its own Worker and commands |
+
+Customer refund routes on the shared server, which runs it in the normal billing mode:
+
+```text
+http://localhost:8080/products/customer-refund/manager-approval/start?scenario=normal
+http://localhost:8080/products/customer-refund/manager-approval/decide?flowId=<flowID>&decision=approve&reason=Outage%20confirmed
+http://localhost:8080/products/customer-refund/manager-approval/describe?flowId=<flowID>
+```
+
+`scenario` is `normal` (default), `fail-then-succeed`, `deny`, or `small`. `decide`
+returns 400 for a blank reason, 409 when the refund is not waiting for a manager or
+another decision holds the lock, and 404 once the run has closed. The fake ledgers
+live in `.customer-refund/`.
 
 ## Patterns
 
@@ -127,14 +140,15 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 8 + 23
+The catalog integration test constructs every Flow, checks the exact 9 + 23
 mapping and the 36 Workflow Patterns Flows, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
-Deal DSL, and Failure Recovery Flows through the published Rust SDK. It then
-runs the Workflow Patterns and customer refund tests.
+Deal DSL, Customer Refund, and Failure Recovery Flows through the published Rust SDK. It then
+runs the Workflow Patterns and customer refund tests. Each test environment keeps
+the customer refund ledgers in its own temporary directory.
 
 All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.

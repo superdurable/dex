@@ -12,8 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::Path;
+
+use dex_examples_rust::products::customer_refund::refund_config::BillingMode;
+use dex_examples_rust::products::customer_refund::refund_flow::CustomerRefundFlow;
+use dex_examples_rust::products::customer_refund::refund_worker::new_refund_flow;
 use dex_examples_rust::shared::PULL_REGISTRATION_TIMEOUT;
 use dex_sdk::Worker;
+
+const REFUND_BILLING_LEDGER_FILE: &str = "billing-refunds.json";
+const REFUND_EMAIL_LEDGER_FILE: &str = "sent-emails.json";
+
+/// Keeps the refund ledgers in a per-test directory so test binaries stay parallel-safe.
+pub(crate) fn new_temporary_refund_flow(ledger_directory: &Path) -> CustomerRefundFlow {
+    new_refund_flow(
+        BillingMode::Normal,
+        ledger_directory.join(REFUND_BILLING_LEDGER_FILE),
+        ledger_directory.join(REFUND_EMAIL_LEDGER_FILE),
+    )
+}
 
 pub(crate) fn await_pull_registration(worker: &Worker) {
     let runtime = tokio::runtime::Builder::new_current_thread()

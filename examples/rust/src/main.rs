@@ -20,6 +20,10 @@ use std::sync::Arc;
 use std::thread;
 
 use dex_examples_rust::patterns::polling::FakeJobService;
+use dex_examples_rust::products::customer_refund::billing_service::DEFAULT_BILLING_LEDGER;
+use dex_examples_rust::products::customer_refund::email_service::DEFAULT_EMAIL_LEDGER;
+use dex_examples_rust::products::customer_refund::refund_config::BillingMode;
+use dex_examples_rust::products::customer_refund::refund_worker::new_refund_flow;
 use dex_examples_rust::server::build_router;
 use dex_examples_rust::shared::{PULL_REGISTRATION_TIMEOUT, example_pull_worker_options};
 use dex_examples_rust::{create_example_registry, create_worker_registry};
@@ -35,13 +39,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         10_000,
     )?)?);
     let polling_jobs = Arc::new(FakeJobService::default());
+    let customer_refund_flow = new_refund_flow(
+        BillingMode::Normal,
+        DEFAULT_BILLING_LEDGER,
+        DEFAULT_EMAIL_LEDGER,
+    );
     let client = Arc::new(Client::try_new(
-        create_example_registry(Arc::clone(&polling_jobs))?,
+        create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())?,
         Arc::clone(&cache),
         ClientOptions::new().server_address(config.server_address.clone()),
     )?);
     let worker = Arc::new(Worker::try_new(
-        create_worker_registry(Arc::clone(&client), Arc::clone(&polling_jobs))?,
+        create_worker_registry(
+            Arc::clone(&client),
+            Arc::clone(&polling_jobs),
+            customer_refund_flow.clone(),
+        )?,
         Arc::clone(&cache),
         WorkerOptions::new()
             .server_address(&config.server_address)
@@ -57,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(error);
     }
 
-    let router = build_router(client, polling_jobs);
+    let router = build_router(client, polling_jobs, customer_refund_flow);
     let listener = tokio::net::TcpListener::bind(&config.http_address).await?;
     println!(
         "Dex Rust examples listening on http://{} (pull Worker)",

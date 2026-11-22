@@ -21,10 +21,19 @@ use crate::patterns;
 use crate::patterns::polling::FakeJobService;
 use crate::primitives;
 use crate::products;
+use crate::products::customer_refund::refund_flow::CustomerRefundFlow;
 use crate::server::helpers::SharedClient;
 
-pub fn build_router(client: SharedClient, polling_jobs: Arc<FakeJobService>) -> axum::Router {
+pub fn build_router(
+    client: SharedClient,
+    polling_jobs: Arc<FakeJobService>,
+    customer_refund_flow: CustomerRefundFlow,
+) -> axum::Router {
     axum::Router::new()
+        .merge(products::customer_refund::controller::mount(
+            client.clone(),
+            customer_refund_flow,
+        ))
         .merge(products::engagement::controller::mount(client.clone()))
         .merge(products::job_post::controller::mount(client.clone()))
         .merge(products::microservices::controller::mount(client.clone()))
