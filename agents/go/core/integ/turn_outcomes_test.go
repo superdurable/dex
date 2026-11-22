@@ -172,8 +172,7 @@ func eventTypesOfTurn(events []dexagents.AgentEvent, turnID string) []string {
 	return types
 }
 
-// TurnCompleted.TurnError ends the turn as failed in RunModel: the answer and usage are stored, no
-// retry or RecordTurnFailure runs, turn_failed replaces turn_completed, and the next turn clears it.
+// TurnCompleted.TurnError stores the answer and usage, writes turn_failed, runs no retry, and the next turn clears it.
 func TestTurnErrorEndsTheTurnAsFailedWithoutARetry(t *testing.T) {
 	t.Parallel()
 	stack, runner := newOutcomeAgentStack(t)
@@ -213,8 +212,7 @@ func TestTurnErrorEndsTheTurnAsFailedWithoutARetry(t *testing.T) {
 	}
 }
 
-// An outcome that the session must not store fails its turn in RunModel, with no paid retry and
-// nothing of it stored but its usage, and the session keeps working.
+// An outcome the session must not store fails its turn at once, storing only its usage.
 func TestOutcomeTheSessionMustNotStoreFailsTheTurnAtOnce(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {

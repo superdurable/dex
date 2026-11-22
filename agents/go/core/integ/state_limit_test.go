@@ -70,9 +70,7 @@ func (counts *stateLimitCounts) toolRunCount(toolName string) int {
 	return counts.toolRuns[toolName]
 }
 
-// newStateLimitAgentStack serves a built-in loop agent on an engine whose limits.maxFlowStateBytes is
-// stateLimitBytes. "pad <n>" answers n characters, and "call <tool> <n>" calls the read tool bulk or
-// the single-attempt write bulk_write, which returns n characters.
+// newStateLimitAgentStack serves an agent whose "pad <n>" answer or "call <tool> <n>" tool result has n characters.
 func newStateLimitAgentStack(t *testing.T) (*agentTestStack, *stateLimitCounts) {
 	t.Helper()
 	stack := newAgentTestStackWithServerZDConfig(t, fmt.Sprintf(
@@ -180,8 +178,7 @@ func (stack *agentTestStack) requireFailedSession(sessionID string, reason strin
 	return snapshot
 }
 
-// A model answer that would carry the session past limits.maxFlowStateBytes ends the session in
-// RecordTurnFailure with the reason, instead of failing every later turn. Queued messages stay queued.
+// A model answer over limits.maxFlowStateBytes ends the session in RecordTurnFailure; queued messages stay queued.
 func TestAModelAnswerOverTheStateLimitFailsTheSession(t *testing.T) {
 	t.Parallel()
 	stack, counts := newStateLimitAgentStack(t)
@@ -201,14 +198,13 @@ func TestAModelAnswerOverTheStateLimitFailsTheSession(t *testing.T) {
 	require.Contains(t, stack.executedStepTypes("answer"), "RecordTurnFailure")
 	turnCount := int(snapshot.State.TurnCount)
 	require.GreaterOrEqual(t, turnCount, 2, "the first answer fits")
-	// Only the one paid model call over the limit was lost; the session did not go on to the queued messages.
+	// Only the model call over the limit was lost, and no queued message ran.
 	require.Equal(t, turnCount, counts.modelCallCount())
 	require.Equal(t, queued[turnCount:], queuedTexts(snapshot))
 	require.Equal(t, int64(len(queued)-turnCount), snapshot.QueuedMessageCount)
 }
 
-// A tool result that would carry the session past the limit ends the session in the tool Step's
-// failure route; the model never sees a failed call it could make again.
+// A tool result over the limit ends the session in the tool Step's failure route.
 func TestAToolResultOverTheStateLimitFailsTheSession(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct{ toolName, recoveryStep string }{

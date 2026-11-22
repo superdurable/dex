@@ -133,8 +133,7 @@ const (
 	recoveryRetryMaximumInterval = 5 * time.Second
 )
 
-// server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and
-// text: "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ...".
+// server-zd fails a Step whose commit passes limits.maxFlowStateBytes with this type and detail text.
 const (
 	stateLimitErrorType = "ValueTooLarge"
 	stateLimitErrorText = "run state of "
@@ -1476,7 +1475,7 @@ func (flow *AgentSessionFlow) failTurnForRunnerDefect(
 	usage AgentUsage,
 	defect string,
 ) error {
-	// A retry would only repeat the paid model call.
+	// A runner defect: a retry would only repeat the paid model call.
 	if err := flow.recordUsage(ctx, events, usage); err != nil {
 		return err
 	}
@@ -1958,10 +1957,7 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 	return nil
 }
 
-// recordFailedSession records a session that reached the state limit, for the Step's ForceFail.
-//
-// This commit is checked against the same limit, so it stores no turn messages and keeps the turn's
-// records. When it does not fit, Dex fails the Flow with the same text and AgentState stays as it was.
+// recordFailedSession commits a session at the state limit as failed, storing no turn messages, which would not fit.
 func (flow *AgentSessionFlow) recordFailedSession(ctx dex.Context, errorText string) error {
 	state, err := requireAgentState(ctx)
 	if err != nil {
