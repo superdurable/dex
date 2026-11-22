@@ -1,0 +1,91 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
+
+// Package ordersupport is the order support agent on Eino as a durable Dex agent session, with its HTTP routes.
+package ordersupport
+
+import (
+	"context"
+
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/cloudwego/eino/compose"
+	dexagents "github.com/superdurable/dex/agents/go/core"
+	dexeino "github.com/superdurable/dex/agents/go/eino"
+
+	"github.com/superdurable/dex/examples/go/agent-harnesses/orderdesk"
+)
+
+// EinoOrderSupportFlowType is the Flow type of the order support agent on Eino.
+const EinoOrderSupportFlowType = "EinoOrderSupport"
+
+type lookUpOrderInput struct {
+	OrderID string `json:"order_id" jsonschema:"description=The order ID, such as 1001"`
+}
+
+type cancelOrderInput struct {
+	OrderID string `json:"order_id" jsonschema:"description=The order ID, such as 1002"`
+	Reason  string `json:"reason" jsonschema:"description=Why the customer cancels the order"`
+}
+
+// NewEinoOrderSupportFlow returns the order support agent on Eino as a durable Dex agent session.
+//
+// toolSources offers more tools beside look_up_order and cancel_order, such
+// as the Slack Connector tool of NewSlackToolSources. It returns an error when
+// a tool or the session Flow cannot be built.
+func NewEinoOrderSupportFlow(
+	orderDesk *orderdesk.OrderDesk, chatModel model.ToolCallingChatModel, toolSources []dexagents.ToolSource,
+) (*dexagents.AgentSessionFlow, error) {
+	lookUpOrder, err := utils.InferTool("look_up_order",
+		"Look up one order by its order ID and return its items and status.",
+		func(ctx context.Context, input lookUpOrderInput) (string, error) {
+			return orderDesk.DescribeOrder(ctx, input.OrderID)
+		})
+	if err != nil {
+		return nil, err
+	}
+	cancelOrder, err := utils.InferTool("cancel_order", "Cancel one order that has not shipped yet.",
+		func(ctx context.Context, input cancelOrderInput) (string, error) {
+			return orderDesk.CancelOrder(ctx, input.OrderID, input.Reason)
+		})
+	if err != nil {
+		return nil, err
+	}
+	config := &adk.ChatModelAgentConfig{
+		Name:        "order_support",
+		Description: "Answers questions about orders and cancels them.",
+		Instruction: orderdesk.OrderSupportInstructions,
+		Model:       chatModel,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools: []tool.BaseTool{lookUpOrder, cancelOrder},
+		}},
+	}
+	return dexeino.NewAgentSessionFlow(config, EinoOrderSupportFlowType,
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+			"look_up_order": dexagents.ToolEffectRead,
+			// Not safe to repeat, so Dex asks for approval first and runs it at most once.
+			"cancel_order": dexagents.ToolEffectNonIdempotentWrite,
+		}),
+		dexeino.WithToolSources(toolSources...))
+}

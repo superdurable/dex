@@ -140,6 +140,61 @@ jobs:
           GOWORK: "off"
         run: docker build -t dex-codec-server:ci .
 
+  agent-harnesses:
+    name: Agent harnesses build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/go/agent-harnesses
+    steps:
+      - uses: actions/checkout@v7
+      # Its own module: the Dex Agents Go modules need a newer Go than the other Go examples.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: examples/go/agent-harnesses/go.mod
+          cache-dependency-path: examples/go/agent-harnesses/go.sum
+      - name: Verify agent harnesses released module dependencies
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          go mod verify
+          for module in \
+            github.com/superdurable/dex/agents/go/core \
+            github.com/superdurable/dex/agents/go/eino \
+            github.com/superdurable/dex/sdk-go \
+            github.com/superdurable/dex/blob-cache-go \
+            github.com/superdurable/dex-connectors-library/sdkgo \
+            github.com/superdurable/dex-connectors-library/connectors/slack/go \
+            github.com/cloudwego/eino; do
+            required_version="$(go mod edit -json | jq -r --arg module "$module" '.Require[] | select(.Path == $module) | .Version')"
+            resolved_version="$(go list -m -f '{{.Version}}' "$module")"
+            replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"
+            if [[ -z "$required_version" ]]; then
+              echo "::error::Agent harnesses $module must be a direct dependency"
+              exit 1
+            fi
+            if [[ -n "$replacement" ]]; then
+              echo "::error::Agent harnesses $module must use a released version, not $replacement"
+              exit 1
+            fi
+            if [[ "$resolved_version" != "$required_version" ]]; then
+              echo "::error::Agent harnesses $module resolves to $resolved_version, expected $required_version"
+              exit 1
+            fi
+          done
+      - name: Check agent harnesses formatting
+        run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }
+      - name: Build, vet, and test agent harnesses without Dex
+        env:
+          GOWORK: "off"
+          # The tests that need a Dex server run in the end-to-end job.
+          DEX_EXAMPLES_ALLOW_SKIP: "1"
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race -count=1 ./...
+
   e2e:
     name: End-to-end tests (pull, zd)
     runs-on: ubuntu-latest
@@ -173,7 +228,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: examples/go/go.sum
+          cache-dependency-path: |
+            examples/go/go.sum
+            examples/go/agent-harnesses/go.sum
       - uses: actions/setup-node@v6
         with:
           node-version: 22

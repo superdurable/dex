@@ -176,10 +176,14 @@ integ_status=0
 env "${common_test_env[@]}" \
   go test -count=1 -race -v ./integ ${test_args[@]+"${test_args[@]}"} || integ_status=$?
 
-# The Quick Start is its own module. Its test does not match the integ test arguments.
+# The Quick Start and the agent harnesses are their own modules. Their tests do not match the integ test arguments.
 if ((${#test_args[@]} == 0)); then
   (
     cd "$script_dir/quick-start"
+    env "${common_test_env[@]}" go test -count=1 -race -v ./...
+  ) || integ_status=$?
+  (
+    cd "$script_dir/agent-harnesses"
     env "${common_test_env[@]}" go test -count=1 -race -v ./...
   ) || integ_status=$?
 fi
