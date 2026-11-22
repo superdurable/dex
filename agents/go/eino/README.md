@@ -229,7 +229,8 @@ and may set `RequiresApproval`.
 | `unclassified` | `CallSingleAttemptTool` | One attempt; then `outcome_unknown` | Outcome unknown | Yes |
 
 A tool that a Handler adds in `BeforeAgent`, such as a filesystem or plan
-middleware tool, is not known at construction. It gets its effect from
+middleware tool, or a tool search middleware tool that the model is offered
+as a deferred tool, is not known at construction. It gets its effect from
 `WithToolPolicies` or `WithToolEffects` by name, then from its own
 `DexToolEffect` method, or else the default effect, `unclassified` unless you
 set one. To find the tool, the adapter calls the Handlers' `BeforeAgent`
@@ -407,6 +408,7 @@ its single tool call or result, when it has one.
 | `ModelFailoverConfig` | Choose the model per call with an `AgentConfigBuilder`. Refused at construction |
 | Sub-agents and `transfer_to_agent`, supervisor, plan-execute | Not supported: they make several model calls in one Step. Wrap a sub-agent as a tool instead |
 | `ToolsConfig.ReturnDirectly`, `Exit` | Refused at construction |
+| `ToolsConfig.ExecuteSequentially` | Refused at construction: the tool calls of one model response run as parallel Steps |
 | Summarization middleware, and the v0.10 automemory and dream middlewares | Refused at construction: they make their own model calls |
 | `UnknownToolsHandler` | Replaced by the adapter's, which answers `unknown tool <name>` |
 | Eino's tool event sender | `AgentEvents`; the session writes tool call events |
@@ -417,8 +419,9 @@ its single tool call or result, when it has one.
    building an agent and a `Runner`. Drop `CheckPointStore`, `TurnLoop`, and
    `WithCheckPointID`.
 2. Give every tool an effect.
-3. Remove `ModelRetryConfig` and `ModelFailoverConfig`. Turn off retries in the
-   model client where it has them: set Ark's `RetryTimes` to 0. The eino-ext
+3. Remove `ModelRetryConfig`, `ModelFailoverConfig`, and
+   `ToolsConfig.ExecuteSequentially`. Turn off retries in the model client
+   where it has them: set Ark's `RetryTimes` to 0. The eino-ext
    Claude client retries twice inside its SDK and has no setting to stop it, so
    one `RunModel` attempt may send up to three requests.
 4. Replace Eino human-in-the-loop interrupts with Dex approvals.
@@ -442,8 +445,15 @@ its single tool call or result, when it has one.
   `Extra` come back as JSON maps. Handlers that run after the model call, and
   the rest of the Eino run, already see the model's message that way, because
   Eino copies the run state with a serializer that refuses unregistered types.
+  Dex stores text tool results, so a result part that is not text reaches the
+  model as a placeholder. One such part is the result of the `tool_search`
+  tool in the tool search middleware's native mode
+  (`UseModelToolSearch: true`); the deferred tools that the model's own search
+  finds still run, each with its effect.
 - **Tools must be safe for concurrent use**, because the calls of one model
-  response run as parallel Steps, possibly in one Worker.
+  response run as parallel Steps, possibly in one Worker, in any order. For
+  this reason `ToolsConfig.ExecuteSequentially` refuses to build. When one call
+  needs another's result, let the model make them in separate responses.
 - **Go core gaps.** The adapter runs on the Go core, which has no steering or
   `cancel_turn`, questions or tool input requests, compaction, the MCP tool
   source, tool tasks, images, plans, GenAI spans, `ModelCallMetadata`, or an

@@ -231,7 +231,9 @@ Connectors as tools (the decision above) and the adapter itself.
   history.
 - **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
   `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, the
-  v0.10 automemory and dream middlewares, and any tool without a Dex effect.
+  v0.10 automemory and dream middlewares, `ToolsConfig.ExecuteSequentially`
+  (the tool calls of one model response run as parallel Steps), and any tool
+  without a Dex effect.
   A model wrapper that tries a second model call ends the turn as failed with
   `TurnCompleted.TurnError`, with the one call billed and no paid retry.
 - **Connectors as tools:** `dexeino.WithToolSources` offers a tool source's

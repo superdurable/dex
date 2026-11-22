@@ -13,8 +13,10 @@ section: Eino adapter
   where `compose.GetToolCallID` and `ToolCallContextFrom` work. Every tool
   needs a Dex effect (`WithToolEffects`, `WithToolPolicies`,
   `ToolEffectDeclarer`, or `WithDefaultToolEffect`). Construction refuses
-  `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`, `ReturnDirectly`, and the
-  summarization, automemory, and dream middlewares. A stop that a retry would repeat, such as a second
+  `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`, `ReturnDirectly`, the
+  summarization, automemory, and dream middlewares, and
+  `ToolsConfig.ExecuteSequentially`, because the tool calls of one model
+  response run as parallel Steps. A stop that a retry would repeat, such as a second
   model call in one Step or a turn at `MaxIterations`, ends the turn as failed
   with `TurnCompleted.TurnError`, with no paid retry. `WithToolSources` offers a
   tool source's tools, such as Connectors as tools from

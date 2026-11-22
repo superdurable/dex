@@ -49,7 +49,8 @@
 // configurations that would make more than one model call in a Step or run a
 // tool inside RunModel: ModelRetryConfig, ModelFailoverConfig, Exit,
 // ToolsConfig.ReturnDirectly, and the summarization, automemory, and dream
-// middlewares. A stop that
+// middlewares. It also refuses ToolsConfig.ExecuteSequentially, because Dex
+// runs the tool calls of one model response as parallel Steps. A stop that
 // a retry would repeat, such as a second model call in one Step, ends the turn
 // as failed with dexagents.TurnCompleted.TurnError.
 //

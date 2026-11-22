@@ -139,7 +139,9 @@ type runState struct {
 // tools share a name, when the configuration makes more than one model call
 // in a Step or runs a tool inside RunModel (ModelRetryConfig,
 // ModelFailoverConfig, Exit, ToolsConfig.ReturnDirectly, and the
-// summarization, automemory, and dream middlewares are refused), or when the
+// summarization, automemory, and dream middlewares are refused), when it sets
+// ToolsConfig.ExecuteSequentially, which Dex cannot honor because it runs the
+// tool calls of one model response as parallel Steps, or when the
 // WithToolSources sources are refused (see WithToolSources). Since 0.6.16.
 func NewRunner(config *adk.ChatModelAgentConfig, options ...Option) (*Runner, error) {
 	if config == nil {
@@ -606,7 +608,8 @@ func (runner *Runner) checkModelCallConfiguration(ctx context.Context, config *a
 	return tools, nil
 }
 
-// refuseUnsupportedConfig returns an error for a configuration that would make several model calls in a Step or run a tool there.
+// refuseUnsupportedConfig returns an error for a configuration that would make several model calls in a Step or run a tool there,
+// or that asks for a tool call order Dex does not keep.
 func refuseUnsupportedConfig(config *agentConfig) error {
 	agent := config.agent
 	switch {
@@ -620,6 +623,9 @@ func refuseUnsupportedConfig(config *agentConfig) error {
 			"or choose the model per call with an AgentConfigBuilder")
 	case agent.Exit != nil:
 		return errors.New("an Exit tool ends the agent without a model answer; Dex Step mode does not support it")
+	case agent.ToolsConfig.ExecuteSequentially:
+		return errors.New("ToolsConfig.ExecuteSequentially runs the tool calls of one model response in order, " +
+			"but Dex runs them as parallel Steps; remove it, and keep tools safe to run in any order")
 	}
 	for toolName, isReturnDirectly := range agent.ToolsConfig.ReturnDirectly {
 		if isReturnDirectly {

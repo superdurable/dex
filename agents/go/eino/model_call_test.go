@@ -561,14 +561,18 @@ func TestModelAPIErrorWithoutACauseNamesItsStatus(t *testing.T) {
 // before any model call, as an unsupported setting does.
 func TestRefusedBuilderToolsEndTheTurnAsFailed(t *testing.T) {
 	for name, testCase := range map[string]struct {
-		tools    []tool.BaseTool
-		aliases  map[string]compose.ToolAliasConfig
-		expected string
+		tools               []tool.BaseTool
+		aliases             map[string]compose.ToolAliasConfig
+		executeSequentially bool
+		expected            string
 	}{
-		"two tools of one name": {[]tool.BaseTool{noopTool("lookup"), noopTool("lookup")}, nil, `two tools are named "lookup"`},
+		"two tools of one name": {[]tool.BaseTool{noopTool("lookup"), noopTool("lookup")}, nil, false, `two tools are named "lookup"`},
 		"an alias of another tool": {[]tool.BaseTool{noopTool("lookup"), noopTool("refund")},
-			map[string]compose.ToolAliasConfig{"lookup": {NameAliases: []string{"refund"}}}, `"refund" of "lookup" is the name of another tool`},
-		"a tool without an effect": {[]tool.BaseTool{noopTool("lookup"), noopTool("refund")}, nil, `tool "refund" has no Dex effect`},
+			map[string]compose.ToolAliasConfig{"lookup": {NameAliases: []string{"refund"}}}, false,
+			`"refund" of "lookup" is the name of another tool`},
+		"a tool without an effect": {[]tool.BaseTool{noopTool("lookup"), noopTool("refund")}, nil, false,
+			`tool "refund" has no Dex effect`},
+		"tool calls in order": {[]tool.BaseTool{noopTool("lookup")}, nil, true, "ExecuteSequentially"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			scripted := echoModel()
@@ -578,6 +582,7 @@ func TestRefusedBuilderToolsEndTheTurnAsFailed(t *testing.T) {
 				if build.Purpose == dexeino.BuildPurposeModelCall {
 					config.ToolsConfig = toolsConfig(testCase.tools...)
 					config.ToolsConfig.ToolAliases = testCase.aliases
+					config.ToolsConfig.ExecuteSequentially = testCase.executeSequentially
 				}
 				return config, nil
 			}, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"lookup": dexagents.ToolEffectRead}))

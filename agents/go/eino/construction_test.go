@@ -78,6 +78,11 @@ func TestConstructionRefusesUnsupportedConfigurations(t *testing.T) {
 			config.ToolsConfig.ReturnDirectly = map[string]bool{"lookup": true}
 			return config
 		}, []dexeino.Option{effects}, "ReturnDirectly"},
+		"execute sequentially": {func() *adk.ChatModelAgentConfig {
+			config := base()
+			config.ToolsConfig.ExecuteSequentially = true
+			return config
+		}, []dexeino.Option{effects}, "ExecuteSequentially runs the tool calls of one model response in order"},
 		"summarization": {func() *adk.ChatModelAgentConfig {
 			config := base()
 			config.Handlers = []adk.ChatModelAgentMiddleware{&summarization.TypedMiddleware[*schema.Message]{}}

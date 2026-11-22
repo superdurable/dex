@@ -128,7 +128,10 @@ func (run *modelCallRun) beginModelCall(options []model.Option) bool {
 		return false
 	}
 	run.modelCalls++
-	for _, info := range model.GetCommonOptions(&model.Options{}, options...).Tools {
+	common := model.GetCommonOptions(&model.Options{}, options...)
+	// The tool search middleware offers tools as deferred tools and as the tool search tool, too.
+	offered := append(slices.Clone(common.Tools), common.DeferredTools...)
+	for _, info := range append(offered, common.ToolSearchTool) {
 		if info != nil {
 			run.offeredTools[info.Name] = true
 		}
