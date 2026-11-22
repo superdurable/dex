@@ -176,5 +176,18 @@ jobs:
               echo "@superdurable/${package}@${RELEASE_VERSION} is already published"
               continue
             fi
-            npm publish "${tarball}" --access public --provenance --tag "${DIST_TAG}"
+            if npm publish "${tarball}" --access public --provenance --tag "${DIST_TAG}"; then
+              continue
+            fi
+            # npm can stage a version and still fail the request, as a retried upload that
+            # gets 409 "previously staged version" does. Wait for the staged version to appear.
+            for _ in $(seq 1 30); do
+              if npm view "@superdurable/${package}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+                echo "@superdurable/${package}@${RELEASE_VERSION} is published although npm publish failed"
+                continue 2
+              fi
+              sleep 10
+            done
+            echo "@superdurable/${package}@${RELEASE_VERSION} did not publish" >&2
+            exit 1
           done
