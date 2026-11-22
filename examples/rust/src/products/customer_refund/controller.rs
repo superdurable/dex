@@ -112,7 +112,8 @@ async fn start_refund(
             WaitForStepCompletionOptions::new().request_timeout(START_READY_TIMEOUT),
         ) {
             // A small or denied refund can close before the wait begins; it passed CheckPolicy.
-            Ok(()) | Err(SdkError::FlowNotActiveOrNotFound { .. }) => {}
+            Ok(())
+            | Err(SdkError::FlowNotActiveOrNotFound { .. } | SdkError::FlowClosing { .. }) => {}
             Err(error) => return Err(error),
         }
         Ok(StartResponse { flow_id, run_id })
