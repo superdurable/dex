@@ -21,14 +21,18 @@
 package managerapproval
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
+
+const refundNotFoundMessage = "no refund with this Flow ID"
 
 type controller struct {
 	client *dex.Client
@@ -45,7 +49,10 @@ func RegisterRoutes(router gin.IRouter, client *dex.Client, flow *ManagerApprova
 }
 
 func (controller *controller) start(request *gin.Context) {
-	scenario := request.DefaultQuery("scenario", "normal")
+	scenario := request.Query("scenario")
+	if scenario == "" {
+		scenario = "normal"
+	}
 	input, found := ScenarioRequest(scenario)
 	if !found {
 		request.JSON(http.StatusBadRequest, gin.H{
@@ -58,8 +65,28 @@ func (controller *controller) start(request *gin.Context) {
 		flowID = httputil.NewFlowID("customer-refund")
 	}
 	runID, err := controller.client.StartFlow(
-		request.Request.Context(), controller.flow, flowID, input, dex.StartFlowOptions{},
+		request.Request.Context(), controller.flow, flowID, input,
+		dex.StartFlowOptions{IDReusePolicy: dex.IDReuseDisallow},
 	)
+	var alreadyStarted *dex.FlowAlreadyStartedError
+	if errors.As(err, &alreadyStarted) {
+		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 10*time.Second)
+	defer cancelWait()
+	err = controller.client.WaitForStepCompletion(
+		waitContext, flowID, dex.StepExecutionID{StepType: dex.GetFinalStepType(CheckPolicy{})},
+		dex.WaitForStepCompletionOptions{},
+	)
+	var inactive *dex.FlowNotActiveOrNotFoundError
+	if errors.As(err, &inactive) {
+		err = nil
+	}
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }
 
@@ -69,7 +96,8 @@ func (controller *controller) decide(request *gin.Context) {
 		return
 	}
 	var rpc func(dex.Context, DecisionReason) (*dex.RPCResult[dex.None], error)
-	switch decision := request.Query("decision"); decision {
+	decision := request.Query("decision")
+	switch decision {
 	case "approve":
 		rpc = controller.flow.ApproveRefund
 	case "reject":
@@ -83,6 +111,9 @@ func (controller *controller) decide(request *gin.Context) {
 		request.JSON(http.StatusBadRequest, gin.H{"error": reasonRequiredMessage})
 		return
 	}
+	if _, found := controller.describeRefund(request, flowID); !found {
+		return
+	}
 	err := controller.client.InvokeRPC(
 		request.Request.Context(), flowID, rpc, DecisionReason{Reason: reason}, nil,
 	)
@@ -90,21 +121,25 @@ func (controller *controller) decide(request *gin.Context) {
 		respondDecisionError(request, err)
 		return
 	}
-	httputil.Respond(request, gin.H{"flowID": flowID, "decision": request.Query("decision")}, nil)
+	httputil.Respond(request, gin.H{"flowID": flowID, "decision": decision}, nil)
 }
 
 // respondDecisionError maps a refused decision to 4xx and leaves other failures 500.
 func respondDecisionError(request *gin.Context, err error) {
 	var refused *dex.WorkerInvocationError
 	var lockConflict *dex.RPCLockConflictError
+	var closing *dex.FlowClosingError
 	var unavailable *dex.FlowNotActiveOrNotFoundError
+	var notFound *dex.FlowNotFoundError
 	switch {
-	case errors.As(err, &refused) && refused.Worker != nil:
+	case errors.As(err, &refused) && refused.Worker != nil && refused.Worker.Type == notAwaitingManagerErrorType:
 		request.JSON(http.StatusConflict, gin.H{"error": refused.Worker.Detail})
 	case errors.As(err, &lockConflict):
 		request.JSON(http.StatusConflict, gin.H{"error": "another decision on this refund is in progress"})
-	case errors.As(err, &unavailable):
-		request.JSON(http.StatusNotFound, gin.H{"error": "no running refund with this Flow ID"})
+	case errors.As(err, &closing):
+		request.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.As(err, &unavailable), errors.As(err, &notFound):
+		request.JSON(http.StatusNotFound, gin.H{"error": refundNotFoundMessage})
 	default:
 		httputil.Respond(request, nil, err)
 	}
@@ -115,27 +150,48 @@ func (controller *controller) describe(request *gin.Context) {
 	if !found {
 		return
 	}
-	ctx := request.Request.Context()
-	info, err := controller.client.DescribeFlow(ctx, flowID)
-	var notFound *dex.FlowNotFoundError
-	if errors.As(err, &notFound) {
-		request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	if err != nil {
-		httputil.Respond(request, nil, err)
+	info, found := controller.describeRefund(request, flowID)
+	if !found {
 		return
 	}
 	var caseStatus, refundID string
-	_, err = controller.client.GetAttributes(
-		ctx, flowID, dex.ReadAttribute(CaseStatus, &caseStatus), dex.ReadAttribute(RefundID, &refundID),
+	attributes, err := controller.client.GetAttributes(
+		request.Request.Context(), flowID, dex.ReadAttribute(CaseStatus, &caseStatus), dex.ReadAttribute(RefundID, &refundID),
 	)
+	var notFound *dex.FlowNotFoundError
+	if errors.As(err, &notFound) {
+		request.JSON(http.StatusNotFound, gin.H{"error": refundNotFoundMessage})
+		return
+	}
 	httputil.Respond(request, gin.H{
 		"flowID":     flowID,
 		"status":     info.Status.String(),
-		"caseStatus": caseStatus,
-		"refundId":   refundID,
+		"caseStatus": optionalRefundAttribute(caseStatus, attributes.IsSet(CaseStatus)),
+		"refundId":   optionalRefundAttribute(refundID, attributes.IsSet(RefundID)),
 	}, err)
+}
+
+func (controller *controller) describeRefund(request *gin.Context, flowID string) (dex.FlowInfo, bool) {
+	info, err := controller.client.DescribeFlow(request.Request.Context(), flowID)
+	var notFound *dex.FlowNotFoundError
+	switch {
+	case errors.As(err, &notFound):
+		request.JSON(http.StatusNotFound, gin.H{"error": refundNotFoundMessage})
+	case err != nil:
+		httputil.Respond(request, nil, err)
+	case info.FlowType != dex.GetFinalFlowType(controller.flow):
+		request.JSON(http.StatusNotFound, gin.H{"error": refundNotFoundMessage})
+	default:
+		return info, true
+	}
+	return dex.FlowInfo{}, false
+}
+
+func optionalRefundAttribute(value string, isSet bool) any {
+	if !isSet {
+		return nil
+	}
+	return value
 }
 
 // optionalFlowID reads the Flow ID from flowId, or from its alias workflowId.

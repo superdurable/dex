@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -117,7 +118,11 @@ func (ledger *RefundLedger) updateRows(change func(rows *ledgerRows) bool) error
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer func() {
+		if err := unlock(); err != nil {
+			slog.Error("release refund ledger lock", "error", err)
+		}
+	}()
 	path := filepath.Join(ledger.directory, ledgerFileName)
 	var rows ledgerRows
 	contents, err := os.ReadFile(path)
@@ -130,10 +135,20 @@ func (ledger *RefundLedger) updateRows(change func(rows *ledgerRows) bool) error
 			return fmt.Errorf("decode ledger %s: %w", path, err)
 		}
 	}
-	if !change(&rows) {
-		return nil
+	if change(&rows) {
+		if err := writeLedgerAtomically(path, rows); err != nil {
+			return err
+		}
 	}
-	return writeLedgerAtomically(path, rows)
+	// A retry may find a renamed ledger whose directory sync failed.
+	directory, err := os.Open(ledger.directory)
+	if err != nil {
+		return fmt.Errorf("open ledger directory: %w", err)
+	}
+	if err := errors.Join(directory.Sync(), directory.Close()); err != nil {
+		return fmt.Errorf("sync ledger directory: %w", err)
+	}
+	return nil
 }
 
 // writeLedgerAtomically renames a complete temporary file, so readers never see half a ledger.

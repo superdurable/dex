@@ -38,7 +38,6 @@ import (
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
-	"github.com/superdurable/dex/examples/go/products/customer-refund/managerapproval"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -140,7 +139,6 @@ func newVerifyClient() (*dex.Client, func(), error) {
 	flows := registry.New(
 		service.NewMyService(),
 		func() *dex.Client { return client },
-		managerapproval.DefaultLedgerDirectory,
 	)
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {

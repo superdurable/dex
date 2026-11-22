@@ -59,21 +59,27 @@ type integrationEnvironment struct {
 	workerResult    chan error
 }
 
-func newIntegrationEnvironment() (*integrationEnvironment, error) {
+func newIntegrationEnvironment() (_ *integrationEnvironment, constructionErr error) {
 	var client *dex.Client
 	refundLedgerDir, err := os.MkdirTemp("", "dex-go-examples-refund-ledger-")
 	if err != nil {
 		return nil, err
 	}
-	flows := registry.New(service.NewMyService(), func() *dex.Client { return client }, refundLedgerDir)
+	ledgerOwnedByEnvironment := false
+	defer func() {
+		if constructionErr != nil && !ledgerOwnedByEnvironment {
+			constructionErr = errors.Join(constructionErr, os.RemoveAll(refundLedgerDir))
+		}
+	}()
+	flows := registry.NewWithRefundLedgerDirectory(service.NewMyService(), func() *dex.Client { return client }, refundLedgerDir)
 	flows = append(flows, conditionOrderProbeFlows()...)
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {
-		return nil, errors.Join(err, os.RemoveAll(refundLedgerDir))
+		return nil, err
 	}
 	cacheDir, err := os.MkdirTemp("", "dex-go-examples-integ-")
 	if err != nil {
-		return nil, errors.Join(err, os.RemoveAll(refundLedgerDir))
+		return nil, err
 	}
 	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 64 << 20})
 	if err != nil {
@@ -105,6 +111,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		worker:          worker,
 		workerResult:    workerResult,
 	}
+	ledgerOwnedByEnvironment = true
 	integClient = client
 	sharedRefundLedgerDir = refundLedgerDir
 	if err := environment.waitUntilReady(); err != nil {

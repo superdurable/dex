@@ -22,6 +22,7 @@ package managerapproval
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -29,6 +30,7 @@ import (
 )
 
 func TestConcurrentRefundsWithOneKeyRecordOneRefund(t *testing.T) {
+	requireRefundLedgerPlatform(t)
 	services := NewRefundServices(t.TempDir())
 	order := Orders["INV-1249"]
 	refundIDs := make([]string, 16)
@@ -54,6 +56,7 @@ func TestConcurrentRefundsWithOneKeyRecordOneRefund(t *testing.T) {
 }
 
 func TestConcurrentRefundsWithDifferentKeysGetDifferentIDs(t *testing.T) {
+	requireRefundLedgerPlatform(t)
 	services := NewRefundServices(t.TempDir())
 	var wait sync.WaitGroup
 	for index := 0; index < 16; index++ {
@@ -76,6 +79,7 @@ func TestConcurrentRefundsWithDifferentKeysGetDifferentIDs(t *testing.T) {
 }
 
 func TestRefundKeyReusedForAnotherOrderIsAConflict(t *testing.T) {
+	requireRefundLedgerPlatform(t)
 	services := NewRefundServices(t.TempDir())
 	refundID, err := services.Billing.IssueRefund(Orders["INV-1249"], "refund-reused", false)
 	require.NoError(t, err)
@@ -91,6 +95,7 @@ func TestRefundKeyReusedForAnotherOrderIsAConflict(t *testing.T) {
 }
 
 func TestConcurrentEmailsWithOneKeySendOnce(t *testing.T) {
+	requireRefundLedgerPlatform(t)
 	services := NewRefundServices(t.TempDir())
 	var wait sync.WaitGroup
 	for index := 0; index < 16; index++ {
@@ -110,4 +115,11 @@ func TestFormatUSDGroupsThousands(t *testing.T) {
 	require.Equal(t, "1,249.00", formatUSD(1249))
 	require.Equal(t, "49.00", formatUSD(49))
 	require.Equal(t, "1,000,000.50", formatUSD(1_000_000.5))
+}
+
+func requireRefundLedgerPlatform(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("the customer refund ledger is supported only on macOS and Linux")
+	}
 }

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-//go:build unix
+//go:build darwin || linux
 
 package managerapproval
 
@@ -30,7 +30,7 @@ import (
 )
 
 // lockLedgerFile blocks until it holds an exclusive lock, which each open file takes separately.
-func lockLedgerFile(path string) (func(), error) {
+func lockLedgerFile(path string) (func() error, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open ledger lock: %w", err)
@@ -44,8 +44,7 @@ func lockLedgerFile(path string) (func(), error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("lock ledger: %w", err), file.Close())
 	}
-	return func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		_ = file.Close()
+	return func() error {
+		return errors.Join(syscall.Flock(int(file.Fd()), syscall.LOCK_UN), file.Close())
 	}, nil
 }

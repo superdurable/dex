@@ -150,8 +150,12 @@ var (
 
 // New constructs every sample flow. getClient may return nil until the Client
 // is created; flows that need it call the provider at Execute/RPC time.
-// refundLedgerDirectory holds the manager-approval refund's fake billing and email ledger.
-func New(applicationSvc service.MyService, getClient ClientProvider, refundLedgerDirectory string) []dex.Flow {
+func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow {
+	return NewWithRefundLedgerDirectory(applicationSvc, getClient, managerapproval.DefaultLedgerDirectory)
+}
+
+// NewWithRefundLedgerDirectory constructs the sample flows with a custom manager-approval refund ledger directory.
+func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient ClientProvider, refundLedgerDirectory string) []dex.Flow {
 	if applicationSvc == nil {
 		panic("workflows: application service is required")
 	}

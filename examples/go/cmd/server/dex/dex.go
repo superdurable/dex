@@ -108,7 +108,6 @@ func newSampleServer() (*sampleServer, error) {
 	flows := registry.New(
 		service.NewMyService(),
 		func() *sdk.Client { return client },
-		managerapproval.DefaultLedgerDirectory,
 	)
 	flowRegistry, err := sdk.NewRegistry(flows)
 	if err != nil {

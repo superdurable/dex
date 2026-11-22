@@ -113,6 +113,10 @@ environments. Billing refuses a key that already refunded a different order or
 amount with `IdempotencyKeyConflictError`. The ledger needs Unix file locks, so
 it runs on macOS and Linux.
 
+Each update syncs the ledger file and its containing directory before returning
+success. For power-loss durability on first use, provision the ledger directory
+in advance and sync its parent. The example creates a missing directory on demand.
+
 | File | What it holds |
 | --- | --- |
 | [`workflow.go`](managerapproval/workflow.go) | The Flow, its eight Steps, and the Approve refund and Reject refund RPCs. |
@@ -149,10 +153,16 @@ curl 'http://127.0.0.1:8080/products/customer-refund/manager-approval/decide?flo
 ```
 
 `start` mints a Flow ID with the prefix `customer-refund` when `flowId` is
-absent, and `scenario` defaults to `normal`. `describe` returns `flowID`, the
-run `status`, `caseStatus`, and `refundId`. `decide` returns 400 for a blank
-reason, 409 when a running refund is not waiting for a manager or another
-decision holds the lock, and 404 when the run is closed or unknown.
+absent. The default scenario is `normal`. The response returns `flowID` and
+`runID` after `CheckPolicy` completes, with a 10-second wait. Starting an
+existing Flow ID returns 409.
+
+`describe` returns `flowID`, the lowercase run `status`, `caseStatus`, and
+`refundId`. Unset Attribute values are `null`. `decide` returns 400 for an
+invalid decision or a blank reason. It returns 409 if another decision holds
+the lock, the refund has passed manager approval, or the run is closing. Both
+routes return 400 for a missing Flow ID and 404 for an unknown or other Flow
+type. `decide` also returns 404 for a closed run.
 
 ### Run it with its own Worker
 

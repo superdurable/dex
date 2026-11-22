@@ -18,13 +18,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-//go:build !unix
+//go:build !darwin && !linux
 
 package managerapproval
 
 import "errors"
 
 // lockLedgerFile refuses to run, because the fake ledger relies on Unix file locks.
-func lockLedgerFile(string) (func(), error) {
-	return nil, errors.New("the customer refund ledger needs Unix file locks; run it on macOS or Linux")
+func lockLedgerFile(string) (func() error, error) {
+	return nil, errors.New("the customer refund ledger is supported only on macOS and Linux")
 }

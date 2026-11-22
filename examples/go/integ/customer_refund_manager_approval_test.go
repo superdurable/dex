@@ -27,6 +27,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type managerApprovalTestbed struct {
 
 func newManagerApprovalTestbed(t *testing.T, encryption dex.PayloadEncryptionOptions) *managerApprovalTestbed {
 	t.Helper()
+	requireRefundLedgerPlatform(t)
 	ledgerDir := t.TempDir()
 	bed := &managerApprovalTestbed{
 		t:          t,
@@ -273,14 +275,17 @@ func TestManagerApprovalRefundConcurrentDecisionsCountOnce(t *testing.T) {
 
 	decisions := []bool{true, false}
 	results := make([]error, len(decisions))
+	start := make(chan struct{})
 	var wait sync.WaitGroup
 	for index, approve := range decisions {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
+			<-start
 			results[index] = bed.decide(flowID, approve, "Decided concurrently")
 		}()
 	}
+	close(start)
 	wait.Wait()
 
 	winners := 0
@@ -292,11 +297,14 @@ func TestManagerApprovalRefundConcurrentDecisionsCountOnce(t *testing.T) {
 			continue
 		}
 		var lockConflict *dex.RPCLockConflictError
+		var closing *dex.FlowClosingError
+		var closed *dex.FlowNotActiveOrNotFoundError
 		var refused *dex.WorkerInvocationError
 		switch {
-		case errors.As(err, &lockConflict):
+		case errors.As(err, &lockConflict), errors.As(err, &closing), errors.As(err, &closed):
 		case errors.As(err, &refused):
-			require.Contains(t, refused.Worker.Detail, "this refund is not waiting for a manager")
+			require.NotNil(t, refused.Worker)
+			require.Equal(t, "managerapproval.RefundNotAwaitingManagerError", refused.Worker.Type)
 		default:
 			require.Failf(t, "unexpected decision error", "%v", err)
 		}
@@ -395,52 +403,181 @@ func TestManagerApprovalRefundEncryptionKeepsCaseStatusReadable(t *testing.T) {
 }
 
 func TestManagerApprovalRefundHTTPRoutes(t *testing.T) {
-	requestedFlowID := newFlowID(t, "customer-refund")
-	status, started := getExamplesJSON(t, "/products/customer-refund/manager-approval/start",
-		url.Values{"flowId": {requestedFlowID}, "scenario": {"normal"}})
-	require.Equal(t, http.StatusOK, status, "%v", started)
-	require.Equal(t, requestedFlowID, started["flowID"])
-	require.NotEmpty(t, started["runID"])
+	requireRefundLedgerPlatform(t)
+	flowID := newFlowID(t, "customer-refund")
+	client := refundHTTPTestClient{t: t}
+	client.start(flowID, "fail-then-succeed")
+	client.requireError("start", url.Values{"flowId": {flowID}}, http.StatusConflict, "")
+	client.requireError("start", url.Values{"scenario": {"unknown"}}, http.StatusBadRequest, "")
+	client.requireError("describe", nil, http.StatusBadRequest, "flowId is required")
+	client.requireError("decide", nil, http.StatusBadRequest, "flowId is required")
 
-	status, body := getExamplesJSON(t, "/products/customer-refund/manager-approval/start",
-		url.Values{"scenario": {"unknown"}})
-	require.Equal(t, http.StatusBadRequest, status, "%v", body)
+	unknownFlowID := newFlowID(t, "unknown")
+	client.requireError("decide", refundDecisionQuery(unknownFlowID, "invalid", "Reason"), http.StatusBadRequest, "decision must be approve or reject")
+	client.requireError("decide", refundDecisionQuery(unknownFlowID, "approve", "  "), http.StatusBadRequest, "a reason is required")
+	client.requireRefundNotFound(unknownFlowID)
+	status, order := getExamplesJSON(t, "/products/order-processing/start", nil)
+	require.Equal(t, http.StatusOK, status, "%v", order)
+	orderFlowID, ok := order["flowID"].(string)
+	require.True(t, ok, "%v", order)
+	client.requireRefundNotFound(orderFlowID)
 
-	describePath := "/products/customer-refund/manager-approval/describe"
-	describeQuery := url.Values{"flowId": {requestedFlowID}}
-	require.Eventually(t, func() bool {
-		status, described := getExamplesJSON(t, describePath, describeQuery)
-		return status == http.StatusOK && described["caseStatus"] == managerapproval.AwaitingManager
-	}, 30*time.Second, 200*time.Millisecond)
+	describeQuery := url.Values{"workflowId": {flowID}}
+	client.requireDescription(describeQuery, flowID, "running", managerapproval.AwaitingManager, nil)
+	client.requireDecision(flowID, "approve")
+	status, running := client.get("describe", describeQuery)
+	require.Equal(t, http.StatusOK, status, "%v", running)
+	require.Equal(t, "running", running["status"])
+	client.requireError("decide", refundDecisionQuery(flowID, "reject", "Already decided"), http.StatusConflict, "this refund is not waiting for a manager")
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 
-	decidePath := "/products/customer-refund/manager-approval/decide"
-	status, body = getExamplesJSON(t, decidePath,
-		url.Values{"flowId": {requestedFlowID}, "decision": {"approve"}, "reason": {"  "}})
-	require.Equal(t, http.StatusBadRequest, status, "%v", body)
-	require.Equal(t, "a reason is required", body["error"])
+	client.requireCompletedRefund(describeQuery, flowID, "INV-1249", 1249.00)
+	client.requireError("decide", refundDecisionQuery(flowID, "reject", "Too late"), http.StatusNotFound, "no refund with this Flow ID")
 
-	status, body = getExamplesJSON(t, decidePath,
-		url.Values{"flowId": {requestedFlowID}, "decision": {"approve"}, "reason": {"Outage confirmed"}})
-	require.Equal(t, http.StatusOK, status, "%v", body)
-	require.Equal(t, dex.FlowCompleted, waitForFlow(t, requestedFlowID).Status)
+	rejectedFlowID := client.start("", "")
+	client.requireDecision(rejectedFlowID, "reject")
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, rejectedFlowID).Status)
+	client.requireDescription(url.Values{"flowId": {rejectedFlowID}, "workflowId": {""}}, rejectedFlowID, "completed", "closed-denied", nil)
+}
 
-	status, described := getExamplesJSON(t, describePath, describeQuery)
-	require.Equal(t, http.StatusOK, status, "%v", described)
-	require.Equal(t, "completed", described["status"])
-	require.Equal(t, "closed-refunded", described["caseStatus"])
+func TestManagerApprovalRefundHTTPAutomaticOutcomes(t *testing.T) {
+	requireRefundLedgerPlatform(t)
+	client := refundHTTPTestClient{t: t}
+
+	smallFlowID := client.start("", "small")
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, smallFlowID).Status)
+	client.requireCompletedRefund(url.Values{"flowId": {smallFlowID}}, smallFlowID, "INV-0049", 49.00)
+
+	deniedFlowID := client.start("", "deny")
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, deniedFlowID).Status)
+	client.requireDescription(url.Values{"flowId": {deniedFlowID}}, deniedFlowID, "completed", "closed-denied", nil)
+}
+
+func TestManagerApprovalRefundHTTPConcurrentDecisions(t *testing.T) {
+	requireRefundLedgerPlatform(t)
+	client := refundHTTPTestClient{t: t}
+	flowID := client.start("", "normal")
+	query := refundDecisionQuery(flowID, "reject", "Concurrent decision")
+	responses := make([]int, 2)
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for index := range responses {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			responses[index], _ = client.get("decide", query)
+		}()
+	}
+	close(start)
+	wait.Wait()
+	if responses[0] > responses[1] {
+		responses[0], responses[1] = responses[1], responses[0]
+	}
+	require.Equal(t, http.StatusOK, responses[0], "%v", responses)
+	switch responses[1] {
+	case http.StatusConflict, http.StatusNotFound:
+	default:
+		require.Failf(t, "unexpected concurrent decision status", "%v", responses)
+	}
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
+	client.requireDescription(url.Values{"flowId": {flowID}}, flowID, "completed", "closed-denied", nil)
+}
+
+type refundHTTPTestClient struct {
+	t *testing.T
+}
+
+func (client refundHTTPTestClient) get(route string, query url.Values) (int, map[string]any) {
+	client.t.Helper()
+	return getExamplesJSON(client.t, "/products/customer-refund/manager-approval/"+route, query)
+}
+
+func (client refundHTTPTestClient) start(flowID, scenario string) string {
+	client.t.Helper()
+	status, started := client.get("start", url.Values{"flowId": {flowID}, "scenario": {scenario}})
+	require.Equal(client.t, http.StatusOK, status, "%v", started)
+	require.Len(client.t, started, 2)
+	actualFlowID, ok := started["flowID"].(string)
+	require.True(client.t, ok, "%v", started)
+	if flowID == "" {
+		require.True(client.t, strings.HasPrefix(actualFlowID, "customer-refund-"), "%v", started)
+	} else {
+		require.Equal(client.t, flowID, actualFlowID)
+	}
+	runID, ok := started["runID"].(string)
+	require.True(client.t, ok, "%v", started)
+	require.NotEmpty(client.t, runID)
+	return actualFlowID
+}
+
+func (client refundHTTPTestClient) requireDecision(flowID, decision string) {
+	client.t.Helper()
+	status, body := client.get("decide", refundDecisionQuery(flowID, decision, "Policy reviewed"))
+	require.Equal(client.t, http.StatusOK, status, "%v", body)
+	require.Equal(client.t, map[string]any{"flowID": flowID, "decision": decision}, body)
+}
+
+func (client refundHTTPTestClient) requireRefundNotFound(flowID string) {
+	client.t.Helper()
+	client.requireError("describe", url.Values{"flowId": {flowID}}, http.StatusNotFound, "no refund with this Flow ID")
+	client.requireError("decide", refundDecisionQuery(flowID, "approve", "Policy reviewed"), http.StatusNotFound, "no refund with this Flow ID")
+}
+
+func (client refundHTTPTestClient) requireError(route string, query url.Values, expectedStatus int, expectedError string) {
+	client.t.Helper()
+	status, body := client.get(route, query)
+	require.Equal(client.t, expectedStatus, status, "%v", body)
+	require.Len(client.t, body, 1)
+	message, ok := body["error"].(string)
+	require.True(client.t, ok, "%v", body)
+	require.NotEmpty(client.t, message)
+	if expectedError != "" {
+		require.Equal(client.t, expectedError, message)
+	}
+}
+
+func (client refundHTTPTestClient) requireDescription(query url.Values, flowID, flowStatus, caseStatus string, refundID any) {
+	client.t.Helper()
+	status, body := client.get("describe", query)
+	require.Equal(client.t, http.StatusOK, status, "%v", body)
+	require.Equal(client.t, refundDescription(flowID, flowStatus, caseStatus, refundID), body)
+}
+
+func (client refundHTTPTestClient) requireCompletedRefund(query url.Values, flowID, orderID string, amountUSD float64) {
+	client.t.Helper()
+	status, described := client.get("describe", query)
+	require.Equal(client.t, http.StatusOK, status, "%v", described)
 	refundID, _ := described["refundId"].(string)
-	require.True(t, strings.HasPrefix(refundID, "rf_"), "%v", described)
+	require.True(client.t, strings.HasPrefix(refundID, "rf_"), "%v", described)
+	require.Equal(client.t, refundDescription(flowID, "completed", "closed-refunded", refundID), described)
 	refunds, err := managerapproval.NewRefundServices(sharedRefundLedgerDir).Billing.ListRefunds()
-	require.NoError(t, err)
-	require.Contains(t, refunds, managerapproval.RecordedRefund{
-		RefundID: refundID, OrderID: "INV-1249", AmountUSD: 1249.00,
-		IdempotencyKey: "refund-" + requestedFlowID,
-	})
+	require.NoError(client.t, err)
+	key := "refund-" + flowID
+	var recorded []managerapproval.RecordedRefund
+	for _, refund := range refunds {
+		if refund.IdempotencyKey == key {
+			recorded = append(recorded, refund)
+		}
+	}
+	require.Equal(client.t, []managerapproval.RecordedRefund{{
+		RefundID: refundID, OrderID: orderID, AmountUSD: amountUSD, IdempotencyKey: key,
+	}}, recorded)
+}
 
-	status, body = getExamplesJSON(t, decidePath,
-		url.Values{"flowId": {requestedFlowID}, "decision": {"reject"}, "reason": {"Too late"}})
-	require.GreaterOrEqual(t, status, 400, "%v", body)
-	require.Less(t, status, 500, "%v", body)
+func refundDescription(flowID, flowStatus, caseStatus string, refundID any) map[string]any {
+	return map[string]any{"flowID": flowID, "status": flowStatus, "caseStatus": caseStatus, "refundId": refundID}
+}
+
+func refundDecisionQuery(flowID, decision, reason string) url.Values {
+	return url.Values{"flowId": {flowID}, "decision": {decision}, "reason": {reason}}
+}
+
+func requireRefundLedgerPlatform(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("the customer refund ledger is supported only on macOS and Linux")
+	}
 }
 
 func getExamplesJSON(t *testing.T, path string, query url.Values) (int, map[string]any) {

@@ -31,19 +31,27 @@ import (
 )
 
 const (
-	RefundWindowDays          = 30
-	ManagerApprovalLimitUSD   = 1000.00
-	AwaitingManager           = "awaiting-manager"
-	ManageRefundsPermission   = "refund.manage"
-	refundIdempotencyPrefix   = "refund-"
-	emailIdempotencyPrefix    = "email-"
-	outcomeRefunded           = "refunded"
-	outcomeDenied             = "denied"
-	refundWindowDeniedNote    = "The charge is older than our 30-day refund window."
-	noInterruptionDeniedNote  = "We found no service interruption on this order."
-	reasonRequiredMessage     = "a reason is required"
-	notAwaitingManagerMessage = "this refund is not waiting for a manager"
+	RefundWindowDays            = 30
+	ManagerApprovalLimitUSD     = 1000.00
+	AwaitingManager             = "awaiting-manager"
+	ManageRefundsPermission     = "refund.manage"
+	refundIdempotencyPrefix     = "refund-"
+	emailIdempotencyPrefix      = "email-"
+	outcomeRefunded             = "refunded"
+	outcomeDenied               = "denied"
+	refundWindowDeniedNote      = "The charge is older than our 30-day refund window."
+	noInterruptionDeniedNote    = "We found no service interruption on this order."
+	reasonRequiredMessage       = "a reason is required"
+	notAwaitingManagerMessage   = "this refund is not waiting for a manager"
+	notAwaitingManagerErrorType = "managerapproval.RefundNotAwaitingManagerError"
 )
+
+// RefundNotAwaitingManagerError rejects a decision when the case is outside manager review.
+type RefundNotAwaitingManagerError struct{}
+
+func (RefundNotAwaitingManagerError) Error() string {
+	return notAwaitingManagerMessage
+}
 
 // Readable without the payload key, so Dex Web can show and match them.
 var (
@@ -330,10 +338,10 @@ func (*ManagerApprovalRefundFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*d
 	}}, nil
 }
 
-// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
-// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
-// dex:field attribute-key:refund-id value-type:string editable:false description:"Refund ID"
-// dex:field attribute-key:customer-message value-type:string editable:false description:"Customer message"
+//dex:field attribute-key:customer-email value-type:string description:"Customer\u0020email"editable:false ui-slot:title
+//dex:field attribute-key:case-status value-type:string description:"Case\u0020status"editable:false ui-slot:status
+//dex:field attribute-key:refund-id value-type:string description:"Refund\u0020ID"editable:false
+//dex:field attribute-key:customer-message value-type:string description:"Customer\u0020message"editable:false
 func (*ManagerApprovalRefundFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
 	values, err := readViewAttributes(ctx, CustomerEmail, CaseStatus, RefundID, CustomerMessage)
 	if err != nil {
@@ -395,7 +403,8 @@ func publishManagerDecision(
 		return nil, err
 	}
 	if status != AwaitingManager {
-		return nil, errors.New(notAwaitingManagerMessage)
+		// Preserve the application error type through the SDK's RPC wrapper with zero retry delay.
+		return nil, &dex.RetryAfterError{Cause: RefundNotAwaitingManagerError{}}
 	}
 	decidedStatus := "rejected"
 	if approved {
