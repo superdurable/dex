@@ -1,6 +1,6 @@
 # Dex Agents for Go, Java, and Rust
 
-Status: Go core shipped at a reduced scope; Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
+Status: Go core shipped at a reduced scope, with the Eino adapter added on request (2026-11-21); Java and Rust deferred (2026-11-02). Parent: [agents-m2-stepwise.md](agents-m2-stepwise.md)
 and [agent-framework-adapters.md](agent-framework-adapters.md).
 
 Dex Agents ships for Python and TypeScript. This addendum brings the same
@@ -155,7 +155,7 @@ It depends on `RPCOptions.Name` in the Go SDK (#1200).
 
 **What Go will not get:** questions, `durable_wait`, steering and
 cancellation, plans, compaction, tool tasks, MCP, spans, UI streams, or
-framework adapters.
+framework adapters. The 2026-11-21 Eino decision below reverses the last item.
 
 **What follows from that:**
 - A Flow type is served by Workers of one language only. A guard fails a
@@ -205,3 +205,81 @@ Flow type back below 0.6.16 while a session has a queued connector write or a
 connector call in flight. An older Go Worker never starts a queued write, so
 the session stalls, and it records a later attempt of a connector write
 `failed` instead of `outcome_unknown`.
+
+## Decision: Go gets the Eino adapter (2026-11-21)
+
+Recorded 2026-11-21, at the request of a co-owner of the project, who asked
+for Dex support for CloudWeGo Eino and an Eino version of an existing agent
+tested end to end. It reverses "framework adapters" in "What Go will not get"
+above. The rest of that decision stands: past the session core, Go gains only
+Connectors as tools (the decision above) and the adapter itself.
+
+**What ships:** module `github.com/superdurable/dex/agents/go/eino` (package
+`dexeino`) runs an Eino ADK `ChatModelAgent` on the Go core's session Flow.
+
+- **Integration mode: stateless replay Step mode.** Every `RunModel` builds a
+  fresh `ChatModelAgent` and `adk.Runner` from the user's
+  `ChatModelAgentConfig` and runs it over the stored messages, with no Eino
+  `CheckPointStore` and no resume. An adapter Handler, first in `Handlers`,
+  turns every tool call into an Eino interrupt, so the run stops after one
+  model call. Tool calls run in Dex tool Steps through a one-call
+  `compose.ToolsNode` with the agent's tool middlewares and Handler wrappers.
+  The tool Step first checks the arguments, after Eino's `ToolAliases` and
+  `ToolArgumentsHandler`, against the tool's current schema with the built-in
+  loop's JSON Schema subset and texts, so a stored call that a deploy's renamed
+  parameter rejects is refused before any tool code runs. Eino's plantask
+  tools, which share a lock in one Eino run, are marked
+  `DeferredToolCall.Ordered`, so their writes run one at a time in the model's
+  order, in one queue with the response's connector writes. A
+  `ToolExecutionError` from a tool of an agent tool's or fork skill's sub-agent
+  fails the attempt of a call whose effect is not `read`, because the
+  sub-agent's earlier tools may have run, so the call's effect decides.
+  These rules also find the Eino tool inside a user type that embeds it, such
+  as a `ToolEffectDeclarer` that gives an agent tool its effect.
+  This is the built-in loop's shape, so a deploy that renames a tool or changes
+  the instruction never breaks an open turn. A checkpoint-and-resume mode was
+  prototyped and rejected: its checkpoint pins the agent name, the tool list,
+  and the instruction for the rest of a turn, and grows four to six times the
+  history.
+- **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
+  `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, the
+  v0.10 automemory and dream middlewares, `ToolsConfig.ExecuteSequentially`
+  (the tool calls of one model response run as parallel Steps), agent tools
+  made with `adk.WithFullChatHistoryAsInput` (a tool Step has no agent
+  history), and any tool without a Dex effect. The adapter README lists the
+  status of every middleware and prebuilt agent that Eino v0.9.23 ships, and
+  the integration tests run each one that runs, in Generate and Stream mode.
+  A model wrapper that tries a second model call ends the turn as failed with
+  `TurnCompleted.TurnError`, with the one call billed and no paid retry. So
+  does a Handler's `WrapModel` that answers from another model, also as a
+  fallback after the model call failed, and an after-model hook that changes
+  the model's message, which Dex stores as the model call returned it. An
+  after-model hook that changes the earlier messages or the state's tools ends
+  the turn too, because each `RunModel` replays the stored messages and offers
+  the agent's tools afresh.
+- **Connectors as tools:** `dexeino.WithToolSources` offers a tool source's
+  tools to the model beside the agent's own, and runs each call through the
+  source in the Dex tool Step, before and outside Eino's tool node, as
+  `builtinloop.WithToolSources` does.
+- **Versions:** `github.com/cloudwego/eino` v0.9.23 or later; CI also runs the
+  suite against the newest v0.10.0 alpha. Component mode, Eino models on the
+  built-in loop, does not ship now.
+- **Release:** the module requires the core at the agents version plus
+  `replace ... => ../core`. First Go tags `agents/go/core/v<version>` and
+  `agents/go/eino/v<version>` go on the same commit as `agents/v<version>`,
+  which settles decision 7 for Go.
+
+**What the Eino adapter inherits from the Go core:**
+- no steering, `cancel_turn`, questions, tool input requests, plans, or
+  compaction;
+- no images in user messages;
+- no GenAI spans and no `ModelCallMetadata`;
+- no `TurnContinued`;
+- no MCP tool source, tool tasks, or connector approval display;
+- one language per Flow type.
+
+The Go core changes the adapter relies on ship in the same release:
+`TurnCompleted.TurnError`, status classification from `HTTPStatusCode`, Role
+validation before storing messages, session ending at the state limit, and
+the tool sources of the decision above.
+

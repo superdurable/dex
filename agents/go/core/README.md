@@ -44,14 +44,17 @@ Supported:
 - the built-in agent loop, with function tools and tool sources;
 - Connectors as tools (package `connectortools`), with write ordering, bounded
   resends, and per-call tool Step options;
-- the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients.
+- the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients;
+- framework adapters in their own modules: CloudWeGo Eino ADK agents run on
+  this Flow with [`github.com/superdurable/dex/agents/go/eino`](../eino/README.md).
 
 Not planned for Go Workers: questions (`ask_user`, `answer_question`, tool
 input requests), `durable_wait`, steering and cancellation, plans and plan mode,
-compaction, tool tasks, the MCP tool source, GenAI spans, UI streams, and
-framework adapters. Use the Python or TypeScript core for an agent that needs
-any of them. A Go Client still calls their RPCs on those Workers with package
-`remotesession`.
+compaction, tool tasks, the MCP tool source, GenAI spans, and UI streams. Use
+the Python or TypeScript core for an agent that needs any of them. A Go Client
+still calls their RPCs on those Workers with package `remotesession`. A Go
+framework adapter has the same scope as this core: it gets none of these
+either.
 
 Not supported yet: the built-in loop hook that ends or continues a turn at
 the end of each loop iteration (`decideTurnContinuation` in TypeScript,
