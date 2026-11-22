@@ -10,11 +10,13 @@ import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic
 
 A customer asks for a refund. The Flow checks the order and the refund policy, waits for a manager when the amount is large, issues the refund, and tells the customer. This page has three Flows for this process: one short Flow to read first, and two larger Go Flows.
 
-**SDK:** Python, TypeScript, Java, and Rust (refund with manager approval), Go (deterministic policy and agentic review)
+**SDK:** Python, Go, TypeScript, Java, and Rust (refund with manager approval). Go also covers deterministic policy and agentic review.
 
 ## Refund with manager approval {#refund-with-manager-approval}
 
 Northstar Studio asks for a refund of a 1,249.00 USD subscription renewal after a service interruption. `CustomerRefundFlow` runs eight Steps, grouped as Intake, Evidence, Control, Resolution, and Close.
+
+The Go example uses `ManagerApprovalRefundFlow` because the deterministic Go example already uses `CustomerRefundFlow`.
 
 <DocsFlowDefinitionGraph graph={readableFlow} />
 
@@ -22,7 +24,7 @@ The graph comes from the Python example. The TypeScript example has the same Ste
 
 **Check policy** applies the refund policy. It denies a charge older than 30 days or one with no recorded outage. It sends an amount over 1,000 USD to **Request manager approval**, and refunds 1,000 USD or less at once. **Request manager approval** waits for one message on a Channel, then refunds or denies by the manager's decision.
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/customer_refund/refund_flow.py', go: 'examples/go/products/customer-refund/managerapproval/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/customerrefund/CustomerRefundFlow.java', typescript: 'examples/typescript/src/products/customer-refund/refund-flow.ts', rust: 'examples/rust/src/products/customer_refund/refund_flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -55,6 +57,58 @@ class RequestManagerApproval(Step[RefundCase]):
             return go_to(IssueRefund, input)
         CASE_STATUS.set(context, "denied")
         return go_to(WriteCustomerMessage, replace(input, outcome="denied", note=decision.reason))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// dex:group group-id:evidence group-label:"Evidence"
+// dex:explanation text:"Refund, deny, or ask a manager, by the refund policy."
+type CheckPolicy struct {
+	dex.StepDefaultsNoWaitFor[RefundCase]
+}
+
+func (CheckPolicy) Execute(ctx dex.Context, input RefundCase) (*dex.StepDecision, error) {
+	order := input.Order
+	if order.DaysSinceCharge > RefundWindowDays {
+		return denyRefund(ctx, input, refundWindowDeniedNote)
+	}
+	if order.OutageHours == 0 {
+		return denyRefund(ctx, input, noInterruptionDeniedNote)
+	}
+	if order.AmountUSD > ManagerApprovalLimitUSD {
+		if err := CaseStatus.Set(ctx, AwaitingManager); err != nil {
+			return nil, err
+		}
+		return dex.GoTo(RequestManagerApproval{}, input), nil
+	}
+	return dex.GoTo(IssueRefund{}, input), nil
+}
+
+// dex:group group-id:control group-label:"Control"
+// dex:explanation text:"Wait for a manager to approve or reject the refund."
+type RequestManagerApproval struct {
+	dex.StepDefaults
+}
+
+func (RequestManagerApproval) WaitFor(dex.Context, RefundCase) (*dex.Wait, error) {
+	return dex.Until(managerDecisions.ForOne()), nil
+}
+
+func (RequestManagerApproval) Execute(ctx dex.Context, input RefundCase) (*dex.StepDecision, error) {
+	decisions, err := managerDecisions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(decisions) != 1 {
+		return nil, fmt.Errorf("expected one manager decision, got %d", len(decisions))
+	}
+	if decisions[0].Approved {
+		return dex.GoTo(IssueRefund{}, input), nil
+	}
+	return denyRefund(ctx, input, decisions[0].Reason)
+}
 ```
 
 </SdkSnippet>
@@ -253,18 +307,20 @@ impl Step for RequestManagerApproval {
 </SdkSnippet>
 </SdkTabs>
 
-An approve RPC and a reject RPC publish the manager's decision to that Channel. Each one requires a reason and checks that `case-status` is `awaiting-manager` before it publishes. In the Python and TypeScript examples, each RPC also declares a Dex Web Action, **Approve refund** or **Reject refund**. While the run waits for the manager, set **Working as** to a user with the refund permission, and Dex Web shows the two Actions. These two examples also have a `decide` command.
+An approve RPC and a reject RPC publish the manager's decision to that Channel. Each one requires a reason and checks that `case-status` is `awaiting-manager` before it publishes. In the Python, Go, and TypeScript examples, each RPC also declares a Dex Web Action, **Approve refund** or **Reject refund**. While the run waits for the manager, set **Working as** to a user with the refund permission, and Dex Web shows the two Actions. All five examples have a `decide` command.
 
 The example adds what a production refund needs:
 
 - **Issue refund** and **Send message** pass an idempotency key to billing and email. Steps after a Time Travel point run again, and the keys keep the refund and the email to one each. This holds because every Worker shares the same persistent ledger of the local fake services.
 - **Issue refund** retries a payment timeout every 5 seconds. A run can ask for two timeouts first. The final **Issue refund** event in Dex Web then shows that attempt 3 succeeded and keeps the details of the last failure.
-- In Python and TypeScript, generate the design with `dexcli visualize`. The Worker uploads it at start, and the run's **Design** view in Dex Web shows the graph.
-- In Python and TypeScript, with a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
+- In Python, Go, and TypeScript, generate the design with `dexcli visualize`. The Worker uploads it at start, and the run's **Design** view in Dex Web shows the graph.
+- In Python, Go, and TypeScript, with a payload key file, the Worker and the Client encrypt payloads. `case-status` and `customer-email` stay readable.
 
-The Java and Rust examples approve or reject with their own `decide` command. The Java and Rust SDKs cannot declare Dex Web Actions or encrypt payloads. These two examples configure no design, so the **Design** view of their runs shows its empty state. `dexcli visualize` reads Go, Python, and TypeScript sources.
+In Java and Rust, use the `decide` command to approve or reject a refund. The **Design** view shows its empty state for these runs.
 
-The example folders for [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund), and [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) have the commands for each scenario: approval, a refund that fails and then succeeds, and a missing billing call that Time Travel fixes. The Python and TypeScript folders also show encryption.
+The example folders for [Go](https://github.com/superdurable/dex/tree/main/examples/go/products/customer-refund), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund), and [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) have the commands for each scenario: approval, a refund that fails and then succeeds, and a missing billing call that Time Travel fixes. The Go, Python, and TypeScript examples also show encryption.
+
+Start the manager approval Flow in any of the five languages from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). Choose **Customer refund with manager approval** to start a run, submit a decision, or check the outcome.
 
 ## Deterministic policy
 

@@ -32,6 +32,7 @@ generate_flow_definition examples/python/dex_examples/products/money-transfer/mo
 generate_flow_definition examples/python/dex_examples/products/subscription/subscription_flow.py subscription
 generate_flow_definition examples/python/dex_examples/products/signup/user_signup_flow.py user-onboarding-process
 generate_flow_definition examples/python/dex_examples/products/customer_refund/refund_flow.py customer-refund-python
+generate_flow_definition examples/go/products/customer-refund/managerapproval/workflow.go customer-refund-manager-approval-go
 generate_flow_definition examples/go/products/customer-refund/deterministic/workflow.go customer-refund
 generate_flow_definition examples/go/products/customer-refund/agentic/workflow.go customer-refund-agentic
 generate_flow_definition examples/go/products/connector-factory/workflow.go connector-factory
