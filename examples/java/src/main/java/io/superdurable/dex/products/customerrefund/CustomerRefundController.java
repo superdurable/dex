@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.superdurable.dex.AttributeValues;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowInfo;
+import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
@@ -43,7 +44,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -88,7 +88,7 @@ public class CustomerRefundController {
                     WaitForStepCompletionOptions.newBuilder().requestTimeout(START_READY_TIMEOUT).build());
         } catch (final RequestTimeoutException notReady) {
             return error(HttpStatus.GATEWAY_TIMEOUT, "refund " + newFlowId + " did not check its policy in time");
-        } catch (final FlowNotActiveOrNotFoundException alreadyClosed) {
+        } catch (final FlowNotActiveOrNotFoundException | FlowClosingException alreadyClosed) {
             // A small or denied refund can close before the wait starts.
         }
         final Map<String, String> response = new LinkedHashMap<String, String>();
@@ -167,9 +167,24 @@ public class CustomerRefundController {
         }
         return ResponseEntity.ok(new RefundDescription(
                 requiredFlowId,
-                run.getStatus().name().toLowerCase(Locale.ROOT),
+                flowStatusName(run.getStatus()),
                 values.get(CustomerRefundFlow.CASE_STATUS).orElse(null),
                 values.get(CustomerRefundFlow.REFUND_ID).orElse(null)));
+    }
+
+    static String flowStatusName(final FlowStatus status) {
+        if (status == null) {
+            return "unknown";
+        }
+        return switch (status) {
+            case RUNNING -> "running";
+            case COMPLETED -> "completed";
+            case FAILED -> "failed";
+            case CANCELED -> "canceled";
+            case TERMINATED -> "terminated";
+            case SERVER_SIDE_TIMEOUT_INTERNAL_ONLY -> "timeout";
+            default -> "unknown";
+        };
     }
 
     // Keep missing values as JSON null, overriding the application's NON_NULL default.
