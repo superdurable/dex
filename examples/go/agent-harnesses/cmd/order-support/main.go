@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Command order-support serves the order support agent on Eino over HTTP, with one Worker for its sessions.
 //
 // Start dexcli dev first. The routes are on 127.0.0.1:8082

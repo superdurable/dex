@@ -354,7 +354,7 @@ Agent: <the model's reply about order 1001>
 cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
 ```
 
-Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用，以及人如何在 Dex Web 中批准它。
+Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用。在 Python 和 TypeScript 中，它还介绍人如何在 Dex Web 中批准这次调用。
 
 :::note 给 coding agent
 在命令后加上 `--approve`，代替输入 **y**。程序会批准每个正在等待的调用，并打印批准了什么。没有终端时，程序不会询问：它打印 `cancel_order` 正在等待审批，然后退出，效果和第 3 步中按 Ctrl+C 一样。随后用 `--session-id SESSION_ID --approve` 继续。

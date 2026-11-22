@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Package orderdesk is the order system that every order support agent reads and writes.
 //
 // Each agent has the same two tools: look_up_order reads an order, and

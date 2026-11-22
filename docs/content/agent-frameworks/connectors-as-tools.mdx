@@ -65,9 +65,11 @@ The example adds the Slack tool `slack_post_thread_reply`, which replies in a Sl
 
 With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app.
 
-`postThreadReply` is a single-attempt Mutation, so a post runs once, in `CallSingleAttemptTool`, and a Worker crash never sends it twice. The example also sets `requires_approval=True` (**requiresApproval: true** in TypeScript, `connectortools.WithRequiresApproval(true)` in Go), so every post waits in `AwaitToolApproval` for a person.
+Every example sets `requires_approval=True` (**requiresApproval: true** in TypeScript, `connectortools.WithRequiresApproval(true)` in Go), so every post waits in `AwaitToolApproval` for a person. After approval, the post runs in `CallSingleAttemptTool`.
 
-The Go example uses the Slack Connector v1.8.1, which gives `postThreadReply` bounded resends with at most 3 sends. After a Worker crash during a post, the Connector reads the thread back first and sends again only when it cannot find the reply. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
+The Python and TypeScript examples use the Slack Connector 0.2.0, where `postThreadReply` is a single-attempt Mutation. A post runs once, and a Worker crash never sends it twice.
+
+The Go example uses the Slack Connector v1.8.1, which gives `postThreadReply` bounded resends with at most 3 sends. After a Worker crash during a post, the Connector reads the thread back first and sends again only when it cannot find the reply. So a crash can post a duplicate reply, up to 3 posts in all. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
 
 ### Offer the tool {#offer-connector-tools}
 

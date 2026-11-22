@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Package ordersupport is the order support agent on Eino as a durable Dex agent session, with its HTTP routes.
 package ordersupport
 

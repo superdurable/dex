@@ -7,7 +7,7 @@ description: Which agent frameworks Dex supports, in which languages, which sess
 
 # Framework Support
 
-Dex runs agents built with nine frameworks, plus its own built-in agent loop. Every one of them gets a durable session, tool policies, approvals, Connectors as tools, queued messages, and live events on the AgentEvents Stream. Every one except Eino also gets **Steer** and `cancel_turn`; Eino runs on the Go core, which has neither.
+Dex runs agents built with nine frameworks, plus its own built-in agent loop. Every one of them gets a durable session, tool policies, approvals, Connectors as tools, queued messages, and live events on the AgentEvents Stream. Every one that runs in Python or TypeScript also gets **Steer** and `cancel_turn`. Eino runs on the Go core, which has neither.
 
 ## Frameworks and features {#features-by-harness}
 
@@ -35,7 +35,7 @@ These limits change how you write an agent. Each framework's tab on [How Each Fr
 | Framework | Main limits |
 | --- | --- |
 | Claude Agent SDK | The write calls of one model reply run one at a time. Tools inside the Claude Code CLI, such as **Bash** and **Edit**, can run again. |
-| Eino | A configuration that makes more than one model call in a Step, such as `ModelRetryConfig` or the summarization middleware, refuses to build. The Go core has no **Steer**, `cancel_turn`, questions, compaction, images, MCP tool source, or UI streams. |
+| Eino | A configuration that makes more than one model call in a Step, such as `ModelRetryConfig` or the summarization middleware, refuses to build. The Go core has no **Steer**, `cancel_turn`, questions, compaction, images, MCP tool source, spend-limit hook, or UI streams. |
 | Google ADK | The App root must be a `BaseAgent`. A tool's state and artifact changes are discarded. |
 | LangChain and LangGraph | Only the message list carries over between turns. Tools cannot use `ToolRuntime`, `InjectedState`, or `InjectedStore`. |
 | Mastra | Mastra Memory is replaced by the session. A tool that calls `suspend()` fails. |

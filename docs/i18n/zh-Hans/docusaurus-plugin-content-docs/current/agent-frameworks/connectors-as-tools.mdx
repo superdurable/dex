@@ -65,9 +65,11 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
 
 配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app。
 
-`postThreadReply` 是单次尝试 Mutation，所以每次发帖只在 `CallSingleAttemptTool` 中运行一次，Worker 崩溃也不会让它发送两次。示例还设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**，Go 中是 `connectortools.WithRequiresApproval(true)`），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。
+每个示例都设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**，Go 中是 `connectortools.WithRequiresApproval(true)`），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。审批之后，发帖在 `CallSingleAttemptTool` 中运行。
 
-Go 示例使用 Slack Connector v1.8.1，它给 `postThreadReply` 有界重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先读回这个 thread，只有找不到回复时才再次发送。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
+Python 和 TypeScript 示例使用 Slack Connector 0.2.0，其中 `postThreadReply` 是单次尝试 Mutation。每次发帖只运行一次，Worker 崩溃也不会让它发送两次。
+
+Go 示例使用 Slack Connector v1.8.1，其中 `postThreadReply` 采用有限次重发，最多发送 3 次。发帖时 Worker 崩溃后，Connector 先回读这个 thread，只有找不到回复时才再次发送。所以崩溃可能造成重复回复，总共最多发出 3 次。[Bounded resends](/reference/agents/connector-tools#bounded-resends)（英文）介绍细节。
 
 ### 提供 tool {#offer-connector-tools}
 

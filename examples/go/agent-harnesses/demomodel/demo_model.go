@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Package demomodel is a local demo model for the order support agents, so they run without a provider key.
 //
 // The demo model reads the turn's user message and the tool results the turn

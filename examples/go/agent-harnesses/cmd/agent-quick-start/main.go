@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Command agent-quick-start runs one turn of a quick start agent session from the command line.
 //
 //	go run ./cmd/agent-quick-start eino "Cancel order 1002"

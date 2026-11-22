@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Package quickstart is the Agent Quick Start in Go: the order support agent on Eino, its host, and one turn.
 //
 // The Worker and the Client live in one process. The Worker runs the

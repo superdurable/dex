@@ -71,12 +71,17 @@ Slack Connector. The Connector's operations reach the agent through
 
 | Tool | Slack operation | What Dex does |
 | --- | --- | --- |
-| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits in `AwaitToolApproval`, then runs once in its own tool Step under the Connector's Call ID. |
+| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits in `AwaitToolApproval`, then runs in `CallSingleAttemptTool` under the Connector's Call ID, with bounded resends: at most 3 sends. |
 
 The example offers only `slack_post_thread_reply` and passes
 `connectortools.WithRequiresApproval(true)`, so every post waits for a person.
 The Worker opens the Slack connection `support-slack` from the project
 configuration and holds no Slack token.
+
+The Slack Connector v1.8.1 gives `postThreadReply` bounded resends. After a
+Worker crash during a post, the Connector reads the thread back first and sends
+again only when it cannot find the reply. So a crash can post a duplicate
+reply, up to 3 posts in all.
 
 - **Local development**: set `DEX_CONNECTOR_CONFIG_FILE` to the
   `connections.json` that Dex Web saves, by default

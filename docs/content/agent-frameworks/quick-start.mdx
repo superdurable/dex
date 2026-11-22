@@ -354,7 +354,7 @@ Run the same command with the message **Cancel order 1002**. The program stops a
 cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
 ```
 
-The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call, and how a person approves it in Dex Web.
+The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call. In Python and TypeScript, it also shows how a person approves the call in Dex Web.
 
 :::note For coding agents
 Add `--approve` to the command in place of typing **y**. The program then approves each waiting call and prints what it approved. Without a terminal, the program does not ask: it prints that `cancel_order` waits for approval and exits, which stops it as Ctrl+C does in step 3. Resume with `--session-id SESSION_ID --approve`.

@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS.
-
 // Tests run against the Dex server at DEX_FLOW_SERVICE_ADDRESS. They read Flow
 // history with dexcli (DEXCLI_PATH, DEXCLI, or PATH). Without a server they
 // fail, unless DEX_EXAMPLES_ALLOW_SKIP=1.

@@ -179,7 +179,7 @@ Each tool call runs the tool's original **execute** in its own Step. The next `R
 
 Some session features depend on the harness:
 
-| Feature | Python and TypeScript adapters | Built-in agent loop and Pi | Eino |
+| Feature | Python and TypeScript adapters | Python and TypeScript built-in loop, and Pi | Eino |
 | --- | --- | --- | --- |
 | Queued messages, **Steer**, and `cancel_turn` | Yes | Yes | Queued messages only |
 | Context compaction by Dex | Yes, except the Claude Agent SDK | Yes | No |
@@ -203,15 +203,17 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 </FrameworkTab>
 <FrameworkTab framework="eino">
 
-- Each `RunModel` makes exactly one model call, so a configuration that makes more refuses to build: `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`, `ReturnDirectly`, `ToolsConfig.ExecuteSequentially`, the summarization middleware, and agent tools made with `adk.WithFullChatHistoryAsInput`. Tune retries with `WithModelRetryPolicy`, and choose the model per call with an `AgentConfigBuilder`.
+- Each `RunModel` makes exactly one model call. A configuration that makes more refuses to build: `ModelRetryConfig`, `ModelFailoverConfig`, and the summarization middleware. Tune retries with `WithModelRetryPolicy`, and choose the model per call with an `AgentConfigBuilder`.
+- `Exit` and `ToolsConfig.ReturnDirectly` end the turn on a tool result instead of a model answer. So they refuse to build.
 - A sub-agent runs as a tool, through `adk.NewAgentTool`. It runs inside that tool's Step, again on each attempt, so give the tool the effect of what its sub-agent does. `transfer_to_agent` and the prebuilt supervisor, plan-execute, and deep agents are not accepted.
+- An agent tool made with `adk.WithFullChatHistoryAsInput` reads the agent's history, which a tool Step does not have. So it refuses to build. Pass what the sub-agent needs in the call's arguments.
 - Every tool needs a Dex effect. Construction fails for a tool without one, unless you set `WithDefaultToolEffect`.
-- The tool calls of one model response run as parallel Steps, so tools must be safe for concurrent use.
+- The tool calls of one model response run as parallel Steps, so tools must be safe for concurrent use, in any order. `ToolsConfig.ExecuteSequentially` refuses to build.
 - Change the model's message in a Handler's `WrapModel`, and earlier messages or tools in `BeforeModelRewriteState`. An `AfterModelRewriteState` or `AfterChatModel` that changes them ends the turn as failed.
 - Each `RunModel` is a new Eino run. Run-local values, session values, and middleware caches start empty at every model call.
 - The tool Step checks arguments against the tool's schema, which can be stricter than Eino's decoding. Mark optional `utils.InferTool` fields `omitempty`, and convert other calls in a `ToolArgumentsHandler`.
 - Return `*dexagents.ToolExecutionError` for a definite tool failure. `utils.WrapToolWithErrorHandler` turns every error into result text, so a write that may have run would read as succeeded; leave Dex tools unwrapped.
-- The Go core covers the session core: approvals, tool effects, Connector tools, queued messages, and the AgentEvents Stream. It has no **Steer**, `cancel_turn`, questions, tool input requests, plans, context compaction, images, MCP tool source, GenAI spans, or UI streams. A Connector call that waits for approval carries no approval display. Serve each agent Flow type with Workers of one language.
+- The Go core covers the session core: approvals, tool effects, Connector tools, queued messages, and the AgentEvents Stream. It has no **Steer**, `cancel_turn`, questions, tool input requests, plans, context compaction, images, MCP tool source, spend-limit hook, GenAI spans, or UI streams. A Connector call that waits for approval carries no approval display. Serve each agent Flow type with Workers of one language.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
