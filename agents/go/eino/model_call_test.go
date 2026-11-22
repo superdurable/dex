@@ -689,3 +689,85 @@ func TestHandlerThatChangesToolCallsEndsTheTurnAsFailed(t *testing.T) {
 		})
 	}
 }
+
+// A provider message without a role is stored as the assistant's, so the paid call's message stores.
+func TestModelMessageWithoutARoleIsStoredAsTheAssistants(t *testing.T) {
+	for name, response := range map[string]*schema.Message{
+		"text":       {Content: "hello"},
+		"tool calls": {ToolCalls: []schema.ToolCall{call("call_1", "lookup_order", `{"id":"1"}`)}},
+	} {
+		for _, isStreaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s streaming=%v", name, isStreaming), func(t *testing.T) {
+				scripted := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+					copied := *response
+					return &copied, nil
+				}}
+				runner := readRunner(t, scripted, dexeino.WithStreaming(isStreaming))
+				outcome, err := runner.RunModelStep(context.Background(), newTurnState(t, runner, "hello").context())
+				require.NoError(t, err)
+				var stored []dexagents.FrameworkMessage
+				switch typed := outcome.(type) {
+				case *dexagents.TurnCompleted:
+					require.Nil(t, typed.TurnError)
+					stored = typed.NewMessages
+				case *dexagents.ToolCallsRequested:
+					stored = typed.NewMessages
+				}
+				require.Len(t, stored, 1)
+				require.Equal(t, dexagents.MessageRoleAssistant, stored[0].Role)
+				decoded, err := dexeino.DecodeMessage(dexagents.AgentMessage{Role: stored[0].Role, FrameworkItem: stored[0].FrameworkItem})
+				require.NoError(t, err)
+				require.Equal(t, schema.Assistant, decoded.Role)
+			})
+		}
+	}
+}
+
+// failingThenInterruptingHandler raises an Eino interrupt when the call of the model it wraps fails.
+type failingThenInterruptingHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+}
+
+type failingThenInterruptingModel struct {
+	inner model.BaseModel[*schema.Message]
+}
+
+func (failingThenInterruptingHandler) WrapModel(_ context.Context, inner model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+	return failingThenInterruptingModel{inner: inner}, nil
+}
+
+func (interrupting failingThenInterruptingModel) Generate(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.Message, error) {
+	message, err := interrupting.inner.Generate(ctx, input, options...)
+	if err != nil {
+		return nil, compose.Interrupt(ctx, "a person must pick another model")
+	}
+	return message, nil
+}
+
+func (interrupting failingThenInterruptingModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	stream, err := interrupting.inner.Stream(ctx, input, options...)
+	if err != nil {
+		return nil, compose.Interrupt(ctx, "a person must pick another model")
+	}
+	return stream, nil
+}
+
+// A turn that ends as failed after a failed model call bills no model call.
+func TestTurnErrorAfterAFailedModelCallBillsNoModelCall(t *testing.T) {
+	for _, isStreaming := range []bool{false, true} {
+		t.Run(fmt.Sprintf("streaming=%v", isStreaming), func(t *testing.T) {
+			failing := &scriptedChatModel{respond: func([]*schema.Message) (*schema.Message, error) {
+				return nil, &statusCodeError{StatusCode: 503}
+			}}
+			config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: failing,
+				Handlers: []adk.ChatModelAgentMiddleware{failingThenInterruptingHandler{&adk.BaseChatModelAgentMiddleware{}}}}
+			runner, err := dexeino.NewRunner(config, dexeino.WithStreaming(isStreaming))
+			require.NoError(t, err)
+			outcome, err := runner.RunModelStep(context.Background(), newTurnState(t, runner, "hello").context())
+			completed := requireTurnError(t, outcome, err)
+			require.Contains(t, *completed.TurnError, "did not raise")
+			require.Equal(t, 1, failing.calls())
+			require.Zero(t, completed.Usage.ModelCalls, "the failed call is not billed")
+		})
+	}
+}

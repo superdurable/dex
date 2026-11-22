@@ -243,10 +243,13 @@ func (runner *Runner) BuildUserMessage(text string) (dexagents.FrameworkMessage,
 // middleware, two tools of one name, an alias that names another tool, or a
 // tool without a Dex effect), a turn at the agent's MaxIterations, a second
 // model call in the Step, a Handler's WrapModel that answers without calling
-// the model it wraps, an Eino interrupt the adapter did not raise, or a model
-// message that changed after the model call, such as tool call arguments or
-// text that a Handler's AfterModelRewriteState or an AgentMiddleware's
-// AfterChatModel rewrote. Its NewMessages hold only the unstored tool results,
+// the model it wraps or after that call failed, an Eino interrupt the adapter
+// did not raise, or a model message that changed after the model call, such
+// as tool call arguments or text that a Handler's AfterModelRewriteState or an
+// AgentMiddleware's AfterChatModel rewrote. Such a hook that changes the
+// messages before the model's, or the state's tools, ends the turn the same
+// way, because Dex replays the stored messages and offers the agent's tools at
+// every model call. Its NewMessages hold only the unstored tool results,
 // so every stored call keeps its result; the model message of a refused call
 // is not stored. The usage of a model call that ran is recorded, and no retry
 // pays for it again. When the one model call failed and a wrapper then tried
@@ -331,6 +334,14 @@ func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResu
 	offered := maps.Clone(run.offeredTools)
 	run.mutex.Unlock()
 	if isModelNotCalled {
+		if failure := run.failedModelCall(); failure != nil {
+			runner.options.logger.Warn("dexeino: a Handler's WrapModel answered from another model after the model call failed",
+				"turn_id", result.turn.TurnID, "error", failure)
+			return endTurnAsFailed("a Handler's WrapModel answered from another model after the call of the model it wraps "+
+				"failed, so two model calls ran in one RunModel Step; return the model's error, which the session "+
+				"retries or fails by its HTTP status, and choose the model with an AgentConfigBuilder instead",
+				usage, result.unstoredResults)
+		}
 		return endTurnAsFailed("a Handler's WrapModel answered without calling the model it wraps, so Dex cannot count "+
 			"the Step's model calls or see the tools that model was offered; choose the model with an AgentConfigBuilder instead",
 			usage, result.unstoredResults)
@@ -365,7 +376,7 @@ func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResu
 			return endTurnAsFailed("the Eino agent stopped at tool calls its model message does not contain",
 				usage, result.unstoredResults)
 		}
-		if reason := run.messageChangedAfterModelCall(); reason != "" {
+		if reason := run.changeAfterModelCall(); reason != "" {
 			return endTurnAsFailed(reason, usage, result.unstoredResults)
 		}
 		return &dexagents.TurnCompleted{NewMessages: newMessages, Usage: usage}, nil
@@ -373,7 +384,7 @@ func (runner *Runner) modelCallOutcome(ctx context.Context, result modelCallResu
 	if !sameToolCallIDs(requested, drained.gatedCalls) && !(len(drained.gatedCalls) == 0 && result.offeredToolCount == 0) {
 		return endTurnAsFailed(toolCallsChangedReason, usage, result.unstoredResults)
 	}
-	if reason := run.messageChangedAfterModelCall(); reason != "" {
+	if reason := run.changeAfterModelCall(); reason != "" {
 		return endTurnAsFailed(reason, usage, result.unstoredResults)
 	}
 	encodedState, err := json.Marshal(runState{Version: runStateVersion, ModelCalls: ptr(result.modelCalls + 1)})

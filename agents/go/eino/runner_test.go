@@ -10,6 +10,7 @@ package dexeino_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -84,6 +85,73 @@ func TestRunModelStepDefersToolCallsAndReplaysTheirResults(t *testing.T) {
 
 func roles(messages []*schema.Message) []schema.RoleType {
 	result := make([]schema.RoleType, 0, len(messages))
+	for _, message := range messages {
+		result = append(result, message.Role)
+	}
+	return result
+}
+
+// Two tool rounds store one result per call; later model calls add only results not stored yet.
+func TestTwoToolRoundsStoreOneResultPerCall(t *testing.T) {
+	var toolRuns atomic.Int64
+	lookup := funcTool{name: "lookup_order", run: func(_ context.Context, arguments string) (string, error) {
+		toolRuns.Add(1)
+		return "looked up " + arguments, nil
+	}}
+	scripted := &scriptedChatModel{respond: func(input []*schema.Message) (*schema.Message, error) {
+		results := 0
+		for _, message := range input {
+			if message.Role == schema.Tool {
+				results++
+			}
+		}
+		switch results {
+		case 0:
+			return toolCallMessage(call("call_a", "lookup_order", `{"id":"1"}`)), nil
+		case 1:
+			return toolCallMessage(call("call_b", "lookup_order", `{"id":"2"}`)), nil
+		default:
+			return schema.AssistantMessage(fmt.Sprintf("done after %d results", results), nil), nil
+		}
+	}}
+	config := &adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.", Model: scripted,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: []tool.BaseTool{lookup}}}}
+	runner, err := dexeino.NewRunner(config, dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+		"lookup_order": dexagents.ToolEffectRead,
+	}))
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "two rounds")
+	state.runModel(runner)
+	require.Empty(t, state.runTools(runner))
+	second := state.runModel(runner).(*dexagents.ToolCallsRequested)
+	require.Equal(t, []dexagents.MessageRole{dexagents.MessageRoleTool, dexagents.MessageRoleAssistant}, frameworkRoles(second.NewMessages))
+	require.Equal(t, "call_a", *second.NewMessages[0].ToolCallID)
+	require.Empty(t, state.runTools(runner))
+
+	unfinished, err := runner.BuildUnfinishedTurnMessages(context.Background(), state.context())
+	require.NoError(t, err)
+	require.Len(t, unfinished, 1, "only the second round's result is not stored yet")
+	require.Equal(t, "call_b", *unfinished[0].ToolCallID)
+
+	completed := state.runModel(runner).(*dexagents.TurnCompleted)
+	require.Nil(t, completed.TurnError)
+	require.Equal(t, "done after 2 results", *completed.NewMessages[len(completed.NewMessages)-1].Text)
+	storedResults := map[string]int{}
+	var storedRoles []dexagents.MessageRole
+	for _, message := range state.messages {
+		storedRoles = append(storedRoles, message.Role)
+		if message.Role == dexagents.MessageRoleTool {
+			storedResults[*message.ToolCallID]++
+		}
+	}
+	require.Equal(t, map[string]int{"call_a": 1, "call_b": 1}, storedResults)
+	require.Equal(t, []dexagents.MessageRole{dexagents.MessageRoleUser, dexagents.MessageRoleAssistant, dexagents.MessageRoleTool,
+		dexagents.MessageRoleAssistant, dexagents.MessageRoleTool, dexagents.MessageRoleAssistant}, storedRoles)
+	require.Equal(t, int64(2), toolRuns.Load())
+}
+
+func frameworkRoles(messages []dexagents.FrameworkMessage) []dexagents.MessageRole {
+	result := make([]dexagents.MessageRole, 0, len(messages))
 	for _, message := range messages {
 		result = append(result, message.Role)
 	}

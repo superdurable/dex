@@ -27,10 +27,10 @@ const genaiPackagePath = "google.golang.org/genai"
 // adapter wraps an error in ModelAPIError only where that would lose
 // something: the genai SDK of the gemini client keeps the status in Code, and
 // an error with an HTTPStatusCode field may carry response headers the core
-// does not read. A 429 or 5xx then backs off and retries, and another 4xx ends
-// the turn at once, as for the Dex model clients. Response is set when the
-// original error carried response headers, so a Retry-After header still sets
-// the wait. Unwrap returns the original error, so errors.As still finds the
+// does not read. A 408, 409, 429, or 5xx then backs off and retries, and
+// another 4xx ends the turn at once, as for the Dex model clients. Response
+// is set when the original error carried response headers, so a Retry-After
+// header still sets the wait. Unwrap returns the original error, so errors.As still finds the
 // provider's own error type. A model wrapper of your own may return one, such
 // as &dexeino.ModelAPIError{StatusCode: 503}, to give the session a status; its
 // text is then "the model API answered HTTP 503", and Unwrap returns nil.

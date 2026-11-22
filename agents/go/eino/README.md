@@ -32,9 +32,10 @@ Connectors as tools use the core's package `connectortools`, which requires
 
 Each agents release tags this module as `agents/go/eino/v<version>`, starting
 with 0.6.16, on the same commit as the Go core tag it requires. Install a
-tagged version. A commit of `main` between releases does not resolve as a
-dependency, because its `go.mod` requires a core version that is not tagged
-yet, and Go ignores the module's `replace` of the core when you depend on it.
+tagged version. Go ignores the module's `replace` of the core when you depend
+on it, so a commit of `main` between releases builds against the core release
+that its `go.mod` names, not against the core on `main`: it may fail to
+compile, or run with the older core's behavior.
 
 ## Example
 
@@ -292,10 +293,15 @@ How a source tool works with Eino:
   argument schemas. Their bodies never run in `RunModel`: the adapter's gate
   stops the run at their calls like any other. A source whose listing fails or
   takes longer offers no tools in that model call, and the turn goes on.
-- **Schemas as the source wrote them.** The model gets each input schema with
-  every keyword the source wrote, including those that Eino's JSON Schema type
-  has no field for, such as draft-07 `definitions`, `nullable`, and `x-` keys,
-  so a `$ref` still resolves. A listed tool whose schema is not a JSON Schema,
+- **Schemas as the source wrote them.** The adapter hands Eino's model client
+  each input schema with every keyword the source wrote, including those that
+  Eino's JSON Schema type has no field for, such as draft-07 `definitions`,
+  `nullable`, and `x-` keys. What reaches the provider depends on the client.
+  The eino-ext OpenAI, Ark, and Gemini clients send the whole schema, so a
+  `$ref` still resolves. The Claude client sends only the root `properties`
+  and `required`, so a root `$defs`, `definitions`, `anyOf`, or
+  `additionalProperties` does not reach Claude, and a `$ref` into it does not
+  resolve there. A listed tool whose schema is not a JSON Schema,
   or would still reach the model changed, is left out of that model call with a
   warning in the log. A call of its name is not sent to the source: it is
   deferred as `unclassified` without an approval, and its tool Step answers
@@ -352,22 +358,32 @@ Details that follow from it:
 - **One model call.** A Handler or model wrapper that calls the model a second
   time ends the turn as failed before the second call reaches the model. The
   one call that ran is billed, and no retry pays for it again. When that call
-  failed, its error reaches the session instead, as a model error: a 429 or
-  5xx backs off and `RunModel` retries, and no usage is billed for it. The
+  failed, its error reaches the session instead, as a model error: a 408,
+  409, 429, or 5xx backs off and `RunModel` retries, and no usage is billed
+  for it. The
   adapter counts calls of the agent's `Model`, so a Handler's `WrapModel`
   must call the model it receives. One that answers from another model ends
   the turn as failed, with the usage that model's message reports: choose the
-  model with an `AgentConfigBuilder` instead.
+  model with an `AgentConfigBuilder` instead. A fallback that answers from a
+  backup model after the call of the agent's model failed ends the turn the
+  same way, since two model calls then ran in one Step. Return the error
+  instead, and the session backs off or ends the turn by its status.
 - **The stored message.** Dex stores and runs the message that the model call
   returned through the Handlers' `WrapModel`, so change the model's text or
   tool calls there. A Handler's `AfterModelRewriteState` or an
   `AgentMiddleware.AfterChatModel` that changes that message, such as its
   arguments, a tool name, or its text, ends the turn as failed, because the
-  change would not reach the stored conversation or the tool Steps.
+  change would not reach the stored conversation or the tool Steps. So does
+  one that changes the messages before the model's, such as by dropping old
+  tool results, or the state's tools. Eino would carry such a change into the
+  run's next model call, but Dex replays the stored messages and offers the
+  agent's tools at every model call, so it would never reach one. Make it in a
+  Handler's `BeforeModelRewriteState`, which runs before every model call.
 - **Turns that end as failed.** A stop that a retry would repeat ends the turn
   at once with `TurnCompleted.TurnError`: the second model call above, a
-  `WrapModel` that answers from another model, a turn at `MaxIterations`, an
-  Eino interrupt that a Handler raised in `RunModel`, a model message that an
+  `WrapModel` that answers from another model, also after the model call
+  failed, a turn at `MaxIterations`, an Eino interrupt that a Handler raised
+  in `RunModel`, a model message, earlier messages, or tools that an
   after-model hook changed, and a model call configuration from the
   `AgentConfigBuilder` that construction would refuse: a refused setting or
   middleware, two tools of one name, an alias that names another tool, or a
@@ -382,8 +398,8 @@ Details that follow from it:
   Ark errors reach it unchanged. The adapter's outermost model wrapper wraps an
   error in `ModelAPIError` only where the core would miss something: the
   status in the `Code` of genai errors, or response headers that an error with
-  `HTTPStatusCode` carries. The core then backs off a 429 or 5xx, honoring
-  `Retry-After`, and ends the turn at once on another 4xx.
+  `HTTPStatusCode` carries. The core then backs off a 408, 409, 429, or 5xx,
+  honoring `Retry-After`, and ends the turn at once on another 4xx.
 - **Streaming.** With `WithStreaming(true)` the model call streams, and its text
   and reasoning arrive as `text_delta` and `reasoning_delta` events. Without it
   the model call uses `Generate`, and the whole text is one delta.
@@ -449,8 +465,10 @@ its single tool call or result, when it has one.
    using `utils.WrapToolWithErrorHandler`.
 6. Move changes to the model's message from a Handler's
    `AfterModelRewriteState` or an `AgentMiddleware.AfterChatModel` into a
-   Handler's `WrapModel`, and let every `WrapModel` call the model it receives.
-   Choose the model per call with an `AgentConfigBuilder`.
+   Handler's `WrapModel`, and changes to earlier messages or to the tools into
+   a Handler's `BeforeModelRewriteState`. Let every `WrapModel` call the model
+   it receives and return its error, with no fallback to another model. Choose
+   the model per call with an `AgentConfigBuilder`.
 
 ## Limits
 

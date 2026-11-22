@@ -236,9 +236,12 @@ Connectors as tools (the decision above) and the adapter itself.
   without a Dex effect.
   A model wrapper that tries a second model call ends the turn as failed with
   `TurnCompleted.TurnError`, with the one call billed and no paid retry. So
-  does a Handler's `WrapModel` that answers from another model, and an
-  after-model hook that changes the model's message, which Dex stores as the
-  model call returned it.
+  does a Handler's `WrapModel` that answers from another model, also as a
+  fallback after the model call failed, and an after-model hook that changes
+  the model's message, which Dex stores as the model call returned it. An
+  after-model hook that changes the earlier messages or the state's tools ends
+  the turn too, because each `RunModel` replays the stored messages and offers
+  the agent's tools afresh.
 - **Connectors as tools:** `dexeino.WithToolSources` offers a tool source's
   tools to the model beside the agent's own, and runs each call through the
   source in the Dex tool Step, before and outside Eino's tool node, as

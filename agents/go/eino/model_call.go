@@ -71,11 +71,61 @@ type modelCallRun struct {
 	usage             dexagents.AgentUsage
 	offeredTools      map[string]bool
 	isSecondCallTried bool
-	// isModelNotCalled is set when a Handler's WrapModel answered from a model the counter does not wrap.
+	// isModelNotCalled is set when a Handler's WrapModel answered from a model the counter does not wrap,
+	// before the counted call or after it failed.
 	isModelNotCalled bool
 	// handedMessage and finalMessage encode the message Eino got from the gate and the one it kept after its hooks.
 	handedMessage []byte
 	finalMessage  []byte
+	// handedState and finalState hold the rest of the agent state right after the model call and after its hooks.
+	handedState *agentStateSnapshot
+	finalState  *agentStateSnapshot
+}
+
+// agentStateSnapshot is what an after-model hook could change in the agent state besides the model's message.
+type agentStateSnapshot struct {
+	// earlierMessages encodes the messages before the last one, without the Extra keys Eino ADK sets for itself.
+	earlierMessages []byte
+	tools           []toolInfoKey
+	deferredTools   []toolInfoKey
+}
+
+// toolInfoKey identifies one tool of the agent state by its Info and the name it had.
+type toolInfoKey struct {
+	info *schema.ToolInfo
+	name string
+}
+
+func snapshotAgentState(state *adk.ChatModelAgentState) (*agentStateSnapshot, error) {
+	earlier := []json.RawMessage{}
+	for _, message := range state.Messages[:max(len(state.Messages)-1, 0)] {
+		encoded, err := encodeComparableMessage(message)
+		if err != nil {
+			return nil, err
+		}
+		earlier = append(earlier, encoded)
+	}
+	encoded, err := json.Marshal(earlier)
+	if err != nil {
+		return nil, fmt.Errorf("dexeino: the agent state's messages do not encode as JSON: %w", err)
+	}
+	return &agentStateSnapshot{earlierMessages: encoded, tools: toolInfoKeys(state.ToolInfos),
+		deferredTools: toolInfoKeys(state.DeferredToolInfos)}, nil
+}
+
+func toolInfoKeys(infos []*schema.ToolInfo) []toolInfoKey {
+	if infos == nil {
+		return nil
+	}
+	keys := make([]toolInfoKey, 0, len(infos))
+	for _, info := range infos {
+		key := toolInfoKey{info: info}
+		if info != nil {
+			key.name = info.Name
+		}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func newModelCallRun(turn dexagents.AgentTurnContext) *modelCallRun {
@@ -103,7 +153,8 @@ func (run *modelCallRun) capturedMessage() *schema.Message {
 
 // modelCallUsage returns the usage of the model call; a call that failed is not counted.
 //
-// A message from a model the counter does not wrap counts as one call with the usage it reports.
+// A message from a model the counter does not wrap counts as one call with the usage it reports,
+// also when it answered after the counted call failed.
 func (run *modelCallRun) modelCallUsage() dexagents.AgentUsage {
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
@@ -180,8 +231,8 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	if run.captured != nil {
 		return nil, errSecondModelCall
 	}
-	if run.modelCalls == 0 {
-		// The counter never saw this call, so its tools, its usage, and a second call went unseen.
+	if run.modelCalls == 0 || run.modelCallFailure != nil {
+		// The counter never saw this call, or the counted call failed, so its tools, its usage, and a second call went unseen.
 		run.isModelNotCalled = true
 		if message.ResponseMeta != nil {
 			run.mergeUsageLocked(message.ResponseMeta.Usage)
@@ -208,7 +259,19 @@ func (run *modelCallRun) captureModelMessage(message *schema.Message) (*schema.M
 	return forEino, nil
 }
 
-// recordFinalMessage is the last AfterChatModel hook: it records the message Eino goes on with.
+// recordHandedState records the agent state as the model call left it, before any other after-model hook.
+func (run *modelCallRun) recordHandedState(state *adk.ChatModelAgentState) error {
+	snapshot, err := snapshotAgentState(state)
+	if err != nil {
+		return err
+	}
+	run.mutex.Lock()
+	defer run.mutex.Unlock()
+	run.handedState = snapshot
+	return nil
+}
+
+// recordFinalMessage is the last AfterChatModel hook: it records the message and state Eino goes on with.
 func (run *modelCallRun) recordFinalMessage(_ context.Context, state *adk.ChatModelAgentState) error {
 	var final []byte
 	if len(state.Messages) > 0 {
@@ -218,9 +281,14 @@ func (run *modelCallRun) recordFinalMessage(_ context.Context, state *adk.ChatMo
 		}
 		final = encoded
 	}
+	snapshot, err := snapshotAgentState(state)
+	if err != nil {
+		return err
+	}
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
 	run.finalMessage = final
+	run.finalState = snapshot
 	return nil
 }
 
@@ -241,26 +309,41 @@ const toolCallsChangedReason = "the Eino agent's tool calls changed after the mo
 	"AfterModelRewriteState or an AgentMiddleware's AfterChatModel that rewrites them is not supported, " +
 	"because Dex stores and runs the message the model call returned; change the message in a Handler's WrapModel instead"
 
-// messageChangedAfterModelCall returns the TurnError for a message the after-model hooks changed, or "".
+// changeAfterModelCall returns the TurnError for a model message or agent state the after-model hooks changed, or "".
 //
-// A final message the last hook never recorded counts as changed.
-func (run *modelCallRun) messageChangedAfterModelCall() string {
+// A message or state that a hook never recorded counts as changed.
+func (run *modelCallRun) changeAfterModelCall() string {
 	run.mutex.Lock()
 	defer run.mutex.Unlock()
-	if bytes.Equal(run.handedMessage, run.finalMessage) {
-		return ""
-	}
-	var handed, final schema.Message
-	if json.Unmarshal(run.handedMessage, &handed) == nil && json.Unmarshal(run.finalMessage, &final) == nil {
-		handedCalls, handedErr := json.Marshal(handed.ToolCalls)
-		finalCalls, finalErr := json.Marshal(final.ToolCalls)
-		if handedErr == nil && finalErr == nil && !bytes.Equal(handedCalls, finalCalls) {
-			return toolCallsChangedReason
+	if !bytes.Equal(run.handedMessage, run.finalMessage) {
+		var handed, final schema.Message
+		if json.Unmarshal(run.handedMessage, &handed) == nil && json.Unmarshal(run.finalMessage, &final) == nil {
+			handedCalls, handedErr := json.Marshal(handed.ToolCalls)
+			finalCalls, finalErr := json.Marshal(final.ToolCalls)
+			if handedErr == nil && finalErr == nil && !bytes.Equal(handedCalls, finalCalls) {
+				return toolCallsChangedReason
+			}
 		}
+		return "the Eino agent's model message changed after the model call; a Handler's AfterModelRewriteState or an " +
+			"AgentMiddleware's AfterChatModel that changes it is not supported, because Dex stores the message the model " +
+			"call returned; change the message in a Handler's WrapModel instead"
 	}
-	return "the Eino agent's model message changed after the model call; a Handler's AfterModelRewriteState or an " +
-		"AgentMiddleware's AfterChatModel that changes it is not supported, because Dex stores the message the model " +
-		"call returned; change the message in a Handler's WrapModel instead"
+	if run.handedState == nil || run.finalState == nil ||
+		!bytes.Equal(run.handedState.earlierMessages, run.finalState.earlierMessages) {
+		return "the Eino agent's earlier messages changed after the model call; a Handler's AfterModelRewriteState or " +
+			"an AgentMiddleware's AfterChatModel that changes the messages before the model's is not supported, because " +
+			"Dex replays the stored messages at every model call, so the change would never reach one; change the model " +
+			"input in a Handler's BeforeModelRewriteState instead, which runs before every model call"
+	}
+	// Eino fills nil ToolInfos with the agent's tools at the next model call, as Dex offers them.
+	isToolsChanged := run.finalState.tools != nil && !slices.Equal(run.handedState.tools, run.finalState.tools)
+	if isToolsChanged || !slices.Equal(run.handedState.deferredTools, run.finalState.deferredTools) {
+		return "the Eino agent's tools changed after the model call; a Handler's AfterModelRewriteState or an " +
+			"AgentMiddleware's AfterChatModel that changes the state's tools is not supported, because Dex offers the " +
+			"agent's tools afresh at every model call, so the change would never reach one; change the tools in a " +
+			"Handler's BeforeModelRewriteState instead, which runs before every model call"
+	}
+	return ""
 }
 
 // jsonDecodedCopy returns message as encoding/json decodes it, so Extra holds only JSON values.
@@ -331,6 +414,11 @@ type toolCallGate struct {
 
 func (gate *toolCallGate) WrapModel(_ context.Context, inner model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
 	return &capturingModel{inner: inner, run: gate.run}, nil
+}
+
+// AfterModelRewriteState records the agent state before any other after-model hook can change it.
+func (gate *toolCallGate) AfterModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+	return ctx, state, gate.run.recordHandedState(state)
 }
 
 func (gate *toolCallGate) WrapInvokableToolCall(_ context.Context, _ adk.InvokableToolCallEndpoint, toolContext *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
@@ -477,7 +565,7 @@ func modelCallAgentConfig(config *agentConfig, run *modelCallRun, sourceStubs []
 		middleware.WrapToolCall = compose.ToolMiddleware{}
 		agent.Middlewares = append(agent.Middlewares, middleware)
 	}
-	// AfterChatModel hooks run after every Handler's AfterModelRewriteState, so the last one sees Eino's message.
+	// AfterChatModel hooks run after every Handler's AfterModelRewriteState, so the last one sees Eino's message and state.
 	agent.Middlewares = append(agent.Middlewares, adk.AgentMiddleware{AfterChatModel: run.recordFinalMessage})
 	agent.Handlers = make([]adk.ChatModelAgentMiddleware, 0, len(config.agent.Handlers)+2)
 	agent.Handlers = append(agent.Handlers, &toolCallGate{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}, run: run})
