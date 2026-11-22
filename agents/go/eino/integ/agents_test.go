@@ -134,7 +134,11 @@ func newEinoAgentFlows(coordinationDir string, deploy agentDeploy, openAIBaseURL
 	if err != nil {
 		return nil, err
 	}
-	return []dex.Flow{scripted, streaming, deadline, settings, openAI, connector, guarded}, nil
+	middlewareFlows, err := newMiddlewareFlows(coordination)
+	if err != nil {
+		return nil, err
+	}
+	return append([]dex.Flow{scripted, streaming, deadline, settings, openAI, connector, guarded}, middlewareFlows...), nil
 }
 
 // newSettingsAgentFlow builds an agent whose builder picks the model the session settings name.

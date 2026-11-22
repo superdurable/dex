@@ -236,8 +236,11 @@ Connectors as tools (the decision above) and the adapter itself.
 - **Refused at construction:** `ModelRetryConfig`, `ModelFailoverConfig`,
   `Exit`, `ToolsConfig.ReturnDirectly`, the summarization middleware, the
   v0.10 automemory and dream middlewares, `ToolsConfig.ExecuteSequentially`
-  (the tool calls of one model response run as parallel Steps), and any tool
-  without a Dex effect.
+  (the tool calls of one model response run as parallel Steps), agent tools
+  made with `adk.WithFullChatHistoryAsInput` (a tool Step has no agent
+  history), and any tool without a Dex effect. The adapter README lists the
+  status of every middleware and prebuilt agent that Eino v0.9.23 ships, and
+  the integration tests run each one that runs, in Generate and Stream mode.
   A model wrapper that tries a second model call ends the turn as failed with
   `TurnCompleted.TurnError`, with the one call billed and no paid retry. So
   does a Handler's `WrapModel` that answers from another model, also as a

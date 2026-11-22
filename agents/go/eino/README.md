@@ -404,13 +404,13 @@ Details that follow from it:
   in `RunModel`, a model message, earlier messages, or tools that an
   after-model hook changed, and a model call configuration from the
   `AgentConfigBuilder` that construction would refuse: a refused setting or
-  middleware, two tools of one name, an alias that names another tool, or a
-  tool without a Dex effect. The session sets `LastTurnError` to the reason
-  and writes `turn_failed`; the next turn that completes clears it. The tool
-  results the turn has not stored yet are stored, so every stored call keeps
-  its result. The model message of the refused call is not stored. A tool
-  whose `Info` fails is not a refusal: it fails the `RunModel` attempt, which
-  retries.
+  middleware, two tools of one name, an alias that names another tool, a tool
+  without a Dex effect, or an agent tool that reads the agent's history. The
+  session sets `LastTurnError` to the reason and writes `turn_failed`; the
+  next turn that completes clears it. The tool results the turn has not
+  stored yet are stored, so every stored call keeps its result. The model
+  message of the refused call is not stored. A tool whose `Info` fails is not
+  a refusal: it fails the `RunModel` attempt, which retries.
 - **Model errors.** The Go core reads the HTTP status of a failed model call
   from a `StatusCode`, `Response`, or `HTTPStatusCode` field, so go-openai and
   Ark errors reach it unchanged. The adapter's outermost model wrapper wraps an
@@ -442,11 +442,13 @@ stored; the instruction is rebuilt for every model call. `EncodeMessage` and
 `DecodeMessage` read and write these items.
 
 The model's message is stored with the call records, and the tool results with
-the next model call. When a turn fails, the session stores the results that
-are not stored yet before the turn-failure note, so the conversation pairs
-every call with its result. A call without a stored result, such as one whose
-turn an older Worker ended, is answered with the unknown-outcome text in the
-model input only.
+the next model call. A before-model hook that edits a tool result in place,
+such as a reduction middleware that clears old results, changes only that
+model call's input: the stored result stays the one the tool returned. When
+a turn fails, the session stores the results that are not stored yet before
+the turn-failure note, so the conversation pairs every call with its result.
+A call without a stored result, such as one whose turn an older Worker ended,
+is answered with the unknown-outcome text in the model input only.
 
 Messages another runner stored, such as the built-in agent loop, replay as
 Eino text and tool calls. A message of another framework keeps its text and
@@ -460,12 +462,48 @@ its single tool call or result, when it has one.
 | Human-in-the-loop `tool.Interrupt` and `compose.Interrupt` | Dex approvals: give the tool `RequiresApproval` or a write effect, and answer with `resolve_interrupt`. An interrupt that a Handler raises in `RunModel` ends the turn as failed. An interrupt that a tool raises fails its tool Step attempt, so the call's effect decides the outcome: a `read` retries and then records `failed`, and a write that may have run records `outcome_unknown` |
 | `ModelRetryConfig` | `RunModel` retries; tune it with `WithModelRetryPolicy`. Refused at construction |
 | `ModelFailoverConfig` | Choose the model per call with an `AgentConfigBuilder`. Refused at construction |
-| Sub-agents and `transfer_to_agent`, supervisor, plan-execute | Not supported: they make several model calls in one Step. Wrap a sub-agent as a tool instead |
+| Sub-agents and `transfer_to_agent`, supervisor, plan-execute | Not supported: they make several model calls in one Step. Wrap a sub-agent as a tool instead; see Eino middlewares and prebuilt agents |
 | `ToolsConfig.ReturnDirectly`, `Exit` | Refused at construction |
 | `ToolsConfig.ExecuteSequentially` | Refused at construction: the tool calls of one model response run as parallel Steps |
 | Summarization middleware, and the v0.10 automemory and dream middlewares | Refused at construction: they make their own model calls |
 | `UnknownToolsHandler` | Replaced by the adapter's, which answers `unknown tool <name>` |
 | Eino's tool event sender | `AgentEvents`; the session writes tool call events |
+
+## Eino middlewares and prebuilt agents
+
+The table gives the status under Dex of every middleware and prebuilt agent
+that Eino v0.9.23 ships. The integration tests run each one that runs,
+configured as its package documents it, through tool rounds and a final
+answer, with `Generate` and with `WithStreaming(true)`, on Eino v0.9.23 and
+the v0.10 alpha.
+
+A middleware's tools are tools like any other, so give each one an effect.
+The effects below are what each tool does; a tool you leave out gets
+`WithDefaultToolEffect`, or `unclassified` with an approval. Middleware tools
+run in their tool Steps, often on another Worker than the model call, so give
+the middleware a backend that every Worker reaches, not an in-memory one.
+
+| Middleware or agent | Status | Under Dex |
+| --- | --- | --- |
+| `agentsmd.New` | Runs | Its `BeforeModelRewriteState` adds the `AGENTS.md` content before every model call. The added message is model input only, so Dex does not store it |
+| `patchtoolcalls.New` | Runs | The adapter already answers a call without a stored result with the unknown-outcome text, so the middleware finds no dangling call |
+| `dynamictool/toolsearch.New` | Runs, in both modes | `tool_search` is a `read`. Give each dynamic tool its effect; it is offered by name, as a Handler-added tool. In native mode (`UseModelToolSearch: true`) the model gets a placeholder as the `tool_search` result; see Message fidelity |
+| `filesystem.New` | Runs | `ls`, `read_file`, `glob`, and `grep` are `read`; `write_file` is an `idempotent_write`; `edit_file` and `execute` are `non_idempotent_write`. `execute` runs the `Shell` or `StreamingShell` in its tool Step. The schemas of `read_file`, `glob`, and `edit_file` mark `offset` and `limit`, `path`, and `replace_all` as required, although their descriptions say they may be left out. The tool Step checks arguments against the schema, so a call without them gets `invalid arguments for read_file: arguments.offset is required`. To accept such calls, fill the fields in a `ToolArgumentsHandler`, which runs before the check |
+| `filesystem.NewMiddleware` (deprecated) | Runs | Its tools and its large-result offloading run in the tool Step. The offloaded result is written to the backend there, at `/large_tool_result/<tool call ID>`, so a retry writes the same file |
+| `plantask.New` | Runs | `TaskCreate` is a `non_idempotent_write`, because it takes the next task number; `TaskUpdate` is an `idempotent_write`; `TaskGet` and `TaskList` are `read` |
+| `reduction.New` | Runs | Truncation runs in the tool Step, so the stored result is the truncated text, and its offloaded file is written there. The clear phase runs in `BeforeModelRewriteState` before every model call, over the stored messages, and changes only that call's input. With a backend, the clear phase writes the cleared content inside `RunModel`, at every model call over the threshold and on each retry, to the same path, so the backend's `Write` must be safe to repeat |
+| `reduction.NewClearToolResult`, `reduction.NewToolResultMiddleware` (deprecated) | Runs | They clear old tool results in place before the model call. The model call sees the placeholder, and Dex stores the result the tool returned |
+| `skill.NewMiddleware`, `skill.New` (deprecated) | Runs inline and `context: fork` skills | A fork skill's sub-agent, with its model calls and tools, runs inside the `skill` tool Step, so give `skill` the effect of what its sub-agents do. A `context: fork_with_context` skill reads the agent's history in the tool Step, which a Dex tool Step does not have, so its call fails as a `ToolExecutionError` that names the mode, before anything runs. A skill's `model` in inline mode does not switch the model: it lasts one Eino run, and each model call is a new run. Choose the model with an `AgentConfigBuilder` |
+| `summarization.New` | Refused at construction | It makes its own model call before a model call |
+| `adk.NewAgentTool` | Runs | The sub-agent, with its model calls and tools, runs inside the agent tool's Step. An agent tool made with `adk.WithFullChatHistoryAsInput` reads the agent's history in its tool Step, so it is refused at construction, and a call of one that a Handler adds fails as a `ToolExecutionError` before it runs. Pass what the sub-agent needs in the call's arguments |
+| `adk.NewEventSenderModelWrapper`, `adk.NewEventSenderToolWrapper` | Runs | The model call's Eino events are not read, and the tool Step skips Eino's own Handlers; the session writes its own events |
+| `prebuilt/deep`, `prebuilt/supervisor`, `prebuilt/planexecute` | Not accepted | Their `New` returns a built agent, not a `ChatModelAgentConfig`, so they do not compile as an argument. For a deep agent, pass a `ChatModelAgentConfig` with the `filesystem.New` and `plantask.New` Handlers and each sub-agent as an `adk.NewAgentTool`. A supervisor's transfer and plan-execute's agent loop make several model calls in one Step |
+
+None of these middlewares changes the agent state after the model call, so
+the after-model checks under Integration mode, in The stored message, end no
+turn of theirs. The Eino v0.10 alpha adds the `automemory` and `dream` middlewares, which are
+refused at construction, and the `backgroundtask` and `subagent` middlewares,
+which these tests do not cover.
 
 ## Moving an existing Eino agent
 

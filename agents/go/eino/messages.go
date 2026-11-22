@@ -244,7 +244,12 @@ func modelInputMessages(stored []dexagents.AgentMessage, unstoredResults []*sche
 		}
 		messages = append(messages, decoded)
 	}
-	messages = append(messages, unstoredResults...)
+	for _, result := range unstoredResults {
+		// Before-model hooks may edit input messages in place, and Dex stores these results unedited.
+		copied := *result
+		copied.Extra = maps.Clone(result.Extra)
+		messages = append(messages, &copied)
+	}
 	return pairToolCallsWithResults(messages), nil
 }
 

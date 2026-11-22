@@ -50,7 +50,10 @@
 // tool inside RunModel: ModelRetryConfig, ModelFailoverConfig, Exit,
 // ToolsConfig.ReturnDirectly, and the summarization, automemory, and dream
 // middlewares. It also refuses ToolsConfig.ExecuteSequentially, because Dex
-// runs the tool calls of one model response as parallel Steps. A stop that
+// runs the tool calls of one model response as parallel Steps, and Eino agent
+// tools made with adk.WithFullChatHistoryAsInput, because a tool Step has no
+// agent history to give them. The README lists how each middleware and
+// prebuilt agent that Eino ships runs under Dex. A stop that
 // a retry would repeat, such as a second model call in one Step, ends the turn
 // as failed with dexagents.TurnCompleted.TurnError. Dex stores the message the
 // model call returns through the Handlers' WrapModel, so change the message

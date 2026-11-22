@@ -141,8 +141,10 @@ type runState struct {
 // ModelFailoverConfig, Exit, ToolsConfig.ReturnDirectly, and the
 // summarization, automemory, and dream middlewares are refused), when it sets
 // ToolsConfig.ExecuteSequentially, which Dex cannot honor because it runs the
-// tool calls of one model response as parallel Steps, or when the
-// WithToolSources sources are refused (see WithToolSources). Since 0.6.16.
+// tool calls of one model response as parallel Steps, when a tool is an Eino
+// agent tool made with adk.WithFullChatHistoryAsInput, which reads the agent's
+// history in its tool Step, where Dex has none, or when the WithToolSources
+// sources are refused (see WithToolSources). Since 0.6.16.
 func NewRunner(config *adk.ChatModelAgentConfig, options ...Option) (*Runner, error) {
 	if config == nil {
 		return nil, errors.New("dexeino: NewRunner needs an Eino ChatModelAgentConfig")
@@ -240,8 +242,9 @@ func (runner *Runner) BuildUserMessage(text string) (dexagents.FrameworkMessage,
 // A stop that a retry would repeat ends the turn as failed at once, with a
 // *dexagents.TurnCompleted whose TurnError says why: a configuration from the
 // AgentConfigBuilder that NewRunner would refuse (a refused setting or
-// middleware, two tools of one name, an alias that names another tool, or a
-// tool without a Dex effect), a turn at the agent's MaxIterations, a second
+// middleware, two tools of one name, an alias that names another tool, a
+// tool without a Dex effect, or an agent tool that reads the agent's
+// history), a turn at the agent's MaxIterations, a second
 // model call in the Step, a Handler's WrapModel that answers without calling
 // the model it wraps or after that call failed, an Eino interrupt the adapter
 // did not raise, or a model message that changed after the model call, such
@@ -493,7 +496,11 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // reports now, with the Go built-in loop's JSON Schema subset and texts: a
 // call they break, such as a stored call after a deploy renamed a required
 // parameter, returns the *dexagents.ToolExecutionError "invalid arguments for
-// <name>: <problem>" without running. Since 0.6.16.
+// <name>: <problem>" without running. A tool Step has no Eino agent state, so
+// a call of an agent tool made with adk.WithFullChatHistoryAsInput, which a
+// Handler added, and a call of the skill middleware's tool that runs a skill
+// with context fork_with_context return a *dexagents.ToolExecutionError
+// before anything runs. Since 0.6.16.
 func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagents.DeferredToolExecution) (dexagents.DeferredToolOutcome, error) {
 	record := call.ToolCall
 	if runner.router.IsSourceToolCall(record) {
@@ -529,6 +536,9 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 		return nil, &dexagents.ToolExecutionError{Message: fmt.Sprintf("tool %s now needs an approval it did not have when the "+
 			"model called it, so it did not run; call it again to run it under its current policy", record.ToolName)}
 	}
+	if isHistoryReadingAgentTool(entry.tool) {
+		return nil, &dexagents.ToolExecutionError{Message: historyReadingAgentToolReason(record.ToolName)}
+	}
 	checkArguments, err := argumentsCheck(ctx, record.ToolName, entry.tool)
 	if err != nil {
 		return nil, err
@@ -546,6 +556,9 @@ func (runner *Runner) ExecuteDeferredToolCall(ctx context.Context, call dexagent
 		functionCall(record.ToolCallID, record.ToolName, record.Arguments),
 	}))
 	if err != nil {
+		if failure := agentStateFailure(record.ToolName, entry.tool, err); failure != nil {
+			return nil, failure
+		}
 		return nil, classifyToolStepError(record.ToolName, err)
 	}
 	text, err := toolResultText(output)
@@ -643,6 +656,9 @@ func (runner *Runner) checkModelCallConfiguration(ctx context.Context, config *a
 		return agentTools{}, err
 	}
 	if err := runner.checkToolEffects(tools); err != nil {
+		return agentTools{}, err
+	}
+	if err := refuseHistoryReadingAgentTools(tools); err != nil {
 		return agentTools{}, err
 	}
 	return tools, nil

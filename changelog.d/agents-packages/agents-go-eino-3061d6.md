@@ -19,8 +19,13 @@ section: Eino adapter
 - Every tool needs a Dex effect: `WithToolEffects`, `WithToolPolicies`,
   `ToolEffectDeclarer`, or `WithDefaultToolEffect`.
 - Construction refuses `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`,
-  `ReturnDirectly`, `ToolsConfig.ExecuteSequentially`, and the
-  summarization, automemory, and dream middlewares.
+  `ReturnDirectly`, `ToolsConfig.ExecuteSequentially`, the summarization,
+  automemory, and dream middlewares, and agent tools made with
+  `adk.WithFullChatHistoryAsInput`.
+- The README lists how every middleware and prebuilt agent that Eino
+  v0.9.23 ships runs under Dex, and the integration tests run each one that
+  runs in `Generate` and streaming mode. A before-model hook that clears a
+  tool result in place changes only that model call's input.
 - A stop that a retry would repeat ends the turn as failed with
   `TurnCompleted.TurnError`, with no paid retry: a second model call in one
   Step, a Handler that answers from another model, a turn at
