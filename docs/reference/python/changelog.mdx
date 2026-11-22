@@ -27,9 +27,9 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 **Added**
 
 - Client-side payload encryption. Set **payload_encryption** on **ClientOptions** and **WorkerOptions** to a **PayloadEncryptionOptions**, and the SDK encrypts every Value before it reaches the Server and decrypts it after it returns. The Server stores only ciphertext and never holds keys.
-- **AesGcmPayloadCodec** is the built-in codec. It uses AES-256-GCM with a random nonce per Value and optional gzip compression. Install it with **pip install 'dex-python-sdk[encryption]'**, which adds the **cryptography** package. **FilePayloadEncryptionKeyProvider** reads keys from the shared key file format and supports key rotation.
+- **AesGcmPayloadCodec** uses AES-256-GCM with a random nonce per Value and optional gzip. Install with **pip install 'dex-python-sdk[encryption]'** and use **FilePayloadEncryptionKeyProvider** for shared key files and rotation. [Reference](/reference/server/payload-encryption#interfaces).
 - Plug in your own encryption, such as a KMS, with **PayloadCodec**, or with **AsyncPayloadCodec** for **AsyncClient** and **AsyncWorker**. **PayloadContext** tells the codec which Flow stores the Values, so a key provider can use one key per tenant.
-- String, object, int, double, and bool Values are encrypted by default. Indexed Attributes stay in plaintext so search works. Declare **plaintext=True** on an **Attribute** or **AttributeMap** that **wait_for_attribute_match**, an Action condition, or an external reader needs in plaintext. With encryption on, the SDK rejects **wait_for_attribute_match** and Action conditions on an Attribute that would be encrypted.
+- Scalars and objects encrypt by default, with indexed Attributes in plaintext. Set **plaintext=True** on **Attribute** or **AttributeMap** for **wait_for_attribute_match** and Action conditions, which reject ciphertext. [Reference](/reference/server/payload-encryption#plaintext-attributes).
 - Worker error text and the reasons of **force_fail**, **stop_flow**, **time_travel**, and **clone_fork_flow** are encrypted too, and the SDK decrypts them where it exposes them.
 - Encrypted and plaintext Flows can share one Worker. A Client or Worker without a codec that reads an encrypted Value fails with "value is encrypted; configure a PayloadCodec". The Java and Rust SDKs cannot read encrypted Flows yet.
 
@@ -43,34 +43,34 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 
 **Fixed**
 
-- A Worker serves an RPC declared without input when the request leaves the input unset, as TypeScript Clients before 1.45.8 send it. Before, the Worker failed the call with **ValueError: Value has no concrete kind**. An RPC declared with an input still needs one; an unset input fails the call with **ValueMappingError**. (#2034)
+- Workers now accept omitted input for inputless RPCs, including calls from TypeScript Clients before 1.45.8. RPCs that declare input still reject an omission with **ValueMappingError**. (#2034)
 
 ### 1.45.7 (2026-11-18) {#v1-45-7}
 
 **Added**
 
-- **PullWorkerOptions.min_open_slots** makes a pull Worker adaptive when it is below **max_concurrent_tasks**. The Worker keeps between the two counts of slot streams open, both including the reserved RPC slots: it doubles its Step-and-RPC streams when a task takes the last idle one, and every 30 seconds it half-closes half of the idle surplus. An idle adaptive Worker holds only its floor of Server streams. The default equals **max_concurrent_tasks**, which keeps the Worker fixed with unchanged behavior.
-- An adaptive Worker clamps **max_concurrent_tasks** above the Server's **matching.maxConcurrentTasksCap** to the cap with a WARNING log. It treats a **RESOURCE_EXHAUSTED** registration of a growth stream, or of a reconnect after readiness, as a soft limit, without a **PullRegistrationError**. After a soft rejection, the Worker waits until another of its registered streams ends or the next 30-second shrink window starts, and then retries. A growth batch that keeps being rejected grows at most once per window. A synchronous handler that outlives its stream keeps its slot until it returns.
-- **Worker.pull_slot_stream_state** and **AsyncWorker.pull_slot_stream_state** return a **PullSlotStreamState** snapshot of the slot streams: open, registering, busy, and idle streams, orphaned handlers, the floor and capacities, and grow and shrink counters. [API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots).
+- **PullWorkerOptions.min_open_slots** lets a pull Worker vary open streams with load when set below **max_concurrent_tasks**. The default equals **max_concurrent_tasks**, keeping the stream count fixed. [Reference](/reference/python/workers#capacity-and-shutdown).
+- Adaptive Workers warn and clamp **max_concurrent_tasks** to **matching.maxConcurrentTasksCap**. Growth and post-readiness reconnects retry after **RESOURCE_EXHAUSTED** without reporting **PullRegistrationError**. [Reference](/reference/server/workers#adaptive-slot-streams).
+- **Worker.pull_slot_stream_state** and **AsyncWorker.pull_slot_stream_state** return a **PullSlotStreamState** snapshot of streams, handlers, capacities, and scaling counters. [API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots).
 
 **Changed**
 
-- A fixed pull Worker with **max_concurrent_tasks** unset now opens one stream first, learns the Server's **matching.maxConcurrentTasksCap** from its registration, and clamps its CPU-count default to the cap with a WARNING log instead of failing to start. Its other streams open after that first registration. An explicit **max_concurrent_tasks** above the cap still fails to start, and a fixed Worker with an explicit value still opens all its streams at once.
+- Fixed pull Workers with unset **max_concurrent_tasks** now warn and clamp the CPU-count default to **matching.maxConcurrentTasksCap**. An explicit limit above the cap still prevents startup. [Reference](/reference/server/workers#adaptive-slot-streams).
 - When **reserved_rpc_tasks** is None, it now reserves an RPC-only slot only when both **max_concurrent_tasks** and **min_open_slots** are at least two. With the default **min_open_slots** the reserve is unchanged.
 
 ### 1.45.4 (2026-11-16) {#v1-45-4}
 
 **Added**
 
-- **graceful_completion_requested** creates a wait Condition that completes once the Flow has a graceful completion request, from **StopType.GRACEFUL_COMPLETE** or a **graceful_complete** Step decision. The function **is_graceful_completion_condition_completed** reports it in **execute**; it takes the Context, so the Context protocol gains no member. In **Wait.any_of** it comes after Timers, Channels, and SubFlows. A Wait accepts at most one. It needs Dex Server 0.1.34 or newer; with an older Server, **wait_for** fails with **GracefulCompletionConditionUnsupportedError**. The SDK now supports Server protocol 7.
+- **graceful_completion_requested** lets Steps wait for a graceful completion request and **is_graceful_completion_condition_completed** reads the result. Requires Dex Server 0.1.34 or later and protocol 7. [Reference](/reference/python/waits#graceful-completion-requests).
 - **StopType.GRACEFUL_COMPLETE**, **StopType.FORCE_COMPLETE**, and **StopFlowOptions.output** let **Client.stop_flow** and **AsyncClient.stop_flow** complete a Flow with a result, like the **graceful_complete** and **force_complete** Step decisions. They need Dex Server 0.1.34 or newer.
-- The function **supports_graceful_completion_condition** reports whether the connected Server supports **graceful_completion_requested**, from the protocol version the Worker negotiated, without a request. **wait_for** can add the condition only when it returns True and keep working with Servers older than protocol 7. It returns False for a Context that Dex did not create. [Reference](/reference/python/waits#graceful-completion-requests).
+- **supports_graceful_completion_condition** checks negotiated support for **graceful_completion_requested** before **wait_for** uses it, including on Servers older than protocol 7. It returns False for Contexts created outside Dex. [Reference](/reference/python/waits#graceful-completion-requests).
 
 ### 1.45.3 (2026-11-15) {#v1-45-3}
 
 **Added**
 
-- **Client.clone_fork_flow** and **AsyncClient.clone_fork_flow** create a new Flow whose first run starts from a copy of another Flow run's state. **CloneForkFlowOptions** selects the copied point, by default the current state, and sets the new Flow's request ID, ID reuse policy, Flow configuration, task queue, Attribute writes, Flow timeout, reason, and SubFlow reset policy. **CloneForkFlowResult** returns the new run ID and the copied source run, run attempt, and history event ID. The call requires Dex server-zd 0.1.33 or later; an older Server raises **CloneForkFlowUnsupportedError** before the request is sent.
+- **Client.clone_fork_flow** and **AsyncClient.clone_fork_flow** copy run state into a new Flow, using the current point by default. Requires Dex server-zd 0.1.33 or later, with **CloneForkFlowUnsupportedError** on older Servers. [Reference](/reference/server/runtime-client#clone-fork).
 - **TimeTravelType.EVENT_ID** with **TimeTravelOptions.event_id** time travels to the point right after one history event, and **TimeTravelOptions.sub_flow_reset_policy** takes a **SubFlowResetPolicy** that decides what happens to the SubFlow conditions of restored Steps.
 - The SDK supports Dex Server protocol version 6.
 - **FlowErrorType.SUB_FLOW_ABANDONED** marks a failed SubFlow result whose parent Flow stopped waiting for the child, because a Time Travel's SubFlow reset policy failed the restored SubFlow condition. **execute** reads it from **SubFlow.get_condition_results** like any other failed child.
@@ -83,33 +83,24 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 
 **Added**
 
-- **Client.get_flow_state** and **AsyncClient.get_flow_state** read the open Step executions of the current or latest Flow run and return a **FlowState**. Each **ActiveStepExecution** reports its Step type, execution number, phase, the open WaitFor or Execute call as a **StepMethodInvocation** (pending, running, or retry backoff, with its attempt), and the latest failed attempt as a **StepMethodFailureInfo** (attempt, error type, message, and stack trace). **FlowState.task_queue** names the Flow's task queue; an empty string means the default task queue. Use it to tell a Flow that is still running from one whose active Step is failing and retrying, or to see which Workers must serve a Flow from a Client without a Worker.
+- **Client.get_flow_state** and **AsyncClient.get_flow_state** return open Step executions and **FlowState.task_queue** without a Worker. An empty queue name means the default. [Reference](/reference/python/client#api-names).
 
 ### 1.45.1 (2026-11-14) {#v1-45-1}
 
 **Added**
 
-- Named task queues. **PullWorkerOptions.task_queue** makes a Worker poll one named task queue,
-  and **StartFlowOptions.task_queue** starts a Flow on one. Only Workers on that task queue
-  receive the Flow's Steps and RPCs. **SubFlowOptions.task_queue** moves a SubFlow to another
-  task queue, or to the default one with **dex.default**; empty inherits the parent's task queue.
-  Empty everywhere keeps the default task queue, so existing code works as before. See
-  [Named task queues](/reference/python/workers#named-task-queues).
-- A named task queue needs Dex Server protocol version 5. Against an older Server, the
-  Worker's **start** raises **RuntimeError** before it opens task streams, and **start_flow**
-  raises it before it sends the request. A stream that the Server registers under another task
-  queue is closed and reported as a permanent rejection through **PullRegistrationError** and
-  **pull_registration_state**, whose entries and errors now carry **task_queue**.
+- Set named queues with **PullWorkerOptions.task_queue**, **StartFlowOptions.task_queue**, and **SubFlowOptions.task_queue**. Empty uses the default queue for Workers and Flows or the parent's queue for SubFlows. [Named task queues](/reference/python/workers#named-task-queues).
+- Named queues require Dex Server protocol 5, and **start** and **start_flow** raise **RuntimeError** on older Servers. A stream registered on a different queue is permanently rejected. [Reference](/reference/python/workers#named-task-queues).
 
 ### 1.45.0 (2026-11-11) {#v1-45-0}
 
 **Breaking**
 
-- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. When such a Step returns a Wait that contains **SubFlow.run**, the server rejects the result as an invalid Worker response and fails the attempt without retry. The Worker logs a warning first. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
+- A custom Step type containing "-" can no longer start SubFlows, and a Wait containing **SubFlow.run** logs a warning and fails the attempt without retry. Change **get_step_type** to return a name without "-". [Reference](/reference/python/subflow#step-types-that-start-subflows).
 
 **Added**
 
-- **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/python/workers#flow-definitions).
+- **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** upload registered Flow graphs at startup, exposing **source.path** only as a relative path. Requires server-zd 0.1.26 or later. [Reference](/reference/python/workers#flow-definitions).
 - **Client.upload_flow_definitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. **AsyncClient** has the same coroutine. [Reference](/reference/python/workers#flow-definitions).
 
 **Fixed**
@@ -126,7 +117,7 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 
 **Added**
 
-- **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. **Join.channel_map** returns the registered ChannelMap, so an RPC can load and read a round's pending results. [Reference](/reference/python/waits).
+- **Join** and **JoinRound** coordinate parallel branches of a Flow. Use **Join.fork** from a Step or **fork_with_round_key** from an RPC, then use **for_remaining_branches** before the next round. [Reference](/reference/python/waits).
 
 ## 1.43 {#v1-43}
 
@@ -153,7 +144,7 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 
 **Added**
 
-- **FlowConfig.offload_history** chooses whether a run offloads its history to object storage. None means True. Set it to False for many short runs that close soon. Set it at start through **StartFlowOptions.config_override** or **SubFlowOptions.config_override**. A SubFlow otherwise inherits its parent's value, and **update_flow_config** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+- **FlowConfig.offload_history** controls object storage offload at Flow start and defaults to True. SubFlows inherit it unless overridden at start, and it requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
 
 **Changed**
 
@@ -174,7 +165,7 @@ No user-visible changes.
 
 **Added**
 
-- **Action** and **when_attribute_matches** declare an RPC that a person can invoke from Dex Web: pass an **Action** with a label, a required permission, and a condition as the **action** argument of **@rpc**. The condition is optional. Workers send the Flow's Action permission mappings, and **start_flow** and SubFlow starts record the permissions the initial Attributes make available. This arrived in 1.39.1. [Reference](/reference/web/dex-web#actions).
+- Since 1.39.1, set **action** on **@rpc** with an **Action** to expose the RPC in Dex Web. Each Action requires a permission and can use **when_attribute_matches** to control availability. [Reference](/reference/web/dex-web#actions).
 - **FlowConfig.delete_expired_history_objects** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
 
 **Changed**
@@ -191,7 +182,7 @@ No user-visible changes.
 
 **Added**
 
-- **FlowConfig.history_window_events** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **update_flow_config**, or override it for a SubFlow. None uses the server's **history.windowEvents** setting. Dex rejects a value that is not positive or exceeds **history.maxWindowEvents** with INVALID_ARGUMENT. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+- **FlowConfig.history_window_events** controls recent history for reads and Time Travel at start or via **update_flow_config**. None uses **history.windowEvents**, and the option requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
 
 **Changed**
 
@@ -287,6 +278,6 @@ Reference: [1.29.x](/reference/python/).
 **Added**
 
 - Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.29.0).
-- **Client.get_attributes** and **AsyncClient.get_attributes** read committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues** provides typed result lookup. [API reference](pathname:///api/python/latest/dex.html).
+- **Client.get_attributes** and **AsyncClient.get_attributes** read committed Attributes and **AttributeMap.instance** selections without a Worker. **AttributeValues** provides typed lookup. [API reference](pathname:///api/python/latest/dex.html).
 
 Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-python&expanded=true).
