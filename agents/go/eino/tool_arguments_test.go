@@ -397,3 +397,55 @@ func TestToolStepChecksAHandlerAddedTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{`{"path":"a.txt"}`}, ran)
 }
+
+type searchOrdersArguments struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit" jsonschema:"description=Optional"`
+	Note  string `json:"note,omitempty"`
+}
+
+// The check is as strict as a utils.InferTool schema, where Eino's decoding is not: a field without
+// omitempty is required, an extra key is refused, and an optional field may not be null. Native
+// Eino runs each of these calls. A ToolArgumentsHandler that fixes the call makes it run.
+func TestInferToolSchemasAreCheckedAsWritten(t *testing.T) {
+	var ran []searchOrdersArguments
+	search, err := utils.InferTool("search_orders", "Search orders.", func(_ context.Context, arguments searchOrdersArguments) (string, error) {
+		ran = append(ran, arguments)
+		return "found", nil
+	})
+	require.NoError(t, err)
+	for arguments, refusal := range map[string]string{
+		`{"query":"shoes"}`:                       "invalid arguments for search_orders: arguments.limit is required",
+		`{"query":"shoes","limit":5,"page":2}`:    "invalid arguments for search_orders: arguments.page is not allowed",
+		`{"query":"shoes","limit":5,"note":null}`: "invalid arguments for search_orders: arguments.note must be string",
+	} {
+		native, err := search.InvokableRun(context.Background(), arguments)
+		require.NoError(t, err, arguments)
+		require.Equal(t, "found", native, "native Eino runs %s", arguments)
+		_, err = runStoredCall(newWriteToolRunner(t, compose.ToolsNodeConfig{Tools: []tool.BaseTool{search}}), "search_orders", arguments, 1)
+		requireRefusal(t, err, refusal)
+	}
+	ran = nil
+	fixed := compose.ToolsNodeConfig{Tools: []tool.BaseTool{search},
+		ToolArgumentsHandler: func(_ context.Context, _ string, arguments string) (string, error) {
+			decoded := map[string]any{}
+			if err := json.Unmarshal([]byte(arguments), &decoded); err != nil {
+				return "", err
+			}
+			if _, hasLimit := decoded["limit"]; !hasLimit {
+				decoded["limit"] = 0
+			}
+			delete(decoded, "page")
+			if decoded["note"] == nil {
+				delete(decoded, "note")
+			}
+			converted, err := json.Marshal(decoded)
+			return string(converted), err
+		}}
+	for _, arguments := range []string{`{"query":"shoes"}`, `{"query":"shoes","limit":5,"page":2}`, `{"query":"shoes","limit":5,"note":null}`} {
+		output, err := runStoredCall(newWriteToolRunner(t, fixed), "search_orders", arguments, 1)
+		require.NoError(t, err, arguments)
+		require.Equal(t, "found", output)
+	}
+	require.ElementsMatch(t, []searchOrdersArguments{{Query: "shoes"}, {Query: "shoes", Limit: 5}, {Query: "shoes", Limit: 5}}, ran)
+}

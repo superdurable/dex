@@ -484,7 +484,8 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // For an Eino tool, the ToolsNode has the agent's tools, ToolAliases,
 // ToolArgumentsHandler, and tool middlewares, plus the Handlers' tool wrappers, in Eino's order, so
 // compose.GetToolCallID and ToolCallContextFrom work inside the tool; ToolCallContextFrom returns
-// false in the tools that the tool runs through a ToolsNode of their own, such as a sub-agent's. A tool
+// false in the tools that the tool runs through a ToolsNode of their own, such as a sub-agent's, and in
+// anything else the tool runs through Eino, such as the sub-agent's model. A tool
 // the deploy no longer has, or that the model invented, returns a
 // *dexagents.ToolExecutionError "unknown tool <name>", so the model sees why.
 // A call whose record has a weaker effect than this deploy gives its tool, or
@@ -502,7 +503,9 @@ func endTurnAsFailed(reason string, usage dexagents.AgentUsage, unstoredResults 
 // a call of an agent tool made with adk.WithFullChatHistoryAsInput, which a
 // Handler added, and a call of the skill middleware's tool that runs a skill
 // with context fork_with_context return a *dexagents.ToolExecutionError
-// before anything runs. An adk.NewAgentTool tool and the skill middleware's
+// before anything runs. So does a fork skill's call of a skill tool without
+// an AgentHub, such as the deprecated skill.New's, which Eino refuses before
+// it runs anything. An adk.NewAgentTool tool and the skill middleware's
 // tool run a whole Eino agent, whose earlier tools may have run when one of
 // its tools returns a *dexagents.ToolExecutionError, so for a call whose
 // effect is not read that error fails the attempt with its text, without its

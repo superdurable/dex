@@ -27,6 +27,9 @@ const einoSkillPackagePath = "github.com/cloudwego/eino/adk/middlewares/skill"
 // einoStateMissingText is part of the error Eino's skill tool returns when its call has no agent state.
 const einoStateMissingText = "failed to get messages from state"
 
+// einoNoAgentHubText is part of the error Eino's skill tool returns for a fork skill when it has no AgentHub.
+const einoNoAgentHubText = "AgentHub is not configured"
+
 // einoToolStruct returns the struct behind an Eino tool of package packagePath and generic type typeName, if it is one.
 func einoToolStruct(candidate tool.BaseTool, packagePath, typeName string) (reflect.Value, bool) {
 	value := reflect.ValueOf(candidate)
@@ -68,16 +71,38 @@ func refuseHistoryReadingAgentTools(tools agentTools) error {
 	return nil
 }
 
-// agentStateFailure returns the definite failure of a skill call that needed the agent's history, or nil.
+// agentStateFailure returns the definite failure of a skill call that needed the agent's history or an AgentHub,
+// or nil.
 //
 // Eino's skill tool reads the history first, so such a call failed before doing anything.
 func agentStateFailure(toolName string, candidate tool.BaseTool, err error) *dexagents.ToolExecutionError {
-	if _, isSkillTool := einoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool"); !isSkillTool ||
-		!strings.Contains(err.Error(), einoStateMissingText) {
+	skillTool, isSkillTool := einoToolStruct(candidate, einoSkillPackagePath, "typedSkillTool")
+	switch {
+	case !isSkillTool:
+		return nil
+	case strings.Contains(err.Error(), einoStateMissingText):
+		return &dexagents.ToolExecutionError{Message: "tool " + toolName + " runs a skill with context fork_with_context, " +
+			"which reads the Eino agent's history, and a Dex tool Step does not have it; use context fork instead"}
+	case hasNoAgentHub(skillTool) && strings.Contains(err.Error(), einoNoAgentHubText):
+		return &dexagents.ToolExecutionError{Message: fmt.Sprintf("tool %s did not run: %s; fork skills need "+
+			"skill.NewMiddleware with Config.AgentHub", toolName, innermostError(err).Error())}
+	default:
 		return nil
 	}
-	return &dexagents.ToolExecutionError{Message: "tool " + toolName + " runs a skill with context fork_with_context, " +
-		"which reads the Eino agent's history, and a Dex tool Step does not have it; use context fork instead"}
+}
+
+// hasNoAgentHub reports whether a skill tool has no AgentHub, so it never runs a sub-agent whose tools could fail.
+func hasNoAgentHub(skillTool reflect.Value) bool {
+	field := skillTool.FieldByName("agentHub")
+	return field.IsValid() && field.Kind() == reflect.Interface && field.IsNil()
+}
+
+// innermostError returns the error that err wraps at the end of its chain.
+func innermostError(err error) error {
+	for unwrapped := errors.Unwrap(err); unwrapped != nil; unwrapped = errors.Unwrap(err) {
+		err = unwrapped
+	}
+	return err
 }
 
 // runsAnEinoAgent reports whether a tool runs a whole Eino agent in its call: an adk.NewAgentTool tool, or the skill

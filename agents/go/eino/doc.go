@@ -64,12 +64,17 @@
 // reports now, as the Go built-in loop does. Arguments that break it, such as
 // a stored call after a deploy renamed a required parameter, return a
 // *dexagents.ToolExecutionError before any tool middleware or the tool runs.
-// The calls of Eino's plantask tools, which share a lock in one Eino run, run
-// in the model's order, one write at a time. A *dexagents.ToolExecutionError
-// from a tool of an agent tool's or fork skill's sub-agent fails the attempt
-// of a call whose effect is not read, so its effect decides the outcome. Such
-// a sub-agent tool is not a Dex tool call, so ToolCallContextFrom returns
-// false in it.
+// The check is as strict as the schema, which may be stricter than the
+// tool's decoding: a utils.InferTool schema requires every field without
+// omitempty and refuses extra keys, which Eino's decoding accepts. Convert
+// such calls in a ToolArgumentsHandler. The calls of Eino's plantask tools,
+// which share a lock in one Eino run, run in the model's order, one write at
+// a time, in one queue with the response's other ordered writes, such as
+// connector writes. A *dexagents.ToolExecutionError from a tool of an agent
+// tool's or fork skill's sub-agent fails the attempt of a call whose effect
+// is not read, so its effect decides the outcome. Such a sub-agent tool is
+// not a Dex tool call, so ToolCallContextFrom returns false in it, and in the
+// sub-agent's model, Handlers, and ToolArgumentsHandler.
 //
 // WithToolSources offers the tools of a dexagents.ToolSource, such as the
 // Connector operations of a connectortools.ConnectorToolSource, beside the

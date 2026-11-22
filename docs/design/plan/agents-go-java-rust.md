@@ -230,8 +230,9 @@ Connectors as tools (the decision above) and the adapter itself.
   parameter rejects is refused before any tool code runs. Eino's plantask
   tools, which share a lock in one Eino run, are marked
   `DeferredToolCall.Ordered`, so their writes run one at a time in the model's
-  order. A `ToolExecutionError` from a tool of an agent tool's or fork skill's
-  sub-agent fails the attempt of a call whose effect is not `read`, because the
+  order, in one queue with the response's connector writes. A
+  `ToolExecutionError` from a tool of an agent tool's or fork skill's sub-agent
+  fails the attempt of a call whose effect is not `read`, because the
   sub-agent's earlier tools may have run, so the call's effect decides.
   This is the built-in loop's shape, so a deploy that renames a tool or changes
   the instruction never breaks an open turn. A checkpoint-and-resume mode was

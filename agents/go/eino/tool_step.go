@@ -34,7 +34,8 @@ const einoADKPackagePath = "github.com/cloudwego/eino/adk"
 // an external system that supports idempotency: it is the same on every attempt
 // of the call. compose.GetToolCallID returns the same ToolCallID. The tools
 // that the call's tool runs in turn, such as the tools of an adk.NewAgentTool
-// sub-agent, do not get it; see ToolCallContextFrom. Since 0.6.16.
+// sub-agent, do not get it, and neither do that sub-agent's model, Handlers,
+// and ToolArgumentsHandler; see ToolCallContextFrom. Since 0.6.16.
 type ToolCallContext struct {
 	// FlowID is the session ID, which is the Flow ID.
 	FlowID string
@@ -65,13 +66,13 @@ type toolCallContextKey struct{}
 // toolStepCall is the context value of a tool Step's call.
 type toolStepCall struct {
 	call ToolCallContext
-	// toolSegments counts the Eino tool address segments of the context the tool Step started from.
-	toolSegments int
+	// addressLength is the length of the Eino address of the context the tool Step started from.
+	addressLength int
 }
 
 // withToolStepCall returns ctx carrying the tool Step's call, for the one-call ToolsNode to run it in.
 func withToolStepCall(ctx context.Context, call ToolCallContext) context.Context {
-	return context.WithValue(ctx, toolCallContextKey{}, toolStepCall{call: call, toolSegments: toolAddressSegments(ctx)})
+	return context.WithValue(ctx, toolCallContextKey{}, toolStepCall{call: call, addressLength: len(compose.GetCurrentAddress(ctx))})
 }
 
 // ToolCallContextFrom returns the Dex tool call of a tool Step's context.
@@ -82,24 +83,29 @@ func withToolStepCall(ctx context.Context, call ToolCallContext) context.Context
 // or of a skill with context fork. Such a tool is not a Dex tool call: it runs
 // inside the outer call's Step, again on each attempt, and its sub-agent's
 // model may call it several times, so the outer call's IdempotencyKey and
-// heartbeat checkpoint are not its own. Since 0.6.16.
+// heartbeat checkpoint are not its own.
+//
+// It returns the call only where the tool Step's own code runs: the agent's
+// ToolArgumentsHandler, the tool middlewares, the Handlers' tool wrappers,
+// and the tool. Everything else that the tool runs through Eino gets false
+// too: a sub-agent's ToolArgumentsHandler, model, and Handlers, and an Eino
+// graph that the tool invokes. Read the call in the tool or in a tool
+// middleware, and pass on what the inner code needs. Since 0.6.16.
 func ToolCallContextFrom(ctx context.Context) (ToolCallContext, bool) {
 	stepCall, isToolStep := ctx.Value(toolCallContextKey{}).(toolStepCall)
-	if !isToolStep || toolAddressSegments(ctx) > stepCall.toolSegments+1 {
+	if !isToolStep || !isToolStepAddress(compose.GetCurrentAddress(ctx), stepCall.addressLength) {
 		return ToolCallContext{}, false
 	}
 	return stepCall.call, true
 }
 
-// toolAddressSegments counts the tool calls in ctx's Eino address: each ToolsNode adds one for the call it runs.
-func toolAddressSegments(ctx context.Context) int {
-	count := 0
-	for _, segment := range compose.GetCurrentAddress(ctx) {
-		if segment.Type == compose.AddressSegmentTool {
-			count++
-		}
+// isToolStepAddress reports whether address is the Step's own, or the Step's plus the one tool call it runs.
+func isToolStepAddress(address compose.Address, stepAddressLength int) bool {
+	if len(address) < stepAddressLength {
+		return false
 	}
-	return count
+	added := address[stepAddressLength:]
+	return len(added) == 0 || len(added) == 1 && added[0].Type == compose.AddressSegmentTool
 }
 
 // refuseUnknownToolCall is the tool Step's UnknownToolsHandler: the model sees why nothing ran.

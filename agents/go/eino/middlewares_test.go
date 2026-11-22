@@ -25,6 +25,7 @@ import (
 	"github.com/cloudwego/eino/adk/middlewares/plantask"
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
 	"github.com/cloudwego/eino/adk/middlewares/skill"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -257,6 +258,87 @@ func TestSkillThatForksWithContextIsADefiniteToolFailure(t *testing.T) {
 				"and a Dex tool Step does not have it; use context fork instead", toolError.Message)
 		})
 	}
+}
+
+// A skill tool without an AgentHub, such as the deprecated skill.New's, which never has one, runs no
+// sub-agent: its fork skills fail before anything runs, in both fork modes, so their calls are
+// definite failures that name the mode. An inline skill still runs, and a failed skill lookup stays
+// an error that the effect decides.
+func TestSkillThatForksWithoutAnAgentHubIsADefiniteToolFailure(t *testing.T) {
+	legacy, err := skill.New(context.Background(), &skill.Config{Backend: skillBackend{}})
+	require.NoError(t, err)
+	handler, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: skillBackend{}})
+	require.NoError(t, err)
+	for name, config := range map[string]*adk.ChatModelAgentConfig{
+		"skill.New":                        {Middlewares: []adk.AgentMiddleware{legacy}},
+		"skill.NewMiddleware, no AgentHub": {Handlers: []adk.ChatModelAgentMiddleware{handler}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config.Name, config.Description = "agent", "Test agent."
+			config.Model = roundsModel([]schema.ToolCall{call("call_notes", "skill", `{"skill":"release_notes"}`),
+				call("call_triage", "skill", `{"skill":"triage"}`), call("call_review", "skill", `{"skill":"review"}`),
+				call("call_missing", "skill", `{"skill":"missing"}`)})
+			runner, err := dexeino.NewRunner(config,
+				dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"skill": dexagents.ToolEffectNonIdempotentWrite}))
+			require.NoError(t, err)
+			state := newTurnState(t, runner, "notes, triage, and review")
+			state.runModel(runner)
+			failures := state.runTools(runner)
+			require.Contains(t, *state.records["call_notes"].Output, "Follow the release_notes steps.")
+			for id, mode := range map[string]string{"call_triage": "triage' requires context:fork but",
+				"call_review": "review' requires context:fork_with_context but"} {
+				var toolError *dexagents.ToolExecutionError
+				require.ErrorAs(t, failures[id], &toolError, id)
+				require.Equal(t, "tool skill did not run: skill '"+mode+" AgentHub is not configured; "+
+					"fork skills need skill.NewMiddleware with Config.AgentHub", toolError.Message)
+			}
+			var toolError *dexagents.ToolExecutionError
+			require.Error(t, failures["call_missing"])
+			require.False(t, errors.As(failures["call_missing"], &toolError), "the backend may fail again or not")
+		})
+	}
+}
+
+// legacySkillAgentHub returns a sub-agent that charges a card and then calls a fork skill of its own
+// deprecated skill.New tool, which has no AgentHub.
+type legacySkillAgentHub struct {
+	t       *testing.T
+	charges *atomic.Int64
+}
+
+func (hub legacySkillAgentHub) Get(ctx context.Context, _ string, _ *skill.AgentHubOptions) (adk.Agent, error) {
+	legacy, err := skill.New(ctx, &skill.Config{Backend: skillBackend{}})
+	require.NoError(hub.t, err)
+	charge := funcTool{name: "charge_card", run: func(context.Context, string) (string, error) {
+		hub.charges.Add(1)
+		return "charged", nil
+	}}
+	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{Name: "checkout", Description: "Checks out an order.",
+		Model: roundsModel([]schema.ToolCall{call("sub_charge", "charge_card", `{}`)},
+			[]schema.ToolCall{call("sub_triage", "skill", `{"skill":"triage"}`)}),
+		ToolsConfig: toolsConfig(charge), Middlewares: []adk.AgentMiddleware{legacy}})
+}
+
+// The AgentHub error is definite only from a skill tool that has no AgentHub. A skill tool with one
+// may have run a sub-agent whose own skill tool failed that way after a charge, so its call's
+// effect decides.
+func TestSkillSubAgentWithoutAnAgentHubIsDecidedByTheEffect(t *testing.T) {
+	var charges atomic.Int64
+	handler, err := skill.NewMiddleware(context.Background(), &skill.Config{Backend: checkoutSkills{},
+		AgentHub: legacySkillAgentHub{t, &charges}})
+	require.NoError(t, err)
+	runner, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.",
+		Handlers: []adk.ChatModelAgentMiddleware{handler},
+		Model:    roundsModel([]schema.ToolCall{call("call_checkout", "skill", `{"skill":"checkout"}`)})},
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"skill": dexagents.ToolEffectNonIdempotentWrite}))
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "check out order 7")
+	state.runModel(runner)
+	failures := state.runTools(runner)
+	require.Equal(t, int64(1), charges.Load())
+	require.ErrorContains(t, failures["call_checkout"], "AgentHub is not configured")
+	var toolError *dexagents.ToolExecutionError
+	require.False(t, errors.As(failures["call_checkout"], &toolError), "the sub-agent charged first: %v", failures["call_checkout"])
 }
 
 // Eino's filesystem read_file schema marks offset and limit required, although its description says
@@ -555,17 +637,56 @@ func (handler recordingToolHandler) WrapInvokableToolCall(_ context.Context, end
 	}, nil
 }
 
+// recordingModelHandler records what a sub-agent's model hooks and its model call see.
+type recordingModelHandler struct {
+	*adk.BaseChatModelAgentMiddleware
+	contexts *callContexts
+}
+
+func (handler recordingModelHandler) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+	handler.contexts.record("sub-agent before model", ctx)
+	return ctx, state, nil
+}
+
+func (handler recordingModelHandler) WrapModel(ctx context.Context, wrapped model.BaseChatModel, _ *adk.ModelContext) (model.BaseChatModel, error) {
+	handler.contexts.record("sub-agent wrap model", ctx)
+	return recordingModel{wrapped, handler.contexts}, nil
+}
+
+// recordingModel records the context of each model call.
+type recordingModel struct {
+	model.BaseChatModel
+	contexts *callContexts
+}
+
+func (recording recordingModel) Generate(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.Message, error) {
+	recording.contexts.record("sub-agent model", ctx)
+	return recording.BaseChatModel.Generate(ctx, input, options...)
+}
+
+func (recording recordingModel) Stream(ctx context.Context, input []*schema.Message, options ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	recording.contexts.record("sub-agent model", ctx)
+	return recording.BaseChatModel.Stream(ctx, input, options...)
+}
+
 // recordingSubAgent returns an Eino agent whose model refunds two orders, then answers. One of its
-// calls has the agent tool's call ID, as a model that numbers its calls from one gives.
+// calls has the agent tool's call ID, as a model that numbers its calls from one gives. Its own
+// ToolArgumentsHandler and model hooks record what they see.
 func recordingSubAgent(t *testing.T, contexts *callContexts) adk.Agent {
 	refund := funcTool{name: "refund_order", run: func(ctx context.Context, arguments string) (string, error) {
 		contexts.record("refund_order "+compose.GetToolCallID(ctx), ctx)
 		return "refunded", nil
 	}}
+	subAgentTools := toolsConfig(refund)
+	subAgentTools.ToolArgumentsHandler = func(ctx context.Context, _ string, arguments string) (string, error) {
+		contexts.record("sub-agent arguments handler", ctx)
+		return arguments, nil
+	}
 	refunds, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{Name: "billing",
 		Description: "Refunds orders.", Model: roundsModel([]schema.ToolCall{
 			call("call_billing", "refund_order", `{"id":"A"}`), call("sub_refund_b", "refund_order", `{"id":"B"}`)}),
-		ToolsConfig: toolsConfig(refund)})
+		ToolsConfig: subAgentTools, Handlers: []adk.ChatModelAgentMiddleware{
+			recordingModelHandler{&adk.BaseChatModelAgentMiddleware{}, contexts}}})
 	require.NoError(t, err)
 	return refunds
 }
@@ -622,9 +743,11 @@ func (nested nestedToolsNodeTool) InvokableRun(ctx context.Context, _ string, _ 
 // The tools that a tool runs, such as an agent tool's or a fork skill's sub-agent tools, are not the
 // tool Step's call: they run again whenever the Step does, so sharing the Step's IdempotencyKey would
 // let a key-deduplicating API drop the second refund. ToolCallContextFrom returns false in them,
-// even when a nested call has the Step's call ID. The Step's own ToolArgumentsHandler, tool
-// middlewares, and Handler tool wrappers still get the Step's call, also when the Step's context
-// already is inside an Eino tool call.
+// even when a nested call has the Step's call ID, and everywhere else in a sub-agent: its
+// ToolArgumentsHandler, which runs once per inner call before its ToolsNode starts the call, its
+// model, and its model hooks. The Step's own ToolArgumentsHandler, tool middlewares, and Handler
+// tool wrappers still get the Step's call, also when the Step's context already is inside an Eino
+// tool call.
 func TestToolsThatAToolRunsDoNotGetItsToolCallContext(t *testing.T) {
 	const stepCall = "call_billing billing non_idempotent_write session/turn-1/call_billing"
 	for name, shape := range map[string]string{"agent tool": "agent tool", "fork skill": "fork skill",
@@ -679,13 +802,46 @@ func TestToolsThatAToolRunsDoNotGetItsToolCallContext(t *testing.T) {
 				require.NoError(t, err)
 			}
 			expectedStepCall := strings.Replace(stepCall, "billing non_idempotent", toolName+" non_idempotent", 1)
-			require.ElementsMatch(t, []string{
+			expected := []string{
 				"arguments handler: " + expectedStepCall,
 				"middleware: " + expectedStepCall,
 				"handler wrapper: " + expectedStepCall,
 				"refund_order call_billing: none",
 				"refund_order sub_refund_b: none",
-			}, contexts.seen)
+			}
+			if shape != "nested ToolsNode" {
+				// Two model calls: the refunds, then the answer.
+				expected = append(expected, "sub-agent arguments handler: none", "sub-agent arguments handler: none",
+					"sub-agent before model: none", "sub-agent before model: none", "sub-agent wrap model: none",
+					"sub-agent wrap model: none", "sub-agent model: none", "sub-agent model: none")
+			}
+			require.ElementsMatch(t, expected, contexts.seen)
 		})
 	}
+}
+
+// An Eino graph that a tool invokes is not the tool Step's own code, so its nodes get no
+// ToolCallContext; the tool reads the call and passes on what the graph needs.
+func TestAnEinoGraphThatAToolRunsDoesNotGetItsToolCallContext(t *testing.T) {
+	contexts := &callContexts{}
+	chain := compose.NewChain[string, string]()
+	chain.AppendLambda(compose.InvokableLambda(func(ctx context.Context, input string) (string, error) {
+		contexts.record("graph node", ctx)
+		return input, nil
+	}))
+	graph, err := chain.Compile(context.Background())
+	require.NoError(t, err)
+	refund := funcTool{name: "refund_order", run: func(ctx context.Context, arguments string) (string, error) {
+		contexts.record("tool", ctx)
+		return graph.Invoke(ctx, arguments)
+	}}
+	runner, err := dexeino.NewRunner(&adk.ChatModelAgentConfig{Name: "agent", Description: "Test agent.",
+		ToolsConfig: toolsConfig(refund), Model: roundsModel([]schema.ToolCall{call("call_refund", "refund_order", `{"id":"A"}`)})},
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{"refund_order": dexagents.ToolEffectIdempotentWrite}))
+	require.NoError(t, err)
+	state := newTurnState(t, runner, "refund A")
+	state.runModel(runner)
+	require.Empty(t, state.runTools(runner))
+	require.Equal(t, []string{"tool: call_refund refund_order idempotent_write session/turn-1/call_refund", "graph node: none"},
+		contexts.seen)
 }
