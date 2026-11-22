@@ -155,7 +155,14 @@ public class CustomerRefundFlow implements Flow<CustomerRefundFlow.RefundRequest
 
     private static void requireAwaitingManager(final Context context) {
         if (!AWAITING_MANAGER.equals(CASE_STATUS.get(context))) {
-            throw new IllegalStateException("this refund is not waiting for a manager");
+            throw new NotAwaitingManagerException();
+        }
+    }
+
+    /** Rejects a manager decision for a refund that is not waiting for one. */
+    public static final class NotAwaitingManagerException extends IllegalStateException {
+        public NotAwaitingManagerException() {
+            super("this refund is not waiting for a manager");
         }
     }
 

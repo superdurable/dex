@@ -32,14 +32,63 @@ reporting the old refund.
 | [`MockMessageModel.java`](MockMessageModel.java) | A deterministic stand-in for a language model. |
 | [`RefundSettings.java`](RefundSettings.java) | Environment settings, the scenarios, the billing mode, and the Worker options. |
 | [`CustomerRefundCommand.java`](CustomerRefundCommand.java) | The `customer-refund` command: `worker`, `start`, `decide`, and `list-refunds`. |
+| [`CustomerRefundController.java`](CustomerRefundController.java) | The HTTP routes of the shared Spring Boot application. |
+| [`CustomerRefundConfig.java`](CustomerRefundConfig.java) | Registers the Flow, with normal billing, in the shared application. |
 
-The integration test is
-[`CustomerRefundIntegTest.java`](../../../../../../../test/java/io/superdurable/dex/integ/CustomerRefundIntegTest.java).
+The integration tests are
+[`CustomerRefundIntegTest.java`](../../../../../../../test/java/io/superdurable/dex/integ/CustomerRefundIntegTest.java)
+for the standalone Worker and
+[`CustomerRefundControllerIntegTest.java`](../../../../../../../test/java/io/superdurable/dex/integ/CustomerRefundControllerIntegTest.java)
+for the HTTP routes.
 
-This example runs its own Worker, not the Spring Boot application of
-`examples/java`.
+You can run the example two ways: through the shared Spring Boot application
+of `examples/java`, or with its own Worker and command. Only the standalone
+Worker has the `call-missing` billing mode for the Time Travel story.
 
-## Run it
+## Run it in the shared application
+
+Start Dex and the shared application from `examples/java`:
+
+```bash
+dexcli dev
+./gradlew bootRun
+```
+
+The application registers the Flow with normal billing and keeps the ledgers
+in `.customer-refund/`. Then call the routes:
+
+```bash
+curl 'localhost:8080/products/customer-refund/manager-approval/start?flowId=refund1'
+curl 'localhost:8080/products/customer-refund/manager-approval/decide?flowId=refund1&decision=approve&reason=Outage%20confirmed'
+curl 'localhost:8080/products/customer-refund/manager-approval/describe?flowId=refund1'
+```
+
+Like the order-processing routes, each route takes the Flow ID as `flowId` or
+its alias `workflowId`, and `start` returns `flowID` and `runID`. An empty
+query value counts as absent. `start` takes an optional Flow ID; without one
+it creates `customer-refund-<number>`. Its `scenario` is one of the
+[scenarios](#scenarios) and defaults to `normal`. Like order-processing,
+`start` returns once the run has passed **CheckPolicy**, waiting up to 10
+seconds, so a `normal` refund already waits for the manager. A Flow ID that
+is already started returns 409.
+
+`decide` does not wait. It returns 409 when the refund is not waiting for a
+manager, when another decision holds the `case-status` lock, or when the run
+is closing. A missing Flow ID, a blank reason, or an unknown decision returns
+400. A closed run, an unknown Flow ID, or a run of another Flow type returns
+404. Every error body is `{"error": "..."}`.
+
+`describe` returns `flowID`, the run's `status` in lowercase, such as
+`running` or `completed`, and the `case-status` and `refund-id` Attributes as
+`caseStatus` and `refundId`. A value that is not set yet is `null`. A Flow ID
+of another Flow type returns 404.
+
+The shared application and the standalone Worker both serve this Flow type.
+Stop the shared application before you follow the standalone Worker stories
+below. Otherwise
+it can serve their runs with normal billing.
+
+## Run it with its own Worker
 
 Run every command from `examples/java`. You need JDK 17 or newer. Start Dex
 in one terminal:
@@ -187,6 +236,16 @@ fail-then-succeed refund and its history, the missing billing call fixed with
 `dexcli flow time-travel`, and a Time Travel that reuses an issued refund.
 They need `dexcli` on `PATH` or in `DEXCLI_PATH`. `./run-integration-tests.sh`
 runs them with the rest of the Java examples.
+
+`CustomerRefundControllerIntegTest` calls the HTTP routes' controller with the
+shared integration Worker: an approval, a rejection, a second decision while
+the refund retries, racing decisions, a run of another Flow type, and the
+400, 404, and 409 errors. Its ledgers live in a temporary directory.
+
+The shared integration Worker, the shared application in the flow smoke
+test, and the standalone Workers of `CustomerRefundIntegTest` all serve this
+Flow type. Do not run these suites in parallel against one Dex address.
+Gradle runs them one after another.
 
 The ledger tests need no Dex server. In one JVM, they race billing calls and
 email calls with the same key and with different keys, also through a

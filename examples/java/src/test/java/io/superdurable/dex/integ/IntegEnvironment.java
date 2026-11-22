@@ -38,6 +38,8 @@ import io.superdurable.dex.patterns.polling.FakeJobService;
 import io.superdurable.dex.patterns.polling.PollingFlow;
 import io.superdurable.dex.primitives.channel.ChannelFlow;
 import io.superdurable.dex.primitives.rpccancelingsteps.ReportGenerationFlow;
+import io.superdurable.dex.products.customerrefund.CustomerRefundConfig;
+import io.superdurable.dex.products.customerrefund.CustomerRefundFlow;
 import io.superdurable.dex.primitives.step.RetryingFailureFlow;
 import io.superdurable.dex.primitives.stream.StreamFlow;
 import io.superdurable.dex.products.subscription.SubscriptionFlow;
@@ -83,6 +85,8 @@ final class IntegEnvironment implements AutoCloseable {
     private final FakeJobService fakeJobService;
     private final PollingFlow pollingFlow;
     private final ReportGenerationFlow reportGenerationFlow;
+    private final CustomerRefundFlow customerRefundFlow;
+    private final Path customerRefundLedgerDirectory;
     private final WorkflowPatternFlows workflowPatternFlows;
 
     private IntegEnvironment(
@@ -106,6 +110,8 @@ final class IntegEnvironment implements AutoCloseable {
             final FakeJobService fakeJobService,
             final PollingFlow pollingFlow,
             final ReportGenerationFlow reportGenerationFlow,
+            final CustomerRefundFlow customerRefundFlow,
+            final Path customerRefundLedgerDirectory,
             final WorkflowPatternFlows workflowPatternFlows) {
         this.cacheDirectory = cacheDirectory;
         this.blobCache = blobCache;
@@ -127,6 +133,8 @@ final class IntegEnvironment implements AutoCloseable {
         this.fakeJobService = fakeJobService;
         this.pollingFlow = pollingFlow;
         this.reportGenerationFlow = reportGenerationFlow;
+        this.customerRefundFlow = customerRefundFlow;
+        this.customerRefundLedgerDirectory = customerRefundLedgerDirectory;
         this.workflowPatternFlows = workflowPatternFlows;
     }
 
@@ -149,6 +157,10 @@ final class IntegEnvironment implements AutoCloseable {
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
         final ReportGenerationFlow reportGenerationFlow = new ReportGenerationFlow();
+        final Path customerRefundLedgerDirectory =
+                Files.createTempDirectory("dex-java-examples-customer-refund-");
+        final CustomerRefundFlow customerRefundFlow =
+                CustomerRefundConfig.newSharedRefundFlow(customerRefundLedgerDirectory);
         // The Client depends on the Registry, so Flows that call it resolve it lazily.
         final AtomicReference<Client> clientReference = new AtomicReference<Client>();
         final WorkflowPatternFlows workflowPatternFlows =
@@ -175,7 +187,8 @@ final class IntegEnvironment implements AutoCloseable {
                 subscriptionFlow,
                 userOnboardingFlow,
                 pollingFlow,
-                reportGenerationFlow));
+                reportGenerationFlow,
+                customerRefundFlow));
         flows.addAll(workflowPatternFlows.all());
         flows.addAll(ConditionOrderIntegTest.conditionOrderProbeFlows());
 
@@ -228,6 +241,8 @@ final class IntegEnvironment implements AutoCloseable {
                 fakeJobService,
                 pollingFlow,
                 reportGenerationFlow,
+                customerRefundFlow,
+                customerRefundLedgerDirectory,
                 workflowPatternFlows);
     }
 
@@ -291,6 +306,14 @@ final class IntegEnvironment implements AutoCloseable {
         return reportGenerationFlow;
     }
 
+    CustomerRefundFlow customerRefundFlow() {
+        return customerRefundFlow;
+    }
+
+    Path customerRefundLedgerDirectory() {
+        return customerRefundLedgerDirectory;
+    }
+
     <F extends Flow<?>> F workflowPatternFlow(final Class<F> flowClass) {
         return workflowPatternFlows.flow(flowClass);
     }
@@ -339,6 +362,7 @@ final class IntegEnvironment implements AutoCloseable {
         workerThread.join(10_000L);
         blobCache.close();
         deleteRecursively(cacheDirectory);
+        deleteRecursively(customerRefundLedgerDirectory);
         final Throwable failure = workerFailure.get();
         if (failure != null) {
             throw new IllegalStateException("Java examples integ Worker failed", failure);

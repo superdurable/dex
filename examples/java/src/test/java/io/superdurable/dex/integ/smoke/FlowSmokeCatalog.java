@@ -43,6 +43,10 @@ final class FlowSmokeCatalog {
                         "products/order-processing",
                         "/products/order-processing/start",
                         Map.of()),
+                FlowSmokeEntry.get(
+                        "products/customer-refund/manager-approval",
+                        "/products/customer-refund/manager-approval/start",
+                        Map.of("flowId", environment.newFlowId("customer-refund"))),
                 FlowSmokeEntry.get("products/subscription", "/products/subscription/start", Map.of()),
                 FlowSmokeEntry.get(
                         "products/signup",

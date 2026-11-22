@@ -61,12 +61,14 @@ final class FlowSmokeEnvironment implements AutoCloseable {
         final String serverAddress =
                 System.getenv().getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
         final Path cacheDirectory = Files.createTempDirectory("dex-java-flow-smoke-");
+        Files.createDirectories(cacheDirectory.resolve("blobs"));
 
         final SpringApplication application = new SpringApplication(SpringMainApplication.class);
         final ConfigurableApplicationContext context = application.run(
                 "--server.port=0",
                 "--dex.server-address=" + serverAddress,
-                "--dex.blob-cache-dir=" + cacheDirectory.toString());
+                "--dex.blob-cache-dir=" + cacheDirectory.resolve("blobs"),
+                "--dex.customer-refund-ledger-dir=" + cacheDirectory.resolve("customer-refund"));
         final WebServerApplicationContext webContext = (WebServerApplicationContext) context;
         final int httpPort = webContext.getWebServer().getPort();
         context.getBean(Worker.class).waitPullRegistered(Duration.ofSeconds(30));

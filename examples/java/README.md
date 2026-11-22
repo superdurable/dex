@@ -44,6 +44,8 @@ release by default (the toolchain downloads automatically), and
 `-PjavaVersion=17` (or 21, 25, ...) selects another JDK.
 Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
+`DEX_CUSTOMER_REFUND_LEDGER_DIR` moves the customer refund fake ledgers from
+`.customer-refund`.
 
 Worker bind addresses, advertised targets, and Worker mode selection have been
 removed. Delete `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`, and
@@ -83,7 +85,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./src/main/java/io/superdurable/dex/products/signup)
 - [Job posting](./src/main/java/io/superdurable/dex/products/jobpost)
 - [Deal DSL](./src/main/java/io/superdurable/dex/products/dealdsl)
-- [Customer refund](./src/main/java/io/superdurable/dex/products/customerrefund) (its own Worker and command; a manager approval, a retried refund, and Time Travel)
+- [Customer refund](./src/main/java/io/superdurable/dex/products/customerrefund) (a manager approval, a retried refund, and Time Travel; served under `/products/customer-refund/manager-approval/...`, and also runnable with its own Worker and command)
 - [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate Gradle project)
 
 ## Patterns
