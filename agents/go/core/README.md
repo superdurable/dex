@@ -34,6 +34,11 @@ Supported:
 - the turn-failure note;
 - incremental turn messages (A1: `ToolCallsRequested.NewMessages` and
   `UnfinishedTurnMessageBuilder`);
+- `TurnCompleted.TurnError`, which ends a turn as failed without a retry, as
+  `turn_error` in Python and `turnError` in TypeScript do (since 0.6.16);
+- the end of a session at the state limit, which `AgentSessionClient` reports
+  as Python's and TypeScript's clients do (since 0.6.16; see
+  [At the state limit](#at-the-state-limit));
 - session settings and `update_session_settings`, with the built-in loop model
   resolver;
 - the built-in agent loop, with function tools;
@@ -49,9 +54,11 @@ any of them. A Go Client still calls their RPCs on those Workers with package
 Not supported yet: the built-in loop hook that ends or continues a turn at
 the end of each loop iteration (`decideTurnContinuation` in TypeScript,
 `decide_turn_continuation` in Python), and the `TurnContinued` runner outcome
-and `TurnCompleted` turn error behind it. A Go `RunModel` that takes over a
-continued turn ignores the extra run state key and makes the next model call,
-with the continuation message as the last user text.
+behind it. A runner can still end a turn as failed with
+`TurnCompleted.TurnError`, and the Go built-in loop never sets it. A Go
+`RunModel` that takes over a continued turn ignores the extra run state key and
+makes the next model call, with the continuation message as the last user
+text.
 
 ### One language per Flow type
 
@@ -287,8 +294,12 @@ sorts the error into three kinds:
 
 The status comes from an error in the chain with a `StatusCode` field or a
 `Response *http.Response` field, as the OpenAI and Anthropic Go SDKs' errors
-have, so wrap the client's error with `%w`. `WithModelRetryPolicy` changes the
-backoff.
+have, so wrap the client's error with `%w`. An error with an `HTTPStatusCode`
+int field gives its status too, as the errors of go-openai and the Volcengine
+Ark SDK have; CloudWeGo eino-ext's OpenAI-family and Ark model clients return
+them. Those errors carry no headers, so they get the backoff without
+`Retry-After`. A `Code` field is never read as a status, because SDKs keep the
+provider's own error code there. `WithModelRetryPolicy` changes the backoff.
 
 An item replays unchanged to a client with the same provider and API, and as
 its text and tool calls to any other, so a session can change model between
@@ -357,6 +368,30 @@ type AgentFrameworkRunner interface {
   policy from `turn.ResolveToolPolicy`. A runner that sets
   `ToolCallsRequested.NewMessages` implements `UnfinishedTurnMessageBuilder`;
   `RecordTurnFailure` stores what it returns before the turn-failure note.
+- `TurnCompleted.TurnError`, since 0.6.16, ends the turn as failed instead of
+  completed, in the same commit: the session stores `NewMessages`, records
+  `Usage`, sets `LastTurnError` to the text, and writes `turn_failed` instead
+  of `turn_completed`. No retry and no `RecordTurnFailure` run, and no
+  turn-failure note is stored, because `NewMessages` already say what the
+  turn did. Use it for a deliberate stop that a retry would repeat, such as a
+  limit the runner enforces, and return an error for a failure that a retry
+  may fix. The next turn that completes clears `LastTurnError`.
+- An outcome that the session must not store fails the turn at once in
+  `RunModel`, with no retry, because a retry would only repeat the paid model
+  call. The session records the outcome's `Usage`, stores nothing else from
+  it, and ends the turn as `RecordTurnFailure` does, with this
+  `LastTurnError`: `MissingUnfinishedTurnMessageBuilder` for
+  `ToolCallsRequested.NewMessages` from a runner without
+  `UnfinishedTurnMessageBuilder`;
+  `TurnCompleted.NewMessages[0] has role "", which is not user, assistant, or tool`
+  for a message in `TurnCompleted.NewMessages` or
+  `ToolCallsRequested.NewMessages` whose role is not `user`, `assistant`, or
+  `tool`, since 0.6.16; or
+  `TurnCompleted.TurnError for <turn> must be a non-blank string` for a blank
+  `TurnError`. Every reader of a stored message rejects another role, so
+  before 0.6.16 such a message broke `get_agent_snapshot` and
+  `list_agent_messages` for the rest of the session. Map framework roles with
+  `MessageRole.IsValid`.
 - `ExecuteDeferredToolCall` runs one tool, possibly concurrently with others.
   A `*ToolExecutionError` records `failed` with its message and is not
   retried; any other error fails the Step attempt. On attempt 2 or later of a
@@ -449,6 +484,49 @@ wrote, keeps every message in `AgentMessages`. This release reads it as it is. E
 stores a message moves up to four chunks of its older messages, so a long
 history migrates over several commits and reads stay whole meanwhile.
 
+## At the state limit
+
+server-zd caps each Flow's active state at `limits.maxFlowStateBytes`. A Step
+whose commit would pass it fails with error type `ValueTooLarge` and a detail
+that contains `run state of `, such as
+`active run state of 140213 bytes exceeds the maximum of 131072 bytes`. The
+session then ends, as a Python or TypeScript session does, because it is at
+its limit. Since 0.6.16:
+
+- When the failure reaches `RecordToolFailure`, `RecordToolOutcomeUnknown`,
+  or `RecordTurnFailure`, the Step stores the end of the session: it sets
+  `AgentState.Status` to `failed` and `LastTurnError` to the detail, clears
+  the turn, `FrameworkRunState`, and `PendingInterrupts`, keeps the turn's
+  records, writes `turn_failed`, and fails the Flow with the detail as its
+  reason. That commit meets the same limit, so it stores no turn messages.
+  No further model call is made, and the model never sees a failed tool
+  call.
+- A Step without a failure route, such as `AwaitUserMessage` storing the
+  next user message, closes the Flow failed with the same reason. The same
+  happens when the commit above does not fit, which is common when turns are
+  small. The stored `AgentState` then keeps its last value, such as
+  `waiting_for_user_message` or `running_tools`.
+- `AgentSessionClient.GetAgentSnapshot` reads how the Flow closed, so it
+  reports status `failed`, the reason in `LastTurnError`, no active turn, and
+  no pending interrupts or tool calls in both cases. Use it, not the
+  `get_agent_snapshot` RPC alone. A session that fails before it stores a
+  state has a snapshot with no state; read the reason from
+  `Client.WaitForFlow`.
+- `AgentSessionClient.SendUserMessage` to a failed session returns
+  `*AgentSessionFailedError` with the reason. `errors.As` also finds the
+  `*dex.FlowNotActiveOrNotFoundError` in it, which a direct RPC call gets.
+- Messages queued before the end stay in `AgentSnapshot.QueuedMessages` and
+  never run. Send them to a new session.
+
+A failed session cannot go on. Start a new session; a higher
+`limits.maxFlowStateBytes` applies only to sessions that start after
+server-zd restarts with it.
+
+Before 0.6.16, a model answer over the limit failed only its turn, and a
+tool result over the limit became a `failed` or `outcome_unknown` call that
+the model saw. The Go session went on in both cases, and the Go client read
+only the stored snapshot.
+
 ## Flow shape
 
 ```text
@@ -463,6 +541,7 @@ CallTool(id) -> failure route RecordToolFailure(id)
 CallSingleAttemptTool(id) -> failure route RecordToolOutcomeUnknown(id)
 ResumeTurn -> RunModel
 RunModel -> failure route RecordTurnFailure -> AwaitUserMessage
+RecordToolFailure, RecordToolOutcomeUnknown, RecordTurnFailure -> ForceFail   at the state limit
 ```
 
 Every Step sets SYNC durability for its WaitFor and Execute. Each tool Step
@@ -495,6 +574,16 @@ as children of the test binary:
 - SIGKILL during `CallSingleAttemptTool` (`outcome_unknown`) and during
   `RunModel` (only that model call reruns);
 - the turn-failure note after a write ran;
+- a model answer and a read or write tool result that would pass
+  `limits.maxFlowStateBytes` ending the session with the reason, after one
+  model call and one tool run, with later messages left queued, no pending
+  approval, and no `FrameworkRunState`; a user message that `AwaitUserMessage`
+  cannot store, and 24 sessions of small tool turns of which some have no
+  room to store the failure, each reported as failed by
+  `AgentSessionClient.GetAgentSnapshot` and `SendUserMessage`;
+- `TurnCompleted.TurnError` ending a turn as failed with no retry, its usage
+  and messages stored, and the next turn clearing it, and an outcome the
+  session must not store failing its turn at once with its usage recorded;
 - snapshot and message paging, including pages across window and chunk
   boundaries;
 - rollover into many chunks with a SIGKILL during the `RunModel` whose commit

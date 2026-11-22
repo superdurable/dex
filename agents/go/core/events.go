@@ -28,7 +28,24 @@ const (
 	// AgentEventTypeTurnCompleted means the turn produced its final answer. Payload
 	// {"message_count"}, the messages the turn appended after its user message.
 	AgentEventTypeTurnCompleted AgentEventType = "turn_completed"
-	// AgentEventTypeTurnFailed means RecordTurnFailure ended the turn. Payload {"error"}.
+	// AgentEventTypeTurnFailed means the turn ended as failed. Payload {"error"}, the turn's
+	// AgentState.LastTurnError.
+	//
+	// These Steps write it:
+	//   - RecordTurnFailure, when the attempts of RunModel run out; the session then waits for the
+	//     next user message.
+	//   - RunModel, instead of turn_completed, for a TurnCompleted with TurnError, and for an
+	//     outcome the session must not store (see AgentFrameworkRunner.RunModelStep); the session
+	//     then waits for the next user message.
+	//   - RecordToolFailure, RecordToolOutcomeUnknown, and RecordTurnFailure, when the session
+	//     ends at the server's limits.maxFlowStateBytes. AgentState.Status is then failed, and the
+	//     session's Flow closes failed with the same text.
+	//
+	// So read AgentState.Status to tell a failed turn from a failed session. A session can also
+	// end at the state limit without this event; AgentSessionClient.GetAgentSnapshot reports it.
+	//
+	// Changed in 0.6.16: RunModel writes it, and the three recovery Steps write it when the
+	// session ends at the state limit.
 	AgentEventTypeTurnFailed AgentEventType = "turn_failed"
 	// AgentEventTypeTextDelta is visible model text. Payload {"text"}.
 	AgentEventTypeTextDelta AgentEventType = "text_delta"

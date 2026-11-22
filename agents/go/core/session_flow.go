@@ -133,6 +133,12 @@ const (
 	recoveryRetryMaximumInterval = 5 * time.Second
 )
 
+// server-zd fails a Step whose commit passes limits.maxFlowStateBytes with this type and detail text.
+const (
+	stateLimitErrorType = "ValueTooLarge"
+	stateLimitErrorText = "run state of "
+)
+
 // AgentSessionOption configures one AgentSessionFlow. Pass options to NewAgentSessionFlow.
 type AgentSessionOption interface {
 	applyAgentSession(options *agentSessionOptions)
@@ -1037,6 +1043,20 @@ func (step CallSingleAttemptTool) Execute(ctx dex.Context, toolCallID string) (*
 // with the recovery detail as the error. A call whose tool never ran becomes
 // failed with ToolCallNotRunErrorPrefix.
 //
+// When the attempts failed because their commit would pass the Flow's state
+// limit, server-zd's limits.maxFlowStateBytes, it ends the session instead: it
+// sets AgentState.Status to failed and LastTurnError to the recovery detail,
+// such as "active run state of 140213 bytes exceeds the maximum of 131072
+// bytes" (the detail contains "run state of "), clears the turn,
+// FrameworkRunState, and PendingInterrupts, keeps the turn's records, writes
+// turn_failed, and fails the Flow with the detail. It stores no turn messages,
+// because this commit meets the same limit. The session takes no more
+// messages, because it is at its limit.
+//
+// Changed in 0.6.16: a state-limit failure ends the session, as in the Python
+// and TypeScript cores. Before, the call was recorded as failed or
+// outcome_unknown with the detail, the model saw it, and the session went on.
+//
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Record a tool call whose attempts ran out as failed for a read or a never-run call and outcome unknown for a write."
 type RecordToolFailure struct {
@@ -1049,7 +1069,7 @@ func (RecordToolFailure) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions([]dex.AttributeDef{AgentToolCallsAttributeMap})
 }
 
-// Execute records the call's final status by its effect.
+// Execute records the call's final status by its effect, or ends a session at the state limit.
 func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1057,6 +1077,13 @@ func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	toolCall, err := AgentToolCallsAttributeMap.Get(ctx, toolCallID)
 	if err != nil {
@@ -1074,7 +1101,10 @@ func (step RecordToolFailure) Execute(ctx dex.Context, toolCallID string) (*dex.
 
 // RecordToolOutcomeUnknown records that a single-attempt tool call stopped without a result.
 //
-// A call whose tool never ran becomes failed with ToolCallNotRunErrorPrefix instead.
+// A call whose tool never ran becomes failed with ToolCallNotRunErrorPrefix instead. A state-limit
+// failure ends the session, as RecordToolFailure describes.
+//
+// Changed in 0.6.16: a state-limit failure ends the session.
 //
 // dex:group group-id:tools group-label:"Tools"
 // dex:explanation text:"Record a single-attempt tool call that stopped without a result as outcome unknown, or as failed when it never ran."
@@ -1088,7 +1118,8 @@ func (RecordToolOutcomeUnknown) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions([]dex.AttributeDef{AgentToolCallsAttributeMap})
 }
 
-// Execute records outcome_unknown with the recovery detail, or failed when the tool never ran.
+// Execute records outcome_unknown with the recovery detail, or failed when the tool never ran, or
+// ends a session at the state limit.
 func (step RecordToolOutcomeUnknown) Execute(ctx dex.Context, toolCallID string) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1096,6 +1127,13 @@ func (step RecordToolOutcomeUnknown) Execute(ctx dex.Context, toolCallID string)
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	toolCall, err := AgentToolCallsAttributeMap.Get(ctx, toolCallID)
 	if err != nil {
@@ -1184,7 +1222,12 @@ func (step ResumeTurn) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error
 //
 // RunModel reaches it when its attempts run out. It stores the runner's
 // unfinished-turn messages and the turn-failure note, deletes the turn's
-// records, and empties PendingInterrupts.
+// records, and empties PendingInterrupts. A state-limit failure ends the
+// session instead, as RecordToolFailure describes, and the session takes no
+// more messages.
+//
+// Changed in 0.6.16: a state-limit failure ends the session. Before, it
+// failed only the turn, and the session went on.
 //
 // dex:group group-id:model group-label:"Model"
 // dex:explanation text:"Record a turn whose model call failed after its retries, note which tool calls already ran, and wait for the user."
@@ -1204,7 +1247,7 @@ func (step RecordTurnFailure) GetStepOptions() *dex.StepOptions {
 	return recoveryStepOptions(loads)
 }
 
-// Execute records the failure with the recovery detail.
+// Execute records the failure with the recovery detail, or ends a session at the state limit.
 func (step RecordTurnFailure) Execute(ctx dex.Context, _ *CompactContextInput) (*dex.StepDecision, error) {
 	unsupported, err := step.session.unsupportedSessionError(ctx)
 	if err != nil {
@@ -1212,6 +1255,13 @@ func (step RecordTurnFailure) Execute(ctx dex.Context, _ *CompactContextInput) (
 	}
 	if unsupported != "" {
 		return dex.ForceFail(unsupported), nil
+	}
+	if isStateLimitFailure(ctx.RecoveryError()) {
+		reason := recoveryDetail(ctx)
+		if err := step.session.recordFailedSession(ctx, reason); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(reason), nil
 	}
 	state, err := requireAgentState(ctx)
 	if err != nil {
@@ -1396,21 +1446,63 @@ func (flow *AgentSessionFlow) runModelCall(ctx dex.Context) (modelCallResult, er
 	}
 	switch typed := outcome.(type) {
 	case *TurnCompleted:
+		if defect := turnCompletedDefect(turnID, typed); defect != "" {
+			return modelCallResult{isTurnOver: true},
+				flow.failTurnForRunnerDefect(ctx, state, turnID, toolCalls, events, typed.Usage, defect)
+		}
 		return modelCallResult{isTurnOver: true}, flow.completeTurn(ctx, state, turnID, toolCalls, typed, events)
 	case *ToolCallsRequested:
 		if _, isIncremental := flow.runner.(UnfinishedTurnMessageBuilder); len(typed.NewMessages) > 0 && !isIncremental {
-			// A runner defect: a retry would only repeat the paid model call.
-			if err := flow.recordUsage(ctx, events, typed.Usage); err != nil {
-				return modelCallResult{}, err
-			}
+			return modelCallResult{isTurnOver: true}, flow.failTurnForRunnerDefect(
+				ctx, state, turnID, toolCalls, events, typed.Usage, MissingUnfinishedTurnMessageBuilder)
+		}
+		if defect := invalidMessageRoleDefect("ToolCallsRequested.NewMessages", typed.NewMessages); defect != "" {
 			return modelCallResult{isTurnOver: true},
-				flow.failTurnWithRecords(ctx, state, turnID, toolCalls, events, MissingUnfinishedTurnMessageBuilder)
+				flow.failTurnForRunnerDefect(ctx, state, turnID, toolCalls, events, typed.Usage, defect)
 		}
 		requested, err := flow.startToolCalls(ctx, state, turnID, toolCalls, typed, events)
 		return modelCallResult{requestedToolCalls: requested}, err
 	default:
 		return modelCallResult{}, fmt.Errorf("RunModelStep must return *TurnCompleted or *ToolCallsRequested, got %T", outcome)
 	}
+}
+
+// failTurnForRunnerDefect records the model call's usage and fails the turn without storing the outcome.
+func (flow *AgentSessionFlow) failTurnForRunnerDefect(
+	ctx dex.Context,
+	state AgentState,
+	turnID string,
+	toolCalls []AgentToolCall,
+	events *AgentEventWriter,
+	usage AgentUsage,
+	defect string,
+) error {
+	// A runner defect: a retry would only repeat the paid model call.
+	if err := flow.recordUsage(ctx, events, usage); err != nil {
+		return err
+	}
+	return flow.failTurnWithRecords(ctx, state, turnID, toolCalls, events, defect)
+}
+
+// turnCompletedDefect returns the turn error for a TurnCompleted that the session must not store, or "".
+func turnCompletedDefect(turnID string, outcome *TurnCompleted) string {
+	if defect := invalidMessageRoleDefect("TurnCompleted.NewMessages", outcome.NewMessages); defect != "" {
+		return defect
+	}
+	if outcome.TurnError != nil && isBlankText(*outcome.TurnError) {
+		return fmt.Sprintf("TurnCompleted.TurnError for %s must be a non-blank string", turnID)
+	}
+	return ""
+}
+
+// invalidMessageRoleDefect names the first message whose role no reader of a stored message accepts, or "".
+func invalidMessageRoleDefect(field string, messages []FrameworkMessage) string {
+	for position, message := range messages {
+		if !message.Role.IsValid() {
+			return fmt.Sprintf("%s[%d] has role %q, which is not user, assistant, or tool", field, position, message.Role)
+		}
+	}
+	return ""
 }
 
 func (flow *AgentSessionFlow) turnContext(
@@ -1490,9 +1582,12 @@ func (flow *AgentSessionFlow) completeTurn(
 	state.TurnCount++
 	state.ActiveTurnID = nil
 	state.AcceptsTurnControl = false
-	state.LastTurnError = nil
+	state.LastTurnError = outcome.TurnError
 	if err := AgentStateAttribute.Set(ctx, state); err != nil {
 		return err
+	}
+	if state.LastTurnError != nil {
+		return events.WriteEvent(AgentEventTypeTurnFailed, map[string]any{"error": *state.LastTurnError})
 	}
 	messageCount := storedTurnMessageCount + int64(len(outcome.NewMessages))
 	if err := events.WriteEvent(AgentEventTypeTurnCompleted, map[string]any{"message_count": messageCount}); err != nil {
@@ -1829,6 +1924,9 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		if err != nil {
 			return err
 		}
+		if note.Role != MessageRoleUser {
+			return errors.New("BuildUserMessage must return a user message")
+		}
 		messages = append(messages, note)
 		noteOrigin := AgentMessageOriginTurnFailureNote
 		origins = append(origins, &noteOrigin)
@@ -1855,6 +1953,52 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		return err
 	}
 	return nil
+}
+
+// recordFailedSession commits a session at the state limit as failed, storing no turn messages, which would not fit.
+func (flow *AgentSessionFlow) recordFailedSession(ctx dex.Context, errorText string) error {
+	state, err := requireAgentState(ctx)
+	if err != nil {
+		return err
+	}
+	frameworkRunState, err := readOptionalAttribute(ctx, FrameworkRunStateAttribute)
+	if err != nil {
+		return err
+	}
+	if frameworkRunState != nil {
+		if err := FrameworkRunStateAttribute.Delete(ctx); err != nil {
+			return err
+		}
+	}
+	pending, err := readPendingInterrupts(ctx)
+	if err != nil {
+		return err
+	}
+	if len(pending) > 0 {
+		if err := PendingInterruptsAttribute.Set(ctx, []AgentInterrupt{}); err != nil {
+			return err
+		}
+	}
+	events := flow.eventWriter(ctx, state.ActiveTurnID)
+	if state.ActiveTurnID != nil {
+		state.TurnCount++
+	}
+	state.Status = AgentSessionStatusFailed
+	state.ActiveTurnID = nil
+	state.AcceptsTurnControl = false
+	state.LastTurnError = &errorText
+	if err := AgentStateAttribute.Set(ctx, state); err != nil {
+		return err
+	}
+	return events.WriteEvent(AgentEventTypeTurnFailed, map[string]any{"error": errorText})
+}
+
+// isStateLimitFailure reports whether a Step failed because its commit would pass the Flow's state limit.
+func isStateLimitFailure(recoveryError *dex.RecoveryErrorInfo) bool {
+	// The Server gives this failure no code of its own; a value over its own limit shares the type.
+	return recoveryError != nil &&
+		recoveryError.ErrorType == stateLimitErrorType &&
+		strings.Contains(recoveryError.Detail, stateLimitErrorText)
 }
 
 // buildUnfinishedTurnMessages returns the runner's unfinished-turn messages, or none when it failed.
@@ -1896,9 +2040,7 @@ func (flow *AgentSessionFlow) doBuildUnfinishedTurnMessages(
 		return nil, err
 	}
 	for _, message := range messages {
-		switch message.Role {
-		case MessageRoleUser, MessageRoleAssistant, MessageRoleTool:
-		default:
+		if !message.Role.IsValid() {
 			return nil, fmt.Errorf("unfinished turn message has role %q", message.Role)
 		}
 	}

@@ -224,7 +224,15 @@ func truncateNoteOutcome(outcome string) string {
 // framework input from FrameworkItem alone. Set the Tool fields only when the
 // item carries exactly one tool call or result.
 type FrameworkMessage struct {
-	// Role is the author of the item. It must be user, assistant, or tool.
+	// Role is the author of the item. It must be user, assistant, or tool; MessageRole.IsValid
+	// checks it. The session never stores any other value, the empty string included, because
+	// every reader of a stored message rejects it. Such a message in TurnCompleted.NewMessages or
+	// ToolCallsRequested.NewMessages fails the turn at once (see AgentFrameworkRunner.RunModelStep).
+	// When UnfinishedTurnMessageBuilder returns one, the session logs a warning and stores none of
+	// the messages it returned, only the turn-failure note. One from BuildUserMessage fails the Step
+	// attempt.
+	//
+	// Changed in 0.6.16: an invalid Role in NewMessages fails the turn instead of being stored.
 	Role MessageRole
 	// FrameworkItem is the framework-native JSON text, replayed unchanged.
 	FrameworkItem string
@@ -266,14 +274,43 @@ type AgentTurnOutcome interface {
 	agentTurnOutcome()
 }
 
-// TurnCompleted reports that the model call produced the turn's final answer.
+// TurnCompleted reports that the model call produced the turn's final answer, or ended the turn on
+// purpose.
+//
+// The session stores NewMessages, records Usage, deletes the turn's tool call records and
+// FrameworkRunState, and waits for the next user message, all in one commit. Set TurnError to end
+// the turn as failed instead of completed:
+//
+//	return &dexagents.TurnCompleted{
+//		NewMessages: messages,
+//		Usage:       usage,
+//		TurnError:   ptr.Any("the turn used more than 20 model calls"),
+//	}, nil
 type TurnCompleted struct {
 	// NewMessages are the turn's items that the session has not stored yet, in order. For a
 	// runner that never sets ToolCallsRequested.NewMessages, that is every item the turn produced
-	// after its user message. The session appends them in one commit.
+	// after its user message. The session appends them in one commit. Each Role must be valid; see
+	// FrameworkMessage.Role.
 	NewMessages []FrameworkMessage
 	// Usage is the usage of this model call only.
 	Usage AgentUsage
+	// TurnError is error text that ends the turn as failed instead of completed, or nil to
+	// complete the turn.
+	//
+	// The session still stores NewMessages and records Usage in the same commit. It then sets
+	// AgentState.LastTurnError to this text and writes a turn_failed event instead of
+	// turn_completed. It stores no turn-failure note, because NewMessages already say what the
+	// turn did. No retry follows, so use it only for a deliberate stop that a retry would repeat,
+	// such as a limit the runner enforces; return an error instead for a failure that a retry may
+	// fix. The next turn that completes clears LastTurnError. Snapshots show the text, so keep
+	// secrets out of it.
+	//
+	// A blank text is a runner defect: the turn fails at once without storing NewMessages, as for
+	// an invalid Role; see AgentFrameworkRunner.RunModelStep. This is the Python core's turn_error and the TypeScript
+	// core's turnError.
+	//
+	// Since 0.6.16.
+	TurnError *string
 }
 
 func (*TurnCompleted) agentTurnOutcome() {}
@@ -295,6 +332,7 @@ type ToolCallsRequested struct {
 	// Usage is the usage of this model call only.
 	Usage AgentUsage
 	// NewMessages are items the session appends in the same commit that records the tool calls.
+	// Each Role must be valid; see FrameworkMessage.Role.
 	NewMessages []FrameworkMessage
 }
 
@@ -484,6 +522,20 @@ type AgentFrameworkRunner interface {
 	BuildUserMessage(text string) (FrameworkMessage, error)
 	// RunModelStep makes at most one model call and runs no tool it can defer. It returns
 	// *TurnCompleted or *ToolCallsRequested; an error fails the RunModel attempt.
+	//
+	// An outcome that the session must not store is a runner defect, and the turn fails at once
+	// in that RunModel attempt, because a retry would only repeat the paid model call. The
+	// session records the outcome's Usage, stores nothing else from it, and ends the turn as
+	// RecordTurnFailure does, with a LastTurnError that names the defect. The defects are
+	// ToolCallsRequested.NewMessages from a runner that does not implement
+	// UnfinishedTurnMessageBuilder (MissingUnfinishedTurnMessageBuilder), a message in
+	// TurnCompleted.NewMessages or ToolCallsRequested.NewMessages whose Role is not user,
+	// assistant, or tool, such as `TurnCompleted.NewMessages[0] has role "", which is not user,
+	// assistant, or tool`, and a blank TurnCompleted.TurnError.
+	//
+	// Changed in 0.6.16: an invalid Role in NewMessages and a blank TurnCompleted.TurnError fail
+	// the turn. Before, a message with an invalid Role was stored, and every later
+	// get_agent_snapshot and list_agent_messages call failed to decode it.
 	RunModelStep(ctx context.Context, turn AgentTurnContext) (AgentTurnOutcome, error)
 	// ExecuteDeferredToolCall runs the real tool once. It returns *ToolExecutionResult, a
 	// *ToolExecutionError for a failure the model sees, or another error that fails the attempt.

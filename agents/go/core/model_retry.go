@@ -54,7 +54,13 @@ const (
 //
 // The HTTP status and headers come from an error in the chain whose struct has
 // a StatusCode int field or a Response *http.Response field, as the OpenAI and
-// Anthropic Go SDKs' errors do. A net.Error, io.ErrUnexpectedEOF,
+// Anthropic Go SDKs' errors do. An error whose struct has neither, or whose
+// status there is not an HTTP status, gives its status through an
+// HTTPStatusCode int field instead, as the errors of go-openai and the
+// Volcengine Ark SDK do; CloudWeGo eino-ext's OpenAI-family and Ark model
+// clients return those errors. Such errors carry no headers, so Retry-After
+// does not apply to them. A field named Code is never read as a status: SDKs
+// put the provider's own error code there. A net.Error, io.ErrUnexpectedEOF,
 // ECONNRESET, ECONNREFUSED, or context.DeadlineExceeded from the model call is
 // a connection error.
 //
@@ -235,7 +241,15 @@ func readHTTPStatus(err error) (int, http.Header, bool) {
 	if field := value.FieldByName("StatusCode"); field.IsValid() && field.CanInt() {
 		status = int(field.Int())
 	}
-	return status, headers, status >= 100 && status <= 599
+	// go-openai and the Volcengine Ark SDK, which eino-ext models use, name the field this way.
+	if field := value.FieldByName("HTTPStatusCode"); !isHTTPStatus(status) && field.IsValid() && field.CanInt() {
+		status = int(field.Int())
+	}
+	return status, headers, isHTTPStatus(status)
+}
+
+func isHTTPStatus(status int) bool {
+	return status >= 100 && status <= 599
 }
 
 func readRetryAfter(headers http.Header) time.Duration {

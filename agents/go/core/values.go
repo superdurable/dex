@@ -35,7 +35,9 @@ const (
 	AgentSessionStatusCompactingContext AgentSessionStatus = "compacting_context"
 	// AgentSessionStatusFailed means the session ended and takes no more messages. Its Flow closed
 	// failed, and AgentState.LastTurnError holds the reason. Python and TypeScript Workers write it;
-	// the Go core reads it.
+	// the Go core reads it, and since 0.6.16 writes it too, when a Step's commit would pass the
+	// Flow's state limit (see RecordToolFailure). A session at that limit may lack room to store
+	// it; AgentSessionClient.GetAgentSnapshot then reports it from the Flow's close.
 	AgentSessionStatusFailed AgentSessionStatus = "failed"
 )
 
@@ -66,6 +68,17 @@ const (
 // It returns an error that names the unknown value.
 func (role *MessageRole) UnmarshalText(text []byte) error {
 	return decodeWireEnum(text, role, "MessageRole", MessageRoleUser, MessageRoleAssistant, MessageRoleTool)
+}
+
+// IsValid reports whether the role is one of the three contract values: user, assistant, or tool.
+//
+// It returns false for the empty string and for any other text. The session stores only messages
+// with a valid role, because every reader of a stored message rejects any other value. Check it in
+// a framework adapter that maps framework roles to MessageRole.
+//
+// Since 0.6.16.
+func (role MessageRole) IsValid() bool {
+	return role == MessageRoleUser || role == MessageRoleAssistant || role == MessageRoleTool
 }
 
 // AgentMessageOrigin names why the session wrote a user message itself, in AgentMessage.Origin.
