@@ -204,6 +204,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 <FrameworkTab framework="eino">
 
 - Each `RunModel` makes exactly one model call. A configuration that makes more refuses to build: `ModelRetryConfig`, `ModelFailoverConfig`, and the summarization middleware. Tune retries with `WithModelRetryPolicy`, and choose the model per call with an `AgentConfigBuilder`.
+- Let each Handler's `WrapModel` call the model it receives and return its error. `RunModel` then retries a rate limit or a server error with backoff ([Model API errors](/reference/agents/workers#model-api-errors)). A `WrapModel` that retries the model or falls back to a backup model still builds, because construction cannot see a Handler's model calls. When a model call fails, that retry or fallback is a second model call in the Step, so the turn ends as failed.
 - `Exit` and `ToolsConfig.ReturnDirectly` end the turn on a tool result instead of a model answer. So they refuse to build.
 - A sub-agent runs as a tool, through `adk.NewAgentTool`. It runs inside that tool's Step, again on each attempt, so give the tool the effect of what its sub-agent does. `transfer_to_agent` and the prebuilt supervisor, plan-execute, and deep agents are not accepted.
 - An agent tool made with `adk.WithFullChatHistoryAsInput` reads the agent's history, which a tool Step does not have. So it refuses to build. Pass what the sub-agent needs in the call's arguments.

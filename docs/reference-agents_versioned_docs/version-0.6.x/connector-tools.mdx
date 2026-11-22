@@ -252,11 +252,13 @@ The Python and TypeScript examples use the Slack Connector 0.2.0, whose
 **postThreadReply** is a single-attempt Mutation: a post runs once in
 `CallSingleAttemptTool`. The Go example uses the Slack Connector v1.8.1, whose
 **postThreadReply** declares **repeatOnUnknown: limited** with **maxSends** 3.
-Its posts have [bounded resends](#bounded-resends). After a Worker crash, a
-post whose reply timestamp was saved is read back and never resent. A post
-whose timestamp was lost, such as when the Worker stopped while the request was
-in flight, is sent again without a read-back, so a reply can be posted up to 3
-times.
+Its posts have [bounded resends](#bounded-resends). Slack returns a reply
+timestamp only for a reply it created. So after a Worker crash, a post whose
+reply timestamp was saved is read back and never resent: the call records
+**succeeded** when read-back finds the reply, and **outcome_unknown** when it
+does not. A post whose timestamp was lost, such as when the Worker stopped
+while the request was in flight, is sent again without a read-back, so a reply
+can be posted up to 3 times.
 
 The Slack app needs the bot scope **chat:write**, and its bot must be a member
 of the channel. When a Worker stops during a post after the reply's timestamp

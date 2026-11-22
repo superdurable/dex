@@ -204,6 +204,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 <FrameworkTab framework="eino">
 
 - 每个 `RunModel` 只做一次模型调用。会做更多次调用的配置无法构建：`ModelRetryConfig`、`ModelFailoverConfig` 和 summarization middleware。用 `WithModelRetryPolicy` 调整重试，用 `AgentConfigBuilder` 为每次调用选择模型。
+- 让每个 Handler 的 `WrapModel` 调用它收到的模型，并返回模型的错误。`RunModel` 会退避并重试限流和服务端错误，见 [Model API errors](/reference/agents/workers#model-api-errors)（英文）。重试模型或改用备用模型的 `WrapModel` 仍然可以构建，因为构建时看不到 Handler 的模型调用。模型调用失败时，这个重试或备用模型就是同一个 Step 里的第二次模型调用，所以 turn 以失败结束。
 - `Exit` 和 `ToolsConfig.ReturnDirectly` 会让 turn 以 tool result 结束，而不是以模型的回答结束。所以它们无法构建。
 - sub-agent 通过 `adk.NewAgentTool` 作为 tool 运行。它在这个 tool 的 Step 里运行，每次尝试都会再运行一次，所以给这个 tool 一个与其 sub-agent 所做的事相符的 effect。`transfer_to_agent` 以及预置的 supervisor、plan-execute 和 deep Agent 都不被接受。
 - 用 `adk.WithFullChatHistoryAsInput` 构建的 agent tool 会读取 Agent 的历史消息，而 tool Step 里没有这些消息。所以它无法构建。把 sub-agent 需要的内容放在调用参数里传入。

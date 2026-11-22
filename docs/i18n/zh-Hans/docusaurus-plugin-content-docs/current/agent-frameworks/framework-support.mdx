@@ -35,7 +35,7 @@ Dex 可以运行用九个框架构建的 Agent，还有它自己的内置 Agent 
 | 框架 | 主要限制 |
 | --- | --- |
 | Claude Agent SDK | 同一个模型回复里的写入调用逐个运行。Claude Code CLI 内部的 tool，例如 **Bash** 和 **Edit**，可能再运行一次。 |
-| Eino | 在一个 Step 里调用模型不止一次的配置无法构建，例如 `ModelRetryConfig` 或 summarization middleware。Go core 没有 **Steer**、`cancel_turn`、`delete_queued_message`、提问、上下文压缩、图片、MCP tool source、spend-limit hook 和 UI stream。 |
+| Eino | 每个 `RunModel` Step 只做一次模型调用：`ModelRetryConfig` 和 summarization middleware 无法构建，Handler 里的重试或备用模型在运行时会让 turn 失败。Go core 没有 **Steer**、`cancel_turn`、`delete_queued_message`、提问、上下文压缩、图片、MCP tool source、spend-limit hook 和 UI stream。 |
 | Google ADK | App 的根必须是 `BaseAgent`。tool 对 state 和 artifact 的修改会被丢弃。 |
 | LangChain 和 LangGraph | 只有消息列表会带到下一个 turn。tool 不能使用 `ToolRuntime`、`InjectedState` 或 `InjectedStore`。 |
 | Mastra | Session 取代 Mastra Memory。调用 `suspend()` 的 tool 会失败。 |

@@ -69,7 +69,7 @@ Every example sets `requires_approval=True` (**requiresApproval: true** in TypeS
 
 In the Python and TypeScript examples, `postThreadReply` is a single-attempt Mutation. A post runs once, and a Worker crash never sends it twice.
 
-In the Go example, `postThreadReply` has bounded resends, with at most 3 sends. After a Worker crash during a post, the Connector checks whether the earlier attempt saved the reply's timestamp. A saved timestamp is read back and never resent: the Connector looks for the reply in the thread, and when it cannot find it, the call records `outcome_unknown`. A lost timestamp, such as after a crash while the request was in flight, leaves nothing to read back, so the Connector sends again. So a crash can post a duplicate reply, up to 3 posts in all. [Bounded resends](/reference/agents/connector-tools#bounded-resends) covers the details.
+In the Go example, `postThreadReply` has bounded resends, so a Worker crash during a post can post a duplicate reply, up to 3 posts in all. [The Slack tool in the examples](/reference/agents/connector-tools#slack-example) says when the Connector sends again.
 
 ### Offer the tool {#offer-connector-tools}
 
