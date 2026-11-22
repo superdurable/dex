@@ -10,6 +10,11 @@
 /deepverify
 /dvdiag
 
+# Local state of the customer refund Worker and commands
+.customer-refund/
+.dex-blob-cache/
+/build/customer-refund/
+
 # Test binary, built with `go test -c`
 *.test
 

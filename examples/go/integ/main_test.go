@@ -44,28 +44,36 @@ var (
 	examplesAPIURL string
 	dexcliPath     string
 	flowCounter    atomic.Int64
+	// sharedRefundLedgerDir is the ledger behind the example server's refund routes.
+	sharedRefundLedgerDir string
 )
 
 type integrationEnvironment struct {
-	cache        *blobcache.Cache
-	cacheDir     string
-	client       *dex.Client
-	apiServer    *httptest.Server
-	worker       *dex.Worker
-	workerResult chan error
+	cache    *blobcache.Cache
+	cacheDir string
+	// refundLedgerDir backs the shared Worker's manager-approval refund ledger.
+	refundLedgerDir string
+	client          *dex.Client
+	apiServer       *httptest.Server
+	worker          *dex.Worker
+	workerResult    chan error
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	var client *dex.Client
-	flows := registry.New(service.NewMyService(), func() *dex.Client { return client })
-	flows = append(flows, conditionOrderProbeFlows()...)
-	registry, err := dex.NewRegistry(flows)
+	refundLedgerDir, err := os.MkdirTemp("", "dex-go-examples-refund-ledger-")
 	if err != nil {
 		return nil, err
 	}
+	flows := registry.New(service.NewMyService(), func() *dex.Client { return client }, refundLedgerDir)
+	flows = append(flows, conditionOrderProbeFlows()...)
+	registry, err := dex.NewRegistry(flows)
+	if err != nil {
+		return nil, errors.Join(err, os.RemoveAll(refundLedgerDir))
+	}
 	cacheDir, err := os.MkdirTemp("", "dex-go-examples-integ-")
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, os.RemoveAll(refundLedgerDir))
 	}
 	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 64 << 20})
 	if err != nil {
@@ -89,14 +97,16 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	}
 	apiServer := httptest.NewServer(exampleserver.NewRouter(client))
 	environment := &integrationEnvironment{
-		cache:        cache,
-		cacheDir:     cacheDir,
-		client:       client,
-		apiServer:    apiServer,
-		worker:       worker,
-		workerResult: workerResult,
+		cache:           cache,
+		cacheDir:        cacheDir,
+		refundLedgerDir: refundLedgerDir,
+		client:          client,
+		apiServer:       apiServer,
+		worker:          worker,
+		workerResult:    workerResult,
 	}
 	integClient = client
+	sharedRefundLedgerDir = refundLedgerDir
 	if err := environment.waitUntilReady(); err != nil {
 		return nil, errors.Join(err, environment.Close())
 	}
@@ -125,7 +135,8 @@ func (environment *integrationEnvironment) Close() error {
 	workerErr := <-environment.workerResult
 	cacheErr := environment.cache.Close()
 	removeErr := os.RemoveAll(environment.cacheDir)
-	return errors.Join(clientErr, stopErr, workerErr, cacheErr, removeErr)
+	removeLedgerErr := os.RemoveAll(environment.refundLedgerDir)
+	return errors.Join(clientErr, stopErr, workerErr, cacheErr, removeErr, removeLedgerErr)
 }
 
 func TestMain(tests *testing.M) {

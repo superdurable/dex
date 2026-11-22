@@ -72,6 +72,18 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "products/customer-refund/manager-approval",
+			trigger: func(t *testing.T) (string, string) {
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/products/customer-refund/manager-approval/start",
+					url.Values{"scenario": {"normal"}},
+					nil,
+				)
+			},
+		},
+		{
 			name: "products/subscription",
 			trigger: func(t *testing.T) (string, string) {
 				flowID, runID := triggerFlowSmokeHTTP(

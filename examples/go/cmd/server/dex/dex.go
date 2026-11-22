@@ -65,6 +65,7 @@ import (
 	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
 	primitivewaittypes "github.com/superdurable/dex/examples/go/primitives/wait-types"
 	customerrefund "github.com/superdurable/dex/examples/go/products/customer-refund"
+	"github.com/superdurable/dex/examples/go/products/customer-refund/managerapproval"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -104,7 +105,11 @@ func newSampleServer() (*sampleServer, error) {
 		return nil, fmt.Errorf("create blob cache: %w", err)
 	}
 	var client *sdk.Client
-	flows := registry.New(service.NewMyService(), func() *sdk.Client { return client })
+	flows := registry.New(
+		service.NewMyService(),
+		func() *sdk.Client { return client },
+		managerapproval.DefaultLedgerDirectory,
+	)
 	flowRegistry, err := sdk.NewRegistry(flows)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
@@ -166,6 +171,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	signup.RegisterRoutes(router, client, registry.UserOnboarding)
 	jobpost.RegisterRoutes(router, client, registry.JobPosting)
 	customerrefund.RegisterRoutes(router, client, registry.CustomerRefund, registry.AgenticRefund)
+	managerapproval.RegisterRoutes(router, client, registry.ManagerApprovalRefund)
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
