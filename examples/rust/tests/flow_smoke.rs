@@ -621,8 +621,8 @@ fn customer_refund_controller_decides_and_describes() {
     assert_eq!(status, 200, "{described}");
     assert_eq!(described["flowID"], flow_id.as_str());
     assert_eq!(described["status"], "running");
-    assert_eq!(described["case-status"], "awaiting-manager");
-    assert_eq!(described["refund-id"], Value::Null);
+    assert_eq!(described["caseStatus"], "awaiting-manager");
+    assert_eq!(described["refundId"], Value::Null);
 
     let decide = |decision: &str, reason: &str| {
         get_customer_refund(
@@ -657,9 +657,9 @@ fn customer_refund_controller_decides_and_describes() {
         get_customer_refund(&http_client, "describe", &[("flowId", &flow_id)]);
     assert_eq!(status, 200, "{described}");
     assert_eq!(described["status"], "completed");
-    assert_eq!(described["case-status"], "closed-refunded");
+    assert_eq!(described["caseStatus"], "closed-refunded");
     assert!(
-        described["refund-id"]
+        described["refundId"]
             .as_str()
             .is_some_and(|refund_id| refund_id.starts_with("rf_")),
         "{described}"

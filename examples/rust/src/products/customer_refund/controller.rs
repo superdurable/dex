@@ -156,8 +156,8 @@ async fn describe_refund(
         Ok(json!({
             "flowID": flow_id,
             "status": flow_status_name(run.status),
-            "case-status": case_status,
-            "refund-id": refund_id,
+            "caseStatus": case_status,
+            "refundId": refund_id,
         }))
     }) {
         Ok(value) => ok_json(value),

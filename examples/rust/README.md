@@ -86,7 +86,8 @@ http://localhost:8080/products/customer-refund/manager-approval/describe?flowId=
 
 `scenario` is `normal` (default), `fail-then-succeed`, `deny`, or `small`. `decide`
 returns 400 for a blank reason, 409 when the refund is not waiting for a manager or
-another decision holds the lock, and 404 once the run has closed. The fake ledgers
+another decision holds the lock, and 404 once the run has closed. `describe`
+returns `flowID`, the run `status`, `caseStatus`, and `refundId`. The fake ledgers
 live in `.customer-refund/`.
 
 ## Patterns
