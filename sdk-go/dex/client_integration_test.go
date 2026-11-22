@@ -167,6 +167,7 @@ type clientTestFlowService struct {
 	listStreamRequest     *dexpb.ListStreamMessagesRequest
 	getAttributesRequest  *dexpb.GetAttributesRequest
 	loadBlobsRequestCount int
+	nearDeadlineWaitCount int
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -186,7 +187,7 @@ func (service *clientTestFlowService) ReadStream(
 		return nil, clientTestLongPollTimeoutError()
 	}
 	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
-		return nil, clientTestLongPollTimeoutNearDeadline(ctx)
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	value, err := encodeValue(clientTestRPCOutput{Status: "working"})
 	if err != nil {
@@ -327,7 +328,7 @@ func (service *clientTestFlowService) WaitForAttribute(
 		return nil, clientTestMissingFlowError()
 	}
 	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
-		return nil, clientTestLongPollTimeoutNearDeadline(ctx)
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	if request.FlowId == "reattach-attribute" && len(service.waitAttributeRequests) == 1 {
 		return nil, clientTestServiceError(
@@ -359,7 +360,7 @@ func (service *clientTestFlowService) WaitForFlow(
 ) (*dexpb.FlowResult, error) {
 	service.waitFlowRequest = request
 	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
-		return nil, clientTestLongPollTimeoutNearDeadline(ctx)
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	if request.FlowId == "timeout" {
 		return nil, clientTestServiceError(
@@ -504,7 +505,7 @@ func (service *clientTestFlowService) WaitForStepCompletion(
 		return nil, clientTestMissingFlowError()
 	}
 	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
-		return nil, clientTestLongPollTimeoutNearDeadline(ctx)
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	if request.FlowId == "cancelled-step" {
 		return nil, status.Error(codes.Canceled, "Stream removed (RST_STREAM (Received RST_STREAM with error code 8))")
@@ -570,8 +571,9 @@ func clientTestLongPollTimeoutError() error {
 	)
 }
 
-// clientTestLongPollTimeoutNearDeadline answers before the caller's deadline, as a Dex Server does.
-func clientTestLongPollTimeoutNearDeadline(ctx context.Context) error {
+// answerLongPollTimeoutNearDeadline answers before the caller's deadline, as a Dex Server does.
+func (service *clientTestFlowService) answerLongPollTimeoutNearDeadline(ctx context.Context) error {
+	service.nearDeadlineWaitCount++
 	deadline, hasDeadline := ctx.Deadline()
 	if !hasDeadline {
 		return status.Error(codes.InvalidArgument, "the near-deadline test call needs a deadline")
@@ -1283,7 +1285,7 @@ func TestClientWaitAnsweredAtCallerDeadlineIsCallerTimeout(t *testing.T) {
 	for name, call := range contextDeadlineCalls {
 		t.Run("context deadline/"+name, func(t *testing.T) {
 			t.Parallel()
-			client, _ := newClientIntegration(t)
+			client, service := newClientIntegration(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 			defer cancel()
 			err := call(ctx, client)
@@ -1291,6 +1293,7 @@ func TestClientWaitAnsweredAtCallerDeadlineIsCallerTimeout(t *testing.T) {
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			var longPollTimeout *LongPollTimeoutError
 			require.False(t, errors.As(err, &longPollTimeout), "the caller's deadline ended the wait: %v", err)
+			requireClientNoWaitAfterNearDeadlineAnswer(t, service)
 		})
 	}
 
@@ -1318,13 +1321,20 @@ func TestClientWaitAnsweredAtCallerDeadlineIsCallerTimeout(t *testing.T) {
 	for name, call := range requestTimeoutCalls {
 		t.Run("request timeout/"+name, func(t *testing.T) {
 			t.Parallel()
-			client, _ := newClientIntegration(t)
+			client, service := newClientIntegration(t)
 			err := call(context.Background(), client)
 			var requestTimeout *RequestTimeoutError
 			require.ErrorAs(t, err, &requestTimeout)
 			require.NotErrorIs(t, err, context.DeadlineExceeded)
+			requireClientNoWaitAfterNearDeadlineAnswer(t, service)
 		})
 	}
+}
+
+// requireClientNoWaitAfterNearDeadlineAnswer fails when the SDK called the Server again so close to the deadline.
+func requireClientNoWaitAfterNearDeadlineAnswer(t *testing.T, service *clientTestFlowService) {
+	t.Helper()
+	require.Equal(t, 1, service.nearDeadlineWaitCount, "the wait must end at the near-deadline answer")
 }
 
 func requireClientLongPollTimeout(t *testing.T, err error, flowID string) {

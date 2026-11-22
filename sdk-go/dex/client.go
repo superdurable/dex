@@ -1279,9 +1279,14 @@ func (client *Client) UpdateFlowConfig(
 // Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
-// The method calls the Server again each time one long poll reaches the Server's cap.
-// Changed in 1.45.17: a ctx deadline or RequestTimeout longer than that cap no longer ends the wait
-// at the cap with context.DeadlineExceeded or RequestTimeoutError.
+// The method calls the Server again each time one long poll reaches the Server's long-poll time cap
+// (api.maxWaitSeconds, 60 seconds by default).
+// It does not call again when that long poll ends at, or within one second of, ctx's deadline or RequestTimeout.
+// The wait then returns context.DeadlineExceeded for ctx's deadline or RequestTimeoutError for RequestTimeout.
+// When both are set, the earlier one decides.
+// So a deadline at most one second after a cap expiry ends the wait at that cap, up to one second early.
+// Changed in 1.45.17: a ctx deadline or RequestTimeout more than one second after a cap expiry
+// no longer ends the wait at that cap with context.DeadlineExceeded or RequestTimeoutError.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
@@ -1645,9 +1650,14 @@ func streamMessagesPageTarget(
 // Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
-// The method calls the Server again each time one long poll reaches the Server's cap.
-// Changed in 1.45.17: a ctx deadline or RequestTimeout longer than that cap no longer ends the wait
-// at the cap with context.DeadlineExceeded or RequestTimeoutError.
+// The method calls the Server again each time one long poll reaches the Server's long-poll time cap
+// (api.maxWaitSeconds, 60 seconds by default).
+// It does not call again when that long poll ends at, or within one second of, ctx's deadline or RequestTimeout.
+// The wait then returns context.DeadlineExceeded for ctx's deadline or RequestTimeoutError for RequestTimeout.
+// When both are set, the earlier one decides.
+// So a deadline at most one second after a cap expiry ends the wait at that cap, up to one second early.
+// Changed in 1.45.17: a ctx deadline or RequestTimeout more than one second after a cap expiry
+// no longer ends the wait at that cap with context.DeadlineExceeded or RequestTimeoutError.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
 	flowID string,
@@ -1674,6 +1684,8 @@ func (client *Client) WaitForAttributeMatch(
 // The matched current value is decoded into valuePtr. The match operand and
 // valuePtr must use the registered AttributeMap value type. options has the same RequestID,
 // wait-budget, wait-cap, and error behavior as WaitForAttributeMatch.
+// Changed in 1.45.17: as with WaitForAttributeMatch, a ctx deadline or RequestTimeout more than one second
+// after a long-poll cap expiry no longer ends the wait at that cap.
 func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,
