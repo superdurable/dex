@@ -68,12 +68,19 @@ class BlobCache(Protocol):
     def put(self, blob_id: str, payload: bytes) -> bool:
         """Offer a payload to the bounded cache.
 
+        .. versionchanged:: 1.45.18
+           When the blob's file is already on disk with the same bytes, such as
+           a file another cache on this directory wrote, ``put`` keeps that file
+           and returns ``True``. A file already there with different bytes still
+           raises.
+
         Args:
             blob_id: The non-empty, opaque blob identifier.
             payload: The bytes to retain; the cache does not take mutable ownership.
 
         Returns:
-            ``True`` when admitted, or ``False`` when the policy rejects the entry.
+            ``True`` when admitted, including when the same bytes are already on
+            disk, or ``False`` when the policy rejects the entry.
         """
         ...
 

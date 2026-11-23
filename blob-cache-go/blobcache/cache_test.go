@@ -80,6 +80,77 @@ func TestCacheRejectsOversizedAndMismatchedContent(t *testing.T) {
 	require.False(t, cached)
 }
 
+func TestCacheKeepsIdenticalFileFromAnotherCacheOnTheSameDirectory(t *testing.T) {
+	rootDir := t.TempDir()
+	first := openTestCache(t, rootDir, 1<<20)
+	second := openTestCache(t, rootDir, 1<<20)
+
+	require.True(t, putForTest(t, first, "shared-id", []byte("shared-payload")))
+	_, found, err := second.Get("shared-id")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.True(t, putForTest(t, second, "shared-id", []byte("shared-payload")))
+	payload, found, err := second.Get("shared-id")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("shared-payload"), payload)
+	require.Len(t, regularFiles(t, filepath.Join(rootDir, "blobs")), 1)
+	require.Empty(t, regularFiles(t, filepath.Join(rootDir, "tmp")))
+
+	require.True(t, putForTest(t, first, "taken-id", []byte("first-payload")))
+	cached, err := second.Put("taken-id", []byte("second-payload"))
+	require.ErrorIs(t, err, ErrContentMismatch)
+	require.False(t, cached)
+	_, found, err = second.Get("taken-id")
+	require.NoError(t, err)
+	require.False(t, found)
+	payload, found, err = first.Get("taken-id")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("first-payload"), payload)
+	require.Empty(t, regularFiles(t, filepath.Join(rootDir, "tmp")))
+}
+
+func TestCacheComparesEveryByteOfAFileFromAnotherCache(t *testing.T) {
+	rootDir := t.TempDir()
+	first := openTestCache(t, rootDir, 1<<20)
+	second := openTestCache(t, rootDir, 1<<20)
+
+	// Same length: the size matches, and the header's checksum differs.
+	require.True(t, putForTest(t, first, "same-size-id", []byte("payload-one")))
+	cached, err := second.Put("same-size-id", []byte("payload-two"))
+	require.ErrorIs(t, err, ErrContentMismatch)
+	require.False(t, cached)
+
+	// One payload byte changed on disk: the size, the header and the blob ID still match.
+	payload := []byte("flipped-payload")
+	require.True(t, putForTest(t, first, "flipped-id", payload))
+	path := first.store.pathFor("flipped-id")
+	stored, err := os.ReadFile(path)
+	require.NoError(t, err)
+	stored[len(stored)-1] ^= 0x01
+	require.NoError(t, os.WriteFile(path, stored, 0o600))
+	cached, err = second.Put("flipped-id", payload)
+	require.ErrorIs(t, err, ErrContentMismatch)
+	require.False(t, cached)
+	require.Empty(t, regularFiles(t, filepath.Join(rootDir, "tmp")))
+}
+
+func TestCacheCountsKeptFileAgainstMaxBytes(t *testing.T) {
+	// The second cache holds one file. If the kept file cost nothing, it would admit
+	// the next blob without evicting, and the directory would hold two files.
+	payload := make([]byte, 64)
+	maxBytes := int64(fixedHeaderSize + len("kept-a") + len(payload))
+	rootDir := t.TempDir()
+	first := openTestCache(t, rootDir, 1<<20)
+	second := openTestCache(t, rootDir, maxBytes)
+
+	require.True(t, putForTest(t, first, "kept-a", payload))
+	require.True(t, putForTest(t, second, "kept-a", payload))
+	putForTest(t, second, "kept-b", payload)
+	require.LessOrEqual(t, cacheOwnedBytes(t, rootDir), maxBytes)
+}
+
 func TestCacheDeleteAllIsReusable(t *testing.T) {
 	cache, rootDir := newTestCache(t, 1<<20)
 	require.True(t, putForTest(t, cache, "first", []byte("one")))
@@ -211,6 +282,12 @@ func newTestCache(t *testing.T, maxBytes int64) (*Cache, string) {
 	t.Helper()
 
 	rootDir := t.TempDir()
+	return openTestCache(t, rootDir, maxBytes), rootDir
+}
+
+func openTestCache(t *testing.T, rootDir string, maxBytes int64) *Cache {
+	t.Helper()
+
 	cache, err := New(&Config{
 		Dir:               rootDir,
 		MaxBytes:          maxBytes,
@@ -220,7 +297,7 @@ func newTestCache(t *testing.T, maxBytes int64) (*Cache, string) {
 	t.Cleanup(func() {
 		require.NoError(t, cache.Close())
 	})
-	return cache, rootDir
+	return cache
 }
 
 func putForTest(t *testing.T, cache *Cache, blobID string, payload []byte) bool {

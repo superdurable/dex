@@ -60,6 +60,53 @@ func TestConcurrentSameIDPutsCommitOneFile(t *testing.T) {
 	require.Len(t, regularFiles(t, filepath.Join(rootDir, "blobs")), 1)
 }
 
+func TestConcurrentPutsOfTheSameBytesFromTwoCachesOnOneDirectory(t *testing.T) {
+	rootDir := t.TempDir()
+	caches := []*Cache{openTestCache(t, rootDir, 1<<20), openTestCache(t, rootDir, 1<<20)}
+	const keyCount = 4
+	const workerCount = 16
+	payloadFor := func(key int) []byte { return []byte("shared-payload-" + strconv.Itoa(key)) }
+
+	for round := 0; round < 50; round++ {
+		start := make(chan struct{})
+		errorChannel := make(chan error, workerCount)
+		var waitGroup sync.WaitGroup
+		for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+			waitGroup.Add(1)
+			// Each key is put by both caches: cache (worker/4)%2, key worker%4.
+			cache := caches[(workerIndex/keyCount)%len(caches)]
+			key := workerIndex % keyCount
+			go func() {
+				defer waitGroup.Done()
+				<-start
+				blobID := fmt.Sprintf("round-%d-key-%d", round, key)
+				cached, err := cache.Put(blobID, payloadFor(key))
+				if err == nil && !cached {
+					err = fmt.Errorf("put %s was not admitted", blobID)
+				}
+				errorChannel <- err
+			}()
+		}
+		close(start)
+		waitGroup.Wait()
+		close(errorChannel)
+		for err := range errorChannel {
+			require.NoError(t, err)
+		}
+		for key := 0; key < keyCount; key++ {
+			blobID := fmt.Sprintf("round-%d-key-%d", round, key)
+			for _, cache := range caches {
+				payload, found, err := cache.Get(blobID)
+				require.NoError(t, err)
+				require.True(t, found, blobID)
+				require.Equal(t, payloadFor(key), payload)
+			}
+		}
+	}
+	require.Len(t, regularFiles(t, filepath.Join(rootDir, "blobs")), 50*keyCount)
+	require.Empty(t, regularFiles(t, filepath.Join(rootDir, "tmp")))
+}
+
 func TestConcurrentDifferentIDPutsCommitFiles(t *testing.T) {
 	cache, rootDir := newTestCache(t, 1<<20)
 	const workerCount = 16

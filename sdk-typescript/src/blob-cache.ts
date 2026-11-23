@@ -39,11 +39,15 @@ export interface BlobCache {
    * with `console.warn` and uses the value it loaded from Dex. The Step, RPC, or Client call
    * continues.
    * Changed in 1.45.17: a thrown error no longer fails the hydration.
+   * Changed in 1.45.17: when the blob's file is already on disk with the same bytes, such as a file
+   * that another open cache on the same directory wrote, `put` keeps that file as this cache's entry
+   * and returns `true`. It counts the file against `maxBytes` like a new write.
    * @param blobId - Opaque server-assigned blob identifier.
    * @param payload - Bytes copied into native storage.
-   * @returns `true` when admitted or `false` when rejected by policy.
-   * @throws {@link Error} when the payload cannot be stored, such as when another open cache
-   * already wrote the same blob ID into a shared directory.
+   * @returns `true` when admitted, including when the same bytes are already on disk, or `false`
+   * when rejected by policy.
+   * @throws {@link Error} when the payload cannot be stored, such as when the file for this blob ID
+   * already holds different bytes ("blob ID content mismatch").
    */
   put(blobId: string, payload: Uint8Array): boolean;
   /**
@@ -90,7 +94,8 @@ let nativeModule: NativeModule | undefined;
  *
  * The cache takes no lock on its directory, so a second cache can still open it. The two caches
  * then work against each other. Neither sees a blob that the other stores after it opened, so it
- * loads that blob from Dex again, and its write of the blob fails. Each cache evicts and deletes
+ * loads that blob from Dex again. Since 1.45.17, its write of that blob accepts the file already on
+ * disk when the bytes are identical. Each cache evicts and deletes
  * files that the other still lists. Opening a cache also deletes the other cache's unfinished
  * writes. Each cache counts `maxBytes` on its own, so the directory can grow past that limit.
  *

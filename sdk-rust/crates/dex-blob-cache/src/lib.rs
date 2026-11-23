@@ -167,6 +167,12 @@ impl BlobCache {
     /// Returns `Ok(false)` when the payload exceeds the byte budget or the policy rejects it.
     /// Reusing an ID for different bytes is an error.
     ///
+    /// Changed in 1.45.8: when the blob's file is already on disk with the same bytes, such as a
+    /// file that another cache on this directory wrote, `put` keeps that file as this cache's entry
+    /// and returns `Ok(true)`. It counts the file against the byte budget like a new write. A file
+    /// with different bytes still returns [`BlobCacheError::ContentMismatch`]. Each directory is
+    /// still meant for one open cache.
+    ///
     /// # Errors
     ///
     /// Returns [`BlobCacheError`] for invalid IDs, content mismatches, closed lifecycle, or failed
@@ -240,7 +246,7 @@ impl BlobCache {
             }
             return Ok(false);
         }
-        if let Err(failure) = self.store.publish(&entry.metadata, &temp_path) {
+        if let Err(failure) = self.store.publish(&entry.metadata, payload, &temp_path) {
             if let Some(path) = failure.orphan_path {
                 self.callback.add_cleanup_path(&path);
             }

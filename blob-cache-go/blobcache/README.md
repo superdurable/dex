@@ -47,6 +47,9 @@ including its encoding, for object blobs.
 `Dir` must be dedicated to one cache process. Client and Worker code in the
 same process may share a `Cache`; separate processes must use separate
 directories.
+If `Put` finds the blob's file already on disk with the same bytes, it keeps
+that file and returns true; a file already there with different bytes returns
+`ErrContentMismatch`.
 
 `MaxBytes` counts each complete logical cache file: its 24-byte header, blob ID,
 and payload. It is not filesystem-block or operating-system quota accounting.

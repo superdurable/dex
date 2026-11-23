@@ -56,10 +56,16 @@ public interface BlobCache extends AutoCloseable {
     /**
      * Offers one payload to the cache's admission policy.
      *
+     * <p>Changed in 1.45.17: when the blob's file is already on disk with the same bytes, such as a
+     * file another cache on this directory wrote, {@code put} keeps that file and returns
+     * {@code true}. A file already there with different bytes still throws.
+     *
      * @param blobId the server-minted blob identifier
      * @param payload the immutable payload bytes to cache
-     * @return {@code true} when admitted and stored; {@code false} when policy rejects the entry
-     * @throws RuntimeException if cache storage cannot be written
+     * @return {@code true} when admitted, including when the same bytes are already on disk;
+     *     {@code false} when policy rejects the entry
+     * @throws RuntimeException if cache storage cannot be written, or a file already there holds
+     *     different bytes
      */
     boolean put(String blobId, byte[] payload);
 
