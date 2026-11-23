@@ -140,6 +140,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "FailingWait",
+      "input": {
+        "kind": "string"
+      }
+    }
   }
 }

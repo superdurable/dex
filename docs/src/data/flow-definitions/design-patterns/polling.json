@@ -241,6 +241,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "StartJob",
+      "input": {
+        "kind": "null"
+      }
+    }
   }
 }

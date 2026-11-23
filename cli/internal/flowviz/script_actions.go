@@ -82,6 +82,9 @@ func (analysis *scriptAnalysis) applyActions() {
 		action.Input = input
 		analysis.Graph.V2.Actions = append(analysis.Graph.V2.Actions, action)
 	}
+	for _, view := range analysis.ViewRPCs {
+		seenRPCNames[view.ProtocolName] = true
+	}
 	for _, lockError := range analysis.RPCLockErrors {
 		if seenRPCNames[lockError.RPCName] {
 			analysis.Graph.AddDiagnostic("error", "rpc_lock_unresolved", lockError.Message, lockError.Span)

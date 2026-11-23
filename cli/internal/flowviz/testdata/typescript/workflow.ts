@@ -8,10 +8,12 @@
 
 import {
   Attribute,
+  IndexType,
   StepList,
   Stream,
   forceComplete,
   jsonCodec,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
@@ -22,6 +24,8 @@ import {
 import { createLookup as lookupRecord, createTrigger } from "@dex-test/catalog";
 
 const result = new Attribute("LookupResult", jsonCodec<Record<string, unknown>>());
+// dex:indexed-attribute attribute-key:LookupState index-key:keyword1 index-type:keyword value-type:string description:"Lookup state"
+const state = new Attribute("LookupState", stringCodec, {type: IndexType.KEYWORD, indexKey: "keyword1"});
 const progress = new Stream("LookupProgress", jsonCodec<Record<string, unknown>>(), 65_536);
 const text = new Stream("LookupText", stringCodec, 65_536);
 const connectionName = "primary";
@@ -61,7 +65,13 @@ export class CatalogFlow implements Flow<unknown> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return {attributes: [result], streams: [progress, text]};
+    return {attributes: [result, state], streams: [progress, text]};
+  }
+
+  // dex:field attribute-key:LookupState value-type:string editable:false description:"Lookup state"
+  @rpc({name: "GetDexDisplay"})
+  public display(context: Context) {
+    return {output: {LookupState: state.get(context)}};
   }
 
   public getConnectorTriggerBindings() {

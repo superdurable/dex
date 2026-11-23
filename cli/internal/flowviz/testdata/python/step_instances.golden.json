@@ -485,7 +485,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step First input cannot drive a form: type TypeVar('InputT') cannot be resolved in this file",
+      "span": {
+        "startLine": 32,
+        "startColumn": 53,
+        "endLine": 32,
+        "endColumn": 59
+      }
+    }
+  ],
   "groups": [
     {
       "id": "instances",

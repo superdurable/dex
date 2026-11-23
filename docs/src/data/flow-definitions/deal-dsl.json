@@ -903,6 +903,181 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "InitializeDeal",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "definition",
+            "required": true,
+            "schema": {
+              "kind": "object",
+              "fields": [
+                {
+                  "name": "process_id",
+                  "required": true,
+                  "schema": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "item_id",
+                  "required": true,
+                  "schema": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "item_name",
+                  "required": true,
+                  "schema": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "initial_state",
+                  "required": true,
+                  "schema": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "initial_state_data",
+                  "required": false,
+                  "schema": {
+                    "kind": "map",
+                    "values": {
+                      "kind": "string"
+                    }
+                  }
+                },
+                {
+                  "name": "states",
+                  "required": false,
+                  "schema": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "object",
+                      "fields": [
+                        {
+                          "name": "name",
+                          "required": true,
+                          "schema": {
+                            "kind": "string"
+                          }
+                        },
+                        {
+                          "name": "pre_condition",
+                          "required": false,
+                          "schema": {
+                            "kind": "object",
+                            "nullable": true,
+                            "fields": [
+                              {
+                                "name": "name",
+                                "required": true,
+                                "schema": {
+                                  "kind": "string"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "name": "actions",
+                          "required": false,
+                          "schema": {
+                            "kind": "array",
+                            "items": {
+                              "kind": "string"
+                            }
+                          }
+                        },
+                        {
+                          "name": "transition",
+                          "required": false,
+                          "schema": {
+                            "kind": "object",
+                            "nullable": true,
+                            "fields": [
+                              {
+                                "name": "else_state",
+                                "required": true,
+                                "schema": {
+                                  "kind": "string"
+                                }
+                              },
+                              {
+                                "name": "wait_for",
+                                "required": false,
+                                "schema": {
+                                  "kind": "object",
+                                  "nullable": true,
+                                  "fields": [
+                                    {
+                                      "name": "name",
+                                      "required": true,
+                                      "schema": {
+                                        "kind": "string"
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "name": "key",
+                                "required": false,
+                                "schema": {
+                                  "kind": "string"
+                                }
+                              },
+                              {
+                                "name": "cases",
+                                "required": false,
+                                "schema": {
+                                  "kind": "array",
+                                  "items": {
+                                    "kind": "object",
+                                    "fields": [
+                                      {
+                                        "name": "equals",
+                                        "required": true,
+                                        "schema": {
+                                          "kind": "string"
+                                        }
+                                      },
+                                      {
+                                        "name": "go_to_state",
+                                        "required": true,
+                                        "schema": {
+                                          "kind": "string"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "buyer_id",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          }
+        ]
+      }
+    }
   }
 }

@@ -441,6 +441,62 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "_Start",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "interval",
+            "required": true,
+            "schema": {
+              "kind": "object",
+              "fields": [
+                {
+                  "name": "value",
+                  "required": true,
+                  "schema": {
+                    "kind": "integer",
+                    "minimum": "-9223372036854775808",
+                    "maximum": "9223372036854775807"
+                  }
+                },
+                {
+                  "name": "unit",
+                  "required": true,
+                  "schema": {
+                    "kind": "string",
+                    "enumValues": [
+                      {
+                        "name": "MINUTE",
+                        "value": "minute"
+                      },
+                      {
+                        "name": "HOUR",
+                        "value": "hour"
+                      },
+                      {
+                        "name": "DAY",
+                        "value": "day"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "run_count",
+            "required": true,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          }
+        ]
+      }
+    }
   }
 }

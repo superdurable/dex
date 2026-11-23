@@ -307,6 +307,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "DoWork",
+      "input": {
+        "kind": "boolean"
+      }
+    }
   }
 }

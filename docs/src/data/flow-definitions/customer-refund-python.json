@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-22T01:02:32Z",
+  "generatedAt": "2026-11-22T01:17:32Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -1016,6 +1016,51 @@
           ]
         }
       }
-    ]
+    ],
+    "start": {
+      "stepType": "ReceiveRequest",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "customer",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "customer_email",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "payment_timeouts_to_simulate",
+            "required": false,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          }
+        ]
+      }
+    }
   }
 }

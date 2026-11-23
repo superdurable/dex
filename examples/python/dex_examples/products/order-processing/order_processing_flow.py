@@ -40,6 +40,7 @@ from dex import (
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from dex_examples.products.order_processing.order_request import OrderRequest
 
+# dex:indexed-attribute attribute-key:order-status index-key:keyword1 index-type:keyword value-type:string description:"Current order status"
 order_status = Attribute(
     "order-status",
     str,

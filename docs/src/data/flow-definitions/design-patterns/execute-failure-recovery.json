@@ -265,7 +265,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step UpdateItemQuantity input cannot drive a form: type FailureRecoveryWorkflowInput cannot be resolved in this file",
+      "span": {
+        "startLine": 147,
+        "startColumn": 16,
+        "endLine": 147,
+        "endColumn": 44
+      }
+    }
+  ],
   "groups": [
     {
       "id": "payment",

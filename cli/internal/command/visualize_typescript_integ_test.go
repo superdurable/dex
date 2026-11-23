@@ -63,6 +63,11 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 					require.NotContains(t, string(contents), "dex:group", diagnostic.Message)
 					hasMissingAnnotations = true
 					continue
+				case "v2_indexed_attribute":
+					require.NotContains(t, string(contents), "dex:group", diagnostic.Message)
+					require.True(t, isMissingVisualizationMetadata(diagnostic, contents), diagnostic.Message)
+					hasMissingAnnotations = true
+					continue
 				case "multiple_flows":
 					require.Greater(t, strings.Count(string(contents), "getSteps("), 1)
 				case "hidden_dex_decision":
