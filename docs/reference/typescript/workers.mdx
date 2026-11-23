@@ -136,14 +136,17 @@ rejection's gRPC code is **FAILED_PRECONDITION**:
 
 ## Capacity and shutdown
 
-| Setting | TypeScript name |
-| --- | --- |
-| Concurrent tasks | **maxConcurrentTasks** |
-| Fewest open slot streams | **minOpenSlots** |
-| Reserved RPC slots | **reservedRpcTasks** |
-| Stop drain timeout | **stopDrainTimeoutMs** |
-| Shutdown | **close** |
-| Slot stream snapshot | **pullSlotStreamState()** |
+| Setting | TypeScript name | Default |
+| --- | --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** | 100, clamped to the Server cap |
+| Fewest open slot streams | **minOpenSlots** | min(T, max(R + 1, CPU count)) |
+| Reserved RPC slots | **reservedRpcTasks** | 1 when T and the floor are both at least 2, else 0 |
+| Stop drain timeout | **stopDrainTimeoutMs** | 30,000 ms |
+| Shutdown | **close** | |
+| Slot stream snapshot | **pullSlotStreamState()** | |
+
+In the table, T is the resolved **maxConcurrentTasks** and R is the resolved
+**reservedRpcTasks**. The CPU count is **os.availableParallelism()**.
 
 The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
 has no effect.
@@ -159,6 +162,26 @@ registered, as in the other SDKs, instead of after the first stream of any
 kind. A fixed Worker with **maxConcurrentTasks** unset opens one stream first,
 learns **matching.maxConcurrentTasksCap** from its registration, and clamps its
 CPU-count default to the cap with a warning before it opens the other streams.
+
+Changed in 1.45.17: **maxConcurrentTasks** defaults to 100 instead of the CPU
+count. An unset **minOpenSlots** defaults to min(T, max(R + 1, CPU count))
+instead of T.
+
+- A Worker with no options is adaptive. It holds about the CPU count of streams
+  while idle and grows up to 100.
+- A Worker that sets only **maxConcurrentTasks** is adaptive too.
+- Setting **minOpenSlots** equal to **maxConcurrentTasks** keeps the Worker
+  fixed.
+- An unset **maxConcurrentTasks** above the Server cap is clamped to the cap
+  with a warning. The **reservedRpcTasks** and **minOpenSlots** defaults then
+  come from the clamped value. A cap of 1 gives one Step-and-RPC slot and no
+  RPC-only slot.
+- A Worker whose defaults may drop with that clamp opens one stream first. It
+  opens the others after the first registration.
+
+To keep the earlier fixed behavior, set **minOpenSlots** equal to
+**maxConcurrentTasks**. To keep the earlier default slot count as well, set both
+to **os.availableParallelism()**.
 
 ## Reserved RPC capacity
 

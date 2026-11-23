@@ -375,14 +375,21 @@ kind before any of that kind registers, `start()` rejects with `PullRegistration
 If the limit check fails, the Worker half-closes its streams so Dex returns any task it already
 sent without consuming an attempt. Always call `close()`, which remains safe after `run()` returns.
 
-A fixed Worker, the default, keeps exactly `maxConcurrentTasks` long-lived poll streams, one per
-execution slot. Each registers an empty queue, its app Worker ID, every Flow type,
-and support for reserved-slot dispatch. A slot is ready while idle and busy while
-its handler runs. `maxConcurrentTasks` defaults to the logical CPU count. Startup
-fails if an explicit value exceeds the limit reported by the Server, naming the configured value
-and `matching.maxConcurrentTasksCap`. Since 1.45.7 a fixed Worker with `maxConcurrentTasks`
-unset opens one stream first, learns the cap from its acknowledgement, and clamps its CPU-count
-default to the cap with a warning before it opens the other streams.
+A fixed Worker, whose `minOpenSlots` equals `maxConcurrentTasks`, keeps exactly
+`maxConcurrentTasks` long-lived poll streams, one per execution slot. Each registers an empty
+queue, its app Worker ID, every Flow type, and support for reserved-slot dispatch. A slot is ready
+while idle and busy while its handler runs. Startup fails if an explicit value exceeds the limit
+reported by the Server, naming the configured value and `matching.maxConcurrentTasksCap`.
+
+Since 1.45.17, `maxConcurrentTasks` defaults to 100 (earlier releases used the logical CPU count),
+and an unset `minOpenSlots` defaults to `min(maxConcurrentTasks, max(reservedRpcTasks + 1, cpuCount))`
+(earlier releases used `maxConcurrentTasks`). A Worker with no options, or with only
+`maxConcurrentTasks`, is therefore adaptive: it holds about the CPU count of streams while idle
+and grows up to the ceiling. An unset `maxConcurrentTasks` is clamped to the Server cap with a
+warning, and the `minOpenSlots` and `reservedRpcTasks` defaults then come from the clamped value.
+A Worker whose defaults may drop with that clamp opens one stream first and opens the others after
+its acknowledgement. To keep the earlier behavior, set `maxConcurrentTasks` to
+`os.availableParallelism()` and `minOpenSlots` to the same value.
 
 `minOpenSlots` (since 1.45.7) below `maxConcurrentTasks` makes the Worker adaptive. It keeps
 between `minOpenSlots` and `maxConcurrentTasks` slot streams open; both counts include

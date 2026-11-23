@@ -150,6 +150,9 @@ export class Worker {
    * A fixed Worker with `maxConcurrentTasks` unset opens one stream first and clamps its CPU-count default to
    * the Server cap with a warning, and an adaptive Worker clamps any `maxConcurrentTasks` above the cap;
    * see `PullWorkerOptions.maxConcurrentTasks` and `PullWorkerOptions.minOpenSlots`.
+   * Changed in 1.45.17: `maxConcurrentTasks` defaults to 100, and an unset `minOpenSlots` makes most
+   * Workers adaptive. A Worker whose unset `minOpenSlots` may drop with the clamp also opens one
+   * stream first and clamps the default of 100 to the Server cap with a warning.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
