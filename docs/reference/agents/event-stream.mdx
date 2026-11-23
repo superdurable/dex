@@ -49,7 +49,7 @@ A chat UI reads the session in two parts. The snapshot is the record. The Stream
 4. When a turn ends with **turn_completed** or **turn_failed**, reload the snapshot. Replace the turn's live text with the stored messages.
 5. When the connection drops, reopen the Stream from the last event ID. If Dex rejects the token, reload the snapshot and start again from its token.
 
-The [AI Agent example](/use-cases/ai-agent) serves the Stream to a browser. In Python, the route turns the Stream into server-sent events. In TypeScript, the route serves the Vercel AI SDK UI message stream, which **useChat** reads.
+The [AI Agent example](/agent-frameworks/built-in-agent-loop#the-example) serves the Stream to a browser. In Python, the route turns the Stream into server-sent events. In TypeScript, the route serves the Vercel AI SDK UI message stream, which **useChat** reads.
 
 <SdkTabs
   examples={{

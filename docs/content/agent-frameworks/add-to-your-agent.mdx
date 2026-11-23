@@ -1101,7 +1101,7 @@ def create_web_app(
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-The [AI Agent](/use-cases/ai-agent) example's chat routes show the same pieces. One chat route queues the message, or the approval answers, and streams the reply in the Vercel AI SDK UI message format. A second route resumes the stream after a reconnect. This is an excerpt: `requireBody`, `authorizeSession`, `session`, and the other helpers are defined in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts).
+The [AI Agent](/agent-frameworks/built-in-agent-loop#the-example) example's chat routes show the same pieces. One chat route queues the message, or the approval answers, and streams the reply in the Vercel AI SDK UI message format. A second route resumes the stream after a reconnect. This is an excerpt: `requireBody`, `authorizeSession`, `session`, and the other helpers are defined in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts).
 
 ```ts
   router.post("/api/chat", async (request, response) => {
