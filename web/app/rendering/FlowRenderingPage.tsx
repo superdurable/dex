@@ -99,7 +99,7 @@ export function FlowRenderingPage() {
       <section className="flow-rendering-header">
         <div>
           <h1>Designs <ExperimentalTag /></h1>
-          <p>Explore statically possible Step paths generated from Go, Python, or TypeScript source.</p>
+          <p>Explore statically possible Step paths generated from Go, Python, TypeScript, Java, or Rust source.</p>
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (
           <div className="flow-rendering-summary">
