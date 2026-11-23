@@ -12,10 +12,12 @@ description: "dexcli visualize turns one Go, Python, or TypeScript Flow source f
 dexcli visualize ./order_flow.go
 ```
 
-The default schema version is 1.0. Go, Python, and TypeScript sources can produce Version 2.0 for the Dex Web **Designs** page:
+**Changed in 1.47.23.** The command generates only Flow Definition Graph 2.0 for the Dex Web **Designs** page. The deprecated `--schema-version` flag accepts only `2.0`.
+
+**Since 1.47.23.** If the source defines multiple Flows, pass the registered Flow type with `--flow`. This is the name the application registers, including any custom name. If you omit the flag for a file with multiple Flows or supply an unknown name, the diagnostic lists the available Flow types.
 
 ```bash
-dexcli visualize ./refund_flow.go --schema-version 2.0
+dexcli visualize ./refund_flow.go --flow RefundFlow
 ```
 
 The command opens the local **Designs** page and keeps it available until you press Ctrl+C. Use **--json** to get the Flow Definition Graph as JSON. Without **--out**, it writes the JSON to stdout:
@@ -121,7 +123,7 @@ Go reports **step_progress_outside_step** when an RPC or Flow timeout handler ca
 
 ## Supported source profile
 
-Version 1 supports one Flow per source file. The file must directly contain:
+For the selected Flow, the file must directly contain:
 
 - static Step registration
 - each registered Step handler
@@ -162,15 +164,15 @@ The TypeScript analyzer recognizes these source shapes:
 - Attribute, Channel, and Stream definitions, and manifest-declared Connector factories.
 - Since dexcli 1.47.3, **waitFor**, RPC handlers, **handleTimeout**, and resource access in the shapes listed in [TypeScript Waits, RPCs, and resource access](#typescript-waits-rpcs-and-resource-access).
 
-More than one Flow in one file produces **multiple_flows**, with one unknown node for each Flow class, as for Go and Python.
+Pass `--flow` to select one Flow type from a file with multiple Flows. Without it, the analyzer reports `multiple_flows` and produces one unknown node for each Flow class, as it does for Go and Python.
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
 
-Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
+The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 
-Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39.0, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
+Step groups and explanations must be in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39.0, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
 
 Version 2.0 builds an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
@@ -356,7 +358,7 @@ Computed Step types, unprovable targets, unknown **StepRef** names, and ambiguou
 
 ## Start inputs {#start-inputs}
 
-Go **StartFlow** validates its payload against the registered starting Step before sending a request. **dexcli visualize** reports **start_flow_input_type_mismatch** when a known payload type does not match that Step's input. This is a blocking error in both schemas, with or without **--lint app**.
+Go **StartFlow** validates its payload against the registered starting Step before sending a request. **dexcli visualize** reports **start_flow_input_type_mismatch** when a known payload type does not match that Step's input. This is a blocking error with or without **--lint app**.
 
 Pass a value of the required input type. When the starting Step needs no input, declare **dex.None** and pass **nil**. An empty struct is a different type. A pointer and its value type are also different; **nil** remains valid for an input type that permits it.
 
@@ -364,7 +366,7 @@ The check covers calls in the Flow file and same-package helpers reached by hand
 
 ## State loads {#state-loads}
 
-A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/reference/python/step-options#selective-state-loading) and [Selective RPC state loading](/reference/server/runtime-data#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics in every schema version:
+A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/reference/python/step-options#selective-state-loading) and [Selective RPC state loading](/reference/server/runtime-data#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics:
 
 - **attribute_map_read_not_loaded**: **AttributeMap.Get** reads a map that no whole-map or instance load selects for this method.
 - **attribute_map_enumeration_not_loaded**: **AllInstanceKeys** or **MapSize** runs without a whole-map load. Exact-instance loads cannot enumerate, and the SDK panics.
@@ -411,11 +413,11 @@ The JSON **valid** field is false when any blocking diagnostic is present. A too
 
 ## JSON contract
 
-The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, and diagnostics. The [Flow Definition Graph v2 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json) extends it with ordered groups and Dex Web metadata.
+Source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, diagnostics, ordered groups, and Dex Web metadata are defined in the [Flow Definition Graph 2.0 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json).
 
 ### Generation time {#generated-at}
 
-Since 1.45.0, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**. Version 1.0 graphs do not have it.
+Since 1.45.0, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**.
 
 The field is optional in the v2 schema. Dex Web accepts graphs without it, so graphs from older dexcli releases stay valid. When the field is present, it must be an RFC 3339 timestamp. Dex Web older than 1.45 rejects a graph that has **generatedAt**. Upgrade Dex Web together with dexcli.
 
@@ -426,6 +428,6 @@ SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- ./refund_flow.go)" \
   dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund-flow
 ```
 
-An empty **SOURCE_DATE_EPOCH** is ignored. A negative or non-integer value is a usage error, and the command exits with status 2. Version 1.0 output ignores the variable.
+An empty **SOURCE_DATE_EPOCH** is ignored. A negative or non-integer value is a usage error, and the command exits with status 2.
 
 See [Dex CLI](/reference/cli) for commands that operate on running Flows.

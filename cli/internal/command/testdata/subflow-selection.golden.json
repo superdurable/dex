@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "go",
@@ -143,6 +143,9 @@
         "startColumn": 3,
         "endLine": 33,
         "endColumn": 41
+      },
+      "metadata": {
+        "explanation": "Waits for one child Flow to complete."
       }
     },
     {
@@ -155,6 +158,9 @@
         "startColumn": 3,
         "endLine": 34,
         "endColumn": 40
+      },
+      "metadata": {
+        "explanation": "Waits for a child Flow or a Channel message."
       }
     },
     {
@@ -167,6 +173,9 @@
         "startColumn": 3,
         "endLine": 35,
         "endColumn": 42
+      },
+      "metadata": {
+        "explanation": "Waits for both child Flows to complete."
       }
     },
     {
@@ -462,5 +471,36 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "children",
+      "label": "Child completion",
+      "stepIds": [
+        "step:awaitChildAlone",
+        "step:awaitChildOrMessage",
+        "step:awaitChildrenTogether"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [],
+    "start": {
+      "stepType": "awaitChildAlone",
+      "input": {
+        "kind": "integer",
+        "minimum": "-9223372036854775808",
+        "maximum": "9223372036854775807"
+      }
+    }
+  }
 }

@@ -14,10 +14,7 @@ import (
 	"strings"
 )
 
-const (
-	SchemaVersionV1 = "1.0"
-	SchemaVersionV2 = "2.0"
-)
+const SchemaVersionV2 = "2.0"
 
 type Graph struct {
 	SchemaVersion string        `json:"schemaVersion"`
@@ -245,7 +242,7 @@ type Span struct {
 
 func NewGraph(language string, path string) *Graph {
 	return &Graph{
-		SchemaVersion: SchemaVersionV1,
+		SchemaVersion: SchemaVersionV2,
 		Valid:         true,
 		Source:        Source{Language: language, Path: path},
 		Nodes:         make([]Node, 0),
@@ -434,6 +431,43 @@ func (graph *Graph) addUnusedResourceWarnings() {
 			graph.AddDiagnostic("warning", "unused_resource", fmt.Sprintf("%s %s has no direct access in the source file", node.Kind, node.Name), node.Span)
 		}
 	}
+}
+
+func (graph *Graph) retainFlowResources(registered map[string]bool, diagnosticResourceIDs map[int]string) map[string]bool {
+	for _, node := range graph.Nodes {
+		if node.Decision != nil {
+			for _, channelID := range node.Decision.CheckedChannels {
+				registered[channelID] = true
+			}
+		}
+	}
+	for _, edge := range graph.Edges {
+		if isResourceEdge(edge.Kind) {
+			registered[edge.From] = true
+			registered[edge.To] = true
+		}
+	}
+	removed := make(map[string]bool)
+	nodes := graph.Nodes[:0]
+	for _, node := range graph.Nodes {
+		if isResourceNode(node.Kind) && !registered[node.ID] {
+			removed[node.ID] = true
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+	graph.Nodes = nodes
+	diagnostics := graph.Diagnostics[:0]
+	graph.Valid = true
+	for index, diagnostic := range graph.Diagnostics {
+		if removed[diagnosticResourceIDs[index]] {
+			continue
+		}
+		diagnostics = append(diagnostics, diagnostic)
+		graph.Valid = graph.Valid && diagnostic.Severity != "error"
+	}
+	graph.Diagnostics = diagnostics
+	return removed
 }
 
 func isResourceNode(kind string) bool {

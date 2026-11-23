@@ -32,6 +32,7 @@ class TypeScriptAnalyzer {
   constructor(request) {
     this.path = request.path;
     this.source = request.source;
+    this.flowType = request.flowType;
     // dexcli passes a trusted compiler entry; resolving from the source project could run its code.
     let compilerPath = request.compilerEntryPath;
     if (!compilerPath) {
@@ -43,7 +44,7 @@ class TypeScriptAnalyzer {
     }
     this.ts = require(compilerPath);
     this.tree = this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);
-    this.graph = {schemaVersion:"1.0", valid:true, source:{language:"typescript",path:this.path}, flow:{name:""}, nodes:[], edges:[], diagnostics:[]};
+    this.graph = {schemaVersion:"2.0", valid:true, source:{language:"typescript",path:this.path}, flow:{name:""}, nodes:[], edges:[], diagnostics:[]};
     this.imports = new Map();
     this.factories = new Map();
     this.missingFactories = new Map();
@@ -54,6 +55,9 @@ class TypeScriptAnalyzer {
     this.stepInstances = new Map();
     this.registeredIdentities = new Map();
     this.resourceNodes = new Map();
+    this.attributeDeclarations = new Map();
+    this.persistenceResourceIds = null;
+    this.diagnosticResourceIds = {};
     this.joinResourceIDs = new Set();
     this.targetFailures = new Map();
     this.currentFrame = {};
@@ -79,13 +83,8 @@ class TypeScriptAnalyzer {
       if (this.ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) this.indexValue(declaration.name, declaration.initializer);
     }
     this.indexBindings();
-    const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
-    if (flows.length !== 1) {
-      this.error(flows.length ? "multiple_flows" : "flow_not_found", "source must define exactly one Flow");
-      for (const declaration of flows) this.graph.nodes.push({id:`unknown:flow:${declaration.name.text}`,kind:"unknown",name:declaration.name.text,span:this.span(declaration)});
-      return this.result();
-    }
-    const flow = flows[0];
+    const flow = this.selectFlow();
+    if (!flow) return this.result();
     this.flowClass = flow;
     this.indexEscapes();
     this.graph.flow = {name:this.typeName(flow,"getFlowType"),span:this.span(flow)};
@@ -108,12 +107,86 @@ class TypeScriptAnalyzer {
       const instance = this.stepInstances.get(stepName);
       this.currentFrame = {instance};
       this.analyzeStep(stepName,nodeID,instance.declaration);
+      if (this.scopesFlowResources) this.analyzeStepLocks(nodeID,instance.declaration);
       this.currentFrame = {};
     }
     this.analyzeRPCs(flow);
     this.analyzeTimeoutHandler(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
+    if (this.scopesFlowResources) this.persistenceResourceIds = this.persistenceResources(flow);
     return this.result();
+  }
+
+  persistenceResources(flow) {
+    const pending = [];
+    this.walkStatements(this.handlerStatements(this.method(flow,"getPersistenceSchema")),"",expression => {
+      pending.push(expression);
+      return true;
+    });
+    const seen = new Set();
+    const registered = new Set();
+    while (pending.length) {
+      const {node} = this.resolvedValue(pending.pop(),{});
+      if (!node || seen.has(node)) continue;
+      seen.add(node);
+      const resourceID = this.resourceNodes.get(node);
+      if (resourceID) registered.add(resourceID);
+      else if (this.ts.isArrayLiteralExpression(node)) pending.push(...node.elements);
+      else if (this.ts.isSpreadElement(node) || this.ts.isSpreadAssignment(node)) pending.push(node.expression);
+      else if (this.ts.isConditionalExpression(node)) pending.push(node.whenTrue,node.whenFalse);
+      else if (this.ts.isObjectLiteralExpression(node)) {
+        for (const property of node.properties) {
+          if (this.ts.isSpreadAssignment(property)) pending.push(property.expression);
+          else if (property.name && ["attributes","channels","streams"].includes(this.propertyName(property.name))) pending.push(this.propertyValueExpression(property));
+        }
+      }
+    }
+    return [...registered];
+  }
+
+  propertyValueExpression(property) {
+    if (this.ts.isPropertyAssignment(property)) return property.initializer;
+    if (this.ts.isShorthandPropertyAssignment(property)) return property.name;
+    return undefined;
+  }
+
+  selectFlow() {
+    const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
+    this.scopesFlowResources = flows.length > 1;
+    if (!this.flowType && flows.length === 1) return flows[0];
+    if (!this.flowType && !flows.length) {
+      this.error("flow_not_found","source must define exactly one Flow");
+      return undefined;
+    }
+    const candidates = [];
+    const matches = [];
+    for (const declaration of flows) {
+      const name = this.candidateFlowType(declaration);
+      candidates.push(name);
+      if (name === this.flowType) matches.push(declaration);
+    }
+    if (matches.length === 1) return matches[0];
+    const available = candidates.join(", ") || "(none)";
+    const requested = JSON.stringify(this.flowType);
+    if (!this.flowType) this.error("multiple_flows",`source defines multiple Flows; use --flow with one of: ${available}`);
+    else if (matches.length) this.error("multiple_flows",`multiple Flows have type ${requested}; available Flow types: ${available}`);
+    else this.error("flow_not_found",`Flow type ${requested} was not found; available Flow types: ${available}`);
+    for (const declaration of flows) this.graph.nodes.push({id:`unknown:flow:${declaration.name.text}`,kind:"unknown",name:declaration.name.text,span:this.span(declaration)});
+    return undefined;
+  }
+
+  candidateFlowType(declaration) {
+    if (!this.method(declaration,"getFlowType")) return declaration.name.text;
+    // Resolving `this` fields requires escape analysis for the candidate's class.
+    const {dynamicClasses,hasDynamicFields,dynamicFieldsCause} = this;
+    this.dynamicClasses = new Set(dynamicClasses);
+    this.flowClass = declaration;
+    this.indexEscapes();
+    const name = this.typeName(declaration,"getFlowType",false);
+    this.dynamicClasses = dynamicClasses;
+    this.hasDynamicFields = hasDynamicFields;
+    this.dynamicFieldsCause = dynamicFieldsCause;
+    return name;
   }
 
   indexImport(statement) {
@@ -183,14 +256,19 @@ class TypeScriptAnalyzer {
     const constructor = this.dexName(expression.expression);
     const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Join:"channel",Stream:"stream"}[constructor];
     if (!kind) return;
-    const resourceName = this.staticLiteral(expression.arguments?.[0]);
-    if (typeof resourceName !== "string") { this.error("dynamic_resource_name",`resource ${name} must use a static name`,expression); return; }
+    let resourceName = this.staticLiteral(expression.arguments?.[0]);
     const nodeID = `resource:${kind}:${name}`;
+    if (typeof resourceName !== "string") {
+      this.resourceError(nodeID,"dynamic_resource_name",`resource ${name} must use a static name`,expression);
+      if (!this.scopesFlowResources) return;
+      resourceName = name;
+    }
     this.resourceNodes.set(expression,nodeID);
     for (const call of configuredBy) this.resourceNodes.set(call,nodeID);
     // A Join is a ChannelMap of branch results keyed by round.
     const isJoin = constructor === "Join";
     if (isJoin) this.joinResourceIDs.add(nodeID);
+    if (kind === "attribute" && this.scopesFlowResources) this.attributeDeclarations.set(nodeID,expression);
     this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:isJoin || constructor.endsWith("Map")}});
   }
 
@@ -205,23 +283,32 @@ class TypeScriptAnalyzer {
       else if ((this.ts.isPrefixUnaryExpression(node) || this.ts.isPostfixUnaryExpression(node)) && [kinds.PlusPlusToken,kinds.MinusMinusToken].includes(node.operator)) target = node.operand;
       else if (this.ts.isDeleteExpression(node)) target = node.expression;
       target = this.unwrap(target);
-      if (target && (this.ts.isPropertyAccessExpression(target) || this.ts.isElementAccessExpression(target)) && this.isResourceObject(target.expression)) {
-        this.error("dynamic_resource_access",`${this.lineText(node)} changes a member of a resource; resource methods must stay as Dex defines them`,node);
+      if (target && (this.ts.isPropertyAccessExpression(target) || this.ts.isElementAccessExpression(target))) {
+        const resource = this.resourceObject(target.expression);
+        if (resource) this.resourceError(resource,"dynamic_resource_access",`${this.lineText(node)} changes a member of a resource; resource methods must stay as Dex defines them`,node);
       }
-      if (this.ts.isCallExpression(node) && reflectiveWriteNames.has(this.unwrap(node.expression)?.getText(this.tree)) && this.isResourceObject(node.arguments[0])) {
-        this.error("dynamic_resource_access",`${this.lineText(node)} changes a resource or its prototype through reflection`,node);
+      if (this.ts.isCallExpression(node) && reflectiveWriteNames.has(this.unwrap(node.expression)?.getText(this.tree))) {
+        const resource = this.resourceObject(node.arguments[0]);
+        if (resource) this.resourceError(resource,"dynamic_resource_access",`${this.lineText(node)} changes a resource or its prototype through reflection`,node);
       }
     });
   }
 
   // A resource object, a Dex resource class prototype, or the prototype of a resource object.
-  isResourceObject(expression) {
+  resourceObject(expression) {
     const value = this.unwrap(expression);
     if (!value) return false;
-    if (this.resourceNodes.has(this.resolvedValue(value,{}).node)) return true;
-    if (this.ts.isPropertyAccessExpression(value) && ["prototype","__proto__"].includes(value.name.text)) return resourceClassNames.has(this.dexName(value.expression)) || this.isResourceObject(value.expression);
+    const resourceID = this.resourceNodes.get(this.resolvedValue(value,{}).node);
+    if (resourceID) return resourceID;
+    if (this.ts.isPropertyAccessExpression(value) && ["prototype","__proto__"].includes(value.name.text)) return resourceClassNames.has(this.dexName(value.expression)) || this.resourceObject(value.expression);
     const callee = this.ts.isCallExpression(value) ? this.unwrap(value.expression)?.getText(this.tree) : undefined;
-    return (callee === "Object.getPrototypeOf" || callee === "Reflect.getPrototypeOf") && this.isResourceObject(value.arguments[0]);
+    return (callee === "Object.getPrototypeOf" || callee === "Reflect.getPrototypeOf") && this.resourceObject(value.arguments[0]);
+  }
+
+  resourceError(resource,code,message,node) {
+    const diagnosticIndex = this.graph.diagnostics.length;
+    this.error(code,message,node);
+    if (this.scopesFlowResources && typeof resource === "string" && this.graph.diagnostics.length > diagnosticIndex) this.diagnosticResourceIds[diagnosticIndex] = resource;
   }
 
   resourceValueType(expression) {
@@ -792,6 +879,33 @@ class TypeScriptAnalyzer {
     this.actions.push(this.actionEntry(method,methodName,nodeID,rpcName,valueOf(actionProperty),anchor));
   }
 
+  analyzeStepLocks(nodeID,declaration) {
+    const method = this.method(declaration,"getStepOptions");
+    const phases = new Map([["waitForLockAttributes","wait_for"],["executeLockAttributes","execute"]]);
+    this.walkStatements(this.handlerStatements(method),"",expression => {
+      const options = this.resolvedValue(expression,this.currentFrame).node;
+      if (!options || !this.ts.isObjectLiteralExpression(options)) return false;
+      for (const property of options.properties) {
+        const phase = property.name && phases.get(this.propertyName(property.name));
+        if (!phase) continue;
+        const list = this.resolvedValue(this.propertyValueExpression(property),this.currentFrame).node;
+        if (!list || !this.ts.isArrayLiteralExpression(list)) continue;
+        for (const element of list.elements) {
+          const lock = this.resolvedValue(element,this.currentFrame).node;
+          const resourceID = this.lockedAttribute(lock);
+          if (resourceID) this.graph.edges.push({kind:"resource_lock",from:nodeID,to:resourceID,label:"lock",span:this.span(lock),metadata:{phase}});
+        }
+      }
+      return true;
+    });
+  }
+
+  lockedAttribute(expression) {
+    if (!expression || !this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression) || expression.expression.name.text !== "lock") return undefined;
+    const resourceID = this.resourceFor(expression.expression.expression);
+    return resourceID?.startsWith("resource:attribute:") ? resourceID : undefined;
+  }
+
   analyzeRPCLocks(nodeID,rpcName,lockProperty,valueOf) {
     const problems = [];
     if (!lockProperty) return problems;
@@ -804,9 +918,8 @@ class TypeScriptAnalyzer {
     const recorded = new Set();
     for (const element of list.elements) {
       const lock = this.resolvedValue(element,{}).node;
-      const isLockCall = lock && this.ts.isCallExpression(lock) && this.ts.isPropertyAccessExpression(lock.expression) && lock.expression.name.text === "lock";
-      const resourceID = isLockCall ? this.resourceFor(lock.expression.expression) : undefined;
-      if (!resourceID || !resourceID.startsWith("resource:attribute:")) {
+      const resourceID = this.lockedAttribute(lock);
+      if (!resourceID) {
         problems.push({message:`lock ${this.lineText(element)} of RPC ${rpcName} is not a lock() call on an Attribute declared in this file`,span:this.span(element)});
         continue;
       }
@@ -2382,12 +2495,12 @@ class TypeScriptAnalyzer {
   extendsClause(declaration) { return declaration.heritageClauses?.find(clause => clause.token === this.ts.SyntaxKind.ExtendsKeyword)?.types[0]; }
   isStatic(member) { return !!member.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.StaticKeyword); }
 
-  typeName(declaration,methodName) {
+  typeName(declaration,methodName,reportProblem=true) {
     const method = this.method(declaration,methodName);
     if (!method) return declaration.name.text;
     const returns = [];
     this.walkStatements(this.handlerStatements(method),"",expression => { returns.push(this.staticLiteral(expression)); return true; });
-    if (!returns.length || returns.some(value => typeof value !== "string" || value !== returns[0])) this.error("dynamic_type_name",`${methodName} must return one static string`,method);
+    if (reportProblem && (!returns.length || returns.some(value => typeof value !== "string" || value !== returns[0]))) this.error("dynamic_type_name",`${methodName} must return one static string`,method);
     return returns[0] || declaration.name.text;
   }
 
@@ -2458,8 +2571,30 @@ class TypeScriptAnalyzer {
     if (!this.graph.diagnostics.some(existing => JSON.stringify(existing) === key)) this.graph.diagnostics.push(diagnostic);
   }
   result() {
-    const attributes = this.graph.nodes.filter(node => node.kind === "attribute").map(node => ({key:node.name,valueType:this.canonicalValueType(node.resource?.valueType || "unknown"),isMap:!!node.resource?.map}));
-    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors};
+    const attributes = this.graph.nodes.filter(node => node.kind === "attribute").map(node => this.attributeFact(node));
+    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds};
+  }
+
+  attributeFact(node) {
+    const fact = {resourceId:node.id,key:node.name,valueType:this.canonicalValueType(node.resource.valueType),isMap:node.resource.map};
+    const declaration = this.attributeDeclarations.get(node.id);
+    if (!declaration) return fact;
+    const anchor = this.ts.findAncestor(declaration,parent => this.ts.isVariableStatement(parent) || this.ts.isPropertyDeclaration(parent) || this.ts.isExpressionStatement(parent));
+    fact.directives = this.directives(anchor || declaration).filter(text => /^dex:indexed-attribute(?:\s|$)/.test(text)).map(text => ({text}));
+    fact.span = node.span;
+    const index = this.resolvedValue(declaration.arguments?.[2],{}).node;
+    if (!index || index.kind === this.ts.SyntaxKind.NullKeyword || (this.ts.isIdentifier(index) && index.text === "undefined")) return fact;
+    fact.isIndexed = true;
+    fact.indexType = "unknown";
+    if (!this.ts.isObjectLiteralExpression(index)) return fact;
+    const properties = new Map(index.properties.filter(property => property.name).map(property => [this.propertyName(property.name),this.propertyValueExpression(property)]));
+    const indexKey = this.staticLiteral(properties.get("indexKey"));
+    fact.indexKey = typeof indexKey === "string" && indexKey ? indexKey : node.resource.map ? "" : node.name;
+    const indexType = this.resolvedValue(properties.get("type"),{}).node;
+    let indexTypeName = this.staticLiteral(indexType);
+    if (indexType && this.ts.isPropertyAccessExpression(indexType) && this.dexName(indexType.expression) === "IndexType") indexTypeName = indexType.name.text;
+    fact.indexType = {KEYWORD:"keyword",FULL_TEXT:"fulltext",KEYWORD_ARRAY:"keyword-array",INT:"int",DOUBLE:"double",BOOL:"bool",DATETIME:"datetime",keyword:"keyword",fullText:"fulltext",keywordArray:"keyword-array",int:"int",double:"double",bool:"bool",datetime:"datetime"}[indexTypeName] || "unknown";
+    return fact;
   }
 }
 

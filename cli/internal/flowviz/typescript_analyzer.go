@@ -28,6 +28,7 @@ var typeScriptAnalyzerSource string
 type typeScriptAnalyzerRequest struct {
 	Path              string `json:"path"`
 	Source            string `json:"source"`
+	FlowType          string `json:"flowType,omitempty"`
 	CompilerEntryPath string `json:"compilerEntryPath,omitempty"`
 }
 
@@ -37,8 +38,8 @@ type trustedTypeScriptCompiler struct {
 	entryPath        string
 }
 
-func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, schemaVersion string, compilerDirectory string) (*Graph, error) {
-	request := typeScriptAnalyzerRequest{Path: sourcePath, Source: string(source)}
+func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, flowType string, compilerDirectory string) (*Graph, error) {
+	request := typeScriptAnalyzerRequest{Path: sourcePath, Source: string(source), FlowType: flowType}
 	var compiler *trustedTypeScriptCompiler
 	if compilerDirectory != "" {
 		resolved, err := resolveTrustedTypeScriptCompiler(compilerDirectory)
@@ -68,7 +69,6 @@ func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, sc
 	command.Stdout, command.Stderr = &stdout, &stderr
 	if err := command.Run(); err != nil {
 		graph := NewGraph("typescript", sourcePath)
-		graph.SchemaVersion = schemaVersion
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
 			message = err.Error()
@@ -80,7 +80,7 @@ func analyzeTypeScript(ctx context.Context, sourcePath string, source []byte, sc
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return nil, fmt.Errorf("decode TypeScript analyzer output: %w", err)
 	}
-	return result.definition(schemaVersion), nil
+	return result.definition(), nil
 }
 
 // writeTypeScriptAnalyzerScript writes the analyzer to a private temporary directory, because Linux caps one argument at 128 KiB.

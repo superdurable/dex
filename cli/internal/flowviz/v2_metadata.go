@@ -22,10 +22,11 @@ type v2DirectiveLine struct {
 
 // v2AttributeFact is one Attribute or AttributeMap the Flow file declares, with its optional index settings and directive lines.
 type v2AttributeFact struct {
-	Key       string `json:"key"`
-	ValueType string `json:"valueType"`
-	IsMap     bool   `json:"isMap"`
-	IsIndexed bool   `json:"isIndexed,omitempty"`
+	ResourceID string `json:"resourceId,omitempty"`
+	Key        string `json:"key"`
+	ValueType  string `json:"valueType"`
+	IsMap      bool   `json:"isMap"`
+	IsIndexed  bool   `json:"isIndexed,omitempty"`
 	// IndexKey and IndexType hold the final values after the analyzer applies SDK defaults.
 	IndexKey       string            `json:"indexKey,omitempty"`
 	IndexType      string            `json:"indexType,omitempty"`
@@ -52,8 +53,12 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 			graph.AddDiagnostic("error", "v2_indexed_attribute", fmt.Sprintf("Attribute %q is declared more than once", attribute.Key), attribute.Span)
 			continue
 		}
-		if attribute.IsMap {
+		switch {
+		case attribute.IsMap:
 			attribute.ValueType = "attribute-map"
+		case attribute.ValueType == "list[str]", attribute.ValueType == "string[]",
+			attribute.ValueType == "Array<string>", attribute.ValueType == "readonlystring[]":
+			attribute.ValueType = "string-array"
 		}
 		declaration := v2AttributeDeclaration{v2AttributeFact: attribute}
 		if attribute.IsIndexed || len(attribute.DirectiveLines) > 0 {

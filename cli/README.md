@@ -619,12 +619,12 @@ Flow resource aliases and records RPC and Step Attribute locks as
 `resource_lock` relations.
 
 Go analysis requires a local Go toolchain and a module/package that passes type
-checking. Version 1 accepts one Flow per file. Step registration, transitions,
-waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource definitions must be directly visible in that file. A resource,
-registered Step, Step handler, Flow method, or RPC declared in another file in
-the package produces a blocking diagnostic naming that file. Resource access may
-also be in functions and methods of the same package that a handler calls. The
+checking. Step registration, transitions, waits, RPC next Steps,
+execute-failure recovery targets, and persistence resource definitions must be
+directly visible in that file. A resource, registered Step, Step handler, Flow
+method, or RPC declared in another file in the package produces a blocking
+diagnostic naming that file. Resource access may also be in functions and
+methods of the same package that a handler calls. The
 analyzer follows those calls up to six levels deep, including calls inside loops
 and function literals, and binds a resource argument to the matching parameter.
 Such an edge records the helper as `metadata.via: helper` and
@@ -669,7 +669,8 @@ keyed by Go type, so registering one Go type or generic Step more than once
 produces `duplicate_step_type`. Regenerate definitions after upgrading **dexcli** so
 Dex Web v2 keys match the Worker.
 
-Version 2 supports Go, Python, and TypeScript and adds ordered Step groups and explanations.
+The command generates Flow Definition Graph 2.0 for Go, Python, and TypeScript.
+Each Step needs a group and an explanation.
 Go also reads the Dex Web v2 Indexed Attribute, Summary, Display, Action, and Start contracts.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
@@ -718,7 +719,7 @@ the existing text input contract.
 
 Go `StartFlow` calls with a statically known starting Step input produce
 `start_flow_input_type_mismatch` when their payload is not assignable to that
-input. This is always an error, under both schemas and with or without
+input. This is always an error, with or without
 `--lint app`: the SDK rejects it locally before sending the start request.
 Pass the actual typed value, or declare `dex.None` and pass `nil` when the
 starting Step needs no input. Pointer/value mismatches remain distinct;
@@ -733,7 +734,7 @@ interface-valued payloads, and unresolved registrations remain unchecked.
 Go Step methods, RPCs, and timeout handlers receive AttributeMap values and
 pending Channel messages only when their options select them. A read of
 unselected state fails at run time, so visualize reports it as a blocking
-diagnostic in every schema version:
+diagnostic:
 
 | Code | Read |
 |---|---|
@@ -780,16 +781,19 @@ state-load and start-input errors above are reported in every mode.
 | `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python|typescript] [--schema-version 1.0|2.0]
+dexcli visualize SOURCE [--language auto|go|python|typescript] [--schema-version 2.0]
+                         [--flow FlowType]
                          [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
 ```
 
-Invalid command usage exits with status 2. The JSON contracts are documented by
-[`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json)
-and [`schema/flow-definition-graph.v2.schema.json`](schema/flow-definition-graph.v2.schema.json).
+Use `--flow` with the registered Flow type when the source defines multiple
+Flows. If the name is missing or unknown, the diagnostic lists the available
+Flow types. You can omit `--schema-version`. Its only accepted value is `2.0`.
+Invalid command usage exits with status 2. See the
+[Flow Definition Graph 2.0 schema](schema/flow-definition-graph.v2.schema.json).
 
 The friendly Flow commands are:
 

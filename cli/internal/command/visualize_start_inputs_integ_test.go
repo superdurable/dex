@@ -25,32 +25,30 @@ import (
 
 func TestVisualizeRejectsMismatchedStartInputs(t *testing.T) {
 	source := stateLoadsFixture(t, "start-inputs/workflow.go")
-	for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-		for _, lint := range []string{"", flowviz.LintApplication} {
-			t.Run(schemaVersion+"/lint="+lint, func(t *testing.T) {
-				graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
-					SchemaVersion: schemaVersion, Lint: lint,
-				})
-				require.NoError(t, err)
-				require.False(t, graph.Valid)
-				require.Len(t, graph.Diagnostics, 6, "%+v", graph.Diagnostics)
-				for _, diagnostic := range graph.Diagnostics {
-					require.Equal(t, "start_flow_input_type_mismatch", diagnostic.Code)
-					require.Equal(t, "error", diagnostic.Severity)
-					require.Contains(t, diagnostic.Message, "before sending the start request")
-					require.Contains(t, diagnostic.Message, "declare dex.None and pass nil")
-				}
-				nilInput := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "passes nil")
-				require.Contains(t, nilInput.Message, "BeginInputStep, whose input is startinputs.StartInput")
-				pointer := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "passes *startinputs.StartInput")
-				require.Equal(t, sourceLine(t, source, `"pointer-input"`), pointer.Span.StartLine)
-				pointerTarget := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "whose input is *startinputs.StartInput")
-				require.Equal(t, sourceLine(t, source, `"pointer-struct"`), pointerTarget.Span.StartLine)
-				require.NotEmpty(t, diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "NoInputStep"))
-				helper := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "startMissingInput at targets.go:")
-				require.Equal(t, sourceLine(t, source, "startMissingInput(context.Background()"), helper.Span.StartLine)
+	for _, lint := range []string{"", flowviz.LintApplication} {
+		t.Run("lint="+lint, func(t *testing.T) {
+			graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
+				SchemaVersion: flowviz.SchemaVersionV2, Lint: lint,
 			})
-		}
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Len(t, graph.Diagnostics, 6, "%+v", graph.Diagnostics)
+			for _, diagnostic := range graph.Diagnostics {
+				require.Equal(t, "start_flow_input_type_mismatch", diagnostic.Code)
+				require.Equal(t, "error", diagnostic.Severity)
+				require.Contains(t, diagnostic.Message, "before sending the start request")
+				require.Contains(t, diagnostic.Message, "declare dex.None and pass nil")
+			}
+			nilInput := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "passes nil")
+			require.Contains(t, nilInput.Message, "BeginInputStep, whose input is startinputs.StartInput")
+			pointer := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "passes *startinputs.StartInput")
+			require.Equal(t, sourceLine(t, source, `"pointer-input"`), pointer.Span.StartLine)
+			pointerTarget := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "whose input is *startinputs.StartInput")
+			require.Equal(t, sourceLine(t, source, `"pointer-struct"`), pointerTarget.Span.StartLine)
+			require.NotEmpty(t, diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "NoInputStep"))
+			helper := diagnosticWithCode(t, graph, "start_flow_input_type_mismatch", "startMissingInput at targets.go:")
+			require.Equal(t, sourceLine(t, source, "startMissingInput(context.Background()"), helper.Span.StartLine)
+		})
 	}
 }
 
@@ -75,14 +73,12 @@ func TestVisualizeAcceptsMatchingAndUnknownStartInputs(t *testing.T) {
 	}
 	module := "module startinputcontracts\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(visualizerRepositoryRoot(t), "sdk-go") + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o644))
-	for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-		graph, err := flowviz.Analyze(context.Background(), filepath.Join(directory, "workflow.go"), flowviz.AnalyzeOptions{
-			SchemaVersion: schemaVersion, Lint: flowviz.LintApplication,
-		})
-		require.NoError(t, err)
-		require.True(t, graph.Valid, "%+v", graph.Diagnostics)
-		require.Empty(t, graph.Diagnostics)
-	}
+	graph, err := flowviz.Analyze(context.Background(), filepath.Join(directory, "workflow.go"), flowviz.AnalyzeOptions{
+		SchemaVersion: flowviz.SchemaVersionV2, Lint: flowviz.LintApplication,
+	})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
 }
 
 func TestVisualizeWritesPartialJSONForMismatchedStartInput(t *testing.T) {

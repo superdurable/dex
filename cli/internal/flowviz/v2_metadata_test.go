@@ -59,7 +59,7 @@ func TestScriptV2ViewRPCFacts(t *testing.T) {
 			payload := `{"graph":{"valid":true},"attributes":[{"key":"state","valueType":"string"}],"viewRPCs":` + test.viewRPCs + `}`
 			var analysis scriptAnalysis
 			require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
-			graph := analysis.definition(SchemaVersionV2)
+			graph := analysis.definition()
 			require.Len(t, graph.V2.Display.Fields, test.fieldCount)
 			require.Equal(t, len(test.messages) == 0, graph.Valid)
 			require.Len(t, graph.Diagnostics, len(test.messages))
@@ -87,7 +87,7 @@ func TestScriptV2DuplicateAttributeFacts(t *testing.T) {
 	}`
 	var analysis scriptAnalysis
 	require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
-	graph := analysis.definition(SchemaVersionV2)
+	graph := analysis.definition()
 	require.False(t, graph.Valid)
 	require.Equal(t, []IndexedAttribute{{
 		AttributeKey: "state", IndexKey: "state", IndexType: "keyword", ValueType: "string", Description: "First",
@@ -127,7 +127,7 @@ func TestScriptV2MetadataMatchesGo(t *testing.T) {
 			}`, indexedDirective, field, test.scriptInput)
 			var analysis scriptAnalysis
 			require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
-			scriptGraph := analysis.definition(SchemaVersionV2)
+			scriptGraph := analysis.definition()
 
 			goSource := fmt.Sprintf(goV2MetadataSource, indexedDirective, field, test.outputEntry, test.goInput, test.goInput)
 			goGraph := analyzeGoV2MetadataSource(t, goSource)

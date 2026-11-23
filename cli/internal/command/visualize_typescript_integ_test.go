@@ -43,21 +43,26 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 			require.NoError(t, err)
 			graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.Equal(t, "1.0", graph.SchemaVersion)
+			require.Equal(t, "2.0", graph.SchemaVersion)
 			again, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			first, err := json.Marshal(graph)
+			first, err := flowviz.MarshalJSON(graph)
 			require.NoError(t, err)
-			second, err := json.Marshal(again)
+			second, err := flowviz.MarshalJSON(again)
 			require.NoError(t, err)
 			require.Equal(t, string(first), string(second))
 			hasUnsupportedFeature := false
 			hasHiddenDecision := false
+			hasMissingAnnotations := false
 			for _, diagnostic := range graph.Diagnostics {
 				if diagnostic.Severity != "error" {
 					continue
 				}
 				switch diagnostic.Code {
+				case "v2_step_group", "v2_step_explanation":
+					require.NotContains(t, string(contents), "dex:group", diagnostic.Message)
+					hasMissingAnnotations = true
+					continue
 				case "multiple_flows":
 					require.Greater(t, strings.Count(string(contents), "getSteps("), 1)
 				case "hidden_dex_decision":
@@ -69,7 +74,7 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 				hasUnsupportedFeature = true
 			}
 			require.Equal(t, hiddenDecisionSources[filepath.ToSlash(relative)], hasHiddenDecision)
-			require.Equal(t, !hasUnsupportedFeature, graph.Valid, graph.Diagnostics)
+			require.Equal(t, !hasUnsupportedFeature && !hasMissingAnnotations, graph.Valid, graph.Diagnostics)
 			// NewFlowRenderingServer validates the graph as Dex Web does.
 			_, err = web.NewFlowRenderingServer(&web.Config{BindAddress: "127.0.0.1"}, first, assets.Files)
 			require.NoError(t, err)
@@ -83,14 +88,14 @@ func TestVisualizeTypeScriptExampleDecisions(t *testing.T) {
 
 	retry, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts"), flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.True(t, retry.Valid, retry.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts"), retry.Diagnostics)
 	require.Equal(t, "RetryFlow", retry.Flow.Name)
 	require.Equal(t, "step:RetryExecute", retry.Flow.StartStepID)
 	require.Equal(t, []string{"gracefulComplete"}, decisionTypes(retry, "step:RetryExecute"))
 
 	transfer, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, "examples/typescript/src/products/money-transfer/money-transfer-flow.ts"), flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.True(t, transfer.Valid, transfer.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, "examples/typescript/src/products/money-transfer/money-transfer-flow.ts"), transfer.Diagnostics)
 	require.Equal(t, []string{"forceFail", "goTo"}, decisionTypes(transfer, "step:CheckBalance"))
 	require.True(t, hasDecisionEdge(transfer, "step:CheckBalance", "transition", "step:CreateDebitMemo"))
 	require.Equal(t, []string{"gracefulComplete"}, decisionTypes(transfer, "step:Credit"))
@@ -126,7 +131,10 @@ func hasDecisionEdge(graph *flowviz.Graph, stepID string, kind string, target st
 
 func TestVisualizeTypeScriptCompilerFlagOverridesEnvironment(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
-	source := filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts")
+	source := filepath.Join(t.TempDir(), "workflow.ts")
+	singleFlowSource, _, found := strings.Cut(typeScriptFlowSelectionSource, "class RenamedFlow")
+	require.True(t, found)
+	require.NoError(t, os.WriteFile(source, []byte(singleFlowSource), 0o600))
 	compilerDirectory := filepath.Join(repositoryRoot, "web", "node_modules", "typescript")
 	missingDirectory := filepath.Join(t.TempDir(), "missing")
 	t.Setenv("NODE_PATH", "")

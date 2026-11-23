@@ -59,6 +59,8 @@ def build_collect_reviews(join_round):
     return StepMovement.of(CollectReviews, join_round)
 
 
+# dex:group group-id:"quotes" group-label:"Quotes"
+# dex:explanation text:"Requests quotes from suppliers."
 class RequestQuotes(Step[QuoteRequest]):
     def wait_for(self, context: Context, input: QuoteRequest) -> Wait:
         if input.previous_round is None:
@@ -77,6 +79,8 @@ class RequestQuotes(Step[QuoteRequest]):
         return go_to_many(*movements)
 
 
+# dex:group group-id:"quotes" group-label:"Quotes"
+# dex:explanation text:"Publishes a quote from supplier A."
 class QuoteFromSupplierA(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(SUPPLIER_RELEASED.for_one())
@@ -85,12 +89,16 @@ class QuoteFromSupplierA(Step[JoinRound]):
         return QUOTE_RECEIVED.end_branch(context, input, "A")
 
 
+# dex:group group-id:"quotes" group-label:"Quotes"
+# dex:explanation text:"Publishes a quote from supplier B."
 class QuoteFromSupplierB(Step[JoinRound]):
     def execute(self, context: Context, input: JoinRound) -> StepDecision:
         QUOTE_RECEIVED.report_branch_result(context, input, "B")
         return dead_end()
 
 
+# dex:group group-id:"quotes" group-label:"Quotes"
+# dex:explanation text:"Collects the supplier quotes."
 class AcceptQuotes(Step[QuoteJoinInput]):
     def wait_for(self, context: Context, input: QuoteJoinInput) -> Wait:
         return Wait.until(QUOTE_RECEIVED.for_branches(input.join_round, REQUIRED_QUOTES))
@@ -102,11 +110,15 @@ class AcceptQuotes(Step[QuoteJoinInput]):
         return go_to(RequestQuotes, QuoteRequest(input.request.round_number + 1, input.join_round))
 
 
+# dex:group group-id:"reviews" group-label:"Reviews"
+# dex:explanation text:"Reviews a document."
 class ReviewDocument(Step[ReviewInput]):
     def execute(self, context: Context, input: ReviewInput) -> StepDecision:
         return QUOTE_RECEIVED.end_branch(context, input.join_round, input.reviewer)
 
 
+# dex:group group-id:"reviews" group-label:"Reviews"
+# dex:explanation text:"Collects the document review results."
 class CollectReviews(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(QUOTE_RECEIVED.for_all_branches(input))

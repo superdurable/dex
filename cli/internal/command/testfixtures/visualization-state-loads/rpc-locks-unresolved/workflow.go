@@ -32,6 +32,7 @@ func (flow *UnresolvedRPCLocksFlow) GetRPCs() []dex.RPCDef {
 			LockAttributes: locksOf(Status, Gate),
 			Action:         dex.DefineAction("Assign owner", dex.WhenAttributeMatches(Status, dex.AttributeMatchEqual("open")), dex.ActionRequiresPermission("case.assign")),
 		}),
+		dex.DefineRPC(flow.PreviewOwner, &dex.RPCOptions{LockAttributes: locksOf(Status, Gate)}),
 		dex.DefineRPC(flow.GetDexSummary, nil),
 		dex.DefineRPC(flow.GetDexDisplay, nil),
 	}
@@ -56,6 +57,10 @@ func (*UnresolvedRPCLocksFlow) AssignOwner(ctx dex.Context, _ dex.None) (*dex.RP
 	if err := Gate.Set(ctx, "assigned"); err != nil {
 		return nil, err
 	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*UnresolvedRPCLocksFlow) PreviewOwner(_ dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
 	return &dex.RPCResult[dex.None]{}, nil
 }
 

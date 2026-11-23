@@ -157,12 +157,10 @@ func TestVisualizeScriptStepInstanceStaticNames(t *testing.T) {
 					}
 				}
 				require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
-				for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-					graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{SchemaVersion: schemaVersion})
-					require.NoError(t, err)
-					require.True(t, graph.Valid, graph.Diagnostics)
-					require.Equal(t, "step:First", graph.Flow.StartStepID)
-				}
+				graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2})
+				require.NoError(t, err)
+				require.True(t, graph.Valid, graph.Diagnostics)
+				require.Equal(t, "step:First", graph.Flow.StartStepID)
 			})
 		}
 	}

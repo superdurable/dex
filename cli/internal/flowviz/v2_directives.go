@@ -255,7 +255,12 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 			if comments == nil && len(general.Specs) == 1 {
 				comments = general.Doc
 			}
-			directives := analyzer.parseV2Directives(comments)
+			var directives []v2Directive
+			parsedDirectives := false
+			if analyzer.excludedResources == nil {
+				directives = analyzer.parseV2Directives(comments)
+				parsedDirectives = true
+			}
 			for index, name := range valueSpec.Names {
 				if index >= len(valueSpec.Values) {
 					continue
@@ -267,6 +272,13 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 				resourceKind := goResourceKind(analyzer.callName(call))
 				if resourceKind != "attribute" {
 					continue
+				}
+				if analyzer.excludedResources[analyzer.resourceVars[name.Name]] {
+					continue
+				}
+				if !parsedDirectives {
+					directives = analyzer.parseV2Directives(comments)
+					parsedDirectives = true
 				}
 				attributeKey := name.Name
 				if len(call.Args) > 0 {

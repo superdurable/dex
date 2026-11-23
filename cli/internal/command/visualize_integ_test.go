@@ -73,6 +73,7 @@ func TestVisualizeCanWriteJSONToStdout(t *testing.T) {
 	var graph flowviz.Graph
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
 	require.True(t, graph.Valid)
+	require.Equal(t, "2.0", graph.SchemaVersion)
 	require.Equal(t, "PythonFlow", graph.Flow.Name)
 	require.Equal(t, filepath.ToSlash(relativeSourcePath), graph.Source.Path)
 }
@@ -107,19 +108,16 @@ func TestVisualizeGoAndPythonRecoveryPolicies(t *testing.T) {
 			var stderr bytes.Buffer
 			app := NewApp(strings.NewReader(""), &stdout, &stderr)
 			executeErr := app.Execute(context.Background(), []string{"visualize", test.source, "--json", "--out", outputPrefix})
-			if executeErr != nil {
-				partial, readErr := os.ReadFile(outputPrefix + ".json")
-				if readErr == nil {
-					t.Log(string(partial))
-				}
-			}
-			require.NoError(t, executeErr, stderr.String())
-
 			data, err := os.ReadFile(outputPrefix + ".json")
-			require.NoError(t, err)
+			require.NoError(t, err, "%v %s", executeErr, stderr.String())
 			var graph flowviz.Graph
 			require.NoError(t, json.Unmarshal(data, &graph))
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoUnexpectedVisualizeDiagnostics(t, &graph, test.source)
+			if graph.Valid {
+				require.NoError(t, executeErr)
+			} else {
+				require.Equal(t, 1, ExitCode(executeErr))
+			}
 			failureEdges := edgesOfKind(graph.Edges, "failure_transition")
 			require.Len(t, failureEdges, 2)
 			for _, edge := range failureEdges {
@@ -176,9 +174,9 @@ func TestVisualizeRepresentativeFlows(t *testing.T) {
 			sourcePath := filepath.Join(repositoryRoot, test.source)
 			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoUnexpectedVisualizeDiagnostics(t, graph, sourcePath)
 			if strings.HasPrefix(test.name, "typescript") {
-				require.Empty(t, graph.Diagnostics)
+				require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, sourcePath, graph.Diagnostics))
 			}
 			for _, kind := range test.expectKinds {
 				require.True(t, graphHasKind(graph, kind), "missing %s in nodes or edges", kind)
@@ -313,15 +311,67 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 		t.Run(relative, func(t *testing.T) {
 			graph, analyzeErr := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 			require.NoError(t, analyzeErr)
-			require.Equal(t, "1.0", graph.SchemaVersion)
+			require.Equal(t, "2.0", graph.SchemaVersion)
 			first, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			second, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			require.Equal(t, first, second)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoUnexpectedVisualizeDiagnostics(t, graph, source)
 		})
 	}
+}
+
+func requireNoUnexpectedVisualizeDiagnostics(t *testing.T, graph *flowviz.Graph, source string) {
+	t.Helper()
+	requireNoBlockingVisualizationDiagnostics(t, source, graph.Diagnostics)
+}
+
+func requireNoBlockingVisualizationDiagnostics(t *testing.T, source string, diagnostics []flowviz.Diagnostic) {
+	t.Helper()
+	for _, diagnostic := range diagnosticsWithoutMissingVisualizationMetadata(t, source, diagnostics) {
+		require.NotEqual(t, "error", diagnostic.Severity, "%s: %s", diagnostic.Code, diagnostic.Message)
+	}
+}
+
+// Examples without Step directives may lack the metadata required for a complete 2.0 definition.
+func diagnosticsWithoutMissingVisualizationMetadata(t *testing.T, source string, diagnostics []flowviz.Diagnostic) []flowviz.Diagnostic {
+	t.Helper()
+	contents, err := os.ReadFile(source)
+	require.NoError(t, err)
+	if bytes.Contains(contents, []byte("dex:group")) {
+		return diagnostics
+	}
+	var remaining []flowviz.Diagnostic
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" && isMissingVisualizationMetadata(diagnostic, contents) {
+			continue
+		}
+		remaining = append(remaining, diagnostic)
+	}
+	return remaining
+}
+
+func isMissingVisualizationMetadata(diagnostic flowviz.Diagnostic, contents []byte) bool {
+	message := diagnostic.Message
+	switch diagnostic.Code {
+	case "v2_step_group":
+		return strings.HasPrefix(message, "Step ") &&
+			(strings.HasSuffix(message, "must declare exactly one dex:group directive") ||
+				strings.HasSuffix(message, "requires one dex:group with a kebab-case group-id and non-empty group-label"))
+	case "v2_step_explanation":
+		return !bytes.Contains(contents, []byte("dex:explanation")) && strings.HasPrefix(message, "Step ") &&
+			(strings.HasSuffix(message, "must declare exactly one dex:explanation directive") ||
+				strings.HasSuffix(message, "must declare exactly one non-empty dex:explanation directive"))
+	case "v2_indexed_attribute":
+		return !bytes.Contains(contents, []byte("dex:indexed-attribute")) && strings.HasPrefix(message, "indexed Attribute ") &&
+			strings.HasSuffix(message, "must declare exactly one dex:indexed-attribute directive")
+	case "v2_rpc_registration":
+		return message == "Flow must define GetRPCs in the Flow file"
+	case "v2_view_rpc":
+		return message == "Flow must define GetDexSummary" || message == "Flow must define GetDexDisplay"
+	}
+	return false
 }
 
 func TestVisualizeRepresentsStaticWaitFailures(t *testing.T) {
@@ -339,7 +389,7 @@ func TestVisualizeRepresentsStaticWaitFailures(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, source), flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, source), graph.Diagnostics)
 
 			waits := nodesOfKind(graph.Nodes, "wait")
 			require.Condition(t, func() bool {
@@ -369,7 +419,7 @@ func TestVisualizeProducesStructuredStepInternals(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, test.source), graph.Diagnostics)
 
 			waits := nodesOfKind(graph.Nodes, "wait")
 			require.Len(t, waits, 1)
@@ -428,7 +478,7 @@ func TestVisualizeGroupsConditionalWaitReturns(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), test.source, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, test.source, graph.Diagnostics)
 			require.Len(t, nodesOfKind(graph.Nodes, "wait_dispatch"), 1)
 
 			waits := nodesOfKind(graph.Nodes, "wait")
@@ -465,7 +515,7 @@ func TestVisualizeBranchConditionsUseSourcePredicates(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, test.source), graph.Diagnostics)
 
 			conditions := make([]string, 0)
 			for _, decision := range nodesOfKind(graph.Nodes, "decision") {
@@ -498,7 +548,7 @@ func TestVisualizeFormatsChannelBoundsAndDynamicTimers(t *testing.T) {
 			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
 			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, sourcePath, graph.Diagnostics)
 
 			labels := strings.Join(waitConditionLabels(nodesOfKind(graph.Nodes, "wait")), "\n")
 			for _, fragment := range []string{"Messages.for 2", "Messages.at least 3", "Messages.at most 4", "Messages.for 2…5", "Buckets["} {
@@ -537,7 +587,7 @@ func TestVisualizeIncludesResourceTypesAndDecisionDetails(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, test.source), graph.Diagnostics)
 
 			attributes := nodesOfKind(graph.Nodes, "attribute")
 			require.NotEmpty(t, attributes)
@@ -565,7 +615,7 @@ func TestVisualizeConditionalCompletionCarriesFallbackAndChannels(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, test.source), graph.Diagnostics)
 			var conditional *flowviz.Node
 			for index := range graph.Nodes {
 				if graph.Nodes[index].Decision != nil && graph.Nodes[index].Decision.Type == "forceCompleteIfChannelsEmpty" {
@@ -589,7 +639,7 @@ func TestVisualizeDynamicFanOutUsesStaticTargetAndDynamicMultiplicity(t *testing
 	for _, source := range sources {
 		graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, source), flowviz.AnalyzeOptions{})
 		require.NoError(t, err)
-		require.True(t, graph.Valid, graph.Diagnostics)
+		requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, source), graph.Diagnostics)
 		require.Contains(t, edgeMultiplicities(graph.Edges), "×N")
 	}
 }
@@ -624,7 +674,7 @@ func TestVisualizeStepStreamProgress(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), test.source, flowviz.AnalyzeOptions{})
 			require.NoError(t, err)
-			require.True(t, graph.Valid, graph.Diagnostics)
+			requireNoBlockingVisualizationDiagnostics(t, test.source, graph.Diagnostics)
 			require.False(t, graphHasKind(graph, "heartbeat"))
 
 			streamWrites := edgesOfKind(graph.Edges, "resource_write")
@@ -820,7 +870,7 @@ func TestVisualizeTreatsSubFlowAsAnExternalFoldedNode(t *testing.T) {
 	for _, source := range []string{goSource, pythonSource} {
 		graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 		require.NoError(t, err)
-		require.True(t, graph.Valid, graph.Diagnostics)
+		requireNoBlockingVisualizationDiagnostics(t, source, graph.Diagnostics)
 		require.True(t, graphHasKind(graph, "subflow"))
 		for _, node := range graph.Nodes {
 			if node.Kind == "subflow" {
@@ -1013,6 +1063,8 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 
 const minimalPythonFlow = `from dex import Flow, Step, StepDecision, StepList, graceful_complete
 
+# dex:group group-id:"finish" group-label:"Finish"
+# dex:explanation text:"Completes the Flow."
 class Finish(Step[None]):
     def execute(self, context, input) -> StepDecision:
         return graceful_complete()
@@ -1039,6 +1091,8 @@ func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
+// dex:group group-id:"start" group-label:"Start"
+// dex:explanation text:"Executes the first Step."
 type startStep struct{ dex.StepDefaultsNoWaitFor[dex.None] }
 
 func (startStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {

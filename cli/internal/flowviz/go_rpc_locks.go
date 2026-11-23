@@ -16,9 +16,16 @@ import (
 
 // goRPCLockRecorder records RPCOptions.LockAttributes as resource_lock edges, which Dex Web Actions send.
 type goRPCLockRecorder struct {
-	analyzer  *goAnalyzer
-	evaluator *goOptionsEvaluator
-	sources   *goStateLoadSources
+	analyzer   *goAnalyzer
+	evaluator  *goOptionsEvaluator
+	sources    *goStateLoadSources
+	unresolved []goUnresolvedRPCLock
+}
+
+type goUnresolvedRPCLock struct {
+	methodName   string
+	protocolName string
+	construct    goUnresolvedConstruct
 }
 
 func (recorder *goRPCLockRecorder) record() {
@@ -37,18 +44,18 @@ func (recorder *goRPCLockRecorder) record() {
 			protocolName := recorder.protocolName(methodName, registration.expression)
 			options := recorder.evaluator.evaluateStruct(registration)
 			if len(options.unresolved) > 0 {
-				recorder.reportUnresolved(methodName, protocolName, options.unresolved[0])
+				recorder.unresolved = append(recorder.unresolved, goUnresolvedRPCLock{methodName, protocolName, options.unresolved[0]})
 				continue
 			}
 			for _, locks := range options.fields["LockAttributes"] {
 				list := recorder.evaluator.evaluateList(locks)
 				if len(list.unresolved) > 0 {
-					recorder.reportUnresolved(methodName, protocolName, list.unresolved[0])
+					recorder.unresolved = append(recorder.unresolved, goUnresolvedRPCLock{methodName, protocolName, list.unresolved[0]})
 				}
 				for _, element := range list.elements {
 					resourceID := recorder.lockedResource(element)
 					if resourceID == "" {
-						recorder.reportUnresolved(methodName, protocolName, recorder.evaluator.unresolved(element))
+						recorder.unresolved = append(recorder.unresolved, goUnresolvedRPCLock{methodName, protocolName, recorder.evaluator.unresolved(element)})
 						continue
 					}
 					if recorded[resourceID] {
@@ -99,14 +106,17 @@ func (recorder *goRPCLockRecorder) protocolName(methodName string, options ast.E
 }
 
 // Only an RPC that Dex Web invokes needs readable locks; Dex Web refuses an unreadable one.
-func (recorder *goRPCLockRecorder) reportUnresolved(methodName string, protocolName string, unresolved goUnresolvedConstruct) {
-	if !recorder.isInvokedByDexWeb(protocolName) {
-		return
+func (recorder *goRPCLockRecorder) reportUnresolved() {
+	for _, lock := range recorder.unresolved {
+		if !recorder.isInvokedByDexWeb(lock.protocolName) {
+			continue
+		}
+		unresolved := lock.construct
+		recorder.analyzer.graph.AddDiagnostic("error", "rpc_lock_unresolved", fmt.Sprintf(
+			"dexcli cannot resolve the LockAttributes of RPC %s (%s at %s:%d); Dex Web must take them to invoke it. List dex.LockAttribute or dex.LockAttributeMap calls in RPCOptions or in a variable of this package.",
+			lock.methodName, unresolved.construct, recorder.analyzer.displayFilename(unresolved.position.Filename), unresolved.position.Line,
+		), recorder.analyzer.node("rpc:"+lock.methodName).Span)
 	}
-	recorder.analyzer.graph.AddDiagnostic("error", "rpc_lock_unresolved", fmt.Sprintf(
-		"dexcli cannot resolve the LockAttributes of RPC %s (%s at %s:%d); Dex Web must take them to invoke it. List dex.LockAttribute or dex.LockAttributeMap calls in RPCOptions or in a variable of this package.",
-		methodName, unresolved.construct, recorder.analyzer.displayFilename(unresolved.position.Filename), unresolved.position.Line,
-	), recorder.analyzer.node("rpc:"+methodName).Span)
 }
 
 func (recorder *goRPCLockRecorder) isInvokedByDexWeb(protocolName string) bool {

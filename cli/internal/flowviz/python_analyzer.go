@@ -14,7 +14,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,15 +29,19 @@ var pythonConnectorAnalyzerSource string
 //go:embed python_binding_analyzer.py
 var pythonBindingAnalyzerSource string
 
-func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, schemaVersion string) (*Graph, error) {
+func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, flowType string) (*Graph, error) {
 	if strings.TrimSpace(pythonPath) == "" {
 		pythonPath = "python3"
 	}
-	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source)})
+	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source), "flowType": flowType})
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, pythonPath, "-I", "-S", "-c", pythonConnectorAnalyzerSource+"\n"+pythonBindingAnalyzerSource+"\n"+pythonAnalyzerSource)
+	command, removeScript, err := newPythonAnalyzerCommand(ctx, pythonPath)
+	if err != nil {
+		return nil, err
+	}
+	defer removeScript()
 	command.Stdin = bytes.NewReader(request)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -43,7 +49,6 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
 		graph := NewGraph("python", sourcePath)
-		graph.SchemaVersion = schemaVersion
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
 			message = err.Error()
@@ -55,5 +60,25 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return nil, fmt.Errorf("decode Python analyzer output: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return result.definition(schemaVersion), nil
+	return result.definition(), nil
+}
+
+func newPythonAnalyzerCommand(ctx context.Context, pythonPath string) (*exec.Cmd, func(), error) {
+	// Linux limits each argument to 128 KiB, which the combined script can exceed.
+	directory, err := os.MkdirTemp("", "dexcli-python-analyzer-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create Python analyzer directory: %w", err)
+	}
+	removeDirectory := func() {
+		if removeErr := os.RemoveAll(directory); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: remove Python analyzer directory %s: %v\n", directory, removeErr)
+		}
+	}
+	scriptPath := filepath.Join(directory, "python_analyzer.py")
+	script := pythonConnectorAnalyzerSource + "\n" + pythonBindingAnalyzerSource + "\n" + pythonAnalyzerSource
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		removeDirectory()
+		return nil, nil, fmt.Errorf("write Python analyzer script: %w", err)
+	}
+	return exec.CommandContext(ctx, pythonPath, "-I", "-S", scriptPath), removeDirectory, nil
 }
