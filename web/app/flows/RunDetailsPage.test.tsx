@@ -1418,9 +1418,9 @@ interface HistorySettingsDex {
   summaryOverride: Partial<FlowSummary>;
   /** The server info reply; null fails the read. */
   serverInfo: Record<string, unknown> | null;
-  /** Holds server info reads while set, until the test answers them with the current reply. */
+  /** Holds server info reads while set, until the test answers them; null rejects a read. */
   shouldHoldServerInfo: boolean;
-  heldServerInfoReads: Array<() => void>;
+  heldServerInfoReads: Array<(reply: Record<string, unknown> | null) => void>;
 }
 
 function historySettingsDex(): HistorySettingsDex {
@@ -1473,7 +1473,13 @@ function historySettingsDex(): HistorySettingsDex {
     if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '3' });
     if (url.pathname === '/api/flows/wait') return new Promise<Response>(() => {});
     if (url.pathname === '/api/server-info') {
-      if (dex.shouldHoldServerInfo) await new Promise<void>((resolve) => dex.heldServerInfoReads.push(resolve));
+      if (dex.shouldHoldServerInfo) {
+        return new Promise<Response>((resolve, reject) => {
+          dex.heldServerInfoReads.push((reply) => (reply === null
+            ? reject(new Error('server info read failed'))
+            : resolve(json(reply))));
+        });
+      }
       if (dex.serverInfo !== null) return json(dex.serverInfo);
     }
     throw new Error(`unexpected request ${input}`);
@@ -1506,6 +1512,15 @@ function settleStateLoads() {
   return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+/** Answers every held server info read under act; null rejects them. */
+async function answerServerInfoReads(dex: HistorySettingsDex, reply: Record<string, unknown> | null) {
+  await waitFor(() => expect(dex.heldServerInfoReads.length).toBeGreaterThan(0));
+  await act(async () => {
+    for (const answer of dex.heldServerInfoReads.splice(0)) answer(reply);
+    await new Promise((settled) => setTimeout(settled, 0));
+  });
+}
+
 describe('history settings on the run page', () => {
   it.each([
     ['0.1.38', 'Whole history'],
@@ -1515,11 +1530,11 @@ describe('history settings on the run page', () => {
   ])('shows the window 2147483647 on server-zd %s as %s', async (serverVersion, label) => {
     const dex = historySettingsDex();
     dex.immediateStateReply = { historyWindowEvents: 2147483647 };
-    dex.serverInfo = { serverEngine: 'zd', serverVersion, currentProtocolVersion: 7 };
+    dex.shouldHoldServerInfo = true;
     renderRun();
     const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
-    expect(await within(card).findByText(label)).toBeTruthy();
-    await settleStateLoads();
+    expect(await within(card).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(dex, { serverEngine: 'zd', serverVersion, currentProtocolVersion: 7 });
     expect(within(card).getByText(label)).toBeTruthy();
   });
 
@@ -1527,20 +1542,21 @@ describe('history settings on the run page', () => {
     const dex = historySettingsDex();
     dex.immediateStateReply = { historyWindowEvents: 2147483647 };
     dex.shouldHoldServerInfo = true;
-    dex.serverInfo = { serverEngine: 'zd', serverVersion: '0.1.38', currentProtocolVersion: 7 };
     renderRun();
     const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
-    expect(await within(card).findByText('Last 2,147,483,647 events')).toBeTruthy();
     await waitFor(() => expect(dex.heldServerInfoReads.length).toBeGreaterThan(0));
-    for (const answer of dex.heldServerInfoReads.splice(0)) answer();
-    expect(await within(card).findByText('Whole history')).toBeTruthy();
+    expect(await within(card).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(dex, { serverEngine: 'zd', serverVersion: '0.1.38', currentProtocolVersion: 7 });
+    expect(within(card).getByText('Whole history')).toBeTruthy();
 
     cleanup();
     const failing = historySettingsDex();
     failing.immediateStateReply = { historyWindowEvents: 2147483647 };
+    failing.shouldHoldServerInfo = true;
     renderRun();
     const failedCard = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
-    await settleStateLoads();
+    expect(await within(failedCard).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(failing, null);
     expect(within(failedCard).getByText('Last 2,147,483,647 events')).toBeTruthy();
   });
 

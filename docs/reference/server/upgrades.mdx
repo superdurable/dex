@@ -137,23 +137,36 @@ server-zd 0.1.38 accepts 0, which means unlimited, for a Flow run's
 A Flow run that sets its own unlimited window records a **history_window_events**
 of 2147483647. 0.1.38 never prunes such a Flow run by event count. A server
 before 0.1.38 applies the same value as a finite window of N = 2147483647
-events. It prunes the Flow run once its unpruned window events reach N + M + 1.
-M is the prune chunk that the Flow run recorded when it started, at most N / 10
-rounded down and at least 1. With the default chunk of 1000, the count is
-2147484648. A Flow run that recorded a chunk of 1 reaches it at 2147483649. A
-new **history.pruneChunkSize** does not change the chunk that a Flow run
-already recorded. The same applies to a Flow run that set 2147483647 itself on
-an older server.
+events. N + M + 1 unpruned window events is the first count at which it can
+start to prune the Flow run by event count. M is the effective prune chunk:
+M = max(1, min(C, floor(N / 10))), where C is the prune chunk that the Flow
+run recorded when it started. The older byte limit, the prune scan, and
+semantic boundaries can delay the actual advance of the window. With the
+default chunk of 1000, the count is 2147484648. A Flow run that recorded a
+chunk of 1 reaches it at 2147483649. A new **history.pruneChunkSize** does not
+change the chunk that a Flow run already recorded. The same applies to a Flow
+run that set 2147483647 itself on an older server.
 
-From that count on, the two versions apply the Flow run's commands
-differently. For a Flow run that may reach it, keep every process that applies
-its partition on one version:
+From that count on, the two versions can apply the Flow run's commands
+differently. Protect every command that one version applies across this
+difference, including the first command that reaches the count. For a Flow
+run that may reach it, keep every process that applies its partition on one
+version:
 
 - Run the active process and every standby of that partition on the same
   version.
 - Stay on 0.1.38 or later once you upgrade.
-- Replay the Flow run's commands from a snapshot or the log only on the version
-  that first applied the commands after the count.
+
+For a Flow run that already crossed the count on an older server:
+
+- Before you upgrade, keep a partition snapshot that covers the last position
+  that the older version applied. Verify that you can restore it.
+- Continue from that snapshot's state on 0.1.38 or later.
+- To recover from an earlier snapshot or from the log, replay the older
+  version's range with the older version up to the switch point. Then
+  continue from that state and replay the newer range with the newer version.
+- Stay on the original version when you cannot keep that recovery point or
+  split the replay.
 
 A Flow run that recorded a **history.windowEvents** of 0 and sets no window of
 its own is never pruned by event count on either version. On every version, a
@@ -191,7 +204,7 @@ To roll back to an older server:
    every window your Flow runs set. Use 2147483647 when any Flow run has an
    unlimited window.
 3. Check that no Flow run with an unlimited window of its own can reach
-   N + M + 1 unpruned window events with the chunk it recorded, such as
+   N + M + 1 unpruned window events with its effective prune chunk M, such as
    2147484648 with the default chunk, and that none has reached it already.
 
 A later release that raises the minimum protocol version needs the same care.

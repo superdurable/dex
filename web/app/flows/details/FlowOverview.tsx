@@ -22,10 +22,7 @@ import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
-/**
- * Whether the server confirms that a history window of 0 is unlimited; false until a read confirms it.
- * `refresh` reads the server version again.
- */
+/** Stays false until a server version read confirms that a history window of 0 is unlimited. */
 function useUnlimitedHistoryWindowSupport(): { isSupported: boolean; refresh: () => void } {
   const [isSupported, setIsSupported] = useState(false);
   const [readNumber, setReadNumber] = useState(0);

@@ -892,10 +892,12 @@ start on. History that was already pruned does not come back, history objects
 that pruning already passed may still be deleted, and a run that started before
 server-zd 0.1.23 without history offload is still pruned by its recorded byte
 limit. The server records `0` as `2147483647`, which `flow state` then shows.
-The run's FlowStarted history event carries its Flow configuration at start,
-including a window inherited from its parent, so it does not show later
-changes; read those with `flow state`. The server rejects a negative value or a finite value that exceeds
-its `history.maxWindowEvents` setting. For example, keep more history on an
+The run's FlowStartedOrContinued history event carries its Flow configuration
+at start, including a window inherited from its parent, so it does not show
+later changes; read those with `flow state`. A Clone Fork's event can also carry
+the source run's override. The server rejects a negative value. When
+`history.maxWindowEvents` is nonzero, it also rejects a finite value that
+exceeds that setting. For example, keep more history on an
 active Flow:
 
 ```bash

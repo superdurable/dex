@@ -275,8 +275,9 @@ type FlowConfig struct {
 	// history from its current window start on. A run may set 0 under any history.maxWindowEvents
 	// setting. The server records 0 as 2147483647, which also means unlimited and may be sent
 	// back. The GetFlowState API and dexcli flow state report the run's current value. The
-	// FlowStarted history event carries the run's FlowConfig at start, including a window inherited
-	// from its parent, but not the server's history.windowEvents or later changes. History that a
+	// FlowStartedOrContinued history event carries the run's FlowConfig at start, including a window
+	// inherited from its parent, but not the server's history.windowEvents or later changes. A Clone
+	// Fork's event can also carry the source run's override. History that a
 	// finite window already pruned does not come back, and history objects that pruning already
 	// passed may still be deleted. A run that started before server-zd 0.1.23 without history
 	// offload is still pruned by the byte limit it recorded. While the window is unlimited, storage

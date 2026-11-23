@@ -810,7 +810,7 @@ fn update_flow_config_makes_the_window_unlimited_and_finite_again() {
     assert!(kept > 80, "the unlimited window kept {kept} events");
     harness.update_window(20);
     harness.set_attribute();
-    // A window of 20 prunes 2 at a time; the oversized window drops to 20 plus one chunk at once.
+    // The oversized window shrinks to 22 events.
     assert!(harness.run_record().pruned_window_event_count > pruned);
     assert!(harness.events_in_window() <= 22);
     harness.assert_counters_match_metadata();

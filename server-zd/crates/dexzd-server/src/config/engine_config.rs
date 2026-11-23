@@ -264,7 +264,7 @@ pub struct HistoryConfig {
     /// a semantic record without events counts as one. When a run holds more than this many
     /// events plus one prune chunk, the oldest events are pruned until about this many remain.
     /// A run's `FlowConfig.history_window_events` overrides it. 0 means unlimited: runs that set
-    /// no window of their own keep their whole history. Changed in 0.1.38: it had to be positive.
+    /// no window of their own disable event-count pruning. Changed in 0.1.38: it had to be positive.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     /// Set by `history.windowEvents`; the deprecated key `history.windowSemanticEvents` is still
     /// accepted with a startup warning. Changed in 0.1.23: the default was 10000 in every mode.
