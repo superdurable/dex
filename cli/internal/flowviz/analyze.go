@@ -23,6 +23,7 @@ const LintApplication = "app"
 type AnalyzeOptions struct {
 	Language      string
 	PythonPath    string
+	JavaPath      string
 	CargoPath     string
 	SchemaVersion string
 	FlowType      string
@@ -57,10 +58,12 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 		graph, err = analyzeGo(ctx, absolutePath, data, options.FlowType, isApplicationLint)
 	case "python":
 		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, options.FlowType)
-	case "rust":
-		graph, err = analyzeRust(ctx, absolutePath, data, options.CargoPath, options.FlowType)
 	case "typescript":
 		graph, err = analyzeTypeScript(ctx, absolutePath, data, options.FlowType, options.TypeScriptCompilerDirectory)
+	case "java":
+		graph, err = analyzeJava(ctx, absolutePath, data, options.JavaPath, options.FlowType)
+	case "rust":
+		graph, err = analyzeRust(ctx, absolutePath, data, options.CargoPath, options.FlowType)
 	default:
 		panic("validated language was not handled")
 	}
@@ -144,18 +147,20 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 			return "go", nil
 		case ".py":
 			return "python", nil
-		case ".rs":
-			return "rust", nil
 		case ".ts", ".tsx", ".mts", ".cts":
 			return "typescript", nil
+		case ".java":
+			return "java", nil
+		case ".rs":
+			return "rust", nil
 		default:
 			return "", fmt.Errorf("cannot infer language from %s; use --language", filepath.Ext(sourcePath))
 		}
 	}
 	switch language {
-	case "go", "python", "typescript", "rust":
+	case "go", "python", "typescript", "java", "rust":
 		return language, nil
 	default:
-		return "", fmt.Errorf("language must be auto, go, python, typescript, or rust")
+		return "", fmt.Errorf("language must be auto, go, python, typescript, java, or rust")
 	}
 }

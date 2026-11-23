@@ -1,12 +1,12 @@
 ---
 title: Flow source visualization
 sidebar_label: Flow visualization
-description: "dexcli visualize turns one Go, Python, TypeScript, or Rust Flow source file into a static Flow Definition Graph, as a page or as JSON."
+description: "dexcli visualize turns one Go, Python, TypeScript, Java, or Rust Flow source file into a static Flow Definition Graph, as a page or as JSON."
 ---
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go, Python, TypeScript, or Rust Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
+**dexcli visualize** turns one Go, Python, TypeScript, Java, or Rust Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
 
 ```bash
 dexcli visualize ./order_flow.go
@@ -170,7 +170,40 @@ The TypeScript analyzer reads one file, so a SubFlow node names the expression p
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
 
-The analyzer works from a single source file. Java sources and recursive analysis across files are unsupported.
+The TypeScript, Java, and Rust analyzers each work from a single source file. Recursive analysis across files is not supported.
+
+The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
+
+Step groups and explanations must be in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. **Changed in 1.47.23.** All five analyzers read Indexed Attributes, Summary, Display, and start-input schemas. The Go, Python, and TypeScript analyzers also read Actions. Declare view RPCs with the protocol names **GetDexSummary** and **GetDexDisplay**. See [Dex Web](/reference/web/dex-web) for the directives.
+
+Version 2.0 builds an optional start-input schema from the Start Step's input type. In Go, this is the Step registered with **DefineStartStep**. The Go analyzer follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
+
+In Python and TypeScript, annotate the Start Step's **execute** input using types defined in the same file. Python supports dataclasses, **TypedDict**, **Enum**, **Literal**, optional values, lists, string-key dictionaries, and **datetime**. TypeScript supports interfaces, type aliases, string-literal unions, optional properties, arrays, string-key **Record** types, and **Date**. An unresolved or unsupported input type produces a **start_input_unresolved** warning and leaves the rest of the graph valid.
+
+Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+
+### Java source and directives
+
+**Since 1.47.23.** Java analysis requires JDK 17 or newer. The command infers Java from **.java** or accepts **--language java**. It uses **java** from **PATH** by default. Set **DEX_JAVA** to a different executable or pass **--java** to override it.
+
+```bash
+dexcli visualize ./OrderFlow.java --java /path/to/jdk/bin/java --json
+```
+
+The analyzer parses the supplied file with javac. It finds classes that implement **Flow** and **Step**, including nested classes. Targets such as **StepDecision.goTo(Ship.class, input)** use the Step type returned by **getStepType()** when the method returns a string literal or a constant declared in the same file. The class's simple name is the default. A target from another file keeps its simple name and produces a **step_type_unresolved** warning.
+
+Put **dex:group** and **dex:explanation** on consecutive comment lines above the Step class. The directives can precede Javadoc and annotations. For an Attribute defined with **AttributeIndex**, put **dex:indexed-attribute** above the field. Put **dex:field** above the **@RPC** annotation on the method with protocol name **GetDexSummary** or **GetDexDisplay**. Set the protocol name with **@RPC(name = "GetDexSummary")** or use that exact Java method name.
+
+```text
+// dex:group group-id:shipping group-label:"Shipping"
+// dex:explanation text:"Ship the order."
+
+// dex:indexed-attribute attribute-key:status index-key:status index-type:keyword value-type:string description:"Order status."
+
+// dex:field attribute-key:statusText value-type:string editable:false description:"Order status."
+```
+
+For the Start form, the analyzer reads a class literal returned by **getInputType()** or reads the input type argument of **Flow**. Input classes, records, nested types, and enums must be declared in the same file. Primitive types, strings, lists, string-keyed maps, **Optional**, and date-time types are supported. If a type cannot be represented, the graph reports **start_input_unresolved** and omits the Start form.
 
 ### Rust source {#rust-source}
 
@@ -190,16 +223,6 @@ Use `//` for Rust directives. Put `dex:group` and `dex:explanation` directly abo
 ```
 
 The Start input comes from the starting Step's `type Input` or the Flow's `type StartInput`. The analyzer supports primitive types, named-field structs, unit-variant enums, `Option`, `Vec`, string-keyed maps, and serde `rename` and `rename_all`. Declare custom input types and any nested types in the same file. An unreadable type produces a warning and leaves the Start form empty.
-
-The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
-
-Step groups and explanations must be in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. **Changed in 1.47.23.** The Go, Python, and TypeScript analyzers read Indexed Attributes, Summary, Display, Actions, and start-input schemas. Declare view RPCs with the protocol names **GetDexSummary** and **GetDexDisplay**. See [Dex Web](/reference/web/dex-web) for the directives.
-
-Version 2.0 builds an optional start-input schema from the Start Step's input type. In Go, this is the Step registered with **DefineStartStep**. The Go analyzer follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
-
-In Python and TypeScript, annotate the Start Step's **execute** input using types defined in the same file. Python supports dataclasses, **TypedDict**, **Enum**, **Literal**, optional values, lists, string-key dictionaries, and **datetime**. TypeScript supports interfaces, type aliases, string-literal unions, optional properties, arrays, string-key **Record** types, and **Date**. An unresolved or unsupported input type produces a **start_input_unresolved** warning and leaves the rest of the graph valid.
-
-Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
 
 ### TypeScript Waits, RPCs, and resource access {#typescript-waits-rpcs-and-resource-access}
 
@@ -414,7 +437,7 @@ The analysis does not track paths: a load declared on one movement into a Step c
 
 ## Application lints {#application-lints}
 
-**--lint app** adds checks for application mistakes that compile and pass the default analysis. The application checks below apply to Go. Python and TypeScript accept the flag and enforce the same FDG 2.0 group and explanation requirements. The state-load diagnostics above are reported in every mode.
+**--lint app** adds checks for application mistakes that compile and pass the default analysis. The application checks below apply to Go. Python, TypeScript, Java, and Rust accept the flag and enforce the same FDG 2.0 group and explanation requirements. The state-load diagnostics above are reported in every mode.
 
 ```bash
 dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app

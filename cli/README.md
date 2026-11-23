@@ -483,7 +483,7 @@ FlowService port bound to the remote host's loopback address too.
 
 ## Visualize Flow source
 
-Render a static possible-path graph from one Go, Python, TypeScript, or Rust Flow source file in
+Render a static possible-path graph from one Go, Python, TypeScript, Java, or Rust Flow source file in
 your local browser:
 
 ```bash
@@ -501,6 +501,7 @@ dexcli visualize ./order_flow.py --json
 dexcli visualize ./order_flow.go --json --out ./build/order-flow
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli visualize ./order_flow.ts --language typescript --schema-version 2.0 --json
+dexcli visualize ./OrderFlow.java --language java --json
 dexcli visualize ./order_flow.rs --language rust --json
 dexcli dev --flow-rendering-dir ./build
 ```
@@ -684,7 +685,7 @@ keyed by Go type, so registering one Go type or generic Step more than once
 produces `duplicate_step_type`. Regenerate definitions after upgrading **dexcli** so
 Dex Web v2 keys match the Worker.
 
-The command generates Flow Definition Graph 2.0 for Go, Python, TypeScript, and Rust.
+The command generates Flow Definition Graph 2.0 for Go, Python, TypeScript, Java, and Rust.
 Each Step needs a group and an explanation.
 Go also reads the Dex Web v2 Indexed Attribute, Summary, Display, Action, and Start contracts.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
@@ -783,8 +784,8 @@ directive satisfies instance reads, not enumeration. An unknown name produces
 `invocation_load_directive`. Options that cannot be evaluated, such as values
 returned by another package, keep the default mode silent for that read.
 
-`--lint app` adds the opt-in Go application checks below. Python and TypeScript
-also accept the flag and enforce FDG 2.0 Step groups and explanations. The
+`--lint app` adds the opt-in Go application checks below. Python, TypeScript,
+Java, and Rust also accept the flag and enforce FDG 2.0 Step groups and explanations. The
 state-load and start-input errors above are reported in every mode.
 
 | Code | Check |
@@ -796,12 +797,13 @@ state-load and start-input errors above are reported in every mode.
 | `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python|typescript|rust] [--schema-version 2.0]
+dexcli visualize SOURCE [--language auto|go|python|typescript|java|rust] [--schema-version 2.0]
                          [--flow FlowType]
                          [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
+                         [--java JAVA_PATH]
                          [--cargo CARGO_PATH]
 ```
 
@@ -810,6 +812,17 @@ Flows. If the name is missing or unknown, the diagnostic lists the available
 Flow types. You can omit `--schema-version`. Its only accepted value is `2.0`.
 Invalid command usage exits with status 2. See the
 [Flow Definition Graph 2.0 schema](schema/flow-definition-graph.v2.schema.json).
+
+**Since 1.47.23.** Java visualization requires JDK 17 or newer. The command
+uses `java` from `PATH` by default. Set `DEX_JAVA` to the executable path or
+override it with `--java`. Put `// dex:group` and `// dex:explanation` lines
+directly above the Step class, `// dex:indexed-attribute` above the indexed
+Attribute field, and `// dex:field` above the `@RPC` annotation for
+`GetDexSummary` or `GetDexDisplay`. The Start form reads `getInputType()` or
+the `Flow` type argument. Declare input classes, records, nested types, and
+enums in the same file. See the
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#java-source-and-directives)
+for directive syntax.
 
 The friendly Flow commands are:
 

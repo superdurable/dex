@@ -309,7 +309,26 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 		require.NoError(t, err)
 		relative = filepath.ToSlash(relative)
 		t.Run(relative, func(t *testing.T) {
-			if filepath.Ext(source) == ".rs" {
+			switch filepath.Ext(source) {
+			case ".java":
+				options := flowviz.AnalyzeOptions{JavaPath: javaVisualizationExecutable(t)}
+				graph, err := flowviz.Analyze(t.Context(), source, options)
+				require.NoError(t, err)
+				flows := javaVisualizationFlowTypes(graph)
+				for _, flowType := range flows {
+					t.Run(flowType, func(t *testing.T) {
+						selection := flowviz.AnalyzeOptions{FlowType: flowType, JavaPath: options.JavaPath}
+						selected, err := flowviz.Analyze(t.Context(), source, selection)
+						require.NoError(t, err)
+						require.Equal(t, flowType, selected.Flow.Name)
+						requireJavaExampleGraph(t, source, selected)
+					})
+				}
+				if len(flows) == 0 {
+					requireJavaExampleGraph(t, source, graph)
+				}
+				return
+			case ".rs":
 				requireVisualizeRustCargo(t)
 			}
 			graph := readVisualizeExampleGraph(t, source, "")
@@ -1030,6 +1049,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 	roots := []sourceRoot{
 		{directory: filepath.Join(repositoryRoot, "examples/go"), extension: ".go", marker: "GetSteps("},
 		{directory: filepath.Join(repositoryRoot, "examples/python"), extension: ".py", marker: "(Flow["},
+		{directory: filepath.Join(repositoryRoot, "examples/java"), extension: ".java", marker: "implements Flow<"},
 		{directory: filepath.Join(repositoryRoot, "examples/rust"), extension: ".rs", marker: "impl Flow for "},
 	}
 	result := make([]string, 0)
@@ -1045,7 +1065,8 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 			if entry.IsDir() && multiFlowExampleDirectories[entry.Name()] {
 				return filepath.SkipDir
 			}
-			if entry.IsDir() || filepath.Ext(path) != root.extension || strings.HasSuffix(path, "_test.go") {
+			if entry.IsDir() || filepath.Ext(path) != root.extension ||
+				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "Test.java") {
 				return nil
 			}
 			contents, readErr := os.ReadFile(path)
