@@ -570,7 +570,7 @@ public final class Client implements AutoCloseable {
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
-     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param invokeOptions additive Attribute-map locks, exact map-instance loads, and a request ID
      * @param <I> the RPC input type
      * @param <O> the RPC output type
      * @return the decoded RPC output
@@ -616,7 +616,7 @@ public final class Client implements AutoCloseable {
      * Invokes a function-style RPC without application input and adds map-instance selections.
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
-     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param invokeOptions additive Attribute-map locks, exact map-instance loads, and a request ID
      * @param <O> the RPC output type
      * @return the decoded RPC output
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
@@ -663,7 +663,7 @@ public final class Client implements AutoCloseable {
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
-     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param invokeOptions additive Attribute-map locks, exact map-instance loads, and a request ID
      * @param <I> the RPC input type
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
@@ -706,7 +706,7 @@ public final class Client implements AutoCloseable {
      * Invokes a procedure-style RPC without input and adds map-instance selections.
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
-     * @param invokeOptions additive Attribute-map locks and exact map-instance loads
+     * @param invokeOptions additive Attribute-map locks, exact map-instance loads, and a request ID
      * @throws FlowDefinitionException if an option references a definition outside the RPC Flow
      * @throws IllegalArgumentException if {@code invokeOptions} is {@code null}
      * @throws FlowNotActiveOrNotFoundException if the Flow is missing or the selected path cannot use
@@ -1842,6 +1842,7 @@ public final class Client implements AutoCloseable {
                         target.flow,
                         invokeOptions.getLoadChannelMapInstances(),
                         ChannelMap.class));
+        final String requestId = invokeOptions.getRequestId();
         final InvokeRPCRequest request = InvokeRPCRequest.newBuilder()
                 .setFlowId(target.flowId)
                 .setRunId(target.runId)
@@ -1849,7 +1850,7 @@ public final class Client implements AutoCloseable {
                 .setInput(values.encode(input))
                 .setTimeoutSeconds(rpc.getAnnotation().timeoutSeconds())
                 .addAllLockAttributeKeys(lockAttributeKeys)
-                .setRequestId(UUID.randomUUID().toString())
+                .setRequestId(requestId == null ? UUID.randomUUID().toString() : requestId)
                 .setIsTransactional(rpc.getAnnotation().isTransactional())
                 .addAllLoadAttributeMapInstances(loadAttributeMapInstances)
                 .addAllLoadChannelNames(rpc.getStateLoads().getChannels())
