@@ -15,7 +15,7 @@ import json
 from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
     FRAMEWORK_RUN_STATE,
-    OUTCOME_UNKNOWN_TOOL_RESULT,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
     TURN_FAILURE_NOTE_HEADER,
@@ -166,7 +166,10 @@ async def test_idempotent_write_uses_the_key_and_retries_to_an_unknown_outcome(
         session_id, f'call charge {{"amount": {CONNECTION_LOST_AMOUNT}}}'
     )
     exhausted = await harness.wait_for_turns(session_id, 3)
-    assert exhausted.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert exhausted.messages[-1].text == (
+        "charge: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error="charge lost its connection")
+    )
     assert harness.invocations.count("charge") == 5
     assert "RecordToolFailure" in await harness.executed_step_types(session_id)
 
@@ -242,7 +245,13 @@ async def test_tool_that_defers_itself_after_work_records_an_unknown_outcome(
     await harness.sessions.start_session(session_id, 'call start_export {"name": "q3"}')
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"start_export: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[-1].text == (
+        "start_export: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="tool start_export raised CallDeferred in its Dex tool Step, "
+            "so its work may have taken effect"
+        )
+    )
     assert harness.invocations.count("start_export") == 1
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 
@@ -255,7 +264,12 @@ async def test_a_sub_agent_model_error_after_a_write_records_an_unknown_outcome(
     await harness.sessions.start_session(session_id, 'call book_room {"room": "A"}')
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"book_room: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[-1].text == (
+        "book_room: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="Exceeded maximum output retries (1)"
+        )
+    )
     assert harness.invocations.count("reserve_room") == 1
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 

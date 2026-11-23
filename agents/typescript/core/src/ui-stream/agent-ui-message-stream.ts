@@ -692,33 +692,31 @@ class AgentUIMessageChunkTranslator {
     if (!(await this.introduceToolCall(toolCallId, toolName))) {
       return;
     }
-    if (status === "outcome_unknown") {
-      this.chunks.push({ type: "tool-output-error", toolCallId, errorText: outcomeUnknownToolResult, dynamic: true });
-    } else {
-      const details = await this.records.readToolCallDetails(
-        this.requireTurnId(),
+    const details = await this.records.readToolCallDetails(
+      this.requireTurnId(),
+      toolCallId,
+      (toolCall) => toolCall.status === status,
+    );
+    const record = details.record?.status === status ? details.record : undefined;
+    if (status === "succeeded") {
+      this.chunks.push({
+        type: "tool-output-available",
         toolCallId,
-        (toolCall) => toolCall.status === status,
-      );
-      const record = details.record?.status === status ? details.record : undefined;
-      if (status === "succeeded") {
-        this.chunks.push({
-          type: "tool-output-available",
-          toolCallId,
-          output: record?.output ?? details.storedToolOutput ?? null,
-          dynamic: true,
-        });
-      } else {
-        this.chunks.push({
-          type: "tool-output-error",
-          toolCallId,
-          errorText:
-            record === undefined
-              ? (details.storedToolOutput ?? failedToolCallText)
-              : describeToolCallOutcome(record),
-          dynamic: true,
-        });
-      }
+        output: record?.output ?? details.storedToolOutput ?? null,
+        dynamic: true,
+      });
+    } else {
+      // The record's text, or the stored result once the turn ended, as a reload shows it: for outcome_unknown,
+      // a thrown error adds its message.
+      this.chunks.push({
+        type: "tool-output-error",
+        toolCallId,
+        errorText:
+          record === undefined
+            ? (details.storedToolOutput ?? (status === "failed" ? failedToolCallText : outcomeUnknownToolResult))
+            : describeToolCallOutcome(record),
+        dynamic: true,
+      });
     }
     this.cursor.toolCalls.set(toolCallId, "finished");
   }

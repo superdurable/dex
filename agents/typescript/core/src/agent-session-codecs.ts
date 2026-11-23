@@ -445,7 +445,13 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     images: encodeImages(value.images),
     runner_tool_state: value.runnerToolState ?? null,
     approval_display: encodeAgentInterruptDisplay(value.approvalDisplay),
+    ...encodeToolStepThrew(value.toolStepThrew),
   };
+}
+
+/** Encoding omits a `false` flag, so records without a thrown error keep their released bytes. */
+function encodeToolStepThrew(toolStepThrew: boolean | undefined): { tool_step_threw?: true } {
+  return toolStepThrew === true ? { tool_step_threw: true } : {};
 }
 
 export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
@@ -481,6 +487,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     ...(traceContext === null ? {} : { traceContext }),
     ...decodeImages(reader),
     ...omitNullDisplay("approvalDisplay", decodeAgentInterruptDisplay(reader.readObject("approval_display"))),
+    ...(reader.readBooleanOrDefault("tool_step_threw", false) ? { toolStepThrew: true } : {}),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };

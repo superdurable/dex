@@ -15,7 +15,7 @@ import { after, before, describe, test } from "node:test";
 import type { Context } from "@earendil-works/pi-ai";
 import {
   ToolExecutionError,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   type AgentEventWriter,
   type AgentMessage,
   type ToolEffect,
@@ -406,7 +406,7 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
         .filter((message) => message.role === "tool")
         .map((message) => [message.toolCallId, message.toolOutput]),
     );
-    assert.equal(outputs.get("call_throw"), outcomeUnknownToolResult);
+    assert.equal(outputs.get("call_throw"), thrownOutcome("payment gateway timed out"));
     assert.equal(outputs.get("call_reject"), "The tool call failed: card declined");
     const runs = new InvocationLog(join(markerDirectory, "submit_payment.log")).names().filter((name) => name.includes(token));
     assert.deepEqual(runs.sort(), [`reject-${token} call_reject`, `throw-${token} call_throw`]);
@@ -535,8 +535,8 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
         .filter((message) => message.role === "tool")
         .map((message) => [message.toolCallId, message.toolOutput]),
     );
-    assert.equal(outputs.get(raisedWriteCallId), outcomeUnknownToolResult);
-    assert.equal(outputs.get(raisedUnclassifiedCallId), outcomeUnknownToolResult);
+    assert.equal(outputs.get(raisedWriteCallId), thrownOutcome("warehouse offline"));
+    assert.equal(outputs.get(raisedUnclassifiedCallId), thrownOutcome("archive offline"));
     assert.deepEqual(
       new InvocationLog(join(markerDirectory, "fail_lookup.log")).names().filter((name) => name === raisedWriteCallId),
       [raisedWriteCallId],
@@ -979,6 +979,10 @@ function createHandBuiltToolCallContext(effect: ToolEffect | undefined): ToolCal
     inputContinuation: null,
     heartbeat: async () => undefined,
   };
+}
+
+function thrownOutcome(error: string): string {
+  return outcomeUnknownThrownErrorToolResult.replace("{error}", error);
 }
 
 function newToken(): string {

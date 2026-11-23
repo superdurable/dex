@@ -332,7 +332,9 @@ failure the model should see.
   running the tool. Please try again."`. The adapter treats that text, and the
   SDK's default timeout text, as an unexpected error, so a write that may have
   run is recorded as `outcome_unknown` instead of a success the model would
-  retry.
+  retry. The model then reads only that the SDK replaced the error, because
+  the SDK dropped its message; create the tool with `errorFunction: null` to
+  keep it.
 - Output guardrails run when the resumed `RunModel` returns the recorded
   result.
 

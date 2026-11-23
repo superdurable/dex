@@ -260,7 +260,7 @@ yet:
 | `succeeded` | `ToolReturn(output)`; the parsed JSON for typed tool parts, such as tool search results |
 | `rejected` | `ToolDenied(rejection message)` |
 | `failed` | `ToolFailed("The tool call failed: <error>")` |
-| `outcome_unknown` | `ToolFailed(OUTCOME_UNKNOWN_TOOL_RESULT)` |
+| `outcome_unknown` | `ToolFailed(OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT)` with the message when the tool raised an exception (`tool_step_threw`); otherwise, such as after a crash, `ToolFailed(OUTCOME_UNKNOWN_TOOL_RESULT)` |
 
 **Tool Steps.** `execute_deferred_tool_call` runs the original tool once,
 through the agent: Pydantic AI starts a run whose history holds only the tool

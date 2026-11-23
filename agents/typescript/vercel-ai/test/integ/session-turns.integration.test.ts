@@ -16,7 +16,7 @@ import { SpanKind } from "@opentelemetry/api";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { hasToolCall, isStepCount, type ModelMessage } from "ai";
 
-import { messageSequenceKey, outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
+import { messageSequenceKey, outcomeUnknownThrownErrorToolResult, type AgentMessage } from "@superdurable/dex-agents";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -563,7 +563,7 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
     assert.deepEqual(toolLog("send_email", sessionId), [`${sessionId} call-1-send_email attempt 1`]);
   });
 
-  test("a plain error from an idempotent write exhausts CallTool retries and the model sees outcome_unknown", async () => {
+  test("a plain error from an idempotent write exhausts CallTool retries and the model sees it with outcome_unknown", async () => {
     const sessionId = newSessionId("exhausted");
     await sessions.startSession(sessionId, "call sync_inventory");
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
@@ -573,8 +573,9 @@ describe("Vercel AI SDK agent sessions in Step mode with an in-process Worker", 
       `${sessionId} call-1-sync_inventory attempt 3`,
     ]);
     const snapshot = await sessions.getAgentSnapshot(sessionId);
-    assert.equal(snapshot.messages.find((message) => message.role === "tool")?.toolOutput, outcomeUnknownToolResult);
-    assert.equal(snapshot.messages.at(-1)?.text, `sync_inventory -> ${outcomeUnknownToolResult}`);
+    const toolResult = outcomeUnknownThrownErrorToolResult.replace("{error}", "inventory service unavailable");
+    assert.equal(snapshot.messages.find((message) => message.role === "tool")?.toolOutput, toolResult);
+    assert.equal(snapshot.messages.at(-1)?.text, `sync_inventory -> ${toolResult}`);
     const finishedStatuses = (await sessions.listAgentEvents(sessionId))
       .filter((event) => event.type === "tool_call_finished")
       .map((event) => (JSON.parse(event.payload) as { status: string }).status);

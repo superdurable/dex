@@ -1,0 +1,155 @@
+{
+  "description": "The record a tool Step's failure route writes for a write whose tool may have run (attempt_progress NOT_COMPLETED), by the recovery error. The call records outcome_unknown with the recovery error's detail, or its error type when the detail is empty, as error. It sets tool_step_threw only when the last attempt failed with an error that the Worker reported, such as one the tool threw: then the model reads that error with the unknown outcome. Dex reports its own failures, such as a lost Worker or a passed time limit, with a FLOW_ERROR_TYPE_ name or a fixed type; those, an empty type, and a missing recovery error leave tool_step_threw false, so the model sees the fixed text. Types compare in upper case without underscores, as the Go SDK's RecoveryErrorInfo time-limit methods do. Hand-written; see README.md.",
+  "cases": [
+    {
+      "name": "a TypeScript tool's Error",
+      "recoveryError": {
+        "errorType": "Error",
+        "detail": "side-effect service 400: charge already refunded"
+      },
+      "error": "side-effect service 400: charge already refunded",
+      "toolStepThrew": true
+    },
+    {
+      "name": "a TypeScript fetch that failed",
+      "recoveryError": {
+        "errorType": "TypeError",
+        "detail": "fetch failed"
+      },
+      "error": "fetch failed",
+      "toolStepThrew": true
+    },
+    {
+      "name": "a Python tool's exception",
+      "recoveryError": {
+        "errorType": "builtins.RuntimeError",
+        "detail": "side-effect service 409: already sent"
+      },
+      "error": "side-effect service 409: already sent",
+      "toolStepThrew": true
+    },
+    {
+      "name": "a Python HTTP client's exception",
+      "recoveryError": {
+        "errorType": "httpx.HTTPStatusError",
+        "detail": "Client error '400 Bad Request'"
+      },
+      "error": "Client error '400 Bad Request'",
+      "toolStepThrew": true
+    },
+    {
+      "name": "a Worker error without a message",
+      "recoveryError": {
+        "errorType": "AbortError",
+        "detail": ""
+      },
+      "error": "AbortError",
+      "toolStepThrew": true
+    },
+    {
+      "name": "a Worker lost during the attempt",
+      "recoveryError": {
+        "errorType": "FLOW_ERROR_TYPE_WORKER_API_FAIL",
+        "detail": "Worker disconnected during pull dispatch: Worker stream disconnected"
+      },
+      "error": "Worker disconnected during pull dispatch: Worker stream disconnected",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a dispatch failure inside Dex",
+      "recoveryError": {
+        "errorType": "FLOW_ERROR_TYPE_INTERNAL",
+        "detail": "matching dispatch failed"
+      },
+      "error": "matching dispatch failed",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a method timeout",
+      "recoveryError": {
+        "errorType": "StartToClose",
+        "detail": "method timeout exceeded"
+      },
+      "error": "method timeout exceeded",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a method timeout in another spelling",
+      "recoveryError": {
+        "errorType": "START_TO_CLOSE",
+        "detail": "method timeout exceeded"
+      },
+      "error": "method timeout exceeded",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a heartbeat timeout",
+      "recoveryError": {
+        "errorType": "Heartbeat",
+        "detail": "heartbeat timeout exceeded"
+      },
+      "error": "heartbeat timeout exceeded",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a retry deadline",
+      "recoveryError": {
+        "errorType": "ScheduleToClose",
+        "detail": "retry total duration exceeded"
+      },
+      "error": "retry total duration exceeded",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a queue deadline",
+      "recoveryError": {
+        "errorType": "schedule_to_start",
+        "detail": "not started in time"
+      },
+      "error": "not started in time",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a feature the Server does not support",
+      "recoveryError": {
+        "errorType": "UnsupportedFeature",
+        "detail": "unsupported feature"
+      },
+      "error": "unsupported feature",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a value over the Server's limit",
+      "recoveryError": {
+        "errorType": "ValueTooLarge",
+        "detail": "value of 200000 bytes exceeds the maximum of 131072 bytes"
+      },
+      "error": "value of 200000 bytes exceeds the maximum of 131072 bytes",
+      "toolStepThrew": false
+    },
+    {
+      "name": "a failure of unknown kind",
+      "recoveryError": {
+        "errorType": "UnknownStepFailure",
+        "detail": "step failed"
+      },
+      "error": "step failed",
+      "toolStepThrew": false
+    },
+    {
+      "name": "an empty error type",
+      "recoveryError": {
+        "errorType": "",
+        "detail": "something failed"
+      },
+      "error": "something failed",
+      "toolStepThrew": false
+    },
+    {
+      "name": "no recovery error",
+      "recoveryError": null,
+      "error": "unknown failure",
+      "toolStepThrew": false
+    }
+  ]
+}

@@ -23,7 +23,7 @@ from uuid import uuid4
 import pytest_asyncio
 
 from dex_agents import (
-    OUTCOME_UNKNOWN_TOOL_RESULT,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     AgentEventType,
     AgentImageReference,
     AgentSessionClient,
@@ -490,7 +490,14 @@ async def test_a_function_tool_invalid_image_fails_like_a_tool_source_image(
 
     # As for a tool source, the session refuses the reference and the single attempt is unknown.
     tool_messages = [message for message in snapshot.messages if message.role is MessageRole.TOOL]
-    assert [message.tool_output for message in tool_messages] == [OUTCOME_UNKNOWN_TOOL_RESULT]
+    invalid_image_error = (
+        "Flow BuiltinImageAgent Step CallSingleAttemptTool execute returned an invalid result: "
+        "images[0]: image reference mime_type must be one of image/png, image/jpeg, image/gif, "
+        "image/webp"
+    )
+    assert [message.tool_output for message in tool_messages] == [
+        OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error=invalid_image_error)
+    ]
     assert [message.images for message in tool_messages] == [[]]
 
 

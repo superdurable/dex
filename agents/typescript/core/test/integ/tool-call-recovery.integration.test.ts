@@ -13,8 +13,14 @@ import { describe, test } from "node:test";
 
 import { StepAttemptProgress, type RecoveryErrorInfo } from "@superdurable/dex";
 
+import { decodeAgentToolCall, encodeAgentToolCall } from "../../src/agent-session-codecs.js";
 import { recoveredToolCall, toolExecutionErrorStatus } from "../../src/agent-session-steps.js";
 import {
+  describeToolCallOutcome,
+  outcomeUnknownErrorMaxBytes,
+  outcomeUnknownErrorTruncationMarker,
+  outcomeUnknownThrownErrorToolResult,
+  outcomeUnknownToolResult,
   toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   type AgentToolCallRecord,
@@ -129,4 +135,100 @@ describe("the status a ToolExecutionError records", () => {
       assert.equal(toolExecutionErrorStatus(toolCall, testCase.attempt), testCase.status);
     });
   }
+});
+
+interface ToolStepFailureCase {
+  readonly name: string;
+  readonly recoveryError: { readonly errorType: string; readonly detail: string } | null;
+  readonly error: string;
+  readonly toolStepThrew: boolean;
+}
+
+const toolStepFailureCases = (
+  JSON.parse(readFileSync(join(conformanceSuiteDirectory, "tool_step_failures.json"), "utf8")) as {
+    readonly cases: readonly ToolStepFailureCase[];
+  }
+).cases;
+
+describe("whether a failed tool Step's last attempt threw", () => {
+  for (const testCase of toolStepFailureCases) {
+    test(testCase.name, () => {
+      const recoveryError =
+        testCase.recoveryError === null
+          ? undefined
+          : { ...testCase.recoveryError, attemptProgress: StepAttemptProgress.NOT_COMPLETED };
+      const recorded = recoveredToolCall(approvedCall, recoveryError, "outcome_unknown");
+      assert.equal(recorded.status, "outcome_unknown");
+      assert.equal(recorded.error, testCase.error);
+      assert.equal(recorded.toolStepThrew === true, testCase.toolStepThrew);
+      const expectedText = testCase.toolStepThrew
+        ? outcomeUnknownThrownErrorToolResult.replace("{error}", () => testCase.error)
+        : outcomeUnknownToolResult;
+      assert.equal(describeToolCallOutcome(recorded), expectedText);
+    });
+  }
+
+  const thrown: RecoveryErrorInfo = {
+    detail: "side-effect service 400: charge already refunded",
+    errorType: "Error",
+    attemptProgress: StepAttemptProgress.NOT_COMPLETED,
+  };
+
+  test("a read whose attempts all threw records failed without the flag", () => {
+    const recorded = recoveredToolCall({ ...approvedCall, effect: "read" }, thrown, "failed");
+    assert.equal(recorded.status, "failed");
+    assert.equal(recorded.toolStepThrew, undefined);
+    assert.equal(describeToolCallOutcome(recorded), `The tool call failed: ${thrown.detail}`);
+  });
+
+  test("a call whose tool never ran records failed without the flag", () => {
+    const notStarted = { ...thrown, attemptProgress: StepAttemptProgress.NOT_STARTED };
+    const recorded = recoveredToolCall(approvedCall, notStarted, "outcome_unknown");
+    assert.equal(recorded.status, "failed");
+    assert.equal(recorded.toolStepThrew, undefined);
+  });
+
+  test("a task poll that threw sets the flag, because the poll's error is the call's last answer", () => {
+    const waiting: AgentToolCallRecord = { ...approvedCall, status: "waiting_for_task", taskId: "task-1" };
+    const recorded = recoveredToolCall(waiting, thrown, "outcome_unknown");
+    assert.equal(recorded.toolStepThrew, true);
+    assert.equal(recorded.error, thrown.detail);
+  });
+
+  test("an abandoned task keeps its abandoned error and the fixed text", () => {
+    const abandoned: AgentToolCallRecord = {
+      ...approvedCall,
+      status: "waiting_for_task",
+      taskId: "task-1",
+      cancellationReason: "turn_cancelled",
+    };
+    const recorded = recoveredToolCall(abandoned, thrown, "outcome_unknown");
+    assert.equal(recorded.error, toolTaskAbandonedError);
+    assert.equal(recorded.toolStepThrew, undefined);
+    assert.equal(describeToolCallOutcome(recorded), outcomeUnknownToolResult);
+  });
+
+  test("the flag round-trips through the record codec and is omitted when false", () => {
+    const recorded = recoveredToolCall(approvedCall, thrown, "outcome_unknown");
+    const encoded = encodeAgentToolCall(recorded) as Record<string, unknown>;
+    assert.equal(encoded["tool_step_threw"], true);
+    assert.equal(decodeAgentToolCall(encoded).toolStepThrew, true);
+    const unflagged = encodeAgentToolCall({ ...recorded, toolStepThrew: false }) as Record<string, unknown>;
+    assert.equal("tool_step_threw" in unflagged, false);
+    assert.equal(decodeAgentToolCall(unflagged).toolStepThrew, undefined);
+  });
+
+  test("a long thrown error is cut to the budget with the marker, and the record keeps it whole", () => {
+    const error = `side-effect service 400: ${"x".repeat(outcomeUnknownErrorMaxBytes)}`;
+    const recorded = recoveredToolCall(approvedCall, { ...thrown, detail: error }, "outcome_unknown");
+    assert.equal(recorded.error, error);
+    const totalBytes = Buffer.byteLength(error);
+    const marker = outcomeUnknownErrorTruncationMarker
+      .replace("{omitted_bytes}", String(totalBytes - outcomeUnknownErrorMaxBytes))
+      .replace("{total_bytes}", String(totalBytes));
+    assert.equal(
+      describeToolCallOutcome(recorded),
+      outcomeUnknownThrownErrorToolResult.replace("{error}", () => error.slice(0, outcomeUnknownErrorMaxBytes) + marker),
+    );
+  });
 });

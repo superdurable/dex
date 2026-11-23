@@ -789,6 +789,12 @@ type AgentToolCall struct {
 	// nil. The Go core never sets it; it keeps the field so a record written by another core
 	// round-trips. Since 0.6.0.
 	ApprovalDisplay *AgentInterruptDisplay `json:"approval_display"`
+	// ToolStepThrew reports whether the last attempt of the call's tool Step failed by throwing Error, on an
+	// outcome_unknown record that the Python or TypeScript core wrote. Those cores then show the model that
+	// error with the unknown outcome. The Go core never sets it and shows OutcomeUnknownToolResult; it keeps
+	// the field so a record written by another core round-trips. Encoding omits it when it is false.
+	// Since 0.6.18.
+	ToolStepThrew bool `json:"tool_step_threw,omitempty"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.

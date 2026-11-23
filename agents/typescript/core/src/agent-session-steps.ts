@@ -1338,14 +1338,40 @@ export function recoveredToolCall(
   status: "failed" | "outcome_unknown",
 ): AgentToolCallRecord {
   // An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
-  const error =
-    isAbandonedToolTask(toolCall) && (toolCall.cancellationReason ?? null) !== null
-      ? toolTaskAbandonedError
-      : recoveryErrorDetail(recoveryError);
+  const isAbandoned = isAbandonedToolTask(toolCall) && (toolCall.cancellationReason ?? null) !== null;
+  const error = isAbandoned ? toolTaskAbandonedError : recoveryErrorDetail(recoveryError);
   if (isToolCallNotRun(toolCall, recoveryError)) {
     return { ...toolCall, status: "failed", error: `${toolCallNotRunErrorPrefix}: ${error}` };
   }
+  if (status === "outcome_unknown" && !isAbandoned && isErrorThrownByWorker(recoveryError)) {
+    return { ...toolCall, status, error, toolStepThrew: true };
+  }
   return { ...toolCall, status, error };
+}
+
+// Failure types server-zd reports for an attempt without a Worker error, compared like the Go SDK.
+const dexAttemptFailureErrorTypes: ReadonlySet<string> = new Set([
+  "STARTTOCLOSE",
+  "HEARTBEAT",
+  "SCHEDULETOCLOSE",
+  "SCHEDULETOSTART",
+  "UNSUPPORTEDFEATURE",
+  "VALUETOOLARGE",
+  "UNKNOWNSTEPFAILURE",
+]);
+
+/**
+ * Reports whether the last attempt failed with an error the Worker reported, such as one the tool threw.
+ * @returns `true` for a Worker error's type, such as `TypeError` or `builtins.RuntimeError`. `false` without a
+ * recovery error, for an empty type, and for a type Dex reports itself, compared in upper case without underscores:
+ * a `FLOW_ERROR_TYPE_` name, such as for a lost Worker, or one of {@link dexAttemptFailureErrorTypes}.
+ */
+export function isErrorThrownByWorker(recoveryError: RecoveryErrorInfo | undefined): boolean {
+  if (recoveryError === undefined) {
+    return false;
+  }
+  const errorType = recoveryError.errorType.toUpperCase().replaceAll("_", "");
+  return errorType !== "" && !errorType.startsWith("FLOWERRORTYPE") && !dexAttemptFailureErrorTypes.has(errorType);
 }
 
 /** Returns whether the failed Step certainly never ran the call's tool. */

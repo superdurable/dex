@@ -11,7 +11,12 @@
 from __future__ import annotations
 
 import pytest
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentInterrupt, MessageRole, ToolEffect
+from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
+    AgentInterrupt,
+    MessageRole,
+    ToolEffect,
+)
 from dex_agents.testing import wait_for_agent_snapshot
 
 from tests.conftest import AGENT_FLOW_TYPES, ScriptedAgentHarness
@@ -110,7 +115,9 @@ async def test_a_validation_error_inside_a_tool_body_is_an_unknown_outcome(
         message.tool_output for message in snapshot.messages if message.role is MessageRole.TOOL
     ]
     # The body raised after its write, so the outcome is unknown, not a model-visible failure.
-    assert body_error == OUTCOME_UNKNOWN_TOOL_RESULT
+    # The model reads the raised validation error with it.
+    assert (body_error or "").startswith(OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error=""))
+    assert "1 validation error for RefundReceipt" in (body_error or "")
     assert (argument_error or "").startswith("The tool call failed: invalid tool arguments:")
     assert harness.tool_invocations() == ["refund"]
 
