@@ -12,6 +12,7 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 
 | Version | Released | Changes | Release |
 | --- | --- | --- | --- |
+| [1.45.17](#v1-45-17) | 2026-11-22 | 2 added | [sdk-python/v1.45.17](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.17) |
 | [1.45.16](#v1-45-16) | 2026-11-20 | 6 added | [sdk-python/v1.45.16](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.16) |
 | [1.45.9](#v1-45-9) | 2026-11-19 | 1 fixed | [sdk-python/v1.45.9](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.9) |
 | [1.45.8](#v1-45-8) | 2026-11-18 | 1 fixed | [sdk-python/v1.45.8](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.8) |
@@ -21,6 +22,13 @@ This page lists user-visible changes to the Python SDK, newest first. Each secti
 | [1.45.2](#v1-45-2) | 2026-11-14 | 1 added | [sdk-python/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.2) |
 | [1.45.1](#v1-45-1) | 2026-11-14 | 2 added | [sdk-python/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.1) |
 | [1.45.0](#v1-45-0) | 2026-11-11 | 1 breaking, 2 added, 1 fixed | [sdk-python/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.45.0) |
+
+### 1.45.17 (2026-11-22) {#v1-45-17}
+
+**Added**
+
+- **RPCInvokeOptions.request_id** sets the request ID of one **invoke_rpc** call. Pass the same ID on every attempt, such as the ID of an event delivered at least once, and Dex Server applies the RPC's Flow changes at most once. [Reference](/reference/server/runtime-data#rpc-request-ids).
+- A repeat of a transactional or locking RPC returns the recorded reply without running its handler again. **None**, the default, keeps the generated request ID. Dex Server 0.1.36 and earlier reject a different request under one ID with **DexServiceError** INVALID_ARGUMENT.
 
 ### 1.45.16 (2026-11-20) {#v1-45-16}
 

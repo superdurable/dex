@@ -35,7 +35,7 @@ pub(crate) struct EmbeddedS3 {
 }
 
 /// Whether this process proved that it alone serves the dev data directory.
-enum DataDirectoryLock {
+pub(crate) enum DataDirectoryLock {
     /// The exclusive lock on the lock file, held until the emulator is dropped.
     Held { _lock_file: File },
     /// The filesystem cannot lock files, so another process might serve the same directory.
@@ -51,26 +51,16 @@ enum LockAttemptOutcome {
 }
 
 impl EmbeddedS3 {
-    /// Locks the dev data directory, opens the emulator's data under `dev.s3DataDirectory`,
-    /// creates `bucket`, and serves it on a free loopback port.
+    /// Opens the emulator's data under `dev.s3DataDirectory`, creates `bucket`, and serves it on
+    /// a free loopback port; the emulator keeps `data_directory_lock` until it stops.
     ///
     /// With `dev.application_s3`, it also serves the application bucket from its own store and
-    /// address. Fails when another process holds the data directory lock.
-    pub(crate) async fn start(config: &DevConfig, bucket: &str) -> Result<Self, ServerError> {
-        let data_directory = config.data_directory.clone();
-        let data_directory_lock =
-            tokio::task::spawn_blocking(move || lock_data_directory(&data_directory))
-                .await
-                .map_err(|source| ServerError::EmbeddedS3 {
-                    directory: config.data_directory.clone(),
-                    detail: source.to_string(),
-                })??;
-        if matches!(data_directory_lock, DataDirectoryLock::Unsupported) {
-            tracing::warn!(
-                data_directory = %config.data_directory.display(),
-                "the data directory cannot be locked; a restart waits for the previous node lease to expire"
-            );
-        }
+    /// address.
+    pub(crate) async fn start(
+        config: &DevConfig,
+        bucket: &str,
+        data_directory_lock: DataDirectoryLock,
+    ) -> Result<Self, ServerError> {
         let (server, store) = start_emulator(
             config,
             &config.s3_data_directory,
@@ -272,6 +262,30 @@ fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String
     }
 }
 
+impl DataDirectoryLock {
+    /// Locks the dev data directory, creating it when missing, before the emulator starts on it.
+    ///
+    /// Returns [`DataDirectoryLock::Unsupported`] with a warning when the filesystem cannot lock
+    /// files. Fails when another process holds the data directory lock.
+    pub(crate) async fn acquire(config: &DevConfig) -> Result<Self, ServerError> {
+        let data_directory = config.data_directory.clone();
+        let data_directory_lock =
+            tokio::task::spawn_blocking(move || lock_data_directory(&data_directory))
+                .await
+                .map_err(|source| ServerError::EmbeddedS3 {
+                    directory: config.data_directory.clone(),
+                    detail: source.to_string(),
+                })??;
+        if matches!(data_directory_lock, DataDirectoryLock::Unsupported) {
+            tracing::warn!(
+                data_directory = %config.data_directory.display(),
+                "the data directory cannot be locked; a restart waits for the previous node lease to expire"
+            );
+        }
+        Ok(data_directory_lock)
+    }
+}
+
 /// Creates the data directory and takes a non-blocking exclusive lock on its lock file.
 ///
 /// Returns [`DataDirectoryLock::Unsupported`] when the filesystem cannot lock files, and fails
@@ -359,6 +373,7 @@ mod tests {
         DataDirectoryLock, EmbeddedS3, LockAttemptOutcome, classify_lock_attempt,
         lock_data_directory, store_open_failure_detail,
     };
+    use crate::ServerError;
     use crate::config::{ApplicationS3Config, DevConfig, DevDurabilityMode};
 
     const SERVER_BUCKET: &str = "dex-dev";
@@ -376,6 +391,12 @@ mod tests {
                 data_directory: data_directory.join("application-s3"),
             }),
         }
+    }
+
+    /// Locks the data directory of `config` and starts the emulators on it, as single-node startup does.
+    async fn start_emulators(config: &DevConfig) -> Result<EmbeddedS3, ServerError> {
+        let data_directory_lock = DataDirectoryLock::acquire(config).await?;
+        EmbeddedS3::start(config, SERVER_BUCKET, data_directory_lock).await
     }
 
     /// Sends one unsigned HTTP/1.1 request and returns the status code and body.
@@ -415,9 +436,7 @@ mod tests {
     async fn the_application_bucket_is_separate_from_the_server_bucket_and_survives_a_restart() {
         let directory = tempfile::tempdir().expect("test directory");
         let config = dev_config_with_application_bucket(&directory.path().join("data"));
-        let emulator = EmbeddedS3::start(&config, SERVER_BUCKET)
-            .await
-            .expect("the emulators start");
+        let emulator = start_emulators(&config).await.expect("the emulators start");
         let application_endpoint = emulator
             .application_endpoint()
             .expect("the application bucket is served");
@@ -444,7 +463,7 @@ mod tests {
         );
         emulator.shutdown().await;
 
-        let restarted = EmbeddedS3::start(&config, SERVER_BUCKET)
+        let restarted = start_emulators(&config)
             .await
             .expect("the emulators restart");
         let application_endpoint = restarted
@@ -477,9 +496,7 @@ mod tests {
         let mut config = dev_config_with_application_bucket(&data_directory);
         // Strict stores lock their metadata file, so a reopen succeeds only after a close.
         config.durability_mode = DevDurabilityMode::Strict;
-        let emulator = EmbeddedS3::start(&config, SERVER_BUCKET)
-            .await
-            .expect("the emulators start");
+        let emulator = start_emulators(&config).await.expect("the emulators start");
         let application_endpoint = emulator
             .application_endpoint()
             .expect("the application bucket is served");
@@ -553,7 +570,7 @@ mod tests {
             .as_mut()
             .expect("the application bucket is configured")
             .listen = occupied_address;
-        let Err(error) = EmbeddedS3::start(&config, SERVER_BUCKET).await else {
+        let Err(error) = start_emulators(&config).await else {
             panic!("an occupied application address must fail the start");
         };
         assert!(

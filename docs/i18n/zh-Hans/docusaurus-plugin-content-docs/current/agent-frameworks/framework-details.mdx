@@ -37,6 +37,27 @@ Claude Code 会运行整个 turn，所以适配器把一个 turn 拆成多个 se
 查询订单的 turn 运行一个 `RunModel` Step。取消订单的 turn 依次运行 `RunModel`、`AwaitToolApproval`、`CallSingleAttemptTool`、`ResumeTurn` 和 `RunModel`。
 
 </FrameworkTab>
+<FrameworkTab framework="eino">
+
+CloudWeGo Eino 是一个用于 LLM 应用的 Go 框架。它的 ADK 构建 `ChatModelAgent` 这样的 Agent，带模型、tool、Handler 和 middleware。Dex 的适配器在持久化 Session 中运行 `ChatModelAgent`。它支持 Go。
+
+**何时使用**
+
+你的 Go Agent 已经在用 Eino ADK 时使用它。保留 `ChatModelAgentConfig` 和其中的模型、tool、Handler 和 tool middleware，由 Dex 负责 Session。
+
+Agent 需要 **Steer**、`cancel_turn`、上下文压缩、提问或计划时，使用 Python 或 TypeScript 的 harness。Go core 没有这些功能。
+
+**Session 如何运行**
+
+你把 `*adk.ChatModelAgentConfig` 传给 `dexeino.NewAgentSessionFlow`，而不是 `adk.NewChatModelAgent`。每个 `RunModel` Step 都在已存储的消息上新建一个 Eino Agent 和 runner。适配器的第一个 Handler 把每个 tool call 变成 Eino interrupt，所以一次运行在一次模型调用后停下。
+
+每次 Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。这个 Step 通过只含这一个调用的 `compose.ToolsNode` 运行它，Agent 的 tool middleware 和 Handler 的 tool wrapper 也在其中运行。Step 先按 tool 当前的 schema 检查参数。
+
+下一个 `RunModel` 是在已存储的消息和已记录的结果上的一次新的 Eino 运行。Dex 不使用 Eino 的 `CheckPointStore`，所以每次模型调用都用当前部署的 instruction 和 tool。
+
+用 `WithToolEffects`、`WithToolPolicies` 或 `DexToolEffect` 方法给每个 Eino tool 一个 Dex effect，因为 Eino 的 tool 本身没有 effect。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。
+
+</FrameworkTab>
 <FrameworkTab framework="google-adk">
 
 Google ADK（Agent Development Kit）为 Gemini 和其他模型构建 Agent 与 multi-agent tree。Dex 适配器在持久化 Session 内运行 ADK Agent。它支持 Python。
@@ -158,12 +179,12 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 
 有些 Session 功能取决于 harness：
 
-| 功能 | 框架适配器 | 内置 Agent Loop 和 Pi |
-| --- | --- | --- |
-| 排队消息、**Steer** 和 `cancel_turn` | 是 | 是 |
-| Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 |
-| 向用户提问（`ask_user`） | 否 | 是 |
-| Plan（plan mode 和 `execute_plan`） | 否 | 是 |
+| 功能 | Python 和 TypeScript 适配器 | Python 和 TypeScript 的内置 Agent Loop，以及 Pi | Eino |
+| --- | --- | --- | --- |
+| 排队消息、`delete_queued_message`、**Steer** 和 `cancel_turn` | 是 | 是 | 只有排队消息 |
+| Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 | 否 |
+| 向用户提问（`ask_user`） | 否 | 是 | 否 |
+| Plan（plan mode 和 `execute_plan`） | 否 | 是 | 否 |
 
 ## 限制 {#limits}
 
@@ -178,6 +199,22 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - Claude Code 自己压缩 transcript，由 Dex 压缩上下文的功能保持关闭。长 Session 的终点是 state 上限，而不是 context window：即单个 Session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
 - 记录下来的 tool result 只保留文本。
 - Subagent 内的写操作调用会被拒绝。模型会被要求在主对话中调用它。
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+- 每个 `RunModel` 只做一次模型调用。会做更多次调用的配置无法构建：`ModelRetryConfig`、`ModelFailoverConfig` 和 summarization middleware。用 `WithModelRetryPolicy` 调整重试，用 `AgentConfigBuilder` 为每次调用选择模型。
+- 让每个 Handler 的 `WrapModel` 调用它收到的模型，并返回模型的错误。`RunModel` 会退避并重试限流和服务端错误，见 [Model API errors](/reference/agents/workers#model-api-errors)（英文）。重试模型或改用备用模型的 `WrapModel` 仍然可以构建，因为构建时看不到 Handler 的模型调用。模型调用失败时，这个重试或备用模型就是同一个 Step 里的第二次模型调用，所以 turn 以失败结束。
+- `Exit` 和 `ToolsConfig.ReturnDirectly` 会让 turn 以 tool result 结束，而不是以模型的回答结束。所以它们无法构建。
+- sub-agent 通过 `adk.NewAgentTool` 作为 tool 运行。它在这个 tool 的 Step 里运行，每次尝试都会再运行一次，所以给这个 tool 一个与其 sub-agent 所做的事相符的 effect。`transfer_to_agent` 以及预置的 supervisor、plan-execute 和 deep Agent 都不被接受。
+- 用 `adk.WithFullChatHistoryAsInput` 构建的 agent tool 会读取 Agent 的历史消息，而 tool Step 里没有这些消息。所以它无法构建。把 sub-agent 需要的内容放在调用参数里传入。
+- 每个 tool 都需要一个 Dex effect。没有 effect 的 tool 会让构建失败，除非你设置了 `WithDefaultToolEffect`。
+- 同一个模型回复里的 tool call 作为并行的 Step 运行，所以 tool 必须能以任意顺序安全地并发使用。`ToolsConfig.ExecuteSequentially` 无法构建。
+- 在 Handler 的 `WrapModel` 里修改模型的消息，在 `BeforeModelRewriteState` 里修改之前的消息或 tool。修改它们的 `AfterModelRewriteState` 或 `AfterChatModel` 会让 turn 以失败结束。
+- 每个 `RunModel` 都是一次新的 Eino 运行。run-local 值、session 值和 middleware 缓存在每次模型调用时都从空开始。
+- tool Step 按 tool 的 schema 检查参数，这可能比 Eino 自己的解码更严格。把 `utils.InferTool` 中的可选字段标为 `omitempty`，其他调用在 `ToolArgumentsHandler` 里转换。
+- tool 确定失败时返回 `*dexagents.ToolExecutionError`。`utils.WrapToolWithErrorHandler` 会把每个错误变成结果文本，于是一个可能已经执行的写入会显示为成功；Dex 的 tool 不要用它包装。
+- Go core 提供 Session 的核心功能：审批、tool effect、Connector tool、排队消息和 AgentEvents Stream。它没有 **Steer**、`cancel_turn`、`delete_queued_message`、提问、tool input request、计划、上下文压缩、图片、MCP tool source、spend-limit hook、GenAI span 和 UI stream。响应丢失后要重发消息时，先用 `GetAgentSnapshot` 查找这条消息，因为多出的副本会留在队列里，并单独运行一个 turn。等待审批的 Connector 调用没有审批展示。每个 Agent Flow type 只用一种语言的 Worker 运行。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">

@@ -1431,7 +1431,8 @@ RPC and on what the repeated attempt returns.
 By default, SDKs send a new request ID on each call, so calling an RPC again
 from your code runs it again. To make a retried call idempotent, pass the same
 request ID on every attempt, where the SDK accepts one. The TypeScript SDK
-takes it as **requestId** of **RPCInvokeOptions**. Use an ID that names the
+takes it as **requestId** of **RPCInvokeOptions**, and the Python SDK as
+**request_id** of **RPCInvokeOptions**. Use an ID that names the
 logical call, such as the ID of an event that is delivered at least once.
 
 How Dex Server answers a repeat depends on the RPC:

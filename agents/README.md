@@ -31,6 +31,7 @@ adapter depends on the published core instead.
 | [`cli/python/testing`](cli/python/testing) | `dex-agents-cli-testing`, never published | Test support of the Python commands: model API stubs, fixtures, and shared terminal scenarios |
 | [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow, the built-in agent loop (`/builtin-loop`), the AI SDK model client (`/ai-sdk`, optional peer `ai`), connector tools (`/connectors`, optional peer `@superdurable/connectors-sdk`), and `/testing` |
 | [`go/core`](go/core) | `github.com/superdurable/dex/agents/go/core` (package `dexagents`), not tagged yet | Shared session Flow, the built-in agent loop (`builtinloop`), Connectors as tools (`connectortools`), the OpenAI and Anthropic model clients (`openaimodel`, `anthropicmodel`), and `agentstest` |
+| [`go/eino`](go/eino) | `github.com/superdurable/dex/agents/go/eino` (package `dexeino`), not tagged yet | CloudWeGo Eino ADK `ChatModelAgent` on the Go core's session Flow |
 | [`typescript/vercel-ai`](typescript/vercel-ai) | [`@superdurable/dex-agents-vercel-ai`](https://www.npmjs.com/package/@superdurable/dex-agents-vercel-ai) | Vercel AI SDK |
 | [`typescript/openai-agents`](typescript/openai-agents) | [`@superdurable/dex-agents-openai-agents`](https://www.npmjs.com/package/@superdurable/dex-agents-openai-agents) | OpenAI Agents SDK |
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
@@ -415,7 +416,9 @@ steps above instead.
    declare `github.com/superdurable/dex/agents/go/<module>`, require another
    agents Go module at the release version with
    `replace github.com/superdurable/dex/agents/go/<module> => ../<module>`,
-   and require the other Dex modules at released versions.
+   so the repository builds the local module and other modules resolve the
+   release, require the other Dex modules at released versions, and set
+   `GOWORK=off` in their `ci.sh`.
 2. Implement the runner contract in the
    [Python core README](python/core/README.md#the-runner-contract).
 3. Test against a real Dex Server with the core's testing utilities and a

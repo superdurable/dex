@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Callable, Generator, cast
+from uuid import UUID
 
 import pytest
 
@@ -684,6 +685,87 @@ async def _assert_async_rpc_invoke_options_shape_the_same_request() -> None:
         )
     finally:
         await client.close()
+
+
+def test_rpc_invoke_options_send_the_caller_request_id() -> None:
+    class RPCService:
+        def __init__(self) -> None:
+            self.request_ids: list[str] = []
+
+        def InvokeRPC(self, request: pb.InvokeRPCRequest) -> pb.InvokeRPCResponse:
+            self.request_ids.append(request.request_id)
+            return pb.InvokeRPCResponse(
+                output=client._values.encode(
+                    OrderOutput(True), registry.codec_registry.resolve(OrderOutput)
+                )
+            )
+
+    registry = Registry((ORDERS,))
+    client = Client(registry, cast(BlobCache, object()))
+    service = RPCService()
+    client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
+    options = RPCInvokeOptions(request_id="event-7/get_order")
+    try:
+        for _ in range(2):
+            client.invoke_rpc(
+                ORDERS.get_order, "flow-1", OrderInput("order-1"), options=options
+            )
+        client.invoke_rpc(ORDERS.get_order, "flow-1", OrderInput("order-1"))
+        client.invoke_rpc(
+            ORDERS.get_order,
+            "flow-1",
+            OrderInput("order-1"),
+            options=RPCInvokeOptions(load_attribute_map_instances=()),
+        )
+    finally:
+        client.close()
+    assert service.request_ids[:2] == ["event-7/get_order", "event-7/get_order"]
+    generated = service.request_ids[2:]
+    assert all(UUID(request_id).version == 4 for request_id in generated)
+    assert generated[0] != generated[1]
+
+
+def test_async_rpc_invoke_options_send_the_caller_request_id() -> None:
+    asyncio.run(_assert_async_rpc_invoke_options_send_the_caller_request_id())
+
+
+async def _assert_async_rpc_invoke_options_send_the_caller_request_id() -> None:
+    class AsyncRPCService:
+        def __init__(self) -> None:
+            self.request_ids: list[str] = []
+
+        async def InvokeRPC(self, request: pb.InvokeRPCRequest) -> pb.InvokeRPCResponse:
+            self.request_ids.append(request.request_id)
+            return pb.InvokeRPCResponse(
+                output=client._values.encode(
+                    OrderOutput(True), registry.codec_registry.resolve(OrderOutput)
+                )
+            )
+
+    registry = Registry((ORDERS,), allow_async_handlers=True)
+    client = AsyncClient(registry, cast(BlobCache, object()))
+    service = AsyncRPCService()
+    client._service = cast(Any, service)
+    client._server_protocol.record_version(4)
+    try:
+        await client.invoke_rpc(
+            ORDERS.get_order,
+            "flow-1",
+            OrderInput("order-1"),
+            options=RPCInvokeOptions(request_id="event-7/get_order"),
+        )
+        await client.invoke_rpc(ORDERS.get_order, "flow-1", OrderInput("order-1"))
+    finally:
+        await client.close()
+    assert service.request_ids[0] == "event-7/get_order"
+    assert UUID(service.request_ids[1]).version == 4
+
+
+def test_rpc_invoke_options_reject_an_empty_request_id() -> None:
+    with pytest.raises(ValueError, match="request_id must not be empty"):
+        RPCInvokeOptions(request_id="")
+    assert RPCInvokeOptions().request_id is None
 
 
 def test_invalid_step_result_has_flow_and_step_context() -> None:
