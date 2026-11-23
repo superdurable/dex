@@ -66,18 +66,18 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli codec-server -key-file key.json** serves a local codec server (**POST /encode**, **POST /decode**) for encrypted payloads. It is for local development only: it listens only on 127.0.0.1, accepts only localhost **Host** headers, requires a random bearer token generated at each start, and allows CORS only from the given Dex Web origins.
+- **dexcli codec-server -key-file key.json** adds **POST /encode** and **POST /decode** for local dev only. It binds 127.0.0.1, requires localhost **Host** and a random bearer token per start, and limits CORS to set Dex Web origins. [Codec](/reference/server/payload-encryption#dexcli-codec-server).
 - **dexcli codec-server keygen -o key.json** writes a payload key file with one random 32-byte key and mode 0600. It refuses to replace an existing file unless you pass **-force**.
 - **dexcli dev -codec-key-file key.json** starts that codec server next to Dex Web and hands its endpoint and token to Dex Web and to **dexcli flow** commands against the same local server. dexcli never generates a key.
-- **dexcli flow** commands accept **--codec-key-file**, or **--codec-endpoint** with a token from **--codec-token-file** or **DEX_CODEC_TOKEN**. They decrypt stored values and **dex-encoded:** error texts before they print them. They encrypt the **flow start** input, the **flow stop --result** output, and the Stop, Time Travel, and clone-fork reasons. New Attributes stay plaintext, because dexcli cannot know which Attributes the application declared **Plaintext**.
+- [**dexcli flow**](/reference/server/payload-encryption#dexcli-flow) decrypts **dex-encoded:** errors, encrypts **flow start** input, **flow stop --result** output and reasons via **--codec-key-file**/**--codec-endpoint** (**--codec-token-file**/**DEX_CODEC_TOKEN**). New Attributes are plaintext.
 - Without a codec, a Stop, Time Travel, or clone-fork reason that starts with **dex-encoded:** is sent with one leading space, so readers never try to decrypt it.
 
 ### 1.47.17 (2026-11-19) {#v1-47-17}
 
 **Changed**
 
-- **dexcli dev shows only server warnings and errors** in the terminal. Lines that are not log lines, such as a crash message, still show. Every server line goes to a log file named after the Dex port, such as /tmp/dexcli/dev-8801.log, truncated on each start, and the ready message prints its path on the new Logs line. When the server cannot start, exits before Dex is ready, or stops later, dexcli prints its last 20 lines and the log path. Pass --server-log-level info to see every info line as before. With --server-log-folder, server-zd keeps writing dex-server-zd.log in that folder. See [Server logs](https://docs.superdurable.io/reference/cli/#server-logs).
-- **The update reminder is three lines**: the newest version, the upgrade command, and how many releases you skipped, with "includes breaking changes" when one of them lists one. The new dexcli release-notes command prints the notes of those releases on demand, newest first, without empty "None." sections, with one change-log link at the end. Both send GITHUB_TOKEN or GH_TOKEN to GitHub when set, and dexcli release-notes explains a GitHub rate limit instead of printing the HTTP status. See [Update reminder and release notes](https://docs.superdurable.io/reference/cli/#release-notes).
+- **dexcli dev shows only server warnings and errors** from server logs by default. Non-log lines still show. Use --server-log-level info for info logs. The ready output names the log path. See [Server logs](https://docs.superdurable.io/reference/cli/#server-logs).
+- **The update reminder is three lines** and flags breaking changes, while dexcli release-notes prints notes on demand. Both send GITHUB_TOKEN or GH_TOKEN to GitHub when set. See [Update reminder and release notes](https://docs.superdurable.io/reference/cli/#release-notes).
 
 ### 1.47.16 (2026-11-19) {#v1-47-16}
 
@@ -113,7 +113,7 @@ No user-visible changes.
 
 **Fixed**
 
-- **dexcli version check** now checks the server against the protocol range of the embedded Go SDK, which every other dexcli command uses. It reports that range as **clientProtocol** and the protocol those commands negotiate as **negotiatedProtocol**. Earlier releases checked a fixed range of 1-1, so the command could report a compatible server that the other commands reject. When the ranges do not overlap, the **reason** says whether to upgrade the server or dexcli. **dexcli web** warns with the same check.
+- **dexcli version check** uses the embedded Go SDK's range and reports **clientProtocol** and **negotiatedProtocol**. With no overlap, **reason** says what to upgrade. **dexcli web** warns using the same check. [Reference](/reference/cli/#check-protocol-compatibility).
 
 ### 1.47.10 (2026-11-16) {#v1-47-10}
 
@@ -126,11 +126,7 @@ No user-visible changes.
 
 **Changed**
 
-- **dexcli dev** opens Dex Web in the browser only when it runs interactively:
-  stdout is a terminal and **CI** is unset or empty. Without **--open**, it
-  keeps the browser closed when stdout is not a terminal or **CI** is
-  non-empty, as in scripts, tests, and CI. **--open=true** still
-  always opens it, and **--open=false** still always keeps it closed.
+- **dexcli dev** opens Dex Web by default only when stdout is a terminal and **CI** is empty or unset. Set **--open=true** to always open it or **--open=false** to keep it closed. [Reference](/reference/cli/#start-locally).
 
 ### 1.47.9 (2026-11-16) {#v1-47-9}
 
@@ -140,33 +136,33 @@ No user-visible changes.
 
 **Changed**
 
-- The release archives bundle **dex-server-zd** 0.1.34 instead of 0.1.33, so **dexcli dev** serves the graceful completion wait condition and **StopFlow** with the graceful and force complete stop types (Server protocol version 7). [Reference](/reference/server/step-and-flow-close#graceful-completion-condition).
+- Archives update **dex-server-zd** from 0.1.33 to 0.1.34 (Server protocol 7), so **dexcli dev** supports graceful completion waits and graceful or force completion in **StopFlow**. [Reference](/reference/server/step-and-flow-close#graceful-completion-condition).
 
 ### 1.47.8 (2026-11-15) {#v1-47-8}
 
 **Added**
 
-- **dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID** creates a new Flow from a point of another Flow run through **CloneForkFlow**. **--type** selects the point: **current** (the default), **beginning**, **history-event-time**, **step-type**, **step-execution-id**, or **event-id**. Other flags set the source run, run attempt, task queue, Flow configuration override, initial Attributes, Flow timeout, ID reuse policy, SubFlow reset policy, request ID, and reason.
+- **dexcli flow clone-fork SOURCE_FLOW_ID --flow-id NEW_FLOW_ID** calls **CloneForkFlow** to start a new Flow from a point in another run. **--type** selects the point and defaults to **current**. [Reference](/reference/cli/#time-travel-and-clone-fork).
 - **dexcli flow time-travel** accepts **--type event-id** with the history event ID as **--target**, **--run-attempt** to search an earlier run attempt, and **--sub-flow-reset-policy** to decide what happens to restored SubFlow waits. Its output adds **runAttempt**.
 - **dexcli api** lists the **CloneForkFlow** call of the FlowService and, as for other writes, calls it only with **--yes**.
 - Flow analysis accepts the **agent.repeatOnUnknown** and **agent.maxSends** fields of a Connector package's **dex-connector.json**, and the published manifest schema declares them.
 
 **Changed**
 
-- **dexcli agents-tui**: pasting image paths, or dropping image files on the terminal, attaches them at once, without the **Attach NAME?** question, also when the input holds text. One paste may name several files, quoted or with backslash-escaped spaces. A pasted path that does not attach stays as text. When the paste also names an image, or the path ends in an image extension, a notice says why: not a PNG, JPEG, GIF, or WebP image, missing, or unreadable. A paste while a panel or list has focus closes it and goes to the input instead of being lost. [Reference](/reference/agents/cli#images).
+- **dexcli agents-tui** attaches pasted paths or dropped images immediately, removes **Attach NAME?**, and accepts multiple paths. A failed path stays as text, and pasting into a focused panel moves the paste to the input. [Reference](/reference/agents/cli#images).
 - **dexcli agents-tui**: the notice for an image over the size limit gives both sizes in exact bytes, such as "an image may have at most 3,750,000", instead of a rounded "3.6 MB".
 - The release archives bundle **dex-server-zd** 0.1.33 instead of 0.1.30, so **dexcli dev** serves **CloneForkFlow**, Time Travel to an event ID, and the SubFlow reset policy (Server protocol version 6). [Reference](/reference/server/runtime-client#clone-fork).
 
 **Fixed**
 
-- **dexcli agents-tui**: Enter right after pasting an image no longer sends the message without it and attaches the image to the next message. Enter waits until the draft's pasted images are stored, shows "attaching image… sends when ready", and then sends one message with them. If an image does not attach, the message stays unsent with a notice, and the next Enter sends it without the image.
+- **dexcli agents-tui** waits for pasted images to attach before sending on Enter. If one fails, the draft stays unsent with a notice, and pressing Enter again sends it without that image. [Reference](/reference/agents/cli#images).
 - **dexcli agents-tui**: live output turns off only when the Dex server's Stream Store is disabled. Before, any failed precondition on reading the session's events turned it off for the rest of the chat; now such a failure is retried.
 
 ### 1.47.7 (2026-11-14) {#v1-47-7}
 
 **Added**
 
-- **dexcli connectors mcp** serves only the Connectors MCP server, without Dex Server or Dex Web, on its own loopback **/mcp** proxy. It prints the URL as one JSON line on stdout, reuses the server of a running **dexcli dev** for the same **connections.json**, and stops only a server it started. An agent that works against a remote Dex server uses it to reach the Connector tools authorized on this machine. [Reference](/reference/cli/#connectors-mcp-command).
+- **dexcli connectors mcp** serves authorized local Connector tools on its own loopback **/mcp** proxy and prints its URL as JSON. It reuses the **dexcli dev** MCP server for the same **connections.json**. [Reference](/reference/cli/#connectors-mcp-command).
 
 ### 1.47.6 (2026-11-14) {#v1-47-6}
 
@@ -190,50 +186,18 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli visualize** reads TypeScript **waitFor** methods, RPC handlers,
-  and **handleTimeout** in the same graph shape as Go. A Wait built directly
-  from **Wait** factories shows its Timer, Channel, ChannelMap, Join, and
-  SubFlow conditions, and a **waitFor** that only throws shows a failure
-  Wait. An RPC's **RPCResult** shows its **nextSteps** and **cancelingSteps**.
-  The graph also records resource reads, writes, and publishes in each
-  handler and in the same-file helpers it calls, and warns about unused
-  resources. A Wait, RPC result, or resource access that the analyzer cannot
-  prove, a Stream write in an RPC or timeout handler, and several Flows in
-  one file are blocking diagnostics. Such a source no longer reports
-  **typescript_wait_for_unsupported**.
-  [Reference](/reference/web/flow-visualization#supported-source-profile).
+- [**dexcli visualize**](/reference/web/flow-visualization#supported-source-profile) graphs TS **waitFor**, **Wait**, **handleTimeout**, **RPCResult** and resources. Several Flows per file or RPC/timeout Stream writes block analysis. Diagnostics replace **typescript_wait_for_unsupported**.
 
 ### 1.47.2 (2026-11-13) {#v1-47-2}
 
 **Added**
 
-- **dexcli agents-tui** hands a session switch back to the agents command when
-  the launch document sets **launcher_session_switch**. Then **/sessions** and
-  **/new** end the terminal UI, and the command opens the chosen session after
-  it waits until no other terminal has that session open. Without the
-  capability, the terminal UI switches in place as before. **--describe**
-  lists the capability.
-- **dexcli visualize** accepts **--typescript-compiler**, or the
-  **DEX_TYPESCRIPT_COMPILER** environment variable, naming a trusted
-  **typescript** package directory. The analyzer then loads only that
-  compiler and starts Node.js without **NODE_** environment variables, so no
-  code from the analyzed source tree runs. Without it, the analyzer loads the
-  **typescript** package that the source project resolves, which a source tree
-  can supply through its own or a parent **node_modules** or a package named
-  **typescript**, even when **NODE_PATH** is set. Set it whenever you
-  visualize untrusted TypeScript source, and keep the analyzed tree's
-  directories out of **PATH**. An empty flag value or an empty variable is a
-  usage error, never a fallback to the source project's compiler.
-  [Reference](/reference/web/flow-visualization#typescript-compiler).
+- With **launcher_session_switch**, **dexcli agents-tui** hands **/sessions** and **/new** to the launcher, which opens the chosen session once no other terminal has it open. **--describe** lists the capability. Without it, the UI switches in place.
+- **--typescript-compiler** or **DEX_TYPESCRIPT_COMPILER** pins trusted **typescript** and strips **NODE_**. Empty values fail. When unset, project compiler code can run. Set it for untrusted code and keep source off **PATH**. [Reference](/reference/web/flow-visualization#typescript-compiler).
 
 **Changed**
 
-- **dexcli visualize** reports a missing TypeScript compiler with a message
-  that names both places it looks: the source project and the
-  **node_modules** directories listed in **NODE_PATH**. A source project
-  without **node_modules** can use a separately installed, pinned
-  **typescript** package through **--typescript-compiler**; see
-  [Trusted TypeScript compiler](/reference/web/flow-visualization#typescript-compiler).
+- **dexcli visualize** names the source project and **node_modules** on **NODE_PATH** when it cannot find a compiler. Use **--typescript-compiler** for a separate pinned **typescript** package. See [Trusted TypeScript compiler](/reference/web/flow-visualization#typescript-compiler).
 
 ### 1.47.1 (2026-11-12) {#v1-47-1}
 
@@ -245,15 +209,7 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli agents-tui**: **/model** without an ID opens a list of the
-  command's suggested models with the current one marked; **/model ID** still
-  takes any model ID. The new **/effort** opens the reasoning effort values the
-  command offers, and **/effort LEVEL** checks the value against them;
-  **default** returns to the model's default. Both change the session's
-  settings from the next turn. The status line shows the reasoning effort when
-  the session sets one. The lists come from dex-agents 0.6.2; with an older
-  command, **/model** lists only its configured model and **/effort** says the
-  command has no reasoning effort setting.
+- **dexcli agents-tui** lists **/model** and **/effort** choices with dex-agents 0.6.2. **/model ID** takes any ID. **/effort LEVEL** validates effort and **default** resets it. Both apply next turn. Older commands list one model and lack effort. [Ref](/reference/agents/cli#model-and-effort).
 
 ## 1.46 {#v1-46}
 
@@ -266,17 +222,8 @@ No user-visible changes.
 
 **Changed**
 
-- In the **dexcli agents-tui** chat, **Up** and **Down** on an empty input
-  scroll the messages one line, so the mouse wheel scrolls in terminals that
-  send it as arrow keys. **Ctrl-P** and **Ctrl-N** recall earlier messages.
-  **Up** and **Down** keep recalling while the input holds an unedited
-  recalled message, and move between the lines of a typed message. The plan's
-  steps open with **Ctrl-T** instead of **Ctrl-P**.
-- The **dexcli agents-tui** chat shows Dex Web addresses, in the welcome area
-  and in notices, as underlined links that terminals with hyperlink support
-  open on a click. The welcome logo uses the Dex brand green, picking the
-  light or dark shade from the terminal background, and draws its bar in the
-  terminal's text color.
+- In **dexcli agents-tui**, **Up** and **Down** scroll messages when input is empty. **Ctrl-P** and **Ctrl-N** recall messages, and **Ctrl-T** opens the plan's steps. [Reference](/reference/agents/cli#terminal-ui).
+- **dexcli agents-tui** underlines Dex Web links in the welcome area and notices so terminals with hyperlink support can open them. The welcome logo adapts its green to the background and uses the terminal text color for its bar. [Reference](/reference/agents/cli#terminal-ui).
 
 **Fixed**
 
@@ -287,16 +234,8 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli agents-tui** shows the message with which an approved plan starts
-  running as the notice "Running plan revision N", not as a user message from
-  another client. It hides the notes the session writes for the model after a
-  failed, steered, or cancelled turn. It reads **AgentMessage.origin**, which
-  dex-agents 0.6.0 sets on these messages.
-- The **dexcli agents-tui** chat opens a tool's whole stored output in a
-  pager with **Ctrl-O**, or picks one of the latest turn's tools with
-  **/tools**. **/history** pages through the messages stored before the ones
-  a resumed chat shows. The pager scrolls with **j**/**k** and the page keys,
-  searches with **/**, and closes with **q**.
+- **dexcli agents-tui** shows approved plan starts as "Running plan revision N" notices and hides model-only notes after failed, steered, or canceled turns. It uses **AgentMessage.origin** from dex-agents 0.6.0.
+- **dexcli agents-tui** pages full tool output with **Ctrl-O** or **/tools** and earlier stored messages with **/history**. Scroll with **j**/**k** or page keys, search with **/**, and close with **q**. [Reference](/reference/agents/cli#terminal-ui).
 - Replies render tables, strikethrough, and task lists. Tool rows count the
   images a tool returned.
 - The approval popup shows what a call acts on, what it does, and the diff
@@ -308,27 +247,9 @@ No user-visible changes.
 - The welcome area shows the Dex logo when the terminal is large enough.
 - **/run** shows as unavailable in the command list, with the reason, until
   the session waits for approval of a draft plan.
-- **dexcli agents-tui** also runs the **sessions** and **connectors** modes of
-  terminal UI contract 1. The **sessions** mode is a full-screen, paged list of
-  a command's sessions. It shows the title, last activity, and turn count when
-  the sessions have them, and only the ID, status, and start time otherwise.
-  **/** filters the loaded sessions and searches titles in Dex. Enter on a
-  running session hands it back to the command to resume. The
-  **connectors** mode lists the connections of the connector tools, refreshes
-  them with **r**, and opens the Dex Web Connectors page with **a**.
-- In the agents chat, **/sessions** opens the same session list and switches
-  the chat to the picked session with its history. Before **/sessions** or
-  **/new** switches, the chat asks whether to drop attached images, and it
-  waits for the current session's requests to finish. Messages and commands
-  meant for the previous session are not sent to the new one; the chat says
-  so.
-- **dexcli agents-tui** runs the full-screen chat of the agents CLI commands
-  under terminal UI contract 1. It is a hidden command that a command's
-  launcher starts with **--channel-fd**; **--describe** prints the contracts
-  and modes it supports. The **chat** mode talks to the
-  agent session directly, with the snapshot as the record and live events
-  for streaming, and asks the launcher for local work such as **/image** and
-  **/new**.
+- **dexcli agents-tui** adds **sessions** and **connectors** in contract 1. Paged sessions show title, last activity and turns, or ID, status and start time. **/** filters and searches Dex titles, Enter resumes running sessions, and in **connectors** **r** refreshes and **a** opens the Web page.
+- **/sessions** opens a list and switches the chat to the chosen session with its history. **/sessions** and **/new** ask before dropping images and wait for pending requests. The chat warns when it discards messages or commands meant for the previous session.
+- The hidden **dexcli agents-tui** command adds terminal UI contract 1 with **--channel-fd** and **--describe** for capability discovery. **chat** reads the session snapshot and live events directly and delegates local commands like **/image** and **/new** to the launcher.
 
 **Changed**
 
@@ -386,8 +307,8 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON files or directories on the server and prints the outcome for each Flow type. **--force** replaces a stored definition even when its generation time is later. **dexcli flow-definition list** lists the Flow types that have a stored definition. [Reference](/reference/cli/#flow-definition).
-- **dexcli visualize** writes a top-level **generatedAt** field, an RFC 3339 UTC timestamp, into each Version 2.0 Flow Definition Graph. Set **SOURCE_DATE_EPOCH** to make it reproducible; an invalid value is a usage error. Version 1.0 output is unchanged. Dex Web older than 1.45 rejects a graph that has **generatedAt**, so upgrade Dex Web with dexcli. [Reference](/reference/web/flow-visualization#generated-at).
+- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON from files or directories. **--force** replaces newer stored definitions, and **dexcli flow-definition list** shows Flow types with stored definitions. [Reference](/reference/cli/#flow-definition).
+- **dexcli visualize** adds a UTC **generatedAt** timestamp to Version 2.0 graphs. Set **SOURCE_DATE_EPOCH** for reproducible output and upgrade to Dex Web 1.45 or later to open the graphs. [Reference](/reference/web/flow-visualization#generated-at).
 
 **Changed**
 
@@ -407,7 +328,7 @@ No user-visible changes.
 
 **Added**
 
-- **dexcli visualize** recognizes the SDK Join helper in Go, Python, and TypeScript sources. A Join appears as a ChannelMap; the branch Steps and the join Step that **Fork** starts become transitions, marked ×N when the branches are built in a loop. The Go and Python graphs also show the Join's wait, publish, and read edges. [Reference](/reference/web/flow-visualization).
+- **dexcli visualize** graphs Go, Python, and TypeScript Joins as ChannelMaps, with **Fork** transitions to branch and join Steps and ×N for loop-built branches. Go and Python also show wait, publish, and read edges. [Reference](/reference/web/flow-visualization).
 
 ## 1.43 {#v1-43}
 
@@ -427,7 +348,7 @@ No user-visible changes.
 **Added**
 
 - The Dex Web of **dexcli dev** and **dexcli web** can start a Dex Agents session, send it messages, and edit its settings from the **Agent session** tab. [Reference](/reference/web/dex-web#agent-new-session).
-- **dexcli dev** finds or starts the Dex Connectors MCP server and serves its agent tools at **/mcp** on the Dex Web port. It downloads and verifies a compatible release, and restarts the server when it stops. New flags: **--connectors-mcp**, **--connectors-mcp-version**, **--connectors-mcp-binary**, and **--connectors-mcp-connection**. [Reference](/reference/cli/#connectors-mcp).
+- **dexcli dev** serves Connectors MCP at **/mcp** on the Dex Web port. It verifies downloads and restarts a stopped server. Flags: **--connectors-mcp**, **--connectors-mcp-version**, **--connectors-mcp-binary**, **--connectors-mcp-connection**. [Reference](/reference/cli/#connectors-mcp).
 
 **Changed**
 
@@ -448,7 +369,7 @@ No user-visible changes.
 
 **Changed**
 
-- The Dex Web of **dexcli dev** refuses an **/api** request whose **Host** is a DNS name other than a loopback name or an **--allowed-hosts** entry, with HTTP 403 **HOST_NOT_ALLOWED**. This stops DNS rebinding. Pass **--allowed-hosts** when a tunnel or a hosted development environment forwards Dex Web under its own name. [Reference](/reference/web/dex-web#allowed-hosts).
+- **dexcli dev** returns HTTP 403 **HOST_NOT_ALLOWED** for **/api** requests with DNS **Host** names outside loopback or **--allowed-hosts**, blocking DNS rebinding. Add your tunnel or hosted development name with **--allowed-hosts**. [Reference](/reference/web/dex-web#allowed-hosts).
 
 ## 1.41 {#v1-41}
 
