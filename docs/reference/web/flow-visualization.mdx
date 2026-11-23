@@ -137,7 +137,7 @@ Ordinary business helpers and imported models are allowed. A helper must not hid
 
 Go resource access may also be in functions and methods of the same package that a handler calls. The analyzer follows those calls up to six levels deep, including calls inside loops and function literals. A resource passed as an argument is bound to the matching parameter, so access through that parameter counts for the resource.
 
-Python resource access counts only when it is written in the handler method itself. See [Python Waits, movements, and resource access](#python-waits-movements-and-resource-access).
+For ordinary resource operations, the Python analyzer scans the handler's own syntax and does not follow calls into separate helpers. See [Python Waits, movements, and resource access](#python-waits-movements-and-resource-access).
 
 Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST. It runs the interpreter in isolated mode with automatic **site** initialization disabled, so **.pth** import lines and **sitecustomize** never run. It never imports or executes the application module.
 
@@ -170,7 +170,7 @@ Pass `--flow` to select one Flow type from a file with multiple Flows. Without i
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Rust sources and recursive analysis across files are not supported.
+In Go, an Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In Python, an Execute method annotated with `StepDecision` gets **hidden_dex_decision** when it directly returns a helper call and none of its returns is a recognized decision. When a Python Execute method hides its decision in another way, such as without the annotation or by returning a variable, the graph leaves that decision out without a diagnostic. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Rust sources and recursive analysis across files are not supported.
 
 The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 
@@ -184,26 +184,34 @@ Version 2.0 recognizes operation-specific Connector factories such as **openai.N
 
 ### Python Waits, movements, and resource access {#python-waits-movements-and-resource-access}
 
-The Python analyzer reads Waits, Step movements, and resource access in each Step method, RPC, and `handle_timeout` body. For a complete graph, write them as follows:
+Write the Wait, the Step movements, and the resource operations directly in the Step method that uses them. The Python analyzer reads Waits from `wait_for`. It reads Step movements from `execute`, RPC methods, and `handle_timeout`. It scans those handlers for resource operations, including nested syntax such as a lambda in the handler. It does not follow a call into a separate helper body.
 
-- Each `return` in `wait_for` returns a `Wait` call, such as `return Wait.until(APPROVALS.for_one())`. Conditions from `if`, `match`, and conditional expressions are supported.
-- Each `go_to_many` argument is a `StepMovement.of` call or a starred list comprehension or generator of them. It may also be a starred Join `fork` call, whose builders are lambdas or functions of the same file that return `StepMovement.of`. A starred local list also works when the same method builds it from `StepMovement.of` calls with a list literal, a comprehension, `append`, or `extend`.
-- Each Attribute, AttributeMap, Channel, and Stream call, such as `get`, `set`, `delete`, or `publish`, is written in the method body.
-- Each resource is defined in the Flow source file: as a module-level variable, a field of the Flow class, or a field that the Flow's `__init__` assigns. A Step can also hold a resource that the Flow passes to its constructor.
+The supported forms are:
 
-Ordinary helpers can still compute values, such as the text that a `set` call writes.
+- In `wait_for`, return `Wait.until`, `Wait.all_of`, `Wait.any_of`, `Wait.any_combination_of`, or `Wait.skip_immediately` directly, such as `return Wait.until(APPROVALS.for_one())`. Write the Channel, Join, Timer, and SubFlow conditions inside that returned call. The analyzer labels branches from `if` tests, `match` case patterns, and conditional expressions. A `wait_for` that raises and has no `return` is a failure Wait.
+- Pass `StepMovement.of` calls to `go_to_many`, or unpack a list comprehension or generator expression of them. To unpack a local list, build it in the same method from `StepMovement.of` calls. You can also unpack the result of a Join `fork` or `fork_with_round_key` call. Each of its builders is a lambda, or a module-level function of the same file, that returns a `StepMovement.of` call.
+- Call `get`, `set`, `delete`, `publish`, and the other resource methods on an `Attribute`, `AttributeMap`, `Channel`, `ChannelMap`, `Join`, or `Stream` that the analyzer can resolve.
+- Define each resource with a Dex constructor call in the Flow source file. Assign it at module scope, in the Flow class body, or at the top level of the Flow's `__init__`, as a local name or a `self` field. The Flow can pass a resource to a Step constructor when the Step's `__init__` assigns that parameter to a Step field.
 
-Other shapes give a partial graph:
+Ordinary helpers can still compute values, such as the text that a `set` call writes. Attribute locks in RPC decorators and Step options are read as described in [What the graph contains](#what-the-graph-contains).
+
+Unsupported shapes can omit parts of the graph. Some also produce diagnostics:
 
 | Source shape | What the graph shows | What to change |
 | --- | --- | --- |
-| `wait_for` returns a helper result or a variable in every path | Blocking `hidden_dex_wait` error, "wait_for hides its Dex Wait in a helper". The Step has a Dynamic WaitFor node and no resource access from `wait_for`. | Return the `Wait` call directly. |
-| A `go_to_many` argument is a helper call or another expression, such as `*build_movements(step_input)` | Blocking `dynamic_step_target` error, "fan-out movements must be built directly in the handler". | Write the `StepMovement.of` calls in the method. |
-| `go_to_many(*movements)` uses a local list that a helper returned | The decision has no edge to the targets. A target that nothing else reaches gets the `unreachable_step` warning. | Build the list in the method. |
-| A resource call is in a helper, in the same file or another module | The handler has no read or write edge for it. A resource with no edge anywhere gets the `unused_resource` warning, such as "attribute Summary has no direct access in the source file". | Write the call in the method. |
-| A resource is defined in another module and imported | The graph has no node for the resource and no edges to it. A Wait condition on it is missing from the Wait. No diagnostic names it. | Move the definition into the Flow source file. |
+| `wait_for` returns a helper result or a variable in every path | A `Dynamic WaitFor` node and a blocking `hidden_dex_wait` error, "wait_for hides its Dex Wait in a helper". The Step has no resource edges from `wait_for`. | Return a supported `Wait` factory call directly. |
+| `go_to_many` takes a helper call directly or through unpacking, such as `*build_movements(step_input)` | A `Dynamic Step` node and a blocking `dynamic_step_target` error, "fan-out movements must be built directly in the handler". | Write the `StepMovement.of` calls in the method. |
+| `go_to_many(*movements)` unpacks a local list that a helper returned | The decision has no edges for those movements. If the graph has a Start Step, each target that is unreachable from the Start Step, every RPC, and the timeout handler gets the `unreachable_step` warning, such as "Step Ship is not reachable from the start Step or an RPC". | Build the list from `StepMovement.of` calls in the same method. |
+| A separate helper performs the resource operation | The helper call adds no resource edge for that operation. A resource node with no resource or Wait condition edge gets the `unused_resource` warning, such as "attribute Summary has no direct access in the source file". | Write the resource operation in the handler. |
+| An ordinary handler operation or a Wait condition uses a resource imported from another module | The imported resource has no node or edges. A Wait on an imported Channel keeps its Wait node and omits that Channel condition. These uses produce no diagnostic for the missing resource. | Define the resource in the Flow source file. |
 
-When some `wait_for` returns are `Wait` calls, the graph shows those Waits and leaves out the other returns without a diagnostic. A resource that one handler uses directly gets no warning for access that another handler makes through a helper. Blocking diagnostics make the graph invalid, as described in [Unknown nodes and diagnostics](#unknown-nodes-and-diagnostics).
+Some of these omissions have no diagnostic of their own:
+
+- If at least one `wait_for` return is a recognized Wait, the graph shows the recognized Waits and omits the other returns without a `hidden_dex_wait` error.
+- If an unpacked comprehension or generator uses a helper call as its element, the analyzer omits that movement without a `dynamic_step_target` error.
+- An ordinary resource call in a separate helper adds no edge and gets no call-specific warning. A resource edge from any handler suppresses `unused_resource` for that resource.
+
+Blocking diagnostics make the graph invalid. Warnings do not. See [Unknown nodes and diagnostics](#unknown-nodes-and-diagnostics).
 
 TypeScript follows same-file helpers in the shapes listed in [TypeScript Waits, RPCs, and resource access](#typescript-waits-rpcs-and-resource-access).
 
@@ -406,7 +414,7 @@ The analyzer reads Flow and Step methods only from the class body. A Python Flow
 
 The analyzer recognizes Dex APIs only through imports of **dex** or **@superdurable/dex**. Rebinding a Dex import alias or the **dex** module name in any scope reports **dex_alias_rebinding**. Assigning an attribute of a Dex import reports it too. A Python wildcard import from any module reports **wildcard_import**, because it can rebind Dex names. Python **exec**, **eval**, **globals**, **locals**, **getattr**, **setattr**, **delattr**, and the **builtins** module report **dynamic_python**. So do these names and **vars** when they are used as values instead of called directly, such as through an alias or as a **map** argument. TypeScript **eval** and **Function** report **dynamic_typescript**.
 
-Computed Step types, unprovable targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. A callback or helper that hides an Execute decision still produces **hidden_dex_decision**; resolving its instance's Step type does not make the callback body readable.
+Computed Step types, unprovable targets, unknown **StepRef** names, and ambiguous class targets produce blocking diagnostics. Resolving the Step type does not make a callback's decision readable. See the **hidden_dex_decision** rules in [Supported source profile](#supported-source-profile).
 
 ## Start inputs {#start-inputs}
 
@@ -457,7 +465,7 @@ dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app
 
 ## Unknown nodes and diagnostics
 
-The analyzer never drops unsupported dynamic control flow silently. The output contains an Unknown node and an error diagnostic. The default renderer still shows the partial graph. With **--json**, a partial JSON artifact is written, and the command exits with status 1.
+A blocking diagnostic can add an Unknown node to the graph. The Python analyzer can also omit some unsupported decisions, Wait returns, and fan-out targets without a blocking diagnostic. See [Python Waits, movements, and resource access](#python-waits-movements-and-resource-access). With a blocking diagnostic, the default renderer still shows the partial graph. With **--json**, a partial JSON artifact is written, and the command exits with status 1.
 
 Warnings do not invalidate the graph. For example, an Attribute whose value type cannot be determined uses **unknown** and produces a warning. A registered Step that cannot be reached from the start Step or an RPC also produces a warning. Invalid command arguments exit with status 2.
 
