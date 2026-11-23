@@ -25,36 +25,34 @@ import (
 
 func TestVisualizeRejectsStreamOperationsOutsideSteps(t *testing.T) {
 	source := stateLoadsFixture(t, "stream-contexts/workflow.go")
-	for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-		for _, lint := range []string{"", flowviz.LintApplication} {
-			t.Run(schemaVersion+"/lint="+lint, func(t *testing.T) {
-				graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
-					SchemaVersion: schemaVersion, Lint: lint,
-				})
-				require.NoError(t, err)
-				require.False(t, graph.Valid)
-				require.Len(t, graph.Diagnostics, 9, "%+v", graph.Diagnostics)
-				for _, diagnostic := range graph.Diagnostics {
-					require.Equal(t, "step_progress_outside_step", diagnostic.Code)
-					require.Equal(t, "error", diagnostic.Severity)
-					require.Contains(t, diagnostic.Message, `Stream "activity"`)
-					require.Contains(t, diagnostic.Message, "only available in Step WaitFor and Execute")
-				}
-
-				helper := diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendActivity")
-				require.Contains(t, helper.Message, "Write in writeStreamActivity at activity.go:")
-				require.Equal(t, sourceLine(t, source, "func (flow *ActivityFlow) SendActivity(")+1, helper.Span.StartLine)
-				require.Contains(t, helper.Message, "publish a Channel message or return NextSteps")
-
-				constructor := diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC CreateActivityWriter")
-				require.Contains(t, constructor.Message, "(NewBufferedTextStream)")
-				require.Equal(t, sourceLine(t, source, "func (*ActivityFlow) CreateActivityWriter(")+1, constructor.Span.StartLine)
-
-				require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendLoopActivity"))
-				require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendBufferedActivity"))
-				require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "HandleTimeout"))
+	for _, lint := range []string{"", flowviz.LintApplication} {
+		t.Run("lint="+lint, func(t *testing.T) {
+			graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
+				SchemaVersion: flowviz.SchemaVersionV2, Lint: lint,
 			})
-		}
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Len(t, graph.Diagnostics, 9, "%+v", graph.Diagnostics)
+			for _, diagnostic := range graph.Diagnostics {
+				require.Equal(t, "step_progress_outside_step", diagnostic.Code)
+				require.Equal(t, "error", diagnostic.Severity)
+				require.Contains(t, diagnostic.Message, `Stream "activity"`)
+				require.Contains(t, diagnostic.Message, "only available in Step WaitFor and Execute")
+			}
+
+			helper := diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendActivity")
+			require.Contains(t, helper.Message, "Write in writeStreamActivity at activity.go:")
+			require.Equal(t, sourceLine(t, source, "func (flow *ActivityFlow) SendActivity(")+1, helper.Span.StartLine)
+			require.Contains(t, helper.Message, "publish a Channel message or return NextSteps")
+
+			constructor := diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC CreateActivityWriter")
+			require.Contains(t, constructor.Message, "(NewBufferedTextStream)")
+			require.Equal(t, sourceLine(t, source, "func (*ActivityFlow) CreateActivityWriter(")+1, constructor.Span.StartLine)
+
+			require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendLoopActivity"))
+			require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "RPC SendBufferedActivity"))
+			require.NotEmpty(t, diagnosticWithCode(t, graph, "step_progress_outside_step", "HandleTimeout"))
+		})
 	}
 }
 
@@ -77,21 +75,19 @@ func TestVisualizeWritesPartialJSONForInvalidStreamContext(t *testing.T) {
 
 func TestVisualizeAcceptsStepStreamOperations(t *testing.T) {
 	source := stateLoadsFixture(t, "stream-contexts-valid/workflow.go")
-	for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-		graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
-			SchemaVersion: schemaVersion, Lint: flowviz.LintApplication,
-		})
-		require.NoError(t, err)
-		require.True(t, graph.Valid, "%+v", graph.Diagnostics)
-		require.Empty(t, graph.Diagnostics)
-		for _, phase := range []string{"wait_for", "execute"} {
-			hasStreamWrite := false
-			for _, edge := range graph.Edges {
-				if edge.Kind == "resource_write" && edge.To == "resource:stream:Activity" && edge.Metadata["phase"] == phase {
-					hasStreamWrite = true
-				}
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
+		SchemaVersion: flowviz.SchemaVersionV2, Lint: flowviz.LintApplication,
+	})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
+	for _, phase := range []string{"wait_for", "execute"} {
+		hasStreamWrite := false
+		for _, edge := range graph.Edges {
+			if edge.Kind == "resource_write" && edge.To == "resource:stream:Activity" && edge.Metadata["phase"] == phase {
+				hasStreamWrite = true
 			}
-			require.True(t, hasStreamWrite, "missing %s Stream write", phase)
 		}
+		require.True(t, hasStreamWrite, "missing %s Stream write", phase)
 	}
 }

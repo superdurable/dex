@@ -27,11 +27,11 @@ var pythonConnectorAnalyzerSource string
 //go:embed python_binding_analyzer.py
 var pythonBindingAnalyzerSource string
 
-func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, schemaVersion string) (*Graph, error) {
+func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, flowType string) (*Graph, error) {
 	if strings.TrimSpace(pythonPath) == "" {
 		pythonPath = "python3"
 	}
-	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source)})
+	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source), "flowType": flowType})
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}
@@ -43,7 +43,6 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
 		graph := NewGraph("python", sourcePath)
-		graph.SchemaVersion = schemaVersion
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
 			message = err.Error()
@@ -55,5 +54,5 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return nil, fmt.Errorf("decode Python analyzer output: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return result.definition(schemaVersion), nil
+	return result.definition(), nil
 }

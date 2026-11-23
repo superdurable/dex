@@ -106,16 +106,13 @@ var scriptConnectorReleaseTagPattern = regexp.MustCompile(`^connectors/[a-z0-9][
 var scriptConnectorPackageVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+.a-zA-Z0-9]*)$`)
 var scriptConnectorJSONPointerPattern = regexp.MustCompile(`^(?:/(?:[^~/]|~[01])*)*$`)
 
-func (analysis *scriptAnalysis) definition(schemaVersion string) *Graph {
+func (analysis *scriptAnalysis) definition() *Graph {
 	graph := &analysis.Graph
-	graph.SchemaVersion = schemaVersion
 	for _, use := range analysis.Factories {
 		analysis.applyConnectorFactory(use)
 	}
-	if schemaVersion == SchemaVersionV2 {
-		analysis.applyStepAnnotations()
-		analysis.applyActions()
-	}
+	analysis.applyStepAnnotations()
+	analysis.applyActions()
 	return graph
 }
 
@@ -158,9 +155,6 @@ func (analysis *scriptAnalysis) applyConnectorFactory(use scriptFactoryUse) {
 		analysis.Graph.AddDiagnostic("warning", "connector_connection_name_required", "Connector factory requires a non-empty static connection name for automatic configuration", use.Span)
 	}
 	if factory.Kind == "trigger" {
-		if analysis.Graph.SchemaVersion != SchemaVersionV2 {
-			return
-		}
 		bindingName := use.Fields[factory.Fields["bindingName"]].stringValue()
 		if bindingName == "" {
 			analysis.Graph.AddDiagnostic("warning", "connector_trigger_binding_identity", "Connector Trigger binding requires a static binding name", use.Span)

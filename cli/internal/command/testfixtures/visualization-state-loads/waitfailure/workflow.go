@@ -24,6 +24,23 @@ func (*WaitFailureFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *WaitFailureFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
+func (*WaitFailureFlow) GetDexSummary(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+func (*WaitFailureFlow) GetDexDisplay(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+// dex:group group-id:"orders" group-label:"Orders"
+// dex:explanation text:"Rejects the order because orders are closed."
 type rejectOrder struct {
 	dex.StepDefaults
 }

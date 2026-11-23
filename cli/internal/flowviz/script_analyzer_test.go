@@ -436,7 +436,12 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 		graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
 		require.NoError(t, err)
 		errorCodes := make([]string, 0)
+		hasAnnotationErrors := false
 		for _, diagnostic := range graph.Diagnostics {
+			if diagnostic.Code == "v2_step_group" || diagnostic.Code == "v2_step_explanation" {
+				hasAnnotationErrors = true
+				continue
+			}
 			if diagnostic.Severity == "error" && !slices.Contains(errorCodes, diagnostic.Code) {
 				errorCodes = append(errorCodes, diagnostic.Code)
 			}
@@ -445,9 +450,10 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 			expected = []string{}
 		}
 		require.Equal(t, expected, errorCodes, "%s: %+v", name, graph.Diagnostics)
-		require.Equal(t, len(expected) == 0, graph.Valid, name)
-		fmt.Fprintf(&summary, "== %s valid=%t\n", name, graph.Valid)
-		if !graph.Valid {
+		shapeValid := len(expected) == 0
+		require.Equal(t, shapeValid && !hasAnnotationErrors, graph.Valid, name)
+		fmt.Fprintf(&summary, "== %s valid=%t\n", name, shapeValid)
+		if !shapeValid {
 			continue
 		}
 		for _, node := range graph.Nodes {
@@ -459,6 +465,9 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 			fmt.Fprintf(&summary, "edge %s %s -> %s %s\n", edge.Kind, edge.From, edge.To, edge.Label)
 		}
 		for _, diagnostic := range graph.Diagnostics {
+			if diagnostic.Code == "v2_step_group" || diagnostic.Code == "v2_step_explanation" {
+				continue
+			}
 			fmt.Fprintf(&summary, "%s %s %s\n", diagnostic.Severity, diagnostic.Code, diagnostic.Message)
 		}
 	}
@@ -478,6 +487,9 @@ func TestTypeScriptSDKStreamFlowWriterIsSupported(t *testing.T) {
 	require.NoError(t, err)
 	packageSource := strings.ReplaceAll(string(source), `"../../src/index.js"`, `"@superdurable/dex"`)
 	require.NotEqual(t, string(source), packageSource)
+	packageSource = strings.Replace(packageSource, "class StreamTestStep", `// dex:group group-id:"stream" group-label:"Stream"
+// dex:explanation text:"Writes progress to the Stream."
+class StreamTestStep`, 1)
 	sourcePath := filepath.Join(directory, "stream_flow.ts")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(packageSource), 0o644))
 	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
@@ -1105,26 +1117,24 @@ func TestTypeScriptEveryHiddenDecisionIsBlocking(t *testing.T) {
 			modified := strings.Replace(string(source), "return forceComplete();", testCase.execute, 1)
 			modified += "\nfunction chooseDecision(): StepDecision {\n  return forceComplete();\n}\n"
 			require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
-			for _, schemaVersion := range []string{SchemaVersionV1, SchemaVersionV2} {
-				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: schemaVersion})
-				require.NoError(t, err)
-				require.False(t, graph.Valid)
-				hiddenCount := 0
-				for _, diagnostic := range graph.Diagnostics {
-					if diagnostic.Code == "hidden_dex_decision" {
-						require.Equal(t, "error", diagnostic.Severity)
-						hiddenCount++
-					}
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			hiddenCount := 0
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Code == "hidden_dex_decision" {
+					require.Equal(t, "error", diagnostic.Severity)
+					hiddenCount++
 				}
-				require.Equal(t, testCase.hiddenCount, hiddenCount, "%+v", graph.Diagnostics)
-				hasRecognized := false
-				for _, node := range graph.Nodes {
-					if node.Kind == "decision" && node.ParentID == "step:FinishStep" && node.Decision.Type == "forceComplete" {
-						hasRecognized = true
-					}
-				}
-				require.Equal(t, testCase.hasRecognized, hasRecognized)
 			}
+			require.Equal(t, testCase.hiddenCount, hiddenCount, "%+v", graph.Diagnostics)
+			hasRecognized := false
+			for _, node := range graph.Nodes {
+				if node.Kind == "decision" && node.ParentID == "step:FinishStep" && node.Decision.Type == "forceComplete" {
+					hasRecognized = true
+				}
+			}
+			require.Equal(t, testCase.hasRecognized, hasRecognized)
 		})
 	}
 }

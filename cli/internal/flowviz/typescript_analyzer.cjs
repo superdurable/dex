@@ -32,6 +32,7 @@ class TypeScriptAnalyzer {
   constructor(request) {
     this.path = request.path;
     this.source = request.source;
+    this.flowType = request.flowType;
     // dexcli passes a trusted compiler entry; resolving from the source project could run its code.
     let compilerPath = request.compilerEntryPath;
     if (!compilerPath) {
@@ -43,7 +44,7 @@ class TypeScriptAnalyzer {
     }
     this.ts = require(compilerPath);
     this.tree = this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);
-    this.graph = {schemaVersion:"1.0", valid:true, source:{language:"typescript",path:this.path}, flow:{name:""}, nodes:[], edges:[], diagnostics:[]};
+    this.graph = {schemaVersion:"2.0", valid:true, source:{language:"typescript",path:this.path}, flow:{name:""}, nodes:[], edges:[], diagnostics:[]};
     this.imports = new Map();
     this.factories = new Map();
     this.missingFactories = new Map();
@@ -79,13 +80,8 @@ class TypeScriptAnalyzer {
       if (this.ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) this.indexValue(declaration.name, declaration.initializer);
     }
     this.indexBindings();
-    const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
-    if (flows.length !== 1) {
-      this.error(flows.length ? "multiple_flows" : "flow_not_found", "source must define exactly one Flow");
-      for (const declaration of flows) this.graph.nodes.push({id:`unknown:flow:${declaration.name.text}`,kind:"unknown",name:declaration.name.text,span:this.span(declaration)});
-      return this.result();
-    }
-    const flow = flows[0];
+    const flow = this.selectFlow();
+    if (!flow) return this.result();
     this.flowClass = flow;
     this.indexEscapes();
     this.graph.flow = {name:this.typeName(flow,"getFlowType"),span:this.span(flow)};
@@ -114,6 +110,44 @@ class TypeScriptAnalyzer {
     this.analyzeTimeoutHandler(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     return this.result();
+  }
+
+  selectFlow() {
+    const flows = [...this.classes.values()].filter(declaration => this.method(declaration,"getSteps"));
+    if (!this.flowType && flows.length === 1) return flows[0];
+    if (!this.flowType && !flows.length) {
+      this.error("flow_not_found","source must define exactly one Flow");
+      return undefined;
+    }
+    const candidates = [];
+    const matches = [];
+    for (const declaration of flows) {
+      const name = this.candidateFlowType(declaration);
+      candidates.push(name);
+      if (name === this.flowType) matches.push(declaration);
+    }
+    if (matches.length === 1) return matches[0];
+    const available = candidates.join(", ") || "(none)";
+    const requested = JSON.stringify(this.flowType);
+    if (!this.flowType) this.error("multiple_flows",`source defines multiple Flows; use --flow with one of: ${available}`);
+    else if (matches.length) this.error("multiple_flows",`multiple Flows have type ${requested}; available Flow types: ${available}`);
+    else this.error("flow_not_found",`Flow type ${requested} was not found; available Flow types: ${available}`);
+    for (const declaration of flows) this.graph.nodes.push({id:`unknown:flow:${declaration.name.text}`,kind:"unknown",name:declaration.name.text,span:this.span(declaration)});
+    return undefined;
+  }
+
+  candidateFlowType(declaration) {
+    if (!this.method(declaration,"getFlowType")) return declaration.name.text;
+    // Resolving this fields requires escape analysis for the candidate's class.
+    const {dynamicClasses,hasDynamicFields,dynamicFieldsCause} = this;
+    this.dynamicClasses = new Set(dynamicClasses);
+    this.flowClass = declaration;
+    this.indexEscapes();
+    const name = this.typeName(declaration,"getFlowType",false);
+    this.dynamicClasses = dynamicClasses;
+    this.hasDynamicFields = hasDynamicFields;
+    this.dynamicFieldsCause = dynamicFieldsCause;
+    return name;
   }
 
   indexImport(statement) {
@@ -2382,12 +2416,12 @@ class TypeScriptAnalyzer {
   extendsClause(declaration) { return declaration.heritageClauses?.find(clause => clause.token === this.ts.SyntaxKind.ExtendsKeyword)?.types[0]; }
   isStatic(member) { return !!member.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.StaticKeyword); }
 
-  typeName(declaration,methodName) {
+  typeName(declaration,methodName,reportProblem=true) {
     const method = this.method(declaration,methodName);
     if (!method) return declaration.name.text;
     const returns = [];
     this.walkStatements(this.handlerStatements(method),"",expression => { returns.push(this.staticLiteral(expression)); return true; });
-    if (!returns.length || returns.some(value => typeof value !== "string" || value !== returns[0])) this.error("dynamic_type_name",`${methodName} must return one static string`,method);
+    if (reportProblem && (!returns.length || returns.some(value => typeof value !== "string" || value !== returns[0]))) this.error("dynamic_type_name",`${methodName} must return one static string`,method);
     return returns[0] || declaration.name.text;
   }
 

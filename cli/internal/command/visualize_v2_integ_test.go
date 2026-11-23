@@ -317,10 +317,10 @@ func TestVisualizeDoesNotRecognizeSpoofedConnectorFactory(t *testing.T) {
 	graph, err := flowviz.Analyze(
 		context.Background(),
 		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/connector-factory/spoof/workflow.go"),
-		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
-	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, graph.Diagnostics)
 	node := graphNodeByID(t, graph, "step:spoofStep")
 	require.NotEqual(t, true, node.Metadata["connectorFactory"])
 	for _, code := range diagnosticCodes(graph.Diagnostics) {

@@ -19,11 +19,12 @@ JOIN_FORK_METHODS = {"fork", "fork_with_round_key"}
 
 
 class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
-    def __init__(self, path, source):
+    def __init__(self, path, source, flow_type):
         self.path = path
         self.source = source
+        self.flow_type = flow_type
         self.graph = {
-            "schemaVersion": "1.0",
+            "schemaVersion": "2.0",
             "valid": True,
             "source": {"language": "python", "path": path},
             "flow": {"name": ""},
@@ -70,14 +71,10 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.index_bindings()
         self.validate_dynamic_constructs()
         self.index_resources()
-        if len(self.flow_classes) != 1:
-            code = "flow_not_found" if not self.flow_classes else "multiple_flows"
-            message = "source must define exactly one Flow"
-            self.error(code, message)
-            for name, node in self.flow_classes.items():
-                self.add_node({"id": f"unknown:flow:{name}", "kind": "unknown", "name": name, "span": self.span(node)})
+        selected_flow = self.select_flow()
+        if selected_flow is None:
             return self.graph
-        flow_name, flow_class = next(iter(self.flow_classes.items()))
+        flow_name, flow_class = selected_flow
         self.flow_class = flow_class
         self.validate_class_customization(flow_class)
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
@@ -88,6 +85,33 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
         return self.graph
+
+    def select_flow(self):
+        if not self.flow_type and len(self.flow_classes) == 1:
+            return next(iter(self.flow_classes.items()))
+        if not self.flow_type and not self.flow_classes:
+            self.error("flow_not_found", "source must define exactly one Flow")
+            return None
+        candidates = []
+        matches = []
+        for name, node in self.flow_classes.items():
+            registered_name = self.custom_type_name(node, "get_flow_type", name, report_problem=False)
+            candidates.append(registered_name)
+            if registered_name == self.flow_type:
+                matches.append((name, node))
+        if len(matches) == 1:
+            return matches[0]
+        available = ", ".join(candidates) or "(none)"
+        requested = json.dumps(self.flow_type, ensure_ascii=False)
+        if not self.flow_type:
+            self.error("multiple_flows", f"source defines multiple Flows; use --flow with one of: {available}")
+        elif matches:
+            self.error("multiple_flows", f"multiple Flows have type {requested}; available Flow types: {available}")
+        else:
+            self.error("flow_not_found", f"Flow type {requested} was not found; available Flow types: {available}")
+        for name, node in self.flow_classes.items():
+            self.add_node({"id": f"unknown:flow:{name}", "kind": "unknown", "name": name, "span": self.span(node)})
+        return None
 
     def index_imports(self):
         for node in self.tree.body:
@@ -1424,13 +1448,14 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             self.target_failures[expression] = f"Step class {declaration.name} has no registered instance"
         return None
 
-    def custom_type_name(self, class_node, method_name, fallback):
+    def custom_type_name(self, class_node, method_name, fallback, report_problem=True):
         method = self.method(class_node, method_name)
         if method:
             for statement in method.body:
                 if isinstance(statement, ast.Return) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
                     return statement.value.value or fallback
-            self.error("dynamic_type_name", f"{method_name} must return a static string", self.span(method))
+            if report_problem:
+                self.error("dynamic_type_name", f"{method_name} must return a static string", self.span(method))
         return fallback
 
     def has_hidden_decision(self, method):
@@ -1653,7 +1678,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
 
 def main():
     request = json.load(sys.stdin)
-    analyzer = Analyzer(request["path"], request["source"])
+    analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.action_analysis_result())

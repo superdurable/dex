@@ -14,10 +14,7 @@ import (
 	"strings"
 )
 
-const (
-	SchemaVersionV1 = "1.0"
-	SchemaVersionV2 = "2.0"
-)
+const SchemaVersionV2 = "2.0"
 
 type Graph struct {
 	SchemaVersion string        `json:"schemaVersion"`
@@ -245,7 +242,7 @@ type Span struct {
 
 func NewGraph(language string, path string) *Graph {
 	return &Graph{
-		SchemaVersion: SchemaVersionV1,
+		SchemaVersion: SchemaVersionV2,
 		Valid:         true,
 		Source:        Source{Language: language, Path: path},
 		Nodes:         make([]Node, 0),

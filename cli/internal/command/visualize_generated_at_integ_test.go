@@ -69,14 +69,11 @@ func TestVisualizeRejectsInvalidSourceDateEpoch(t *testing.T) {
 	}
 }
 
-func TestVisualizeV1JSONOmitsGeneratedAt(t *testing.T) {
-	sourcePath := generatedAtTestFlowSource(t)
-
-	document := visualizeGeneratedAtDocument(t, sourcePath, "1.0", map[string]string{
-		"SOURCE_DATE_EPOCH": "1762763400",
-	})
-
-	require.NotContains(t, document, "generatedAt")
+func TestVisualizeRejectsSchemaVersion1(t *testing.T) {
+	app := NewApp(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{"visualize", "flow.py", "--schema-version", "1.0", "--json"})
+	require.ErrorContains(t, err, "Flow Definition Graph 1.0 was removed; omit --schema-version or pass 2.0")
+	require.Equal(t, 2, ExitCode(err))
 }
 
 func TestVisualizeV2RenderingAcceptsGeneratedAt(t *testing.T) {

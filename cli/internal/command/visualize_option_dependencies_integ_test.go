@@ -43,39 +43,37 @@ func TestVisualizeHandlesRelatedOptionDependencies(t *testing.T) {
 			}
 			debug.SetMaxStack(64 << 20)
 			source := optionDependencyFixture(t, scenario)
-			for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-				for _, lint := range []string{"", flowviz.LintApplication} {
-					output := &bytes.Buffer{}
-					app := NewApp(strings.NewReader(""), output, &bytes.Buffer{})
-					arguments := []string{"visualize", source, "--json", "--schema-version", schemaVersion}
-					if lint != "" {
-						arguments = append(arguments, "--lint", lint)
-					}
-					err := app.Execute(context.Background(), arguments)
-					var graph flowviz.Graph
-					require.NoError(t, json.Unmarshal(output.Bytes(), &graph), "%v", err)
-					if scenario == "recursive-helpers" || scenario == "expansion-limit" {
-						if lint == "" {
-							require.NoError(t, err)
-							require.True(t, graph.Valid, "%+v", graph.Diagnostics)
-							require.Empty(t, graph.Diagnostics)
-						} else {
-							require.Equal(t, 1, ExitCode(err))
-							require.NotEmpty(t, graph.Diagnostics)
-							for _, diagnostic := range graph.Diagnostics {
-								require.Equal(t, "state_load_unresolved", diagnostic.Code, "%+v", graph.Diagnostics)
-								if scenario == "expansion-limit" {
-									require.Contains(t, diagnostic.Message, "10000 expressions")
-								}
+			for _, lint := range []string{"", flowviz.LintApplication} {
+				output := &bytes.Buffer{}
+				app := NewApp(strings.NewReader(""), output, &bytes.Buffer{})
+				arguments := []string{"visualize", source, "--json", "--schema-version", flowviz.SchemaVersionV2}
+				if lint != "" {
+					arguments = append(arguments, "--lint", lint)
+				}
+				err := app.Execute(context.Background(), arguments)
+				var graph flowviz.Graph
+				require.NoError(t, json.Unmarshal(output.Bytes(), &graph), "%v", err)
+				if scenario == "recursive-helpers" || scenario == "expansion-limit" {
+					if lint == "" {
+						require.NoError(t, err)
+						require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+						require.Empty(t, graph.Diagnostics)
+					} else {
+						require.Equal(t, 1, ExitCode(err))
+						require.NotEmpty(t, graph.Diagnostics)
+						for _, diagnostic := range graph.Diagnostics {
+							require.Equal(t, "state_load_unresolved", diagnostic.Code, "%+v", graph.Diagnostics)
+							if scenario == "expansion-limit" {
+								require.Contains(t, diagnostic.Message, "10000 expressions")
 							}
 						}
-						continue
 					}
-					require.Equal(t, 1, ExitCode(err))
-					require.False(t, graph.Valid)
-					require.Equal(t, []string{"attribute_map_enumeration_not_loaded"}, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
-					require.Contains(t, graph.Diagnostics[0].Message, `"missing"`)
+					continue
 				}
+				require.Equal(t, 1, ExitCode(err))
+				require.False(t, graph.Valid)
+				require.Equal(t, []string{"attribute_map_enumeration_not_loaded"}, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
+				require.Contains(t, graph.Diagnostics[0].Message, `"missing"`)
 			}
 		})
 	}
@@ -97,21 +95,19 @@ func TestVisualizeDistinguishesSDKNamesFromApplicationHelpers(t *testing.T) {
 				source += "\nvar ApplicationAttribute = DefineAttribute()\nfunc DefineAttribute() dex.Attribute[string] { return dex.DefineAttribute[string](\"application\") }\n"
 			}
 			require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
-			for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-				for _, lint := range []string{"", flowviz.LintApplication} {
-					output := &bytes.Buffer{}
-					app := NewApp(strings.NewReader(""), output, &bytes.Buffer{})
-					arguments := []string{"visualize", path, "--json", "--schema-version", schemaVersion}
-					if lint != "" {
-						arguments = append(arguments, "--lint", lint)
-					}
-					err := app.Execute(context.Background(), arguments)
-					require.Equal(t, 1, ExitCode(err))
-					var graph flowviz.Graph
-					require.NoError(t, json.Unmarshal(output.Bytes(), &graph))
-					require.False(t, graph.Valid)
-					require.Equal(t, expectedCodes, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
+			for _, lint := range []string{"", flowviz.LintApplication} {
+				output := &bytes.Buffer{}
+				app := NewApp(strings.NewReader(""), output, &bytes.Buffer{})
+				arguments := []string{"visualize", path, "--json", "--schema-version", flowviz.SchemaVersionV2}
+				if lint != "" {
+					arguments = append(arguments, "--lint", lint)
 				}
+				err := app.Execute(context.Background(), arguments)
+				require.Equal(t, 1, ExitCode(err))
+				var graph flowviz.Graph
+				require.NoError(t, json.Unmarshal(output.Bytes(), &graph))
+				require.False(t, graph.Valid)
+				require.Equal(t, expectedCodes, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
 			}
 		})
 	}

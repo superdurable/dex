@@ -24,6 +24,7 @@ type AnalyzeOptions struct {
 	Language      string
 	PythonPath    string
 	SchemaVersion string
+	FlowType      string
 	Lint          string
 	// TypeScriptCompilerDirectory is the trusted typescript package directory; empty resolves from the source project.
 	TypeScriptCompilerDirectory string
@@ -42,8 +43,7 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	if err != nil {
 		return nil, err
 	}
-	schemaVersion, err := resolveSchemaVersion(options.SchemaVersion)
-	if err != nil {
+	if err := validateSchemaVersion(options.SchemaVersion); err != nil {
 		return nil, err
 	}
 	isApplicationLint, err := resolveLint(options.Lint)
@@ -53,24 +53,22 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	var graph *Graph
 	switch language {
 	case "go":
-		graph, err = analyzeGo(ctx, absolutePath, data, schemaVersion, isApplicationLint)
+		graph, err = analyzeGo(ctx, absolutePath, data, options.FlowType, isApplicationLint)
 	case "python":
-		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, schemaVersion)
+		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, options.FlowType)
 	case "typescript":
-		graph, err = analyzeTypeScript(ctx, absolutePath, data, schemaVersion, options.TypeScriptCompilerDirectory)
+		graph, err = analyzeTypeScript(ctx, absolutePath, data, options.FlowType, options.TypeScriptCompilerDirectory)
 	default:
 		panic("validated language was not handled")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if schemaVersion == SchemaVersionV2 {
-		if graph.Groups == nil {
-			graph.Groups = make([]StepGroup, 0)
-		}
-		if graph.V2 == nil {
-			graph.V2 = newEmptyV2Definition()
-		}
+	if graph.Groups == nil {
+		graph.Groups = make([]StepGroup, 0)
+	}
+	if graph.V2 == nil {
+		graph.V2 = newEmptyV2Definition()
 	}
 	graph.Source.Path = filepath.ToSlash(filepath.Clean(sourcePath))
 	graph.Normalize()
@@ -86,15 +84,29 @@ func newEmptyV2Definition() *V2Definition {
 	}
 }
 
-func resolveSchemaVersion(requested string) (string, error) {
+func validateSchemaVersion(requested string) error {
 	switch strings.TrimSpace(requested) {
-	case "", SchemaVersionV1:
-		return SchemaVersionV1, nil
-	case SchemaVersionV2:
-		return SchemaVersionV2, nil
+	case "", SchemaVersionV2:
+		return nil
 	default:
-		return "", fmt.Errorf("schema version must be 1.0 or 2.0")
+		return fmt.Errorf("schema version must be 2.0")
 	}
+}
+
+func flowSelectionDiagnostic(flowType string, candidates []string) (string, string) {
+	list := strings.Join(candidates, ", ")
+	if flowType == "" {
+		return "multiple_flows", "source defines multiple Flows; use --flow with one of: " + list
+	}
+	if list == "" {
+		list = "(none)"
+	}
+	for _, candidate := range candidates {
+		if candidate == flowType {
+			return "multiple_flows", fmt.Sprintf("multiple Flows have type %q; available Flow types: %s", flowType, list)
+		}
+	}
+	return "flow_not_found", fmt.Sprintf("Flow type %q was not found; available Flow types: %s", flowType, list)
 }
 
 func resolveLint(requested string) (bool, error) {
@@ -109,14 +121,11 @@ func resolveLint(requested string) (bool, error) {
 }
 
 func MarshalJSON(graph *Graph) ([]byte, error) {
-	var payload interface{} = graph
-	if graph.SchemaVersion == SchemaVersionV2 {
-		payload = struct {
-			*Graph
-			Groups []StepGroup   `json:"groups"`
-			V2     *V2Definition `json:"v2"`
-		}{Graph: graph, Groups: graph.Groups, V2: graph.V2}
-	}
+	payload := struct {
+		*Graph
+		Groups []StepGroup   `json:"groups"`
+		V2     *V2Definition `json:"v2"`
+	}{Graph: graph, Groups: graph.Groups, V2: graph.V2}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode graph JSON: %w", err)

@@ -45,36 +45,32 @@ func TestVisualizeGoNamesMatchSDKRegistration(t *testing.T) {
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			registered := sdkRegisteredTypeNames(t, moduleDirectory, fixture.printCommand)
-			for _, schemaVersion := range []string{flowviz.SchemaVersionV1, flowviz.SchemaVersionV2} {
-				graph, err := flowviz.Analyze(
-					context.Background(),
-					filepath.Join(moduleDirectory, fixture.source),
-					flowviz.AnalyzeOptions{SchemaVersion: schemaVersion},
-				)
-				require.NoError(t, err)
-				require.True(t, graph.Valid, "%s: %+v", schemaVersion, graph.Diagnostics)
-				require.Equal(t, registered["flow"], graph.Flow.Name, schemaVersion)
+			graph, err := flowviz.Analyze(
+				context.Background(),
+				filepath.Join(moduleDirectory, fixture.source),
+				flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
+			)
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%s: %+v", flowviz.SchemaVersionV2, graph.Diagnostics)
+			require.Equal(t, registered["flow"], graph.Flow.Name, flowviz.SchemaVersionV2)
 
-				analyzedNames := map[string]string{"flow": graph.Flow.Name}
-				defaultNamedSteps := 0
-				for _, node := range graph.Nodes {
-					if node.Kind != "step" {
-						continue
-					}
-					require.True(t, strings.HasPrefix(node.ID, "step:"), node.ID)
-					analyzedNames[node.ID] = node.Name
-					if node.Name == strings.TrimPrefix(node.ID, "step:") {
-						defaultNamedSteps++
-					}
-					require.NotContains(t, node.Metadata, "displayName", node.ID)
+			analyzedNames := map[string]string{"flow": graph.Flow.Name}
+			defaultNamedSteps := 0
+			for _, node := range graph.Nodes {
+				if node.Kind != "step" {
+					continue
 				}
-				require.Equal(t, registered, analyzedNames, schemaVersion)
-				require.Positive(t, defaultNamedSteps)
-				if schemaVersion == flowviz.SchemaVersionV2 {
-					require.NotNil(t, graph.V2.Start)
-					require.Equal(t, registered[graph.Flow.StartStepID], graph.V2.Start.StepType)
+				require.True(t, strings.HasPrefix(node.ID, "step:"), node.ID)
+				analyzedNames[node.ID] = node.Name
+				if node.Name == strings.TrimPrefix(node.ID, "step:") {
+					defaultNamedSteps++
 				}
+				require.NotContains(t, node.Metadata, "displayName", node.ID)
 			}
+			require.Equal(t, registered, analyzedNames, flowviz.SchemaVersionV2)
+			require.Positive(t, defaultNamedSteps)
+			require.NotNil(t, graph.V2.Start)
+			require.Equal(t, registered[graph.Flow.StartStepID], graph.V2.Start.StepType)
 		})
 	}
 }
@@ -100,7 +96,7 @@ func TestVisualizeGoRejectsUnknowableTypeNames(t *testing.T) {
 			graph, err := flowviz.Analyze(
 				context.Background(),
 				filepath.Join(moduleDirectory, "unknowable", test.name, "workflow.go"),
-				flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
+				flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 			)
 			require.NoError(t, err)
 			require.False(t, graph.Valid)
@@ -125,16 +121,16 @@ func TestVisualizeGoStepRefTargetsRegisteredStepTypes(t *testing.T) {
 	registeredTarget, err := flowviz.Analyze(
 		context.Background(),
 		filepath.Join(fixtureDirectory, "stepref/workflow.go"),
-		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
-	require.True(t, registeredTarget.Valid, "%+v", registeredTarget.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, registeredTarget.Diagnostics)
 	require.True(t, hasTransitionFromStepToTarget(registeredTarget, "step:begin", "step:done"))
 
 	packageQualifiedTarget, err := flowviz.Analyze(
 		context.Background(),
 		filepath.Join(fixtureDirectory, "steprefqualified/workflow.go"),
-		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV1},
+		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
 	require.False(t, packageQualifiedTarget.Valid)

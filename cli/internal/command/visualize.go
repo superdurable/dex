@@ -31,6 +31,7 @@ import (
 type visualizeOptions struct {
 	language      string
 	schemaVersion string
+	flowType      string
 	lint          string
 	json          bool
 	openBrowser   bool
@@ -47,7 +48,8 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
 	options := visualizeOptions{openBrowser: true}
 	flags.StringVar(&options.language, "language", "auto", "auto, go, python, or typescript")
-	flags.StringVar(&options.schemaVersion, "schema-version", flowviz.SchemaVersionV1, "Flow Definition Graph schema version: 1.0 or 2.0")
+	flags.StringVar(&options.schemaVersion, "schema-version", flowviz.SchemaVersionV2, "Flow Definition Graph schema version (deprecated; only 2.0)")
+	flags.StringVar(&options.flowType, "flow", "", "registered Flow type to analyze")
 	flags.StringVar(&options.lint, "lint", "", "also report the application lints: app")
 	flags.BoolVar(&options.json, "json", false, "write Flow Definition Graph JSON instead of opening Flow Rendering")
 	flags.BoolVar(&options.openBrowser, "open", true, "open Flow Rendering in the default browser")
@@ -69,25 +71,22 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err != nil {
 		return newUsageError("visualize", err)
 	}
-	generatedAt := ""
-	if options.schemaVersion == flowviz.SchemaVersionV2 {
-		generationTime, err := resolveFlowDefinitionGeneratedAt(a.lookupEnv, time.Now())
-		if err != nil {
-			return newUsageError("visualize", err)
-		}
-		generatedAt = generationTime.Format(time.RFC3339)
+	generationTime, err := resolveFlowDefinitionGeneratedAt(a.lookupEnv, time.Now())
+	if err != nil {
+		return newUsageError("visualize", err)
 	}
 	graph, err := flowviz.Analyze(ctx, source, flowviz.AnalyzeOptions{
 		Language:                    options.language,
 		PythonPath:                  options.pythonPath,
 		SchemaVersion:               options.schemaVersion,
+		FlowType:                    options.flowType,
 		Lint:                        options.lint,
 		TypeScriptCompilerDirectory: typeScriptCompilerDirectory,
 	})
 	if err != nil {
 		return newOperationError("visualize", err)
 	}
-	graph.GeneratedAt = generatedAt
+	graph.GeneratedAt = generationTime.Format(time.RFC3339)
 	jsonData, err := flowviz.MarshalJSON(graph)
 	if err != nil {
 		return newOperationError("visualize", err)
@@ -163,8 +162,11 @@ func validateVisualizeOptions(options visualizeOptions) error {
 	default:
 		return fmt.Errorf("language must be auto, go, python, or typescript")
 	}
-	if options.schemaVersion != flowviz.SchemaVersionV1 && options.schemaVersion != flowviz.SchemaVersionV2 {
-		return fmt.Errorf("schema-version must be 1.0 or 2.0")
+	if options.schemaVersion == "1.0" {
+		return errors.New("Flow Definition Graph 1.0 was removed; omit --schema-version or pass 2.0")
+	}
+	if options.schemaVersion != flowviz.SchemaVersionV2 {
+		return errors.New("schema-version must be 2.0")
 	}
 	if options.lint != "" && options.lint != flowviz.LintApplication {
 		return fmt.Errorf("lint must be %s", flowviz.LintApplication)
@@ -276,7 +278,8 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Flags:")
 	fmt.Fprintln(output, "  --language auto|go|python|typescript source language (default auto)")
-	fmt.Fprintln(output, "  --schema-version 1.0|2.0           Flow Definition Graph schema version (default 1.0)")
+	fmt.Fprintln(output, "  --schema-version 2.0               Flow Definition Graph schema version (deprecated; only 2.0)")
+	fmt.Fprintln(output, "  --flow FlowType                    registered Flow type (required if the source contains multiple Flows)")
 	fmt.Fprintln(output, "  --lint app                          also report the application lints (Go); validate FDG 2.0 annotations")
 	fmt.Fprintln(output, "  --json                              write Flow Definition Graph JSON instead of rendering")
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")

@@ -15,6 +15,8 @@ async def stream_model_reply(write_text, write_reasoning):
     write_text("Here is the reply.")
 
 
+# dex:group group-id:reply group-label:"Reply"
+# dex:explanation text:"Streams the model reply through buffered writer callbacks."
 class CallModel(Step[None]):
     def __init__(self, flow):
         self.flow = flow

@@ -54,7 +54,6 @@ type goAnalyzer struct {
 	resources             map[types.Object]string
 	resourceVars          map[string]string
 	connectorFactories    map[string]goConnectorFactoryStep
-	schemaVersion         string
 	isApplicationLint     bool
 	registeredSteps       []string
 	stepValueTypes        map[string]types.Type
@@ -103,9 +102,8 @@ type goDecisionOutcome struct {
 	span            *Span
 }
 
-func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVersion string, isApplicationLint bool) (*Graph, error) {
+func analyzeGo(ctx context.Context, sourcePath string, source []byte, flowType string, isApplicationLint bool) (*Graph, error) {
 	graph := NewGraph("go", sourcePath)
-	graph.SchemaVersion = schemaVersion
 	config := &packages.Config{
 		Context: ctx,
 		Dir:     filepath.Dir(sourcePath),
@@ -154,10 +152,9 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, schemaVers
 		newGoRegisteredTypeNameResolver(selectedPackage),
 		modules,
 		sourcePath,
-		schemaVersion,
 		isApplicationLint,
 	)
-	analyzer.Analyze()
+	analyzer.Analyze(flowType)
 	return graph, nil
 }
 
@@ -171,7 +168,6 @@ func newGoAnalyzer(
 	typeNames *goRegisteredTypeNameResolver,
 	modules map[string]goModule,
 	sourcePath string,
-	schemaVersion string,
 	isApplicationLint bool,
 ) *goAnalyzer {
 	if typeInfo == nil {
@@ -204,7 +200,6 @@ func newGoAnalyzer(
 		resources:             make(map[types.Object]string),
 		resourceVars:          make(map[string]string),
 		connectorFactories:    make(map[string]goConnectorFactoryStep),
-		schemaVersion:         schemaVersion,
 		isApplicationLint:     isApplicationLint,
 		registeredSteps:       make([]string, 0),
 		stepValueTypes:        make(map[string]types.Type),
@@ -229,34 +224,23 @@ func indexGoModules(currentPackage *packages.Package, modules map[string]goModul
 	}
 }
 
-func (analyzer *goAnalyzer) Analyze() {
+func (analyzer *goAnalyzer) Analyze(flowType string) {
 	analyzer.indexImportsAndMethods()
 	analyzer.analyzeResources()
 	analyzer.diagnoseExternalResourceReferences()
-	flowMethods := analyzer.findFlowMethods()
-	if len(flowMethods) == 0 {
-		analyzer.graph.AddDiagnostic("error", "flow_not_found", "source must define exactly one Flow with GetSteps", nil)
+	getSteps := analyzer.selectFlowMethod(flowType)
+	if getSteps == nil {
 		return
 	}
-	if len(flowMethods) > 1 {
-		analyzer.graph.AddDiagnostic("error", "multiple_flows", "source must define exactly one Flow", nil)
-		for _, method := range flowMethods {
-			analyzer.graph.AddNode(Node{ID: "unknown:flow:" + receiverTypeName(method), Kind: "unknown", Name: receiverTypeName(method), Span: analyzer.span(method)})
-		}
-		return
-	}
-	getSteps := flowMethods[0]
 	flowName := receiverTypeName(getSteps)
 	analyzer.diagnoseExternalFlowDeclarations(flowName)
-	analyzer.graph.Flow = Flow{Name: analyzer.registeredFlowTypeName(getSteps, flowName), Span: analyzer.span(getSteps)}
+	analyzer.graph.Flow = Flow{Name: analyzer.registeredFlowTypeName(getSteps, flowName, true), Span: analyzer.span(getSteps)}
 	analyzer.analyzeStepRegistration(getSteps)
 	for stepType, nodeID := range analyzer.steps {
 		analyzer.analyzeStep(stepType, nodeID)
 	}
 	analyzer.analyzeFlowHandlers(flowName)
-	if analyzer.schemaVersion == SchemaVersionV2 {
-		analyzer.analyzeVisualizationV2(flowName)
-	}
+	analyzer.analyzeVisualizationV2(flowName)
 	analyzer.analyzeStateLoadsAndApplicationLints(getSteps)
 }
 
@@ -432,6 +416,36 @@ func (analyzer *goAnalyzer) analyzeResources() {
 	}
 }
 
+func (analyzer *goAnalyzer) selectFlowMethod(flowType string) *ast.FuncDecl {
+	methods := analyzer.findFlowMethods()
+	if flowType == "" && len(methods) == 1 {
+		return methods[0]
+	}
+	if len(methods) == 0 && flowType == "" {
+		analyzer.graph.AddDiagnostic("error", "flow_not_found", "source must define exactly one Flow with GetSteps", nil)
+		return nil
+	}
+	var candidates []string
+	var matches []*ast.FuncDecl
+	for _, method := range methods {
+		name := analyzer.registeredFlowTypeName(method, receiverTypeName(method), false)
+		candidates = append(candidates, name)
+		if name == flowType {
+			matches = append(matches, method)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	code, message := flowSelectionDiagnostic(flowType, candidates)
+	analyzer.graph.AddDiagnostic("error", code, message, nil)
+	for _, method := range methods {
+		name := receiverTypeName(method)
+		analyzer.graph.AddNode(Node{ID: "unknown:flow:" + name, Kind: "unknown", Name: name, Span: analyzer.span(method)})
+	}
+	return nil
+}
+
 func (analyzer *goAnalyzer) findFlowMethods() []*ast.FuncDecl {
 	methods := make([]*ast.FuncDecl, 0)
 	for _, declaration := range analyzer.file.Decls {
@@ -454,14 +468,16 @@ func (analyzer *goAnalyzer) isFlowGetSteps(method *ast.FuncDecl) bool {
 	return strings.Contains(analyzer.expressionString(result), "StepDef")
 }
 
-func (analyzer *goAnalyzer) registeredFlowTypeName(getSteps *ast.FuncDecl, flowName string) string {
+func (analyzer *goAnalyzer) registeredFlowTypeName(getSteps *ast.FuncDecl, flowName string, reportProblem bool) string {
 	receiver := analyzer.flowReceiverType(getSteps)
 	if receiver == nil {
-		return analyzer.parseOnlyTypeName(flowName, "GetFlowType")
+		return analyzer.parseOnlyTypeName(flowName, "GetFlowType", reportProblem)
 	}
 	flowTypeName, problem := analyzer.typeNames.resolveFlowTypeName(receiver)
 	if problem != nil {
-		analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(getSteps))
+		if reportProblem {
+			analyzer.graph.AddDiagnostic("error", problem.code, problem.message, analyzer.span(getSteps))
+		}
 		return flowName
 	}
 	return flowTypeName
@@ -584,7 +600,7 @@ func (analyzer *goAnalyzer) isGenericStepRegistration(argument ast.Expr) bool {
 func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType string) string {
 	argumentType := analyzer.typeInfo.Types[argument].Type
 	if argumentType == nil || argumentType == types.Typ[types.Invalid] {
-		return analyzer.parseOnlyTypeName(stepType, "GetStepType")
+		return analyzer.parseOnlyTypeName(stepType, "GetStepType", true)
 	}
 	stepTypeName, problem := analyzer.typeNames.resolveStepTypeName(argumentType)
 	if problem != nil {
@@ -595,19 +611,21 @@ func (analyzer *goAnalyzer) registeredStepTypeName(argument ast.Expr, stepType s
 }
 
 // Without type information, only literal overrides declared in the Flow file are readable.
-func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string) string {
+func (analyzer *goAnalyzer) parseOnlyTypeName(typeName string, methodName string, reportProblem bool) string {
 	method := analyzer.methods[typeName][methodName]
 	if method == nil {
 		return typeName
 	}
 	override, isConstant := analyzer.typeNames.constantReturnValue(method, analyzer.typeInfo)
 	if !isConstant {
-		analyzer.graph.AddDiagnostic(
-			"error",
-			"dynamic_type_name",
-			fmt.Sprintf("%s of %s must return one compile-time string", methodName, typeName),
-			analyzer.span(method),
-		)
+		if reportProblem {
+			analyzer.graph.AddDiagnostic(
+				"error",
+				"dynamic_type_name",
+				fmt.Sprintf("%s of %s must return one compile-time string", methodName, typeName),
+				analyzer.span(method),
+			)
+		}
 		return typeName
 	}
 	if override == "" {
