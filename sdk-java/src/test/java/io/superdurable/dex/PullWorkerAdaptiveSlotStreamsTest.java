@@ -237,7 +237,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final AdaptiveSlotTestServer server = startServer("node-limit", new AdaptiveSlotTestServer.Limits(20, 20));
         final PullSlotProxy proxy = startProxy(server);
         final WorkerRun fixed = track(startParkedOnlyWorker(server.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(newAppWorkerID("fixed-filler")).maxConcurrentTasks(14)));
+                pull(newAppWorkerID("fixed-filler")).maxConcurrentTasks(14).minOpenSlots(14)));
         fixed.waitRegistered(Duration.ofMinutes(2));
         final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
         final String appWorkerID = newAppWorkerID("adaptive-limit");
@@ -337,38 +337,163 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         assertTrue(run.worker.getPullRegistrationState().isReady());
     }
 
-    // Covers design Test 14: a fixed Worker with an unset ceiling probes and clamps.
+    // Covers design Test 14 and F4: a fixed Worker with an unset ceiling probes, then opens every stream.
     @Test
-    void capOfOneFixedUnsetCeilingProbesAndClamps() throws Exception {
-        final AdaptiveSlotTestServer server = startServer("probe", AdaptiveSlotTestServer.Limits.cap(1));
+    void fixedUnsetCeilingProbesBeforeOpeningEveryStream() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("probe", AdaptiveSlotTestServer.Limits.defaults());
         final PullSlotProxy proxy = startProxy(server);
         final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
-        final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
-                track(new PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture());
         final String appWorkerID = newAppWorkerID("fixed-probe");
+        // Since phase 2, a fixed Worker with an unset ceiling sets its floor to the default ceiling.
         final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(appWorkerID), ONE_HOUR);
-        // F4: only the probe stream registers before the first acknowledgement.
+                pull(appWorkerID).minOpenSlots(PullWorkerOptions.DEFAULT_MAX_CONCURRENT_TASKS), ONE_HOUR);
+        requireProbeRegisterOnly(proxy, appWorkerID);
+        releaseAcknowledgements.run();
+        run.waitRegistered(Duration.ofMinutes(2));
+        requireRegisteredStreams(proxy, appWorkerID, 99, 1);
+        final PullSlotStreamState state = run.worker.getPullSlotStreamState();
+        assertFalse(state.isAdaptive(), state::toString);
+        assertEquals(100, state.getTotalCapacity());
+        assertEquals(1, state.getRpcOnlySlots());
+        assertEquals(99, state.getOpen());
+    }
+
+    // Covers design Test 14 and F4: the probe learns a cap below an explicit floor, so start fails.
+    @Test
+    void capOfOneFixedUnsetCeilingProbesAndFailsOnExplicitFloor() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("probe-one", AdaptiveSlotTestServer.Limits.cap(1));
+        final PullSlotProxy proxy = startProxy(server);
+        final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
+        final String appWorkerID = newAppWorkerID("fixed-probe-one");
+        final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                pull(appWorkerID).minOpenSlots(PullWorkerOptions.DEFAULT_MAX_CONCURRENT_TASKS), ONE_HOUR);
+        requireProbeRegisterOnly(proxy, appWorkerID);
+        releaseAcknowledgements.run();
+        final Throwable failure = run.awaitStartResult(Duration.ofSeconds(30));
+        assertTrue(failure instanceof IllegalStateException, String.valueOf(failure));
+        assertTrue(failure.getMessage().contains("minOpenSlots 100 exceeds the slot ceiling 1"), failure::getMessage);
+        assertTrue(failure.getMessage().contains("matching.maxConcurrentTasksCap 1"), failure::getMessage);
+        assertEquals(1, proxy.registersSince(appWorkerID, Long.MIN_VALUE).size());
+    }
+
+    // F4: only the probe stream registers before the first acknowledgement.
+    private static void requireProbeRegisterOnly(final PullSlotProxy proxy, final String appWorkerID)
+            throws InterruptedException {
         eventually("the probe Register", Duration.ofSeconds(10),
                 () -> proxy.registersSince(appWorkerID, Long.MIN_VALUE).size() == 1);
         never("a stream registered before the probe's acknowledgement", Duration.ofMillis(300),
                 () -> proxy.registersSince(appWorkerID, Long.MIN_VALUE).size() > 1);
+        assertEquals(STEP_AND_RPC, proxy.registersSince(appWorkerID, Long.MIN_VALUE).get(0).slotKind);
+    }
+
+    // Phase 2: with every option unset, a cap of 1 gives T = 1, R = 0, and a floor of 1.
+    @Test
+    void capOfOneWithEveryOptionUnset() throws Exception {
+        final AdaptiveSlotTestServer server = startServer("unset-one", AdaptiveSlotTestServer.Limits.cap(1));
+        final PullSlotProxy proxy = startProxy(server);
+        final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
+                track(new PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture());
+        final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
+        final String appWorkerID = newAppWorkerID("unset-one");
+        final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                pull(appWorkerID), ONE_HOUR);
+        // The floor derives from the clamped ceiling, so the adaptive Worker probes first.
+        requireProbeRegisterOnly(proxy, appWorkerID);
         releaseAcknowledgements.run();
         requireCapOfOneWorkerServes(server, proxy, run, appWorkerID);
-        final int processors = Runtime.getRuntime().availableProcessors();
-        if (processors > 1) {
-            assertTrue(logs.hasWarning("clamped maxConcurrentTasks " + processors, "maxConcurrentTasksCap 1"),
-                    logs::describe);
+        assertEquals(1, proxy.registersSince(appWorkerID, Long.MIN_VALUE).size());
+        requireNoPermanentRegistrationError(run);
+        assertTrue(logs.hasWarning("clamped maxConcurrentTasks 100", "maxConcurrentTasksCap 1",
+                "explicit maxConcurrentTasks: false"), logs::describe);
+        final PullSlotStreamState state = run.worker.getPullSlotStreamState();
+        assertEquals(1, state.getFloor(), state::toString);
+        assertEquals(1, state.getEffectiveCeiling(), state::toString);
+        for (PullSlotProxy.ProxyEvent register : proxy.registersSince(appWorkerID, Long.MIN_VALUE)) {
+            assertEquals(STEP_AND_RPC, register.slotKind);
         }
-        assertFalse(run.worker.getPullSlotStreamState().isAdaptive());
+    }
+
+    // Phase 2: with no options, or only a ceiling, the floor is min(T, max(R + 1, CPU count)).
+    @Test
+    void defaultFloorMakesTheWorkerAdaptive() throws Exception {
+        final int processors = Runtime.getRuntime().availableProcessors();
+        for (int maxConcurrentTasks : new int[] {0, 64}) {
+            final int ceiling = maxConcurrentTasks == 0 ? 100 : maxConcurrentTasks;
+            final int floor = Math.min(ceiling, Math.max(2, processors));
+            final AdaptiveSlotTestServer server = startServer("default-floor", AdaptiveSlotTestServer.Limits.defaults());
+            final PullSlotProxy proxy = startProxy(server);
+            final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
+            final String appWorkerID = newAppWorkerID("default-floor");
+            final WorkerRun run = startTrackedWorker(proxy.address(), handlers,
+                    pull(appWorkerID).maxConcurrentTasks(maxConcurrentTasks), ONE_HOUR);
+            run.waitRegistered(Duration.ofMinutes(2));
+            requireRegisteredStreams(proxy, appWorkerID, floor - 1, 1);
+            PullSlotStreamState state = run.worker.getPullSlotStreamState();
+            assertEquals(floor < ceiling, state.isAdaptive(), state::toString);
+            assertEquals(ceiling, state.getTotalCapacity(), state::toString);
+            assertEquals(1, state.getRpcOnlySlots(), state::toString);
+            assertEquals(1, state.getRpcOnlyOpen(), state::toString);
+            assertEquals(floor - 1, state.getFloor(), state::toString);
+            assertEquals(floor - 1, state.getOpen(), state::toString);
+            assertEquals(ceiling - 1, state.getEffectiveCeiling(), state::toString);
+            if (floor < ceiling) {
+                // One task more than the floor's Step-and-RPC streams grows the Worker above its floor.
+                final Client client = newClient(server, run);
+                final List<String> flowIDs = startFlows(client, run.flow,
+                        PullWorkerAdaptiveSlotHandlers.MODE_BLOCK, floor);
+                handlers.awaitEntries(floor);
+                state = requireSlotState(run, "growth above the default floor",
+                        current -> current.getBusy() == floor && current.getRegistering() == 0);
+                assertTrue(state.getOpen() > floor - 1 && state.getOpen() <= ceiling - 1, state::toString);
+                handlers.release.countDown();
+                requireFlowsCompleted(client, flowIDs);
+                requireFirstAttempts(handlers.drainEntries());
+            }
+            closeResources();
+        }
+    }
+
+    // Phase 2: a cap below 100 clamps an unset ceiling, and R and the floor come from the clamped T.
+    @Test
+    void capBelowDefaultCeilingClampsAndDerivesFloor() throws Exception {
+        // Cap 12 sits below the CPU-count floor on larger machines; cap 50 usually sits above it.
+        for (int cap : new int[] {12, 50}) {
+            final int floor = Math.min(cap, Math.max(2, Runtime.getRuntime().availableProcessors()));
+            final AdaptiveSlotTestServer server = startServer("default-cap", AdaptiveSlotTestServer.Limits.cap(cap));
+            final PullSlotProxy proxy = startProxy(server);
+            final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
+            final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
+                    track(new PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture());
+            final String appWorkerID = newAppWorkerID("default-cap");
+            final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                    pull(appWorkerID), ONE_HOUR);
+            // The floor derives from the clamped ceiling, so the adaptive Worker probes first.
+            requireProbeRegisterOnly(proxy, appWorkerID);
+            releaseAcknowledgements.run();
+            run.waitRegistered(Duration.ofMinutes(2));
+            assertTrue(logs.hasWarning("clamped maxConcurrentTasks 100", "maxConcurrentTasksCap " + cap,
+                    "explicit maxConcurrentTasks: false"), logs::describe);
+            assertEquals(1, logs.countWarnings("clamped maxConcurrentTasks"));
+            requireSlotState(run, "the derived floor at cap " + cap,
+                    current -> current.getOpen() == floor - 1 && current.getRegistering() == 0
+                            && current.getRpcOnlyOpen() == 1);
+            requireRegisteredStreams(proxy, appWorkerID, floor - 1, 1);
+            final PullSlotStreamState state = run.worker.getPullSlotStreamState();
+            assertEquals(floor < cap, state.isAdaptive(), state::toString);
+            assertEquals(cap, state.getTotalCapacity(), state::toString);
+            assertEquals(1, state.getRpcOnlySlots(), state::toString);
+            assertEquals(floor - 1, state.getFloor(), state::toString);
+            assertEquals(cap - 1, state.getEffectiveCeiling(), state::toString);
+            assertEquals(0L, state.getGrowRejectedAtCap(), state::toString);
+            requireNoPermanentRegistrationError(run);
+            closeResources();
+        }
     }
 
     // Covers design Test 14: an adaptive Worker with a floor of one, with the ceiling set or not.
     @Test
     void capOfOneAdaptiveFloorOfOne() throws Exception {
-        for (int maxConcurrentTasks : new int[] {4, 0}) {
-            final int ceiling = maxConcurrentTasks == 0 && Runtime.getRuntime().availableProcessors() < 2
-                    ? 2 : maxConcurrentTasks;
+        for (int ceiling : new int[] {4, 0}) {
             final AdaptiveSlotTestServer server = startServer("adaptive-one", AdaptiveSlotTestServer.Limits.cap(1));
             final PullSlotProxy proxy = startProxy(server);
             final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
@@ -389,11 +514,10 @@ final class PullWorkerAdaptiveSlotStreamsTest {
     // Covers design Test 14: an explicit reserved RPC slot fails start in either mode at cap 1.
     @Test
     void capOfOneExplicitReservedRpcSlotFailsStart() throws Exception {
-        final boolean hasOneProcessor = Runtime.getRuntime().availableProcessors() < 2;
         final List<PullWorkerOptions.Builder> optionsByMode = new ArrayList<PullWorkerOptions.Builder>();
-        optionsByMode.add(hasOneProcessor
-                ? PullWorkerOptions.newBuilder().maxConcurrentTasks(2).minOpenSlots(2).reservedRpcTasks(1)
-                : PullWorkerOptions.newBuilder().reservedRpcTasks(1));
+        // A fixed Worker with an unset ceiling, then an adaptive Worker.
+        optionsByMode.add(PullWorkerOptions.newBuilder()
+                .minOpenSlots(PullWorkerOptions.DEFAULT_MAX_CONCURRENT_TASKS).reservedRpcTasks(1));
         optionsByMode.add(PullWorkerOptions.newBuilder().maxConcurrentTasks(4).minOpenSlots(2).reservedRpcTasks(1));
         for (int mode = 0; mode < optionsByMode.size(); mode++) {
             final AdaptiveSlotTestServer server = startServer("reserved-one", AdaptiveSlotTestServer.Limits.cap(1));
@@ -401,14 +525,9 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                     optionsByMode.get(mode).appWorkerID(newAppWorkerID("reserved-one")), ONE_HOUR);
             final Throwable failure = run.awaitStartResult(Duration.ofSeconds(30));
             assertTrue(failure instanceof IllegalStateException, String.valueOf(failure));
-            if (mode == 0 && hasOneProcessor) {
-                assertTrue(failure.getMessage().contains(
-                        "maxConcurrentTasks 2 exceeds Server setting matching.maxConcurrentTasksCap 1"), failure::getMessage);
-            } else {
-                assertTrue(failure.getMessage().contains("reservedRpcTasks 1 must be less than the slot ceiling 1"),
-                        failure::getMessage);
-                assertTrue(failure.getMessage().contains("matching.maxConcurrentTasksCap 1"), failure::getMessage);
-            }
+            assertTrue(failure.getMessage().contains("reservedRpcTasks 1 must be less than the slot ceiling 1"),
+                    failure::getMessage);
+            assertTrue(failure.getMessage().contains("matching.maxConcurrentTasksCap 1"), failure::getMessage);
             closeResources();
         }
     }
@@ -418,7 +537,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
     void capOfOneFixedExplicitCeilingFailsStart() throws Exception {
         final AdaptiveSlotTestServer server = startServer("fixed-two", AdaptiveSlotTestServer.Limits.cap(1));
         final WorkerRun run = startTrackedWorker(server.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(newAppWorkerID("fixed-two")).maxConcurrentTasks(2), ONE_HOUR);
+                pull(newAppWorkerID("fixed-two")).maxConcurrentTasks(2).minOpenSlots(2), ONE_HOUR);
         final Throwable failure = run.awaitStartResult(Duration.ofSeconds(30));
         assertTrue(failure instanceof IllegalStateException, String.valueOf(failure));
         assertTrue(failure.getMessage().contains(
@@ -457,7 +576,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
     void fixedCeilingAboveCapFailsStart() throws Exception {
         final AdaptiveSlotTestServer server = startServer("fixed-300", AdaptiveSlotTestServer.Limits.defaults());
         final WorkerRun run = startTrackedWorker(server.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(newAppWorkerID("fixed-300")).maxConcurrentTasks(300), ONE_HOUR);
+                pull(newAppWorkerID("fixed-300")).maxConcurrentTasks(300).minOpenSlots(300), ONE_HOUR);
         final Throwable failure = run.awaitStartResult(Duration.ofSeconds(30));
         assertTrue(failure instanceof IllegalStateException, String.valueOf(failure));
         assertTrue(failure.getMessage().contains(
@@ -521,7 +640,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
             final PullSlotProxy proxy = startProxy(server);
             final String appWorkerID = newAppWorkerID("fixed-drop");
             final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                    pull(appWorkerID).maxConcurrentTasks(4).stopOnPermanentStreamRejection(shouldStop),
+                    pull(appWorkerID).maxConcurrentTasks(4).minOpenSlots(4).stopOnPermanentStreamRejection(shouldStop),
                     Duration.ofSeconds(1));
             run.waitRegistered(Duration.ofMinutes(2));
             requireRegisteredStreams(proxy, appWorkerID, 3, 1);
@@ -725,7 +844,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         requireNoPermanentRegistrationError(run);
     }
 
-    // Covers design Tests 1 and 16.
+    // Covers design Tests 1 and 16; since phase 2, a floor equal to the ceiling keeps a Worker fixed.
     @Test
     void fixedModeIsUnchanged() throws Exception {
         final AdaptiveSlotTestServer server = startServer("fixed-parallel", AdaptiveSlotTestServer.Limits.defaults());
@@ -733,8 +852,8 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
         final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
         final String appWorkerID = newAppWorkerID("fixed-parallel");
-        final WorkerRun run = startTrackedWorker(proxy.address(), handlers, pull(appWorkerID).maxConcurrentTasks(4),
-                Duration.ofSeconds(1));
+        final WorkerRun run = startTrackedWorker(proxy.address(), handlers,
+                pull(appWorkerID).maxConcurrentTasks(4).minOpenSlots(4), Duration.ofSeconds(1));
         // Test 16: every stream opens before the first acknowledgement arrives.
         eventually("every Register before an acknowledgement", Duration.ofSeconds(10),
                 () -> proxy.registersSince(appWorkerID, Long.MIN_VALUE).size() == 4);
@@ -775,7 +894,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final RegisterEnqueueRecorder enqueues = new RegisterEnqueueRecorder();
         final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
         final WorkerRun run = track(new WorkerRun(proxy.address(), handlers, new PullWorkerAdaptiveSlotFlow(handlers),
-                new PullWorkerAdaptiveSlotParkedFlow(handlers), pull(appWorkerID).maxConcurrentTasks(4),
+                new PullWorkerAdaptiveSlotParkedFlow(handlers), pull(appWorkerID).maxConcurrentTasks(4).minOpenSlots(4),
                 new PullSlotSettings(ONE_HOUR, null, enqueues), enqueues.worker::set));
         run.waitRegistered(Duration.ofMinutes(1));
         requireRegisteredStreams(proxy, appWorkerID, 3, 1);
@@ -803,7 +922,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final NthRegisterWriteHook lastRegister = new NthRegisterWriteHook(4, callContext -> awaitCancelOrRelease(
                 callContext, release));
         final WorkerRun run = track(startWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(appWorkerID).maxConcurrentTasks(4).reservedRpcTasks(0),
+                pull(appWorkerID).maxConcurrentTasks(4).minOpenSlots(4).reservedRpcTasks(0),
                 new PullSlotSettings(ONE_HOUR, null, lastRegister)));
         run.waitRegistered(Duration.ofMinutes(1));
         requireRegisteredStreams(proxy, appWorkerID, 3, 0);
@@ -831,7 +950,8 @@ final class PullWorkerAdaptiveSlotStreamsTest {
             awaitCancelOrRelease(callContext, new CountDownLatch(1));
         });
         final WorkerRun run = track(startWorker(proxy.address(), handlers,
-                pull(appWorkerID).maxConcurrentTasks(4).reservedRpcTasks(0).stopDrainTimeout(Duration.ofSeconds(1)),
+                pull(appWorkerID).maxConcurrentTasks(4).minOpenSlots(4).reservedRpcTasks(0)
+                        .stopDrainTimeout(Duration.ofSeconds(1)),
                 new PullSlotSettings(ONE_HOUR, null, lastRegister)));
         assertTrue(blocked.await(30, TimeUnit.SECONDS), "the last startup Register never started its write");
         run.waitRegistered(Duration.ofMinutes(1));
@@ -1032,7 +1152,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         stopped.get(2, TimeUnit.MINUTES);
         assertNull(run.awaitStartResult(Duration.ofSeconds(10)));
         final WorkerRun replacement = startTrackedWorker(server.address(), handlers,
-                pull(newAppWorkerID("fixed-replacement")).maxConcurrentTasks(8), ONE_HOUR);
+                pull(newAppWorkerID("fixed-replacement")).maxConcurrentTasks(8).minOpenSlots(8), ONE_HOUR);
         replacement.waitRegistered(Duration.ofMinutes(2));
         requireFlowsCompleted(client, flowIDs);
         requireFirstAttempts(handlers.drainEntries());
@@ -1044,7 +1164,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
         final AdaptiveSlotTestServer server = startServer("fleet", AdaptiveSlotTestServer.Limits.defaults());
         final PullWorkerAdaptiveSlotHandlers handlers = new PullWorkerAdaptiveSlotHandlers();
         final WorkerRun fixed = startTrackedWorker(server.address(), handlers,
-                pull(newAppWorkerID("fixed-fleet")).maxConcurrentTasks(4), ONE_HOUR);
+                pull(newAppWorkerID("fixed-fleet")).maxConcurrentTasks(4).minOpenSlots(4), ONE_HOUR);
         final WorkerRun adaptive = startTrackedWorker(server.address(), handlers,
                 pull(newAppWorkerID("adaptive-fleet")).maxConcurrentTasks(16).minOpenSlots(2), Duration.ofSeconds(1));
         fixed.waitRegistered(Duration.ofMinutes(2));

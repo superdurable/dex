@@ -168,6 +168,8 @@ export interface PullSlotConfiguration {
   readonly isMaxConcurrentTasksExplicit: boolean;
   readonly isMinOpenSlotsExplicit: boolean;
   readonly isReservedRpcTasksExplicit: boolean;
+  /** The CPU count that the unset floor default uses. */
+  readonly cpuCount: number;
 }
 
 // W, the shrink window of decision D6.
@@ -177,12 +179,34 @@ export function defaultPullSlotSettings(): PullSlotSettings {
   return { shrinkWindowMs: DEFAULT_PULL_SHRINK_WINDOW_MS };
 }
 
+/** The `maxConcurrentTasks` default, decision D3. */
+export const DEFAULT_PULL_MAX_CONCURRENT_TASKS = 100;
+
 /**
  * Keeps one RPC-only slot when the ceiling and the floor both leave room for it.
  * @returns The default reserved RPC slot count.
  */
 export function defaultReservedRpcTasks(maxConcurrentTasks: number, minOpenSlots: number): number {
   return maxConcurrentTasks >= 2 && minOpenSlots >= 2 ? 1 : 0;
+}
+
+/**
+ * Resolves the floor and the reserved RPC slots from the ceiling T; an undefined count is unset.
+ * An unset R comes first, from T and the floor candidate `min(T, max(2, cpuCount))`.
+ * An unset floor then becomes `min(T, max(R + 1, cpuCount))`.
+ * @returns The floor and the reserved RPC slot count; explicit values pass through unchanged.
+ */
+export function resolvePullSlotDefaults(
+  maxConcurrentTasks: number,
+  explicitMinOpenSlots: number | undefined,
+  explicitReservedRpcTasks: number | undefined,
+  cpuCount: number,
+): { minOpenSlots: number; reservedRpcTasks: number } {
+  const floorCandidate = explicitMinOpenSlots ?? Math.min(maxConcurrentTasks, Math.max(2, cpuCount));
+  const reservedRpcTasks = explicitReservedRpcTasks ?? defaultReservedRpcTasks(maxConcurrentTasks, floorCandidate);
+  const minOpenSlots = explicitMinOpenSlots
+    ?? Math.min(maxConcurrentTasks, Math.max(reservedRpcTasks + 1, cpuCount));
+  return { minOpenSlots, reservedRpcTasks };
 }
 
 export function newPullSlotAttempt(isGrowth: boolean, isOpenedAfterReadiness: boolean): PullSlotAttempt {
@@ -207,6 +231,7 @@ export class PullSlotStreams {
   private readonly configuredMaxConcurrentTasks: number;
   private readonly isMinOpenSlotsExplicit: boolean;
   private readonly isReservedRpcTasksExplicit: boolean;
+  private readonly cpuCount: number;
   // C, from the last acknowledgement.
   private totalCapacity: number;
   // R_eff.
@@ -250,6 +275,7 @@ export class PullSlotStreams {
     this.isMaxConcurrentTasksExplicit = configuration.isMaxConcurrentTasksExplicit;
     this.isMinOpenSlotsExplicit = configuration.isMinOpenSlotsExplicit;
     this.isReservedRpcTasksExplicit = configuration.isReservedRpcTasksExplicit;
+    this.cpuCount = configuration.cpuCount;
     this.isAdaptive = configuration.minOpenSlots < configuration.maxConcurrentTasks;
     this.totalCapacity = configuration.maxConcurrentTasks;
     this.rpcOnlySlots = configuration.reservedRpcTasks;
@@ -293,13 +319,16 @@ export class PullSlotStreams {
     let ceiling = this.configuredMaxConcurrentTasks;
     if (hasLimit && ceiling > limit) {
       ceiling = limit;
-      const source = this.isMaxConcurrentTasksExplicit ? "" : ", the CPU-count default,";
+      const source = this.isMaxConcurrentTasksExplicit ? "" : ", the default,";
       console.warn(`clamped maxConcurrentTasks ${this.configuredMaxConcurrentTasks}${source} to the Server `
         + `matching.maxConcurrentTasksCap ${limit}`);
     }
-    const minOpenSlots = this.isMinOpenSlotsExplicit ? this.minOpenSlots : ceiling;
-    const reservedRpcTasks = this.isReservedRpcTasksExplicit
-      ? this.reservedRpcTasks : defaultReservedRpcTasks(ceiling, minOpenSlots);
+    const { minOpenSlots, reservedRpcTasks } = resolvePullSlotDefaults(
+      ceiling,
+      this.isMinOpenSlotsExplicit ? this.minOpenSlots : undefined,
+      this.isReservedRpcTasksExplicit ? this.reservedRpcTasks : undefined,
+      this.cpuCount,
+    );
     if (reservedRpcTasks >= ceiling) {
       return new Error(`reservedRpcTasks ${reservedRpcTasks} must be less than the slot ceiling ${ceiling}, which is `
         + `maxConcurrentTasks ${this.configuredMaxConcurrentTasks} limited by Server matching.maxConcurrentTasksCap ${limit}`);
@@ -700,9 +729,10 @@ export class PullSlotStreams {
     return newest;
   }
 
-  /** F4: a fixed Worker with an unset ceiling opens one stream until the first acknowledgement. */
+  /** F4: one stream opens until the first acknowledgement when a clamp may lower a default ceiling or floor. */
   private isCapProbePending(): boolean {
-    return !this.isAdaptive && !this.isMaxConcurrentTasksExplicit && !this.hasCheckedRegistrationLimit;
+    if (this.hasCheckedRegistrationLimit) return false;
+    return this.isAdaptive ? !this.isMinOpenSlotsExplicit : !this.isMaxConcurrentTasksExplicit;
   }
 
   /** S. */

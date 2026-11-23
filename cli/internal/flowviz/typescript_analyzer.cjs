@@ -2580,19 +2580,20 @@ class TypeScriptAnalyzer {
     const declaration = this.attributeDeclarations.get(node.id);
     if (!declaration) return fact;
     const anchor = this.ts.findAncestor(declaration,parent => this.ts.isVariableStatement(parent) || this.ts.isPropertyDeclaration(parent) || this.ts.isExpressionStatement(parent));
-    fact.directives = this.directives(anchor || declaration);
+    fact.directives = this.directives(anchor || declaration).filter(text => /^dex:indexed-attribute(?:\s|$)/.test(text)).map(text => ({text}));
     fact.span = node.span;
     const index = this.resolvedValue(declaration.arguments?.[2],{}).node;
     if (!index || index.kind === this.ts.SyntaxKind.NullKeyword || (this.ts.isIdentifier(index) && index.text === "undefined")) return fact;
-    fact.index = {key:"",type:"unknown"};
+    fact.isIndexed = true;
+    fact.indexType = "unknown";
     if (!this.ts.isObjectLiteralExpression(index)) return fact;
     const properties = new Map(index.properties.filter(property => property.name).map(property => [this.propertyName(property.name),this.propertyValueExpression(property)]));
     const indexKey = this.staticLiteral(properties.get("indexKey"));
-    fact.index.key = typeof indexKey === "string" && indexKey ? indexKey : node.resource.map ? "" : node.name;
+    fact.indexKey = typeof indexKey === "string" && indexKey ? indexKey : node.resource.map ? "" : node.name;
     const indexType = this.resolvedValue(properties.get("type"),{}).node;
     let indexTypeName = this.staticLiteral(indexType);
     if (indexType && this.ts.isPropertyAccessExpression(indexType) && this.dexName(indexType.expression) === "IndexType") indexTypeName = indexType.name.text;
-    fact.index.type = {KEYWORD:"keyword",FULL_TEXT:"fulltext",KEYWORD_ARRAY:"keyword-array",INT:"int",DOUBLE:"double",BOOL:"bool",DATETIME:"datetime",keyword:"keyword",fullText:"fulltext",keywordArray:"keyword-array",int:"int",double:"double",bool:"bool",datetime:"datetime"}[indexTypeName] || "unknown";
+    fact.indexType = {KEYWORD:"keyword",FULL_TEXT:"fulltext",KEYWORD_ARRAY:"keyword-array",INT:"int",DOUBLE:"double",BOOL:"bool",DATETIME:"datetime",keyword:"keyword",fullText:"fulltext",keywordArray:"keyword-array",int:"int",double:"double",bool:"bool",datetime:"datetime"}[indexTypeName] || "unknown";
     return fact;
   }
 }

@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sort"
 	"time"
 
@@ -129,8 +130,19 @@ type pullSlotStreams struct {
 // pullSlotSettings holds the slot stream timings and test hooks; only tests change them.
 type pullSlotSettings struct {
 	shrinkWindow time.Duration
+	// processorCount is the CPU count of the default floor; zero uses runtime.NumCPU.
+	processorCount int
 	// beforeRegisterSendForTest, when set, runs after a slot stream opens and before its Register is checked and sent.
 	beforeRegisterSendForTest func(stream *pullStream)
+}
+
+// resolvedProcessorCount returns the CPU count that the default MinOpenSlots uses: processorCount when
+// it is positive, otherwise runtime.NumCPU.
+func (settings pullSlotSettings) resolvedProcessorCount() int {
+	if settings.processorCount > 0 {
+		return settings.processorCount
+	}
+	return runtime.NumCPU()
 }
 
 // pullSlotAttempt is one registration attempt of a slot stream; worker.mu guards it.
@@ -169,12 +181,36 @@ func defaultPullSlotSettings() pullSlotSettings {
 	return pullSlotSettings{shrinkWindow: defaultPullShrinkWindow}
 }
 
+// defaultMaxConcurrentTasks is the slot ceiling of a Worker that leaves MaxConcurrentTasks unset.
+const defaultMaxConcurrentTasks = 100
+
 // defaultReservedRPCTasks keeps one RPC-only slot when the ceiling and the floor both leave room for it.
 func defaultReservedRPCTasks(maxConcurrentTasks int, minOpenSlots int) int {
 	if maxConcurrentTasks >= 2 && minOpenSlots >= 2 {
 		return 1
 	}
 	return 0
+}
+
+// resolveSlotFloorAndReservedRPCTasks derives the unset MinOpenSlots and ReservedRPCTasks from the
+// ceiling T. explicitMinOpenSlots is zero when unset, and explicitReservedRPCTasks is nil when unset.
+// R resolves first: the explicit value; else defaultReservedRPCTasks(T, floor) for an explicit floor;
+// else 1 when T >= 2, otherwise 0. The floor then resolves: the explicit value, else
+// min(T, max(R + 1, processorCount)). That default floor is at least 2 whenever T >= 2, so it agrees
+// with the R derived without it. The returned values are not validated against each other.
+func resolveSlotFloorAndReservedRPCTasks(ceiling int, explicitMinOpenSlots int, explicitReservedRPCTasks *int, processorCount int) (minOpenSlots int, reservedRPCTasks int) {
+	switch {
+	case explicitReservedRPCTasks != nil:
+		reservedRPCTasks = *explicitReservedRPCTasks
+	case explicitMinOpenSlots != 0:
+		reservedRPCTasks = defaultReservedRPCTasks(ceiling, explicitMinOpenSlots)
+	default:
+		reservedRPCTasks = defaultReservedRPCTasks(ceiling, ceiling)
+	}
+	if explicitMinOpenSlots != 0 {
+		return explicitMinOpenSlots, reservedRPCTasks
+	}
+	return min(ceiling, max(reservedRPCTasks+1, processorCount)), reservedRPCTasks
 }
 
 // initializeSlotCapacityLocked sets C, R_eff, and L from the configuration before any acknowledgement.
@@ -222,14 +258,15 @@ func (worker *pullWorker) resolveSlotCeilingAtFirstAcknowledgementLocked(limit u
 			"maxConcurrentTasks", worker.configuredMaxConcurrentTasks, "maxConcurrentTasksPerAppWorker", limit,
 			"isMaxConcurrentTasksExplicit", worker.isMaxConcurrentTasksExplicit)
 	}
-	minOpenSlots := worker.minOpenSlots
-	if !worker.isMinOpenSlotsExplicit {
-		minOpenSlots = ceiling
+	explicitMinOpenSlots := 0
+	if worker.isMinOpenSlotsExplicit {
+		explicitMinOpenSlots = worker.minOpenSlots
 	}
-	reservedRPCTasks := worker.reservedRPCTasks
-	if !worker.isReservedRPCTasksExplicit {
-		reservedRPCTasks = defaultReservedRPCTasks(ceiling, minOpenSlots)
+	var explicitReservedRPCTasks *int
+	if worker.isReservedRPCTasksExplicit {
+		explicitReservedRPCTasks = &worker.reservedRPCTasks
 	}
+	minOpenSlots, reservedRPCTasks := resolveSlotFloorAndReservedRPCTasks(ceiling, explicitMinOpenSlots, explicitReservedRPCTasks, worker.slotSettings.resolvedProcessorCount())
 	if reservedRPCTasks >= ceiling {
 		return fmt.Errorf("dex: ReservedRPCTasks %d must be less than the slot ceiling %d, which is MaxConcurrentTasks %d limited by Server matching.maxConcurrentTasksCap %d",
 			reservedRPCTasks, ceiling, worker.configuredMaxConcurrentTasks, limit)
@@ -734,9 +771,17 @@ func (worker *pullWorker) newestIdleStreamLocked(slotKind dexpb.PollWorkerSlotKi
 	return newest
 }
 
-// isCapProbePendingLocked reports F4: a fixed Worker with an unset ceiling opens one stream until the first acknowledgement.
+// isCapProbePendingLocked reports whether the Worker opens only one stream until the first acknowledgement.
+// That holds for a fixed Worker with an unset ceiling (F4), and for an adaptive Worker with an unset
+// floor, whose default floor depends on the clamped ceiling.
 func (worker *pullWorker) isCapProbePendingLocked() bool {
-	return !worker.isAdaptive && !worker.isMaxConcurrentTasksExplicit && !worker.hasCheckedRegistrationLimit
+	if worker.hasCheckedRegistrationLimit {
+		return false
+	}
+	if worker.isAdaptive {
+		return !worker.isMinOpenSlotsExplicit
+	}
+	return !worker.isMaxConcurrentTasksExplicit
 }
 
 // stepSlotOpenLocked returns S.

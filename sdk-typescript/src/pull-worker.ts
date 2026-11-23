@@ -53,8 +53,9 @@ import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
 import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
 import {
+  DEFAULT_PULL_MAX_CONCURRENT_TASKS,
   PullSlotStreams,
-  defaultReservedRpcTasks,
+  resolvePullSlotDefaults,
   type PullSlotAttempt,
   type PullSlotStream,
   type PullSlotStreamHost,
@@ -145,12 +146,15 @@ export class PullWorker implements PullSlotStreamHost {
     private readonly onPermanentRejection: () => void = () => {},
     private readonly payloadEncryption: PayloadEncryption = disabledPayloadEncryption(),
   ) {
-    const maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, availableParallelism(), "maxConcurrentTasks");
-    const minOpenSlots = positiveOption(options.minOpenSlots, maxConcurrentTasks, "minOpenSlots");
-    if (minOpenSlots > maxConcurrentTasks) {
-      throw new RangeError(`minOpenSlots ${minOpenSlots} must not exceed maxConcurrentTasks ${maxConcurrentTasks}`);
+    const maxConcurrentTasks = positiveOption(options.maxConcurrentTasks, DEFAULT_PULL_MAX_CONCURRENT_TASKS, "maxConcurrentTasks");
+    const isMinOpenSlotsExplicit = options.minOpenSlots !== undefined && options.minOpenSlots !== 0;
+    const explicitMinOpenSlots = isMinOpenSlotsExplicit ? positiveOption(options.minOpenSlots, 0, "minOpenSlots") : undefined;
+    if (explicitMinOpenSlots !== undefined && explicitMinOpenSlots > maxConcurrentTasks) {
+      throw new RangeError(`minOpenSlots ${explicitMinOpenSlots} must not exceed maxConcurrentTasks ${maxConcurrentTasks}`);
     }
-    const reservedRpcTasks = options.reservedRpcTasks ?? defaultReservedRpcTasks(maxConcurrentTasks, minOpenSlots);
+    const cpuCount = availableParallelism();
+    const { minOpenSlots, reservedRpcTasks } = resolvePullSlotDefaults(
+      maxConcurrentTasks, explicitMinOpenSlots, options.reservedRpcTasks, cpuCount);
     if (!Number.isInteger(reservedRpcTasks) || reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
       throw new RangeError("reservedRpcTasks must be a nonnegative integer less than maxConcurrentTasks");
     }
@@ -162,8 +166,9 @@ export class PullWorker implements PullSlotStreamHost {
     this.slots = new PullSlotStreams({
       maxConcurrentTasks, minOpenSlots, reservedRpcTasks,
       isMaxConcurrentTasksExplicit: options.maxConcurrentTasks !== undefined && options.maxConcurrentTasks !== 0,
-      isMinOpenSlotsExplicit: options.minOpenSlots !== undefined && options.minOpenSlots !== 0,
+      isMinOpenSlotsExplicit,
       isReservedRpcTasksExplicit: options.reservedRpcTasks !== undefined,
+      cpuCount,
     }, this);
     positiveOption(options.idleStreamsPerQueue, 1, "idleStreamsPerQueue");
     this.stopDrainTimeoutMs = options.stopDrainTimeoutMs === undefined || options.stopDrainTimeoutMs === 0

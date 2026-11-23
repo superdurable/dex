@@ -815,17 +815,19 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         index = self.argument_value(call, "index", 2)
         index, _ = self.resolved_value(index, EvaluationFrame())
         if index is not None and not (isinstance(index, ast.Constant) and index.value is None):
-            fact["index"] = {"key": "", "type": "unknown"}
+            fact["isIndexed"] = True
+            fact["indexType"] = "unknown"
             if isinstance(index, ast.Call) and self.is_dex_reference(index.func, "AttributeIndex"):
                 index_type = self.argument_value(index, "type", 0)
                 index_key, _ = self.resolved_value(self.argument_value(index, "index_key", 1), EvaluationFrame())
                 index_name = self.symbol(index_type).rsplit(".", 1)[-1]
                 key = index_key.value if isinstance(index_key, ast.Constant) and isinstance(index_key.value, str) else ""
-                fact["index"] = {
-                    "key": key or ("" if resource["map"] else node["name"]),
-                    "type": index_name.lower().replace("full_text", "fulltext").replace("_", "-"),
-                }
-        fact["directives"] = self.preceding_directives(declaration.lineno - 1)
+                fact["indexKey"] = key or ("" if resource["map"] else node["name"])
+                fact["indexType"] = index_name.lower().replace("full_text", "fulltext").replace("_", "-")
+        fact["directives"] = [
+            {"text": text} for text in self.preceding_directives(declaration.lineno - 1)
+            if text.split(maxsplit=1)[0] == "dex:indexed-attribute"
+        ]
         fact["span"] = node["span"]
         return fact
 

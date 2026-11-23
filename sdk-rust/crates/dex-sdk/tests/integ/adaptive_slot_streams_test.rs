@@ -35,6 +35,19 @@ use crate::adaptive_slot_workflow::{
 };
 
 const SECOND: Duration = Duration::from_secs(1);
+/// The ceiling of a Worker without `max_concurrent_tasks`.
+const DEFAULT_MAX_CONCURRENT_TASKS: usize = 100;
+
+fn cpu_count() -> usize {
+    std::thread::available_parallelism()
+        .expect("read CPU count")
+        .get()
+}
+
+/// Returns the default floor for ceiling `T` and reserved RPC slots `R`: `min(T, max(R + 1, CPUs))`.
+fn default_min_open_slots(ceiling: usize, reserved_rpc_tasks: usize) -> usize {
+    ceiling.min(cpu_count().max(reserved_rpc_tasks + 1))
+}
 
 fn require_single_attempts(handlers: &AdaptiveSlotHandlers) {
     for entry in handlers.drain_entries() {
@@ -199,6 +212,7 @@ fn adaptive_slot_streams_soft_rejection_at_node_limit() {
         &fixed_handlers,
         PullWorkerOptions::new()
             .max_concurrent_tasks(14)
+            .min_open_slots(14)
             .app_worker_id(app_worker_id("fixed-filler")),
     );
     fixed.wait_registered(Duration::from_secs(60));
@@ -422,46 +436,31 @@ fn adaptive_slot_streams_floor_retry_latch() {
 fn adaptive_slot_streams_cap_of_one() {
     captured_logs::install();
     let runtime = test_runtime();
-    let cpu_count = std::thread::available_parallelism()
-        .expect("read CPU count")
-        .get();
 
-    // Fixed with an unset ceiling probes and clamps (F4).
+    // Fixed with an unset ceiling probes, clamps, and then rejects its explicit floor (F4).
     {
         let server = AdaptiveSlotTestServer::start(ServerLimits::cap(1));
         let proxy = PullSlotProxy::start(&runtime, &server.address);
         let release_acknowledgements = proxy.hold_acknowledgements();
         let app_worker_id = app_worker_id("fixed-probe");
-        let run = AdaptiveSlotWorkerRun::start(
+        let mut run = AdaptiveSlotWorkerRun::start(
             &runtime,
             &proxy.address,
             &AdaptiveSlotHandlers::new(false),
-            PullWorkerOptions::new().app_worker_id(&app_worker_id),
+            PullWorkerOptions::new()
+                .min_open_slots(DEFAULT_MAX_CONCURRENT_TASKS)
+                .app_worker_id(&app_worker_id),
         );
-        // F4: only the probe stream registers before the first acknowledgement.
-        let origin = Instant::now() - Duration::from_secs(3600);
-        assert!(eventually(10 * SECOND, || proxy
-            .registers_since(&app_worker_id, origin)
-            .len()
-            == 1));
-        assert!(
-            never(Duration::from_millis(300), || proxy
-                .registers_since(&app_worker_id, origin)
-                .len()
-                > 1),
-            "a stream registered before the probe's acknowledgement"
-        );
+        require_single_probe_register(&proxy, &app_worker_id);
         release_acknowledgements();
-        require_cap_of_one_worker_serves(&server, &proxy, &run, &app_worker_id);
-        if cpu_count > 1 {
-            assert_eq!(
-                1,
-                captured_logs::warnings_with(
-                    &app_worker_id,
-                    &["clamped max_concurrent_tasks", &cpu_count.to_string(), "1"]
-                )
-            );
-        }
+        let error = run
+            .await_start_result(30 * SECOND)
+            .expect_err("start fails")
+            .to_string();
+        assert!(
+            error.contains("min_open_slots 100 exceeds the slot ceiling 1"),
+            "{error}"
+        );
         assert!(!run.state().is_adaptive);
     }
 
@@ -473,10 +472,8 @@ fn adaptive_slot_streams_cap_of_one() {
         let mut options = PullWorkerOptions::new()
             .min_open_slots(1)
             .app_worker_id(&app_worker_id);
-        match max_concurrent_tasks {
-            Some(value) => options = options.max_concurrent_tasks(value),
-            None if cpu_count < 2 => options = options.max_concurrent_tasks(2),
-            None => {}
+        if let Some(value) = max_concurrent_tasks {
+            options = options.max_concurrent_tasks(value);
         }
         let run = AdaptiveSlotWorkerRun::start(
             &runtime,
@@ -497,14 +494,9 @@ fn adaptive_slot_streams_cap_of_one() {
     }
 
     // An explicit reserved RPC slot fails start, in either mode.
-    let fixed_options = if cpu_count < 2 {
-        PullWorkerOptions::new()
-            .max_concurrent_tasks(2)
-            .min_open_slots(2)
-            .reserved_rpc_tasks(1)
-    } else {
-        PullWorkerOptions::new().reserved_rpc_tasks(1)
-    };
+    let fixed_options = PullWorkerOptions::new()
+        .min_open_slots(DEFAULT_MAX_CONCURRENT_TASKS)
+        .reserved_rpc_tasks(1);
     let adaptive_options = PullWorkerOptions::new()
         .max_concurrent_tasks(4)
         .min_open_slots(2)
@@ -521,15 +513,6 @@ fn adaptive_slot_streams_cap_of_one() {
             .await_start_result(30 * SECOND)
             .expect_err("start fails")
             .to_string();
-        if mode == "fixed" && cpu_count < 2 {
-            assert!(
-                error.contains(
-                    "max_concurrent_tasks 2 exceeds Server matching.maxConcurrentTasksCap 1"
-                ),
-                "{error}"
-            );
-            continue;
-        }
         assert!(
             error.contains("reserved_rpc_tasks 1 must be less than the slot ceiling 1"),
             "{mode}: {error}"
@@ -595,6 +578,264 @@ fn require_cap_of_one_worker_serves(
     assert_eq!("ok", status);
 }
 
+/// F4: only the probe stream registers before the first acknowledgement.
+fn require_single_probe_register(proxy: &PullSlotProxy, app_worker_id: &str) {
+    let origin = Instant::now() - Duration::from_secs(3600);
+    assert!(eventually(10 * SECOND, || proxy
+        .registers_since(app_worker_id, origin)
+        .len()
+        == 1));
+    assert!(
+        never(Duration::from_millis(300), || proxy
+            .registers_since(app_worker_id, origin)
+            .len()
+            > 1),
+        "a stream registered before the probe's acknowledgement"
+    );
+}
+
+/// Waits until the Worker holds its floor and checks the resolved T, R, and floor.
+fn require_resolved_slots(
+    run: &AdaptiveSlotWorkerRun,
+    proxy: &PullSlotProxy,
+    app_worker_id: &str,
+    ceiling: usize,
+    reserved_rpc_tasks: usize,
+    min_open_slots: usize,
+) {
+    let step_floor = min_open_slots - reserved_rpc_tasks;
+    require_slot_state(run, "the resolved floor", 30 * SECOND, |state| {
+        state.registering == 0
+            && state.open == step_floor
+            && state.rpc_only_open == reserved_rpc_tasks
+    });
+    let state = run.state();
+    assert_eq!(ceiling, state.total_capacity, "{state:?}");
+    assert_eq!(reserved_rpc_tasks, state.rpc_only_slots, "{state:?}");
+    assert_eq!(step_floor, state.floor, "{state:?}");
+    assert_eq!(
+        ceiling - reserved_rpc_tasks,
+        state.effective_ceiling,
+        "{state:?}"
+    );
+    require_registered_streams(proxy, app_worker_id, step_floor, reserved_rpc_tasks);
+    run.require_no_permanent_registration_error();
+}
+
+/// Phase 2 defaults without a cap below 100: T = 100 and floor = min(T, max(R + 1, CPUs)).
+#[test]
+#[ignore = "requires DEX_SERVER_ZD_BINARY"]
+fn default_slot_streams_without_cap() {
+    captured_logs::install();
+    let runtime = test_runtime();
+
+    // No options: adaptive up to 100, and it grows above the derived floor.
+    {
+        let server = AdaptiveSlotTestServer::start(ServerLimits::default());
+        let proxy = PullSlotProxy::start(&runtime, &server.address);
+        let handlers = AdaptiveSlotHandlers::new(false);
+        let app_worker_id = app_worker_id("default-none");
+        let run = AdaptiveSlotWorkerRun::start(
+            &runtime,
+            &proxy.address,
+            &handlers,
+            PullWorkerOptions::new()
+                .app_worker_id(&app_worker_id)
+                .shrink_window_for_test(Duration::from_secs(3600)),
+        );
+        run.wait_registered(Duration::from_secs(60));
+        let min_open_slots = default_min_open_slots(DEFAULT_MAX_CONCURRENT_TASKS, 1);
+        require_resolved_slots(
+            &run,
+            &proxy,
+            &app_worker_id,
+            DEFAULT_MAX_CONCURRENT_TASKS,
+            1,
+            min_open_slots,
+        );
+        assert_eq!(
+            min_open_slots < DEFAULT_MAX_CONCURRENT_TASKS,
+            run.state().is_adaptive
+        );
+        assert_eq!(
+            0,
+            captured_logs::warnings_with(&app_worker_id, &["clamped max_concurrent_tasks"])
+        );
+        // A floor near 100 leaves no room for a burst above it.
+        if min_open_slots + 2 <= DEFAULT_MAX_CONCURRENT_TASKS {
+            let burst = min_open_slots + 2;
+            let client = server.new_client(&run.registry);
+            let flow_ids = start_flows(&client, &handlers, MODE_BLOCK, burst);
+            handlers.await_entries(burst);
+            require_slot_state(&run, "the burst above the floor", 30 * SECOND, |state| {
+                state.busy == burst && state.registering == 0
+            });
+            assert!(run.state().streams_grown > 0, "{:?}", run.state());
+            handlers.release();
+            require_flows_completed(&client, &flow_ids);
+            require_single_attempts(&handlers);
+        }
+        run.require_no_permanent_registration_error();
+    }
+
+    // Only the ceiling: the derived floor reaches it on high-CPU machines.
+    {
+        let ceiling = (cpu_count().max(2) + 4).min(200);
+        let server = AdaptiveSlotTestServer::start(ServerLimits::default());
+        let proxy = PullSlotProxy::start(&runtime, &server.address);
+        let app_worker_id = app_worker_id("default-ceiling");
+        let run = AdaptiveSlotWorkerRun::start(
+            &runtime,
+            &proxy.address,
+            &AdaptiveSlotHandlers::new(false),
+            PullWorkerOptions::new()
+                .max_concurrent_tasks(ceiling)
+                .app_worker_id(&app_worker_id),
+        );
+        run.wait_registered(Duration::from_secs(60));
+        let min_open_slots = default_min_open_slots(ceiling, 1);
+        require_resolved_slots(&run, &proxy, &app_worker_id, ceiling, 1, min_open_slots);
+        assert_eq!(min_open_slots < ceiling, run.state().is_adaptive);
+    }
+
+    // A floor equal to the ceiling keeps the Worker fixed.
+    {
+        let server = AdaptiveSlotTestServer::start(ServerLimits::default());
+        let proxy = PullSlotProxy::start(&runtime, &server.address);
+        let app_worker_id = app_worker_id("default-fixed");
+        let run = AdaptiveSlotWorkerRun::start(
+            &runtime,
+            &proxy.address,
+            &AdaptiveSlotHandlers::new(false),
+            PullWorkerOptions::new()
+                .max_concurrent_tasks(6)
+                .min_open_slots(6)
+                .app_worker_id(&app_worker_id),
+        );
+        run.wait_registered(Duration::from_secs(60));
+        require_resolved_slots(&run, &proxy, &app_worker_id, 6, 1, 6);
+        assert!(!run.state().is_adaptive);
+    }
+
+    // F4: a floor of 100 with an unset ceiling is fixed, probes, and then opens every slot.
+    {
+        let server = AdaptiveSlotTestServer::start(ServerLimits::default());
+        let proxy = PullSlotProxy::start(&runtime, &server.address);
+        let release_acknowledgements = proxy.hold_acknowledgements();
+        let app_worker_id = app_worker_id("default-probe");
+        let run = AdaptiveSlotWorkerRun::start(
+            &runtime,
+            &proxy.address,
+            &AdaptiveSlotHandlers::new(false),
+            PullWorkerOptions::new()
+                .min_open_slots(DEFAULT_MAX_CONCURRENT_TASKS)
+                .app_worker_id(&app_worker_id),
+        );
+        require_single_probe_register(&proxy, &app_worker_id);
+        release_acknowledgements();
+        run.wait_registered(Duration::from_secs(60));
+        require_resolved_slots(
+            &run,
+            &proxy,
+            &app_worker_id,
+            DEFAULT_MAX_CONCURRENT_TASKS,
+            1,
+            DEFAULT_MAX_CONCURRENT_TASKS,
+        );
+        assert!(!run.state().is_adaptive);
+    }
+}
+
+/// Phase 2 defaults under a cap below 100: R and the floor derive from the clamped T.
+#[test]
+#[ignore = "requires DEX_SERVER_ZD_BINARY"]
+fn default_slot_streams_clamped_by_cap() {
+    captured_logs::install();
+    let runtime = test_runtime();
+
+    // Cap 12 lowers the derived floor on a machine with more CPUs; a cap above the CPU count
+    // keeps the Worker adaptive after the clamp.
+    for cap in [12, (cpu_count().max(2) + 4).min(99)] {
+        let server = AdaptiveSlotTestServer::start(ServerLimits::cap(cap));
+        let proxy = PullSlotProxy::start(&runtime, &server.address);
+        let release_acknowledgements = proxy.hold_acknowledgements();
+        let handlers = AdaptiveSlotHandlers::new(false);
+        let app_worker_id = app_worker_id("default-cap");
+        let run = AdaptiveSlotWorkerRun::start(
+            &runtime,
+            &proxy.address,
+            &handlers,
+            PullWorkerOptions::new()
+                .app_worker_id(&app_worker_id)
+                .shrink_window_for_test(Duration::from_secs(3600)),
+        );
+        // The unset floor derives from the clamped ceiling, so one stream probes the cap first.
+        require_single_probe_register(&proxy, &app_worker_id);
+        release_acknowledgements();
+        run.wait_registered(Duration::from_secs(60));
+        require_resolved_slots(
+            &run,
+            &proxy,
+            &app_worker_id,
+            cap,
+            1,
+            default_min_open_slots(cap, 1),
+        );
+        // The mode is decided before the clamp, from T = 100.
+        assert!(run.state().is_adaptive || cpu_count() >= DEFAULT_MAX_CONCURRENT_TASKS);
+        assert_eq!(
+            1,
+            captured_logs::warnings_with(
+                &app_worker_id,
+                &["clamped max_concurrent_tasks", "100", &cap.to_string()]
+            )
+        );
+        // Below the clamped ceiling, a burst grows the Worker above its derived floor.
+        let min_open_slots = default_min_open_slots(cap, 1);
+        if min_open_slots + 3 <= cap {
+            let burst = min_open_slots + 2;
+            let client = server.new_client(&run.registry);
+            let flow_ids = start_flows(&client, &handlers, MODE_BLOCK, burst);
+            handlers.await_entries(burst);
+            require_slot_state(&run, "the burst above the floor", 30 * SECOND, |state| {
+                state.busy == burst && state.registering == 0
+            });
+            assert!(run.state().streams_grown > 0, "{:?}", run.state());
+            handlers.release();
+            require_flows_completed(&client, &flow_ids);
+            require_single_attempts(&handlers);
+        }
+        run.require_no_permanent_registration_error();
+    }
+
+    // A cap of 1 with every option unset: T = 1, R = 0, and a floor of 1.
+    let server = AdaptiveSlotTestServer::start(ServerLimits::cap(1));
+    let proxy = PullSlotProxy::start(&runtime, &server.address);
+    let app_worker_id = app_worker_id("default-one");
+    let run = AdaptiveSlotWorkerRun::start(
+        &runtime,
+        &proxy.address,
+        &AdaptiveSlotHandlers::new(false),
+        PullWorkerOptions::new().app_worker_id(&app_worker_id),
+    );
+    require_cap_of_one_worker_serves(&server, &proxy, &run, &app_worker_id);
+    let state = run.state();
+    assert_eq!(1, state.floor, "{state:?}");
+    assert_eq!(0, state.rpc_only_slots, "{state:?}");
+    run.require_no_permanent_registration_error();
+    assert_eq!(
+        1,
+        captured_logs::warnings_with(
+            &app_worker_id,
+            &["clamped max_concurrent_tasks", "100", "1"]
+        )
+    );
+    let origin = Instant::now() - Duration::from_secs(3600);
+    for register in proxy.registers_since(&app_worker_id, origin) {
+        assert_eq!(STEP_AND_RPC, register.slot_kind);
+    }
+}
+
 /// Design Tests 20a and 20b.
 #[test]
 #[ignore = "requires DEX_SERVER_ZD_BINARY"]
@@ -654,6 +895,7 @@ fn adaptive_slot_streams_ceiling_above_cap() {
         &AdaptiveSlotHandlers::new(false),
         PullWorkerOptions::new()
             .max_concurrent_tasks(300)
+            .min_open_slots(300)
             .app_worker_id(app_worker_id("fixed-300")),
     );
     let error = run
@@ -754,6 +996,7 @@ fn fixed_slot_streams_cap_drop_to_one() {
             &AdaptiveSlotHandlers::new(false),
             PullWorkerOptions::new()
                 .max_concurrent_tasks(4)
+                .min_open_slots(4)
                 .app_worker_id(&app_worker_id)
                 .stop_on_permanent_stream_rejection(should_stop)
                 .shrink_window_for_test(SECOND),
@@ -1162,6 +1405,7 @@ fn fixed_slot_streams_unchanged() {
         &handlers,
         PullWorkerOptions::new()
             .max_concurrent_tasks(4)
+            .min_open_slots(4)
             .app_worker_id(&app_worker_id)
             .shrink_window_for_test(SECOND),
     );
@@ -1666,6 +1910,7 @@ fn adaptive_slot_streams_graceful_stop_during_growth() {
         &handlers,
         PullWorkerOptions::new()
             .max_concurrent_tasks(8)
+            .min_open_slots(8)
             .app_worker_id(app_worker_id("fixed-replacement")),
     );
     replacement.wait_registered(Duration::from_secs(60));
@@ -1686,6 +1931,7 @@ fn adaptive_slot_streams_mixed_fleet() {
         &handlers,
         PullWorkerOptions::new()
             .max_concurrent_tasks(4)
+            .min_open_slots(4)
             .app_worker_id(app_worker_id("fixed-fleet")),
     );
     let adaptive = AdaptiveSlotWorkerRun::start(

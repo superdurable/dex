@@ -24,9 +24,11 @@ type scriptAnalysis struct {
 	Annotations []scriptStepAnnotations `json:"annotations"`
 	Factories   []scriptFactoryUse      `json:"factories"`
 	// Attributes, Actions, and RPCLockErrors feed the 2.0 Actions; see script_actions.go.
-	Attributes             []scriptAttribute    `json:"attributes"`
+	Attributes             []v2AttributeFact    `json:"attributes"`
 	Actions                []scriptAction       `json:"actions"`
 	RPCLockErrors          []scriptRPCLockError `json:"rpcLockErrors"`
+	ViewRPCs               []v2ViewRPCFact      `json:"viewRPCs,omitempty"`
+	StartInput             *v2StartInputFact    `json:"startInput,omitempty"`
 	PersistenceResourceIDs []string             `json:"persistenceResourceIds"`
 	DiagnosticResourceIDs  map[int]string       `json:"diagnosticResourceIds"`
 }
@@ -121,50 +123,13 @@ func (analysis *scriptAnalysis) definition() *Graph {
 			registered[resourceID] = true
 		}
 		removed := graph.retainFlowResources(registered, analysis.DiagnosticResourceIDs)
-		analysis.Attributes = slices.DeleteFunc(analysis.Attributes, func(attribute scriptAttribute) bool {
+		analysis.Attributes = slices.DeleteFunc(analysis.Attributes, func(attribute v2AttributeFact) bool {
 			return removed[attribute.ResourceID]
 		})
-		analysis.applyIndexedAttributes()
 	}
+	analysis.applyV2Metadata()
 	analysis.applyActions()
 	return graph
-}
-
-func (analysis *scriptAnalysis) applyIndexedAttributes() {
-	language := "Python"
-	if analysis.Graph.Source.Language == "typescript" {
-		language = "TypeScript"
-	}
-	for _, attribute := range analysis.Attributes {
-		declaration := v2AttributeDeclaration{key: attribute.Key, valueType: attribute.ValueType, span: attribute.Span}
-		switch {
-		case attribute.IsMap:
-			declaration.valueType = "attribute-map"
-		case slices.Contains([]string{"list[str]", "string[]", "Array<string>", "readonlystring[]"}, attribute.ValueType):
-			declaration.valueType = "string-array"
-		}
-		if attribute.Index != nil {
-			declaration.isIndexed = true
-			declaration.indexKey = attribute.Index.Key
-			declaration.indexType = attribute.Index.Type
-		}
-		for _, text := range attribute.Directives {
-			fields := strings.Fields(text)
-			if len(fields) == 0 || fields[0] != "dex:indexed-attribute" {
-				continue
-			}
-			directive, err := parseV2Directive(text, nil)
-			if err != nil {
-				analysis.Graph.AddDiagnostic("error", "v2_directive", err.Error(), attribute.Span)
-				continue
-			}
-			declaration.directives = append(declaration.directives, directive)
-		}
-		indexed := collectV2IndexedAttributes(&analysis.Graph, []v2AttributeDeclaration{declaration}, language, func(directive v2Directive, message string) {
-			analysis.Graph.AddDiagnostic("error", "v2_directive", "dex:"+directive.name+" "+message, attribute.Span)
-		})
-		analysis.Graph.V2.IndexedAttributes = append(analysis.Graph.V2.IndexedAttributes, indexed...)
-	}
 }
 
 func (analysis *scriptAnalysis) applyConnectorFactory(use scriptFactoryUse) {

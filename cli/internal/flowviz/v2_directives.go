@@ -35,19 +35,13 @@ type v2DirectiveArgument struct {
 type v2Directive struct {
 	name      string
 	arguments map[string]v2DirectiveArgument
-	comment   *ast.Comment
+	span      *Span
 }
 
 type v2AttributeDeclaration struct {
-	variableName string
-	key          string
-	valueType    string
-	isMap        bool
-	isIndexed    bool
-	indexKey     string
-	indexType    string
-	directives   []v2Directive
-	span         *Span
+	v2AttributeFact
+	variableName     string
+	parsedDirectives []v2Directive
 }
 
 type v2RPCRegistration struct {
@@ -74,14 +68,13 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 		// Dex Web invokes the view RPCs by protocol name, so a renamed one is not registered.
 		registeredRPCNames[rpc.protocolName] = true
 	}
-	indexedAttributes := analyzer.collectV2IndexedAttributes(attributes)
+	indexedAttributes := analyzer.graph.buildV2IndexedAttributes(analyzer.v2AttributeDeclarationsInSourceOrder(attributes), "Go declaration")
 	summary := analyzer.collectV2View(
 		flowType,
 		"GetDexSummary",
 		attributes,
 		registeredRPCNames,
 		indexedAttributes,
-		false,
 	)
 	display := analyzer.collectV2View(
 		flowType,
@@ -89,10 +82,9 @@ func (analyzer *goAnalyzer) analyzeVisualizationV2(flowType string) {
 		attributes,
 		registeredRPCNames,
 		indexedAttributes,
-		true,
 	)
 	actions := analyzer.collectV2Actions(flowType, attributes, registeredRPCs)
-	start := analyzer.collectV2StartDefinition()
+	start := analyzer.graph.buildV2StartDefinition(analyzer.readV2StartInput())
 	connectorTriggerBindings := analyzer.collectConnectorTriggerBindings(flowType)
 	analyzer.graph.V2 = &V2Definition{
 		IndexedAttributes:        indexedAttributes,
@@ -314,98 +306,17 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 					attributeDirectives = nil
 				}
 				attributes[attributeKey] = v2AttributeDeclaration{
-					variableName: name.Name,
-					key:          attributeKey,
-					valueType:    valueType,
-					isMap:        resource.Map,
-					isIndexed:    isIndexed,
-					indexKey:     indexKey,
-					indexType:    indexType,
-					directives:   attributeDirectives,
-					span:         analyzer.span(valueSpec),
+					v2AttributeFact: v2AttributeFact{
+						Key: attributeKey, ValueType: valueType, IsMap: resource.Map,
+						IsIndexed: isIndexed, IndexKey: indexKey, IndexType: indexType, Span: analyzer.span(valueSpec),
+					},
+					variableName:     name.Name,
+					parsedDirectives: attributeDirectives,
 				}
 			}
 		}
 	}
 	return attributes
-}
-
-func (analyzer *goAnalyzer) collectV2IndexedAttributes(
-	attributes map[string]v2AttributeDeclaration,
-) []IndexedAttribute {
-	return collectV2IndexedAttributes(
-		analyzer.graph, analyzer.v2AttributeDeclarationsInSourceOrder(attributes), "Go",
-		analyzer.addV2DirectiveError,
-	)
-}
-
-func collectV2IndexedAttributes(
-	graph *Graph, attributes []v2AttributeDeclaration, language string, report func(v2Directive, string),
-) []IndexedAttribute {
-	indexedAttributes := make([]IndexedAttribute, 0)
-	for _, declaration := range attributes {
-		directives := directivesNamed(declaration.directives, "indexed-attribute")
-		if declaration.isIndexed && len(directives) != 1 {
-			graph.AddDiagnostic(
-				"error",
-				"v2_indexed_attribute",
-				fmt.Sprintf("indexed Attribute %q must declare exactly one dex:indexed-attribute directive", declaration.key),
-				declaration.span,
-			)
-			continue
-		}
-		if !declaration.isIndexed && len(directives) > 0 {
-			report(directives[0], fmt.Sprintf("Attribute %q is not indexed", declaration.key))
-			continue
-		}
-		if !declaration.isIndexed {
-			continue
-		}
-		directive := directives[0]
-		allowed := []string{"attribute-key", "index-key", "index-type", "value-type", "description"}
-		if !validateV2DirectiveArguments(directive, allowed, allowed, report) {
-			continue
-		}
-		comparisons := []struct {
-			argument string
-			actual   string
-		}{
-			{argument: "attribute-key", actual: declaration.key},
-			{argument: "index-key", actual: declaration.indexKey},
-			{argument: "index-type", actual: declaration.indexType},
-			{argument: "value-type", actual: declaration.valueType},
-		}
-		isValid := true
-		for _, comparison := range comparisons {
-			declared := directive.arguments[comparison.argument].text
-			if declared == comparison.actual {
-				continue
-			}
-			report(
-				directive,
-				fmt.Sprintf("%s %q does not match the %s declaration %q", comparison.argument, declared, language, comparison.actual),
-			)
-			isValid = false
-		}
-		if !isV2IndexCompatible(declaration.indexType, declaration.valueType) {
-			report(
-				directive,
-				fmt.Sprintf("index-type %q does not support value-type %q", declaration.indexType, declaration.valueType),
-			)
-			isValid = false
-		}
-		if !isValid {
-			continue
-		}
-		indexedAttributes = append(indexedAttributes, IndexedAttribute{
-			AttributeKey: declaration.key,
-			IndexKey:     declaration.indexKey,
-			IndexType:    declaration.indexType,
-			ValueType:    declaration.valueType,
-			Description:  directive.arguments["description"].text,
-		})
-	}
-	return indexedAttributes
 }
 
 func (analyzer *goAnalyzer) v2AttributeDeclarationsInSourceOrder(
@@ -446,116 +357,33 @@ func (analyzer *goAnalyzer) collectV2View(
 	attributes map[string]v2AttributeDeclaration,
 	registeredRPCs map[string]bool,
 	indexedAttributes []IndexedAttribute,
-	canEdit bool,
 ) RPCView {
-	view := RPCView{RPCName: rpcName, Fields: make([]ViewField, 0)}
 	method := analyzer.methods[flowType][rpcName]
 	if method == nil {
 		analyzer.graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("Flow must define %s", rpcName), nil)
-		return view
+		return RPCView{RPCName: rpcName, Fields: make([]ViewField, 0)}
 	}
 	if !registeredRPCs[rpcName] {
 		analyzer.graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("%s must be registered in GetRPCs", rpcName), analyzer.span(method))
 	}
 	analyzer.validateV2RPCSignature(method, "none", "map")
 	analyzer.validateV2ReadOnlyRPC(method)
-	indexedKeys := make(map[string]bool, len(indexedAttributes))
-	for _, attribute := range indexedAttributes {
-		indexedKeys[attribute.AttributeKey] = true
+	fact := v2ViewRPCFact{
+		ProtocolName: rpcName,
+		Directives:   analyzer.v2DirectiveLines(method.Doc),
+		Span:         analyzer.span(method),
+		OutputKeys:   analyzer.v2ViewOutputKeys(method),
 	}
-	seen := make(map[string]bool)
-	claimedUISlots := make(map[string]string)
-	for _, directive := range directivesNamed(analyzer.parseV2Directives(method.Doc), "field") {
-		required := []string{"attribute-key", "value-type", "editable", "description"}
-		allowed := append(append([]string{}, required...), "ui-slot")
-		if !analyzer.validateV2Directive(directive, allowed, required) {
-			continue
-		}
-		attributeKey := directive.arguments["attribute-key"].text
-		attribute, found := attributes[attributeKey]
-		if !found {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("field Attribute %q must be declared in this file", attributeKey))
-			continue
-		}
-		if seen[attributeKey] {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("field Attribute %q is duplicated", attributeKey))
-			continue
-		}
-		seen[attributeKey] = true
-		valueType := directive.arguments["value-type"].text
-		if valueType != attribute.valueType {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("value-type %q does not match Attribute %q type %q", valueType, attributeKey, attribute.valueType))
-			continue
-		}
-		isEditable, err := strconv.ParseBool(directive.arguments["editable"].text)
-		if err != nil {
-			analyzer.addV2DirectiveError(directive, "editable must be true or false")
-			continue
-		}
-		if isEditable && !canEdit {
-			analyzer.addV2DirectiveError(directive, "GetDexSummary fields cannot be editable")
-			continue
-		}
-		if isEditable && !isV2EditableType(valueType) {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("value-type %q is not editable", valueType))
-			continue
-		}
-		if !canEdit && indexedKeys[attributeKey] {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("Summary field %q duplicates an indexed Attribute", attributeKey))
-			continue
-		}
-		uiSlot, uiSlotOK := analyzer.v2FieldUISlot(directive, claimedUISlots, attributeKey)
-		if !uiSlotOK {
-			continue
-		}
-		view.Fields = append(view.Fields, ViewField{
-			AttributeKey: attributeKey,
-			ValueType:    valueType,
-			Editable:     isEditable,
-			Description:  directive.arguments["description"].text,
-			UISlot:       uiSlot,
-		})
+	view := analyzer.graph.buildV2View(fact, attributes, indexedAttributes)
+	if fact.OutputKeys == nil {
+		analyzer.graph.AddDiagnostic(
+			"error",
+			"v2_view_rpc_output",
+			fmt.Sprintf("%s must return its declared fields from a map[string]any literal", rpcName),
+			fact.Span,
+		)
 	}
-	analyzer.validateV2ViewOutputKeys(method, view.Fields)
 	return view
-}
-
-// UI slots a field may claim, mapped to whether only one field may claim each.
-//
-// Closed because the renderer is written against it. An unknown value would be ignored silently and
-// the author would never learn the field did not land where they meant it to.
-var v2FieldUISlots = map[string]bool{
-	"title":          true,
-	"subtitle":       true,
-	"status":         true,
-	"recommendation": true,
-	"reason":         false,
-}
-
-// Reads and checks `ui-slot`, which is optional. Returns false when already reported.
-func (analyzer *goAnalyzer) v2FieldUISlot(
-	directive v2Directive,
-	claimedUISlots map[string]string,
-	attributeKey string,
-) (string, bool) {
-	argument, declared := directive.arguments["ui-slot"]
-	if !declared {
-		return "", true
-	}
-	uiSlot := argument.text
-	unique, known := v2FieldUISlots[uiSlot]
-	if !known {
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("ui-slot %q is not a UI slot this view has", uiSlot))
-		return "", false
-	}
-	if unique {
-		if holder, taken := claimedUISlots[uiSlot]; taken {
-			analyzer.addV2DirectiveError(directive, fmt.Sprintf("ui-slot %q is already taken by Attribute %q", uiSlot, holder))
-			return "", false
-		}
-		claimedUISlots[uiSlot] = attributeKey
-	}
-	return uiSlot, true
 }
 
 func (analyzer *goAnalyzer) collectV2Actions(
@@ -658,7 +486,7 @@ func (analyzer *goAnalyzer) v2ActionConditionFromExpression(
 			break
 		}
 	}
-	if !found || attribute.isMap {
+	if !found || attribute.IsMap {
 		analyzer.graph.AddDiagnostic("error", "v2_action", "Action condition must reference a scalar Attribute declared in this file", analyzer.span(call.Args[0]))
 		return ActionCondition{}, false
 	}
@@ -670,13 +498,13 @@ func (analyzer *goAnalyzer) v2ActionConditionFromExpression(
 			return ActionCondition{}, false
 		}
 		value, valueOK := analyzer.staticV2Scalar(matchCall.Args[0])
-		if !valueOK || !v2JSONValueMatchesType(value, attribute.valueType) {
-			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("Action condition value must be a matching compile-time %s", attribute.valueType), analyzer.span(matchCall.Args[0]))
+		if !valueOK || !v2JSONValueMatchesType(value, attribute.ValueType) {
+			analyzer.graph.AddDiagnostic("error", "v2_action", fmt.Sprintf("Action condition value must be a matching compile-time %s", attribute.ValueType), analyzer.span(matchCall.Args[0]))
 			return ActionCondition{}, false
 		}
 		values = append(values, value)
 	}
-	return ActionCondition{AttributeKey: attribute.key, Operator: "in", Values: values}, true
+	return ActionCondition{AttributeKey: attribute.Key, Operator: "in", Values: values}, true
 }
 
 func (analyzer *goAnalyzer) staticV2Scalar(expression ast.Expr) (any, bool) {
@@ -776,7 +604,7 @@ func (analyzer *goAnalyzer) v2ActionInput(
 			}
 			attributeKey = argument.text
 			attribute, attributeFound := attributes[attributeKey]
-			if !attributeFound || attribute.isMap || attribute.valueType != valueType {
+			if !attributeFound || attribute.IsMap || attribute.ValueType != valueType {
 				analyzer.addV2DirectiveError(directive, fmt.Sprintf("source Attribute %q must be a matching scalar Attribute", attributeKey))
 				continue
 			}
@@ -1042,18 +870,14 @@ func (analyzer *goAnalyzer) v2LocalFunctionDeclaration(
 	return declarations[object]
 }
 
-func (analyzer *goAnalyzer) validateV2ViewOutputKeys(method *ast.FuncDecl, fields []ViewField) {
-	declared := make(map[string]bool, len(fields))
-	for _, field := range fields {
-		declared[field.AttributeKey] = true
-	}
-	var outputKeys map[string]bool
+func (analyzer *goAnalyzer) v2ViewOutputKeys(method *ast.FuncDecl) []string {
+	var outputKeys []string
 	ast.Inspect(method.Body, func(current ast.Node) bool {
 		composite, ok := current.(*ast.CompositeLit)
 		if !ok || analyzer.expressionString(composite.Type) != "map[string]any" {
 			return true
 		}
-		keys := make(map[string]bool, len(composite.Elts))
+		keys := make([]string, 0, len(composite.Elts))
 		for _, element := range composite.Elts {
 			keyValue, keyValueOK := element.(*ast.KeyValueExpr)
 			if !keyValueOK {
@@ -1063,32 +887,14 @@ func (analyzer *goAnalyzer) validateV2ViewOutputKeys(method *ast.FuncDecl, field
 			if !static {
 				return true
 			}
-			keys[key] = true
+			keys = append(keys, key)
 		}
 		if outputKeys == nil {
 			outputKeys = keys
 		}
 		return true
 	})
-	if outputKeys == nil {
-		analyzer.graph.AddDiagnostic(
-			"error",
-			"v2_view_rpc_output",
-			fmt.Sprintf("%s must return its declared fields from a map[string]any literal", method.Name.Name),
-			analyzer.span(method),
-		)
-		return
-	}
-	for key := range declared {
-		if !outputKeys[key] {
-			analyzer.graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s omits declared field %q", method.Name.Name, key), analyzer.span(method))
-		}
-	}
-	for key := range outputKeys {
-		if !declared[key] {
-			analyzer.graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s returns undeclared field %q", method.Name.Name, key), analyzer.span(method))
-		}
-	}
+	return outputKeys
 }
 
 func (analyzer *goAnalyzer) v2IndexConfiguration(
@@ -1293,26 +1099,25 @@ func v2JSONValueMatchesType(value any, valueType string) bool {
 }
 
 func (analyzer *goAnalyzer) parseV2Directives(comments *ast.CommentGroup) []v2Directive {
+	return analyzer.graph.parseV2DirectiveLines(analyzer.v2DirectiveLines(comments), nil)
+}
+
+func (analyzer *goAnalyzer) v2DirectiveLines(comments *ast.CommentGroup) []v2DirectiveLine {
 	if comments == nil {
 		return nil
 	}
-	directives := make([]v2Directive, 0)
+	lines := make([]v2DirectiveLine, 0)
 	for _, comment := range comments.List {
 		text := strings.TrimSpace(strings.TrimPrefix(comment.Text, "//"))
 		if !strings.HasPrefix(text, "dex:") {
 			continue
 		}
-		directive, err := parseV2Directive(text, comment)
-		if err != nil {
-			analyzer.graph.AddDiagnostic("error", "v2_directive", err.Error(), analyzer.span(comment))
-			continue
-		}
-		directives = append(directives, directive)
+		lines = append(lines, v2DirectiveLine{Text: text, Span: analyzer.span(comment)})
 	}
-	return directives
+	return lines
 }
 
-func parseV2Directive(text string, comment *ast.Comment) (v2Directive, error) {
+func parseV2Directive(text string, span *Span) (v2Directive, error) {
 	remaining := strings.TrimPrefix(text, "dex:")
 	nameEnd := strings.IndexFunc(remaining, unicode.IsSpace)
 	name := remaining
@@ -1325,7 +1130,7 @@ func parseV2Directive(text string, comment *ast.Comment) (v2Directive, error) {
 	if name == "" {
 		return v2Directive{}, fmt.Errorf("dex directive name is required")
 	}
-	directive := v2Directive{name: name, arguments: make(map[string]v2DirectiveArgument), comment: comment}
+	directive := v2Directive{name: name, arguments: make(map[string]v2DirectiveArgument), span: span}
 	for remaining != "" {
 		colon := strings.IndexByte(remaining, ':')
 		if colon <= 0 {
@@ -1447,10 +1252,14 @@ func (analyzer *goAnalyzer) validateV2Directive(
 	allowed []string,
 	required []string,
 ) bool {
-	return validateV2DirectiveArguments(directive, allowed, required, analyzer.addV2DirectiveError)
+	return analyzer.graph.validateV2Directive(directive, allowed, required)
 }
 
-func validateV2DirectiveArguments(directive v2Directive, allowed []string, required []string, report func(v2Directive, string)) bool {
+func (graph *Graph) validateV2Directive(
+	directive v2Directive,
+	allowed []string,
+	required []string,
+) bool {
 	allowedNames := make(map[string]bool, len(allowed))
 	for _, name := range allowed {
 		allowedNames[name] = true
@@ -1460,26 +1269,30 @@ func validateV2DirectiveArguments(directive v2Directive, allowed []string, requi
 		if allowedNames[name] {
 			argument := directive.arguments[name]
 			if argument.array && !(directive.name == "when" && name == "values") {
-				report(directive, fmt.Sprintf("argument %s must not be a JSON array", name))
+				graph.addV2DirectiveError(directive, fmt.Sprintf("argument %s must not be a JSON array", name))
 				isValid = false
 			}
 			continue
 		}
-		report(directive, fmt.Sprintf("unknown argument %s", name))
+		graph.addV2DirectiveError(directive, fmt.Sprintf("unknown argument %s", name))
 		isValid = false
 	}
 	for _, name := range required {
 		if _, found := directive.arguments[name]; found {
 			continue
 		}
-		report(directive, fmt.Sprintf("missing required argument %s", name))
+		graph.addV2DirectiveError(directive, fmt.Sprintf("missing required argument %s", name))
 		isValid = false
 	}
 	return isValid
 }
 
 func (analyzer *goAnalyzer) addV2DirectiveError(directive v2Directive, message string) {
-	analyzer.graph.AddDiagnostic("error", "v2_directive", fmt.Sprintf("dex:%s %s", directive.name, message), analyzer.span(directive.comment))
+	analyzer.graph.addV2DirectiveError(directive, message)
+}
+
+func (graph *Graph) addV2DirectiveError(directive v2Directive, message string) {
+	graph.AddDiagnostic("error", "v2_directive", fmt.Sprintf("dex:%s %s", directive.name, message), directive.span)
 }
 
 func directivesNamed(directives []v2Directive, name string) []v2Directive {

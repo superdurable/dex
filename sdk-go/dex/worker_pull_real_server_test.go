@@ -54,7 +54,7 @@ func TestWorkerPullKeepsFixedSlotsWithRealServer(t *testing.T) {
 	address := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
 	require.NotEmpty(t, address)
 	flow := &pullBurstFlow{entered: make(chan struct{}, 3), release: make(chan struct{})}
-	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(0), AppWorkerID: "shrink-" + uuid.NewString()}})
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, MinOpenSlots: 3, ReservedRPCTasks: ptr.Any(0), AppWorkerID: "shrink-" + uuid.NewString()}})
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
@@ -207,7 +207,7 @@ func TestWorkerPullReservedRPCWithStepBacklog(t *testing.T) {
 	flow := &pullReservedRPCFlow{workerID: "reserved", entered: entered, release: release}
 	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{
 		FlowServiceAddress: address,
-		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, ReservedRPCTasks: ptr.Any(1), AppWorkerID: "backlog-" + uuid.NewString()},
+		Pull:               &PullWorkerOptions{MaxConcurrentTasks: 3, MinOpenSlots: 3, ReservedRPCTasks: ptr.Any(1), AppWorkerID: "backlog-" + uuid.NewString()},
 	})
 	require.NoError(t, err)
 	started := make(chan error, 1)

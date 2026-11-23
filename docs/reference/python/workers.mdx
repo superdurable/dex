@@ -89,14 +89,14 @@ Example: [examples/python/dex_examples/production/pull_workers.py](https://githu
 
 ## Capacity and shutdown
 
-| Setting | Python name |
-| --- | --- |
-| Concurrent tasks | **max_concurrent_tasks** |
-| Fewest open slot streams | **min_open_slots** |
-| Reserved RPC slots | **reserved_rpc_tasks** |
-| Stop drain timeout | **stop_drain_timeout** |
-| Shutdown | **stop** |
-| Slot stream snapshot | **pull_slot_stream_state()** |
+| Setting | Python name | Default |
+| --- | --- | --- |
+| Concurrent tasks | **max_concurrent_tasks** | 100 |
+| Fewest open slot streams | **min_open_slots** | min(**max_concurrent_tasks**, max(**reserved_rpc_tasks** + 1, CPU count)) |
+| Reserved RPC slots | **reserved_rpc_tasks** | 1 when **max_concurrent_tasks** and **min_open_slots** are both at least 2, otherwise 0 |
+| Stop drain timeout | **stop_drain_timeout** | 30 seconds |
+| Shutdown | **stop** | |
+| Slot stream snapshot | **pull_slot_stream_state()** | |
 
 The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
 has no effect.
@@ -109,6 +109,30 @@ streams, one of them reserved for RPCs. A synchronous handler that outlives its
 stream, such as during a server restart, keeps its slot until it returns. See
 [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
 [API reference](pathname:///api/python/latest/dex.html#PullWorkerOptions.min_open_slots).
+
+Changed in 1.45.18: a Worker is adaptive by default. **max_concurrent_tasks**
+defaults to 100 instead of the CPU count. **min_open_slots** defaults to
+min(**max_concurrent_tasks**, max(**reserved_rpc_tasks** + 1, CPU count))
+instead of **max_concurrent_tasks**. The Worker resolves the ceiling first, then
+the RPC reserve, then the floor. On a machine with at least two CPUs, a Worker
+with no options set keeps the CPU count of slot streams open while idle, one of
+them reserved for RPCs, and grows up to 100 under load. A Worker that sets only
+**max_concurrent_tasks** is adaptive too.
+
+- To keep a fixed Worker, set **min_open_slots** equal to
+  **max_concurrent_tasks**.
+- To keep the slot count of earlier releases, set **max_concurrent_tasks** to
+  the CPU count.
+- A ceiling above the server's **matching.maxConcurrentTasksCap** is clamped to
+  it at the first registration, with a warning that names both values. The
+  unset **min_open_slots** and **reserved_rpc_tasks** are then derived from the
+  clamped ceiling, so a cap of 1 gives one slot and no RPC reserve. An explicit
+  **max_concurrent_tasks** of a fixed Worker above the cap still fails start.
+- An adaptive Worker with **min_open_slots** unset, or a fixed Worker with
+  **max_concurrent_tasks** unset, opens one stream first to learn the server
+  cap, then opens the other streams. For example, **min_open_slots=100** with
+  **max_concurrent_tasks** unset takes this path. This adds one round trip to
+  start. In every other case, the Worker opens its streams in parallel.
 
 ## Named task queues {#named-task-queues}
 

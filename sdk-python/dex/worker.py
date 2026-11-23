@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
@@ -42,7 +41,7 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
 from dex.pull_registration import PullRegistrationState, PullSlotStreamState
-from dex.worker_options import WorkerOptions
+from dex.worker_options import _DEFAULT_MAX_CONCURRENT_TASKS, WorkerOptions
 
 
 class Worker:
@@ -135,9 +134,10 @@ class Worker:
             ValueHydrator(self._flow_service, blob_cache, payloads),
             self._server_protocol,
         )
-        concurrency = self.options.pull.max_concurrent_tasks or os.cpu_count() or 1
+        # ThreadPoolExecutor starts a thread only when no idle thread can take the handler.
         self._executor = ThreadPoolExecutor(
-            max_workers=concurrency,
+            max_workers=self.options.pull.max_concurrent_tasks
+            or _DEFAULT_MAX_CONCURRENT_TASKS,
             thread_name_prefix="dex-python-handler",
         )
         self._has_start_called = False

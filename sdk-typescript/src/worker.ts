@@ -147,9 +147,14 @@ export class Worker {
    * the Server confirms every stream for a different task queue.
    * Changed in 1.45.7: start resolves after one stream of each slot kind has registered, as in the other
    * SDKs, instead of after the first stream of any kind, so it now resolves when `waitPullRegistered` does.
-   * A fixed Worker with `maxConcurrentTasks` unset opens one stream first and clamps its CPU-count default to
-   * the Server cap with a warning, and an adaptive Worker clamps any `maxConcurrentTasks` above the cap;
+   * With `maxConcurrentTasks` unset, the default of 100 is clamped to the Server cap with a warning.
+   * An unset `minOpenSlots` then defaults to `min(T, max(R + 1, CPU count))`, where T is the clamped
+   * ceiling and R is the resolved `reservedRpcTasks`. The Worker is fixed when this floor equals T.
+   * A Worker whose defaults may drop with the clamp opens one stream first;
    * see `PullWorkerOptions.maxConcurrentTasks` and `PullWorkerOptions.minOpenSlots`.
+   * Changed in 1.45.17: `maxConcurrentTasks` defaults to 100, and an unset `minOpenSlots` makes most
+   * Workers adaptive. A Worker whose unset `minOpenSlots` may drop with the clamp also opens one
+   * stream first and clamps the default of 100 to the Server cap with a warning.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
