@@ -3275,7 +3275,12 @@ and preserve idle streams and readiness. Unknown-name rejection remains first.
 
 Since 1.45.7, `PullWorkerOptions.MinOpenSlots` is the floor of the slot streams,
 in the unit of `MaxConcurrentTasks`. Zero uses the resolved ceiling, which keeps
-the Worker fixed. NewWorker requires `ReservedRPCTasks + 1 <= MinOpenSlots <=
+the Worker fixed. Since 1.45.17, `MaxConcurrentTasks` defaults to 100, and zero
+`MinOpenSlots` uses `min(T, max(R + 1, runtime.NumCPU()))`, so the default Worker
+is adaptive. `resolveSlotFloorAndReservedRPCTasks` resolves `R` before the floor,
+and the first acknowledgement repeats it from the clamped `T`. An adaptive Worker
+with an unset floor opens one probe stream before that acknowledgement, like the
+F4 probe of a fixed Worker with an unset ceiling. NewWorker requires `ReservedRPCTasks + 1 <= MinOpenSlots <=
 MaxConcurrentTasks`; a nil reserve defaults to one only when both values are at
 least two. A floor below the ceiling makes the Worker adaptive. The state
 machine of `docs/design/adaptive-worker-slot-streams.md` lives in

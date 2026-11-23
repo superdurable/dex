@@ -930,8 +930,8 @@ without a registered stream makes `Start` drain all streams within
 `StopDrainTimeout`, then cancel them and wait for handlers before returning the
 registration error. Always call `Stop` before exiting.
 
-A fixed Worker, the default, keeps exactly `MaxConcurrentTasks` long-lived execution slot streams.
-Zero uses the CPU count. Each stream registers an empty queue, the Worker ID,
+A fixed Worker, whose `MinOpenSlots` equals `MaxConcurrentTasks`, keeps exactly
+`MaxConcurrentTasks` long-lived execution slot streams. Each stream registers an empty queue, the Worker ID,
 and every registered Flow type; it is ready while idle and busy while executing
 one task. `ReservedRPCTasks` streams accept only RPCs; the others accept Steps
 and RPCs. The Worker executes every received task without capacity rejections.
@@ -944,8 +944,26 @@ Server without costing an attempt. A lower limit reported on a later reconnect
 only logs a warning; the Server rejects any surplus stream. Since 1.45.7 this
 failure applies to an explicit `MaxConcurrentTasks` of a fixed Worker. A fixed
 Worker with `MaxConcurrentTasks` unset opens one stream first, learns the cap
-from its acknowledgement, and clamps its CPU-count default to the cap with a
-WARN log before it opens the other streams.
+from its acknowledgement, and clamps its default to the cap with a
+WARN log before it opens the other streams. Since 1.45.17 that Worker must set
+`MinOpenSlots` to 100, the default ceiling, to stay fixed.
+
+Since 1.45.17, `MaxConcurrentTasks` defaults to 100, and `MinOpenSlots`
+defaults to `min(MaxConcurrentTasks, max(ReservedRPCTasks + 1, CPU count))`.
+A Worker that sets nothing, or sets only `MaxConcurrentTasks`, is adaptive when
+the derived floor is below the ceiling. It is fixed when the floor equals the
+ceiling, for example when the CPU count is at least `MaxConcurrentTasks`.
+When adaptive, it holds the derived floor while idle and grows up to the ceiling
+under load. Before 1.45.17, an unset `MinOpenSlots` made the Worker fixed. The defaults
+resolve in this order: `MaxConcurrentTasks`, then `ReservedRPCTasks` (one when
+the ceiling and any explicit `MinOpenSlots` are at least two), then
+`MinOpenSlots`. When the Server cap clamps the ceiling, the Worker derives
+`ReservedRPCTasks` and `MinOpenSlots` again from the clamped value. So a Worker
+with `MinOpenSlots` unset opens one stream first and opens the others after its
+acknowledgement reports the cap. To keep the
+earlier fixed behavior, set `MinOpenSlots` equal to `MaxConcurrentTasks`; to
+keep the earlier default slot count, set `MaxConcurrentTasks` to
+`runtime.NumCPU()`.
 
 `MinOpenSlots` (since 1.45.7) below `MaxConcurrentTasks` makes the Worker
 adaptive. It keeps between `MinOpenSlots` and `MaxConcurrentTasks` slot streams

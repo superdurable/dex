@@ -17,7 +17,6 @@ import (
 	"io"
 	"math/big"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -122,22 +121,15 @@ func newPullWorker(registry *Registry, service *workerService, conn *grpc.Client
 		return nil, fmt.Errorf("dex: MaxConcurrentTasks must not be negative")
 	}
 	if maxConcurrentTasks == 0 {
-		maxConcurrentTasks = runtime.NumCPU()
+		maxConcurrentTasks = defaultMaxConcurrentTasks
 	}
-	minOpenSlots := options.MinOpenSlots
-	if minOpenSlots < 0 {
+	if options.MinOpenSlots < 0 {
 		return nil, fmt.Errorf("dex: MinOpenSlots must not be negative")
 	}
-	if minOpenSlots == 0 {
-		minOpenSlots = maxConcurrentTasks
+	if options.MinOpenSlots > maxConcurrentTasks {
+		return nil, fmt.Errorf("dex: MinOpenSlots %d must not exceed MaxConcurrentTasks %d", options.MinOpenSlots, maxConcurrentTasks)
 	}
-	if minOpenSlots > maxConcurrentTasks {
-		return nil, fmt.Errorf("dex: MinOpenSlots %d must not exceed MaxConcurrentTasks %d", minOpenSlots, maxConcurrentTasks)
-	}
-	reservedRPCTasks := defaultReservedRPCTasks(maxConcurrentTasks, minOpenSlots)
-	if options.ReservedRPCTasks != nil {
-		reservedRPCTasks = *options.ReservedRPCTasks
-	}
+	minOpenSlots, reservedRPCTasks := resolveSlotFloorAndReservedRPCTasks(maxConcurrentTasks, options.MinOpenSlots, options.ReservedRPCTasks, slotSettings.resolvedProcessorCount())
 	if reservedRPCTasks < 0 || reservedRPCTasks >= maxConcurrentTasks {
 		return nil, fmt.Errorf("dex: ReservedRPCTasks must be nonnegative and less than MaxConcurrentTasks")
 	}

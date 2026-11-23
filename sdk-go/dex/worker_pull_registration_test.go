@@ -255,7 +255,7 @@ func TestWorkerPullRegistrationRejectionWithRemainingStream(t *testing.T) {
 	for _, shouldStop := range []bool{false, true} {
 		t.Run(map[bool]string{false: "default retries", true: "stop enabled"}[shouldStop], func(t *testing.T) {
 			worker, server, result := startRegistrationTestWorker(t, PullWorkerOptions{
-				MaxConcurrentTasks: 4, ReservedRPCTasks: ptr.Any(2), IdleStreamsPerQueue: 2, StopOnPermanentStreamRejection: shouldStop,
+				MaxConcurrentTasks: 4, MinOpenSlots: 4, ReservedRPCTasks: ptr.Any(2), IdleStreamsPerQueue: 2, StopOnPermanentStreamRejection: shouldStop,
 			}, &workerSyncFlowService{})
 			go func() { result <- worker.Start() }()
 			streamsByQueue := make(map[string][]*registrationTestStream)

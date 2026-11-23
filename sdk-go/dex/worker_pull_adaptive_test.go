@@ -244,7 +244,7 @@ func TestWorkerPullAdaptiveSoftRejectionAtNodeLimitWithRealServer(t *testing.T) 
 	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 20, maxStreams: 20})
 	proxy := startPullSlotProxy(t, server.address)
 	fixedHandlers := newAdaptiveSlotHandlers()
-	fixed := startAdaptiveSlotParkedOnlyWorker(t, server.address, fixedHandlers, PullWorkerOptions{MaxConcurrentTasks: 14, AppWorkerID: "fixed-filler-" + uuid.NewString()[:8]})
+	fixed := startAdaptiveSlotParkedOnlyWorker(t, server.address, fixedHandlers, PullWorkerOptions{MaxConcurrentTasks: 14, MinOpenSlots: 14, AppWorkerID: "fixed-filler-" + uuid.NewString()[:8]})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	require.NoError(t, fixed.worker.WaitPullRegistered(ctx))
@@ -355,23 +355,58 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 		releaseAcknowledgements := proxy.holdAcknowledgements()
 		logger := newAdaptiveSlotLogger()
 		appWorkerID := "fixed-probe-" + uuid.NewString()[:8]
-		run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{AppWorkerID: appWorkerID}, time.Hour, logger)
+		// With 128 CPUs every option default resolves to a fixed Worker of 100 slots.
+		handlers := newAdaptiveSlotHandlers()
+		flows := []Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}}
+		run := startAdaptiveSlotWorkerWithFlows(t, proxy.address(), handlers, flows, PullWorkerOptions{AppWorkerID: appWorkerID},
+			pullSlotSettings{shrinkWindow: time.Hour, processorCount: 128}, logger)
+		require.False(t, run.worker.PullSlotStreamState().IsAdaptive)
 		// F4: only the probe stream registers before the first acknowledgement.
 		require.Eventually(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) == 1 }, 10*time.Second, 10*time.Millisecond)
 		require.Never(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) > 1 }, 300*time.Millisecond, 10*time.Millisecond,
 			"a stream registered before the probe's acknowledgement")
 		releaseAcknowledgements()
 		requireCapOfOneWorkerServes(t, server, proxy, run, appWorkerID)
-		if runtime.NumCPU() > 1 {
-			require.True(t, logger.hasWarning("clamped MaxConcurrentTasks", fmt.Sprint(runtime.NumCPU()), "1"))
-		}
+		require.True(t, logger.hasWarning("clamped MaxConcurrentTasks", "100", "1"))
 		require.False(t, run.worker.PullSlotStreamState().IsAdaptive)
+	})
+	t.Run("fixed with an explicit floor of the default ceiling probes and fails start", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 1})
+		proxy := startPullSlotProxy(t, server.address)
+		releaseAcknowledgements := proxy.holdAcknowledgements()
+		appWorkerID := "fixed-floor-probe-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{MinOpenSlots: 100, AppWorkerID: appWorkerID}, time.Hour, nil)
+		require.False(t, run.worker.PullSlotStreamState().IsAdaptive)
+		require.Eventually(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) == 1 }, 10*time.Second, 10*time.Millisecond)
+		require.Never(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) > 1 }, 300*time.Millisecond, 10*time.Millisecond,
+			"a stream registered before the probe's acknowledgement")
+		releaseAcknowledgements()
+		require.ErrorContains(t, run.awaitStartResult(t, 30*time.Second), "MinOpenSlots 100 exceeds the slot ceiling 1")
+		require.Len(t, proxy.registersSince(appWorkerID, time.Time{}), 1)
+	})
+	t.Run("every option unset", func(t *testing.T) {
+		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 1})
+		proxy := startPullSlotProxy(t, server.address)
+		logger := newAdaptiveSlotLogger()
+		releaseAcknowledgements := proxy.holdAcknowledgements()
+		appWorkerID := "default-one-" + uuid.NewString()[:8]
+		run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{AppWorkerID: appWorkerID}, time.Hour, logger)
+		// An unset floor depends on the clamped ceiling, so only the probe stream registers before the first acknowledgement.
+		require.Eventually(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) == 1 }, 10*time.Second, 10*time.Millisecond)
+		require.Never(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) > 1 }, 300*time.Millisecond, 10*time.Millisecond,
+			"a stream registered before the probe's acknowledgement")
+		releaseAcknowledgements()
+		requireCapOfOneWorkerServes(t, server, proxy, run, appWorkerID)
+		requireNoPermanentRegistrationError(t, run)
+		require.True(t, logger.hasWarning("clamped MaxConcurrentTasks", "100", "1"))
+		state := run.worker.PullSlotStreamState()
+		require.Equal(t, 1, state.TotalCapacity)
+		require.Zero(t, state.RPCOnlySlots)
+		require.Equal(t, 1, state.Floor)
+		require.Equal(t, 1, state.EffectiveCeiling)
 	})
 	for _, maxConcurrentTasks := range []int{4, 0} {
 		t.Run(fmt.Sprintf("adaptive floor of one with ceiling %d", maxConcurrentTasks), func(t *testing.T) {
-			if maxConcurrentTasks == 0 && runtime.NumCPU() < 2 {
-				maxConcurrentTasks = 2
-			}
 			server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: 1})
 			proxy := startPullSlotProxy(t, server.address)
 			logger := newAdaptiveSlotLogger()
@@ -387,11 +422,8 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 	}
 	t.Run("explicit reserved RPC slot fails start", func(t *testing.T) {
 		optionsByMode := map[string]PullWorkerOptions{
-			"fixed":    {ReservedRPCTasks: ptr.Any(1)},
+			"fixed":    {MinOpenSlots: 100, ReservedRPCTasks: ptr.Any(1)},
 			"adaptive": {MaxConcurrentTasks: 4, MinOpenSlots: 2, ReservedRPCTasks: ptr.Any(1)},
-		}
-		if runtime.NumCPU() < 2 {
-			optionsByMode["fixed"] = PullWorkerOptions{MaxConcurrentTasks: 2, MinOpenSlots: 2, ReservedRPCTasks: ptr.Any(1)}
 		}
 		for mode, options := range optionsByMode {
 			t.Run(mode, func(t *testing.T) {
@@ -399,10 +431,6 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 				options.AppWorkerID = "reserved-one-" + uuid.NewString()[:8]
 				run := startAdaptiveSlotWorker(t, server.address, newAdaptiveSlotHandlers(), options, time.Hour, nil)
 				err := run.awaitStartResult(t, 30*time.Second)
-				if mode == "fixed" && options.MaxConcurrentTasks == 2 {
-					require.ErrorContains(t, err, "MaxConcurrentTasks 2 exceeds Server matching.maxConcurrentTasksCap 1")
-					return
-				}
 				require.ErrorContains(t, err, "ReservedRPCTasks 1 must be less than the slot ceiling 1")
 				require.ErrorContains(t, err, "matching.maxConcurrentTasksCap 1")
 			})
@@ -413,6 +441,70 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 		run := startAdaptiveSlotWorker(t, server.address, newAdaptiveSlotHandlers(), PullWorkerOptions{MaxConcurrentTasks: 2, AppWorkerID: "fixed-two-" + uuid.NewString()[:8]}, time.Hour, nil)
 		require.ErrorContains(t, run.awaitStartResult(t, 30*time.Second), "MaxConcurrentTasks 2 exceeds Server matching.maxConcurrentTasksCap 1")
 	})
+}
+
+// TestWorkerPullAdaptiveDefaultSlotOptionsWithRealServer covers the phase 2 defaults of MaxConcurrentTasks, MinOpenSlots, and ReservedRPCTasks.
+func TestWorkerPullAdaptiveDefaultSlotOptionsWithRealServer(t *testing.T) {
+	scenarios := []struct {
+		name           string
+		options        PullWorkerOptions
+		processorCount int
+		cap            int
+		isAdaptive     bool
+		totalCapacity  int
+		rpcOnlySlots   int
+		stepFloor      int
+		clampWarning   []string
+	}{
+		{name: "every option unset", processorCount: runtime.NumCPU(), isAdaptive: runtime.NumCPU() < 100, totalCapacity: 100, rpcOnlySlots: 1,
+			stepFloor: min(100, max(2, runtime.NumCPU())) - 1},
+		{name: "every option unset with one CPU", processorCount: 1, isAdaptive: true, totalCapacity: 100, rpcOnlySlots: 1, stepFloor: 1},
+		{name: "ceiling set only", options: PullWorkerOptions{MaxConcurrentTasks: 8}, processorCount: 4, isAdaptive: true, totalCapacity: 8, rpcOnlySlots: 1, stepFloor: 3},
+		{name: "ceiling set only below the CPU count", options: PullWorkerOptions{MaxConcurrentTasks: 8}, processorCount: 16, totalCapacity: 8, rpcOnlySlots: 1, stepFloor: 7},
+		{name: "floor equal to the ceiling", options: PullWorkerOptions{MaxConcurrentTasks: 8, MinOpenSlots: 8}, processorCount: 2, totalCapacity: 8, rpcOnlySlots: 1, stepFloor: 7},
+		// The floor of 4 comes from the clamped T; the unclamped T would give 16.
+		{name: "cap below the default ceiling and the CPU count", processorCount: 16, cap: 4, isAdaptive: true, totalCapacity: 4, rpcOnlySlots: 1, stepFloor: 3,
+			clampWarning: []string{"clamped MaxConcurrentTasks", "100", "4"}},
+		{name: "cap of 12 below a fixed default ceiling", processorCount: 128, cap: 12, totalCapacity: 12, rpcOnlySlots: 1,
+			stepFloor: 11, clampWarning: []string{"clamped MaxConcurrentTasks", "100", "12"}},
+		{name: "cap below the default ceiling with two CPUs", processorCount: 2, cap: 4, isAdaptive: true, totalCapacity: 4, rpcOnlySlots: 1, stepFloor: 1,
+			clampWarning: []string{"clamped MaxConcurrentTasks", "100", "4"}},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{maxConcurrentTasksCap: scenario.cap})
+			proxy := startPullSlotProxy(t, server.address)
+			handlers := newAdaptiveSlotHandlers()
+			logger := newAdaptiveSlotLogger()
+			appWorkerID := "default-slots-" + uuid.NewString()[:8]
+			options := scenario.options
+			options.AppWorkerID = appWorkerID
+			options.StopOnPermanentStreamRejection = true
+			flows := []Flow{&adaptiveSlotFlow{handlers: handlers}, &adaptiveSlotParkedFlow{handlers: handlers}}
+			run := startAdaptiveSlotWorkerWithFlows(t, proxy.address(), handlers, flows, options,
+				pullSlotSettings{shrinkWindow: time.Hour, processorCount: scenario.processorCount}, logger)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			require.NoError(t, run.worker.WaitPullRegistered(ctx))
+			requireSlotState(t, run.worker, "the resolved defaults at rest", func(state PullSlotStreamState) bool {
+				return state.Open == scenario.stepFloor && state.Registering == 0 && state.RPCOnlyOpen == scenario.rpcOnlySlots
+			})
+			state := run.worker.PullSlotStreamState()
+			require.Equal(t, scenario.isAdaptive, state.IsAdaptive)
+			require.Equal(t, scenario.totalCapacity, state.TotalCapacity)
+			require.Equal(t, scenario.rpcOnlySlots, state.RPCOnlySlots)
+			require.Equal(t, scenario.stepFloor, state.Floor)
+			require.Equal(t, scenario.totalCapacity-scenario.rpcOnlySlots, state.EffectiveCeiling)
+			requireRegisteredStreams(t, proxy, appWorkerID, scenario.stepFloor, scenario.rpcOnlySlots)
+			requireNoPermanentRegistrationError(t, run)
+			if scenario.clampWarning != nil {
+				require.True(t, logger.hasWarning(scenario.clampWarning...), "missing WARN %v", scenario.clampWarning)
+				require.Equal(t, 1, logger.countWarnings("clamped MaxConcurrentTasks"))
+			} else {
+				require.Zero(t, logger.countWarnings("clamped MaxConcurrentTasks"))
+			}
+		})
+	}
 }
 
 // TestWorkerPullAdaptiveCeilingAboveCapWithRealServer covers design Tests 20a and 20b.
@@ -445,7 +537,7 @@ func TestWorkerPullAdaptiveCeilingAboveCapWithRealServer(t *testing.T) {
 	})
 	t.Run("fixed fails start", func(t *testing.T) {
 		server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{})
-		run := startAdaptiveSlotWorker(t, server.address, newAdaptiveSlotHandlers(), PullWorkerOptions{MaxConcurrentTasks: 300, AppWorkerID: "fixed-300-" + uuid.NewString()[:8]}, time.Hour, nil)
+		run := startAdaptiveSlotWorker(t, server.address, newAdaptiveSlotHandlers(), PullWorkerOptions{MaxConcurrentTasks: 300, MinOpenSlots: 300, AppWorkerID: "fixed-300-" + uuid.NewString()[:8]}, time.Hour, nil)
 		require.ErrorContains(t, run.awaitStartResult(t, 30*time.Second), "MaxConcurrentTasks 300 exceeds Server matching.maxConcurrentTasksCap 256")
 	})
 }
@@ -510,7 +602,7 @@ func TestWorkerPullFixedCapDropToOneWithRealServer(t *testing.T) {
 			proxy := startPullSlotProxy(t, server.address)
 			appWorkerID := "fixed-drop-" + uuid.NewString()[:8]
 			run := startAdaptiveSlotWorker(t, proxy.address(), newAdaptiveSlotHandlers(), PullWorkerOptions{
-				MaxConcurrentTasks: 4, AppWorkerID: appWorkerID, StopOnPermanentStreamRejection: shouldStop,
+				MaxConcurrentTasks: 4, MinOpenSlots: 4, AppWorkerID: appWorkerID, StopOnPermanentStreamRejection: shouldStop,
 			}, time.Second, nil)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
@@ -722,7 +814,7 @@ func TestWorkerPullFixedModeUnchangedWithRealServer(t *testing.T) {
 	releaseAcknowledgements := proxy.holdAcknowledgements()
 	handlers := newAdaptiveSlotHandlers()
 	appWorkerID := "fixed-parallel-" + uuid.NewString()[:8]
-	run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{MaxConcurrentTasks: 4, AppWorkerID: appWorkerID}, time.Second, nil)
+	run := startAdaptiveSlotWorker(t, proxy.address(), handlers, PullWorkerOptions{MaxConcurrentTasks: 4, MinOpenSlots: 4, AppWorkerID: appWorkerID}, time.Second, nil)
 	// Test 16: every stream opens before the first acknowledgement arrives.
 	require.Eventually(t, func() bool { return len(proxy.registersSince(appWorkerID, time.Time{})) == 4 }, 10*time.Second, 10*time.Millisecond)
 	releaseAcknowledgements()
@@ -993,7 +1085,7 @@ func TestWorkerPullAdaptiveGracefulStopDuringGrowthWithRealServer(t *testing.T) 
 	close(handlers.release)
 	require.NoError(t, <-stopped)
 	require.NoError(t, run.awaitStartResult(t, 10*time.Second))
-	replacement := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 8, AppWorkerID: "fixed-replacement-" + uuid.NewString()[:8]}, time.Hour, nil)
+	replacement := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 8, MinOpenSlots: 8, AppWorkerID: "fixed-replacement-" + uuid.NewString()[:8]}, time.Hour, nil)
 	require.NoError(t, replacement.worker.WaitPullRegistered(ctx))
 	requireAdaptiveSlotFlowsCompleted(t, ctx, client, flowIDs)
 	for _, entry := range drainAdaptiveSlotEntries(handlers) {
@@ -1005,7 +1097,7 @@ func TestWorkerPullAdaptiveGracefulStopDuringGrowthWithRealServer(t *testing.T) 
 func TestWorkerPullAdaptiveMixedFleetWithRealServer(t *testing.T) {
 	server := startAdaptiveSlotTestServer(t, adaptiveSlotServerLimits{})
 	handlers := newAdaptiveSlotHandlers()
-	fixed := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 4, AppWorkerID: "fixed-fleet-" + uuid.NewString()[:8]}, time.Hour, nil)
+	fixed := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 4, MinOpenSlots: 4, AppWorkerID: "fixed-fleet-" + uuid.NewString()[:8]}, time.Hour, nil)
 	adaptive := startAdaptiveSlotWorker(t, server.address, handlers, PullWorkerOptions{MaxConcurrentTasks: 16, MinOpenSlots: 2, AppWorkerID: "adaptive-fleet-" + uuid.NewString()[:8]}, time.Second, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
