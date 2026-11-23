@@ -284,9 +284,9 @@ limit when a Worker registers:
 
 **matching.maxStreams**
 limits the node to 100,000 registered streams by default. An idle default
-Worker holds about its derived floor, which is about its CPU count. Count the
-slots of every fixed Worker against it, and the real concurrency plus the floor
-of every adaptive Worker. **matching.maxQueueLength**, **matching.maxFlowTypes**,
+Worker settles at about its derived floor, which is about its CPU count, after
+its idle streams close. Count the slots of every fixed Worker against it, and
+the reachable ceiling of every adaptive Worker at peak. **matching.maxQueueLength**, **matching.maxFlowTypes**,
 and **matching.maxFlowTypeLength** also limit registration. Each defaults to
 256.
 
@@ -366,8 +366,9 @@ free slots of all Workers wait in the durable task queue.
 | TypeScript | **PullWorkerOptions.maxConcurrentTasks** | **reservedRpcTasks** | 100 | **os.availableParallelism()** |
 | Rust | **PullWorkerOptions::max_concurrent_tasks** | **reserved_rpc_tasks** | 100 | **std::thread::available_parallelism()** |
 
-The server clamps an unset task limit to **matching.maxConcurrentTasksCap**, and
-the Worker logs a warning. The default floor is
+The Worker clamps an unset task limit to **matching.maxConcurrentTasksCap** and
+logs a warning. A fixed Worker with an explicit task limit above the cap fails
+to start. The default floor is
 min(T, max(R + 1, CPU count)), where T is the clamped task limit and R is the
 reserved RPC slots. So a default Worker holds about its CPU count of streams
 while idle and grows up to the task limit under load.
@@ -398,8 +399,10 @@ container or scheduler, and size it by what the handlers wait on:
   set the floor and the limit explicitly there.
 - **Rolling deploys** run old and new Workers at the same time. Budget
   **matching.maxStreams** for the sum of the slots of both generations of fixed
-  Workers. Adaptive Workers need their real concurrency plus their floors,
-  because an idle adaptive Worker holds roughly its floor.
+  Workers. For adaptive Workers, budget the peak by each Worker's reachable
+  ceiling, for both generations. After a burst, each shrink window closes only
+  half of the surplus idle streams, so an idle Worker drifts down toward its
+  floor over several windows.
 - **Reserved RPC slots** come out of the task limit. To run eight Steps at once
   with one reserved slot, set the limit to nine.
 
@@ -409,8 +412,10 @@ A Worker varies its open slot streams with load. The task limit is the most
 streams the Worker opens, and the floor is the fewest. Both count the reserved
 RPC slots. An unset floor defaults to min(T, max(R + 1, CPU count)), where T is
 the clamped task limit and R is the reserved RPC slots. A Worker is therefore
-adaptive by default. It is fixed when the floor equals the task limit, either
-because you set it that way or because the CPU count is at least the task limit.
+adaptive by default. It is fixed whenever the derived floor equals the task
+limit: you set it that way, the CPU count is at least the task limit, or R + 1
+is at least the task limit. For example, T = 8, R = 7, and a CPU count of 2 give
+a floor of 8.
 Fixed Workers behave as the sections above describe.
 
 R defaults to 1 only when both T and the floor are at least 2.
@@ -432,8 +437,9 @@ An adaptive Worker works as follows:
 - Before the first acknowledgement, it opens one probe stream in two cases: an
   adaptive Worker with an unset floor, and a fixed Worker with an unset task
   limit. The probe learns the server cap, so the Worker never opens streams
-  above a low cap that Dex would reject for good. In every other case it opens
-  its streams in parallel.
+  above a low cap that Dex would reject for good. After the first
+  acknowledgement, it fills up to its floor. In every other case it opens its
+  floor streams in parallel.
 - It doubles its Step-and-RPC streams when a task takes its last idle one. One
   growth batch is in flight at a time, up to the task limit.
 - Every 30 seconds it half-closes half of the idle streams above the window's
@@ -457,8 +463,9 @@ An adaptive Worker works as follows:
   server restart it holds no stream while handlers that ignore cancellation
   still run.
 
-An idle adaptive Worker holds roughly its floor, so budget
-**matching.maxStreams** for the real concurrency plus each Worker's floor.
+An idle adaptive Worker settles at roughly its floor, but only over several
+shrink windows after a burst. Budget **matching.maxStreams** for the peak: each
+Worker's reachable ceiling, plus the overlap of a rolling deploy.
 
 A fixed Worker with the task limit unset opens one probe stream first, learns
 the cap from its registration, and clamps its default task limit to the cap with
@@ -558,7 +565,7 @@ matching:
 | **matching.syncMatchWait** | 200ms | Time to try any Worker of the Flow type for a Step after the sticky wait, before the Step goes to the durable task queue. Must be greater than 0. |
 | **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
-| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by the total slots of fixed Workers, plus the real concurrency and floors of [adaptive Workers](#adaptive-slot-streams). |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by the total slots of fixed Workers, plus the reachable ceilings of [adaptive Workers](#adaptive-slot-streams) at peak, and the overlap of a rolling deploy. |
 | **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, task queue, Flow type, Step type or RPC name, app Worker ID) entries that Dex remembers as unsupported. |
 | **matching.maxQueueLength** | 256 | Longest Flow type or app Worker ID queue name, in characters. Named task queues have a fixed limit of 63 characters. |
 | **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
