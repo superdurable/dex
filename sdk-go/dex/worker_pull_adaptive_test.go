@@ -465,8 +465,8 @@ func TestWorkerPullAdaptiveDefaultSlotOptionsWithRealServer(t *testing.T) {
 		// The floor of 4 comes from the clamped T; the unclamped T would give 16.
 		{name: "cap below the default ceiling and the CPU count", processorCount: 16, cap: 4, isAdaptive: true, totalCapacity: 4, rpcOnlySlots: 1, stepFloor: 3,
 			clampWarning: []string{"clamped MaxConcurrentTasks", "100", "4"}},
-		{name: "cap of 12 below the default ceiling", processorCount: runtime.NumCPU(), cap: 12, isAdaptive: true, totalCapacity: 12, rpcOnlySlots: 1,
-			stepFloor: min(12, max(2, runtime.NumCPU())) - 1, clampWarning: []string{"clamped MaxConcurrentTasks", "100", "12"}},
+		{name: "cap of 12 below a fixed default ceiling", processorCount: 128, cap: 12, totalCapacity: 12, rpcOnlySlots: 1,
+			stepFloor: 11, clampWarning: []string{"clamped MaxConcurrentTasks", "100", "12"}},
 		{name: "cap below the default ceiling with two CPUs", processorCount: 2, cap: 4, isAdaptive: true, totalCapacity: 4, rpcOnlySlots: 1, stepFloor: 1,
 			clampWarning: []string{"clamped MaxConcurrentTasks", "100", "4"}},
 	}

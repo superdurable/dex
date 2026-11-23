@@ -950,9 +950,11 @@ WARN log before it opens the other streams. Since 1.45.17 that Worker must set
 
 Since 1.45.17, `MaxConcurrentTasks` defaults to 100, and `MinOpenSlots`
 defaults to `min(MaxConcurrentTasks, max(ReservedRPCTasks + 1, CPU count))`.
-A Worker that sets nothing, or sets only `MaxConcurrentTasks`, is therefore
-adaptive: on a machine with at least two CPUs it holds as many streams as the
-CPU count while idle, and grows up to the ceiling under load. The defaults
+A Worker that sets nothing, or sets only `MaxConcurrentTasks`, is adaptive when
+the derived floor is below the ceiling. It is fixed when the floor equals the
+ceiling, for example when the CPU count is at least `MaxConcurrentTasks`.
+When adaptive, it holds the derived floor while idle and grows up to the ceiling
+under load. Before 1.45.17, an unset `MinOpenSlots` made the Worker fixed. The defaults
 resolve in this order: `MaxConcurrentTasks`, then `ReservedRPCTasks` (one when
 the ceiling and any explicit `MinOpenSlots` are at least two), then
 `MinOpenSlots`. When the Server cap clamps the ceiling, the Worker derives

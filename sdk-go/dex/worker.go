@@ -95,8 +95,10 @@ type WorkerOptions struct {
 // PullWorkerOptions configures outbound execution slot streams.
 //
 // Use it with WorkerOptions.Pull to tune outbound task streams.
-// MaxConcurrentTasks defaults to 100, and MinOpenSlots defaults to about the CPU count, so a Worker
-// with no options is adaptive. StopDrainTimeout defaults to 30 seconds.
+// MaxConcurrentTasks defaults to 100. MinOpenSlots defaults to min(MaxConcurrentTasks,
+// max(ReservedRPCTasks + 1, runtime.NumCPU())). The Worker is fixed when this floor equals
+// MaxConcurrentTasks, for example when the CPU count is at least MaxConcurrentTasks.
+// StopDrainTimeout defaults to 30 seconds.
 // Changed in SDK v1.35.0: streams represent execution slots instead of per-queue idle capacity.
 // A fixed Worker keeps MaxConcurrentTasks streams while idle or busy, including RPC-only slots.
 // An adaptive Worker keeps between MinOpenSlots and MaxConcurrentTasks streams.
@@ -107,8 +109,10 @@ type WorkerOptions struct {
 // between MinOpenSlots and MaxConcurrentTasks slot streams open, so idle Workers hold fewer Server
 // streams, and MaxConcurrentTasks becomes the ceiling of the stream count above. With MinOpenSlots
 // unset or equal to MaxConcurrentTasks the Worker is fixed and keeps every slot open as before.
-// Changed in 1.45.17: MaxConcurrentTasks defaults to 100 and MinOpenSlots defaults to about the CPU
-// count, so a Worker is adaptive unless MinOpenSlots equals MaxConcurrentTasks. See both fields.
+// Before 1.45.17, an unset MinOpenSlots made the Worker fixed.
+// Changed in 1.45.17: MaxConcurrentTasks defaults to 100 and MinOpenSlots defaults to
+// min(MaxConcurrentTasks, max(ReservedRPCTasks + 1, runtime.NumCPU())). The Worker is fixed
+// when this floor equals MaxConcurrentTasks. See both fields.
 //
 //	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 //		Pull: &dex.PullWorkerOptions{MaxConcurrentTasks: 8},
@@ -131,23 +135,25 @@ type PullWorkerOptions struct {
 	// A smaller cap on reconnect logs a warning and lets the Server reject surplus streams; the Worker keeps running.
 	//
 	// Changed in 1.45.7: MaxConcurrentTasks is the ceiling of the slot streams, including RPC-only slots.
-	// A fixed Worker, whose MinOpenSlots is unset or equal to it, keeps this many streams open.
+	// Before 1.45.17, an unset MinOpenSlots made the Worker fixed.
+	// A fixed Worker, whose MinOpenSlots equals MaxConcurrentTasks, keeps this many streams open.
 	// An adaptive Worker, whose MinOpenSlots is below it, opens streams up to it only while every open
 	// Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a WARN log that
 	// names both values, instead of failing Start:
 	//   - a fixed Worker with MaxConcurrentTasks unset, whose runtime.NumCPU default exceeds the cap;
 	//   - an adaptive Worker, with MaxConcurrentTasks set or unset.
 	//
-	// A fixed Worker with MaxConcurrentTasks unset therefore opens one stream first, learns the cap from
+	// Before 1.45.17, a fixed Worker with MaxConcurrentTasks unset opened one stream first, learned the cap from
 	// its acknowledgement, and then opens the others. That adds one round trip to Start. A fixed Worker
 	// with an explicit value above the cap still fails Start, and opens all its streams at once.
 	// After a clamp, the ReservedRPCTasks and MinOpenSlots defaults come from the clamped value.
 	// In an adaptive Worker, a lower cap reported on a reconnect lowers its capacity: it half-closes the
 	// surplus streams, RPC-only streams first, and keeps running. A fixed Worker keeps the earlier behavior.
 	//
-	// Changed in 1.45.17: zero uses 100 instead of runtime.NumCPU. Because MinOpenSlots now defaults to
-	// about the CPU count, a Worker that sets nothing, or sets only MaxConcurrentTasks, is adaptive: it
-	// holds about the CPU count of streams while idle and grows up to this ceiling under load. The
+	// Changed in 1.45.17: zero uses 100 instead of runtime.NumCPU. MinOpenSlots now defaults to
+	// min(MaxConcurrentTasks, max(ReservedRPCTasks + 1, runtime.NumCPU())). A Worker is fixed when
+	// this floor equals MaxConcurrentTasks, for example when the CPU count reaches the ceiling.
+	// Otherwise it holds the derived floor of streams while idle and grows up to the ceiling under load. The
 	// default of 100, like any value of an adaptive Worker, is clamped to the Server cap with a WARN
 	// log that names both values, and the MinOpenSlots and ReservedRPCTasks defaults then come from the
 	// clamped value. To keep a fixed Worker, set MinOpenSlots equal to MaxConcurrentTasks; a fixed Worker

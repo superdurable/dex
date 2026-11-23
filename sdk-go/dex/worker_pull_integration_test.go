@@ -746,7 +746,7 @@ func TestWorkerPullFixedSlotsDrainReconnect(t *testing.T) {
 func TestWorkerPullKeepsFixedSlotCountAfterLoad(t *testing.T) {
 	address, server := startPullTestServer(t)
 	flow := &reservedRPCFlow{entered: make(chan string, 3), release: make(chan struct{})}
-	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, IdleStreamsPerQueue: 20}})
+	worker, err := newWorkerForTest(t, []Flow{flow}, WorkerOptions{FlowServiceAddress: address, Pull: &PullWorkerOptions{MaxConcurrentTasks: 3, MinOpenSlots: 3, IdleStreamsPerQueue: 20}})
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- worker.Start() }()
