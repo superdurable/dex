@@ -16,8 +16,8 @@ plus the RPC reserve.
 
 The tool calls of one model response run as parallel Steps. Give a Worker at
 least enough slots for the largest batch of tool calls that a model makes. The
-default task limit is the CPU count. Model calls mostly wait on the network, so
-agent Workers usually need a higher **maxConcurrentTasks**. See
+default task limit is 100. Model calls mostly wait on the network, so
+agent Workers with heavy parallelism can need a higher **maxConcurrentTasks**. See
 [capacity and shutdown](/reference/server/workers#capacity-and-shutdown) for the
 option names in each SDK.
 
@@ -30,9 +30,9 @@ means Steps need more capacity. See
 [Step task queue](/reference/server/workers#step-task-queue) for its metrics.
 
 server-zd allows 256 streams for each app Worker ID by default
-(**matching.maxConcurrentTasksCap**). A Worker opens one stream per task slot,
-so its task limit must fit within it. To grow past it, run more Worker
-processes.
+(**matching.maxConcurrentTasksCap**). An adaptive Worker, the default, clamps
+its task limit to the cap. A fixed Worker with an explicit task limit above the
+cap fails to start. To grow past the cap, run more Worker processes.
 
 Keep headroom. When no Worker has a free slot, a Step waits in the queue. The
 wait uses no attempt and counts toward neither the method timeout nor the

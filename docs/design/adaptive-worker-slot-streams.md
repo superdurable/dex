@@ -1,6 +1,6 @@
 # Adaptive pull Worker slot streams
 
-- **Status:** accepted, with all decisions made. The owner decided D1 to D13 and the review follow-ups F3 to F6 in [Decisions](#decisions) on 2026-11-17. F5 supersedes F1 and F2.
+- **Status:** accepted, with all decisions made. Phase 1 and phase 2 are implemented (phase 2 in #2164, #2165, #2166, #2167, #2169). The owner decided D1 to D13 and the review follow-ups F3 to F6 in [Decisions](#decisions) on 2026-11-17. F5 supersedes F1 and F2.
 - **Tracking issue:** [#1989](https://github.com/superdurable/dex/issues/1989) and its 2026-11-17 comment.
 - **Code read:** `origin/main` at `35ee8dcdccf64fb9db38d8b0cc0a7aacefa29d4f` (2026-11-17). Every `path:line` below refers to that commit.
 - **Scope:** design only. It proposes no product code in this change.
@@ -692,7 +692,10 @@ Results go under `benchmark/results/` with the server tunables, Worker options, 
   - `docs/design/worker-pull-mode.md:7, 19`.
 - Phase 2 updates the default values in the same pages.
 
-**Phase 2: adaptive by default, together with the new default ceiling.**
+**Phase 2: adaptive by default, together with the new default ceiling.** Implemented in all five SDKs: TypeScript #2164, Java #2165, Rust #2166, Python #2167, and Go #2169.
+
+**Note (2026-11-22, owner-authorized implementation):** an adaptive Worker with an unset floor also probes the cap before the first acknowledgement. Without the probe, the initial floor streams above a low cap are permanently rejected. Five SDKs found this independently during implementation. The probe now covers two cases: an adaptive Worker with an unset floor, and a fixed Worker with an unset ceiling.
+
 - The `MinOpenSlots` default becomes `min(MaxConcurrentTasks, max(R + 1, CPU count))`. A Worker that sets only `MaxConcurrentTasks` is therefore adaptive. Setting `MinOpenSlots` equal to `MaxConcurrentTasks` keeps it fixed.
 - The `MaxConcurrentTasks` default becomes 100. A ceiling above the server cap is clamped: an unset default in fixed mode (D4), and any value in adaptive mode (F6).
 - These two changes ship in the same SDK release, after phase 0 and the phase 1 benchmarks.
@@ -862,6 +865,7 @@ The reviews of this document needed new choices. The owner decided F3 to F6 on 2
 - **F2: superseded by F5.** Its delayed registration and its readiness rule are now part of F5.
 - **F3: retry bound after a soft rejection.** Decided (owner, 2026-11-17). At most one growth batch per 30 s shrink window while rejections continue. The batch settles when all its Registers are done. The soft target `G` then becomes the registered `S + H`, and it returns to the hard capacity `E` at the end of each window. `E` itself never drops on a soft rejection. Alternatives: a separate backoff, or no retry until the next acknowledgement.
 - **F4: the startup probe only for fixed mode with an unset ceiling.** Decided (owner, 2026-11-17). One Step-and-RPC stream is opened first only in fixed mode with an unset ceiling that may be clamped. Fixed mode with an explicit ceiling keeps today's parallel startup. Adaptive mode starts at the floor whether the ceiling is set or not (F6), and needs no probe. Alternative: probe always, which adds one round trip to every Worker start.
+  - **Note (2026-11-22, owner-authorized implementation):** an adaptive Worker with an unset floor also probes the cap before the first acknowledgement. Without the probe, the initial floor streams above a low cap are permanently rejected. Five SDKs found this independently during the phase 2 implementation. An adaptive Worker with an explicit floor still needs no probe.
 - **F5: reconnect, cap drops, and orphaned handlers.** Decided (owner, 2026-11-17).
   - **Reconnect.** The Worker uses the last known cap. It opens a stream only while `S + H + Sr + Hr < C` and never registers a stream for a slot that a running handler still holds. A reserved slot cannot refuse a task, so registering early would break the bound.
   - **Order of freed capacity.** One Step-and-RPC stream if none is open, then RPC-only streams up to `R_eff`, then the Step floor, then growth.
@@ -875,6 +879,7 @@ The reviews of this document needed new choices. The owner decided F3 to F6 on 2
   - Reason: in adaptive mode the ceiling is only a growth limit, and users often set it high to mean "as many as allowed".
   - Consequence: adaptive mode starts at the floor whether the ceiling is set or not. It opens the RPC-only streams after the first acknowledgement, so Step-and-RPC capacity comes first. The F4 cap probe applies only to fixed mode with an unset ceiling.
   - D4 is amended to point here.
+  - **Note (2026-11-22, owner-authorized implementation):** the consequence above holds for an adaptive Worker with an explicit floor. An adaptive Worker with an unset floor derives the floor from the clamped ceiling, so it probes the cap before the first acknowledgement, as the F4 note says.
 
 ## Tests
 

@@ -70,10 +70,10 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 Size each Worker with this checklist. Defaults, caps, and metric names are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#choose-slot-count).
 
-- Set the slot count explicitly for every production Worker, especially in containers and schedulers. The Server Workers reference lists the SDK defaults.
+- A Worker is adaptive by default. Set the slot count explicitly for every production Worker, especially in containers and schedulers, where the CPU count can show the whole host. The Server Workers reference lists the SDK defaults.
 - I/O-bound handlers (model calls, HTTP, databases) need many slots, within the downstream rate limits.
 - CPU-bound handlers need about one slot per allocated CPU. To grow throughput, add Worker processes with more CPU capacity; extra processes on the same saturated CPUs add nothing. Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
-- A fixed Worker holds a Server stream for every slot, idle or busy, so size slots for the expected load, not for the cap. An adaptive Worker holds about its floor while idle and grows under load. Choose adaptive for bursty, I/O-bound load. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#adaptive-slot-streams).
+- A fixed Worker holds a Server stream for every slot, idle or busy, so size slots for the expected load, not for the cap. An adaptive Worker, the default, holds about its floor while idle and grows under load. Set the floor equal to the slot count to make a Worker fixed. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#adaptive-slot-streams).
 - Scale Workers on the oldest age of queued Steps. A rising age with a low Server CPU means too few slots or Workers.
 - The Server is limited by CPU. Move to a larger node when its CPU saturates.
 - Past one node, split clusters by Flow type or tenant.
