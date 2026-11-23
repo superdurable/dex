@@ -993,7 +993,7 @@ queued `tool_call_started` event and heartbeat never reach Dex (#1282).
 - Product docs, English and zh-Hans:
   [Deploy agents](../reference/agents/index.mdx), the
   [Agent Frameworks](../content/agent-frameworks.mdx) page, the
-  [AI Agent](../content/use-cases/ai-agent.mdx) use case on the Python and
+  [AI Agent](../content/agent-frameworks/built-in-agent-loop.mdx) example on the Python and
   TypeScript examples, and RPC canceling Steps and Step redelivery limits (#1228).
 - Package READMEs and `agents/CHANGELOG.md`.
 - Skills: `skills/dex-sdk/references/core/patterns.md`, section Durable AI

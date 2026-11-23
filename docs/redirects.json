@@ -13,11 +13,19 @@
   },
   {
     "from": "/use-cases/ai-agent-email",
-    "to": "/use-cases/ai-agent"
+    "to": "/agent-frameworks/built-in-agent-loop"
   },
   {
     "from": "/zh-Hans/use-cases/ai-agent-email",
-    "to": "/zh-Hans/use-cases/ai-agent"
+    "to": "/zh-Hans/agent-frameworks/built-in-agent-loop"
+  },
+  {
+    "from": "/use-cases/ai-agent",
+    "to": "/agent-frameworks/built-in-agent-loop"
+  },
+  {
+    "from": "/zh-Hans/use-cases/ai-agent",
+    "to": "/zh-Hans/agent-frameworks/built-in-agent-loop"
   },
   {
     "from": "/production/supervision",

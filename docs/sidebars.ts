@@ -179,7 +179,6 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         'use-cases/signup-review-agent',
-        'use-cases/ai-agent',
         'use-cases/order-support-agent',
         'use-cases/order-processing',
         'use-cases/subscription',

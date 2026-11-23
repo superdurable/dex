@@ -1101,7 +1101,7 @@ def create_web_app(
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-[AI Agent](/use-cases/ai-agent) 示例的聊天路由展示了同样的部件。一个聊天路由把消息或审批答复排入队列，并以 Vercel AI SDK 的 UI message 格式流式返回回复。第二个路由在重新连接后恢复 stream。下面是节选：`requireBody`、`authorizeSession`、`session` 以及其他辅助函数定义在 [完整的路由文件](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts) 中。
+[AI Agent](/agent-frameworks/built-in-agent-loop#the-example) 示例的聊天路由展示了同样的部件。一个聊天路由把消息或审批答复排入队列，并以 Vercel AI SDK 的 UI message 格式流式返回回复。第二个路由在重新连接后恢复 stream。下面是节选：`requireBody`、`authorizeSession`、`session` 以及其他辅助函数定义在 [完整的路由文件](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts) 中。
 
 ```ts
   router.post("/api/chat", async (request, response) => {
