@@ -99,6 +99,7 @@ func TestVisualizeRustWorkflowPatternParity(t *testing.T) {
 			continue
 		}
 		t.Run(flowType, func(t *testing.T) {
+			t.Parallel()
 			rustSource := rustSources[flowType]
 			require.NotEmpty(t, rustSource)
 			hiddenSteps := workflowPatternHiddenDecisions(flowType)
@@ -160,6 +161,7 @@ func scanVisualizeExample(t *testing.T, source string, graph *flowviz.Graph) {
 		require.Greater(t, len(flowNames), 1)
 		for _, flowName := range flowNames {
 			t.Run(flowName, func(t *testing.T) {
+				t.Parallel()
 				selected := readVisualizeExampleGraph(t, source, flowName)
 				require.Equal(t, flowName, selected.Flow.Name)
 				requireScannedExampleDiagnostics(t, source, selected)
@@ -332,9 +334,19 @@ var goWorkflowPatternHiddenDecisions = map[string][]string{
 	"CriticalSectionFlow":                        {"CommitStock", "FinishCriticalSections", "PublishPrice"},
 }
 
+func warmVisualizeRustAnalyzer(t *testing.T, repositoryRoot string) {
+	t.Helper()
+	if _, err := exec.LookPath("cargo"); err != nil {
+		return
+	}
+	source := filepath.Join(repositoryRoot, "cli/internal/flowviz/testdata/rust/workflow.rs")
+	graph := readVisualizeExampleGraph(t, source, "Delivery")
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+}
+
 func readVisualizeExampleGraph(t *testing.T, source string, flowType string) *flowviz.Graph {
 	t.Helper()
-	graph, err := flowviz.Analyze(t.Context(), source, flowviz.AnalyzeOptions{FlowType: flowType})
+	graph, err := analyzeParallelVisualization(t, source, flowviz.AnalyzeOptions{FlowType: flowType})
 	require.NoError(t, err)
 	require.Equal(t, "2.0", graph.SchemaVersion)
 	valid := true

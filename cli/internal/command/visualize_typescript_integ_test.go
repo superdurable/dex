@@ -39,6 +39,7 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 		relative, err := filepath.Rel(repositoryRoot, source)
 		require.NoError(t, err)
 		t.Run(filepath.ToSlash(relative), func(t *testing.T) {
+			t.Parallel()
 			contents, err := os.ReadFile(source)
 			require.NoError(t, err)
 			graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})

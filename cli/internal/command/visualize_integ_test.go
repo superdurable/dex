@@ -304,21 +304,24 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)
 	require.NotEmpty(t, sources)
+	warmVisualizeRustAnalyzer(t, repositoryRoot)
 	for _, source := range sources {
 		relative, err := filepath.Rel(repositoryRoot, source)
 		require.NoError(t, err)
 		relative = filepath.ToSlash(relative)
 		t.Run(relative, func(t *testing.T) {
+			t.Parallel()
 			switch filepath.Ext(source) {
 			case ".java":
 				options := flowviz.AnalyzeOptions{JavaPath: javaVisualizationExecutable(t)}
-				graph, err := flowviz.Analyze(t.Context(), source, options)
+				graph, err := analyzeParallelVisualization(t, source, options)
 				require.NoError(t, err)
 				flows := javaVisualizationFlowTypes(graph)
 				for _, flowType := range flows {
 					t.Run(flowType, func(t *testing.T) {
+						t.Parallel()
 						selection := flowviz.AnalyzeOptions{FlowType: flowType, JavaPath: options.JavaPath}
-						selected, err := flowviz.Analyze(t.Context(), source, selection)
+						selected, err := analyzeParallelVisualization(t, source, selection)
 						require.NoError(t, err)
 						require.Equal(t, flowType, selected.Flow.Name)
 						requireJavaExampleGraph(t, source, selected)
@@ -340,6 +343,19 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 			scanVisualizeExample(t, source, graph)
 		})
 	}
+}
+
+var parallelVisualizationToolSlots = make(chan struct{}, 4)
+
+func analyzeParallelVisualization(t *testing.T, source string, options flowviz.AnalyzeOptions) (*flowviz.Graph, error) {
+	t.Helper()
+	// Go package loading and JVM compilation each use multiple threads.
+	switch filepath.Ext(source) {
+	case ".go", ".java":
+		parallelVisualizationToolSlots <- struct{}{}
+		defer func() { <-parallelVisualizationToolSlots }()
+	}
+	return flowviz.Analyze(t.Context(), source, options)
 }
 
 func requireNoUnexpectedVisualizeDiagnostics(t *testing.T, graph *flowviz.Graph, source string) {

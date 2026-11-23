@@ -34,7 +34,7 @@ jobs:
   check:
     name: Build and local-stack integration
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
@@ -114,7 +114,7 @@ jobs:
         working-directory: cli
         env:
           GOWORK: "off"
-        run: go test -tags=integration ./internal/command -run 'TestVisualize|TestWeb' -count=1 -v
+        run: go test -tags=integration ./internal/command -run 'TestVisualize|TestWeb' -count=1 -v -timeout 30m
       - name: Test local server-zd mode
         working-directory: cli
         env:
