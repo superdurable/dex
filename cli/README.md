@@ -483,7 +483,7 @@ FlowService port bound to the remote host's loopback address too.
 
 ## Visualize Flow source
 
-Render a static possible-path graph from one Go, Python, or TypeScript Flow source file in
+Render a static possible-path graph from one Go, Python, TypeScript, or Rust Flow source file in
 your local browser:
 
 ```bash
@@ -501,6 +501,7 @@ dexcli visualize ./order_flow.py --json
 dexcli visualize ./order_flow.go --json --out ./build/order-flow
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli visualize ./order_flow.ts --language typescript --schema-version 2.0 --json
+dexcli visualize ./order_flow.rs --language rust --json
 dexcli dev --flow-rendering-dir ./build
 ```
 
@@ -511,6 +512,20 @@ diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
 can be shown or hidden independently. Streams are hidden by default. Definitions
 are loaded once during startup; restart **dexcli dev** after changing the
 directory.
+
+Since 1.47.23, Rust visualization requires Cargo and Rust 1.97 or newer.
+Select Cargo with `--cargo` or `DEX_CARGO`. The flag takes precedence over
+the environment variable. The default is `cargo` on `PATH`. The first run
+builds the analyzer in about 5 to 30 seconds. Cache the
+`dexcli/flowviz-rust` subdirectory of the user cache directory in CI
+(`~/.cache` on Linux and `~/Library/Caches` on macOS).
+
+For Rust, put `// dex:group` and `// dex:explanation` directly above the Step
+struct, or above its `impl Step` when the struct has neither directive.
+Put `// dex:indexed-attribute` above the indexed Attribute declaration and
+`// dex:field` above the function bound to `GetDexSummary` or `GetDexDisplay`.
+The Start form uses the starting Step's `type Input` or the Flow's
+`type StartInput`. Keep custom input types and nested types in the source file.
 
 Python and TypeScript FDG 2.0 read `dex:group` and `dex:explanation` comments
 directly above local Step classes, using `#` and `//`, respectively. Python
@@ -669,7 +684,7 @@ keyed by Go type, so registering one Go type or generic Step more than once
 produces `duplicate_step_type`. Regenerate definitions after upgrading **dexcli** so
 Dex Web v2 keys match the Worker.
 
-The command generates Flow Definition Graph 2.0 for Go, Python, and TypeScript.
+The command generates Flow Definition Graph 2.0 for Go, Python, TypeScript, and Rust.
 Each Step needs a group and an explanation.
 Go also reads the Dex Web v2 Indexed Attribute, Summary, Display, Action, and Start contracts.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
@@ -781,12 +796,13 @@ state-load and start-input errors above are reported in every mode.
 | `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python|typescript] [--schema-version 2.0]
+dexcli visualize SOURCE [--language auto|go|python|typescript|rust] [--schema-version 2.0]
                          [--flow FlowType]
                          [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
+                         [--cargo CARGO_PATH]
 ```
 
 Use `--flow` with the registered Flow type when the source defines multiple

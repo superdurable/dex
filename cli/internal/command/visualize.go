@@ -37,6 +37,7 @@ type visualizeOptions struct {
 	openBrowser   bool
 	output        string
 	pythonPath    string
+	cargoPath     string
 	// typeScriptCompilerDirectory is the trusted typescript package directory from the flag; empty falls back to the environment.
 	typeScriptCompilerDirectory string
 }
@@ -47,7 +48,7 @@ const typeScriptCompilerEnvironmentVariable = "DEX_TYPESCRIPT_COMPILER"
 func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
 	options := visualizeOptions{openBrowser: true}
-	flags.StringVar(&options.language, "language", "auto", "auto, go, python, or typescript")
+	flags.StringVar(&options.language, "language", "auto", "auto, go, python, typescript, or rust")
 	flags.StringVar(&options.schemaVersion, "schema-version", flowviz.SchemaVersionV2, "Flow Definition Graph schema version (deprecated; only 2.0)")
 	flags.StringVar(&options.flowType, "flow", "", "registered Flow type to analyze")
 	flags.StringVar(&options.lint, "lint", "", "also report the application lints: app")
@@ -55,6 +56,8 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags.BoolVar(&options.openBrowser, "open", true, "open Flow Rendering in the default browser")
 	flags.StringVar(&options.output, "out", "", "JSON output prefix, or - for stdout (requires --json)")
 	flags.StringVar(&options.pythonPath, "python", "", "Python 3.11+ interpreter path")
+	cargoPath, _ := a.lookupEnv("DEX_CARGO")
+	flags.StringVar(&options.cargoPath, "cargo", cargoPath, "Cargo executable path for Rust sources")
 	flags.StringVar(&options.typeScriptCompilerDirectory, "typescript-compiler", "", "trusted typescript package directory for TypeScript sources")
 	source, parseErr := parseVisualizeArgs(flags, args)
 	if parseErr != nil {
@@ -78,6 +81,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	graph, err := flowviz.Analyze(ctx, source, flowviz.AnalyzeOptions{
 		Language:                    options.language,
 		PythonPath:                  options.pythonPath,
+		CargoPath:                   options.cargoPath,
 		SchemaVersion:               options.schemaVersion,
 		FlowType:                    options.flowType,
 		Lint:                        options.lint,
@@ -158,9 +162,9 @@ func parseVisualizeArgs(flags *flag.FlagSet, args []string) (string, error) {
 
 func validateVisualizeOptions(options visualizeOptions) error {
 	switch options.language {
-	case "", "auto", "go", "python", "typescript":
+	case "", "auto", "go", "python", "typescript", "rust":
 	default:
-		return fmt.Errorf("language must be auto, go, python, or typescript")
+		return fmt.Errorf("language must be auto, go, python, typescript, or rust")
 	}
 	if options.schemaVersion == "1.0" {
 		return errors.New("Flow Definition Graph 1.0 was removed; omit --schema-version or pass 2.0")
@@ -277,7 +281,7 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "Usage: dexcli visualize SOURCE [flags]")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Flags:")
-	fmt.Fprintln(output, "  --language auto|go|python|typescript source language (default auto)")
+	fmt.Fprintln(output, "  --language auto|go|python|typescript|rust source language (default auto)")
 	fmt.Fprintln(output, "  --schema-version 2.0               Flow Definition Graph schema version (deprecated; only 2.0)")
 	fmt.Fprintln(output, "  --flow FlowType                    registered Flow type (required if the source contains multiple Flows)")
 	fmt.Fprintln(output, "  --lint app                          also report the application lints (Go); validate FDG 2.0 annotations")
@@ -285,9 +289,11 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
 	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")
 	fmt.Fprintln(output, "  --python path                       Python 3.11+ interpreter")
+	fmt.Fprintln(output, "  --cargo path                        Cargo executable for Rust sources (default cargo)")
 	fmt.Fprintln(output, "  --typescript-compiler dir           trusted typescript package directory; never loads the project's compiler")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Environment:")
 	fmt.Fprintln(output, "  SOURCE_DATE_EPOCH                   Unix seconds for the 2.0 generatedAt field (default now)")
+	fmt.Fprintln(output, "  DEX_CARGO                           Cargo executable when --cargo is absent")
 	fmt.Fprintln(output, "  DEX_TYPESCRIPT_COMPILER             trusted typescript package directory when --typescript-compiler is absent")
 }

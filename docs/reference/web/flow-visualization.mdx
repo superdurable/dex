@@ -1,12 +1,12 @@
 ---
 title: Flow source visualization
 sidebar_label: Flow visualization
-description: "dexcli visualize turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph, as a page or as JSON."
+description: "dexcli visualize turns one Go, Python, TypeScript, or Rust Flow source file into a static Flow Definition Graph, as a page or as JSON."
 ---
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
+**dexcli visualize** turns one Go, Python, TypeScript, or Rust Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
 
 ```bash
 dexcli visualize ./order_flow.go
@@ -168,7 +168,26 @@ Pass `--flow` to select one Flow type from a file with multiple Flows. Without i
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
+
+### Rust source {#rust-source}
+
+**Since 1.47.23.** Pass a `.rs` file or specify `--language rust`. The Rust analyzer requires Cargo and Rust 1.97 or newer. Use `--cargo /path/to/cargo` or set `DEX_CARGO` to select Cargo. The flag takes precedence. The default is `cargo` on `PATH`.
+
+Dexcli builds the embedded analyzer on its first run, which takes about 5 to 30 seconds depending on the machine. It reuses the binary under `dexcli/flowviz-rust` in the operating system's user cache directory. Cache that directory in CI, typically `~/.cache/dexcli/flowviz-rust` on Linux or `~/Library/Caches/dexcli/flowviz-rust` on macOS. Dexcli keeps separate entries for each Cargo version and analyzer revision.
+
+The analyzer reads `impl Flow` and `impl Step` in the given file. A literal returned by `flow_type()` or `step_type()` overrides the Rust type name. Pass the registered name to `--flow` for a file with multiple Flows.
+
+Use `//` for Rust directives. Put `dex:group` and `dex:explanation` directly above the Step struct, or above its `impl Step` block if the struct has neither directive. Put `dex:indexed-attribute` above the indexed Attribute declaration and `dex:field` above the function bound to the `GetDexSummary` or `GetDexDisplay` RPC. Use the same arguments as in Go.
+
+```text
+// dex:group group-id:intake group-label:"Intake"
+// dex:explanation text:"Receives a case."
+// dex:indexed-attribute attribute-key:status index-key:keyword1 index-type:keyword value-type:string description:"Case status"
+// dex:field attribute-key:title value-type:string editable:false description:"Case title"
+```
+
+The Start input comes from the starting Step's `type Input` or the Flow's `type StartInput`. The analyzer supports primitive types, named-field structs, unit-variant enums, `Option`, `Vec`, string-keyed maps, and serde `rename` and `rename_all`. Declare custom input types and any nested types in the same file. An unreadable type produces a warning and leaves the Start form empty.
 
 The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 

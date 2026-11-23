@@ -19,6 +19,7 @@ examples/go/deepverify
 examples/go/codec-server/dex-codec-server
 examples/go/codec-server/codec-server
 cli/dexcli
+cli/internal/flowviz/rust_analyzer/target/release/dex-flowviz-rust
 bin/dexcli-tls-darwin-arm64
 cli/internal/command/testfixtures/registered-type-names/mainpackage/mainpackage
 examples/python/codec-server/.venv/

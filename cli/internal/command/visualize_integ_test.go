@@ -309,6 +309,10 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 		require.NoError(t, err)
 		relative = filepath.ToSlash(relative)
 		t.Run(relative, func(t *testing.T) {
+			if filepath.Ext(source) == ".rs" {
+				scanRustVisualizeExample(t, source)
+				return
+			}
 			graph, analyzeErr := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 			require.NoError(t, analyzeErr)
 			require.Equal(t, "2.0", graph.SchemaVersion)
@@ -1030,6 +1034,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 	roots := []sourceRoot{
 		{directory: filepath.Join(repositoryRoot, "examples/go"), extension: ".go", marker: "GetSteps("},
 		{directory: filepath.Join(repositoryRoot, "examples/python"), extension: ".py", marker: "(Flow["},
+		{directory: filepath.Join(repositoryRoot, "examples/rust"), extension: ".rs", marker: "impl Flow for "},
 	}
 	result := make([]string, 0)
 	for _, root := range roots {
@@ -1037,7 +1042,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 			if walkErr != nil {
 				return walkErr
 			}
-			if entry.IsDir() && path != root.directory && strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() && path != root.directory && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "target") {
 				return filepath.SkipDir
 			}
 			// Workflow pattern catalogs define several small Flows per file; visualize renders one Flow per file.

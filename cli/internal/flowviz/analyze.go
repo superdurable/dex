@@ -23,6 +23,7 @@ const LintApplication = "app"
 type AnalyzeOptions struct {
 	Language      string
 	PythonPath    string
+	CargoPath     string
 	SchemaVersion string
 	FlowType      string
 	Lint          string
@@ -56,6 +57,8 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 		graph, err = analyzeGo(ctx, absolutePath, data, options.FlowType, isApplicationLint)
 	case "python":
 		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, options.FlowType)
+	case "rust":
+		graph, err = analyzeRust(ctx, absolutePath, data, options.CargoPath, options.FlowType)
 	case "typescript":
 		graph, err = analyzeTypeScript(ctx, absolutePath, data, options.FlowType, options.TypeScriptCompilerDirectory)
 	default:
@@ -141,6 +144,8 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 			return "go", nil
 		case ".py":
 			return "python", nil
+		case ".rs":
+			return "rust", nil
 		case ".ts", ".tsx", ".mts", ".cts":
 			return "typescript", nil
 		default:
@@ -148,9 +153,9 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 		}
 	}
 	switch language {
-	case "go", "python", "typescript":
+	case "go", "python", "typescript", "rust":
 		return language, nil
 	default:
-		return "", fmt.Errorf("language must be auto, go, python, or typescript")
+		return "", fmt.Errorf("language must be auto, go, python, typescript, or rust")
 	}
 }
