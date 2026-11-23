@@ -33,10 +33,39 @@ class V2MetadataAnalyzer:
                 if line["text"].split(maxsplit=1)[0] == "dex:field"
             ],
         }
+        arguments = method.args
+        if len(arguments.posonlyargs) + len(arguments.args) + len(arguments.kwonlyargs) > 2 or arguments.vararg or arguments.kwarg:
+            self.error("v2_rpc_signature", f"RPC {rpc_name} input must be dex.None", fact["span"])
+        self.validate_read_only_view_rpc(rpc_name, method)
         keys = self.view_return_keys(method, frozenset(), wrapped=True)
         if keys is not None:
             fact["outputKeys"] = sorted(keys)
         return fact
+
+    def validate_read_only_view_rpc(self, rpc_name, method):
+        pending = [method]
+        visited = set()
+        while pending:
+            function = pending.pop()
+            if function in visited:
+                continue
+            visited.add(function)
+            body = function.body if isinstance(function.body, list) else [function.body]
+            for statement in body:
+                for call in ast.walk(statement):
+                    if not isinstance(call, ast.Call):
+                        continue
+                    callee = call.func
+                    if self.is_dex_reference(callee, "RPCResult"):
+                        if len(call.args) > 1 or any(keyword.arg in {"next_steps", "canceling_steps"} for keyword in call.keywords):
+                            self.error("v2_view_rpc_side_effect", f"{rpc_name} must be read-only", self.span(call))
+                    elif isinstance(callee, ast.Attribute) and callee.attr in {"set", "delete", "publish", "with_canceling_steps"}:
+                        self.error("v2_view_rpc_side_effect", f"{rpc_name} must be read-only", self.span(call))
+                    elif any(self.is_dex_reference(callee, name) for name in ("go_to", "go_to_many")):
+                        self.error("v2_view_rpc_side_effect", f"{rpc_name} must be read-only", self.span(call))
+                    helper = self.view_output_helper(callee)
+                    if helper is not None:
+                        pending.append(helper)
 
     def view_return_keys(self, function, visited, wrapped):
         if not function or function in visited or len(visited) >= 32:
@@ -150,7 +179,9 @@ class V2MetadataAnalyzer:
             return self.start_input_union([arguments[0], ast.Constant(None)], ancestors, depth)
         if name == "typing.Union":
             return self.start_input_union(arguments, ancestors, depth)
-        if name in {"list", "typing.List"} and len(arguments) == 1:
+        is_list = name in {"list", "typing.List"} and len(arguments) == 1
+        is_variable_tuple = name in {"tuple", "typing.Tuple"} and len(arguments) == 2 and isinstance(arguments[1], ast.Constant) and arguments[1].value is Ellipsis
+        if is_list or is_variable_tuple:
             return {"kind": "array", "items": self.start_input_schema(arguments[0], ancestors, depth + 1)}
         if name in {"dict", "typing.Dict"} and len(arguments) == 2:
             if self.start_input_schema(arguments[0], ancestors, depth + 1) != {"kind": "string"}:

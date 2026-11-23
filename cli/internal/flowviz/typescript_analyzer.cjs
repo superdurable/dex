@@ -313,10 +313,16 @@ class TypeScriptAnalyzer {
   }
 
   resourceValueType(expression) {
-    if (expression.typeArguments?.length) return expression.typeArguments[0].getText(this.tree);
+    const annotation = this.resourceTypeAnnotation(expression);
+    if (annotation) return annotation.getText(this.tree);
     const codec = this.unwrap(expression.arguments?.[1]);
-    if (codec && this.ts.isCallExpression(codec) && this.dexName(codec.expression) === "jsonCodec" && codec.typeArguments?.length) return codec.typeArguments[0].getText(this.tree);
     return (codec && codecValueTypes[this.dexName(codec)]) || "unknown";
+  }
+
+  resourceTypeAnnotation(expression) {
+    if (expression.typeArguments?.length) return expression.typeArguments[0];
+    const codec = this.unwrap(expression.arguments?.[1]);
+    if (codec && this.ts.isCallExpression(codec) && this.dexName(codec.expression) === "jsonCodec") return codec.typeArguments?.[0];
   }
 
   analyzeRegistration(steps) {
@@ -595,7 +601,7 @@ class TypeScriptAnalyzer {
   }
 
   // Records the resource reads, writes, and publishes of a handler and of the file's helpers it calls.
-  analyzeResourceAccess(ownerID,handler,phase,ownerClass) {
+  analyzeResourceAccess(ownerID,handler,phase,ownerClass,viewRPCName) {
     const accesses = [];
     this.collectResourceAccesses(handler,ownerClass,"",new Set([handler]),accesses,0);
     const seen = new Set();
@@ -603,6 +609,9 @@ class TypeScriptAnalyzer {
       for (const access of accesses) {
         if (!!access.helper !== isHelperAccess) continue;
         this.diagnoseStreamOutsideStep(ownerID,phase,access);
+        if (viewRPCName && ["set","delete","publish","deleteChannelMessage"].includes(access.method)) {
+          this.error("v2_view_rpc_side_effect",`${viewRPCName} must be read-only`,access.call);
+        }
         const kind = this.resourceEdgeKind(access.method,phase);
         const key = `${kind}:${access.resourceID}:${access.method}`;
         if (!kind || kind === "wait_condition" || seen.has(key)) continue;
@@ -866,10 +875,6 @@ class TypeScriptAnalyzer {
     const nodeID = `rpc:${methodName}`;
     if (this.graph.nodes.some(node => node.id === nodeID)) return;
     this.graph.nodes.push({id:nodeID,kind:"rpc",name:methodName,span:this.span(method || anchor)});
-    if (method?.body) {
-      this.analyzeDecisions(nodeID,method,"rpc");
-      this.analyzeResourceAccess(nodeID,method,"rpc",this.flowClass);
-    }
     const options =optionsExpression === undefined ? undefined : this.resolvedValue(optionsExpression,{}).node;
     const optionsObject = options && this.ts.isObjectLiteralExpression(options) ? options : undefined;
     const property = name => optionsObject?.properties.find(candidate => (this.ts.isPropertyAssignment(candidate) || this.ts.isShorthandPropertyAssignment(candidate)) && candidate.name && this.propertyName(candidate.name) === name);
@@ -877,23 +882,54 @@ class TypeScriptAnalyzer {
     const nameProperty = property("name");
     const staticName = nameProperty ? this.staticLiteral(valueOf(nameProperty),{}) : undefined;
     const rpcName = typeof staticName === "string" && staticName ? staticName : methodName;
-    const lockProblems = this.analyzeRPCLocks(nodeID,rpcName,property("lockAttributes"),valueOf);
     const actionProperty = property("action");
     const hasStaticName = optionsExpression === undefined ||
       (optionsObject && (!nameProperty || typeof staticName === "string") && !optionsObject.properties.some(candidate => this.ts.isSpreadAssignment(candidate)));
     const isView = hasStaticName && (rpcName === "GetDexSummary" || rpcName === "GetDexDisplay");
+    if (method?.body) {
+      this.analyzeDecisions(nodeID,method,"rpc");
+      this.analyzeResourceAccess(nodeID,method,"rpc",this.flowClass,isView ? rpcName : undefined);
+    }
+    const lockProblems = this.analyzeRPCLocks(nodeID,rpcName,property("lockAttributes"),valueOf);
     if (isView || actionProperty) {
       for (const problem of lockProblems) this.rpcLockErrors.push({rpcNodeId:nodeID,rpcName,message:problem.message,span:problem.span});
     }
-    if (isView) this.viewRPCs.push(this.viewRPCFact(rpcName,method,anchor));
+    if (isView) this.viewRPCs.push(this.viewRPCFact(rpcName,method,anchor,!!property("inputCodec")));
     if (actionProperty) this.actions.push(this.actionEntry(method,methodName,nodeID,rpcName,valueOf(actionProperty),anchor));
   }
 
-  viewRPCFact(protocolName,method,anchor) {
+  viewRPCFact(protocolName,method,anchor,hasInputCodec) {
     const methodDirectives = method ? this.directiveLines(method,"field") : [];
     const directives = anchor !== method && methodDirectives.length === 0 ? this.directiveLines(anchor,"field") : methodDirectives;
+    const parameters = method?.parameters.filter(parameter => parameter.name.getText(this.tree) !== "this");
+    if (hasInputCodec || parameters?.length > 1) {
+      this.error("v2_rpc_signature",`RPC ${protocolName} input must be dex.None`,method || anchor);
+    }
+    this.validateReadOnlyViewRPC(protocolName,method,new Set());
     const outputKeys = this.viewReturnKeys(method,new Set(),true);
     return {protocolName,directives,outputKeys,span:this.span(method || anchor)};
+  }
+
+  validateReadOnlyViewRPC(protocolName,method,visited) {
+    if (!method?.body || visited.has(method)) return;
+    visited.add(method);
+    this.walk(method.body,node => {
+      if (this.ts.isCallExpression(node)) {
+        const callee = this.unwrap(node.expression);
+        const helper = this.resourceHelper(callee,this.flowClass);
+        this.validateReadOnlyViewRPC(protocolName,helper?.declaration,visited);
+        if (["goTo","goToMany"].includes(this.dexName(callee)) || this.memberCall(callee)?.method === "deleteChannelMessage") {
+          this.error("v2_view_rpc_side_effect",`${protocolName} must be read-only`,node);
+        }
+      }
+      if (this.ts.isObjectLiteralExpression(node) && node.properties.some(property => property.name && this.propertyName(property.name) === "output")) {
+        for (const property of node.properties) {
+          if (property.name && ["nextSteps","cancelingSteps"].includes(this.propertyName(property.name))) {
+            this.error("v2_view_rpc_side_effect",`${protocolName} must be read-only`,property);
+          }
+        }
+      }
+    });
   }
 
   viewReturnKeys(method,visited,wrapped) {
@@ -996,6 +1032,13 @@ class TypeScriptAnalyzer {
     const name = reference.typeName.getText(this.tree);
     const argumentsList = reference.typeArguments || [];
     const declaration = this.inputTypes.get(name);
+    const binding = this.scopeBindings.get(this.tree)?.has(name) ? this.staticBinding(this.tree,name) : undefined;
+    if (binding && this.ts.isEnumDeclaration(binding)) {
+      if (binding.members.length && binding.members.every(member => this.ts.isIdentifier(member.name) && member.initializer && this.ts.isStringLiteral(member.initializer))) {
+        return {kind:"string",enumValues:binding.members.map(member => ({name:member.name.text,value:member.initializer.text}))};
+      }
+      throw new StartInputExtractionError(`type ${name} is unsupported`);
+    }
     if (declaration && !argumentsList.length && !declaration.typeParameters?.length) {
       if (ancestors.has(declaration)) throw new StartInputExtractionError(`type ${name} is recursive`);
       const nextAncestors = new Set([...ancestors,declaration]);
@@ -2738,8 +2781,11 @@ class TypeScriptAnalyzer {
   }
 
   attributeFact(node) {
-    const fact = {resourceId:node.id,key:node.name,valueType:this.attributeValueType(node.resource.valueType),isMap:node.resource.map};
     const declaration = this.attributeDeclarations.get(node.id);
+    const annotation = declaration && this.resourceTypeAnnotation(declaration);
+    const valueTypeUnresolved = this.isImportedAttributeType(annotation);
+    const valueType = valueTypeUnresolved ? "json" : this.attributeValueType(node.resource.valueType);
+    const fact = {resourceId:node.id,key:node.name,valueType,valueTypeUnresolved,isMap:node.resource.map};
     if (!declaration) return fact;
     const anchor = this.ts.findAncestor(declaration,parent => this.ts.isVariableStatement(parent) || this.ts.isPropertyDeclaration(parent) || this.ts.isExpressionStatement(parent));
     fact.directives = this.directiveLines(anchor || declaration,"indexed-attribute");
@@ -2751,7 +2797,7 @@ class TypeScriptAnalyzer {
     if (!this.ts.isObjectLiteralExpression(index)) return fact;
     const properties = new Map(index.properties.filter(property => property.name).map(property => [this.propertyName(property.name),this.propertyValueExpression(property)]));
     const indexKey = this.staticLiteral(properties.get("indexKey"));
-    fact.indexKey = typeof indexKey === "string" ? indexKey : node.resource.map || properties.has("indexKey") ? "" : node.name;
+    fact.indexKey = typeof indexKey === "string" && indexKey ? indexKey : node.resource.map ? "" : node.name;
     const indexType = this.resolvedValue(properties.get("type"),{}).node;
     let indexTypeName = this.staticLiteral(indexType);
     if (indexType && this.ts.isPropertyAccessExpression(indexType) && this.dexName(indexType.expression) === "IndexType") indexTypeName = indexType.name.text;
@@ -2762,9 +2808,19 @@ class TypeScriptAnalyzer {
   attributeValueType(text) {
     const type = text.replace(/\s/g,"");
     if (["string[]","readonlystring[]","Array<string>","ReadonlyArray<string>"].includes(type)) return "string-array";
-    if (type.endsWith("[]") || /^(?:Readonly)?Array</.test(type)) return "array";
-    if (type.startsWith("{") || type.startsWith("Record<") || this.inputTypes.get(type)?.kind === this.ts.SyntaxKind.InterfaceDeclaration) return "object";
-    return this.canonicalValueType(text);
+    if (type === "Uint8Array" || type.endsWith("[]") || /^(?:Readonly)?Array</.test(type)) return "array";
+    if (type.startsWith("{") || type.startsWith("Record<")) return "object";
+    return {string:"string",number:"double",bigint:"int64",boolean:"bool",Date:"datetime"}[type] || "json";
+  }
+
+  isImportedAttributeType(annotation) {
+    if (!annotation || !this.ts.isTypeReferenceNode(annotation)) return false;
+    let root = annotation.typeName;
+    while (this.ts.isQualifiedName(root)) root = root.left;
+    const scope = this.bindingScope(root);
+    const binding = scope && this.staticBinding(scope,root.text);
+    return !!binding && (this.ts.isImportSpecifier(binding) || this.ts.isImportClause(binding) ||
+      this.ts.isNamespaceImport(binding) || this.ts.isImportEqualsDeclaration(binding));
   }
 }
 

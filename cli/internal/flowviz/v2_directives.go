@@ -375,14 +375,7 @@ func (analyzer *goAnalyzer) collectV2View(
 		OutputKeys:   analyzer.v2ViewOutputKeys(method),
 	}
 	view := analyzer.graph.buildV2View(fact, attributes, indexedAttributes)
-	if fact.OutputKeys == nil {
-		analyzer.graph.AddDiagnostic(
-			"error",
-			"v2_view_rpc_output",
-			fmt.Sprintf("%s must return its declared fields from a map[string]any literal", rpcName),
-			fact.Span,
-		)
-	}
+	analyzer.graph.validateV2ViewOutputReadable(fact)
 	return view
 }
 

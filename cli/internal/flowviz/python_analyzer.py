@@ -610,6 +610,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 protocol_name = self.rpc_protocol_name(statement)
                 rpc_name = protocol_name or statement.name
                 self.add_node({"id": node_id, "kind": "rpc", "name": statement.name, "span": self.span(statement)})
+                if protocol_name is None:
+                    self.error("dynamic_rpc_declaration", "RPC name must be a string literal or a module-level string constant", self.span(self.rpc_decorator(statement)))
                 self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"}, {"rpcName": rpc_name})
                 is_view = protocol_name in {"GetDexSummary", "GetDexDisplay"}
                 if is_view:
@@ -800,22 +802,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def attribute_fact(self, node):
         resource = node["resource"]
         call, declaration = self.resource_declarations[node["id"]]
-        value_type = self.python_action_value_type(resource["valueType"])
         type_expression = self.argument_value(call, "value_type", 1)
         if type_expression is None and isinstance(call.func, ast.Subscript):
             type_expression = call.func.slice
-        imported_type = self.imported_name(type_expression)
-        if imported_type == "datetime.datetime":
-            value_type = "datetime"
-        elif value_type == "dict" or value_type.startswith(("dict[", "Dict[", "typing.Dict[")):
-            value_type = "object"
-        elif value_type in {"list[str]", "List[str]", "typing.List[str]"}:
-            value_type = "string-array"
-        elif value_type == "list" or value_type.startswith(("list[", "List[", "typing.List[")):
-            value_type = "array"
-        fact = {"resourceId": node["id"], "key": node["name"], "valueType": value_type, "isMap": resource["map"]}
-        if imported_type and imported_type != "datetime.datetime":
-            fact["valueTypeUnresolved"] = True
+        value_type, unresolved = self.attribute_value_type(type_expression)
+        fact = {"resourceId": node["id"], "key": node["name"], "valueType": value_type, "valueTypeUnresolved": unresolved, "isMap": resource["map"]}
         if self.flow_class is None:
             return fact
         index = self.argument_value(call, "index", 2)
@@ -836,6 +827,25 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         ]
         fact["span"] = node["span"]
         return fact
+
+    def attribute_value_type(self, expression):
+        base = expression.value if isinstance(expression, ast.Subscript) else expression
+        name = self.imported_name(base) or self.unparse(base)
+        if name == "datetime.datetime":
+            return "datetime", False
+        if name in {"dict", "typing.Dict"}:
+            return "object", False
+        if name in {"list", "typing.List"}:
+            is_string_array = isinstance(expression, ast.Subscript) and self.unparse(expression.slice) == "str"
+            return "string-array" if is_string_array else "array", False
+        if name == "bytes":
+            return "array", False
+        root = base
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if isinstance(root, ast.Name) and isinstance(self.static_binding(self.binding_scope(root), root.id), ast.alias):
+            return "json", True
+        return self.PYTHON_ACTION_VALUE_TYPES.get(name, "json"), False
 
     def argument_value(self, call, name, position):
         if position < len(call.args):

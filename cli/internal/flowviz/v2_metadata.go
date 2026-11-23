@@ -100,7 +100,15 @@ func (graph *Graph) applyV2Views(facts []v2ViewRPCFact, attributes map[string]v2
 			graph.V2.Display = graph.buildV2View(fact, attributes, graph.V2.IndexedAttributes)
 		default:
 			graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("unexpected view RPC protocol name %q", fact.ProtocolName), fact.Span)
+			continue
 		}
+		graph.validateV2ViewOutputReadable(fact)
+	}
+}
+
+func (graph *Graph) validateV2ViewOutputReadable(fact v2ViewRPCFact) {
+	if fact.OutputKeys == nil {
+		graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s must return its declared fields from a map[string]any literal", fact.ProtocolName), fact.Span)
 	}
 }
 
