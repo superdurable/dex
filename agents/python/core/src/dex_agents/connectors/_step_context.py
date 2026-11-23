@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, TypeVar, cast
@@ -114,11 +115,21 @@ class ConnectorStepContext:
 
         Raises:
             Exception: If the checkpoint does not decode as ``value_type``.
+
+        .. versionchanged:: 0.6.17
+            A plain ``dict`` or ``list`` ``value_type`` reads the checkpoint as that
+            JSON collection, as ``dex-connectors-sdk`` 0.12 and later fences save it.
         """
         if self._previous_checkpoint is None:
             return None
         if value_type is str:
             return cast(ValueT, self._previous_checkpoint)
+        if value_type in _JSON_COLLECTION_TYPES:
+            # A bare dict or list has no codec; read the JSON text as that collection.
+            decoded = json.loads(self._previous_checkpoint)
+            if not isinstance(decoded, value_type):
+                raise TypeError(f"heartbeat checkpoint is not a {value_type.__name__}")
+            return decoded
         codec = _CODECS.resolve(value_type)
         return cast(ValueT, codec.decode(Value(WireKind.JSON, self._previous_checkpoint)))
 
@@ -131,6 +142,9 @@ class ConnectorStepContext:
 
         Raises:
             RuntimeError: If a value is given and the tool Step cannot save checkpoints.
+
+        .. versionchanged:: 0.6.17
+            A plain ``dict``, ``list``, or ``tuple`` value is saved as JSON text.
         """
         if value is _NO_HEARTBEAT_VALUE:
             await self._heartbeat()
@@ -140,9 +154,24 @@ class ConnectorStepContext:
         await self._save_checkpoint(encode_heartbeat_value(value))
 
 
+_JSON_COLLECTION_TYPES: tuple[type[Any], ...] = (dict, list)
+# Codecs for heartbeat values that are plain JSON collections, such as the
+# dict of markers that dex-connectors-sdk 0.12 and later fences save.
+_JSON_COLLECTION_CODEC_TYPES: dict[type[Any], Any] = {
+    dict: dict[str, Any],
+    list: list[Any],
+    tuple: list[Any],
+}
+
+
 def encode_heartbeat_value(value: object) -> str:
-    """Return the JSON text that stores one heartbeat value as a checkpoint."""
-    encoded = _CODECS.resolve(type(value)).encode(value)
+    """Return the JSON text that stores one heartbeat value as a checkpoint.
+
+    A plain ``dict``, ``list``, or ``tuple`` has no codec of its own, so it is
+    encoded as a JSON collection, as a Dex Step's own ``heartbeat`` does.
+    """
+    value_type: Any = _JSON_COLLECTION_CODEC_TYPES.get(type(value), type(value))
+    encoded = _CODECS.resolve(value_type).encode(value)
     if encoded.kind is not WireKind.JSON or not isinstance(encoded.data, str):
         raise TypeError(f"heartbeat value {type(value).__name__} does not encode as JSON")
     return encoded.data

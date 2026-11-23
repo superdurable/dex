@@ -15,7 +15,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "dex-python-sdk==1.45.8",
+    "dex-python-sdk==1.45.17",
 ]
 
 [project.scripts]
@@ -38,7 +38,7 @@ litellm = [
 ]
 # dex_agents.connectors: Connector operations as agent tools.
 connectors = [
-    "dex-connectors-sdk>=0.9.0,<0.11",
+    "dex-connectors-sdk>=0.9.0,<0.15",
 ]
 # dex_agents.s3: S3MediaStore, image bytes in an S3-compatible bucket.
 s3 = [
@@ -52,6 +52,7 @@ Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
+    "dex-connector-google-gmail==0.5.2",
     "mypy>=1.15,<2",
     "opentelemetry-sdk>=1.45,<2",
     "pytest>=8.3,<9",

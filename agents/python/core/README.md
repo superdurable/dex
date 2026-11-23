@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.45.8`:
+later and requires the released `dex-python-sdk==1.45.17`:
 
 ```bash
 pip install dex-agents
@@ -2030,8 +2030,10 @@ package the agent uses:
 pip install "dex-agents[connectors]" dex-connector-stripe
 ```
 
-The extra installs Connector SDK 0.9.0, the first release that exports
-`raise_dex_retry`.
+The extra installs Connector SDK 0.9.0 through 0.14. 0.9.0 is the first
+release that exports `raise_dex_retry`. Connector packages built for 0.12 and
+later save their fence heartbeat as a plain JSON object, which the tool Step
+keeps as its text checkpoint since 0.6.17.
 
 ```python
 from dex_agents.connectors import ConnectorToolSource, connector_tool
