@@ -20,10 +20,11 @@ var startInputIntegerPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
 
 // v2StartInputFact carries a Start Step schema or extraction error. List enum values in declaration order.
 type v2StartInputFact struct {
-	StepType string            `json:"stepType"`
-	Input    *StartInputSchema `json:"input,omitempty"`
-	Error    string            `json:"error,omitempty"`
-	Span     *Span             `json:"span,omitempty"`
+	StepType string `json:"stepType"`
+	// Input uses int64 bounds for unbounded integers, decimal strings for integer enum values, and "date-time" as the sole format.
+	Input *StartInputSchema `json:"input,omitempty"`
+	Error string            `json:"error,omitempty"`
+	Span  *Span             `json:"span,omitempty"`
 }
 
 func (graph *Graph) buildV2StartDefinition(fact v2StartInputFact) *StartDefinition {

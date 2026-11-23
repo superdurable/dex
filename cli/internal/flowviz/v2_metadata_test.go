@@ -20,6 +20,83 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestScriptV2ViewRPCFacts(t *testing.T) {
+	const display = `"protocolName":"GetDexDisplay",
+		"span":{"startLine":4,"startColumn":1,"endLine":4,"endColumn":100},
+		"directives":[{"text":"dex:field attribute-key:state value-type:string editable:false description:State"}]`
+	for _, test := range []struct {
+		name       string
+		viewRPCs   string
+		code       string
+		messages   []string
+		spanLine   int
+		fieldCount int
+	}{
+		{name: "unknown output keys", viewRPCs: `[{` + display + `}]`, fieldCount: 1},
+		{name: "matching output keys", viewRPCs: `[{` + display + `,"outputKeys":["state"]}]`, fieldCount: 1},
+		{
+			name: "known empty output", viewRPCs: `[{` + display + `,"outputKeys":[]}]`,
+			code: "v2_view_rpc_output", messages: []string{`GetDexDisplay omits declared field "state"`}, spanLine: 4, fieldCount: 1,
+		},
+		{
+			name: "mismatched output keys", viewRPCs: `[{` + display + `,"outputKeys":["extra"]}]`, code: "v2_view_rpc_output",
+			messages: []string{`GetDexDisplay omits declared field "state"`, `GetDexDisplay returns undeclared field "extra"`}, spanLine: 4, fieldCount: 1,
+		},
+		{
+			name: "analyzer error", viewRPCs: `[{` + display + `,"error":"GetDexDisplay must be read-only"}]`,
+			code: "v2_view_rpc", messages: []string{"GetDexDisplay must be read-only"}, spanLine: 4, fieldCount: 1,
+		},
+		{
+			name: "unsupported name", viewRPCs: `[{"protocolName":"GetOtherView","span":{"startLine":6}}]`,
+			code: "v2_view_rpc", messages: []string{`unexpected view RPC protocol name "GetOtherView"`}, spanLine: 6,
+		},
+		{
+			name: "duplicate name", viewRPCs: `[{` + display + `},{"protocolName":"GetDexDisplay","span":{"startLine":8}}]`,
+			code: "v2_view_rpc", messages: []string{`view RPC "GetDexDisplay" is declared more than once`}, spanLine: 8, fieldCount: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := `{"graph":{"valid":true},"attributes":[{"key":"state","valueType":"string"}],"viewRPCs":` + test.viewRPCs + `}`
+			var analysis scriptAnalysis
+			require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
+			graph := analysis.definition(SchemaVersionV2)
+			require.Len(t, graph.V2.Display.Fields, test.fieldCount)
+			require.Equal(t, len(test.messages) == 0, graph.Valid)
+			require.Len(t, graph.Diagnostics, len(test.messages))
+			for index, diagnostic := range graph.Diagnostics {
+				require.Equal(t, "error", diagnostic.Severity)
+				require.Equal(t, test.code, diagnostic.Code)
+				require.Equal(t, test.messages[index], diagnostic.Message)
+				require.NotNil(t, diagnostic.Span)
+				require.Equal(t, test.spanLine, diagnostic.Span.StartLine)
+			}
+		})
+	}
+}
+
+func TestScriptV2DuplicateAttributeFacts(t *testing.T) {
+	const payload = `{
+		"graph":{"valid":true},
+		"attributes":[
+			{"key":"state","valueType":"string","isIndexed":true,"indexKey":"state","indexType":"keyword",
+			 "directives":[{"text":"dex:indexed-attribute attribute-key:state index-key:state index-type:keyword value-type:string description:First"}]},
+			{"key":"state","valueType":"string","isIndexed":true,"indexKey":"state","indexType":"keyword",
+			 "directives":[{"text":"dex:indexed-attribute attribute-key:state index-key:state index-type:keyword value-type:string description:Second"}],
+			 "span":{"startLine":9}}
+		]
+	}`
+	var analysis scriptAnalysis
+	require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
+	graph := analysis.definition(SchemaVersionV2)
+	require.False(t, graph.Valid)
+	require.Equal(t, []IndexedAttribute{{
+		AttributeKey: "state", IndexKey: "state", IndexType: "keyword", ValueType: "string", Description: "First",
+	}}, graph.V2.IndexedAttributes)
+	require.Equal(t, []Diagnostic{{
+		Severity: "error", Code: "v2_indexed_attribute", Message: `Attribute "state" is declared more than once`, Span: &Span{StartLine: 9},
+	}}, graph.Diagnostics)
+}
+
 func TestScriptV2MetadataMatchesGo(t *testing.T) {
 	const indexedDirective = `dex:indexed-attribute attribute-key:state index-key:state index-type:keyword value-type:string description:"State"`
 	const displayDirective = `dex:field attribute-key:%s value-type:%s editable:false description:"State" ui-slot:title`

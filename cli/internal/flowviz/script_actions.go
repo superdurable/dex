@@ -16,18 +16,6 @@ import (
 	"strings"
 )
 
-// scriptAttribute is one Attribute or AttributeMap the Flow file declares, with its optional index settings and directive lines.
-type scriptAttribute struct {
-	Key        string            `json:"key"`
-	ValueType  string            `json:"valueType"`
-	IsMap      bool              `json:"isMap"`
-	IsIndexed  bool              `json:"isIndexed,omitempty"`
-	IndexKey   string            `json:"indexKey,omitempty"`
-	IndexType  string            `json:"indexType,omitempty"`
-	Directives []v2DirectiveLine `json:"directives,omitempty"`
-	Span       *Span             `json:"span,omitempty"`
-}
-
 // scriptAction is one Action an RPC declares, as a Python or TypeScript analyzer read it.
 type scriptAction struct {
 	RPCNodeID          string                 `json:"rpcNodeId"`
@@ -72,7 +60,7 @@ func (analysis *scriptAnalysis) applyActions() {
 	if analysis.Graph.V2 == nil {
 		analysis.Graph.V2 = newEmptyV2Definition()
 	}
-	attributes := make(map[string]scriptAttribute, len(analysis.Attributes))
+	attributes := make(map[string]v2AttributeFact, len(analysis.Attributes))
 	for _, attribute := range analysis.Attributes {
 		attributes[attribute.Key] = attribute
 	}
@@ -101,7 +89,7 @@ func (analysis *scriptAnalysis) applyActions() {
 	}
 }
 
-func (analysis *scriptAnalysis) actionFromScript(declared scriptAction, attributes map[string]scriptAttribute) (Action, bool) {
+func (analysis *scriptAnalysis) actionFromScript(declared scriptAction, attributes map[string]v2AttributeFact) (Action, bool) {
 	if declared.Error != "" {
 		analysis.Graph.AddDiagnostic("error", "v2_action", declared.Error, declared.Span)
 		return Action{}, false
@@ -126,7 +114,7 @@ func (analysis *scriptAnalysis) actionFromScript(declared scriptAction, attribut
 	return action, true
 }
 
-func (analysis *scriptAnalysis) actionConditionFromScript(declared scriptAction, attributes map[string]scriptAttribute) (*ActionCondition, bool) {
+func (analysis *scriptAnalysis) actionConditionFromScript(declared scriptAction, attributes map[string]v2AttributeFact) (*ActionCondition, bool) {
 	span := declared.Condition.Span
 	if span == nil {
 		span = declared.Span
@@ -172,7 +160,7 @@ func scriptActionConditionValue(raw json.RawMessage, valueType string) (any, boo
 	return double, err == nil
 }
 
-func (analysis *scriptAnalysis) actionInputFromScript(declared scriptAction, attributes map[string]scriptAttribute) (ActionInput, bool) {
+func (analysis *scriptAnalysis) actionInputFromScript(declared scriptAction, attributes map[string]v2AttributeFact) (ActionInput, bool) {
 	directives := make([]v2Directive, 0, len(declared.Directives))
 	for _, text := range declared.Directives {
 		directive, err := parseV2Directive(text, nil)
@@ -207,7 +195,7 @@ func (analysis *scriptAnalysis) actionInputFromScript(declared scriptAction, att
 }
 
 // actionInputFields applies the Go analyzer's dex:input rules to a script RPC's input type fields.
-func (analysis *scriptAnalysis) actionInputFields(declared scriptAction, directives []v2Directive, attributes map[string]scriptAttribute) (ActionInput, bool) {
+func (analysis *scriptAnalysis) actionInputFields(declared scriptAction, directives []v2Directive, attributes map[string]v2AttributeFact) (ActionInput, bool) {
 	fieldsByName := make(map[string]scriptActionInputField, len(declared.Input.Fields))
 	for _, field := range declared.Input.Fields {
 		fieldsByName[field.FieldName] = field

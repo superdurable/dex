@@ -23,7 +23,7 @@ type scriptAnalysis struct {
 	Annotations []scriptStepAnnotations `json:"annotations"`
 	Factories   []scriptFactoryUse      `json:"factories"`
 	// Attributes, Actions, and RPCLockErrors feed the 2.0 Actions; see script_actions.go.
-	Attributes    []scriptAttribute    `json:"attributes"`
+	Attributes    []v2AttributeFact    `json:"attributes"`
 	Actions       []scriptAction       `json:"actions"`
 	RPCLockErrors []scriptRPCLockError `json:"rpcLockErrors"`
 	ViewRPCs      []v2ViewRPCFact      `json:"viewRPCs,omitempty"`

@@ -39,9 +39,9 @@ type v2Directive struct {
 }
 
 type v2AttributeDeclaration struct {
-	scriptAttribute
-	variableName string
-	directives   []v2Directive
+	v2AttributeFact
+	variableName     string
+	parsedDirectives []v2Directive
 }
 
 type v2RPCRegistration struct {
@@ -294,12 +294,12 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 					attributeDirectives = nil
 				}
 				attributes[attributeKey] = v2AttributeDeclaration{
-					scriptAttribute: scriptAttribute{
+					v2AttributeFact: v2AttributeFact{
 						Key: attributeKey, ValueType: valueType, IsMap: resource.Map,
 						IsIndexed: isIndexed, IndexKey: indexKey, IndexType: indexType, Span: analyzer.span(valueSpec),
 					},
-					variableName: name.Name,
-					directives:   attributeDirectives,
+					variableName:     name.Name,
+					parsedDirectives: attributeDirectives,
 				}
 			}
 		}
@@ -356,9 +356,21 @@ func (analyzer *goAnalyzer) collectV2View(
 	}
 	analyzer.validateV2RPCSignature(method, "none", "map")
 	analyzer.validateV2ReadOnlyRPC(method)
-	fact := v2ViewRPCFact{ProtocolName: rpcName, Directives: analyzer.v2DirectiveLines(method.Doc), Span: analyzer.span(method)}
+	fact := v2ViewRPCFact{
+		ProtocolName: rpcName,
+		Directives:   analyzer.v2DirectiveLines(method.Doc),
+		Span:         analyzer.span(method),
+		OutputKeys:   analyzer.v2ViewOutputKeys(method),
+	}
 	view := analyzer.graph.buildV2View(fact, attributes, indexedAttributes)
-	analyzer.validateV2ViewOutputKeys(method, view.Fields)
+	if fact.OutputKeys == nil {
+		analyzer.graph.AddDiagnostic(
+			"error",
+			"v2_view_rpc_output",
+			fmt.Sprintf("%s must return its declared fields from a map[string]any literal", rpcName),
+			fact.Span,
+		)
+	}
 	return view
 }
 
@@ -846,18 +858,14 @@ func (analyzer *goAnalyzer) v2LocalFunctionDeclaration(
 	return declarations[object]
 }
 
-func (analyzer *goAnalyzer) validateV2ViewOutputKeys(method *ast.FuncDecl, fields []ViewField) {
-	declared := make(map[string]bool, len(fields))
-	for _, field := range fields {
-		declared[field.AttributeKey] = true
-	}
-	var outputKeys map[string]bool
+func (analyzer *goAnalyzer) v2ViewOutputKeys(method *ast.FuncDecl) []string {
+	var outputKeys []string
 	ast.Inspect(method.Body, func(current ast.Node) bool {
 		composite, ok := current.(*ast.CompositeLit)
 		if !ok || analyzer.expressionString(composite.Type) != "map[string]any" {
 			return true
 		}
-		keys := make(map[string]bool, len(composite.Elts))
+		keys := make([]string, 0, len(composite.Elts))
 		for _, element := range composite.Elts {
 			keyValue, keyValueOK := element.(*ast.KeyValueExpr)
 			if !keyValueOK {
@@ -867,32 +875,14 @@ func (analyzer *goAnalyzer) validateV2ViewOutputKeys(method *ast.FuncDecl, field
 			if !static {
 				return true
 			}
-			keys[key] = true
+			keys = append(keys, key)
 		}
 		if outputKeys == nil {
 			outputKeys = keys
 		}
 		return true
 	})
-	if outputKeys == nil {
-		analyzer.graph.AddDiagnostic(
-			"error",
-			"v2_view_rpc_output",
-			fmt.Sprintf("%s must return its declared fields from a map[string]any literal", method.Name.Name),
-			analyzer.span(method),
-		)
-		return
-	}
-	for key := range declared {
-		if !outputKeys[key] {
-			analyzer.graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s omits declared field %q", method.Name.Name, key), analyzer.span(method))
-		}
-	}
-	for key := range outputKeys {
-		if !declared[key] {
-			analyzer.graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s returns undeclared field %q", method.Name.Name, key), analyzer.span(method))
-		}
-	}
+	return outputKeys
 }
 
 func (analyzer *goAnalyzer) v2IndexConfiguration(

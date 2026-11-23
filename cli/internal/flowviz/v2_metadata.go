@@ -20,11 +20,27 @@ type v2DirectiveLine struct {
 	Span *Span  `json:"span,omitempty"`
 }
 
-// v2ViewRPCFact carries a registered GetDexSummary or GetDexDisplay protocol name and its directive lines.
+// v2AttributeFact is one Attribute or AttributeMap the Flow file declares, with its optional index settings and directive lines.
+type v2AttributeFact struct {
+	Key       string `json:"key"`
+	ValueType string `json:"valueType"`
+	IsMap     bool   `json:"isMap"`
+	IsIndexed bool   `json:"isIndexed,omitempty"`
+	// IndexKey and IndexType hold the final values after the analyzer applies SDK defaults.
+	IndexKey       string            `json:"indexKey,omitempty"`
+	IndexType      string            `json:"indexType,omitempty"`
+	DirectiveLines []v2DirectiveLine `json:"directives,omitempty"`
+	Span           *Span             `json:"span,omitempty"`
+}
+
+// v2ViewRPCFact describes a view RPC. Analyzers check GetRPCs registration, signature, and read-only behavior.
 type v2ViewRPCFact struct {
 	ProtocolName string            `json:"protocolName"`
 	Directives   []v2DirectiveLine `json:"directives"`
 	Span         *Span             `json:"span,omitempty"`
+	// OutputKeys is nil when the analyzer cannot determine the keys.
+	OutputKeys []string `json:"outputKeys,omitzero"`
+	Error      string   `json:"error,omitempty"`
 }
 
 func (analysis *scriptAnalysis) applyV2Metadata() {
@@ -32,12 +48,16 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 	attributes := make(map[string]v2AttributeDeclaration, len(analysis.Attributes))
 	indexedAttributeFacts := make([]v2AttributeDeclaration, 0)
 	for _, attribute := range analysis.Attributes {
+		if _, exists := attributes[attribute.Key]; exists {
+			graph.AddDiagnostic("error", "v2_indexed_attribute", fmt.Sprintf("Attribute %q is declared more than once", attribute.Key), attribute.Span)
+			continue
+		}
 		if attribute.IsMap {
 			attribute.ValueType = "attribute-map"
 		}
-		declaration := v2AttributeDeclaration{scriptAttribute: attribute}
-		if attribute.IsIndexed || len(attribute.Directives) > 0 {
-			declaration.directives = graph.parseV2DirectiveLines(attribute.Directives, attribute.Span)
+		declaration := v2AttributeDeclaration{v2AttributeFact: attribute}
+		if attribute.IsIndexed || len(attribute.DirectiveLines) > 0 {
+			declaration.parsedDirectives = graph.parseV2DirectiveLines(attribute.DirectiveLines, attribute.Span)
 			indexedAttributeFacts = append(indexedAttributeFacts, declaration)
 		}
 		attributes[attribute.Key] = declaration
@@ -45,16 +65,31 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 	if len(indexedAttributeFacts) > 0 {
 		graph.V2.IndexedAttributes = graph.buildV2IndexedAttributes(indexedAttributeFacts, "declaration")
 	}
-	for _, fact := range analysis.ViewRPCs {
+	graph.applyV2Views(analysis.ViewRPCs, attributes)
+	if analysis.StartInput != nil {
+		graph.V2.Start = graph.buildV2StartDefinition(*analysis.StartInput)
+	}
+}
+
+func (graph *Graph) applyV2Views(facts []v2ViewRPCFact, attributes map[string]v2AttributeDeclaration) {
+	seenRPCNames := make(map[string]bool, len(facts))
+	for _, fact := range facts {
+		if fact.Error != "" {
+			graph.AddDiagnostic("error", "v2_view_rpc", fact.Error, fact.Span)
+		}
+		if seenRPCNames[fact.ProtocolName] {
+			graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("view RPC %q is declared more than once", fact.ProtocolName), fact.Span)
+			continue
+		}
+		seenRPCNames[fact.ProtocolName] = true
 		switch fact.ProtocolName {
 		case "GetDexSummary":
 			graph.V2.Summary = graph.buildV2View(fact, attributes, graph.V2.IndexedAttributes)
 		case "GetDexDisplay":
 			graph.V2.Display = graph.buildV2View(fact, attributes, graph.V2.IndexedAttributes)
+		default:
+			graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("unexpected view RPC protocol name %q", fact.ProtocolName), fact.Span)
 		}
-	}
-	if analysis.StartInput != nil {
-		graph.V2.Start = graph.buildV2StartDefinition(*analysis.StartInput)
 	}
 }
 
@@ -85,7 +120,7 @@ func (graph *Graph) buildV2IndexedAttributes(
 ) []IndexedAttribute {
 	indexedAttributes := make([]IndexedAttribute, 0)
 	for _, declaration := range attributes {
-		directives := directivesNamed(declaration.directives, "indexed-attribute")
+		directives := directivesNamed(declaration.parsedDirectives, "indexed-attribute")
 		if declaration.IsIndexed && len(directives) != 1 {
 			graph.AddDiagnostic(
 				"error",
@@ -213,7 +248,31 @@ func (graph *Graph) buildV2View(
 			UISlot:       uiSlot,
 		})
 	}
+	if fact.OutputKeys != nil {
+		graph.validateV2ViewOutputKeys(fact, view.Fields)
+	}
 	return view
+}
+
+func (graph *Graph) validateV2ViewOutputKeys(fact v2ViewRPCFact, fields []ViewField) {
+	declaredKeys := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		declaredKeys[field.AttributeKey] = true
+	}
+	outputKeys := make(map[string]bool, len(fact.OutputKeys))
+	for _, key := range fact.OutputKeys {
+		outputKeys[key] = true
+	}
+	for key := range declaredKeys {
+		if !outputKeys[key] {
+			graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s omits declared field %q", fact.ProtocolName, key), fact.Span)
+		}
+	}
+	for key := range outputKeys {
+		if !declaredKeys[key] {
+			graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s returns undeclared field %q", fact.ProtocolName, key), fact.Span)
+		}
+	}
 }
 
 // UI slots a field may claim, mapped to whether only one field may claim each.
