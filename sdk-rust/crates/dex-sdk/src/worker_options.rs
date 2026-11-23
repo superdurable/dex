@@ -15,15 +15,20 @@ use crate::{Credential, FlowDefinitionDocument, FlowServiceTlsOptions};
 /// Configures outbound polling for a Worker.
 ///
 /// Pass this to [`WorkerOptions::pull`]. The Worker polls its sticky queue and each registered
-/// Flow type through long-lived slot streams. A fixed Worker, the default, keeps exactly
-/// `max_concurrent_tasks` of them open. An adaptive Worker, whose [`Self::min_open_slots`] is
-/// below `max_concurrent_tasks`, keeps between the two counts open. An omitted task limit
-/// uses the CPU count. An omitted drain timeout uses 30 seconds.
+/// Flow type through long-lived slot streams. An adaptive Worker, the default, keeps between
+/// [`Self::min_open_slots`] and `max_concurrent_tasks` of them open. A fixed Worker, whose
+/// [`Self::min_open_slots`] equals `max_concurrent_tasks`, keeps exactly `max_concurrent_tasks`
+/// open. An omitted task limit uses 100. An omitted floor uses
+/// `min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))`. An omitted drain timeout
+/// uses 30 seconds.
 ///
 /// Changed in 1.35.0: each execution slot owns one stream, replacing per-queue idle streams.
 /// Start requires protocol 4 (server-zd newer than v0.1.16); upgrade the Server before the SDK.
 /// Changed in 1.45.7: [`Self::min_open_slots`] below `max_concurrent_tasks` makes the Worker
 /// adaptive.
+/// Changed in 1.45.8: Workers are adaptive by default. The default `max_concurrent_tasks` is 100
+/// instead of the CPU count, and the default floor is about the CPU count. Set
+/// [`Self::min_open_slots`] equal to `max_concurrent_tasks` to keep a fixed Worker.
 ///
 /// ```no_run
 /// use std::sync::Arc;
@@ -55,7 +60,10 @@ pub struct PullWorkerOptions {
 }
 
 impl PullWorkerOptions {
-    /// Creates pull options with CPU-count slot concurrency and a 30-second drain.
+    /// Creates pull options with adaptive slot streams and a 30-second drain.
+    ///
+    /// The Worker may run up to 100 tasks at once and keeps about the CPU count of streams open
+    /// while idle. Changed in 1.45.8: the defaults were a fixed CPU count of slots.
     ///
     /// The app Worker ID is generated from process identity and eight random base32 characters.
     pub fn new() -> Self {
@@ -64,26 +72,35 @@ impl PullWorkerOptions {
 
     /// Sets the maximum number of concurrent Step and RPC handlers.
     ///
-    /// The default is the available CPU count. Zero returns [`crate::SdkError::FlowDefinition`]
-    /// from [`crate::Worker::try_new`]. Each slot owns one long-lived poll stream and executes
+    /// The default is 100. Zero returns [`crate::SdkError::FlowDefinition`] from
+    /// [`crate::Worker::try_new`]. Each open slot owns one long-lived poll stream and executes
     /// every task assigned to it. Changed in 1.35.0: [`crate::Worker::start`] fails if this value
     /// exceeds the Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
     ///
-    /// Changed in 1.45.7: this value is the ceiling of the slot streams, including the RPC-only
-    /// slots. A fixed Worker, whose [`Self::min_open_slots`] is unset or equal to this value, keeps
-    /// this many streams open. An adaptive Worker, whose [`Self::min_open_slots`] is below it,
-    /// opens streams up to it only while every open Step-and-RPC stream is busy. Two cases now
-    /// clamp the value to the Server cap with a WARN log that names both values, instead of
-    /// failing [`crate::Worker::start`]:
+    /// Changed in 1.45.8: the default is 100 instead of the CPU count. Without
+    /// [`Self::min_open_slots`], the floor now defaults to about the CPU count, so a Worker that
+    /// sets only this value is adaptive: it keeps the floor of streams open while idle and grows
+    /// up to this value under load. Set [`Self::min_open_slots`] to this value to keep a fixed
+    /// Worker. Set this value to the CPU count to keep the earlier default slot count. The
+    /// default of 100 is clamped to a lower Server cap with a WARN log that names both values.
     ///
-    /// - a fixed Worker without this setting, whose CPU-count default exceeds the cap;
+    /// Changed in 1.45.7: this value is the ceiling of the slot streams, including the RPC-only
+    /// slots. A fixed Worker, whose [`Self::min_open_slots`] equals this value, keeps this many
+    /// streams open. An adaptive Worker, whose [`Self::min_open_slots`] is below it, opens streams
+    /// up to it only while every open Step-and-RPC stream is busy. Two cases now clamp the value
+    /// to the Server cap with a WARN log that names both values, instead of failing
+    /// [`crate::Worker::start`]:
+    ///
+    /// - a fixed Worker without this setting, whose default exceeds the cap;
     /// - an adaptive Worker, with this setting or without it.
     ///
     /// A fixed Worker without this setting therefore opens one stream first, learns the cap from
-    /// its acknowledgement, and then opens the others. That adds one round trip to Start. A fixed
-    /// Worker with an explicit value above the cap still fails Start, and opens all its streams at
-    /// once. After a clamp, the [`Self::reserved_rpc_tasks`] and [`Self::min_open_slots`] defaults
-    /// come from the clamped value. In an adaptive Worker, a lower cap reported on a reconnect
+    /// its acknowledgement, and then opens the others. That adds one round trip to Start. Changed
+    /// in 1.45.8: an adaptive Worker without [`Self::min_open_slots`] does the same, because its
+    /// default floor comes from the clamped value. A fixed Worker with an explicit value above the
+    /// cap still fails Start, and opens all its streams at once. After a clamp, the
+    /// [`Self::reserved_rpc_tasks`] and [`Self::min_open_slots`] defaults come from the clamped
+    /// value. In an adaptive Worker, a lower cap reported on a reconnect
     /// lowers its capacity: it half-closes the surplus streams, RPC-only streams first, and keeps
     /// running. A fixed Worker keeps the earlier behavior. Returns these options with the limit
     /// applied.
@@ -96,8 +113,17 @@ impl PullWorkerOptions {
     /// the value is below [`Self::max_concurrent_tasks`].
     ///
     /// The value uses the same unit as [`Self::max_concurrent_tasks`], so it counts the reserved
-    /// RPC-only slots too. Without this setting the floor is the resolved `max_concurrent_tasks`:
-    /// every slot keeps a stream, the Worker is fixed, and it behaves as earlier releases did.
+    /// RPC-only slots too. Without this setting the floor is
+    /// `min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))`, using the resolved
+    /// values. The Worker is then adaptive whenever that floor is below `max_concurrent_tasks`.
+    /// Set this value equal to `max_concurrent_tasks` to keep a fixed Worker, where every slot
+    /// keeps a stream as in earlier releases. That suits an application that needs every slot
+    /// open at all times.
+    ///
+    /// Changed in 1.45.8: the default floor was `max_concurrent_tasks`, so Workers were fixed
+    /// unless they set this value. The default floor is now derived as above. When the Server cap
+    /// clamps `max_concurrent_tasks`, the default floor and the default reserved RPC slots come
+    /// from the clamped value, and the Worker opens one stream to learn the cap before the others.
     ///
     /// Use a lower value when idle Workers should hold fewer Server streams, such as a large fleet
     /// or a high `max_concurrent_tasks`. An adaptive Worker:
@@ -125,7 +151,8 @@ impl PullWorkerOptions {
     /// `reserved_rpc_tasks + 1 <= min_open_slots <= max_concurrent_tasks`, using the resolved
     /// values; zero is therefore invalid. Without [`Self::reserved_rpc_tasks`], the default
     /// reserves one slot only when both `max_concurrent_tasks` and `min_open_slots` are at least
-    /// two. [`crate::Worker::start`] fails at the first registration when the Server cap lowers
+    /// two; with this setting unset as well, that is when `max_concurrent_tasks` is at least two.
+    /// [`crate::Worker::start`] fails at the first registration when the Server cap lowers
     /// `max_concurrent_tasks` below `min_open_slots`, or to `reserved_rpc_tasks` or less; the error
     /// names the values and the cap. Returns these options with the floor applied.
     ///
@@ -195,6 +222,12 @@ impl PullWorkerOptions {
     ///
     /// Changed in 1.45.7: the default also reserves zero when [`Self::min_open_slots`] is one, and
     /// Start then warns that RPCs may wait behind Steps.
+    ///
+    /// Changed in 1.45.8: with the new defaults, an unset reservation is one slot, because the
+    /// default `max_concurrent_tasks` of 100 and the default floor are both at least two. An
+    /// explicit value also raises the default [`Self::min_open_slots`] to at least `value + 1`.
+    /// When the Server cap clamps `max_concurrent_tasks`, the default reservation comes from the
+    /// clamped value: a cap of one reserves zero.
     ///
     /// The default reserves one slot when resolved concurrency is at least two, otherwise zero.
     /// The remaining slots accept Steps and RPCs. The Server selects eligible slots; the Worker

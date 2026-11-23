@@ -198,14 +198,14 @@ the Server decides between a stored and an uploaded document.
 
 ## Capacity and shutdown
 
-| Setting | Rust name |
-| --- | --- |
-| Concurrent tasks | **max_concurrent_tasks** |
-| Fewest open slot streams | **min_open_slots** |
-| Reserved RPC slots | **reserved_rpc_tasks** |
-| Stop drain timeout | **stop_drain_timeout** |
-| Shutdown | **stop** |
-| Slot stream snapshot | **pull_slot_stream_state()** |
+| Setting | Rust name | Default |
+| --- | --- | --- |
+| Concurrent tasks | **max_concurrent_tasks** | 100 |
+| Fewest open slot streams | **min_open_slots** | min(**max_concurrent_tasks**, max(**reserved_rpc_tasks** + 1, CPU count)) |
+| Reserved RPC slots | **reserved_rpc_tasks** | 1 when **max_concurrent_tasks** is at least 2, otherwise 0 |
+| Stop drain timeout | **stop_drain_timeout** | 30 seconds |
+| Shutdown | **stop** | |
+| Slot stream snapshot | **pull_slot_stream_state()** | |
 
 The option names are builder methods.
 
@@ -216,6 +216,26 @@ Since 1.45.7, **min_open_slots** below **max_concurrent_tasks** makes the Worker
 adaptive, and **Worker::pull_slot_stream_state()** returns a snapshot of its slot
 streams. For example, a task limit of 64 with **min_open_slots** of 8 keeps between
 8 and 64 slot streams, one of them reserved for RPCs.
+
+Changed in 1.45.8: Workers are adaptive by default. A Worker with no options keeps
+about the CPU count of slot streams open while idle, and grows up to 100 under load.
+A Worker that sets only **max_concurrent_tasks** is adaptive too, with the default floor.
+The defaults are derived in this order:
+
+1. **max_concurrent_tasks** is the set value, or 100.
+2. An unset **reserved_rpc_tasks** is 1 when **max_concurrent_tasks** is at least 2, otherwise 0.
+   With **min_open_slots** set, it is 1 only when both values are at least 2.
+3. An unset **min_open_slots** is min(**max_concurrent_tasks**, max(**reserved_rpc_tasks** + 1, CPU count)).
+
+When the Server's **matching.maxConcurrentTasksCap** is lower, the Worker clamps the
+ceiling to it with a WARN log that names both values, then derives the reserved RPC slots
+and the floor from the clamped ceiling. An adaptive Worker with an unset floor, or a fixed
+Worker with an unset ceiling, first opens one stream to learn the cap. A cap of 1 gives
+one slot, no reserved RPC slot, and a floor of 1.
+
+To keep the earlier fixed behavior, set **min_open_slots** equal to
+**max_concurrent_tasks**. To keep the earlier default slot count, also set
+**max_concurrent_tasks** to the CPU count.
 See [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
 API reference: [PullWorkerOptions::min_open_slots](https://docs.rs/dex-sdk/latest/dex_sdk/struct.PullWorkerOptions.html#method.min_open_slots)
 and [PullSlotStreamState](https://docs.rs/dex-sdk/latest/dex_sdk/struct.PullSlotStreamState.html).

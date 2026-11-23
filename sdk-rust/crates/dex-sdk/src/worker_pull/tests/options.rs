@@ -85,3 +85,25 @@ fn validates_pull_options() {
         assert_eq!(0, state.open);
     }
 }
+
+/// CPU counts that a test machine cannot choose, such as one CPU or more CPUs than the ceiling.
+#[test]
+fn resolves_default_floor_and_reserved_rpc_tasks() {
+    let resolved = |ceiling, floor, reserved, cpus| {
+        let slot_floor = slot_streams::resolve_slot_floor(ceiling, floor, reserved, cpus);
+        (slot_floor.min_open_slots, slot_floor.reserved_rpc_tasks)
+    };
+    // Unset floor and R: R = 1 when T >= 2, floor = min(T, max(R + 1, CPUs)).
+    assert_eq!((2, 1), resolved(100, None, None, 1));
+    assert_eq!((8, 1), resolved(100, None, None, 8));
+    assert_eq!((100, 1), resolved(100, None, None, 128));
+    assert_eq!((4, 1), resolved(4, None, None, 8));
+    assert_eq!((2, 1), resolved(2, None, None, 1));
+    assert_eq!((1, 0), resolved(1, None, None, 8));
+    // An explicit R raises the floor to R + 1.
+    assert_eq!((6, 5), resolved(100, None, Some(5), 2));
+    assert_eq!((4, 0), resolved(100, None, Some(0), 4));
+    // An explicit floor keeps the phase 1 R rule.
+    assert_eq!((1, 0), resolved(100, Some(1), None, 8));
+    assert_eq!((100, 1), resolved(100, Some(100), None, 8));
+}
