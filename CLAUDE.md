@@ -183,6 +183,9 @@ empty to skip it. Prefer patch releases:
   (@longquanzheng) first, and release it only after the owner agrees.
   Until then, version doc comments use the next patch.
 - When the choice is unclear, ask the owner before releasing.
+- Avoid frequent releases of every component. Confirm the release time
+  with the owner (@longquanzheng) before each release. The owner may batch
+  several changes into one release.
 
 Every SDK, cli, web, and agents docs release gets its own dated section under
 its minor and a row in the minor's index table. The release-prep pull request
