@@ -636,6 +636,54 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "StartContractEdits",
+      "input": {
+        "kind": "array",
+        "items": {
+          "kind": "object",
+          "fields": [
+            {
+              "name": "reviewer",
+              "required": true,
+              "schema": {
+                "kind": "string"
+              }
+            },
+            {
+              "name": "should_fail_handoff",
+              "required": false,
+              "schema": {
+                "kind": "boolean"
+              }
+            },
+            {
+              "name": "should_withdraw",
+              "required": false,
+              "schema": {
+                "kind": "boolean"
+              }
+            },
+            {
+              "name": "should_fail_edit",
+              "required": false,
+              "schema": {
+                "kind": "boolean"
+              }
+            },
+            {
+              "name": "started_at_millis",
+              "required": false,
+              "schema": {
+                "kind": "integer",
+                "minimum": "-9223372036854775808",
+                "maximum": "9223372036854775807"
+              }
+            }
+          ]
+        }
+      }
+    }
   }
 }

@@ -138,6 +138,7 @@ class Initialize(Step[EngagementInput]):
 class EngagementFlow(Flow[EngagementInput]):
     employer_id = Attribute("EmployerId", str)
     job_seeker_id = Attribute("JobSeekerId", str)
+    # dex:indexed-attribute attribute-key:EngagementStatus index-key:keyword1 index-type:keyword value-type:string description:"Current engagement status"
     engagement_status = Attribute(
         "EngagementStatus",
         Status,

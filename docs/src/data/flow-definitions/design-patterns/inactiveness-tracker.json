@@ -261,6 +261,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "Tracker",
+      "input": {
+        "kind": "null"
+      }
+    }
   }
 }

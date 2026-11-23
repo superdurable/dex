@@ -210,6 +210,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "ReminderStep",
+      "input": {
+        "kind": "null"
+      }
+    }
   }
 }

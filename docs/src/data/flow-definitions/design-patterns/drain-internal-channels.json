@@ -479,6 +479,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "Init",
+      "input": {
+        "kind": "string"
+      }
+    }
   }
 }

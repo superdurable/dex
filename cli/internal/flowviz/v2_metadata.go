@@ -25,8 +25,10 @@ type v2AttributeFact struct {
 	ResourceID string `json:"resourceId,omitempty"`
 	Key        string `json:"key"`
 	ValueType  string `json:"valueType"`
-	IsMap      bool   `json:"isMap"`
-	IsIndexed  bool   `json:"isIndexed,omitempty"`
+	// The index supplies the wire type when a script cannot resolve an imported value type.
+	ValueTypeUnresolved bool `json:"valueTypeUnresolved,omitempty"`
+	IsMap               bool `json:"isMap"`
+	IsIndexed           bool `json:"isIndexed,omitempty"`
 	// IndexKey and IndexType hold the final values after the analyzer applies SDK defaults.
 	IndexKey       string            `json:"indexKey,omitempty"`
 	IndexType      string            `json:"indexType,omitempty"`
@@ -59,6 +61,10 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 		case attribute.ValueType == "list[str]", attribute.ValueType == "string[]",
 			attribute.ValueType == "Array<string>", attribute.ValueType == "readonlystring[]":
 			attribute.ValueType = "string-array"
+		case attribute.ValueTypeUnresolved && attribute.IsIndexed:
+			if indexValueType := v2IndexValueType(attribute.IndexType); indexValueType != "" {
+				attribute.ValueType = indexValueType
+			}
 		}
 		declaration := v2AttributeDeclaration{v2AttributeFact: attribute}
 		if attribute.IsIndexed || len(attribute.DirectiveLines) > 0 {

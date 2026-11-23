@@ -1042,6 +1042,10 @@ func isV2EditableType(valueType string) bool {
 }
 
 func isV2IndexCompatible(indexType string, valueType string) bool {
+	return v2IndexValueType(indexType) == valueType
+}
+
+func v2IndexValueType(indexType string) string {
 	compatibleValueTypes := map[string]string{
 		"keyword":       "string",
 		"fulltext":      "string",
@@ -1051,7 +1055,7 @@ func isV2IndexCompatible(indexType string, valueType string) bool {
 		"bool":          "bool",
 		"datetime":      "datetime",
 	}
-	return compatibleValueTypes[indexType] == valueType
+	return compatibleValueTypes[indexType]
 }
 
 func v2JSONValueMatchesType(value any, valueType string) bool {

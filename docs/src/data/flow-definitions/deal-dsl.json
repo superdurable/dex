@@ -862,7 +862,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step InitializeDeal input cannot drive a form: field definition: field states: type tuple[DealState, ...] is unsupported",
+      "span": {
+        "startLine": 158,
+        "startColumn": 48,
+        "endLine": 158,
+        "endColumn": 57
+      }
+    }
+  ],
   "groups": [
     {
       "id": "deal-state",

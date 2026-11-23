@@ -506,6 +506,30 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "RunCreditCheck",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "applicant_id",
+            "required": true,
+            "schema": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "credit_report_delay_seconds",
+            "required": true,
+            "schema": {
+              "kind": "integer",
+              "minimum": "-9223372036854775808",
+              "maximum": "9223372036854775807"
+            }
+          }
+        ]
+      }
+    }
   }
 }

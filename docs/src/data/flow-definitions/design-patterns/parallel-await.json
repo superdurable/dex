@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-10T21:14:31Z",
+  "generatedAt": "2026-11-11T04:08:38Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -265,6 +265,14 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "InitStep",
+      "input": {
+        "kind": "integer",
+        "minimum": "-9223372036854775808",
+        "maximum": "9223372036854775807"
+      }
+    }
   }
 }

@@ -804,7 +804,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         type_expression = self.argument_value(call, "value_type", 1)
         if type_expression is None and isinstance(call.func, ast.Subscript):
             type_expression = call.func.slice
-        if self.imported_name(type_expression) == "datetime.datetime":
+        imported_type = self.imported_name(type_expression)
+        if imported_type == "datetime.datetime":
             value_type = "datetime"
         elif value_type == "dict" or value_type.startswith(("dict[", "Dict[", "typing.Dict[")):
             value_type = "object"
@@ -813,6 +814,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         elif value_type == "list" or value_type.startswith(("list[", "List[", "typing.List[")):
             value_type = "array"
         fact = {"resourceId": node["id"], "key": node["name"], "valueType": value_type, "isMap": resource["map"]}
+        if imported_type and imported_type != "datetime.datetime":
+            fact["valueTypeUnresolved"] = True
         if self.flow_class is None:
             return fact
         index = self.argument_value(call, "index", 2)
