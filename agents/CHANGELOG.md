@@ -4,6 +4,18 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.17 (2026-11-23)
+
+### Changed
+
+- The TypeScript, Python, and Go READMEs now say beside each `.dex-cache` example that only one running process may use a blob cache directory. Give each Worker or Client process its own directory (#2185).
+- The `agentWorkerBlobCacheDirectoryVariable` docs in `@superdurable/dex-agents/testing` now say to give each Worker child that runs at the same time its own directory (#2185).
+
+### Fixed
+
+- Python: `ConnectorToolSource` runs writes of Connector packages built for `dex-connectors-sdk` 0.12 and later. Their fence saves a plain `dict` heartbeat, which failed with "dispatch claim could not be recorded"; a `dict` or `list` heartbeat is now kept as JSON text.
+- Python: the `connectors` extra accepts `dex-connectors-sdk` up to 0.14, and every Python package requires `dex-python-sdk==1.45.17`, which `dex-connectors-sdk` 0.14 needs.
+
 ## 0.6.16 (2026-11-22)
 
 ### Connectors as tools in the Go core
