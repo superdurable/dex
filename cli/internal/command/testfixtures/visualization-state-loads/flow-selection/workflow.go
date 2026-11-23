@@ -10,10 +10,26 @@ package flowselection
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
+var firstState = dex.DefineAttribute[string]("firstState")
+var secondState = dex.DefineAttribute[string]("secondState")
+
+// dex:indexed-attribute attribute-key:firstIndexed index-key:firstIndexed index-type:keyword value-type:string description:"First search value."
+var firstIndexed = dex.DefineAttribute[string]("firstIndexed", dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}))
+
+// dex:indexed-attribute attribute-key:secondIndexed index-key:secondIndexed index-type:keyword value-type:string description:"Second search value."
+var secondIndexed = dex.DefineAttribute[string]("secondIndexed", dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}))
+
+var unownedName = "unowned"
+var unowned = dex.DefineAttribute[string](unownedName, dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}))
+
 type OrdinaryFlow struct{ dex.FlowDefaults }
 
 func (OrdinaryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(firstStep{})}
+}
+
+func (OrdinaryFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{firstIndexed}}
 }
 
 func (flow OrdinaryFlow) GetRPCs() []dex.RPCDef {
@@ -39,6 +55,11 @@ func (RenamedFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{dex.DefineStartStep(secondStep{})}
 }
 
+func (RenamedFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	attributes := []dex.AttributeDef{secondIndexed}
+	return dex.PersistenceSchema{Attributes: attributes}
+}
+
 func (flow RenamedFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.GetDexSummary, nil),
@@ -60,7 +81,8 @@ type firstStep struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (firstStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+func (firstStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	firstState.Get(ctx)
 	return dex.GracefulComplete(nil), nil
 }
 
@@ -72,4 +94,8 @@ type secondStep struct {
 
 func (secondStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
+}
+
+func (secondStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(secondState)}}
 }

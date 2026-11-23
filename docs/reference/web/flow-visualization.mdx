@@ -12,9 +12,9 @@ description: "dexcli visualize turns one Go, Python, or TypeScript Flow source f
 dexcli visualize ./order_flow.go
 ```
 
-The command generates Flow Definition Graph 2.0 for the Dex Web **Designs** page. The deprecated `--schema-version` flag accepts only `2.0`.
+**Changed in 1.47.23.** The command generates only Flow Definition Graph 2.0 for the Dex Web **Designs** page. The deprecated `--schema-version` flag accepts only `2.0`.
 
-If the source defines multiple Flows, pass the registered Flow type with `--flow`. This is the name the application registers, including any custom name. If you omit the flag for a file with multiple Flows or supply an unknown name, the diagnostic lists the available Flow types.
+**Since 1.47.23.** If the source defines multiple Flows, pass the registered Flow type with `--flow`. This is the name the application registers, including any custom name. If you omit the flag for a file with multiple Flows or supply an unknown name, the diagnostic lists the available Flow types.
 
 ```bash
 dexcli visualize ./refund_flow.go --flow RefundFlow
@@ -164,7 +164,7 @@ The TypeScript analyzer recognizes these source shapes:
 - Attribute, Channel, and Stream definitions, and manifest-declared Connector factories.
 - Since dexcli 1.47.3, **waitFor**, RPC handlers, **handleTimeout**, and resource access in the shapes listed in [TypeScript Waits, RPCs, and resource access](#typescript-waits-rpcs-and-resource-access).
 
-More than one Flow in one file produces **multiple_flows**, with one unknown node for each Flow class, as for Go and Python.
+Pass `--flow` to select one Flow type from a file with multiple Flows. Without it, the analyzer reports `multiple_flows` and produces one unknown node for each Flow class, as it does for Go and Python.
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
@@ -413,7 +413,7 @@ The JSON **valid** field is false when any blocking diagnostic is present. A too
 
 ## JSON contract
 
-The Flow Definition Graph 2.0 schema covers source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, diagnostics, ordered groups, and Dex Web metadata. [Flow Definition Graph 2.0 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json)
+Source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, diagnostics, ordered groups, and Dex Web metadata are defined in the [Flow Definition Graph 2.0 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json).
 
 ### Generation time {#generated-at}
 

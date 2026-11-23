@@ -47,6 +47,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.parents = {}
         self.resources = {}
         self.resource_calls = {}
+        self.resource_declarations = {}
+        self.persistence_resource_ids = None
+        self.diagnostic_resource_ids = {}
         self.join_resources = set()
         self.step_resources = {}
         self.failure_transitions = set()
@@ -70,12 +73,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.index_classes()
         self.index_bindings()
         self.validate_dynamic_constructs()
-        self.index_resources()
         selected_flow = self.select_flow()
+        if selected_flow is not None:
+            self.flow_class = selected_flow[1]
+        self.index_resources()
         if selected_flow is None:
             return self.graph
         flow_name, flow_class = selected_flow
-        self.flow_class = flow_class
         self.validate_class_customization(flow_class)
         self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
         self.index_flow_fields(flow_class)
@@ -84,7 +88,38 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        if len(self.flow_classes) > 1:
+            self.persistence_resource_ids = self.persistence_resources(flow_class)
         return self.graph
+
+    def persistence_resources(self, flow_class):
+        method = self.method(flow_class, "get_persistence_schema")
+        if method is None:
+            return []
+        pending = [statement.value for statement in self.function_returns(method)]
+        registered = set()
+        seen = set()
+        while pending:
+            expression, _ = self.resolved_value(pending.pop(), EvaluationFrame())
+            if expression in seen:
+                continue
+            seen.add(expression)
+            resource_id = self.resource_calls.get(expression)
+            if resource_id:
+                registered.add(resource_id)
+            elif isinstance(expression, (ast.List, ast.Tuple)):
+                pending.extend(expression.elts)
+            elif isinstance(expression, ast.Starred):
+                pending.append(expression.value)
+            elif isinstance(expression, ast.IfExp):
+                pending.extend((expression.body, expression.orelse))
+            elif isinstance(expression, ast.Call):
+                if isinstance(expression.func, ast.Attribute) and expression.func.attr == "of" and self.is_dex_reference(expression.func.value, "PersistenceSchema"):
+                    pending.extend(expression.args)
+                elif self.is_dex_reference(expression.func, "PersistenceSchema"):
+                    pending.extend(expression.args)
+                    pending.extend(keyword.value for keyword in expression.keywords if keyword.arg in {"attributes", "channels", "streams"})
+        return sorted(registered)
 
     def select_flow(self):
         if not self.flow_type and len(self.flow_classes) == 1:
@@ -291,6 +326,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             kind = self.resource_kind(self.symbol(value.func))
             if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
                 continue
+            first_diagnostic = len(self.graph["diagnostics"])
             resource_name = target.id
             if value.args:
                 if isinstance(value.args[0], ast.Constant) and isinstance(value.args[0].value, str):
@@ -308,12 +344,15 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             key = f"{owner}.{target.id}" if owner else target.id
             node_id = f"resource:{kind}:{key}"
             self.resources[key] = node_id
-            self.resources[target.id] = node_id
+            if not owner or self.flow_class is None or owner == self.flow_class.name:
+                self.resources[target.id] = node_id
             self.resource_calls[value] = node_id
+            self.resource_declarations[node_id] = (value, statement)
             self.record_join_resource(value, node_id)
             resource = self.resource_details(value)
             if resource["valueType"] == "unknown":
                 self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(value))
+            self.record_resource_diagnostics(node_id, first_diagnostic)
             self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement), "resource": resource})
 
     def index_flow_fields(self, flow_class):
@@ -406,6 +445,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         return None
 
     def add_resource(self, kind, target_name, call, owner, source_node):
+        first_diagnostic = len(self.graph["diagnostics"])
         resource_name = target_name
         if call.args:
             if isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
@@ -425,12 +465,19 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.resources[key] = node_id
         self.resources[target_name] = node_id
         self.resource_calls[call] = node_id
+        self.resource_declarations[node_id] = (call, source_node)
         self.record_join_resource(call, node_id)
         resource = self.resource_details(call)
         if resource["valueType"] == "unknown":
             self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(call))
+        self.record_resource_diagnostics(node_id, first_diagnostic)
         self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(source_node), "resource": resource})
         return node_id
+
+    def record_resource_diagnostics(self, resource_id, first_diagnostic):
+        if len(self.flow_classes) > 1:
+            for index in range(first_diagnostic, len(self.graph["diagnostics"])):
+                self.diagnostic_resource_ids[index] = resource_id
 
     def analyze_registration(self, flow_class):
         method = self.method(flow_class, "get_steps")
@@ -636,6 +683,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
 
     def rpc_directives(self, method):
         first_line = min([method.lineno, *(decorator.lineno for decorator in method.decorator_list)]) - 1
+        return self.preceding_directives(first_line)
+
+    def preceding_directives(self, first_line):
         directives = []
         lines = self.source.splitlines()
         while first_line > 0 and lines[first_line - 1].lstrip().startswith("#"):
@@ -751,10 +801,38 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
 
     def action_analysis_result(self):
         attributes = [
-            {"key": node["name"], "valueType": self.python_action_value_type(node.get("resource", {}).get("valueType", "unknown")), "isMap": bool(node.get("resource", {}).get("map"))}
+            self.attribute_fact(node)
             for node in self.graph["nodes"] if node["kind"] == "attribute"
         ]
-        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors}
+        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors, "persistenceResourceIds": self.persistence_resource_ids, "diagnosticResourceIds": self.diagnostic_resource_ids}
+
+    def attribute_fact(self, node):
+        resource = node["resource"]
+        fact = {"resourceId": node["id"], "key": node["name"], "valueType": self.python_action_value_type(resource["valueType"]), "isMap": resource["map"]}
+        if self.persistence_resource_ids is None:
+            return fact
+        call, declaration = self.resource_declarations[node["id"]]
+        index = self.argument_value(call, "index", 2)
+        index, _ = self.resolved_value(index, EvaluationFrame())
+        if index is not None and not (isinstance(index, ast.Constant) and index.value is None):
+            fact["index"] = {"key": "", "type": "unknown"}
+            if isinstance(index, ast.Call) and self.is_dex_reference(index.func, "AttributeIndex"):
+                index_type = self.argument_value(index, "type", 0)
+                index_key, _ = self.resolved_value(self.argument_value(index, "index_key", 1), EvaluationFrame())
+                index_name = self.symbol(index_type).rsplit(".", 1)[-1]
+                key = index_key.value if isinstance(index_key, ast.Constant) and isinstance(index_key.value, str) else ""
+                fact["index"] = {
+                    "key": key or ("" if resource["map"] else node["name"]),
+                    "type": index_name.lower().replace("full_text", "fulltext").replace("_", "-"),
+                }
+        fact["directives"] = self.preceding_directives(declaration.lineno - 1)
+        fact["span"] = node["span"]
+        return fact
+
+    def argument_value(self, call, name, position):
+        if position < len(call.args):
+            return call.args[position]
+        return next((keyword.value for keyword in call.keywords if keyword.arg == name), None)
 
     def analyze_rpc_state_loads(self, owner_id, decorators):
         option_methods = {

@@ -433,6 +433,43 @@ func (graph *Graph) addUnusedResourceWarnings() {
 	}
 }
 
+func (graph *Graph) retainFlowResources(registered map[string]bool, diagnosticResourceIDs map[int]string) map[string]bool {
+	for _, node := range graph.Nodes {
+		if node.Decision != nil {
+			for _, channelID := range node.Decision.CheckedChannels {
+				registered[channelID] = true
+			}
+		}
+	}
+	for _, edge := range graph.Edges {
+		if isResourceEdge(edge.Kind) {
+			registered[edge.From] = true
+			registered[edge.To] = true
+		}
+	}
+	removed := make(map[string]bool)
+	nodes := graph.Nodes[:0]
+	for _, node := range graph.Nodes {
+		if isResourceNode(node.Kind) && !registered[node.ID] {
+			removed[node.ID] = true
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+	graph.Nodes = nodes
+	diagnostics := graph.Diagnostics[:0]
+	graph.Valid = true
+	for index, diagnostic := range graph.Diagnostics {
+		if removed[diagnosticResourceIDs[index]] {
+			continue
+		}
+		diagnostics = append(diagnostics, diagnostic)
+		graph.Valid = graph.Valid && diagnostic.Severity != "error"
+	}
+	graph.Diagnostics = diagnostics
+	return removed
+}
+
 func isResourceNode(kind string) bool {
 	return kind == "attribute" || kind == "channel" || kind == "stream"
 }

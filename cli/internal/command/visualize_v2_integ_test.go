@@ -320,7 +320,11 @@ func TestVisualizeDoesNotRecognizeSpoofedConnectorFactory(t *testing.T) {
 		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, graph.Diagnostics)
+	require.Equal(t, []flowviz.Diagnostic{
+		{Severity: "error", Code: "v2_rpc_registration", Message: "Flow must define GetRPCs in the Flow file"},
+		{Severity: "error", Code: "v2_view_rpc", Message: "Flow must define GetDexDisplay"},
+		{Severity: "error", Code: "v2_view_rpc", Message: "Flow must define GetDexSummary"},
+	}, graph.Diagnostics)
 	node := graphNodeByID(t, graph, "step:spoofStep")
 	require.NotEqual(t, true, node.Metadata["connectorFactory"])
 	for _, code := range diagnosticCodes(graph.Diagnostics) {

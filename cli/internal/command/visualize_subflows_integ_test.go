@@ -63,7 +63,7 @@ func TestVisualizeSubFlowWaitsGolden(t *testing.T) {
 	require.Len(t, children, 4)
 	childGraph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, "examples/go/primitives/subflow/child_flow.go"), flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, childGraph.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, "examples/go/primitives/subflow/child_flow.go"), childGraph.Diagnostics)
 	for _, child := range children {
 		require.Equal(t, childGraph.Flow.Name, child.Name)
 		require.Equal(t, childGraph.Flow.Name, child.Metadata["flowType"])

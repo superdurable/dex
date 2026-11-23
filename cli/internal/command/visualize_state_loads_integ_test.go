@@ -40,7 +40,7 @@ func TestVisualizeReportsUnloadedStateReads(t *testing.T) {
 				"channel_messages_not_loaded",
 				"channel_messages_not_loaded",
 				"invocation_load_directive",
-			}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics)))
+			}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 
 			enumeration := diagnosticWithCode(t, graph, "attribute_map_enumeration_not_loaded", "snapshotRecipients")
 			require.Contains(t, enumeration.Message, "Add ExecuteLoadAttributeMaps: []dex.AttributeDef{Subscribers}")
@@ -93,7 +93,7 @@ func TestVisualizeFollowsHelpersAndLoopBodies(t *testing.T) {
 	source := stateLoadsFixture(t, "loaded/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics))
+	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics))
 
 	helperWrite := graphEdge(t, graph, "resource_write", "step:deliverMessages", "resource:attribute:ReleaseIDs", "Set")
 	require.Equal(t, "helper", helperWrite.Metadata["via"])
@@ -118,7 +118,7 @@ func TestVisualizeAcceptsDeclaredStateLoads(t *testing.T) {
 		t.Run("lint="+lint, func(t *testing.T) {
 			graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{Lint: lint})
 			require.NoError(t, err)
-			require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics))
+			require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics))
 		})
 	}
 }
@@ -127,12 +127,12 @@ func TestVisualizeReportsUnresolvedStateLoadsOnlyWithApplicationLints(t *testing
 	source := stateLoadsFixture(t, "unresolved/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics))
+	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics))
 
 	graph, err = flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{Lint: flowviz.LintApplication})
 	require.NoError(t, err)
 	require.False(t, graph.Valid)
-	require.Equal(t, []string{"state_load_unresolved", "state_load_unresolved", "state_load_unresolved"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics)))
+	require.Equal(t, []string{"state_load_unresolved", "state_load_unresolved", "state_load_unresolved"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 	step := diagnosticWithCode(t, graph, "state_load_unresolved", "Step listSubscribers Execute")
 	require.Contains(t, step.Message, "(sharedoptions.ExecuteWholeMaps(Subscribers) at workflow.go:")
 	rpc := diagnosticWithCode(t, graph, "state_load_unresolved", "RPC GetSubscriber")
@@ -145,7 +145,7 @@ func TestVisualizeApplicationLints(t *testing.T) {
 	source := stateLoadsFixture(t, "lints/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics))
+	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics))
 
 	graph, err = flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{Lint: flowviz.LintApplication})
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestVisualizeApplicationLints(t *testing.T) {
 		"action_state_not_rechecked",
 		"cross_flow_read_not_found_unhandled",
 		"start_flow_request_id_missing",
-	}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics)))
+	}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 
 	action := diagnosticWithCode(t, graph, "action_state_not_rechecked", "Action ApproveDraft")
 	require.Contains(t, action.Message, `is enabled when "draft-status" matches, but its handler never reads "draft-status"`)
@@ -171,12 +171,12 @@ func TestVisualizeReportsMergedConnectorBranchesOnlyWithApplicationLints(t *test
 	source := filepath.Join(visualizerRepositoryRoot(t), "cli/internal/command/testfixtures/connector-factory/mergedbranches/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.Equal(t, []string{"v2_step_group_shape"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics)))
+	require.Equal(t, []string{"v2_step_group_shape"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 
 	graph, err = flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{Lint: flowviz.LintApplication})
 	require.NoError(t, err)
 	require.False(t, graph.Valid)
-	require.Equal(t, []string{"connector_branches_merged_unread", "v2_step_group_shape"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(graph.Diagnostics)))
+	require.Equal(t, []string{"connector_branches_merged_unread", "v2_step_group_shape"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 	merged := diagnosticWithCode(t, graph, "connector_branches_merged_unread", "saveSummary")
 	require.Equal(
 		t,
@@ -238,7 +238,9 @@ func TestVisualizeRecordsGoRPCLocksForDexWeb(t *testing.T) {
 	source := stateLoadsFixture(t, "rpc-locks/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, graph.Diagnostics)
+	require.Equal(t, []flowviz.Diagnostic{
+		{Severity: "error", Code: "v2_view_rpc", Message: "Flow must define GetDexDisplay"},
+	}, graph.Diagnostics)
 
 	locks := make([]string, 0)
 	for _, edge := range graph.Edges {

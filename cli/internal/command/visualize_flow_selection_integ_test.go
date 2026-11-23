@@ -49,23 +49,68 @@ func TestVisualizeSelectsRegisteredFlowType(t *testing.T) {
 				require.Equal(t, flowType, graph.Flow.Name)
 				require.Equal(t, source.startSteps[index], graph.Flow.StartStepID)
 				require.Len(t, nodesOfKind(graph.Nodes, "step"), 1)
+				prefix := []string{"first", "second"}[index]
+				require.Len(t, nodesOfKind(graph.Nodes, "attribute"), 2)
+				require.Equal(t, []string{prefix + "Indexed", prefix + "State"}, flowResourceNames(graph))
+				require.Len(t, graph.Diagnostics, 1)
+				require.Equal(t, "unused_resource", graph.Diagnostics[0].Code)
+				require.Contains(t, graph.Diagnostics[0].Message, prefix+"Indexed")
+				require.Len(t, graph.V2.IndexedAttributes, 1)
+				require.Equal(t, prefix+"Indexed", graph.V2.IndexedAttributes[0].AttributeKey)
+				if index == 1 {
+					require.Len(t, edgesOfKind(graph.Edges, "resource_lock"), 1)
+				}
 			}
 
 			graph, err := runVisualizeFlowSelection(t, source.path)
 			require.Error(t, err)
 			require.False(t, graph.Valid)
-			require.Len(t, graph.Diagnostics, 1)
-			require.Equal(t, "multiple_flows", graph.Diagnostics[0].Code)
-			require.Contains(t, graph.Diagnostics[0].Message, "OrdinaryFlow, RegisteredFlow")
+			require.Contains(t, graph.Diagnostics, flowviz.Diagnostic{
+				Severity: "error",
+				Code:     "multiple_flows",
+				Message:  "source defines multiple Flows; use --flow with one of: OrdinaryFlow, RegisteredFlow",
+			})
 
 			graph, err = runVisualizeFlowSelection(t, source.path, "--flow", "RenamedFlow")
 			require.Error(t, err)
 			require.False(t, graph.Valid)
-			require.Len(t, graph.Diagnostics, 1)
-			require.Equal(t, "flow_not_found", graph.Diagnostics[0].Code)
-			require.Contains(t, graph.Diagnostics[0].Message, "OrdinaryFlow, RegisteredFlow")
+			require.Contains(t, graph.Diagnostics, flowviz.Diagnostic{
+				Severity: "error",
+				Code:     "flow_not_found",
+				Message:  "Flow type \"RenamedFlow\" was not found; available Flow types: OrdinaryFlow, RegisteredFlow",
+			})
 		})
 	}
+}
+
+func TestVisualizeSelectsCancellationFlowResources(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	t.Setenv("NODE_PATH", filepath.Join(repositoryRoot, "web", "node_modules"))
+	for _, source := range []string{
+		"examples/go/patterns/workflow-patterns/cancellation.go",
+		"examples/python/dex_examples/patterns/workflow_patterns/cancellation.py",
+		"examples/typescript/src/patterns/workflow-patterns/cancellation.ts",
+	} {
+		t.Run(source, func(t *testing.T) {
+			graph, err := runVisualizeFlowSelection(t, filepath.Join(repositoryRoot, source), "--flow", "CancelTaskFlow")
+			require.Equal(t, 1, ExitCode(err))
+			require.Equal(t, "CancelTaskFlow", graph.Flow.Name)
+			require.Equal(t, []string{"courierArrived"}, flowResourceNames(graph))
+			for _, diagnostic := range graph.Diagnostics {
+				require.NotEqual(t, "unused_resource", diagnostic.Code, diagnostic.Message)
+			}
+		})
+	}
+}
+
+func flowResourceNames(graph flowviz.Graph) []string {
+	var names []string
+	for _, node := range graph.Nodes {
+		if node.Resource != nil {
+			names = append(names, node.Name)
+		}
+	}
+	return names
 }
 
 func TestVisualizeRejectsUnknownTypeForSingleFlow(t *testing.T) {
@@ -93,12 +138,22 @@ func runVisualizeFlowSelection(t *testing.T, sourcePath string, flags ...string)
 	return graph, err
 }
 
-const pythonFlowSelectionSource = `from dex import Flow, Step, StepList, graceful_complete
+const pythonFlowSelectionSource = `from dex import Attribute, AttributeIndex, Flow, IndexType, PersistenceSchema, Step, StepList, StepOptions, graceful_complete
+
+FIRST_STATE = Attribute("firstState", str)
+SECOND_STATE = Attribute("secondState", str)
+
+# dex:indexed-attribute attribute-key:firstIndexed index-key:firstIndexed index-type:keyword value-type:string description:"First search value."
+FIRST_INDEXED = Attribute("firstIndexed", str, index=AttributeIndex(IndexType.KEYWORD))
+
+# dex:indexed-attribute attribute-key:secondIndexed index-key:secondIndexed index-type:keyword value-type:string description:"Second search value."
+SECOND_INDEXED = Attribute("secondIndexed", str, index=AttributeIndex(IndexType.KEYWORD))
 
 # dex:group group-id:"first" group-label:"First"
 # dex:explanation text:"Completes the ordinary Flow."
 class FirstStep(Step[None]):
     def execute(self, context, input):
+        FIRST_STATE.get(context)
         return graceful_complete()
 
 # dex:group group-id:"second" group-label:"Second"
@@ -107,9 +162,15 @@ class SecondStep(Step[None]):
     def execute(self, context, input):
         return graceful_complete()
 
+    def get_step_options(self):
+        return StepOptions(execute_lock_attributes=[SECOND_STATE.lock()])
+
 class OrdinaryFlow(Flow[None]):
     def get_steps(self):
         return StepList.start_step(FirstStep())
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(FIRST_INDEXED)
 
 class RenamedFlow(Flow[None]):
     def get_flow_type(self):
@@ -117,15 +178,33 @@ class RenamedFlow(Flow[None]):
 
     def get_steps(self):
         return StepList.start_step(SecondStep())
+
+    def get_persistence_schema(self):
+        attributes = (SECOND_INDEXED,)
+        return PersistenceSchema(attributes=attributes)
+
+def unowned_name():
+    return "unowned"
+
+UNOWNED = Attribute(unowned_name(), str, index=AttributeIndex(IndexType.KEYWORD))
 `
 
-const typeScriptFlowSelectionSource = `import { StepList, gracefulComplete, voidCodec } from "@superdurable/dex";
+const typeScriptFlowSelectionSource = `import { Attribute, IndexType, StepList, gracefulComplete, stringCodec, voidCodec, type Context } from "@superdurable/dex";
+
+const firstState = new Attribute("firstState", stringCodec);
+const secondState = new Attribute("secondState", stringCodec);
+
+// dex:indexed-attribute attribute-key:firstIndexed index-key:firstIndexed index-type:keyword value-type:string description:"First search value."
+const firstIndexed = new Attribute("firstIndexed", stringCodec, { type: IndexType.KEYWORD });
+
+// dex:indexed-attribute attribute-key:secondIndexed index-key:secondIndexed index-type:keyword value-type:string description:"Second search value."
+const secondIndexed = new Attribute("secondIndexed", stringCodec, { type: IndexType.KEYWORD });
 
 // dex:group group-id:"first" group-label:"First"
 // dex:explanation text:"Completes the ordinary Flow."
 class FirstStep {
   readonly inputCodec = voidCodec;
-  execute() { return gracefulComplete(); }
+  execute(context: Context) { firstState.get(context); return gracefulComplete(); }
 }
 
 // dex:group group-id:"second" group-label:"Second"
@@ -133,15 +212,24 @@ class FirstStep {
 class SecondStep {
   readonly inputCodec = voidCodec;
   execute() { return gracefulComplete(); }
+  getStepOptions() { return { executeLockAttributes: [secondState.lock()] }; }
 }
 
 class OrdinaryFlow {
   getSteps() { return StepList.startStep(new FirstStep()); }
+  getPersistenceSchema() { return { attributes: [firstIndexed] }; }
 }
 
 class RenamedFlow {
   private readonly registeredType = "RegisteredFlow";
   getFlowType() { return this.registeredType; }
   getSteps() { return StepList.startStep(new SecondStep()); }
+  getPersistenceSchema() {
+    const attributes = [secondIndexed];
+    return { attributes };
+  }
 }
+
+function unownedName() { return "unowned"; }
+const unowned = new Attribute(unownedName(), stringCodec, { type: IndexType.KEYWORD });
 `

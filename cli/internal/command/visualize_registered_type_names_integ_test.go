@@ -124,7 +124,7 @@ func TestVisualizeGoStepRefTargetsRegisteredStepTypes(t *testing.T) {
 		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, registeredTarget.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(fixtureDirectory, "stepref/workflow.go"), registeredTarget.Diagnostics)
 	require.True(t, hasTransitionFromStepToTarget(registeredTarget, "step:begin", "step:done"))
 
 	packageQualifiedTarget, err := flowviz.Analyze(

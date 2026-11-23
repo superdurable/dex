@@ -18,9 +18,18 @@ import (
 
 // scriptAttribute is one Attribute or AttributeMap that a Python or TypeScript Flow file declares.
 type scriptAttribute struct {
-	Key       string `json:"key"`
-	ValueType string `json:"valueType"`
-	IsMap     bool   `json:"isMap"`
+	ResourceID string                `json:"resourceId"`
+	Key        string                `json:"key"`
+	ValueType  string                `json:"valueType"`
+	IsMap      bool                  `json:"isMap"`
+	Index      *scriptAttributeIndex `json:"index"`
+	Directives []string              `json:"directives"`
+	Span       *Span                 `json:"span"`
+}
+
+type scriptAttributeIndex struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
 }
 
 // scriptAction is one Action an RPC declares, as a Python or TypeScript analyzer read it.

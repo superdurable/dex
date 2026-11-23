@@ -31,7 +31,7 @@ func TestVisualizeGoJoinKeepsForkPublishAndWaitEdges(t *testing.T) {
 
 	graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, graph.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, sourcePath, graph.Diagnostics)
 
 	joinResourceID := ""
 	for _, node := range graph.Nodes {

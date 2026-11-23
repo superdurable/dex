@@ -62,6 +62,8 @@ type goAnalyzer struct {
 	typeSizes             types.Sizes
 	functions             *goFunctionWalker
 	handlerSummaries      []goHandlerSummary
+	excludedResources     map[string]bool
+	diagnosticResourceIDs map[int]string
 }
 
 type goExternalMethod struct {
@@ -226,9 +228,16 @@ func indexGoModules(currentPackage *packages.Package, modules map[string]goModul
 
 func (analyzer *goAnalyzer) Analyze(flowType string) {
 	analyzer.indexImportsAndMethods()
+	flowMethods := analyzer.findFlowMethods()
+	scopeResources := len(flowMethods) > 1
+	if scopeResources {
+		analyzer.diagnosticResourceIDs = make(map[int]string)
+	}
 	analyzer.analyzeResources()
-	analyzer.diagnoseExternalResourceReferences()
-	getSteps := analyzer.selectFlowMethod(flowType)
+	getSteps := analyzer.selectFlowMethod(flowType, flowMethods)
+	if !scopeResources || getSteps == nil {
+		analyzer.diagnoseExternalResourceReferences(analyzer.file, nil)
+	}
 	if getSteps == nil {
 		return
 	}
@@ -240,12 +249,16 @@ func (analyzer *goAnalyzer) Analyze(flowType string) {
 		analyzer.analyzeStep(stepType, nodeID)
 	}
 	analyzer.analyzeFlowHandlers(flowName)
-	analyzer.analyzeVisualizationV2(flowName)
-	analyzer.analyzeStateLoadsAndApplicationLints(getSteps)
+	if scopeResources {
+		analyzer.diagnoseSelectedFlowExternalResourceReferences(flowName)
+	} else {
+		analyzer.analyzeVisualizationV2(flowName)
+	}
+	analyzer.reportStateLoadsAndApplicationLints(getSteps, flowName, scopeResources)
 }
 
 // State-load and start-input errors are always reported; application lints only with --lint app.
-func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.FuncDecl) {
+func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.FuncDecl, flowName string, scopeResources bool) {
 	evaluator := newGoOptionsEvaluator(analyzer, analyzer.functions)
 	var flowObject *types.TypeName
 	if receiver := analyzer.flowReceiverType(getSteps); receiver != nil {
@@ -253,11 +266,66 @@ func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.F
 	}
 	checker := newGoStateLoadChecker(analyzer, evaluator, flowObject, analyzer.isApplicationLint)
 	checker.report()
-	(&goRPCLockRecorder{analyzer: analyzer, evaluator: evaluator, sources: checker.sources}).record()
+	rpcLocks := &goRPCLockRecorder{analyzer: analyzer, evaluator: evaluator, sources: checker.sources}
+	rpcLocks.record()
+	if scopeResources {
+		registered := analyzer.persistenceResources(flowName, evaluator)
+		analyzer.recordStepLocks(rpcLocks)
+		analyzer.excludedResources = analyzer.graph.retainFlowResources(registered, analyzer.diagnosticResourceIDs)
+		analyzer.analyzeVisualizationV2(flowName)
+	}
+	rpcLocks.reportUnresolved()
 	newGoStartFlowInputChecker(analyzer).report()
 	if analyzer.isApplicationLint {
 		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
 	}
+}
+
+func (analyzer *goAnalyzer) recordStepLocks(locks *goRPCLockRecorder) {
+	lockFields := []struct{ name, phase string }{
+		{"WaitForLockAttributes", "wait_for"},
+		{"ExecuteLockAttributes", "execute"},
+	}
+	for stepType, nodeID := range analyzer.steps {
+		position := token.NoPos
+		execute := analyzer.methods[stepType]["Execute"]
+		if execute != nil {
+			position = execute.Pos()
+		}
+		options := locks.evaluator.stepOptionsValue(analyzer.stepValueTypes[stepType], position)
+		for _, override := range locks.sources.stepOptionOverrides[nodeID] {
+			options.merge(locks.evaluator.evaluateStruct(override))
+		}
+		for _, field := range lockFields {
+			for _, lockList := range options.fields[field.name] {
+				for _, lock := range locks.evaluator.evaluateList(lockList).elements {
+					if resourceID := locks.lockedResource(lock); resourceID != "" {
+						analyzer.graph.AddEdge(Edge{Kind: "resource_lock", From: nodeID, To: resourceID, Label: "Lock", Span: analyzer.span(lock.expression), Metadata: map[string]any{"phase": field.phase}})
+					}
+				}
+			}
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) persistenceResources(flowName string, evaluator *goOptionsEvaluator) map[string]bool {
+	registered := make(map[string]bool)
+	schemaMethod := analyzer.methods[flowName]["GetPersistenceSchema"]
+	if schemaMethod == nil || schemaMethod.Body == nil {
+		return registered
+	}
+	evaluation := evaluator.newEvaluation()
+	schema := evaluation.functionResultStruct(schemaMethod, &goEvaluationScope{function: schemaMethod}, 0)
+	for _, field := range []string{"Attributes", "Channels", "Streams"} {
+		for _, resourceList := range schema.fields[field] {
+			for _, resource := range evaluation.listValue(resourceList).elements {
+				if resourceID := evaluation.resource(resource); resourceID != "" {
+					registered[resourceID] = true
+				}
+			}
+		}
+	}
+	return registered
 }
 
 func (analyzer *goAnalyzer) indexImportsAndMethods() {
@@ -350,8 +418,34 @@ func (analyzer *goAnalyzer) indexExternalResources(valueSpec *ast.ValueSpec) {
 	}
 }
 
-func (analyzer *goAnalyzer) diagnoseExternalResourceReferences() {
-	ast.Inspect(analyzer.file, func(current ast.Node) bool {
+func (analyzer *goAnalyzer) diagnoseSelectedFlowExternalResourceReferences(flowName string) {
+	visited := make(map[*ast.FuncDecl]bool)
+	for _, declaration := range analyzer.file.Decls {
+		method, isMethod := declaration.(*ast.FuncDecl)
+		if !isMethod || method.Recv == nil {
+			continue
+		}
+		receiver := receiverTypeName(method)
+		if receiver == flowName || analyzer.steps[receiver] != "" {
+			analyzer.diagnoseExternalResourceReferences(method, visited)
+		}
+	}
+}
+
+func (analyzer *goAnalyzer) diagnoseExternalResourceReferences(root ast.Node, visited map[*ast.FuncDecl]bool) {
+	if method, isMethod := root.(*ast.FuncDecl); isMethod {
+		if visited[method] {
+			return
+		}
+		visited[method] = true
+	}
+	ast.Inspect(root, func(current ast.Node) bool {
+		if call, isCall := current.(*ast.CallExpr); isCall && visited != nil {
+			function := analyzer.functions.declarations[analyzer.functions.calledFunction(call)]
+			if function != nil && analyzer.nodeFilename(function) == analyzer.sourcePath {
+				analyzer.diagnoseExternalResourceReferences(function, visited)
+			}
+		}
 		identifier, ok := current.(*ast.Ident)
 		if !ok {
 			return true
@@ -393,6 +487,7 @@ func (analyzer *goAnalyzer) analyzeResources() {
 				if kind == "" {
 					continue
 				}
+				firstDiagnostic := len(analyzer.graph.Diagnostics)
 				resourceName := name.Name
 				if len(call.Args) > 0 {
 					if staticName, ok := analyzer.staticString(call.Args[0]); ok {
@@ -406,6 +501,11 @@ func (analyzer *goAnalyzer) analyzeResources() {
 				if resource.ValueType == "unknown" {
 					analyzer.graph.AddDiagnostic("warning", "unknown_resource_type", fmt.Sprintf("%s %s has no statically readable value type", kind, resourceName), analyzer.span(call))
 				}
+				if analyzer.diagnosticResourceIDs != nil {
+					for index := firstDiagnostic; index < len(analyzer.graph.Diagnostics); index++ {
+						analyzer.diagnosticResourceIDs[index] = nodeID
+					}
+				}
 				analyzer.graph.AddNode(Node{ID: nodeID, Kind: kind, Name: resourceName, Span: analyzer.span(valueSpec), Resource: &resource})
 				analyzer.resourceVars[name.Name] = nodeID
 				if object := analyzer.typeInfo.Defs[name]; object != nil {
@@ -416,8 +516,7 @@ func (analyzer *goAnalyzer) analyzeResources() {
 	}
 }
 
-func (analyzer *goAnalyzer) selectFlowMethod(flowType string) *ast.FuncDecl {
-	methods := analyzer.findFlowMethods()
+func (analyzer *goAnalyzer) selectFlowMethod(flowType string, methods []*ast.FuncDecl) *ast.FuncDecl {
 	if flowType == "" && len(methods) == 1 {
 		return methods[0]
 	}

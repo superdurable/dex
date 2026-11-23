@@ -263,7 +263,12 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 			if comments == nil && len(general.Specs) == 1 {
 				comments = general.Doc
 			}
-			directives := analyzer.parseV2Directives(comments)
+			var directives []v2Directive
+			parsedDirectives := false
+			if analyzer.excludedResources == nil {
+				directives = analyzer.parseV2Directives(comments)
+				parsedDirectives = true
+			}
 			for index, name := range valueSpec.Names {
 				if index >= len(valueSpec.Values) {
 					continue
@@ -275,6 +280,13 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 				resourceKind := goResourceKind(analyzer.callName(call))
 				if resourceKind != "attribute" {
 					continue
+				}
+				if analyzer.excludedResources[analyzer.resourceVars[name.Name]] {
+					continue
+				}
+				if !parsedDirectives {
+					directives = analyzer.parseV2Directives(comments)
+					parsedDirectives = true
 				}
 				attributeKey := name.Name
 				if len(call.Args) > 0 {
@@ -321,11 +333,20 @@ func (analyzer *goAnalyzer) collectV2Attributes() map[string]v2AttributeDeclarat
 func (analyzer *goAnalyzer) collectV2IndexedAttributes(
 	attributes map[string]v2AttributeDeclaration,
 ) []IndexedAttribute {
+	return collectV2IndexedAttributes(
+		analyzer.graph, analyzer.v2AttributeDeclarationsInSourceOrder(attributes), "Go",
+		analyzer.addV2DirectiveError,
+	)
+}
+
+func collectV2IndexedAttributes(
+	graph *Graph, attributes []v2AttributeDeclaration, language string, report func(v2Directive, string),
+) []IndexedAttribute {
 	indexedAttributes := make([]IndexedAttribute, 0)
-	for _, declaration := range analyzer.v2AttributeDeclarationsInSourceOrder(attributes) {
+	for _, declaration := range attributes {
 		directives := directivesNamed(declaration.directives, "indexed-attribute")
 		if declaration.isIndexed && len(directives) != 1 {
-			analyzer.graph.AddDiagnostic(
+			graph.AddDiagnostic(
 				"error",
 				"v2_indexed_attribute",
 				fmt.Sprintf("indexed Attribute %q must declare exactly one dex:indexed-attribute directive", declaration.key),
@@ -334,7 +355,7 @@ func (analyzer *goAnalyzer) collectV2IndexedAttributes(
 			continue
 		}
 		if !declaration.isIndexed && len(directives) > 0 {
-			analyzer.addV2DirectiveError(directives[0], fmt.Sprintf("Attribute %q is not indexed", declaration.key))
+			report(directives[0], fmt.Sprintf("Attribute %q is not indexed", declaration.key))
 			continue
 		}
 		if !declaration.isIndexed {
@@ -342,7 +363,7 @@ func (analyzer *goAnalyzer) collectV2IndexedAttributes(
 		}
 		directive := directives[0]
 		allowed := []string{"attribute-key", "index-key", "index-type", "value-type", "description"}
-		if !analyzer.validateV2Directive(directive, allowed, allowed) {
+		if !validateV2DirectiveArguments(directive, allowed, allowed, report) {
 			continue
 		}
 		comparisons := []struct {
@@ -360,14 +381,14 @@ func (analyzer *goAnalyzer) collectV2IndexedAttributes(
 			if declared == comparison.actual {
 				continue
 			}
-			analyzer.addV2DirectiveError(
+			report(
 				directive,
-				fmt.Sprintf("%s %q does not match the Go declaration %q", comparison.argument, declared, comparison.actual),
+				fmt.Sprintf("%s %q does not match the %s declaration %q", comparison.argument, declared, language, comparison.actual),
 			)
 			isValid = false
 		}
 		if !isV2IndexCompatible(declaration.indexType, declaration.valueType) {
-			analyzer.addV2DirectiveError(
+			report(
 				directive,
 				fmt.Sprintf("index-type %q does not support value-type %q", declaration.indexType, declaration.valueType),
 			)
@@ -1426,6 +1447,10 @@ func (analyzer *goAnalyzer) validateV2Directive(
 	allowed []string,
 	required []string,
 ) bool {
+	return validateV2DirectiveArguments(directive, allowed, required, analyzer.addV2DirectiveError)
+}
+
+func validateV2DirectiveArguments(directive v2Directive, allowed []string, required []string, report func(v2Directive, string)) bool {
 	allowedNames := make(map[string]bool, len(allowed))
 	for _, name := range allowed {
 		allowedNames[name] = true
@@ -1435,19 +1460,19 @@ func (analyzer *goAnalyzer) validateV2Directive(
 		if allowedNames[name] {
 			argument := directive.arguments[name]
 			if argument.array && !(directive.name == "when" && name == "values") {
-				analyzer.addV2DirectiveError(directive, fmt.Sprintf("argument %s must not be a JSON array", name))
+				report(directive, fmt.Sprintf("argument %s must not be a JSON array", name))
 				isValid = false
 			}
 			continue
 		}
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("unknown argument %s", name))
+		report(directive, fmt.Sprintf("unknown argument %s", name))
 		isValid = false
 	}
 	for _, name := range required {
 		if _, found := directive.arguments[name]; found {
 			continue
 		}
-		analyzer.addV2DirectiveError(directive, fmt.Sprintf("missing required argument %s", name))
+		report(directive, fmt.Sprintf("missing required argument %s", name))
 		isValid = false
 	}
 	return isValid

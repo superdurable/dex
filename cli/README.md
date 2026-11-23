@@ -619,12 +619,12 @@ Flow resource aliases and records RPC and Step Attribute locks as
 `resource_lock` relations.
 
 Go analysis requires a local Go toolchain and a module/package that passes type
-checking. Step registration, transitions,
-waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource definitions must be directly visible in that file. A resource,
-registered Step, Step handler, Flow method, or RPC declared in another file in
-the package produces a blocking diagnostic naming that file. Resource access may
-also be in functions and methods of the same package that a handler calls. The
+checking. Step registration, transitions, waits, RPC next Steps,
+execute-failure recovery targets, and persistence resource definitions must be
+directly visible in that file. A resource, registered Step, Step handler, Flow
+method, or RPC declared in another file in the package produces a blocking
+diagnostic naming that file. Resource access may also be in functions and
+methods of the same package that a handler calls. The
 analyzer follows those calls up to six levels deep, including calls inside loops
 and function literals, and binds a resource argument to the matching parameter.
 Such an edge records the helper as `metadata.via: helper` and

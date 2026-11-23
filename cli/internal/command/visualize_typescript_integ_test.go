@@ -88,14 +88,14 @@ func TestVisualizeTypeScriptExampleDecisions(t *testing.T) {
 
 	retry, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts"), flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, retry.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, "examples/typescript/src/primitives/step/retry-flow.ts"), retry.Diagnostics)
 	require.Equal(t, "RetryFlow", retry.Flow.Name)
 	require.Equal(t, "step:RetryExecute", retry.Flow.StartStepID)
 	require.Equal(t, []string{"gracefulComplete"}, decisionTypes(retry, "step:RetryExecute"))
 
 	transfer, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, "examples/typescript/src/products/money-transfer/money-transfer-flow.ts"), flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	requireNoBlockingVisualizationDiagnostics(t, transfer.Diagnostics)
+	requireNoBlockingVisualizationDiagnostics(t, filepath.Join(repositoryRoot, "examples/typescript/src/products/money-transfer/money-transfer-flow.ts"), transfer.Diagnostics)
 	require.Equal(t, []string{"forceFail", "goTo"}, decisionTypes(transfer, "step:CheckBalance"))
 	require.True(t, hasDecisionEdge(transfer, "step:CheckBalance", "transition", "step:CreateDebitMemo"))
 	require.Equal(t, []string{"gracefulComplete"}, decisionTypes(transfer, "step:Credit"))
