@@ -168,7 +168,7 @@ Pass `--flow` to select one Flow type from a file with multiple Flows. Without i
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Rust sources and recursive analysis across files are not supported.
 
 The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 
@@ -180,15 +180,15 @@ Version 2.0 recognizes operation-specific Connector factories such as **openai.N
 
 ### Java source and directives
 
-**Since 1.47.23.** Java analysis requires JDK 17 or newer. The command infers Java from `.java` or accepts `--language java`. It uses `java` from `PATH` by default. Set `DEX_JAVA` to a different executable or pass `--java` to override it.
+**Since 1.47.23.** Java analysis requires JDK 17 or newer. The command infers Java from **.java** or accepts **--language java**. It uses **java** from **PATH** by default. Set **DEX_JAVA** to a different executable or pass **--java** to override it.
 
 ```bash
 dexcli visualize ./OrderFlow.java --java /path/to/jdk/bin/java --json
 ```
 
-The analyzer parses the supplied file with javac. It finds classes that implement `Flow` and `Step`, including nested classes. Targets such as `StepDecision.goTo(Ship.class, input)` use the Step type returned by a literal `getStepType()`, or the class's simple name by default. A target from another file keeps its simple name and produces a `step_type_unresolved` warning.
+The analyzer parses the supplied file with javac. It finds classes that implement **Flow** and **Step**, including nested classes. Targets such as **StepDecision.goTo(Ship.class, input)** use the Step type returned by **getStepType()** when the method returns a string literal or a constant declared in the same file. The class's simple name is the default. A target from another file keeps its simple name and produces a **step_type_unresolved** warning.
 
-Put `dex:group` and `dex:explanation` on consecutive comment lines directly above the Step class. For an Attribute defined with `AttributeIndex`, put `dex:indexed-attribute` above the field. Put `dex:field` above the `@RPC` annotation on the method with protocol name `GetDexSummary` or `GetDexDisplay`. Set the protocol name with `@RPC(name = "GetDexSummary")` or use that exact Java method name.
+Put **dex:group** and **dex:explanation** on consecutive comment lines above the Step class. The directives can precede Javadoc and annotations. For an Attribute defined with **AttributeIndex**, put **dex:indexed-attribute** above the field. Put **dex:field** above the **@RPC** annotation on the method with protocol name **GetDexSummary** or **GetDexDisplay**. Set the protocol name with **@RPC(name = "GetDexSummary")** or use that exact Java method name.
 
 ```text
 // dex:group group-id:shipping group-label:"Shipping"
@@ -199,7 +199,7 @@ Put `dex:group` and `dex:explanation` on consecutive comment lines directly abov
 // dex:field attribute-key:statusText value-type:string editable:false description:"Order status."
 ```
 
-For the Start form, the analyzer reads a class literal returned by `getInputType()` or reads the input type argument of `Flow`. Input classes, records, nested types, and enums must be declared in the same file. Primitive types, strings, lists, string-keyed maps, `Optional`, and date-time types are supported. If a type cannot be represented, the graph reports `start_input_unresolved` and omits the Start form.
+For the Start form, the analyzer reads a class literal returned by **getInputType()** or reads the input type argument of **Flow**. Input classes, records, nested types, and enums must be declared in the same file. Primitive types, strings, lists, string-keyed maps, **Optional**, and date-time types are supported. If a type cannot be represented, the graph reports **start_input_unresolved** and omits the Start form.
 
 ### TypeScript Waits, RPCs, and resource access {#typescript-waits-rpcs-and-resource-access}
 

@@ -10,11 +10,14 @@
 
 import io.superdurable.dex.*;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 class Workflow implements Flow<Workflow.Input> {
+    private static final String FLOW_TYPE = "OrderFlow";
+    private static final String SHIP_STEP_TYPE = "ShipOrder";
     enum Choice { SEND, HOLD }
     record Input(Choice choice, Optional<String> note, List<String> recipients) {}
 
@@ -22,6 +25,8 @@ class Workflow implements Flow<Workflow.Input> {
     private final Attribute<String> state = Attribute.define("state", String.class, new AttributeIndex(AttributeIndex.Type.KEYWORD));
     private final Attribute<String> summary = Attribute.define("statusText", String.class);
     private final AttributeMap<String> orders = AttributeMap.define("orders", String.class);
+    private final Attribute<String> st = Attribute.define("st", String.class);
+    private final Attribute<String> routingLock = Attribute.define("routingLock", String.class);
     private final Channel<String> signal = Channel.define("signal", String.class);
     private final ChannelMap<String> approvals = ChannelMap.define("approvals", String.class);
     private final Stream<String> progress = Stream.define("progress", String.class, 1024);
@@ -30,14 +35,15 @@ class Workflow implements Flow<Workflow.Input> {
     private final Ship ship = new Ship();
     private final Finish finish = new Finish();
 
-    public String getFlowType() { return "OrderFlow"; }
+    public String getFlowType() { return FLOW_TYPE; }
 
     public StepList<Input> getSteps() {
         return StepList.startStep(begin).otherSteps(ship, finish);
     }
 
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(state, summary, orders, signal, approvals, progress, shipping);
+        return PersistenceSchema.of(List.of(state, summary, orders, st, routingLock),
+                Arrays.asList(signal, approvals, shipping), List.of(progress));
     }
 
     public StepDecision handleTimeout(Context context) {
@@ -60,7 +66,7 @@ class Workflow implements Flow<Workflow.Input> {
         return RPCResult.of(Map.ofEntries(Map.entry("state", state.get(context))));
     }
 
-    @RPC(lockAttributes = {"state"}, lockAttributeMaps = {@RPCAttributeMapLock(attribute = "orders", instance = "current")})
+    @RPC(lockAttributes = {"st"}, lockAttributeMaps = {@RPCAttributeMapLock(attribute = "orders", instance = "current")})
     public RPCResult<Boolean> expedite(Context context) {
         signal.publish(context, "expedite");
         return RPCResult.of(true, StepMovement.of(Finish.class, null)).withCancelingSteps(Ship.class);
@@ -68,16 +74,28 @@ class Workflow implements Flow<Workflow.Input> {
 
     // dex:group group-id:shipping group-label:"Shipping"
     // dex:explanation text:"Choose how to ship the order."
+    /**
+     * Dispatches the order.
+     */
+
+    @Deprecated
     class Begin implements Step<Input> {
         public Class<Input> getInputType() { return Input.class; }
 
         public StepDecision execute(Context context, Input input) {
-            orders.instance("current").set(context, "new");
+            orders.set(context, "current", "new");
             state.set(context, "ready");
-            progress.write(context, "dispatch");
-            return input.choice() == Choice.HOLD
-                    ? StepDecision.goTo(Finish.class, null)
-                    : StepDecision.goToMany(StepMovement.of(Ship.class, "current"), StepMovement.of(Finish.class, null));
+            BufferedTextStream.create(context, progress).write("dispatch");
+            return this.decide(input);
+        }
+
+        private StepDecision decide(Input input) {
+            return switch (input.choice()) {
+                case HOLD -> StepDecision.goTo(Finish.class, null);
+                case SEND -> {
+                    yield StepDecision.goToMany(StepMovement.of(Ship.class, "current"), StepMovement.of(Finish.class, null));
+                }
+            };
         }
     }
 
@@ -85,10 +103,12 @@ class Workflow implements Flow<Workflow.Input> {
     // dex:explanation text:"Wait for approval and ship the order."
     class Ship implements Step<String> {
         public Class<String> getInputType() { return String.class; }
-        public String getStepType() { return "ShipOrder"; }
+        public String getStepType() { return SHIP_STEP_TYPE; }
 
         public StepOptions getStepOptions() {
-            return StepOptions.newBuilder().onExecuteFailureProceedTo(Finish.class, null).addExecuteLock(state.lock()).build();
+            AttributeLock lock = AttributeLock.of(orders, "current");
+            return StepOptions.newBuilder().onExecuteFailureProceedTo(Finish.class, null)
+                    .addWaitForLock(AttributeLock.of(routingLock)).addExecuteLock(lock).build();
         }
 
         public Wait waitFor(Context context, String input) {
@@ -103,12 +123,19 @@ class Workflow implements Flow<Workflow.Input> {
             if ("pending".equals(input)) {
                 return StepDecision.forceCompleteIfChannelsEmpty("done", StepMovement.of(Finish.class, null), signal, approvals);
             }
-            if ("branch".equals(input)) return shipping.endBranch(context, null, "shipped");
-            return StepDecision.gracefulComplete().withCancelingSiblingSteps(Finish.class);
+            try {
+                switch (input) {
+                    case "branch":
+                        return shipping.endBranch(context, null, "shipped");
+                    default:
+				return /* 完成 */ StepDecision.gracefulComplete().withCancelingSiblingSteps(Finish.class);
+                }
+            } catch (IllegalStateException failure) {
+                return StepDecision.forceFail(failure.getMessage());
+            }
         }
     }
 }
-
 // dex:group group-id:shipping group-label:"Shipping"
 // dex:explanation text:"Close the order."
 class Finish implements Step<Void> {

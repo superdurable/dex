@@ -9,9 +9,9 @@
     "name": "OrderFlow",
     "startStepId": "step:Begin",
     "span": {
-      "startLine": 17,
+      "startLine": 18,
       "startColumn": 1,
-      "endLine": 110,
+      "endLine": 138,
       "endColumn": 2
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:Begin",
       "phase": "execute",
       "span": {
-        "startLine": 74,
+        "startLine": 85,
         "startColumn": 9,
-        "endLine": 81,
+        "endLine": 90,
         "endColumn": 10
       }
     },
@@ -36,22 +36,22 @@
       "parentId": "step:ShipOrder",
       "phase": "execute",
       "span": {
-        "startLine": 101,
+        "startLine": 121,
         "startColumn": 9,
-        "endLine": 108,
+        "endLine": 136,
         "endColumn": 10
       }
     },
     {
-      "id": "decision:rpc:GetDexDisplay:60:16",
+      "id": "decision:rpc:GetDexDisplay:66:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexDisplay",
       "phase": "rpc",
       "span": {
-        "startLine": 60,
+        "startLine": 66,
         "startColumn": 16,
-        "endLine": 60,
+        "endLine": 66,
         "endColumn": 83
       },
       "decision": {
@@ -59,15 +59,15 @@
       }
     },
     {
-      "id": "decision:rpc:GetDexSummary:54:16",
+      "id": "decision:rpc:GetDexSummary:60:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:GetDexSummary",
       "phase": "rpc",
       "span": {
-        "startLine": 54,
+        "startLine": 60,
         "startColumn": 16,
-        "endLine": 54,
+        "endLine": 60,
         "endColumn": 72
       },
       "decision": {
@@ -75,15 +75,15 @@
       }
     },
     {
-      "id": "decision:rpc:expedite:66:16",
+      "id": "decision:rpc:expedite:72:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:expedite",
       "phase": "rpc",
       "span": {
-        "startLine": 66,
+        "startLine": 72,
         "startColumn": 16,
-        "endLine": 66,
+        "endLine": 72,
         "endColumn": 102
       },
       "decision": {
@@ -97,49 +97,49 @@
       }
     },
     {
-      "id": "decision:step:Begin:79:23",
+      "id": "decision:step:Begin:call:89:20:94:30",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Begin",
-      "condition": "input.choice() == Choice.HOLD",
+      "condition": "input.choice() == HOLD",
       "phase": "execute",
       "span": {
-        "startLine": 79,
-        "startColumn": 23,
-        "endLine": 79,
-        "endColumn": 60
+        "startLine": 94,
+        "startColumn": 30,
+        "endLine": 94,
+        "endColumn": 67
       },
       "decision": {
         "type": "goTo"
       }
     },
     {
-      "id": "decision:step:Begin:80:23",
+      "id": "decision:step:Begin:call:89:20:96:27",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:Begin",
-      "condition": "!(input.choice() == Choice.HOLD)",
+      "condition": "input.choice() == SEND",
       "phase": "execute",
       "span": {
-        "startLine": 80,
-        "startColumn": 23,
-        "endLine": 80,
-        "endColumn": 121
+        "startLine": 96,
+        "startColumn": 27,
+        "endLine": 96,
+        "endColumn": 125
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "decision:step:Finish:118:16",
+      "id": "decision:step:Finish:145:16",
       "kind": "decision",
       "name": "forceComplete",
       "parentId": "step:Finish",
       "phase": "execute",
       "span": {
-        "startLine": 118,
+        "startLine": 145,
         "startColumn": 16,
-        "endLine": 118,
+        "endLine": 145,
         "endColumn": 44
       },
       "decision": {
@@ -147,16 +147,16 @@
       }
     },
     {
-      "id": "decision:step:ShipOrder:102:60",
+      "id": "decision:step:ShipOrder:122:60",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:ShipOrder",
       "condition": "orders.get(context, input) == null",
       "phase": "execute",
       "span": {
-        "startLine": 102,
+        "startLine": 122,
         "startColumn": 60,
-        "endLine": 102,
+        "endLine": 122,
         "endColumn": 99
       },
       "decision": {
@@ -164,16 +164,16 @@
       }
     },
     {
-      "id": "decision:step:ShipOrder:104:24",
+      "id": "decision:step:ShipOrder:124:24",
       "kind": "decision",
       "name": "forceCompleteIfChannelsEmpty",
       "parentId": "step:ShipOrder",
-      "condition": "\"pending\".equals(input)",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 \"pending\".equals(input)",
       "phase": "execute",
       "span": {
-        "startLine": 104,
+        "startLine": 124,
         "startColumn": 24,
-        "endLine": 104,
+        "endLine": 124,
         "endColumn": 129
       },
       "decision": {
@@ -185,33 +185,34 @@
       }
     },
     {
-      "id": "decision:step:ShipOrder:106:48",
+      "id": "decision:step:ShipOrder:129:32",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:ShipOrder",
-      "condition": "\"branch\".equals(input)",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 !(\"pending\".equals(input)) \u0026\u0026 input == \"branch\"",
       "phase": "execute",
       "span": {
-        "startLine": 106,
-        "startColumn": 48,
-        "endLine": 106,
-        "endColumn": 92
+        "startLine": 129,
+        "startColumn": 32,
+        "endLine": 129,
+        "endColumn": 76
       },
       "decision": {
         "type": "deadEnd"
       }
     },
     {
-      "id": "decision:step:ShipOrder:107:20",
+      "id": "decision:step:ShipOrder:131:25",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ShipOrder",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 !(\"pending\".equals(input)) \u0026\u0026 default",
       "phase": "execute",
       "span": {
-        "startLine": 107,
-        "startColumn": 20,
-        "endLine": 107,
-        "endColumn": 91
+        "startLine": 131,
+        "startColumn": 25,
+        "endLine": 131,
+        "endColumn": 96
       },
       "decision": {
         "type": "gracefulComplete",
@@ -224,15 +225,32 @@
       }
     },
     {
-      "id": "decision:timeout_handler:OrderFlow:44:16",
+      "id": "decision:step:ShipOrder:134:24",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:ShipOrder",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 !(\"pending\".equals(input)) \u0026\u0026 exception",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 24,
+        "endLine": 134,
+        "endColumn": 68
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:timeout_handler:OrderFlow:50:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "timeout_handler:OrderFlow",
       "phase": "timeout",
       "span": {
-        "startLine": 44,
+        "startLine": 50,
         "startColumn": 16,
-        "endLine": 44,
+        "endLine": 50,
         "endColumn": 53
       },
       "decision": {
@@ -244,9 +262,9 @@
       "kind": "attribute",
       "name": "orders",
       "span": {
-        "startLine": 24,
+        "startLine": 27,
         "startColumn": 5,
-        "endLine": 24,
+        "endLine": 27,
         "endColumn": 93
       },
       "resource": {
@@ -255,13 +273,41 @@
       }
     },
     {
+      "id": "resource:attribute:routingLock",
+      "kind": "attribute",
+      "name": "routingLock",
+      "span": {
+        "startLine": 29,
+        "startColumn": 5,
+        "endLine": 29,
+        "endColumn": 97
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:st",
+      "kind": "attribute",
+      "name": "st",
+      "span": {
+        "startLine": 28,
+        "startColumn": 5,
+        "endLine": 28,
+        "endColumn": 79
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
       "id": "resource:attribute:state",
       "kind": "attribute",
       "name": "state",
       "span": {
-        "startLine": 22,
+        "startLine": 25,
         "startColumn": 5,
-        "endLine": 22,
+        "endLine": 25,
         "endColumn": 134
       },
       "resource": {
@@ -273,9 +319,9 @@
       "kind": "attribute",
       "name": "statusText",
       "span": {
-        "startLine": 23,
+        "startLine": 26,
         "startColumn": 5,
-        "endLine": 23,
+        "endLine": 26,
         "endColumn": 92
       },
       "resource": {
@@ -287,9 +333,9 @@
       "kind": "channel",
       "name": "approvals",
       "span": {
-        "startLine": 26,
+        "startLine": 31,
         "startColumn": 5,
-        "endLine": 26,
+        "endLine": 31,
         "endColumn": 95
       },
       "resource": {
@@ -302,9 +348,9 @@
       "kind": "channel",
       "name": "shipping",
       "span": {
-        "startLine": 28,
+        "startLine": 33,
         "startColumn": 5,
-        "endLine": 28,
+        "endLine": 33,
         "endColumn": 81
       },
       "resource": {
@@ -317,9 +363,9 @@
       "kind": "channel",
       "name": "signal",
       "span": {
-        "startLine": 25,
+        "startLine": 30,
         "startColumn": 5,
-        "endLine": 25,
+        "endLine": 30,
         "endColumn": 83
       },
       "resource": {
@@ -331,9 +377,9 @@
       "kind": "stream",
       "name": "progress",
       "span": {
-        "startLine": 27,
+        "startLine": 32,
         "startColumn": 5,
-        "endLine": 27,
+        "endLine": 32,
         "endColumn": 91
       },
       "resource": {
@@ -345,9 +391,9 @@
       "kind": "rpc",
       "name": "GetDexDisplay",
       "span": {
-        "startLine": 58,
+        "startLine": 64,
         "startColumn": 5,
-        "endLine": 61,
+        "endLine": 67,
         "endColumn": 6
       }
     },
@@ -356,9 +402,9 @@
       "kind": "rpc",
       "name": "GetDexSummary",
       "span": {
-        "startLine": 52,
+        "startLine": 58,
         "startColumn": 5,
-        "endLine": 55,
+        "endLine": 61,
         "endColumn": 6
       }
     },
@@ -367,9 +413,9 @@
       "kind": "rpc",
       "name": "expedite",
       "span": {
-        "startLine": 63,
+        "startLine": 69,
         "startColumn": 5,
-        "endLine": 67,
+        "endLine": 73,
         "endColumn": 6
       }
     },
@@ -380,9 +426,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 36,
+        "startLine": 41,
         "startColumn": 35,
-        "endLine": 36,
+        "endLine": 41,
         "endColumn": 40
       },
       "metadata": {
@@ -395,9 +441,9 @@
       "name": "Finish",
       "phase": "execute",
       "span": {
-        "startLine": 36,
+        "startLine": 41,
         "startColumn": 59,
-        "endLine": 36,
+        "endLine": 41,
         "endColumn": 65
       },
       "metadata": {
@@ -410,9 +456,9 @@
       "name": "ShipOrder",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 36,
+        "startLine": 41,
         "startColumn": 53,
-        "endLine": 36,
+        "endLine": 41,
         "endColumn": 57
       },
       "metadata": {
@@ -420,14 +466,14 @@
       }
     },
     {
-      "id": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+      "id": "subflow:wait:ShipOrder:115:20:1:LabelFlow:118:29",
       "kind": "subflow",
       "name": "LabelFlow",
       "external": true,
       "span": {
-        "startLine": 98,
+        "startLine": 118,
         "startColumn": 29,
-        "endLine": 98,
+        "endLine": 118,
         "endColumn": 64
       }
     },
@@ -436,22 +482,22 @@
       "kind": "timeout_handler",
       "name": "handleTimeout",
       "span": {
-        "startLine": 43,
+        "startLine": 49,
         "startColumn": 5,
-        "endLine": 45,
+        "endLine": 51,
         "endColumn": 6
       }
     },
     {
-      "id": "wait:ShipOrder:95:20",
+      "id": "wait:ShipOrder:115:20",
       "kind": "wait",
       "name": "anyComboOf",
       "parentId": "step:ShipOrder",
       "phase": "wait_for",
       "span": {
-        "startLine": 95,
+        "startLine": 115,
         "startColumn": 20,
-        "endLine": 98,
+        "endLine": 118,
         "endColumn": 98
       },
       "wait": {
@@ -463,9 +509,9 @@
             "label": "signal.for 1",
             "resourceId": "resource:channel:signal",
             "span": {
-              "startLine": 96,
+              "startLine": 116,
               "startColumn": 45,
-              "endLine": 96,
+              "endLine": 116,
               "endColumn": 60
             }
           },
@@ -476,9 +522,9 @@
             "resourceId": "resource:channel:approvals",
             "expression": "input, 2",
             "span": {
-              "startLine": 96,
+              "startLine": 116,
               "startColumn": 62,
-              "endLine": 96,
+              "endLine": 116,
               "endColumn": 86
             }
           },
@@ -489,9 +535,9 @@
             "resourceId": "resource:channel:shipping",
             "expression": "null",
             "span": {
-              "startLine": 96,
+              "startLine": 116,
               "startColumn": 88,
-              "endLine": 96,
+              "endLine": 116,
               "endColumn": 117
             }
           },
@@ -501,9 +547,9 @@
             "label": "Duration.ofMinutes(5) timer",
             "expression": "Duration.ofMinutes(5)",
             "span": {
-              "startLine": 97,
+              "startLine": 117,
               "startColumn": 45,
-              "endLine": 97,
+              "endLine": 117,
               "endColumn": 84
             }
           },
@@ -511,11 +557,11 @@
             "index": 1,
             "kind": "subflow",
             "label": "LabelFlow",
-            "subFlowId": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+            "subFlowId": "subflow:wait:ShipOrder:115:20:1:LabelFlow:118:29",
             "span": {
-              "startLine": 98,
+              "startLine": 118,
               "startColumn": 29,
-              "endLine": 98,
+              "endLine": 118,
               "endColumn": 64
             }
           },
@@ -524,9 +570,9 @@
             "kind": "gracefulCompletion",
             "label": "Graceful completion requested",
             "span": {
-              "startLine": 98,
+              "startLine": 118,
               "startColumn": 66,
-              "endLine": 98,
+              "endLine": 118,
               "endColumn": 96
             }
           }
@@ -538,26 +584,26 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:rpc:expedite:66:16",
+      "from": "decision:rpc:expedite:72:16",
       "to": "step:Finish",
       "label": "fan-out",
       "span": {
-        "startLine": 66,
+        "startLine": 72,
         "startColumn": 35,
-        "endLine": 66,
+        "endLine": 72,
         "endColumn": 70
       }
     },
     {
       "id": "edge:0002",
       "kind": "cancel",
-      "from": "decision:rpc:expedite:66:16",
+      "from": "decision:rpc:expedite:72:16",
       "to": "step:ShipOrder",
       "label": "withCancelingSteps",
       "span": {
-        "startLine": 66,
+        "startLine": 72,
         "startColumn": 91,
-        "endLine": 66,
+        "endLine": 72,
         "endColumn": 101
       },
       "metadata": {
@@ -567,70 +613,71 @@
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:Begin:79:23",
+      "from": "decision:step:Begin:call:89:20:94:30",
       "to": "step:Finish",
       "label": "goTo",
-      "condition": "input.choice() == Choice.HOLD",
+      "condition": "input.choice() == HOLD",
       "span": {
-        "startLine": 79,
-        "startColumn": 23,
-        "endLine": 79,
-        "endColumn": 60
+        "startLine": 94,
+        "startColumn": 30,
+        "endLine": 94,
+        "endColumn": 67
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:Begin:80:23",
+      "from": "decision:step:Begin:call:89:20:96:27",
       "to": "step:Finish",
       "label": "fan-out",
-      "condition": "!(input.choice() == Choice.HOLD)",
+      "condition": "input.choice() == SEND",
       "span": {
-        "startLine": 80,
-        "startColumn": 85,
-        "endLine": 80,
-        "endColumn": 120
+        "startLine": 96,
+        "startColumn": 89,
+        "endLine": 96,
+        "endColumn": 124
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:Begin:80:23",
+      "from": "decision:step:Begin:call:89:20:96:27",
       "to": "step:ShipOrder",
       "label": "fan-out",
-      "condition": "!(input.choice() == Choice.HOLD)",
+      "condition": "input.choice() == SEND",
       "span": {
-        "startLine": 80,
-        "startColumn": 45,
-        "endLine": 80,
-        "endColumn": 83
+        "startLine": 96,
+        "startColumn": 49,
+        "endLine": 96,
+        "endColumn": 87
       }
     },
     {
       "id": "edge:0006",
       "kind": "transition",
-      "from": "decision:step:ShipOrder:104:24",
+      "from": "decision:step:ShipOrder:124:24",
       "to": "step:Finish",
       "label": "fan-out",
-      "condition": "\"pending\".equals(input)",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 \"pending\".equals(input)",
       "span": {
-        "startLine": 104,
+        "startLine": 124,
         "startColumn": 74,
-        "endLine": 104,
+        "endLine": 124,
         "endColumn": 109
       }
     },
     {
       "id": "edge:0007",
       "kind": "cancel",
-      "from": "decision:step:ShipOrder:107:20",
+      "from": "decision:step:ShipOrder:131:25",
       "to": "step:Finish",
       "label": "withCancelingSiblingSteps",
+      "condition": "!(orders.get(context, input) == null) \u0026\u0026 !(\"pending\".equals(input)) \u0026\u0026 default",
       "span": {
-        "startLine": 107,
-        "startColumn": 78,
-        "endLine": 107,
-        "endColumn": 90
+        "startLine": 131,
+        "startColumn": 83,
+        "endLine": 131,
+        "endColumn": 95
       },
       "metadata": {
         "scope": "siblings"
@@ -639,13 +686,13 @@
     {
       "id": "edge:0008",
       "kind": "transition",
-      "from": "decision:timeout_handler:OrderFlow:44:16",
+      "from": "decision:timeout_handler:OrderFlow:50:16",
       "to": "step:Finish",
       "label": "goTo",
       "span": {
-        "startLine": 44,
+        "startLine": 50,
         "startColumn": 16,
-        "endLine": 44,
+        "endLine": 50,
         "endColumn": 53
       }
     },
@@ -656,9 +703,9 @@
       "to": "step:ShipOrder",
       "label": "get",
       "span": {
-        "startLine": 102,
+        "startLine": 122,
         "startColumn": 17,
-        "endLine": 102,
+        "endLine": 122,
         "endColumn": 43
       },
       "metadata": {
@@ -672,9 +719,9 @@
       "to": "rpc:GetDexDisplay",
       "label": "get",
       "span": {
-        "startLine": 60,
+        "startLine": 66,
         "startColumn": 62,
-        "endLine": 60,
+        "endLine": 66,
         "endColumn": 80
       },
       "metadata": {
@@ -688,9 +735,9 @@
       "to": "rpc:GetDexSummary",
       "label": "get",
       "span": {
-        "startLine": 54,
+        "startLine": 60,
         "startColumn": 50,
-        "endLine": 54,
+        "endLine": 60,
         "endColumn": 70
       },
       "metadata": {
@@ -701,12 +748,12 @@
       "id": "edge:0012",
       "kind": "wait_condition",
       "from": "resource:channel:approvals",
-      "to": "wait:ShipOrder:95:20",
+      "to": "wait:ShipOrder:115:20",
       "label": "approvals[input].for 2",
       "span": {
-        "startLine": 96,
+        "startLine": 116,
         "startColumn": 62,
-        "endLine": 96,
+        "endLine": 116,
         "endColumn": 86
       },
       "metadata": {
@@ -717,12 +764,12 @@
       "id": "edge:0013",
       "kind": "wait_condition",
       "from": "resource:channel:shipping",
-      "to": "wait:ShipOrder:95:20",
+      "to": "wait:ShipOrder:115:20",
       "label": "shipping[null].for first branch",
       "span": {
-        "startLine": 96,
+        "startLine": 116,
         "startColumn": 88,
-        "endLine": 96,
+        "endLine": 116,
         "endColumn": 117
       },
       "metadata": {
@@ -733,12 +780,12 @@
       "id": "edge:0014",
       "kind": "wait_condition",
       "from": "resource:channel:signal",
-      "to": "wait:ShipOrder:95:20",
+      "to": "wait:ShipOrder:115:20",
       "label": "signal.for 1",
       "span": {
-        "startLine": 96,
+        "startLine": 116,
         "startColumn": 45,
-        "endLine": 96,
+        "endLine": 116,
         "endColumn": 60
       },
       "metadata": {
@@ -752,10 +799,10 @@
       "to": "resource:attribute:orders",
       "label": "lock",
       "span": {
-        "startLine": 63,
-        "startColumn": 59,
-        "endLine": 63,
-        "endColumn": 123
+        "startLine": 69,
+        "startColumn": 56,
+        "endLine": 69,
+        "endColumn": 120
       },
       "metadata": {
         "instance": "current",
@@ -767,13 +814,13 @@
       "id": "edge:0016",
       "kind": "resource_lock",
       "from": "rpc:expedite",
-      "to": "resource:attribute:state",
+      "to": "resource:attribute:st",
       "label": "lock",
       "span": {
-        "startLine": 63,
+        "startLine": 69,
         "startColumn": 28,
-        "endLine": 63,
-        "endColumn": 35
+        "endLine": 69,
+        "endColumn": 32
       },
       "metadata": {
         "phase": "rpc",
@@ -787,9 +834,9 @@
       "to": "resource:channel:signal",
       "label": "publish",
       "span": {
-        "startLine": 65,
+        "startLine": 71,
         "startColumn": 9,
-        "endLine": 65,
+        "endLine": 71,
         "endColumn": 44
       },
       "metadata": {
@@ -803,10 +850,10 @@
       "to": "resource:attribute:orders",
       "label": "set",
       "span": {
-        "startLine": 75,
+        "startLine": 86,
         "startColumn": 13,
-        "endLine": 75,
-        "endColumn": 59
+        "endLine": 86,
+        "endColumn": 50
       },
       "metadata": {
         "phase": "execute"
@@ -819,9 +866,9 @@
       "to": "resource:attribute:state",
       "label": "set",
       "span": {
-        "startLine": 76,
+        "startLine": 87,
         "startColumn": 13,
-        "endLine": 76,
+        "endLine": 87,
         "endColumn": 40
       },
       "metadata": {
@@ -835,10 +882,10 @@
       "to": "resource:stream:progress",
       "label": "write",
       "span": {
-        "startLine": 77,
+        "startLine": 88,
         "startColumn": 13,
-        "endLine": 77,
-        "endColumn": 48
+        "endLine": 88,
+        "endColumn": 75
       },
       "metadata": {
         "bestEffort": true,
@@ -851,44 +898,61 @@
       "id": "edge:0021",
       "kind": "resource_lock",
       "from": "step:ShipOrder",
-      "to": "resource:attribute:state",
-      "label": "lock",
+      "to": "resource:attribute:orders",
+      "label": "Lock",
       "span": {
-        "startLine": 91,
-        "startColumn": 106,
-        "endLine": 91,
-        "endColumn": 118
+        "startLine": 109,
+        "startColumn": 34,
+        "endLine": 109,
+        "endColumn": 69
       },
       "metadata": {
+        "instance": "current",
         "phase": "execute"
       }
     },
     {
       "id": "edge:0022",
+      "kind": "resource_lock",
+      "from": "step:ShipOrder",
+      "to": "resource:attribute:routingLock",
+      "label": "Lock",
+      "span": {
+        "startLine": 111,
+        "startColumn": 37,
+        "endLine": 111,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0023",
       "kind": "resource_publish",
       "from": "step:ShipOrder",
       "to": "resource:channel:shipping",
       "label": "endBranch",
       "span": {
-        "startLine": 106,
-        "startColumn": 48,
-        "endLine": 106,
-        "endColumn": 92
+        "startLine": 129,
+        "startColumn": 32,
+        "endLine": 129,
+        "endColumn": 76
       },
       "metadata": {
         "phase": "execute"
       }
     },
     {
-      "id": "edge:0023",
+      "id": "edge:0024",
       "kind": "failure_transition",
       "from": "step:ShipOrder",
       "to": "step:Finish",
       "label": "Execute failure",
       "span": {
-        "startLine": 91,
+        "startLine": 110,
         "startColumn": 20,
-        "endLine": 91,
+        "endLine": 110,
         "endColumn": 90
       },
       "metadata": {
@@ -896,15 +960,15 @@
       }
     },
     {
-      "id": "edge:0024",
+      "id": "edge:0025",
       "kind": "failure_transition",
       "from": "timeout_handler:OrderFlow",
       "to": "step:Finish",
       "label": "Timeout handler failure",
       "span": {
-        "startLine": 48,
+        "startLine": 54,
         "startColumn": 16,
-        "endLine": 48,
+        "endLine": 54,
         "endColumn": 87
       },
       "metadata": {
@@ -912,15 +976,15 @@
       }
     },
     {
-      "id": "edge:0025",
+      "id": "edge:0026",
       "kind": "subflow",
-      "from": "wait:ShipOrder:95:20",
-      "to": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+      "from": "wait:ShipOrder:115:20",
+      "to": "subflow:wait:ShipOrder:115:20:1:LabelFlow:118:29",
       "label": "start",
       "span": {
-        "startLine": 98,
+        "startLine": 118,
         "startColumn": 29,
-        "endLine": 98,
+        "endLine": 118,
         "endColumn": 64
       },
       "metadata": {

@@ -30,8 +30,12 @@ type Input struct {
 
 type OrderFlow struct{ dex.FlowDefaults }
 
+type EmptyFlow struct{ dex.FlowDefaults }
+
+func (EmptyFlow) GetSteps() []dex.StepDef { return nil }
+
 func (OrderFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(Begin{})}
+	return []dex.StepDef{dex.DefineStartStep(Begin{}), dex.DefineStep(Finish{})}
 }
 
 func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
@@ -63,6 +67,29 @@ type Begin struct {
 	dex.StepDefaultsNoWaitFor[Input]
 }
 
-func (Begin) Execute(_ dex.Context, _ Input) (*dex.StepDecision, error) {
+func (Begin) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(state)},
+		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(statusText)},
+	}
+}
+
+func (Begin) Execute(context dex.Context, _ Input) (*dex.StepDecision, error) {
+	status, _ := state.Get(context)
+	_ = statusText.Set(context, status)
+	ready := status == "ready"
+	if ready {
+		return dex.GoTo(Finish{}, nil), nil
+	}
+	return dex.GracefulComplete(nil), nil
+}
+
+// dex:group group-id:shipping group-label:"Shipping"
+// dex:explanation text:"Finish shipping the order."
+type Finish struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (Finish) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }

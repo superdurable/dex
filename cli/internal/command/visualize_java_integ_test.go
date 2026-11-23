@@ -27,7 +27,7 @@ import (
 func TestVisualizeJavaMetadataParity(t *testing.T) {
 	javaPath := javaVisualizationExecutable(t)
 	fixture := filepath.Join(visualizerRepositoryRoot(t), "cli/internal/command/testfixtures/v2-metadata-parity-java")
-	goGraph, err := flowviz.Analyze(t.Context(), filepath.Join(fixture, "workflow.go"), flowviz.AnalyzeOptions{})
+	goGraph, err := flowviz.Analyze(t.Context(), filepath.Join(fixture, "workflow.go"), flowviz.AnalyzeOptions{FlowType: "OrderFlow"})
 	require.NoError(t, err)
 	require.True(t, goGraph.Valid, "%+v", goGraph.Diagnostics)
 	javaGraph, err := flowviz.Analyze(t.Context(), filepath.Join(fixture, "workflow.java"), flowviz.AnalyzeOptions{JavaPath: javaPath})
@@ -41,6 +41,20 @@ func TestVisualizeJavaMetadataParity(t *testing.T) {
 	require.Equal(t, goGraph.V2.Summary, javaGraph.V2.Summary)
 	require.Equal(t, goGraph.V2.Display, javaGraph.V2.Display)
 	require.Equal(t, goGraph.V2.Start, javaGraph.V2.Start)
+	goShape := projectWorkflowPattern(goGraph)
+	javaShape := projectWorkflowPattern(javaGraph)
+	require.Equal(t, map[string]bool{
+		"transition Begin -> Finish when ready": true,
+	}, goShape.conditionalEdges)
+	require.Equal(t, goShape.conditionalEdges, javaShape.conditionalEdges)
+	require.Equal(t, map[string]bool{
+		"resource_lock step:Begin -> resource:attribute:state (wait_for)":     true,
+		"resource_lock step:Begin -> resource:attribute:statusText (execute)": true,
+	}, goShape.lockEdges)
+	require.Equal(t, goShape.lockEdges, javaShape.lockEdges)
+	require.Contains(t, goShape.accessEdges, "resource_read resource:attribute:state -> step:Begin (execute)")
+	require.Contains(t, goShape.accessEdges, "resource_write step:Begin -> resource:attribute:statusText (execute)")
+	require.Equal(t, goShape.accessEdges, javaShape.accessEdges)
 }
 
 func TestVisualizeJavaExecutableSelection(t *testing.T) {
@@ -128,8 +142,51 @@ func TestVisualizeJavaWorkflowPatternParity(t *testing.T) {
 			}
 			require.Equal(t, goShape.edges, javaShape.edges, "control edges")
 			require.Equal(t, goShape.waits, javaShape.waits, "Wait condition kinds")
+			require.Equal(t, goShape.lockEdges, javaShape.lockEdges, "lock edges")
+			javaConditions, javaAccesses := additionalJavaWorkflowPatternEdges(flowType)
+			requireWorkflowPatternEdgeParity(t, goShape.accessEdges, javaShape.accessEdges, javaAccesses, "resource access edges")
+			requireWorkflowPatternEdgeParity(t, workflowPatternConditionalTargets(goShape),
+				workflowPatternConditionalTargets(javaShape), javaConditions, "conditional control edges")
 		})
 	}
+}
+
+func additionalJavaWorkflowPatternEdges(flowType string) (conditional, access []string) {
+	// Some Go join decisions flatten their movements, and some queued-message RPC reads are only visible in Java.
+	switch flowType {
+	case "BlockingPartialJoinFlow":
+		return []string{"transition BlockingJoin -> ProcessRound", "transition BlockingJoin -> StartBlockingRound"}, []string{
+			"resource_read resource:channel:branchASignal -> rpc:getqueuedbranchsignalcount (rpc)",
+			"resource_read resource:channel:branchBSignal -> rpc:getqueuedbranchsignalcount (rpc)",
+			"resource_read resource:channel:branchCSignal -> rpc:getqueuedbranchsignalcount (rpc)",
+		}
+	case "CancellingPartialJoinFlow":
+		return nil, []string{
+			"resource_read resource:channel:carrierAReleased -> rpc:getqueuedcarrierreleasecount (rpc)",
+			"resource_read resource:channel:carrierBReleased -> rpc:getqueuedcarrierreleasecount (rpc)",
+			"resource_read resource:channel:carrierCReleased -> rpc:getqueuedcarrierreleasecount (rpc)",
+		}
+	case "CancellingPartialJoinForMultipleInstancesFlow":
+		return nil, []string{"resource_read resource:channel:quorumInspectionReleased -> rpc:getqueuedquorumreleasecount (rpc)"}
+	case "StaticPartialJoinForMultipleInstancesFlow":
+		return []string{"transition AcceptInspections -> ApproveBatch", "transition AcceptInspections -> StartInspections"}, nil
+	case "StructuredPartialJoinFlow":
+		return []string{"transition AcceptQuotes -> PlaceOrder", "transition AcceptQuotes -> RequestQuotes"}, nil
+	case "GeneralizedAndJoinFlow":
+		return []string{"transition MatchInvoiceAndPayment -> MatchInvoiceAndPayment", "transition MatchInvoiceAndPayment -> RecordMatch"}, nil
+	default:
+		return nil, nil
+	}
+}
+
+func requireWorkflowPatternEdgeParity(t *testing.T, goEdges, javaEdges map[string]bool, javaOnly []string, description string) {
+	t.Helper()
+	for _, edge := range javaOnly {
+		require.NotContains(t, goEdges, edge)
+		require.Contains(t, javaEdges, edge)
+		delete(javaEdges, edge)
+	}
+	require.Equal(t, goEdges, javaEdges, description)
 }
 
 func workflowPatternEdgesMissingFromGo(flowType string) []string {
@@ -151,16 +208,20 @@ func workflowPatternEdgesMissingFromGo(flowType string) []string {
 }
 
 type workflowPatternProjection struct {
-	steps     map[string]bool
-	resources map[string]bool
-	edges     map[string]bool
-	waits     map[string]bool
+	steps            map[string]bool
+	resources        map[string]bool
+	edges            map[string]bool
+	conditionalEdges map[string]bool
+	lockEdges        map[string]bool
+	accessEdges      map[string]bool
+	waits            map[string]bool
 }
 
 func projectWorkflowPattern(graph *flowviz.Graph) workflowPatternProjection {
 	shape := workflowPatternProjection{
 		steps: make(map[string]bool), resources: make(map[string]bool),
 		edges: make(map[string]bool), waits: make(map[string]bool),
+		conditionalEdges: make(map[string]bool), lockEdges: make(map[string]bool), accessEdges: make(map[string]bool),
 	}
 	nodes := make(map[string]flowviz.Node, len(graph.Nodes))
 	for _, node := range graph.Nodes {
@@ -180,6 +241,10 @@ func projectWorkflowPattern(graph *flowviz.Graph) workflowPatternProjection {
 		switch edge.Kind {
 		case "transition", "cancel", "failure_transition", "subflow":
 			from, to := nodes[edge.From], nodes[edge.To]
+			condition := edge.Condition
+			if condition == "" && (graph.Source.Language == "go" || edge.Kind == "subflow") {
+				condition = from.Condition
+			}
 			if from.ParentID != "" {
 				from = nodes[from.ParentID]
 			}
@@ -187,11 +252,45 @@ func projectWorkflowPattern(graph *flowviz.Graph) workflowPatternProjection {
 				from.Name = "RPC"
 			}
 			if to.Kind == "step" || to.Kind == "subflow" {
-				shape.edges[edge.Kind+" "+from.Name+" -> "+to.Name] = true
+				key := edge.Kind + " " + from.Name + " -> " + to.Name
+				shape.edges[key] = true
+				if condition != "" {
+					shape.conditionalEdges[key+" when "+condition] = true
+				}
 			}
+		case "resource_lock":
+			shape.lockEdges[workflowPatternResourceEdge(edge, nodes)] = true
+		case "resource_read", "resource_write", "resource_publish":
+			shape.accessEdges[workflowPatternResourceEdge(edge, nodes)] = true
 		}
 	}
 	return shape
+}
+
+func workflowPatternConditionalTargets(shape workflowPatternProjection) map[string]bool {
+	// Example conditions use host-language expressions. The paired fixture checks the exact condition text.
+	targets := make(map[string]bool)
+	for edge := range shape.conditionalEdges {
+		target, _, _ := strings.Cut(edge, " when ")
+		targets[target] = true
+	}
+	return targets
+}
+
+func workflowPatternResourceEdge(edge flowviz.Edge, nodes map[string]flowviz.Node) string {
+	phase, _ := edge.Metadata["phase"].(string)
+	return edge.Kind + " " + workflowPatternEndpoint(nodes[edge.From]) + " -> " + workflowPatternEndpoint(nodes[edge.To]) + " (" + phase + ")"
+}
+
+func workflowPatternEndpoint(node flowviz.Node) string {
+	switch node.Kind {
+	case "attribute", "channel", "stream":
+		return "resource:" + node.Kind + ":" + node.Name
+	case "rpc":
+		return "rpc:" + strings.ToLower(node.Name)
+	default:
+		return node.ID
+	}
 }
 
 func javaVisualizationFlowTypes(graph *flowviz.Graph) []string {

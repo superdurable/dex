@@ -21,8 +21,25 @@ import java.util.*;
 import java.util.function.Consumer;
 
 class FlowvizJavaAnalyzer {
-    public static void main(String[] arguments) throws Exception {
-        var request = new JsonStrings(new String(System.in.readAllBytes(), StandardCharsets.UTF_8)).readObject();
+    public static void main(String[] arguments) {
+        Map<String, String> request = Map.of();
+        String result;
+        try {
+            request = new JsonStrings(new String(System.in.readAllBytes(), StandardCharsets.UTF_8)).readObject();
+            result = json(analyzeRequest(request));
+        } catch (Throwable failure) {
+            var message = failure.getMessage();
+            var detail = message == null ? "" : message.lines().findFirst().orElse("");
+            var diagnostic = object("severity", "error", "code", "java_analyzer_failed", "message",
+                    failure.getClass().getSimpleName() + (detail.isEmpty() ? "" : ": " + detail.substring(0, Math.min(240, detail.length()))));
+            result = json(object("graph", object("schemaVersion", "2.0", "valid", false,
+                    "source", object("language", "java", "path", request.getOrDefault("path", "")),
+                    "flow", object("name", ""), "nodes", List.of(), "edges", List.of(), "diagnostics", List.of(diagnostic))));
+        }
+        System.out.writeBytes(result.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Map<String, Object> analyzeRequest(Map<String, String> request) throws Exception {
         var compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null || Runtime.version().feature() < 17) {
             throw new IllegalStateException("jdk.compiler is required on JDK 17 or later");
@@ -42,7 +59,7 @@ class FlowvizJavaAnalyzer {
             }
         }
         if (analyzer.diagnostics.isEmpty()) analyzer.analyze(request.getOrDefault("flowType", ""));
-        System.out.write(json(analyzer.result()).getBytes(StandardCharsets.UTF_8));
+        return analyzer.result();
     }
 
     private static final Set<String> TERMINALS = Set.of(
@@ -71,6 +88,7 @@ class FlowvizJavaAnalyzer {
     private final Map<VariableTree, Resource> resources = new LinkedHashMap<>();
     private final Map<String, Resource> visibleResources = new LinkedHashMap<>();
     private final Map<String, Declaration> registeredSteps = new LinkedHashMap<>();
+    private final Set<MethodTree> unresolvedTypeNames = new HashSet<>();
     private final Map<String, Object> flowDefinition = object("name", "");
     private Map<String, Object> startInput;
 
@@ -96,7 +114,7 @@ class FlowvizJavaAnalyzer {
         }
         var candidates = classes.values().stream().filter(declaration -> declaration.implementsType("Flow")).toList();
         var selected = candidates.stream().filter(candidate -> requestedFlow.isEmpty() ||
-                requestedFlow.equals(typeName(candidate, "getFlowType"))).toList();
+                requestedFlow.equals(typeName(candidate, "getFlowType", false))).toList();
         if (selected.size() != 1) {
             reportFlowSelection(requestedFlow, candidates, selected);
             return;
@@ -116,7 +134,7 @@ class FlowvizJavaAnalyzer {
     }
 
     private void reportFlowSelection(String requested, List<Declaration> candidates, List<Declaration> selected) {
-        var names = String.join(", ", candidates.stream().map(candidate -> typeName(candidate, "getFlowType")).sorted().toList());
+        var names = String.join(", ", candidates.stream().map(candidate -> typeName(candidate, "getFlowType", false)).sorted().toList());
         if (requested.isEmpty() && candidates.isEmpty()) {
             diagnostic("error", "flow_not_found", "source does not declare a class implementing Flow", null);
         } else if (requested.isEmpty()) {
@@ -259,13 +277,9 @@ class FlowvizJavaAnalyzer {
             if (resource(receiver(base), scope) != null && method.equals("endBranch")) method = "deadEnd";
             else if (!staticCall(base, "StepDecision", method) ||
                     !(TERMINALS.contains(method) || Set.of("goTo", "goToMany").contains(method))) {
-                var helperOwner = scope.owner.enclosing;
-                var helper = helperOwner == null ? null : helperOwner.method(receiver(base), method, base.getArguments().size());
-                if (helper != null && !callChain.contains(helper) && callChain.size() < 8) {
-                    var helperScope = new MethodScope(helperOwner, helper);
-                    var helperOutcomes = helperScope.outcomes().stream().map(result -> new Outcome(result.expression,
-                            outcome.condition.isEmpty() ? result.condition : result.condition.isEmpty() ? outcome.condition :
-                                    ReturnScanner.combine(outcome.condition, result.condition))).toList();
+                var helperScope = scope.helperScope(base);
+                if (helperScope != null && !callChain.contains(helperScope.method) && callChain.size() < 8) {
+                    var helperOutcomes = helperScope.outcomes(outcome.condition);
                     analyzeDecisions(owner, phase, helperScope, helperOutcomes, callChain,
                             locationID(callSite + ":call", outcome.expression));
                 } else hiddenDecision(owner, phase, outcome);
@@ -548,17 +562,33 @@ class FlowvizJavaAnalyzer {
         walk(scope.method.getBody(), tree -> {
             if (!(tree instanceof MethodInvocationTree call)) return;
             if (staticCall(call, "PersistenceSchema", "of")) {
-                for (var argument : call.getArguments()) {
+                for (var argument : persistenceArguments(call.getArguments(), scope, new HashSet<>())) {
                     var resource = resource(argument, scope);
                     if (resource != null) retain(resource);
                 }
             } else {
-                var helper = scope.owner.method(receiver(call), callName(call), call.getArguments().size());
-                if (helper != null && rawType(helper.getReturnType()).endsWith("PersistenceSchema")) {
-                    analyzePersistence(new MethodScope(scope.owner, helper), visited);
+                var helper = scope.helperScope(call);
+                if (helper != null && rawType(helper.method.getReturnType()).endsWith("PersistenceSchema")) {
+                    analyzePersistence(helper, visited);
                 }
             }
         });
+    }
+
+    private List<ExpressionTree> persistenceArguments(List<? extends ExpressionTree> arguments, MethodScope scope,
+                                                      Set<ExpressionTree> visited) {
+        List<ExpressionTree> definitions = new ArrayList<>();
+        for (var argument : arguments) {
+            if (!visited.add(argument)) continue;
+            var value = scope.initializer(argument);
+            if (value instanceof MethodInvocationTree call &&
+                    (staticCall(call, "List", "of") || staticCall(call, "Arrays", "asList"))) {
+                definitions.addAll(persistenceArguments(call.getArguments(), scope, visited));
+            } else {
+                definitions.add(argument);
+            }
+        }
+        return definitions;
     }
 
     private String retain(Resource resource) {
@@ -572,10 +602,17 @@ class FlowvizJavaAnalyzer {
         return resource(expression, scope, new HashSet<>());
     }
 
-    private Resource resource(ExpressionTree expression, MethodScope scope, Set<VariableTree> visited) {
+    private Resource resource(ExpressionTree expression, MethodScope scope, Set<Tree> visited) {
         expression = unwrap(expression);
-        if (expression instanceof MethodInvocationTree call && Set.of("instance", "bufferedText").contains(callName(call))) {
-            return resource(receiver(call), scope, visited);
+        if (expression instanceof MethodInvocationTree call) {
+            if (callName(call).equals("instance")) return resource(receiver(call), scope, visited);
+            if (staticCall(call, "BufferedTextStream", "create")) return resource(argument(call, 1), scope, visited);
+            var helper = scope.helperScope(call);
+            if (helper != null && simpleName(rawType(helper.method.getReturnType())).equals("BufferedTextStream") &&
+                    visited.add(helper.method)) {
+                var outcomes = helper.outcomes();
+                if (outcomes.size() == 1) return resource(outcomes.get(0).expression, helper, visited);
+            }
         }
         var variable = scope.variable(expression);
         if (variable == null || !visited.add(variable)) return null;
@@ -587,11 +624,16 @@ class FlowvizJavaAnalyzer {
         if (!visited.add(scope.method)) return;
         walk(scope.method.getBody(), tree -> {
             if (!(tree instanceof MethodInvocationTree call)) return;
+            if (staticCall(call, "BufferedTextStream", "create")) {
+                var stream = resource(argument(call, 1), scope);
+                if (stream != null) diagnoseStreamOutsideStep(stream, phase, call);
+                return;
+            }
             var resource = resource(receiver(call), scope);
             var method = callName(call);
             if (resource == null) {
-                var helper = scope.owner.method(receiver(call), method, call.getArguments().size());
-                if (helper != null) analyzeAccess(owner, phase, new MethodScope(scope.owner, helper), visited, accesses);
+                var helper = scope.helperScope(call);
+                if (helper != null) analyzeAccess(owner, phase, helper, visited, accesses);
                 return;
             }
             var kind = switch (method) {
@@ -601,18 +643,22 @@ class FlowvizJavaAnalyzer {
                 case "publish", "endBranch", "reportBranchResult" -> "resource_publish";
                 default -> null;
             };
+            if (resource.kind.equals("stream") && method.equals("write")) diagnoseStreamOutsideStep(resource, phase, call);
             if (kind == null || !accesses.add(kind + ":" + resource.id + ":" + method)) return;
             var read = kind.equals("resource_read");
             var metadata = object("phase", phase);
             if (resource.kind.equals("stream") && method.equals("write")) {
                 metadata.putAll(object("bestEffort", true, "repeatable", true, "role", "progress"));
-                if (!phase.equals("execute") && !phase.equals("wait_for")) {
-                    diagnostic("error", "step_progress_outside_step", "Stream " + resource.key +
-                            " writes progress outside a Step", span(call));
-                }
             }
             edge(kind, read ? retain(resource) : owner, read ? owner : retain(resource), method, call, "metadata", metadata);
         });
+    }
+
+    private void diagnoseStreamOutsideStep(Resource resource, String phase, MethodInvocationTree call) {
+        if (resource.kind.equals("stream") && !phase.equals("execute") && !phase.equals("wait_for")) {
+            diagnostic("error", "step_progress_outside_step", "Stream " + resource.key +
+                    " uses " + call.getMethodSelect() + " outside a Step", span(call));
+        }
     }
 
     private void analyzeOptions(String owner, Declaration declaration, MethodTree handler, String phase) {
@@ -625,9 +671,9 @@ class FlowvizJavaAnalyzer {
         walk(scope.method.getBody(), tree -> {
             if (!(tree instanceof MethodInvocationTree call)) return;
             analyzeOptionCall(owner, phase, call, scope);
-            var helper = scope.owner.method(receiver(call), callName(call), call.getArguments().size());
-            if (helper != null && rawType(helper.getReturnType()).endsWith("StepOptions"))
-                analyzeOptions(owner, phase, new MethodScope(scope.owner, helper), visited);
+            var helper = scope.helperScope(call);
+            if (helper != null && rawType(helper.method.getReturnType()).endsWith("StepOptions"))
+                analyzeOptions(owner, phase, helper, visited);
         });
     }
 
@@ -657,10 +703,17 @@ class FlowvizJavaAnalyzer {
                         call, "metadata", object("skipWaitFor", targetStep != null && targetStep.method("waitFor") == null));
             }
         } else if (Set.of("addExecuteLock", "addWaitForLock", "addLock").contains(method) &&
-                unwrap(argument(call, 0)) instanceof MethodInvocationTree lock) {
-            var resource = resource(receiver(lock), scope);
-            if (resource != null) edge("resource_lock", owner, retain(resource), "lock", lock,
-                    "metadata", object("phase", method.equals("addWaitForLock") ? "wait_for" : phase));
+                scope.initializer(argument(call, 0)) instanceof MethodInvocationTree lock &&
+                staticCall(lock, "AttributeLock", "of")) {
+            var resource = resource(argument(lock, 0), scope);
+            if (resource == null || !resource.kind.equals("attribute")) return;
+            var metadata = object("phase", method.equals("addWaitForLock") ? "wait_for" : phase);
+            if (resource.isMap && argument(lock, 1) != null) {
+                var instance = argument(lock, 1);
+                var literal = stringValue(scope.initializer(instance), scope.owner);
+                metadata.put("instance", literal == null ? instance.toString() : literal);
+            }
+            edge("resource_lock", owner, retain(resource), "Lock", lock, "metadata", metadata);
         }
     }
 
@@ -705,11 +758,15 @@ class FlowvizJavaAnalyzer {
     }
 
     private void collectRPCResults(String id, String name, MethodScope scope, Set<MethodTree> callChain) {
+        collectRPCResults(id, name, scope, callChain, "");
+    }
+
+    private void collectRPCResults(String id, String name, MethodScope scope, Set<MethodTree> callChain, String condition) {
         var isView = Set.of("GetDexSummary", "GetDexDisplay").contains(name) && callChain.isEmpty();
         Set<String> outputKeys = new LinkedHashSet<>();
         var hasKnownKeys = true;
         callChain.add(scope.method);
-        var outcomes = scope.outcomes();
+        var outcomes = scope.outcomes(condition);
         for (var outcome : outcomes) {
             var expression = scope.initializer(outcome.expression);
             if (!(expression instanceof MethodInvocationTree call)) {
@@ -724,9 +781,9 @@ class FlowvizJavaAnalyzer {
             }
             if (!staticCall(base, "RPCResult", "of")) {
                 hasKnownKeys = false;
-                var helper = scope.owner.method(receiver(base), callName(base), base.getArguments().size());
-                if (helper != null && !callChain.contains(helper) && callChain.size() < 8) {
-                    collectRPCResults(id, name, new MethodScope(scope.owner, helper), callChain);
+                var helper = scope.helperScope(base);
+                if (helper != null && !callChain.contains(helper.method) && callChain.size() < 8) {
+                    collectRPCResults(id, name, helper, callChain, outcome.condition);
                 } else {
                     diagnostic("error", "hidden_dex_decision", "RPC " + name + " must return RPCResult.of or call a method declared in this file",
                             span(expression));
@@ -966,17 +1023,15 @@ class FlowvizJavaAnalyzer {
         }
 
         MethodTree method(String name) {
-            return method(null, name, -1);
+            return method(name, -1);
         }
 
-        MethodTree method(ExpressionTree receiver, String name, int argumentCount) {
-            if (receiver != null && !receiver.toString().equals("this") &&
-                    !receiver.toString().equals(tree.getSimpleName().toString())) return null;
+        MethodTree method(String name, int argumentCount) {
             for (var member : tree.getMembers()) {
                 if (member instanceof MethodTree method && method.getName().contentEquals(name) &&
                         (argumentCount < 0 || argumentCount == method.getParameters().size())) return method;
             }
-            return argumentCount >= 0 && receiver == null && enclosing != null ? enclosing.method(null, name, argumentCount) : null;
+            return null;
         }
 
         VariableTree field(ExpressionTree expression) {
@@ -1005,6 +1060,28 @@ class FlowvizJavaAnalyzer {
             this.owner = owner;
             this.method = method;
             new LocalScanner(this).scan(method, method);
+        }
+
+        MethodScope helperScope(MethodInvocationTree call) {
+            var receiver = unwrap(receiver(call));
+            if (receiver == null) {
+                for (var declaration = owner; declaration != null; declaration = declaration.enclosing) {
+                    var candidate = declaration.method(callName(call), call.getArguments().size());
+                    if (candidate != null) return new MethodScope(declaration, candidate);
+                }
+                return null;
+            }
+            var qualifier = receiver.toString();
+            Declaration declaration;
+            if (qualifier.equals("this")) {
+                declaration = owner;
+            } else {
+                if (variable(receiver) != null) return null;
+                declaration = resolveClass(qualifier.replaceFirst("\\.this$", ""), owner);
+            }
+            if (declaration == null) return null;
+            var candidate = declaration.method(callName(call), call.getArguments().size());
+            return candidate == null ? null : new MethodScope(declaration, candidate);
         }
 
         VariableTree variable(ExpressionTree expression) {
@@ -1041,8 +1118,12 @@ class FlowvizJavaAnalyzer {
         }
 
         List<Outcome> outcomes() {
+            return outcomes("");
+        }
+
+        List<Outcome> outcomes(String condition) {
             var scanner = new ReturnScanner();
-            scanner.scan(method.getBody(), "");
+            scanner.scan(method.getBody(), condition);
             return scanner.outcomes;
         }
     }
@@ -1096,10 +1177,29 @@ class FlowvizJavaAnalyzer {
         @Override public Void visitClass(ClassTree tree, String condition) { return null; }
         @Override public Void visitLambdaExpression(LambdaExpressionTree tree, String condition) { return null; }
 
+        @Override public Void visitBlock(BlockTree block, String condition) {
+            scanStatements(block.getStatements(), condition);
+            return null;
+        }
+
         @Override public Void visitIf(IfTree branch, String condition) {
             var text = unwrap(branch.getCondition()).toString();
             scan(branch.getThenStatement(), combine(condition, text));
-            scan(branch.getElseStatement(), combine(condition, "!(" + text + ")"));
+            scan(branch.getElseStatement(), combine(condition, negate(text)));
+            return null;
+        }
+
+        @Override public Void visitSwitch(SwitchTree selection, String condition) {
+            scanCases(selection.getExpression(), selection.getCases(), condition);
+            return null;
+        }
+
+        @Override public Void visitSwitchExpression(SwitchExpressionTree selection, String condition) {
+            return null;
+        }
+
+        @Override public Void visitCatch(CatchTree handler, String condition) {
+            scan(handler.getBlock(), combine(condition, "exception"));
             return null;
         }
 
@@ -1108,15 +1208,71 @@ class FlowvizJavaAnalyzer {
             return null;
         }
 
+        @Override public Void visitYield(YieldTree yielded, String condition) {
+            expand(yielded.getValue(), condition);
+            return null;
+        }
+
+        private String scanStatements(List<? extends StatementTree> statements, String condition) {
+            for (var statement : statements) {
+                scan(statement, condition);
+                if (alwaysExits(statement)) return null;
+                if (statement instanceof IfTree branch) {
+                    var text = unwrap(branch.getCondition()).toString();
+                    if (alwaysExits(branch.getThenStatement())) condition = combine(condition, negate(text));
+                    else if (alwaysExits(branch.getElseStatement())) condition = combine(condition, text);
+                }
+            }
+            return condition;
+        }
+
+        private void scanCases(ExpressionTree subject, List<? extends CaseTree> cases, String condition) {
+            var selector = unwrap(subject).toString();
+            String fallthrough = null;
+            for (var arm : cases) {
+                var labels = arm.getExpressions().stream().map(value -> selector + " == " + value).toList();
+                var label = labels.isEmpty() ? "default" : labels.size() == 1 ? labels.get(0) :
+                        "(" + String.join(" || ", labels) + ")";
+                var armCondition = combine(condition, label);
+                if (fallthrough != null) armCondition = "((" + fallthrough + ") || (" + armCondition + "))";
+                if (arm.getCaseKind() == CaseTree.CaseKind.STATEMENT) {
+                    fallthrough = scanStatements(arm.getStatements(), armCondition);
+                } else if (arm.getBody() instanceof ExpressionTree expression) {
+                    expand(expression, armCondition);
+                } else {
+                    scan(arm.getBody(), armCondition);
+                }
+            }
+        }
+
+        private boolean alwaysExits(StatementTree statement) {
+            if (statement == null) return false;
+            return switch (statement.getKind()) {
+                case RETURN, THROW, BREAK, CONTINUE, YIELD -> true;
+                case BLOCK -> ((BlockTree) statement).getStatements().stream().anyMatch(this::alwaysExits);
+                case IF -> {
+                    var branch = (IfTree) statement;
+                    yield alwaysExits(branch.getThenStatement()) && alwaysExits(branch.getElseStatement());
+                }
+                default -> false;
+            };
+        }
+
         private void expand(ExpressionTree expression, String condition) {
             expression = unwrap(expression);
             if (expression instanceof ConditionalExpressionTree branch) {
                 var text = unwrap(branch.getCondition()).toString();
                 expand(branch.getTrueExpression(), combine(condition, text));
-                expand(branch.getFalseExpression(), combine(condition, "!(" + text + ")"));
+                expand(branch.getFalseExpression(), combine(condition, negate(text)));
+            } else if (expression instanceof SwitchExpressionTree selection) {
+                scanCases(selection.getExpression(), selection.getCases(), condition);
             } else if (expression != null) {
                 outcomes.add(new Outcome(expression, condition));
             }
+        }
+
+        private static String negate(String condition) {
+            return "!(" + condition + ")";
         }
 
         private static String combine(String previous, String next) {
@@ -1140,11 +1296,21 @@ class FlowvizJavaAnalyzer {
     }
 
     private String typeName(Declaration declaration, String methodName) {
+        return typeName(declaration, methodName, true);
+    }
+
+    private String typeName(Declaration declaration, String methodName, boolean reportUnresolved) {
         var method = declaration.method(methodName);
-        if (method != null && method.getBody() != null && method.getBody().getStatements().size() == 1 &&
-                method.getBody().getStatements().get(0) instanceof ReturnTree returned &&
-                unwrap(returned.getExpression()) instanceof LiteralTree literal && literal.getValue() instanceof String value) {
-            return value;
+        if (method != null) {
+            var scope = new MethodScope(declaration, method);
+            var values = scope.outcomes().stream()
+                    .map(outcome -> stringValue(scope.initializer(outcome.expression), declaration)).distinct().toList();
+            if (values.size() == 1 && values.get(0) != null) return values.get(0);
+            if (reportUnresolved && unresolvedTypeNames.add(method)) {
+                diagnostic("warning", "dynamic_type_name", methodName +
+                        " must return a static string to resolve the registered type; using " + declaration.tree.getSimpleName(),
+                        span(method));
+            }
         }
         return declaration.tree.getSimpleName().toString();
     }
@@ -1259,19 +1425,28 @@ class FlowvizJavaAnalyzer {
     private List<Map<String, Object>> directives(Tree tree) {
         var position = positions.getStartPosition(unit, tree);
         if (position < 0) return List.of();
-        int lineStart = source.lastIndexOf('\n', (int) position - 1) + 1;
+        int lineEnd = (int) position;
         List<Map<String, Object>> result = new ArrayList<>();
-        while (lineStart > 0) {
-            int previousStart = source.lastIndexOf('\n', lineStart - 2) + 1;
-            var line = source.substring(previousStart, lineStart - 1);
+        while (lineEnd > 0) {
+            int previousStart = source.lastIndexOf('\n', lineEnd - 1) + 1;
+            var line = source.substring(previousStart, lineEnd);
             var trimmed = line.strip();
-            if (!trimmed.startsWith("//")) break;
-            var text = trimmed.substring(2).stripLeading();
-            if (text.startsWith("dex:")) {
-                int comment = previousStart + line.indexOf("//");
-                result.add(object("text", text, "span", span(comment, lineStart - 1)));
+            if (trimmed.endsWith("*/") && !trimmed.startsWith("//")) {
+                int end = previousStart + line.lastIndexOf("*/");
+                int start = source.lastIndexOf("/**", end);
+                if (start < 0 || source.indexOf("*/", start + 2) != end) break;
+                lineEnd = start;
+                continue;
             }
-            lineStart = previousStart;
+            if (!trimmed.isEmpty()) {
+                if (!trimmed.startsWith("//")) break;
+                var text = trimmed.substring(2).stripLeading();
+                if (text.startsWith("dex:")) {
+                    int comment = previousStart + line.indexOf("//");
+                    result.add(object("text", text, "span", span(comment, lineEnd)));
+                }
+            }
+            lineEnd = previousStart - 1;
         }
         Collections.reverse(result);
         return result;
@@ -1290,8 +1465,14 @@ class FlowvizJavaAnalyzer {
         if (start < 0 || unit.getLineMap() == null) return null;
         var lines = unit.getLineMap();
         end = Math.max(start, end);
-        return object("startLine", lines.getLineNumber(start), "startColumn", lines.getColumnNumber(start),
-                "endLine", lines.getLineNumber(end), "endColumn", lines.getColumnNumber(end));
+        var startLine = lines.getLineNumber(start);
+        var endLine = lines.getLineNumber(end);
+        return object("startLine", startLine, "startColumn", byteColumn(lines.getStartPosition(startLine), start),
+                "endLine", endLine, "endColumn", byteColumn(lines.getStartPosition(endLine), end));
+    }
+
+    private int byteColumn(long lineStart, long offset) {
+        return 1 + source.substring((int) lineStart, (int) offset).getBytes(StandardCharsets.UTF_8).length;
     }
 
     private void node(String id, String kind, String name, Tree anchor, Object... properties) {

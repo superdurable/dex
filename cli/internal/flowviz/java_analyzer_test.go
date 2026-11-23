@@ -9,9 +9,12 @@
 package flowviz
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +26,7 @@ func TestJavaAnalyzerGolden(t *testing.T) {
 	graph, err := Analyze(t.Context(), source, AnalyzeOptions{JavaPath: javaPath})
 	require.NoError(t, err)
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.NotContains(t, diagnosticCodes(graph), "unused_resource")
 	graph.Source.Path = "workflow.java"
 	data, err := MarshalJSON(graph)
 	require.NoError(t, err)
@@ -47,21 +51,19 @@ func TestJavaAnalyzerDiagnostics(t *testing.T) {
 		{name: "ambiguous", file: "diagnostics.java", expected: []string{"multiple_flows"}},
 		{name: "missing", file: "diagnostics.java", flow: "ExternalFlow", expected: []string{"flow_not_found"}},
 		{name: "dynamic", file: "diagnostics.java", flow: "BrokenFlow", state: "bool", expected: []string{
-			"dynamic_step_target", "hidden_dex_decision", "hidden_dex_wait", "start_input_unresolved", "v2_start_input",
+			"dynamic_step_target", "step_type_unresolved", "hidden_dex_wait", "start_input_unresolved", "v2_start_input",
 		}},
 		{name: "external", file: "diagnostics.java", flow: "RegisteredFlow", state: "string", expected: []string{"step_type_unresolved"}},
-		{name: "syntax", file: "parse.java", expected: []string{"java_parse_failed"}},
+		{name: "progress outside a step", file: "diagnostics.java", flow: "ProgressFlow", expected: []string{
+			"dynamic_type_name", "dynamic_type_name", "step_progress_outside_step", "step_progress_outside_step", "step_progress_outside_step",
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			graph, err := Analyze(t.Context(), filepath.Join("testdata", "java", "shapes", test.file),
 				AnalyzeOptions{Language: "java", JavaPath: javaPath, FlowType: test.flow})
 			require.NoError(t, err)
-			var codes []string
-			for _, diagnostic := range graph.Diagnostics {
-				codes = append(codes, diagnostic.Code)
-			}
-			require.ElementsMatch(t, test.expected, codes, "%+v", graph.Diagnostics)
+			require.ElementsMatch(t, test.expected, diagnosticCodes(graph), "%+v", graph.Diagnostics)
 			var states []string
 			for _, node := range graph.Nodes {
 				if node.ID == "resource:attribute:state" {
@@ -73,6 +75,62 @@ func TestJavaAnalyzerDiagnostics(t *testing.T) {
 			} else {
 				require.Equal(t, []string{test.state}, states)
 			}
+		})
+	}
+	t.Run("syntax", func(t *testing.T) {
+		graph, err := analyzeJava(t.Context(), "broken.java", []byte("class Broken { public\n}"), javaPath, "")
+		require.NoError(t, err)
+		require.Equal(t, []string{"java_parse_failed"}, diagnosticCodes(graph))
+	})
+}
+
+func TestJavaAnalyzerUncaughtFailure(t *testing.T) {
+	javaPath := javaAnalyzerTestExecutable(t)
+	script := filepath.Join(t.TempDir(), "FlowvizJavaAnalyzer.java")
+	require.NoError(t, os.WriteFile(script, javaAnalyzerSource, 0o600))
+	command := exec.CommandContext(t.Context(), javaPath, script)
+	command.Stdin = strings.NewReader("!")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	require.NoError(t, err, "%s", stderr.String())
+	require.Empty(t, stderr.String())
+	var result scriptAnalysis
+	require.NoError(t, json.Unmarshal(output, &result))
+	require.False(t, result.Graph.Valid)
+	require.Equal(t, []string{"java_analyzer_failed"}, diagnosticCodes(&result.Graph))
+}
+
+func TestJavaAnalyzerProcessFailure(t *testing.T) {
+	longDetail := strings.Repeat("é", 130)
+	version17 := "printf 'openjdk version \"17.0.19\"\\n' >&2"
+	tests := []struct {
+		name    string
+		version string
+		analyze string
+		want    string
+	}{
+		{"Java 11", "printf 'openjdk version \"11.0.29\"\\n' >&2", "", "Java analysis requires a JDK 17 or later: found Java 11"},
+		{"Java 15", "printf 'java version \"15\"\\n' >&2", "", "Java analysis requires a JDK 17 or later: found Java 15"},
+		{"Java 8", "printf 'java version \"1.8.0_451\"\\n' >&2", "", "Java analysis requires a JDK 17 or later: found Java 8"},
+		{"launcher", "printf 'ignored stdout\\n'; printf 'Error: Could not find or load main class\\nstack trace\\n' >&2; exit 1", "",
+			"Java analysis requires a JDK 17 or later: Error: Could not find or load main class"},
+		{"unsupported class", version17, "printf 'UnsupportedClassVersionError: incompatible class\\nstack trace\\n' >&2",
+			"Java analysis requires a JDK 17 or later: UnsupportedClassVersionError: incompatible class"},
+		{"other failure", version17, "printf '" + longDetail + "\\nstack trace\\n' >&2",
+			"Java analysis failed: " + strings.Repeat("é", 120) + "…"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			launcher := filepath.Join(t.TempDir(), "java")
+			script := "#!/bin/sh\nif [ \"$1\" = '-version' ]; then\n" + test.version + "\nexit 0\nfi\n" +
+				test.analyze + "\nexit 1\n"
+			require.NoError(t, os.WriteFile(launcher, []byte(script), 0o700))
+			graph, err := analyzeJava(t.Context(), "workflow.java", nil, launcher, "")
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Equal(t, []string{"java_analyzer_failed"}, diagnosticCodes(graph))
+			require.Equal(t, test.want, graph.Diagnostics[0].Message)
 		})
 	}
 }

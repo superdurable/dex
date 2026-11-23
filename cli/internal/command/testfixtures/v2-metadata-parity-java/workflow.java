@@ -21,7 +21,7 @@ class OrderFlow implements Flow<OrderFlow.Input> {
     private final Attribute<String> state = Attribute.define("state", String.class, new AttributeIndex(AttributeIndex.Type.KEYWORD));
     private final Attribute<String> statusText = Attribute.define("statusText", String.class);
 
-    public StepList<Input> getSteps() { return StepList.startStep(new Begin()); }
+    public StepList<Input> getSteps() { return StepList.startStep(new Begin()).otherSteps(new Finish()); }
     public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(state, statusText); }
 
     // dex:field attribute-key:statusText value-type:string editable:false description:"Order status."
@@ -38,8 +38,30 @@ class OrderFlow implements Flow<OrderFlow.Input> {
 
     // dex:group group-id:shipping group-label:"Shipping"
     // dex:explanation text:"Begin to ship the order."
-    static class Begin implements Step<Input> {
+    class Begin implements Step<Input> {
         public Class<Input> getInputType() { return Input.class; }
-        public StepDecision execute(Context context, Input input) { return StepDecision.gracefulComplete(); }
+
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder().addWaitForLock(AttributeLock.of(state))
+                    .addExecuteLock(AttributeLock.of(statusText)).build();
+        }
+
+        public StepDecision execute(Context context, Input input) {
+            String status = state.get(context);
+            statusText.set(context, status);
+            boolean ready = "ready".equals(status);
+            if (ready) return StepDecision.goTo(Finish.class, null);
+            return StepDecision.gracefulComplete();
+        }
+    }
+
+    // dex:group group-id:shipping group-label:"Shipping"
+    // dex:explanation text:"Finish shipping the order."
+    static class Finish implements Step<Void> {
+        public Class<Void> getInputType() { return Void.class; }
+
+        public StepDecision execute(Context context, Void input) {
+            return StepDecision.gracefulComplete();
+        }
     }
 }
