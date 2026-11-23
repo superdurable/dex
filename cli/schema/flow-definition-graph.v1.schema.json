@@ -71,7 +71,7 @@
       "additionalProperties": false,
       "required": ["type", "conditions"],
       "properties": {
-        "type": {"enum": ["skipWaitImmediately", "until", "allOf", "anyOf", "anyComboOf", "unknown"]},
+        "type": {"enum": ["skipWaitImmediately", "until", "allOf", "anyOf", "anyComboOf", "failure", "unknown"]},
         "conditions": {
           "type": "array",
           "items": {
@@ -79,7 +79,7 @@
             "additionalProperties": false,
             "required": ["kind", "label"],
             "properties": {
-              "kind": {"enum": ["channel", "timer", "subflow", "unknown"]},
+              "kind": {"enum": ["channel", "timer", "subflow", "gracefulCompletion", "unknown"]},
               "label": {"type": "string"},
               "resourceId": {"type": "string"},
               "subFlowId": {"type": "string"},

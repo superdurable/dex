@@ -23,6 +23,7 @@ const LintApplication = "app"
 type AnalyzeOptions struct {
 	Language      string
 	PythonPath    string
+	JavaPath      string
 	SchemaVersion string
 	FlowType      string
 	Lint          string
@@ -58,6 +59,8 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 		graph, err = analyzePython(ctx, absolutePath, data, options.PythonPath, options.FlowType)
 	case "typescript":
 		graph, err = analyzeTypeScript(ctx, absolutePath, data, options.FlowType, options.TypeScriptCompilerDirectory)
+	case "java":
+		graph, err = analyzeJava(ctx, absolutePath, data, options.JavaPath, options.FlowType)
 	default:
 		panic("validated language was not handled")
 	}
@@ -141,6 +144,8 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 			return "go", nil
 		case ".py":
 			return "python", nil
+		case ".java":
+			return "java", nil
 		case ".ts", ".tsx", ".mts", ".cts":
 			return "typescript", nil
 		default:
@@ -148,9 +153,9 @@ func resolveLanguage(requested string, sourcePath string) (string, error) {
 		}
 	}
 	switch language {
-	case "go", "python", "typescript":
+	case "go", "python", "typescript", "java":
 		return language, nil
 	default:
-		return "", fmt.Errorf("language must be auto, go, python, or typescript")
+		return "", fmt.Errorf("language must be auto, go, python, typescript, or java")
 	}
 }
