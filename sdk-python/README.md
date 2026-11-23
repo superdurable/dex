@@ -336,8 +336,10 @@ prevents shutdown. The default is False and retries indefinitely. Always call
 ### Reserved RPC capacity
 
 Set `reserved_rpc_tasks` when synchronous RPC latency must stay responsive
-behind long-running Steps. When unset, it reserves one slot if the resolved task
-limit is at least two, otherwise zero. Set it explicitly to zero to opt out. With one slot and
+behind long-running Steps. When unset, it reserves one slot only if both the
+resolved task limit and floor are at least two; otherwise it reserves zero. For
+example, `max_concurrent_tasks=8` with `min_open_slots=1` reserves zero. Set it
+explicitly to zero to opt out. With one slot and
 no explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
 Flows must stay responsive because RPCs share Worker task capacity with Steps.

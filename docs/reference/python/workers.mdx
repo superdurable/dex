@@ -128,10 +128,11 @@ them reserved for RPCs, and grows up to 100 under load. A Worker that sets only
   unset **min_open_slots** and **reserved_rpc_tasks** are then derived from the
   clamped ceiling, so a cap of 1 gives one slot and no RPC reserve. An explicit
   **max_concurrent_tasks** of a fixed Worker above the cap still fails start.
-- An adaptive Worker with **min_open_slots** unset opens one stream first. It
-  opens the other floor streams after that stream registers and reports the
-  cap. This adds one round trip to start. A Worker with an explicit
-  **min_open_slots** opens its floor streams at once.
+- An adaptive Worker with **min_open_slots** unset, or a fixed Worker with
+  **max_concurrent_tasks** unset, opens one stream first to learn the server
+  cap, then opens the other streams. For example, **min_open_slots=100** with
+  **max_concurrent_tasks** unset takes this path. This adds one round trip to
+  start. In every other case, the Worker opens its streams in parallel.
 
 ## Named task queues {#named-task-queues}
 

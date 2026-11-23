@@ -220,13 +220,11 @@ class PullWorkerOptions:
             a high ``max_concurrent_tasks``. An adaptive Worker
             starts with ``min_open_slots - reserved_rpc_tasks`` Step-and-RPC
             streams and opens the RPC-only streams after the first registration.
-            When ``min_open_slots`` is unset, the Worker first opens one
-            Step-and-RPC stream, learns the Server cap from its registration,
-            derives the floor and the reserve from the clamped ceiling, and
-            then opens the other streams. This adds one round trip to start
-            and keeps a cap below the default floor from rejecting streams.
-            With an explicit ``min_open_slots`` it opens the floor streams at
-            once.
+            An adaptive Worker with ``min_open_slots`` unset, or a fixed Worker
+            with ``max_concurrent_tasks`` unset, first opens one Step-and-RPC
+            stream to learn the Server cap from its registration, then opens
+            the other streams. This adds one round trip to start. In every
+            other case, the Worker opens its streams in parallel.
             When a task takes its last idle Step-and-RPC stream, it doubles its
             Step-and-RPC streams, one batch at a time, up to
             ``max_concurrent_tasks``. Every 30 seconds it half-closes half of
