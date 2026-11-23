@@ -195,7 +195,7 @@ public final class RPCInvokeOptions {
          * @param requestId the non-empty ID for this logical call, or {@code null} to generate an ID
          * @return this builder
          * @throws IllegalArgumentException if {@code requestId} is empty
-         * @since 1.45.3
+         * @since 1.45.7
          */
         public Builder requestId(final String requestId) {
             if (requestId != null && requestId.isEmpty()) {
