@@ -239,7 +239,7 @@ func (checker *goStateLoadChecker) addInvocationLoadDirectives(handler goHandler
 		if text != "dex:invocation-load" && !strings.HasPrefix(text, "dex:invocation-load ") {
 			continue
 		}
-		resourceID := checker.invocationLoadDirectiveResource(text, comment)
+		resourceID := checker.invocationLoadDirectiveResource(text)
 		switch {
 		case resourceID == "":
 			checker.analyzer.graph.AddDiagnostic("error", "invocation_load_directive", fmt.Sprintf(
@@ -254,8 +254,8 @@ func (checker *goStateLoadChecker) addInvocationLoadDirectives(handler goHandler
 	}
 }
 
-func (checker *goStateLoadChecker) invocationLoadDirectiveResource(text string, comment *ast.Comment) string {
-	directive, err := parseV2Directive(text, comment)
+func (checker *goStateLoadChecker) invocationLoadDirectiveResource(text string) string {
+	directive, err := parseV2Directive(text, nil)
 	if err != nil || len(directive.arguments) != 1 {
 		return ""
 	}
