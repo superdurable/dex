@@ -253,6 +253,7 @@ export interface VercelAiAgentSessionOptions extends Omit<AgentSessionOptions, "
  *   interruptDeadlineMs: 24 * 60 * 60 * 1000,
  * });
  * const registry = new Registry([flow]);
+ * // Only one running process may use .dex-cache. Give each Worker replica its own directory.
  * const blobCache = openBlobCache({ directory: ".dex-cache", maxBytes: 64 * 1024 * 1024 });
  * const worker = new Worker(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
  * await worker.start();

@@ -121,6 +121,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Only one running process may use .dex-cache. Give each Worker replica its own directory.
 	cache, err := blobcache.New(&blobcache.Config{Dir: ".dex-cache", MaxBytes: 64 << 20})
 	if err != nil {
 		return err

@@ -604,6 +604,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     Example:
         >>> flow = AgentSessionFlow(MyFrameworkRunner(agent), flow_type="TriageAgent")
         >>> registry = Registry([flow], allow_async_handlers=True)
+        >>> # Only one running process may use .dex-cache.
+        >>> # Give each Worker replica its own directory.
         >>> cache = open_blob_cache(BlobCacheConfig(".dex-cache", 64 * 1024**2))
         >>> worker = AsyncWorker(registry, cache, WorkerOptions(server_address="localhost:8801"))
         >>> client = AsyncClient(registry, cache, ClientOptions(server_address="localhost:8801"))

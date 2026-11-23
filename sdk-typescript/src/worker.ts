@@ -79,7 +79,8 @@ export class Worker {
    * `DEFAULT_GRPC_MAX_MESSAGE_BYTES` on FlowService calls and task streams, and a LoadBlobs
    * batch over the SDK's gRPC limit is split instead of failing.
    * @param registry - Flow definitions served by this Worker.
-   * @param blobCache - Open cache used to hydrate large handler values.
+   * @param blobCache - Open cache used to hydrate large handler values. Only one open cache may
+   * use its directory at a time; see {@link openBlobCache}.
    * @param options - Server connectivity, task capacity, bearer credential, startup settings, and gRPC message size limit; uses local defaults when omitted.
    * @throws {TypeError} When the Worker ID or `pull.taskQueue` is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When a pull capacity or drain timeout is invalid, or `grpcMaxMessageBytes` is negative or not an integer.

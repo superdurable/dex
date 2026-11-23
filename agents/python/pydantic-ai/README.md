@@ -89,6 +89,7 @@ flow = pydantic_ai_session_flow(
 
 async def main() -> None:
     registry = Registry([flow], allow_async_handlers=True)
+    # Only one running process may use .dex-cache. Give each Worker replica its own directory.
     cache = open_blob_cache(BlobCacheConfig(".dex-cache", 64 * 1024 * 1024))
     worker = AsyncWorker(registry, cache, WorkerOptions(server_address="localhost:8801"))
     client = AsyncClient(registry, cache, ClientOptions(server_address="localhost:8801"))

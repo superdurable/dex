@@ -210,7 +210,8 @@ export class Client {
    * `DEFAULT_GRPC_MAX_MESSAGE_BYTES`, and a LoadBlobs batch over the SDK's gRPC limit is split
    * instead of failing.
    * @param registry - Flow definitions used for validation and routing.
-   * @param blobCache - Open cache used to hydrate large response values.
+   * @param blobCache - Open cache used to hydrate large response values. Only one open cache may
+   * use its directory at a time; see {@link openBlobCache}.
    * @param options - Service address, optional bearer credential, optional TLS settings, and optional gRPC message size limit.
    * @throws {TypeError} When `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer, or a payload
@@ -1191,17 +1192,19 @@ export class Client {
    * @throws {@link FlowDefinitionError} before any request when a definition is not registered by a
    * Flow in the Client's Registry, or differs from the registered definition object.
    * @throws {@link FlowNotFoundError} when the Flow does not exist or its latest run is being purged.
-   * @throws {@link ValueMappingError} when a value cannot be hydrated or decoded with its codec.
+   * @throws {@link ValueMappingError} when a value cannot be hydrated, such as after a failed
+   * BlobCache read, or cannot be decoded with its codec.
    * @throws {@link BlobMessageTooLargeError} when one blob alone exceeds a gRPC message size limit.
    * @throws {@link DexServiceError} for other FlowService failures, including a failed LoadBlobs
    * request. The error keeps the gRPC `code` and the server `detail`, and its `operation` is
    * `loadBlobs` for a LoadBlobs failure.
-   * @throws {@link Error} when Dex returns an invalid response, or the BlobCache fails while large
-   * values are hydrated.
+   * @throws {@link Error} when Dex returns an invalid response.
    * Every error message names the Flow ID. An error about one read or value also names its
    * Attribute name or physical key. The exception is a {@link PayloadEncryptionError} from
    * decryption, which carries only its category and key ID.
    * Changed in 1.45.16: rejects with {@link PayloadEncryptionError} when a value cannot be decrypted.
+   * Changed in 1.45.17: a failed BlobCache write no longer rejects. The SDK logs it with
+   * `console.warn` and returns the values it loaded from Dex.
    * @since 1.29.0
    */
   public async getAttributes<

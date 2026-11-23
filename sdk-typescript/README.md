@@ -353,6 +353,14 @@ try {
 This example uses plaintext gRPC. To reach a server over a network you do not
 fully control, also set `flowServiceTls`; see [TLS](#tls).
 
+The example's `cache` comes from `openBlobCache`. Open each cache directory
+once, and share that cache between the Worker and the Client of the process.
+Only one open cache may use a directory at a time, whether the two caches are
+in one process or in two. Separate processes, such as two replicas of a Worker,
+need separate directories. A restarted process can reuse its directory. Since
+1.45.17, a failed cache write does not fail a Step, RPC, or Client call: the
+SDK logs it with `console.warn` and uses the value it loaded from Dex.
+
 After `await worker.start()`, call `await worker.waitPullRegistered({ timeoutMs: 10_000 })`
 to wait until at least one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream have registered.
 The wait also accepts an `AbortSignal` as `signal`. It is safe before startup and for concurrent

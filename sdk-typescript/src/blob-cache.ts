@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 
 /** Configures the local persistent cache for large Dex values. */
 export interface BlobCacheConfig {
-  /** Writable directory used for cache payloads and metadata. */
+  /**
+   * Writable directory used for cache payloads and metadata.
+   * Only one open cache may use this directory at a time. See {@link openBlobCache}.
+   */
   readonly directory: string;
   /** Positive maximum on-disk payload size in bytes. */
   readonly maxBytes: number;
@@ -32,9 +35,15 @@ export interface BlobCache {
   get(blobId: string): Uint8Array | undefined;
   /**
    * Offers a payload to the bounded cache.
+   * When the Client or Worker hydrates a large value and this call throws, the SDK logs the error
+   * with `console.warn` and uses the value it loaded from Dex. The Step, RPC, or Client call
+   * continues.
+   * Changed in 1.45.17: a thrown error no longer fails the hydration.
    * @param blobId - Opaque server-assigned blob identifier.
    * @param payload - Bytes copied into native storage.
    * @returns `true` when admitted or `false` when rejected by policy.
+   * @throws {@link Error} when the payload cannot be stored, such as when another open cache
+   * already wrote the same blob ID into a shared directory.
    */
   put(blobId: string, payload: Uint8Array): boolean;
   /**
@@ -74,8 +83,20 @@ let nativeModule: NativeModule | undefined;
 /**
  * Opens or creates a native BlobCache owned by the caller.
  *
+ * Open each cache directory once, and share the returned cache between the Worker and the Client
+ * of the process. Only one open cache may use a directory at a time, whether the two caches are in
+ * one process or in two. Separate processes, such as two replicas of one Worker, need separate
+ * directories. A restarted process can reuse its directory and the blobs already in it.
+ *
+ * The cache takes no lock on its directory, so a second cache can still open it. The two caches
+ * then work against each other. Neither sees a blob that the other stores after it opened, so it
+ * loads that blob from Dex again, and its write of the blob fails. Each cache evicts and deletes
+ * files that the other still lists. Opening a cache also deletes the other cache's unfinished
+ * writes. Each cache counts `maxBytes` on its own, so the directory can grow past that limit.
+ *
  * @example
  * ```ts
+ * // Only one running process may use .dex-cache. Give each Worker replica its own directory.
  * const cache = openBlobCache({ directory: ".dex-cache", maxBytes: 64 * 1024 ** 2 });
  * try { cache.put("blob-1", new Uint8Array([1, 2])); } finally { cache.close(); }
  * ```

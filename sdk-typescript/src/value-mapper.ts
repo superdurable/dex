@@ -184,7 +184,7 @@ export class ValueHydrator {
     if (hydrated?.kind === undefined || blobIdOf(hydrated) !== undefined) {
       throw hydrationError(`Dex did not hydrate blob ${blobId}`);
     }
-    this.writeCachedValue(cacheKey, hydrated);
+    this.writeCachedValue(flowId, blobId, hydrated);
     return hydrated;
   }
 
@@ -226,7 +226,7 @@ export class ValueHydrator {
         if (value?.kind === undefined || blobIdOf(value) !== undefined) {
           throw hydrationError(`Dex did not hydrate blob ${blobId}`);
         }
-        this.writeCachedValue(flowBlobCacheKey(flowId, blobId), value);
+        this.writeCachedValue(flowId, blobId, value);
         for (const index of pending.indexes) {
           hydrated[index] = value;
         }
@@ -255,13 +255,13 @@ export class ValueHydrator {
     return cached === undefined ? undefined : ProtoValue.decode(cached);
   }
 
-  /** Stores one hydrated Value; an application BlobCache failure becomes fixed SDK text. */
-  private writeCachedValue(cacheKey: string, value: ProtoValue): void {
+  /** Offers one hydrated Value to the BlobCache; a failed write only warns, since the cache is never authoritative. */
+  private writeCachedValue(flowId: string, blobId: string, value: ProtoValue): void {
     const encoded = ProtoValue.encode(value).finish();
     try {
-      this.blobCache.put(cacheKey, encoded);
-    } catch {
-      throw hydrationError("the BlobCache failed");
+      this.blobCache.put(flowBlobCacheKey(flowId, blobId), encoded);
+    } catch (failure) {
+      warnBlobCacheWriteFailure(flowId, blobId, failure);
     }
   }
 
@@ -359,6 +359,21 @@ function blobIdOf(value: ProtoValue): string | undefined {
 
 function flowBlobCacheKey(flowId: string, blobId: string): string {
   return `${flowId.length}:${flowId}${blobId}`;
+}
+
+/** Logs a failed BlobCache write on one line; an error that cannot be converted to text is left out. */
+function warnBlobCacheWriteFailure(flowId: string, blobId: string, failure: unknown): void {
+  const subject = `cannot write blob ${blobId} of Flow ${flowId} to the BlobCache`;
+  const outcome = "hydration continues with the value loaded from Dex";
+  let detail: string;
+  try {
+    detail = String(failure);
+  } catch {
+    // An application error that cannot be converted to text still must not fail hydration.
+    console.warn(`${subject}; ${outcome}`);
+    return;
+  }
+  console.warn(`${subject}: ${detail}; ${outcome}`);
 }
 
 function unary<Response>(
