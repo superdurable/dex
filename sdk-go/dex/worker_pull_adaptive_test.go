@@ -443,8 +443,8 @@ func TestWorkerPullAdaptiveCapOfOneWithRealServer(t *testing.T) {
 	})
 }
 
-// TestWorkerPullDefaultSlotOptionsWithRealServer covers the phase 2 defaults of MaxConcurrentTasks, MinOpenSlots, and ReservedRPCTasks.
-func TestWorkerPullDefaultSlotOptionsWithRealServer(t *testing.T) {
+// TestWorkerPullAdaptiveDefaultSlotOptionsWithRealServer covers the phase 2 defaults of MaxConcurrentTasks, MinOpenSlots, and ReservedRPCTasks.
+func TestWorkerPullAdaptiveDefaultSlotOptionsWithRealServer(t *testing.T) {
 	scenarios := []struct {
 		name           string
 		options        PullWorkerOptions
