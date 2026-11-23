@@ -396,6 +396,13 @@ class AsyncClient:
         RPC handlers are not automatically retried by this call. A timeout or
         transport error does not prove that external effects or committed writes
         did not happen. Use application idempotency before repeating a write.
+        Without ``RPCInvokeOptions.request_id``, each call sends a new request ID,
+        so calling the RPC again runs it again. To retry one logical call so that
+        Dex applies its Flow state changes at most once, pass the same
+        ``RPCInvokeOptions.request_id`` on every attempt.
+        A repeat of a transactional or locking RPC returns the recorded reply
+        without running the handler again. See ``RPCInvokeOptions.request_id``
+        for the deduplication rules and an example.
         Acquire and load the same exact AttributeMap instance for a dynamic
         read-modify-write operation through RPCInvokeOptions. A lock alone does
         not request the instance's value in the handler snapshot.
@@ -406,9 +413,11 @@ class AsyncClient:
             input: The annotated input, or ``None`` for an input-free RPC.
             run_id: Optional exact run. With ``""``, the server resolves the current
                 execution.
-            options: Additive runtime AttributeMap locks and exact map-instance loads.
-                They cannot change timeout or transactionality. The Client unions,
-                sorts, and deduplicates these selections with the registered ones.
+            options: Additive runtime AttributeMap locks and exact map-instance loads,
+                and an optional request ID. They cannot change timeout or
+                transactionality. The Client unions, sorts, and deduplicates these
+                selections with the registered ones. ``options.request_id`` is sent
+                as the request ID; ``None`` sends a new UUID.
 
         Returns:
             The decoded ``RPCResult.output``, or ``None`` for a no-output RPC.
@@ -420,8 +429,13 @@ class AsyncClient:
             ValueMappingError: If input or output mapping fails.
             FlowNotActiveOrNotFoundError: If the Flow is missing or the selected path
                 cannot use its closed execution.
-            DexServiceError: If the service call otherwise fails.
+            DexServiceError: If the service call otherwise fails. Dex Server 0.1.36
+                and earlier raise it with ``grpc.StatusCode.INVALID_ARGUMENT`` for
+                a different request under a recorded ``options.request_id``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.17
+           Sends ``options.request_id`` as the request ID when it is set.
         """
         registered_flow, rpc = self.registry._rpc_for_method(rpc_method)
         (
@@ -453,7 +467,11 @@ class AsyncClient:
                     lock_attribute_keys=tuple(
                         sorted(set(rpc.locks + invocation_locks))
                     ),
-                    request_id=str(uuid4()),
+                    request_id=(
+                        options.request_id
+                        if options.request_id is not None
+                        else str(uuid4())
+                    ),
                     is_transactional=rpc.options.is_transactional,
                     load_attribute_map_instances=tuple(
                         sorted(

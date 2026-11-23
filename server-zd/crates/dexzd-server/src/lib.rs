@@ -34,9 +34,9 @@ use dexzd_cluster_metadata::MetadataError;
 use dexzd_engine::{EngineStartError, NodeStopReason};
 use tokio::sync::watch;
 
-use crate::embedded_s3::EmbeddedS3;
+use crate::embedded_s3::{DataDirectoryLock, EmbeddedS3};
 use crate::server_logging::TerminationSignals;
-use crate::server_node::LeaseExpiryResponse;
+use crate::server_node::{LeaseExpiryResponse, PublicApiListener};
 
 /// Wait for blocking tasks at exit; one stuck in object storage must not keep the process alive.
 const RUNTIME_SHUTDOWN_BUDGET: Duration = Duration::from_secs(1);
@@ -244,6 +244,7 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
                 configuration.warn_about_deprecated_keys();
                 server_node::start_server(
                     &configuration,
+                    PublicApiListener::BindAfterConfigurationChecks,
                     None,
                     &mut cancellation,
                     LeaseExpiryResponse::ExitProcess,
@@ -355,11 +356,19 @@ async fn start_single_node_server_with_config(
 ) -> Result<Option<RunningServer>, ServerError> {
     warn_about_unauthenticated_non_loopback_listen(&configuration);
     configuration.warn_about_deprecated_keys();
-    let embedded_s3 =
-        EmbeddedS3::start(&configuration.dev, &configuration.object_store.bucket).await?;
+    let data_directory_lock = DataDirectoryLock::acquire(&configuration.dev).await?;
+    // The emulator binds port 0, so a caller's just-freed --listen port must be taken first.
+    let listener = server_node::bind_public_api_listener(configuration.api.listen).await?;
+    let embedded_s3 = EmbeddedS3::start(
+        &configuration.dev,
+        &configuration.object_store.bucket,
+        data_directory_lock,
+    )
+    .await?;
     configuration.object_store.endpoint = embedded_s3.endpoint();
     server_node::start_server(
         &configuration,
+        PublicApiListener::Bound(listener),
         Some(embedded_s3),
         cancellation,
         lease_expiry_response,

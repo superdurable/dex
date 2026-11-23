@@ -82,6 +82,8 @@ Tool 的 policy 决定它的调用是否要等待审批；[要求审批](/agent-
 3. 把 **Working as** 设为 graph 中的 permission `agent-quick-start.operate`。
 4. 在 `cancel_order` 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 `resolve_interrupt`。
 
+对于在 Go Worker 上运行的 Session，例如 Eino 快速开始，请 [在你的应用中](#approve-from-your-application) 审批它的调用。Go 包不会上传 Session graph，所以 Dex Web 只显示这个 Session 的 Step，没有 **Conversation** 标签页。
+
 生产环境中的两种做法，参见 [Show sessions in Dex Web](/reference/agents/dex-web)（英文）。
 
 ## 下一步 {#next}

@@ -7,7 +7,7 @@ description: Which agent frameworks Dex supports, in which languages, which sess
 
 # Framework Support
 
-Dex runs agents built with eight frameworks, plus its own built-in agent loop. Every one of them gets a durable session, tool policies, approvals, Connectors as tools, queued messages with **Steer** and `cancel_turn`, and live events on the AgentEvents Stream.
+Dex runs agents built with nine frameworks, plus its own built-in agent loop. Every one of them gets a durable session, tool policies, approvals, Connectors as tools, queued messages, and live events on the AgentEvents Stream. Every one that runs in Python or TypeScript also gets **Steer**, `cancel_turn`, and `delete_queued_message`. Eino runs on the Go core, which has none of them.
 
 ## Frameworks and features {#features-by-harness}
 
@@ -16,6 +16,7 @@ Dex runs agents built with eight frameworks, plus its own built-in agent loop. E
 | Framework | Languages | Each tool call in its own Step | Context compaction by Dex | Questions and plans |
 | --- | --- | --- | --- | --- |
 | Claude Agent SDK | Python, TypeScript | Writes and Connector calls. Reads run inside the model call's Step. | No. Claude Code compacts its own transcript. | No |
+| Eino | Go | Yes. The tools of an agent tool's sub-agent run inside that tool's Step. | No. The Go core has no compaction. | No |
 | Google ADK | Python | Yes | Yes | No |
 | LangChain and LangGraph | Python | Yes. Provider-run tools run at the provider. | Yes | No |
 | Mastra | TypeScript | Yes, except tools that Mastra runs itself | Yes | No |
@@ -34,6 +35,7 @@ These limits change how you write an agent. Each framework's tab on [How Each Fr
 | Framework | Main limits |
 | --- | --- |
 | Claude Agent SDK | The write calls of one model reply run one at a time. Tools inside the Claude Code CLI, such as **Bash** and **Edit**, can run again. |
+| Eino | Each `RunModel` Step makes one model call: `ModelRetryConfig` and the summarization middleware refuse to build, and a Handler's retry or fallback fails the turn when it runs. The Go core has no **Steer**, `cancel_turn`, `delete_queued_message`, questions, compaction, images, MCP tool source, spend-limit hook, or UI streams. |
 | Google ADK | The App root must be a `BaseAgent`. A tool's state and artifact changes are discarded. |
 | LangChain and LangGraph | Only the message list carries over between turns. Tools cannot use `ToolRuntime`, `InjectedState`, or `InjectedStore`. |
 | Mastra | Mastra Memory is replaced by the session. A tool that calls `suspend()` fails. |

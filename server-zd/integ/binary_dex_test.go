@@ -10,10 +10,13 @@ package integ
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -142,6 +145,43 @@ func TestBinaryDexConfigAttributeStoreMapping(t *testing.T) {
 	require.Equal(t, "mongodb Attribute Store", unsupportedSetting)
 }
 
+func TestBinaryDexLauncherRetriesOnAnotherPortAfterListenAddressInUse(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	previousBinary := *dexServerBinary
+	*dexServerBinary = executable
+	t.Cleanup(func() {
+		*dexServerBinary = previousBinary
+	})
+	t.Setenv("DEX_INTEG_FAKE_BINARY", "1")
+	t.Setenv("DEX_INTEG_FAKE_MODE", "lose-first-listen-address")
+	receiptPath := t.TempDir() + "/arguments"
+	t.Setenv("DEX_INTEG_FAKE_RECEIPT", receiptPath)
+	runtime := startBinaryDexService(t, serverZDTestConfig{})
+	lostAddress, err := os.ReadFile(receiptPath + ".lost")
+	require.NoError(t, err)
+	require.NotEqual(t, string(lostAddress), runtime.PublicAddress)
+	receiptBytes, err := os.ReadFile(receiptPath)
+	require.NoError(t, err)
+	require.Contains(t, strings.Split(string(receiptBytes), "\n"), runtime.PublicAddress)
+}
+
+func TestReserveBinaryDexAddressAvoidsEphemeralPorts(t *testing.T) {
+	reservedAddresses := make(map[string]bool)
+	for range 100 {
+		address, err := reserveBinaryDexAddress()
+		require.NoError(t, err)
+		_, portText, err := net.SplitHostPort(address)
+		require.NoError(t, err)
+		port, err := strconv.Atoi(portText)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, port, firstBinaryDexPort)
+		require.LessOrEqual(t, port, lastBinaryDexPort)
+		require.False(t, reservedAddresses[address], "address %s was reserved twice", address)
+		reservedAddresses[address] = true
+	}
+}
+
 func TestBinaryDexLauncherEarlyExit(t *testing.T) {
 	address, process := startFakeBinaryDexProcess(t, "exit")
 	err := waitForBinaryDex(address, process, time.Second)
@@ -229,6 +269,21 @@ func runFakeBinaryDex() int {
 	}
 	if os.Getenv("DEX_INTEG_FAKE_MODE") == "exit" {
 		return 6
+	}
+	if os.Getenv("DEX_INTEG_FAKE_MODE") == "lose-first-listen-address" {
+		lostAddressFile, err := os.OpenFile(os.Getenv("DEX_INTEG_FAKE_RECEIPT")+".lost", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, writeErr := lostAddressFile.WriteString(address)
+			// The real server's message when another process took its listen address.
+			_, printErr := fmt.Fprintf(os.Stderr, "dex-server-zd: listening on %s: Address already in use (os error 98)\n", address)
+			if errors.Join(writeErr, printErr, lostAddressFile.Close()) != nil {
+				return 3
+			}
+			return 1
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return 3
+		}
 	}
 	listener, err := net.Listen("tcp", address)
 	if err != nil {

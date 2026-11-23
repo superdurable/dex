@@ -494,6 +494,27 @@ result = client.invoke_rpc(
 registered ones. Locking and loading are independent; read-modify-write handlers
 need both for the same instance.
 
+`RPCInvokeOptions.request_id` sets a stable request ID for one call. With the
+same request ID on every attempt on the same Flow run, Dex applies the RPC's
+Flow state changes at most once. A repeat of a transactional or locking RPC
+returns the recorded reply without running the handler again. A repeat of any
+other RPC runs the handler again, and returns its new output when that attempt
+changes no Flow state and records no event. Use a transactional or locking RPC,
+for example when an event that is delivered at least once invokes an RPC.
+`None`, the default, sends a new request ID on every call. The field's
+docstring gives the deduplication window and the error that Dex Server 0.1.36
+and earlier raise for a reused ID.
+
+```python
+options = dex.RPCInvokeOptions(request_id=f"{event.id}/increment_counter")
+total = client.invoke_rpc(
+    counters.increment_counter,
+    event.flow_id,
+    event.delta,
+    options=options,
+)
+```
+
 See the runnable [sequential chunking](../examples/python/dex_examples/patterns/sequentially-chunked-attribute-map)
 and [hash partitioning](../examples/python/dex_examples/patterns/hash-partitioned-attribute-map)
 patterns for complete async call sites.

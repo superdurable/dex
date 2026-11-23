@@ -4,6 +4,235 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.16 (2026-11-22)
+
+### Connectors as tools in the Go core
+
+- The Go core offers Dex Connector operations to an agent as tools, with the
+  behavior of the Python and TypeScript cores' **ConnectorToolSource**. The new
+  package `connectortools` takes an operation's `sdkgo.AgentTool` from
+  `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0:
+  `NewConnectorTool` reads its name, description, argument schema, effect, and
+  approval from the reviewed agent metadata, and `NewConnectorToolSource` offers
+  the tools. Pass the source to the new `builtinloop.WithToolSources`. Each call
+  runs one operation invocation in its own tool Step through
+  `RunAttemptWithOptions` with the tool Step's `dex.Context`, so the connector's
+  Call ID, idempotency key, and single-dispatch fence apply on every attempt.
+  The source reads that Step from the new `DeferredToolExecution.StepContext`,
+  so a runner may pass it a context derived from the Step's.
+- A Go runner routes a call that a tool source built first, through
+  `ToolSourceRouter.ExecuteDeferredToolCall`, once per tool Step attempt and
+  before the framework's tool node, tool middleware, and tool handlers, as the
+  Python and TypeScript adapters do. The session enforces it: a second router
+  call in one attempt runs no source, and the session records the source's
+  outcome and error, whatever the runner returns, so a retry middleware cannot
+  resend a write past its fence and an error handler cannot record an unknown
+  outcome as **succeeded**.
+- The arguments are checked against the `InputSchema` before the call, branches
+  map as in the other cores (a success branch is **succeeded**, **uncertain**
+  and a branch listed **unknown** are **outcome_unknown**, every other branch is
+  **failed**), and results are compact JSON with sorted keys, cut at 64 KiB with
+  `[Dex] truncated, <n> bytes`. A connector Retry fails the attempt, after its
+  delay in whole seconds. The Go test runs every case of
+  `agents/conformance/connector_tools.json`.
+- A Mutation whose `RepeatOnUnknown` is `limited` pins its send cap, the
+  metadata's `MaxSends` or the new `ToolPolicy.MaxSends` (1 to 10), in its tool
+  source reference, `{"tool": "<name>", "maxSends": <n>}`, and passes it with
+  `sdkgo.WithMaxSends` on every attempt; its `CallSingleAttemptTool` gets the
+  operation's attempts, at least the cap. Connector writes of one model response
+  run one at a time in the model's order, and the later ones record **failed**
+  with `skipped` set once one does not succeed.
+- Core additions any Go runner can use: `ToolSource`, `ToolSourceRouter`, and
+  `SourceToolListing`, which list tools at run time and store the source name in
+  the envelope the other cores store; `DeferredToolCall.Ordered`;
+  `ToolOutcomeUnknownError`; `ToolExecutionResult.TruncatedOutputBytes`; and
+  `ToolCallStepOptionsProvider` with `ToolCallStepOptions`, whose
+  `BoundedResendExecuteRetry` gives a call more than one attempt in
+  `CallSingleAttemptTool`. `ResolveToolPolicy` keeps an explicit policy's
+  `MaxSends`. A call that waits for approval carries no approval display yet.
+- Upgrade rule: stop or drain every Go Worker of a Flow type built from 0.6.15
+  or earlier before a Worker with tool sources serves that Flow type, and do
+  not roll such a Flow type back below 0.6.16 while a session has a queued
+  connector write or a connector call in flight. An older Go Worker waits
+  forever for a queued write that only a 0.6.16 `RunModel` starts, and it
+  records a later attempt of a connector write **failed** instead of
+  **outcome_unknown**, so the model may send the write again.
+
+### Eino adapter
+
+- New Go module `github.com/superdurable/dex/agents/go/eino` (package
+  `dexeino`) runs CloudWeGo Eino ADK `ChatModelAgent`s on the Go core's
+  session Flow. Pass the `*adk.ChatModelAgentConfig`, or an
+  `AgentConfigBuilder`, to `NewAgentSessionFlow`. See
+  [go/eino](go/eino/README.md).
+- Each `RunModel` builds a fresh Eino agent over the stored messages and
+  stops it after one model call, so the current deploy's instruction and
+  tools apply to every model call.
+- Each tool call runs in its own Dex tool Step through a one-call
+  `compose.ToolsNode` with the agent's tool middlewares and Handler wrappers,
+  where `compose.GetToolCallID` and `ToolCallContextFrom` work.
+- The tool Step checks each call's arguments, after Eino's `ToolAliases` and
+  `ToolArgumentsHandler`, against the tool's current schema with the built-in
+  loop's JSON Schema subset and texts, so a stored call whose parameter a
+  deploy renamed is refused before any tool code runs.
+- Every tool needs a Dex effect: `WithToolEffects`, `WithToolPolicies`,
+  `ToolEffectDeclarer`, or `WithDefaultToolEffect`.
+- Construction refuses `ModelRetryConfig`, `ModelFailoverConfig`, `Exit`,
+  `ReturnDirectly`, `ToolsConfig.ExecuteSequentially`, the summarization,
+  automemory, and dream middlewares, and agent tools made with
+  `adk.WithFullChatHistoryAsInput`.
+- The README lists how every middleware and prebuilt agent that Eino
+  v0.9.23 ships runs under Dex, and the integration tests run each one that
+  runs in `Generate` and streaming mode. A before-model hook that clears a
+  tool result in place changes only that model call's input.
+- Eino's plantask calls run in the model's order, one write at a time, as
+  their shared lock makes them in one Eino run. A `ToolExecutionError` from a
+  tool of an agent tool's or fork skill's sub-agent fails a call whose effect
+  is not `read`, so its effect decides the outcome.
+- The adapter finds Eino's agent, skill, and plantask tools also inside a
+  type that embeds one, such as a `ToolEffectDeclarer` that gives an agent
+  tool its effect, so the type keeps the Eino tool's sub-agent failure
+  handling, history refusal, and call order.
+- A sub-agent that a tool runs, such as an agent tool's, gets no
+  `ToolCallContext` in its tools, model, Handlers, or `ToolArgumentsHandler`,
+  so its inner calls never share the agent tool's `IdempotencyKey`.
+- A stop that a retry would repeat ends the turn as failed with
+  `TurnCompleted.TurnError`, with no paid retry: a second model call in one
+  Step, a Handler that answers from another model, a turn at
+  `MaxIterations`, or an after-model hook that changes the agent state.
+- `WithToolSources` offers a tool source's tools, such as
+  `connectortools.ConnectorToolSource`, beside the agent's own, and hands
+  Eino their input schemas as the source wrote them. Each call runs through
+  its source in its tool Step, outside Eino's tool node and middlewares.
+- Empty, blank, `/`-containing, and duplicate tool call IDs are replaced,
+  and unknown tools are answered as unknown. Model errors reach the core's
+  classifier with their HTTP status (`HTTPStatusCode` directly, genai `Code`
+  through `ModelAPIError`), so a 429 backs off and a 400 ends the turn.
+- It requires `github.com/cloudwego/eino` v0.9.23 or later, tested with
+  v0.9.23 and v0.10.0-alpha.35.
+
+### Go core
+
+- **RunModel** also reads a model API error's HTTP status from an
+  `HTTPStatusCode` int field in the error chain, as the errors of go-openai
+  and the Volcengine Ark SDK have. CloudWeGo eino-ext's OpenAI-family and Ark
+  model clients return these errors, so a 429 or 5xx from them now gets the
+  transient-error backoff, and a 400 or 401 fails the turn at once, instead
+  of both getting three quick attempts. These errors carry no headers, so
+  **Retry-After** does not apply to them. A field named `Code` is still never
+  read as a status.
+- A message whose role is not `user`, `assistant`, or `tool`, the empty
+  string included, in `TurnCompleted.NewMessages` or
+  `ToolCallsRequested.NewMessages` now fails the turn at once in
+  **RunModel**, with the model call's usage recorded and nothing else of the
+  outcome stored, and no retry. Before, the session stored it, and every
+  later `get_agent_snapshot` and `list_agent_messages` call failed with
+  `MessageRole has unknown value`. The **last_turn_error** names the message,
+  such as `TurnCompleted.NewMessages[0] has role "", which is not user,
+  assistant, or tool`. The new `MessageRole.IsValid` checks a role, and the
+  session never stores a message with another role.
+- A Go session whose Step commit would pass server-zd's
+  `limits.maxFlowStateBytes` now ends, as Python and TypeScript sessions
+  do. When **RecordToolFailure**, **RecordToolOutcomeUnknown**, or
+  **RecordTurnFailure** gets a `ValueTooLarge` recovery error whose detail
+  contains `run state of `, it sets the status to **failed** and
+  **last_turn_error** to the detail, clears the turn, **FrameworkRunState**,
+  and **PendingInterrupts**, keeps the turn's records, writes
+  **turn_failed**, and fails the Flow with the detail. Before, a model
+  answer over the limit failed only its turn, a tool result over the limit
+  became a failed or outcome_unknown call that the model saw, and the
+  session went on.
+- `AgentSessionClient.GetAgentSnapshot` reads how a failed session's Flow
+  closed, as Python's `AgentSessionClient.get_agent_snapshot` and
+  TypeScript's `readAgentSnapshot` do. It reports status **failed** and the
+  Flow's reason also when the session had no room to store them: when a Step
+  without a failure route, such as **AwaitUserMessage**, meets the limit, or
+  when the failure's own commit does not fit. `SendUserMessage` to a failed
+  session returns the new `AgentSessionFailedError` with the reason, which
+  still unwraps to `*dex.FlowNotActiveOrNotFoundError`.
+- `TurnCompleted.TurnError` ends a turn as failed without a retry, as
+  `turn_error` in Python and `turnError` in TypeScript do. In the same commit
+  the session stores `NewMessages`, records `Usage`, sets
+  `AgentState.LastTurnError` to the text, and writes **turn_failed** instead
+  of **turn_completed**; no **RecordTurnFailure** runs. The next turn that
+  completes clears `LastTurnError`. A framework adapter uses it for a
+  deliberate stop that a retry would repeat. A blank `TurnError` fails the
+  turn at once with its usage recorded, as for
+  `MissingUnfinishedTurnMessageBuilder`. `TurnContinued` is still not
+  supported.
+
+### Added
+
+- The Go modules get release tags. Each agents release now tags every Go
+  module under `agents/go/` at the release version, on the same commit as
+  `agents/v<version>`: the core is `agents/go/core/v<version>`. So
+  `go get github.com/superdurable/dex/agents/go/core@v<version>` resolves a
+  release instead of a pseudo-version of `main`. A Go module that requires
+  another agents Go module requires it at that same version.
+  `stamp_agents_release_version.py --go` stamps those requires, and the new
+  release check `script/release/check_agents_go_modules.py` fails a Go module
+  that requires a pseudo-version of a Dex module, carries a `replace` or
+  `exclude` that a consumer's build would skip, or requires another agents Go
+  module at a different version. Agents CI and **Release changed components**
+  run the check, and the coordinated release pushes the Go tags. The Go core
+  now ships the same `LICENSE` file as the other agents packages.
+
+### Changed
+
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk**:
+  the READMEs gain a **Report a definite failure** section. A custom tool's
+  **isError** result, or a thrown **ToolExecutionError**, records **failed**;
+  any other thrown error from a write records **outcome_unknown**. A handler
+  that turns every error, a broken connection included, into an **isError**
+  result therefore records an interrupted write as **failed**. Return
+  **isError** only for an answer that settles the call. The mapping itself
+  is unchanged; since 0.6.15 a definite failure on a later attempt of a write
+  also records **outcome_unknown**, so an **idempotent_write** whose first
+  attempt threw no longer reads **failed** when its retry gets a 4xx. New
+  tests in both adapters cover each case.
+- The Python, TypeScript, and Go cores: **RunModel** and **CompactContext**
+  retry a transient model API error (HTTP 408, 409, 429, or 5xx, or a
+  connection error or timeout) with exponential backoff and jitter, at least
+  the provider's **Retry-After**. The waits start at 1 second and double up to
+  30 seconds, about two minutes in all, so a model API outage of a minute no
+  longer fails the turn. Before, the three attempts ran about 1 and 2 seconds
+  apart. Any other HTTP 4xx, such as 400 or 401, now fails the turn at once
+  instead of being retried. Other errors keep their 3 attempts, and
+  **maximum_attempts** (**maximumAttempts**) 1 still disables every retry.
+  The new **ModelRetryPolicy** in **RunModelLimit.retry** (Python and
+  TypeScript) and **WithModelRetryPolicy** (Go) change the backoff. With the
+  defaults, the **RunModel** retry policy allows 10 attempts instead of 3.
+  (#2109)
+- **@superdurable/dex-agents-pi**: a failed pi-ai model call whose error
+  text pi-ai reports as retryable, such as a 429 or 503, retries with the same
+  backoff.
+
+### Fixed
+
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk**:
+  when one model reply holds two calls that must run outside the turn, the
+  model now reads the first call's recorded result in that same reply's
+  results. Before, a live model's stream could leave the refused second call
+  after the first call's deferral in the transcript, and the resumed CLI showed
+  the first call as "[Tool result missing due to internal error]" until the
+  model's next such call, so the model could repeat a write that had already
+  run. The transcript given to the resumed CLI now puts the pending deferral
+  after the reply's refused calls; stored entries do not change. The refusal
+  of the second call now says that it was not run because it came in the same
+  answer as an earlier call that had not finished, names that call, says its
+  result is reported separately, and asks the model to call the refused tool
+  again by itself if it is still needed. It no longer implies the earlier call
+  succeeded. (#2111)
+- The Go core now records a `*ToolExecutionError` on a later attempt of a tool
+  call that is not a **read**, and that no tool source built, as
+  **outcome_unknown** instead of **failed**, as the Python and TypeScript cores
+  do since 0.6.15. An earlier attempt reached a Worker and ended without a
+  result, so it may have taken effect. This covers an **idempotent_write**
+  whose Worker stopped while the tool ran, when the retry runs on a deploy that
+  renamed the tool (`unknown tool <name>`) or changed its schema
+  (`invalid arguments for <name>: ...`). A first attempt, a **read**, and a
+  call that a tool source built still record **failed**.
+
 ## 0.6.15 (2026-11-18)
 
 ### Changed

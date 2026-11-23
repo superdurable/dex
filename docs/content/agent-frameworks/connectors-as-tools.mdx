@@ -10,7 +10,7 @@ An agent can call official [Connector](/concepts/connector) operations as tools.
 
 ## How it works {#connectors-as-tools}
 
-`ConnectorToolSource` offers the operations you name, and the agent takes it as a tool source (`tool_sources` in Python, `toolSources` in TypeScript). Each call runs one operation in its own tool Step, so the Call ID, the idempotency key, and credentials work as in a Connector Step. The Call ID stays the same on every attempt.
+`ConnectorToolSource` offers the operations you name, and the agent takes it as a tool source (`tool_sources` in Python, `toolSources` in TypeScript, and a `WithToolSources` option in Go). Each call runs one operation in its own tool Step, so the Call ID, the idempotency key, and credentials work as in a Connector Step. The Call ID stays the same on every attempt.
 
 The Connect a Connector section shows the wiring for each framework; the [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) shows it without one. The [Connector tools reference](/reference/agents/connector-tools) covers packages, tool names, result size, and connections.
 
@@ -63,9 +63,13 @@ The example adds the Slack tool `slack_post_thread_reply`, which replies in a Sl
 
 ### The Slack tool in the example {#slack-connector-tool}
 
-With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app.
+With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app and the Slack Connector release of each example.
 
-`postThreadReply` is a single-attempt Mutation, so a post runs once, in `CallSingleAttemptTool`, and a Worker crash never sends it twice. The example also sets `requires_approval=True` (**requiresApproval: true** in TypeScript), so every post waits in `AwaitToolApproval` for a person.
+Every example sets `requires_approval=True` (**requiresApproval: true** in TypeScript, `connectortools.WithRequiresApproval(true)` in Go), so every post waits in `AwaitToolApproval` for a person. After approval, the post runs in `CallSingleAttemptTool`.
+
+In the Python and TypeScript examples, `postThreadReply` is a single-attempt Mutation. A post runs once, and a Worker crash never sends it twice.
+
+In the Go example, `postThreadReply` has bounded resends, so a Worker crash during a post can post a duplicate reply, up to 3 posts in all. [The Slack tool in the examples](/reference/agents/connector-tools#slack-example) says when the Connector sends again.
 
 ### Offer the tool {#offer-connector-tools}
 
@@ -73,6 +77,7 @@ With the Slack connection **support-slack** configured, each example agent gets 
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
     typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+    go: 'examples/go/agent-harnesses/ordersupport/slack_connector_tools.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -152,6 +157,47 @@ export function createSlackConnectorToolSources(slack: Connection | undefined): 
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="go">
+
+Add the Slack Connector module, `github.com/superdurable/dex-connectors-library/connectors/slack/go`. The package `connectortools` is part of the Go core.
+
+The Worker opens the Slack connection **support-slack** from the project configuration. `connectortools.NewConnectorTool` turns the operation's agent tool into a tool, and `connectortools.NewConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
+
+```go
+// NewSlackToolSources returns the Slack tool source, or no source when connection is nil.
+//
+// The source offers one tool, slack_post_thread_reply. Each call runs in its
+// own tool Step with the Connector's Call ID, after a person approves it. It
+// returns an error when the Connector's agent tools cannot be built.
+func NewSlackToolSources(connection *slack.Connection) ([]dexagents.ToolSource, error) {
+	if connection == nil {
+		return nil, nil
+	}
+	agentTools, err := connection.AgentTools()
+	if err != nil {
+		return nil, err
+	}
+	tools := []*connectortools.ConnectorTool{}
+	for _, agentTool := range agentTools {
+		if agentTool.Metadata().ToolName != SlackPostThreadReplyToolName {
+			continue
+		}
+		// Every post waits for a person, whatever the manifest recommends.
+		tool, err := connectortools.NewConnectorTool(agentTool, connectortools.WithRequiresApproval(true))
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, tool)
+	}
+	source, err := connectortools.NewConnectorToolSource(tools)
+	if err != nil {
+		return nil, err
+	}
+	return []dexagents.ToolSource{source}, nil
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 The Worker opens the connection once, at startup, and every agent uses it:
@@ -160,6 +206,7 @@ The Worker opens the connection once, at startup, and every agent uses it:
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
     typescript: 'examples/typescript/src/registry.ts',
+    go: 'examples/go/agent-harnesses/cmd/order-support/main.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -181,6 +228,21 @@ async def main() -> None:
 ```typescript
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	// One Slack connection for the agent; without it the agent offers no Slack tool.
+	slackConnection, err := ordersupport.OpenSlackProjectConnection(ctx)
+	if err != nil {
+		return err
+	}
+	slackToolSources, err := ordersupport.NewSlackToolSources(slackConnection)
+	if err != nil {
+		return err
+	}
 ```
 
 </SdkSnippet>
@@ -219,6 +281,28 @@ The agent passes the tool source next to its own tools:
     },
     claudeAgentSdkOrderSupportFlowType,
   );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/agent-harnesses/ordersupport/eino_order_support.go',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+	return dexeino.NewAgentSessionFlow(config, EinoOrderSupportFlowType,
+		dexeino.WithToolEffects(map[string]dexagents.ToolEffect{
+			"look_up_order": dexagents.ToolEffectRead,
+			// Not safe to repeat, so Dex asks for approval first and runs it at most once.
+			"cancel_order": dexagents.ToolEffectNonIdempotentWrite,
+		}),
+		dexeino.WithToolSources(toolSources...))
 ```
 
 </SdkSnippet>
@@ -538,7 +622,7 @@ The agent takes the Slack tool source next to the MCP tool source:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it, as [the Slack tool](#slack-connector-tool) explains. Your framework hands the call to that Step this way:
+Each call of `slack_post_thread_reply` runs in its own `CallSingleAttemptTool` Step after a person approves it: once in the Python and TypeScript examples, and with bounded resends in the Go example, as [the Slack tool](#slack-connector-tool) explains. Your framework hands the call to that Step this way:
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -546,6 +630,11 @@ Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptT
 In the Claude Agent SDK, a Connector tool call never runs inside the CLI, not even a read. Every call ends the segment and runs in its own tool Step, because the Connector needs that Step for its Call ID. The resumed CLI then gets the recorded result. The CLI sees the tool as `mcp__tools__slack_post_thread_reply`; tool policies, approvals, and records use `slack_post_thread_reply`.
 
 One call of a model response at a time leaves the turn to run in its tool Step. The adapter refuses a later write of that response inside the turn, so it never runs and leaves no record; the model reads the earlier write's result and then decides whether to call the later write again. Keep Connector tools out of `allowed_tools` (`allowedTools`): their calls must leave the CLI, so such an entry fails the `RunModel` attempt.
+
+</FrameworkTab>
+<FrameworkTab framework="eino">
+
+`dexeino.WithToolSources` offers the Connector tools after the agent's own tools, with the input schemas as the source wrote them. The adapter's Handler stops the run at their calls like any other. A call runs in its tool Step through the source, outside Eino's tool node, tool middlewares, and Handler tool wrappers, so an Eino retry or error handler never sends a write again; only the Connector's bounded resends can. The source decides approval. In Go, a call that waits for approval carries no approval display, so an approval UI shows its arguments.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
