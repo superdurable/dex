@@ -12,6 +12,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 | Version | Released | Changes | Release |
 | --- | --- | --- | --- |
+| [1.45.19](#v1-45-19) | 2026-11-25 | 1 added, 3 fixed | [web/v1.45.19](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.19) |
 | [1.45.18](#v1-45-18) | 2026-11-21 | 2 changed | [web/v1.45.18](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.18) |
 | [1.45.17](#v1-45-17) | 2026-11-20 | 1 added, 2 changed | [web/v1.45.17](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.17) |
 | [1.45.16](#v1-45-16) | 2026-11-20 | 4 added, 1 changed | [web/v1.45.16](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.16) |
@@ -31,6 +32,18 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 | [1.45.2](#v1-45-2) | 2026-11-12 | 1 added | [web/v1.45.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.2) |
 | [1.45.1](#v1-45-1) | 2026-11-12 | 3 changed, 5 fixed | [web/v1.45.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.1) |
 | [1.45.0](#v1-45-0) | 2026-11-11 | 2 breaking, 5 added, 6 changed | [web/v1.45.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.45.0) |
+
+### 1.45.19 (2026-11-25) {#v1-45-19}
+
+**Added**
+
+- Dex Web loads Flow Definition Graphs generated from Java and Rust sources.
+
+**Fixed**
+
+- The Step panel of a Design view now lists, under **Reached from**, every Step that moves to the start Step, after the Flow start. It showed only "the flow starts here" before.
+- Keep the selected event details on the current Events page, format large event IDs and page sizes with thousands separators, and show the event range as the paging position.
+- Let the Flow ID in the run header use the available space before truncating.
 
 ### 1.45.18 (2026-11-21) {#v1-45-18}
 
