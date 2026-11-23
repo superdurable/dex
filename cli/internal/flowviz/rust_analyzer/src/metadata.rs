@@ -443,7 +443,7 @@ impl<'source> RustFlowSource<'source> {
     }
 }
 
-fn generic_types(value: &Type) -> Vec<&Type> {
+pub(crate) fn generic_types(value: &Type) -> Vec<&Type> {
     let Type::Path(path) = value else {
         return Vec::new();
     };

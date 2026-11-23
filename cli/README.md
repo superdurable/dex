@@ -513,7 +513,7 @@ can be shown or hidden independently. Streams are hidden by default. Definitions
 are loaded once during startup; restart **dexcli dev** after changing the
 directory.
 
-Since 1.47.23, Rust visualization requires Cargo and Rust 1.97 or newer.
+Rust visualization requires Cargo and Rust 1.97 or newer.
 Select Cargo with `--cargo` or `DEX_CARGO`. The flag takes precedence over
 the environment variable. The default is `cargo` on `PATH`. The first run
 builds the analyzer in about 5 to 30 seconds. Cache the

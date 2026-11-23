@@ -50,7 +50,7 @@ func TestVisualizeRustCargoSelectionAndMissingToolchain(t *testing.T) {
 func TestVisualizeRustFlowSelectionScopesResources(t *testing.T) {
 	requireVisualizeRustCargo(t)
 	source := filepath.Join(visualizerRepositoryRoot(t), "cli/internal/flowviz/testdata/rust/workflow.rs")
-	all := readVisualizeRustParityGraph(t, source, "")
+	all := readVisualizeExampleGraph(t, source, "")
 	require.False(t, all.Valid)
 	require.Len(t, all.Diagnostics, 1)
 	require.Equal(t, "multiple_flows", all.Diagnostics[0].Code)
@@ -63,7 +63,7 @@ func TestVisualizeRustFlowSelectionScopesResources(t *testing.T) {
 	require.Empty(t, nodesOfKind(child.Nodes, "channel"))
 	require.Empty(t, nodesOfKind(child.Nodes, "rpc"))
 
-	missing := readVisualizeRustParityGraph(t, source, "Missing")
+	missing := readVisualizeExampleGraph(t, source, "Missing")
 	require.False(t, missing.Valid)
 	require.Equal(t, "flow_not_found", missing.Diagnostics[0].Code)
 }
@@ -101,9 +101,14 @@ func TestVisualizeRustWorkflowPatternParity(t *testing.T) {
 		t.Run(flowType, func(t *testing.T) {
 			rustSource := rustSources[flowType]
 			require.NotEmpty(t, rustSource)
-			goGraph := readVisualizeRustParityGraph(t, goSource, flowType)
-			rustGraph := readVisualizeRustParityGraph(t, rustSource, flowType)
+			hiddenSteps := workflowPatternHiddenDecisions(flowType)
+			goOnlyHiddenSteps := goWorkflowPatternHiddenDecisions[flowType]
+			goGraph := readVisualizeRustParityGraph(t, goSource, flowType, append(hiddenSteps, goOnlyHiddenSteps...)...)
+			rustGraph := readVisualizeRustParityGraph(t, rustSource, flowType, hiddenSteps...)
 			expected := visualizePatternStructure(goGraph)
+			for _, step := range goOnlyHiddenSteps {
+				delete(expected, "transition:"+step+":Dynamic Dex decision")
+			}
 			if target := goCancellationRPCMovement(flowType); target != "" {
 				expected["transition:rpc:"+target] = true
 			}
@@ -128,26 +133,45 @@ func goCancellationRPCMovement(flowType string) string {
 	}
 }
 
-func scanRustVisualizeExample(t *testing.T, source string) {
+func scanVisualizeExample(t *testing.T, source string, graph *flowviz.Graph) {
 	t.Helper()
-	requireVisualizeRustCargo(t)
-	graph := readVisualizeRustParityGraph(t, source, "")
 	for _, diagnostic := range graph.Diagnostics {
 		if diagnostic.Code != "multiple_flows" {
 			continue
 		}
+		requireVisualizeExampleDiagnostics(t, graph, source, nil, []string{"multiple_flows"})
+		var flowNames []string
 		for _, node := range graph.Nodes {
-			if !strings.HasPrefix(node.ID, "unknown:flow:") {
-				continue
+			if strings.HasPrefix(node.ID, "unknown:flow:") {
+				flowNames = append(flowNames, node.Name)
 			}
-			t.Run(node.Name, func(t *testing.T) {
-				selected := readVisualizeRustParityGraph(t, source, node.Name)
-				requireNoUnexpectedVisualizeDiagnostics(t, selected, source)
+		}
+		require.Greater(t, len(flowNames), 1)
+		for _, flowName := range flowNames {
+			t.Run(flowName, func(t *testing.T) {
+				selected := readVisualizeExampleGraph(t, source, flowName)
+				require.Equal(t, flowName, selected.Flow.Name)
+				requireScannedExampleDiagnostics(t, source, selected)
 			})
 		}
 		return
 	}
-	requireNoUnexpectedVisualizeDiagnostics(t, graph, source)
+	requireScannedExampleDiagnostics(t, source, graph)
+}
+
+func requireScannedExampleDiagnostics(t *testing.T, source string, graph *flowviz.Graph) {
+	t.Helper()
+	var hiddenSteps, additionalErrors []string
+	switch filepath.Base(source) {
+	case "instance_creation.rs", "multiple_instances.py":
+		hiddenSteps = workflowPatternHiddenDecisions(graph.Flow.Name)
+	case "multi_choice_and_merges.py":
+		// Python cannot resolve the branch target drawn from the selected Step list.
+		if graph.Flow.Name == "MultiChoiceSynchronizingMergeFlow" {
+			additionalErrors = []string{"unknown_step_target"}
+		}
+	}
+	requireVisualizeExampleDiagnostics(t, graph, source, hiddenSteps, additionalErrors)
 }
 
 func visualizeWorkflowPatternSources(t *testing.T, directory string, extension string) map[string]string {
@@ -157,7 +181,7 @@ func visualizeWorkflowPatternSources(t *testing.T, directory string, extension s
 		if err != nil || entry.IsDir() || filepath.Ext(path) != extension {
 			return err
 		}
-		graph := readVisualizeRustParityGraph(t, path, "")
+		graph := readVisualizeExampleGraph(t, path, "")
 		if graph.Flow.Name != "" {
 			sources[graph.Flow.Name] = path
 		}
@@ -196,9 +220,6 @@ func visualizePatternStructure(graph *flowviz.Graph) map[string]bool {
 			from = nodes[from.ParentID]
 		}
 		to := nodes[edge.To]
-		if to.Kind == "unknown" {
-			continue
-		}
 		fromName := from.Name
 		if from.Kind == "rpc" {
 			fromName = "rpc"
@@ -208,11 +229,76 @@ func visualizePatternStructure(graph *flowviz.Graph) map[string]bool {
 	return shapes
 }
 
-func readVisualizeRustParityGraph(t *testing.T, source string, flowType string) *flowviz.Graph {
+func readVisualizeRustParityGraph(t *testing.T, source string, flowType string, hiddenSteps ...string) *flowviz.Graph {
+	t.Helper()
+	graph := readVisualizeExampleGraph(t, source, flowType)
+	require.Equal(t, flowType, graph.Flow.Name)
+	requireVisualizeExampleDiagnostics(t, graph, source, hiddenSteps, nil)
+	return graph
+}
+
+func requireVisualizeExampleDiagnostics(t *testing.T, graph *flowviz.Graph, source string, hiddenSteps, additionalErrors []string) {
+	t.Helper()
+	expectedErrors := append([]string(nil), additionalErrors...)
+	var expectedHiddenOwners []string
+	for _, step := range hiddenSteps {
+		expectedErrors = append(expectedErrors, "hidden_dex_decision")
+		expectedHiddenOwners = append(expectedHiddenOwners, "step:"+step)
+	}
+	diagnostics := diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)
+	var actualErrors []string
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			actualErrors = append(actualErrors, diagnostic.Code)
+		}
+	}
+	require.ElementsMatch(t, expectedErrors, actualErrors, "%+v", diagnostics)
+
+	var actualHiddenOwners []string
+	for _, node := range graph.Nodes {
+		if node.Kind == "unknown" && node.Name == "Dynamic Dex decision" {
+			for _, edge := range graph.Edges {
+				if edge.To == node.ID && edge.Kind == "transition" && edge.Label == "dynamic" {
+					actualHiddenOwners = append(actualHiddenOwners, edge.From)
+				}
+			}
+		}
+	}
+	require.ElementsMatch(t, expectedHiddenOwners, actualHiddenOwners)
+}
+
+// These Steps return decisions from review starters in all three languages.
+func workflowPatternHiddenDecisions(flowType string) []string {
+	switch flowType {
+	case "DesignTimeMultipleInstancesFlow":
+		return []string{"StartDesignTimeReviews"}
+	case "RunTimeMultipleInstancesFlow":
+		return []string{"StartRunTimeReviews"}
+	default:
+		return nil
+	}
+}
+
+// These Go Steps delegate terminal decisions. Their Rust counterparts express those decisions directly.
+var goWorkflowPatternHiddenDecisions = map[string][]string{
+	"InterleavedRoutingFlow":                     {"AuditExpenses", "AuditPayroll", "AuditTaxes", "CompleteAudits"},
+	"InterleavedParallelRoutingFlow":             {"CompleteOnboardingTasks"},
+	"CompleteMultipleInstanceTaskFlow":           {"SubmitPeerReview"},
+	"NoPriorKnowledgeMultipleInstancesFlow":      {"AnalyzeSample"},
+	"DynamicPartialJoinForMultipleInstancesFlow": {"EvaluateBid"},
+	"CriticalSectionFlow":                        {"CommitStock", "FinishCriticalSections", "PublishPrice"},
+}
+
+func readVisualizeExampleGraph(t *testing.T, source string, flowType string) *flowviz.Graph {
 	t.Helper()
 	graph, err := flowviz.Analyze(t.Context(), source, flowviz.AnalyzeOptions{FlowType: flowType})
 	require.NoError(t, err)
 	require.Equal(t, "2.0", graph.SchemaVersion)
+	valid := true
+	for _, diagnostic := range graph.Diagnostics {
+		valid = valid && diagnostic.Severity != "error"
+	}
+	require.Equal(t, valid, graph.Valid, "%+v", graph.Diagnostics)
 	return graph
 }
 

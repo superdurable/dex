@@ -19,7 +19,11 @@ use std::io::{stdin, stdout};
 
 use proc_macro2::Span;
 use serde_json::{Value, json};
-use syn::{Expr, ImplItem, ImplItemFn, Item, ItemImpl, ItemStruct, Type, spanned::Spanned};
+use syn::{
+    Expr, ImplItem, ImplItemFn, Item, ItemImpl, ItemStruct, Type, UseTree,
+    spanned::Spanned,
+    visit::{self, Visit},
+};
 
 use expressions::{
     ExpressionCalls, associated_call, expression_path, literal_string, peel, type_name,
@@ -113,8 +117,11 @@ impl RustFlowGraph {
 }
 
 struct RustFlowSource<'source> {
-    source: &'source str,
+    lines: Vec<&'source str>,
     declarations: BTreeMap<String, &'source Item>,
+    constants: BTreeMap<String, (&'source Type, &'source Expr)>,
+    import_aliases: BTreeMap<String, String>,
+    attribute_lines: BTreeSet<usize>,
     implementations: Vec<&'source ItemImpl>,
     flows: Vec<WorkflowImplementation<'source>>,
     steps: BTreeMap<String, WorkflowImplementation<'source>>,
@@ -126,13 +133,17 @@ struct WorkflowImplementation<'source> {
     name: String,
     rust_type: String,
     declaration: &'source ItemImpl,
+    unresolved_name: Option<Span>,
 }
 
 impl<'source> RustFlowSource<'source> {
     fn new(source: &'source str, items: &'source [Item]) -> Self {
         let mut workflow = Self {
-            source,
+            lines: source.lines().collect(),
             declarations: BTreeMap::new(),
+            constants: BTreeMap::new(),
+            import_aliases: BTreeMap::new(),
+            attribute_lines: BTreeSet::new(),
             implementations: Vec::new(),
             flows: Vec::new(),
             steps: BTreeMap::new(),
@@ -140,13 +151,16 @@ impl<'source> RustFlowSource<'source> {
             rpc_definitions: BTreeMap::new(),
         };
         workflow.index_items(items);
+        for item in items {
+            workflow.visit_item(item);
+        }
+        workflow.index_implementations(items);
         workflow
     }
 
     fn index_items(&mut self, items: &'source [Item]) {
         for item in items {
             match item {
-                Item::Impl(implementation) => self.index_implementation(implementation),
                 Item::Mod(module) => {
                     if let Some((_, items)) = &module.content {
                         self.index_items(items);
@@ -167,20 +181,90 @@ impl<'source> RustFlowSource<'source> {
                         .insert(function.sig.ident.to_string(), item);
                 }
                 Item::Static(resource) => {
-                    self.index_resource(
-                        &resource.ident.to_string(),
+                    self.index_constant(
+                        resource.ident.to_string(),
                         &resource.ty,
                         &resource.expr,
                         item.span(),
                     );
                 }
                 Item::Const(constant) => {
-                    self.index_resource(
-                        &constant.ident.to_string(),
+                    self.index_constant(
+                        constant.ident.to_string(),
                         &constant.ty,
                         &constant.expr,
                         item.span(),
                     );
+                }
+                Item::Use(import) => self.index_import_aliases(&import.tree),
+                _ => {}
+            }
+        }
+    }
+
+    fn index_constant(
+        &mut self,
+        name: String,
+        declaration: &'source Type,
+        value: &'source Expr,
+        location: Span,
+    ) {
+        self.index_resource(&name, declaration, value, location);
+        self.constants.insert(name, (declaration, value));
+    }
+
+    fn index_import_aliases(&mut self, tree: &UseTree) {
+        match tree {
+            UseTree::Path(path) => self.index_import_aliases(&path.tree),
+            UseTree::Group(group) => {
+                for child in &group.items {
+                    self.index_import_aliases(child);
+                }
+            }
+            UseTree::Rename(alias) => {
+                self.import_aliases
+                    .insert(alias.rename.to_string(), alias.ident.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fn imported_name<'name>(&'name self, name: &'name str) -> &'name str {
+        let mut original = name;
+        for _ in 0..16 {
+            let Some(next) = self.import_aliases.get(original) else {
+                break;
+            };
+            original = next;
+        }
+        original
+    }
+
+    fn file_symbol_name(&self, expression: &Expr) -> Option<String> {
+        let Expr::Path(symbol) = peel(expression) else {
+            return None;
+        };
+        let mut segments = symbol.path.segments.iter();
+        let first = segments.next()?;
+        let name = match segments.next() {
+            None => &first.ident,
+            Some(second)
+                if (first.ident == "self" || first.ident == "crate")
+                    && segments.next().is_none() =>
+            {
+                &second.ident
+            }
+            _ => return None,
+        };
+        Some(self.imported_name(&name.to_string()).to_owned())
+    }
+
+    fn index_implementations(&mut self, items: &'source [Item]) {
+        for item in items {
+            match item {
+                Item::Impl(implementation) => self.index_implementation(implementation),
+                Item::Mod(module) if let Some((_, items)) = &module.content => {
+                    self.index_implementations(items)
                 }
                 _ => {}
             }
@@ -207,19 +291,18 @@ impl<'source> RustFlowSource<'source> {
             "Step" => "step_type",
             _ => return,
         };
-        let name = impl_method(implementation, method)
-            .and_then(|method| {
-                ExpressionCalls::new(&method.block)
-                    .return_expressions()
-                    .into_iter()
-                    .next()
-            })
-            .and_then(literal_string)
-            .unwrap_or_else(|| owner.clone());
+        let name_method = impl_method(implementation, method);
+        let name = name_method.and_then(|method| self.workflow_type_name(&method.block));
+        let unresolved_name = if name.is_none() {
+            name_method.map(Spanned::span)
+        } else {
+            None
+        };
         let definition = WorkflowImplementation {
-            name,
+            name: name.unwrap_or_else(|| owner.clone()),
             rust_type: owner.clone(),
             declaration: implementation,
+            unresolved_name,
         };
         if trait_name == "Flow" {
             self.flows.push(definition);
@@ -228,16 +311,41 @@ impl<'source> RustFlowSource<'source> {
         }
     }
 
+    fn workflow_type_name(&self, block: &syn::Block) -> Option<String> {
+        let expressions = ExpressionCalls::new(block);
+        let mut names = expressions
+            .conditional_returns()
+            .map(|(expression, _)| self.declared_string(expressions.resolve(expression), 0));
+        let name = names.next()??;
+        names
+            .all(|other| other.as_deref() == Some(&name))
+            .then_some(name)
+    }
+
+    fn declared_string(&self, expression: &Expr, depth: usize) -> Option<String> {
+        if depth >= 16 {
+            return None;
+        }
+        if let Some(value) = literal_string(expression) {
+            return Some(value);
+        }
+        let name = self.file_symbol_name(expression)?;
+        let (_, initializer) = self.constants.get(&name)?;
+        self.declared_string(initializer, depth + 1)
+    }
+
     fn analyze(&self, requested: &str, graph: &mut RustFlowGraph) {
         let Some(flow) = self.select_flow(requested, graph) else {
             return;
         };
         graph.analysis["graph"]["flow"] =
             json!({"name": flow.name, "span": source_span(flow.declaration.span())});
+        flow.report_unresolved_name("flow_type", graph);
         self.add_persistence(flow, graph);
         let registered = self.registered_steps(flow, graph);
         for rust_type in registered {
             if let Some(step) = self.steps.get(&rust_type) {
+                step.report_unresolved_name("step_type", graph);
                 self.analyze_step(step, graph);
             }
         }
@@ -294,6 +402,7 @@ impl<'source> RustFlowSource<'source> {
         };
         graph.diagnostic("error", code, message, None);
         for flow in &self.flows {
+            flow.report_unresolved_name("flow_type", graph);
             graph.node(
                 format!("unknown:flow:{}", flow.rust_type),
                 "unknown",
@@ -408,6 +517,10 @@ impl<'source> RustFlowSource<'source> {
             }
             return id;
         }
+        Self::dynamic_step_target(location, graph)
+    }
+
+    fn dynamic_step_target(location: Span, graph: &mut RustFlowGraph) -> String {
         graph.diagnostic(
             "error",
             "dynamic_step_target",
@@ -440,44 +553,42 @@ impl<'source> RustFlowSource<'source> {
                 .path
                 .segments
                 .last()
-                .map(|segment| segment.ident.to_string()),
+                .map(|segment| self.instance_name(owner, &segment.ident.to_string())),
             Expr::Call(_) => {
-                let (class, method) = expressions::associated_name(expression)?;
-                matches!(method.as_str(), "new" | "default").then(|| {
-                    if class == "Self" {
-                        owner.to_owned()
-                    } else {
-                        class
-                    }
-                })
+                let (class, method) = expressions::associated_name(peel(expression))?;
+                let class = self.instance_name(owner, &class);
+                if matches!(class.as_str(), "Box" | "Arc" | "Rc") && method == "new" {
+                    let value = expressions::arguments(expression)?.first()?;
+                    return self.instance_type(owner, value, calls, depth + 1);
+                }
+                (matches!(method.as_str(), "new" | "default") && self.is_declared_type(&class))
+                    .then_some(class)
             }
             Expr::Path(value) => {
-                let name = value.path.segments.last()?.ident.to_string();
-                if let Some(local) = calls.locals.get(&name) {
+                let bare_name = value.path.get_ident().map(ToString::to_string);
+                if let Some(local) = bare_name.as_ref().and_then(|name| calls.locals.get(name)) {
                     return self.instance_type(owner, local, calls, depth + 1);
                 }
-                if matches!(name.as_str(), "self" | "Self") {
-                    return Some(owner.to_owned());
+                let name = self.file_symbol_name(expression)?;
+                let name = self.instance_name(owner, &name);
+                match self.constants.get(&name) {
+                    Some((declaration, _)) => {
+                        self.declared_instance_type(owner, declaration, depth + 1)
+                    }
+                    _ => (name == owner || self.is_declared_type(&name)).then_some(name),
                 }
-                let qualified = value.path.segments.len() > 1;
-                let type_case = name.chars().next().is_some_and(char::is_uppercase);
-                (qualified || type_case).then_some(name)
             }
             Expr::Field(field) if expression_path(&field.base).as_deref() == Some("self") => {
                 let Item::Struct(ItemStruct { fields, .. }) = self.declarations.get(owner)? else {
                     return None;
                 };
-                match &field.member {
-                    syn::Member::Named(name) => type_name(
-                        &fields
-                            .iter()
-                            .find(|field| field.ident.as_ref() == Some(name))?
-                            .ty,
-                    ),
-                    syn::Member::Unnamed(index) => {
-                        type_name(&fields.iter().nth(index.index as usize)?.ty)
-                    }
-                }
+                let field = match &field.member {
+                    syn::Member::Named(name) => fields
+                        .iter()
+                        .find(|field| field.ident.as_ref() == Some(name))?,
+                    syn::Member::Unnamed(index) => fields.iter().nth(index.index as usize)?,
+                };
+                self.declared_instance_type(owner, &field.ty, depth + 1)
             }
             Expr::MethodCall(call) if call.method == "clone" => {
                 self.instance_type(owner, &call.receiver, calls, depth + 1)
@@ -486,33 +597,74 @@ impl<'source> RustFlowSource<'source> {
         }
     }
 
+    fn is_declared_type(&self, name: &str) -> bool {
+        matches!(
+            self.declarations.get(name),
+            Some(Item::Struct(_) | Item::Enum(_) | Item::Type(_))
+        )
+    }
+
+    fn instance_name(&self, owner: &str, name: &str) -> String {
+        match name {
+            "self" | "Self" => owner.to_owned(),
+            _ => self.imported_name(name).to_owned(),
+        }
+    }
+
+    fn declared_instance_type(
+        &self,
+        owner: &str,
+        declaration: &Type,
+        depth: usize,
+    ) -> Option<String> {
+        if depth >= 16 {
+            return None;
+        }
+        if let Type::Reference(reference) = declaration {
+            return self.declared_instance_type(owner, &reference.elem, depth + 1);
+        }
+        let name = self.instance_name(owner, &type_name(declaration)?);
+        if let Some(Item::Type(alias)) = self.declarations.get(&name) {
+            return self.declared_instance_type(owner, &alias.ty, depth + 1);
+        }
+        if matches!(name.as_str(), "Box" | "Arc" | "Rc") {
+            let inner = metadata::generic_types(declaration).first().copied()?;
+            return self.declared_instance_type(owner, inner, depth + 1);
+        }
+        Some(name)
+    }
+
     fn directives(&self, location: Span) -> Vec<(&str, usize)> {
-        let preceding: Vec<_> = self
-            .source
-            .lines()
-            .take(location.start().line.saturating_sub(1))
-            .collect();
-        let mut directives: Vec<_> = preceding
-            .into_iter()
-            .enumerate()
-            .rev()
-            .map_while(|(index, line)| {
-                let text = line
-                    .trim_start()
-                    .strip_prefix("//")?
-                    .trim_start_matches('/')
-                    .trim();
-                Some((text, index + 1))
-            })
-            .filter(|(text, _)| text.starts_with("dex:"))
-            .collect();
+        let mut item_line = location.start().line.saturating_sub(1);
+        while item_line + 1 < location.end().line && self.is_directive_region(item_line) {
+            item_line += 1;
+        }
+        let mut directives = Vec::new();
+        for index in (0..item_line).rev() {
+            if !self.is_directive_region(index) {
+                break;
+            }
+            if let Some(text) = self.lines[index]
+                .trim_start()
+                .strip_prefix("//")
+                .map(str::trim)
+                && text.starts_with("dex:")
+            {
+                directives.push((text, index + 1));
+            }
+        }
         directives.reverse();
         directives
     }
 
+    fn is_directive_region(&self, index: usize) -> bool {
+        let line = self.lines[index].trim();
+        line.is_empty() || line.starts_with("//") || self.attribute_lines.contains(&(index + 1))
+    }
+
     fn directive_facts(&self, location: Span, prefix: &str) -> Vec<Value> {
         self.directives(location).into_iter().filter(|(text, _)| text.starts_with(prefix)).map(|(text, line)| {
-            let source = self.source.lines().nth(line - 1).unwrap_or_default();
+            let source = self.lines[line - 1];
             json!({"text": text, "span": {"startLine": line, "endLine": line,
                 "startColumn": source.len() - source.trim_start().len() + 1, "endColumn": source.len() + 1}})
         }).collect()
@@ -525,6 +677,36 @@ impl<'source> RustFlowSource<'source> {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+impl<'source> Visit<'source> for RustFlowSource<'source> {
+    fn visit_attribute(&mut self, attribute: &'source syn::Attribute) {
+        let span = attribute.span();
+        let end = span.end();
+        let trailing_text: String = self.lines[end.line - 1].chars().skip(end.column).collect();
+        let trailing_text = trailing_text.trim_start();
+        let last_attribute_line = if trailing_text.is_empty() || trailing_text.starts_with("//") {
+            end.line
+        } else {
+            end.line - 1
+        };
+        self.attribute_lines
+            .extend(span.start().line..=last_attribute_line);
+        visit::visit_attribute(self, attribute);
+    }
+}
+
+impl WorkflowImplementation<'_> {
+    fn report_unresolved_name(&self, method: &str, graph: &mut RustFlowGraph) {
+        if let Some(location) = self.unresolved_name {
+            graph.diagnostic(
+                "warning",
+                &format!("{method}_unresolved"),
+                format!("Cannot resolve {method}() for {}", self.rust_type),
+                Some(location),
+            );
+        }
     }
 }
 

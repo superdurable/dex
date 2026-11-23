@@ -294,7 +294,7 @@ Deployment and operations guidance may name server-zd and its configuration.
 These files are generated. Never hand-merge them:
 
 - every `Cargo.lock` of a hand-written Rust workspace (`server-zd`,
-  `sdk-rust`, `s3local`, `examples/rust`);
+  `sdk-rust`, `s3local`, `examples/rust`, `cli/internal/flowviz/rust_analyzer`);
 - generated code from `make generated-code`;
 - `docs/src/data/flow-definitions/**/*.json`;
 - the newest server-zd format_compat testdata version (`objects/`,
@@ -453,9 +453,9 @@ Step node as `metadata.explanation` for Dex Web v2 Definition.
 # Rust Code Conventions
 
 Rust Code Conventions (R1–R19, the lint tables, and the checker baseline) apply
-to every hand-written Rust workspace: `server-zd`, `sdk-rust`, `s3local`, and
-`examples/rust`. They live once in `.cursor/rules/rust.mdc`. Read it before
-changing Rust code.
+to every hand-written Rust workspace: `server-zd`, `sdk-rust`, `s3local`,
+`examples/rust`, and `cli/internal/flowviz/rust_analyzer`. They live once in
+`.cursor/rules/rust.mdc`. Read it before changing Rust code.
 
 # Prefer Complete, Precise Names
 

@@ -59,6 +59,81 @@ func TestRustAnalyzerDynamicShapes(t *testing.T) {
 	}
 }
 
+func TestRustAnalyzerStaticTargetsAndEarlyReturns(t *testing.T) {
+	requireRustAnalyzerCargo(t)
+	source := filepath.Join("testdata", "rust", "shapes", "static_targets.rs")
+	graph, err := Analyze(t.Context(), source, AnalyzeOptions{FlowType: "Transfers"})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
+	require.Equal(t, "step:Start", graph.Flow.StartStepID)
+	var conditions []string
+	for _, edge := range graph.Edges {
+		if edge.Kind != "transition" || edge.To != "step:Finished" {
+			continue
+		}
+		for _, node := range graph.Nodes {
+			if node.ID == edge.From {
+				conditions = append(conditions, node.Condition)
+			}
+		}
+	}
+	require.ElementsMatch(t, []string{
+		"input == 0",
+		"(!(input == 0)) && ((input matches 1) && (enabled()))",
+		"!(input == 0)",
+	}, conditions)
+	require.True(t, rustGraphHasEdge(graph, "failure_transition", "step:Start", "step:Fallback"))
+}
+
+func TestRustAnalyzerUnresolvedNamesAndTargets(t *testing.T) {
+	requireRustAnalyzerCargo(t)
+	source := filepath.Join("testdata", "rust", "shapes", "static_targets.rs")
+	contents, err := os.ReadFile(source)
+	require.NoError(t, err)
+	contentsWithDynamicValues := strings.NewReplacer(
+		"FLOW_NAME\n", "external::FLOW_NAME\n",
+		"STEP_NAME\n", "get_step_name()\n",
+		"FinishAlias::default()", "Default::default()",
+		"FinishAlias::new()", "ExternalStep::new()",
+	).Replace(string(contents))
+	graph, err := analyzeRust(t.Context(), source, []byte(contentsWithDynamicValues), "", "")
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.ElementsMatch(t, []string{
+		"flow_type_unresolved", "step_type_unresolved", "dynamic_step_target", "dynamic_step_target",
+	}, diagnosticCodes(graph))
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code != "dynamic_step_target" {
+			require.Equal(t, "warning", diagnostic.Severity)
+		}
+	}
+	for _, node := range graph.Nodes {
+		require.NotContains(t, []string{"step:Default", "step:ExternalStep"}, node.ID)
+	}
+}
+
+func TestRustAnalyzerDoesNotFollowCrossFileBranchBuilder(t *testing.T) {
+	requireRustAnalyzerCargo(t)
+	source := filepath.Join("testdata", "rust", "shapes", "static_targets.rs")
+	contents, err := os.ReadFile(source)
+	require.NoError(t, err)
+	withExternalCall := strings.Replace(string(contents), "[build_movement(", "[external::build_movement(", 1)
+	graph, err := analyzeRust(t.Context(), source, []byte(withExternalCall), "", "")
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.Equal(t, []string{"dynamic_step_target"}, diagnosticCodes(graph))
+}
+
+func rustGraphHasEdge(graph *Graph, kind, source, target string) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind && edge.From == source && edge.To == target {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRustAnalyzerParseFailure(t *testing.T) {
 	requireRustAnalyzerCargo(t)
 	graph, err := analyzeRust(t.Context(), "broken.rs", []byte("struct Example {"), "", "")
@@ -82,7 +157,12 @@ func TestRustAnalyzerCacheBuildsOnceAndInvalidatesOnSourceChange(t *testing.T) {
 	var buildErrors [2]error
 	for index := range binaries {
 		group.Go(func() {
-			binaries[index], buildErrors[index] = resolveRustAnalyzerBinary(t.Context(), cargo, cache, crate)
+			resolved, err := resolveRustAnalyzerBinary(t.Context(), cargo, cache, crate)
+			if err == nil {
+				binaries[index] = resolved.binary
+				err = resolved.lock.Close()
+			}
+			buildErrors[index] = err
 		})
 	}
 	group.Wait()
@@ -92,23 +172,61 @@ func TestRustAnalyzerCacheBuildsOnceAndInvalidatesOnSourceChange(t *testing.T) {
 	require.Equal(t, binaries[0], binaries[1])
 	reused, err := resolveRustAnalyzerBinary(t.Context(), cargo, cache, crate)
 	require.NoError(t, err)
-	require.Equal(t, binaries[0], reused)
+	require.NoError(t, reused.lock.Close())
+	require.Equal(t, binaries[0], reused.binary)
 	requireRustAnalyzerBuildCount(t, cache, 1)
+	cargoConfigDirectory := filepath.Join(filepath.Dir(filepath.Dir(reused.binary)), ".cargo")
+	require.NoError(t, os.Mkdir(cargoConfigDirectory, 0o700))
 
 	crate["rust_analyzer/src/main.rs"].Data = []byte("second version")
 	updated, err := resolveRustAnalyzerBinary(t.Context(), cargo, cache, crate)
 	require.NoError(t, err)
-	require.NotEqual(t, filepath.Dir(reused), filepath.Dir(updated))
+	require.NoError(t, updated.lock.Close())
+	require.NotEqual(t, filepath.Dir(reused.binary), filepath.Dir(updated.binary))
+	require.NoDirExists(t, filepath.Dir(reused.binary))
+	require.DirExists(t, cargoConfigDirectory)
+	entries, err := os.ReadDir(filepath.Dir(updated.binary))
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	require.Equal(t, []string{"Cargo.lock", "Cargo.toml", rustAnalyzerExecutable, "src"}, names)
 	requireRustAnalyzerBuildCount(t, cache, 2)
+}
+
+func TestRustAnalyzerCacheInsideCargoWorkspace(t *testing.T) {
+	requireRustAnalyzerCargo(t)
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "Cargo.toml"), []byte("[workspace]\nmembers = []\n"), 0o600))
+	crate := fstest.MapFS{
+		"rust_analyzer/Cargo.toml":  rustAnalyzerTestManifest(t),
+		"rust_analyzer/Cargo.lock":  {Data: []byte("version = 4\n\n[[package]]\nname = \"dex-flowviz-rust\"\nversion = \"0.1.0\"\n")},
+		"rust_analyzer/src/main.rs": {Data: []byte("fn main() {}\n")},
+	}
+	resolved, err := resolveRustAnalyzerBinary(t.Context(), "cargo", filepath.Join(workspace, "cache"), crate)
+	require.NoError(t, err)
+	require.NoError(t, resolved.lock.Close())
+	require.FileExists(t, resolved.binary)
+}
+
+func rustAnalyzerTestManifest(t *testing.T) *fstest.MapFile {
+	t.Helper()
+	contents, err := rustAnalyzerCrate.ReadFile("rust_analyzer/Cargo.toml")
+	require.NoError(t, err)
+	require.Contains(t, string(contents), "\n[workspace]\n")
+	manifest, _, _ := strings.Cut(string(contents), "[dependencies]")
+	return &fstest.MapFile{Data: []byte(manifest)}
 }
 
 func TestRustAnalyzerBuildFailureIncludesLogTail(t *testing.T) {
 	cache := t.TempDir()
 	cargo := filepath.Join(cache, "cargo")
-	require.NoError(t, os.WriteFile(cargo, []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo cargo-test; exit 0; fi\necho build-sentinel >&2\nexit 1\n"), 0o700))
+	require.NoError(t, os.WriteFile(cargo, []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo cargo-test; exit 0; fi\necho 'failed to download build-sentinel' >&2\nexit 1\n"), 0o700))
 	_, err := resolveRustAnalyzerBinary(context.Background(), cargo, cache, rustAnalyzerCrate)
 	require.ErrorContains(t, err, "build-sentinel")
 	require.ErrorContains(t, err, "build.log")
+	require.ErrorContains(t, err, "Build once online or configure a vendored Cargo registry.")
 }
 
 func requireRustAnalyzerBuildCount(t *testing.T, directory string, expected int) {
@@ -131,9 +249,11 @@ if [ "$1" = --version ]; then
     echo cargo-test
     exit 0
 fi
-test "$*" = "build --release --locked --target-dir $PWD/target"
+test "$*" = "build --release --locked --target-dir $PWD/target --message-format=json"
 echo build >> "$(dirname "$0")/build-count"
-mkdir -p target/release
-touch target/release/dex-flowviz-rust
-chmod 700 target/release/dex-flowviz-rust
+executable="$PWD/target/custom-triple/release/dex-flowviz-rust"
+mkdir -p "$(dirname "$executable")"
+touch "$executable"
+chmod 700 "$executable"
+printf '{"reason":"compiler-artifact","target":{"name":"dex-flowviz-rust"},"executable":"%s"}\n' "$executable"
 `

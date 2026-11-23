@@ -170,13 +170,15 @@ The TypeScript analyzer reads one file, so a SubFlow node names the expression p
 
 An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
 
+The analyzer works from a single source file. Java sources and recursive analysis across files are unsupported.
+
 ### Rust source {#rust-source}
 
 **Since 1.47.23.** Pass a `.rs` file or specify `--language rust`. The Rust analyzer requires Cargo and Rust 1.97 or newer. Use `--cargo /path/to/cargo` or set `DEX_CARGO` to select Cargo. The flag takes precedence. The default is `cargo` on `PATH`.
 
-Dexcli builds the embedded analyzer on its first run, which takes about 5 to 30 seconds depending on the machine. It reuses the binary under `dexcli/flowviz-rust` in the operating system's user cache directory. Cache that directory in CI, typically `~/.cache/dexcli/flowviz-rust` on Linux or `~/Library/Caches/dexcli/flowviz-rust` on macOS. Dexcli keeps separate entries for each Cargo version and analyzer revision.
+Dexcli builds the embedded analyzer on its first run, which takes about 5 to 30 seconds depending on the machine. It reuses the binary under `dexcli/flowviz-rust` in the operating system's user cache directory. Cache that directory in CI, typically `~/.cache/dexcli/flowviz-rust` on Linux or `~/Library/Caches/dexcli/flowviz-rust` on macOS. Include the Cargo version and analyzer sources in the cache key. Dexcli removes stale analyzer versions from the directory.
 
-The analyzer reads `impl Flow` and `impl Step` in the given file. A literal returned by `flow_type()` or `step_type()` overrides the Rust type name. Pass the registered name to `--flow` for a file with multiple Flows.
+The analyzer reads `impl Flow` and `impl Step` in the given file. A string literal returned directly or through a file-local `const` or `static` in `flow_type()` or `step_type()` overrides the Rust type name. The analyzer warns when it cannot resolve the name. Pass the registered name to `--flow` for a file with multiple Flows.
 
 Use `//` for Rust directives. Put `dex:group` and `dex:explanation` directly above the Step struct, or above its `impl Step` block if the struct has neither directive. Put `dex:indexed-attribute` above the indexed Attribute declaration and `dex:field` above the function bound to the `GetDexSummary` or `GetDexDisplay` RPC. Use the same arguments as in Go.
 

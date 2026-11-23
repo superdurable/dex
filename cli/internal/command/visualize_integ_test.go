@@ -310,18 +310,15 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 		relative = filepath.ToSlash(relative)
 		t.Run(relative, func(t *testing.T) {
 			if filepath.Ext(source) == ".rs" {
-				scanRustVisualizeExample(t, source)
-				return
+				requireVisualizeRustCargo(t)
 			}
-			graph, analyzeErr := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
-			require.NoError(t, analyzeErr)
-			require.Equal(t, "2.0", graph.SchemaVersion)
+			graph := readVisualizeExampleGraph(t, source, "")
 			first, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			second, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			require.Equal(t, first, second)
-			requireNoUnexpectedVisualizeDiagnostics(t, graph, source)
+			scanVisualizeExample(t, source, graph)
 		})
 	}
 }
@@ -1021,7 +1018,6 @@ func visualizerRepositoryRoot(t *testing.T) string {
 
 var multiFlowExampleDirectories = map[string]bool{
 	"workflow-patterns": true,
-	"workflow_patterns": true,
 }
 
 func exampleFlowSources(t *testing.T, repositoryRoot string) []string {

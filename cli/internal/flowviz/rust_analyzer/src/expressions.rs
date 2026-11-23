@@ -9,14 +9,17 @@
 use std::collections::BTreeMap;
 
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Block, Expr, Local, Pat, Stmt, Token, Type};
+use syn::{Block, Expr, Local, Pat, Stmt, Token, Type, UnOp};
 
 pub(crate) struct ExpressionCalls<'source> {
     pub(crate) calls: Vec<&'source Expr>,
     pub(crate) locals: BTreeMap<String, &'source Expr>,
     tail: Option<&'source Expr>,
-    returns: Vec<&'source Expr>,
+    returns: Vec<(&'source Expr, String)>,
+    predicates: Vec<String>,
+    tail_predicates: BTreeMap<(usize, usize), String>,
 }
 
 impl<'source> ExpressionCalls<'source> {
@@ -39,11 +42,29 @@ impl<'source> ExpressionCalls<'source> {
             locals: BTreeMap::new(),
             tail: None,
             returns: Vec::new(),
+            predicates: Vec::new(),
+            tail_predicates: BTreeMap::new(),
         }
     }
 
     pub(crate) fn return_expressions(&self) -> Vec<&'source Expr> {
-        self.returns.iter().copied().chain(self.tail).collect()
+        self.conditional_returns()
+            .map(|(expression, _)| expression)
+            .collect()
+    }
+
+    pub(crate) fn conditional_returns(&self) -> impl Iterator<Item = (&'source Expr, &str)> {
+        self.returns
+            .iter()
+            .map(|(expression, predicate)| (*expression, predicate.as_str()))
+            .chain(self.tail.map(|tail| (tail, self.tail_predicate(tail))))
+    }
+
+    pub(crate) fn tail_predicate(&self, expression: &Expr) -> &str {
+        let start = expression.span().start();
+        self.tail_predicates
+            .get(&(start.line, start.column))
+            .map_or("", String::as_str)
     }
 
     pub(crate) fn resolve(&self, expression: &'source Expr) -> &'source Expr {
@@ -66,10 +87,69 @@ impl<'source> Visit<'source> for ExpressionCalls<'source> {
         if matches!(expression, Expr::Call(_) | Expr::MethodCall(_)) {
             self.calls.push(expression);
         }
-        if let Expr::Return(value) = expression {
-            self.returns.extend(value.expr.as_deref());
+        if let Expr::Return(value) = expression
+            && let Some(result) = value.expr.as_deref()
+        {
+            self.returns
+                .push((result, combine_predicates(&self.predicates)));
         }
         visit::visit_expr(self, expression);
+    }
+
+    fn visit_block(&mut self, block: &'source Block) {
+        let depth = self.predicates.len();
+        for (index, statement) in block.stmts.iter().enumerate() {
+            let Stmt::Expr(expression, _) = statement else {
+                self.visit_stmt(statement);
+                continue;
+            };
+            if index + 1 == block.stmts.len() && block_tail(block).is_some() {
+                let start = expression.span().start();
+                self.tail_predicates.insert(
+                    (start.line, start.column),
+                    combine_predicates(&self.predicates[depth..]),
+                );
+            }
+            self.visit_stmt(statement);
+            if let Expr::If(branch) = peel(expression) {
+                let then_returns = block_always_returns(&branch.then_branch);
+                let else_returns = branch
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|(_, alternative)| expression_always_returns(alternative));
+                if then_returns != else_returns {
+                    let predicate = source_text(&branch.cond);
+                    self.predicates.push(if then_returns {
+                        format!("!({predicate})")
+                    } else {
+                        predicate
+                    });
+                }
+            }
+        }
+        self.predicates.truncate(depth);
+    }
+
+    fn visit_expr_if(&mut self, branch: &'source syn::ExprIf) {
+        self.visit_expr(&branch.cond);
+        let predicate = source_text(&branch.cond);
+        self.predicates.push(predicate.clone());
+        self.visit_block(&branch.then_branch);
+        self.predicates.pop();
+        if let Some((_, alternative)) = &branch.else_branch {
+            self.predicates.push(format!("!({predicate})"));
+            self.visit_expr(alternative);
+            self.predicates.pop();
+        }
+    }
+
+    fn visit_expr_match(&mut self, branch: &'source syn::ExprMatch) {
+        self.visit_expr(&branch.expr);
+        for arm in &branch.arms {
+            self.predicates.push(match_predicate(&branch.expr, arm));
+            self.visit_arm(arm);
+            self.predicates.pop();
+        }
     }
 
     fn visit_expr_closure(&mut self, closure: &'source syn::ExprClosure) {
@@ -92,6 +172,66 @@ impl<'source> Visit<'source> for ExpressionCalls<'source> {
     fn visit_item(&mut self, _item: &'source syn::Item) {}
 }
 
+fn block_always_returns(block: &Block) -> bool {
+    block.stmts.iter().any(|statement| {
+        matches!(statement, Stmt::Expr(expression, _) if expression_always_returns(expression))
+    })
+}
+
+fn expression_always_returns(expression: &Expr) -> bool {
+    match peel(expression) {
+        Expr::Return(_) => true,
+        Expr::Block(block) => block_always_returns(&block.block),
+        Expr::If(branch) => {
+            block_always_returns(&branch.then_branch)
+                && branch
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|(_, alternative)| expression_always_returns(alternative))
+        }
+        Expr::Match(branch) => {
+            !branch.arms.is_empty()
+                && branch
+                    .arms
+                    .iter()
+                    .all(|arm| expression_always_returns(&arm.body))
+        }
+        _ => false,
+    }
+}
+
+fn combine_predicates(predicates: &[String]) -> String {
+    predicates
+        .iter()
+        .fold(String::new(), |outer, inner| join_predicates(&outer, inner))
+}
+
+pub(crate) fn join_predicates(outer: &str, inner: &str) -> String {
+    match (outer.is_empty(), inner.is_empty()) {
+        (true, _) => inner.to_owned(),
+        (_, true) => outer.to_owned(),
+        _ => format!("({outer}) && ({inner})"),
+    }
+}
+
+pub(crate) fn match_predicate(subject: &Expr, arm: &syn::Arm) -> String {
+    let pattern = format!("{} matches {}", source_text(subject), source_text(&arm.pat));
+    match &arm.guard {
+        Some((_, guard)) => join_predicates(&pattern, &source_text(guard)),
+        None => pattern,
+    }
+}
+
+pub(crate) fn source_text(value: &impl Spanned) -> String {
+    value
+        .span()
+        .source_text()
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub(crate) fn block_tail(block: &Block) -> Option<&Expr> {
     match block.stmts.last()? {
         Stmt::Expr(expression, None) if !matches!(expression, Expr::Return(_)) => Some(expression),
@@ -106,6 +246,7 @@ pub(crate) fn peel(mut expression: &Expr) -> &Expr {
             Expr::Paren(parenthesized) => &parenthesized.expr,
             Expr::Group(group) => &group.expr,
             Expr::Try(attempt) => &attempt.expr,
+            Expr::Unary(unary) if matches!(unary.op, UnOp::Deref(_)) => &unary.expr,
             _ => return expression,
         };
     }

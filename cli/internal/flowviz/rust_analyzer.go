@@ -9,10 +9,12 @@
 package flowviz
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -41,16 +44,20 @@ func analyzeRust(ctx context.Context, sourcePath string, source []byte, cargoPat
 	if err != nil {
 		return rustAnalyzerFailure(sourcePath, err), nil
 	}
-	binary, err := resolveRustAnalyzerBinary(ctx, cargoPath, cacheDirectory, rustAnalyzerCrate)
+	cache, err := resolveRustAnalyzerBinary(ctx, cargoPath, cacheDirectory, rustAnalyzerCrate)
 	if err != nil {
 		return rustAnalyzerFailure(sourcePath, err), nil
 	}
+	defer cache.lock.Close()
 	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source), "flowType": flowType})
 	if err != nil {
 		return nil, fmt.Errorf("encode Rust analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, binary)
+	command := exec.CommandContext(ctx, cache.binary)
 	command.Stdin = bytes.NewReader(request)
+	command.Env = slices.DeleteFunc(command.Environ(), func(setting string) bool {
+		return strings.HasPrefix(setting, "RUST_BACKTRACE=")
+	})
 	output, err := command.Output()
 	if err != nil {
 		return rustAnalyzerFailure(sourcePath, rustAnalyzerProcessError("run Rust analyzer", err)), nil
@@ -68,50 +75,58 @@ func rustAnalyzerFailure(sourcePath string, err error) *Graph {
 	return graph
 }
 
-func resolveRustAnalyzerBinary(ctx context.Context, cargoPath string, cacheDirectory string, crateFiles fs.FS) (string, error) {
+type cachedRustAnalyzer struct {
+	binary string
+	lock   *os.File
+}
+
+func resolveRustAnalyzerBinary(ctx context.Context, cargoPath string, cacheDirectory string, crateFiles fs.FS) (cachedRustAnalyzer, error) {
 	cargo, err := exec.LookPath(cargoPath)
 	if err != nil {
-		return "", fmt.Errorf("find Cargo: %w", err)
+		return cachedRustAnalyzer{}, fmt.Errorf("find Cargo: %w", err)
 	}
 	cargo, err = filepath.Abs(cargo)
 	if err != nil {
-		return "", fmt.Errorf("resolve Cargo path: %w", err)
+		return cachedRustAnalyzer{}, fmt.Errorf("resolve Cargo path: %w", err)
 	}
 	versionCommand := exec.CommandContext(ctx, cargo, "--version")
 	versionCommand.Dir = cacheDirectory
 	if err := os.MkdirAll(cacheDirectory, 0o700); err != nil {
-		return "", fmt.Errorf("create user cache directory: %w", err)
+		return cachedRustAnalyzer{}, fmt.Errorf("create user cache directory: %w", err)
 	}
 	version, err := versionCommand.Output()
 	if err != nil {
-		return "", rustAnalyzerProcessError("read Cargo version", err)
+		return cachedRustAnalyzer{}, rustAnalyzerProcessError("read Cargo version", err)
 	}
 	directory, err := rustAnalyzerCacheDirectory(cacheDirectory, version, crateFiles)
 	if err != nil {
-		return "", err
+		return cachedRustAnalyzer{}, err
+	}
+	root := filepath.Dir(directory)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return cachedRustAnalyzer{}, fmt.Errorf("create Rust analyzer cache: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(root, "build.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return cachedRustAnalyzer{}, fmt.Errorf("open Rust analyzer build lock: %w", err)
+	}
+	if err := lockRustAnalyzerBuild(ctx, lock); err != nil {
+		lock.Close()
+		return cachedRustAnalyzer{}, err
 	}
 	binary := filepath.Join(directory, rustAnalyzerExecutable)
-	if rustAnalyzerBinaryExists(binary) {
-		return binary, nil
+	if !rustAnalyzerBinaryExists(binary) {
+		fmt.Fprintln(os.Stderr, "building the Rust analyzer, first run only")
+		if err := buildRustAnalyzer(ctx, cargo, directory, binary, crateFiles); err != nil {
+			lock.Close()
+			return cachedRustAnalyzer{}, err
+		}
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", fmt.Errorf("create Rust analyzer cache: %w", err)
+	if err := pruneRustAnalyzerCache(directory); err != nil {
+		lock.Close()
+		return cachedRustAnalyzer{}, err
 	}
-	lock, err := os.OpenFile(filepath.Join(directory, "build.lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("open Rust analyzer build lock: %w", err)
-	}
-	defer lock.Close()
-	if err := lockRustAnalyzerBuild(ctx, lock); err != nil {
-		return "", err
-	}
-	if rustAnalyzerBinaryExists(binary) {
-		return binary, nil
-	}
-	if err := buildRustAnalyzer(ctx, cargo, directory, binary, crateFiles); err != nil {
-		return "", err
-	}
-	return binary, nil
+	return cachedRustAnalyzer{binary: binary, lock: lock}, nil
 }
 
 func rustAnalyzerCacheDirectory(cacheDirectory string, cargoVersion []byte, crateFiles fs.FS) (string, error) {
@@ -174,19 +189,89 @@ func buildRustAnalyzer(ctx context.Context, cargo string, directory string, bina
 	}
 	defer log.Close()
 	target := filepath.Join(directory, "target")
-	command := exec.CommandContext(ctx, cargo, "build", "--release", "--locked", "--target-dir", target)
+	command := exec.CommandContext(ctx, cargo, "build", "--release", "--locked", "--target-dir", target, "--message-format=json")
 	command.Dir = directory
-	for _, setting := range command.Environ() {
-		if !strings.HasPrefix(setting, "CARGO_BUILD_TARGET=") {
-			command.Env = append(command.Env, setting)
+	command.Stderr = log
+	output, buildErr := command.Output()
+	executable, err := rustAnalyzerCargoExecutable(output, log)
+	if err != nil {
+		return err
+	}
+	if buildErr != nil {
+		tail := rustAnalyzerBuildLogTail(log)
+		return fmt.Errorf("build Rust analyzer: %w (%s)%s%s", buildErr, log.Name(), tail, rustAnalyzerRegistryHint(tail))
+	}
+	if executable == "" {
+		return errors.New("Cargo did not report a Rust analyzer executable")
+	}
+	if err := os.Rename(executable, binary); err != nil {
+		return fmt.Errorf("install cached Rust analyzer: %w", err)
+	}
+	return nil
+}
+
+func rustAnalyzerCargoExecutable(output []byte, log io.Writer) (string, error) {
+	var executable string
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 4096), 4<<20)
+	for scanner.Scan() {
+		var event struct {
+			Reason     string
+			Executable string
+			Target     struct{ Name string }
+			Message    struct{ Rendered string }
+		}
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			continue
+		}
+		switch event.Reason {
+		case "compiler-artifact":
+			if event.Target.Name == rustAnalyzerExecutable && event.Executable != "" {
+				executable = event.Executable
+			}
+		case "compiler-message":
+			if _, err := io.WriteString(log, event.Message.Rendered); err != nil {
+				return "", fmt.Errorf("write Rust analyzer build log: %w", err)
+			}
 		}
 	}
-	command.Stdout, command.Stderr = log, log
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("build Rust analyzer: %w (%s)%s", err, log.Name(), rustAnalyzerBuildLogTail(log))
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read Cargo build messages: %w", err)
 	}
-	if err := os.Rename(filepath.Join(target, "release", rustAnalyzerExecutable), binary); err != nil {
-		return fmt.Errorf("install cached Rust analyzer: %w", err)
+	return executable, nil
+}
+
+func rustAnalyzerRegistryHint(tail string) string {
+	for _, fragment := range []string{"failed to download", "failed to fetch", "download of config.json failed", "failed to query replaced source registry", "offline mode"} {
+		if strings.Contains(tail, fragment) {
+			return "\nBuild once online or configure a vendored Cargo registry."
+		}
+	}
+	return ""
+}
+
+func pruneRustAnalyzerCache(directory string) error {
+	for _, name := range []string{"target", "build.log"} {
+		if err := os.RemoveAll(filepath.Join(directory, name)); err != nil {
+			return fmt.Errorf("clean Rust analyzer build output: %w", err)
+		}
+	}
+	root := filepath.Dir(directory)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("list Rust analyzer cache: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || name == filepath.Base(directory) || len(name) != 2*sha256.Size {
+			continue
+		}
+		if _, err := hex.DecodeString(name); err != nil {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
+			return fmt.Errorf("prune stale Rust analyzer cache: %w", err)
+		}
 	}
 	return nil
 }

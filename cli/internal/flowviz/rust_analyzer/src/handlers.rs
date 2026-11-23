@@ -14,7 +14,7 @@ use syn::{Block, Expr, Item, spanned::Spanned};
 
 use crate::expressions::{
     ExpressionCalls, arguments, associated_call, associated_name, block_tail, expression_path,
-    literal_string, macro_arguments, peel,
+    join_predicates, literal_string, macro_arguments, match_predicate, peel, source_text,
 };
 use crate::metadata::ResourceKind;
 use crate::metadata::rpc_output_keys;
@@ -45,6 +45,30 @@ impl<'source> HandlerExpressions<'source> {
             calls: ExpressionCalls::new(block),
         }
     }
+
+    fn delegated<'call>(
+        &self,
+        function: &'call syn::ItemFn,
+        call: &'call syn::ExprCall,
+    ) -> HandlerExpressions<'call>
+    where
+        'source: 'call,
+    {
+        let mut handler = HandlerExpressions::new(self.owner, self.id, self.phase, &function.block);
+        let caller: &ExpressionCalls<'call> = &self.calls;
+        for (parameter, argument) in function.sig.inputs.iter().zip(&call.args) {
+            if let syn::FnArg::Typed(parameter) = parameter
+                && let syn::Pat::Ident(identifier) = parameter.pat.as_ref()
+            {
+                handler
+                    .calls
+                    .locals
+                    .entry(identifier.ident.to_string())
+                    .or_insert_with(|| caller.resolve(argument));
+            }
+        }
+        handler
+    }
 }
 
 pub(crate) struct HandlerOutcome<'source> {
@@ -70,9 +94,37 @@ impl<'source> RustFlowSource<'source> {
             self.analyze_resource_access(&handler, graph);
         }
         if let Some(options) = impl_method(step.declaration, "options") {
-            let handler = HandlerExpressions::new(&step.rust_type, &id, "execute", &options.block);
+            self.analyze_options(
+                HandlerExpressions::new(&step.rust_type, &id, "execute", &options.block),
+                graph,
+            );
+        }
+    }
+
+    fn analyze_options<'handler>(
+        &self,
+        mut handler: HandlerExpressions<'handler>,
+        graph: &mut RustFlowGraph,
+    ) where
+        'source: 'handler,
+    {
+        let mut visited = BTreeSet::new();
+        loop {
             self.analyze_execute_failure(&handler, graph);
             self.analyze_locks(&handler, graph);
+            let Some(Expr::Call(call)) = block_tail(handler.block).map(peel) else {
+                return;
+            };
+            let Some(name) = self.file_symbol_name(&call.func) else {
+                return;
+            };
+            let Some(function) = self.file_function(&name) else {
+                return;
+            };
+            if !visited.insert(name) {
+                return;
+            }
+            handler = handler.delegated(function, call);
         }
     }
 
@@ -180,10 +232,15 @@ impl<'source> RustFlowSource<'source> {
                 return Some((&method.block, method.span()));
             }
         }
-        if let Some(Item::Fn(function)) = self.declarations.get(name) {
-            return Some((&function.block, function.span()));
-        }
-        None
+        self.file_function(name)
+            .map(|function| (function.block.as_ref(), function.span()))
+    }
+
+    fn file_function(&self, name: &str) -> Option<&'source syn::ItemFn> {
+        let Item::Fn(function) = self.declarations.get(name)? else {
+            return None;
+        };
+        Some(function)
     }
 
     fn analyze_rpc(
@@ -623,14 +680,17 @@ impl<'source> RustFlowSource<'source> {
                 }
             }
             Expr::Call(call) => {
-                let name = expression_path(&call.func).unwrap_or_default();
-                if let Some(Item::Fn(function)) = self.declarations.get(&name) {
-                    self.collect_branch_builder_targets(handler, function, call, targets, graph);
-                } else if name == "round_branch"
-                    && let Some(step) = call.args.first()
+                if let Some(name) = self.file_symbol_name(&call.func)
+                    && let Some(function) = self.file_function(&name)
                 {
-                    targets.insert(self.target_step(handler.owner, step, &handler.calls, graph));
-                } else {
+                    self.collect_branch_builder_targets(handler, function, call, targets, graph);
+                } else if associated_name(expression).is_some_and(|(owner, method)| {
+                    matches!(
+                        (owner.as_str(), method.as_str()),
+                        ("Box" | "Arc" | "Rc", "new") | ("Vec", "new" | "with_capacity" | "from")
+                    )
+                }) || expression_path(&call.func).as_deref() == Some("Some")
+                {
                     for argument in &call.args {
                         self.collect_movements(
                             handler,
@@ -641,6 +701,8 @@ impl<'source> RustFlowSource<'source> {
                             depth + 1,
                         );
                     }
+                } else {
+                    targets.insert(Self::dynamic_step_target(call.span(), graph));
                 }
             }
             Expr::MethodCall(call) => {
@@ -666,6 +728,14 @@ impl<'source> RustFlowSource<'source> {
             Expr::Closure(closure) => self.collect_movements(
                 handler,
                 &closure.body,
+                targets,
+                visited_locals,
+                graph,
+                depth + 1,
+            ),
+            Expr::Cast(cast) => self.collect_movements(
+                handler,
+                &cast.expr,
                 targets,
                 visited_locals,
                 graph,
@@ -710,31 +780,17 @@ impl<'source> RustFlowSource<'source> {
         targets: &mut BTreeSet<String>,
         graph: &mut RustFlowGraph,
     ) {
-        let body = ExpressionCalls::new(&function.block);
-        for movement in body.calls {
+        let delegated = handler.delegated(function, call);
+        for movement in &delegated.calls.calls {
             if !associated_name(movement).is_some_and(|(owner, method)| {
                 owner == "StepMovement" && matches!(method.as_str(), "to" | "to_with_options")
             }) {
                 continue;
             }
-            let Some(name) = arguments(movement)
-                .and_then(|args| args.first())
-                .and_then(expression_path)
-            else {
+            let Some(target) = arguments(movement).and_then(|args| args.first()) else {
                 continue;
             };
-            for (parameter, argument) in function.sig.inputs.iter().zip(&call.args) {
-                if matches!(parameter, syn::FnArg::Typed(value)
-                    if matches!(value.pat.as_ref(), syn::Pat::Ident(identifier) if identifier.ident == name))
-                {
-                    targets.insert(self.target_step(
-                        handler.owner,
-                        argument,
-                        &handler.calls,
-                        graph,
-                    ));
-                }
-            }
+            targets.insert(self.target_step(handler.owner, target, &delegated.calls, graph));
         }
     }
 
@@ -743,8 +799,8 @@ impl<'source> RustFlowSource<'source> {
         handler: &HandlerExpressions<'expression>,
     ) -> Vec<HandlerOutcome<'expression>> {
         let mut outcomes = Vec::new();
-        for expression in handler.calls.return_expressions() {
-            self.collect_outcomes(expression, "", &handler.calls, &mut outcomes, 0);
+        for (expression, condition) in handler.calls.conditional_returns() {
+            self.collect_outcomes(expression, condition, &handler.calls, &mut outcomes, 0);
         }
         if outcomes.len() > 1 && outcomes.iter().any(|outcome| !outcome.condition.is_empty()) {
             for outcome in &mut outcomes {
@@ -771,15 +827,24 @@ impl<'source> RustFlowSource<'source> {
         match expression {
             Expr::Block(block) => {
                 if let Some(tail) = block_tail(&block.block) {
-                    self.collect_outcomes(tail, condition, calls, outcomes, depth + 1);
+                    self.collect_outcomes(
+                        tail,
+                        &join_predicates(condition, calls.tail_predicate(tail)),
+                        calls,
+                        outcomes,
+                        depth + 1,
+                    );
                 }
             }
             Expr::If(branch) => {
-                let predicate = self.source_text(branch.cond.span());
+                let predicate = source_text(&branch.cond);
                 if let Some(tail) = block_tail(&branch.then_branch) {
                     self.collect_outcomes(
                         tail,
-                        &join_predicates(condition, &predicate),
+                        &join_predicates(
+                            &join_predicates(condition, &predicate),
+                            calls.tail_predicate(tail),
+                        ),
                         calls,
                         outcomes,
                         depth + 1,
@@ -797,11 +862,7 @@ impl<'source> RustFlowSource<'source> {
             }
             Expr::Match(branch) => {
                 for arm in &branch.arms {
-                    let predicate = format!(
-                        "{} matches {}",
-                        self.source_text(branch.expr.span()),
-                        self.source_text(arm.pat.span())
-                    );
+                    let predicate = match_predicate(&branch.expr, arm);
                     self.collect_outcomes(
                         &arm.body,
                         &join_predicates(condition, &predicate),
@@ -829,14 +890,6 @@ pub(crate) fn returns_only_error(outcomes: &[HandlerOutcome<'_>]) -> bool {
     !outcomes.is_empty() && outcomes.iter().all(|outcome| {
         matches!(outcome.expression, Expr::Call(call) if expression_path(&call.func).as_deref() == Some("Err"))
     })
-}
-
-fn join_predicates(outer: &str, inner: &str) -> String {
-    if outer.is_empty() {
-        inner.to_owned()
-    } else {
-        format!("({outer}) && ({inner})")
-    }
 }
 
 pub(crate) fn expression_elements(expression: &Expr) -> Vec<&Expr> {
