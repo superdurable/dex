@@ -54,14 +54,35 @@ def test_history_window_events_start_and_update() -> None:
         assert _read_history_window_events(flow_id, run_id) == 3000
 
         with pytest.raises(DexServiceError) as rejected_update:
-            client.update_flow_config(flow_id, FlowConfig(history_window_events=0))
+            client.update_flow_config(flow_id, FlowConfig(history_window_events=-1))
         assert rejected_update.value.code == grpc.StatusCode.INVALID_ARGUMENT
         assert _read_history_window_events(flow_id, run_id) == 3000
+
+        # The server records the unlimited window 0 as the largest int32.
+        client.update_flow_config(flow_id, FlowConfig(history_window_events=0))
+        assert _read_history_window_events(flow_id, run_id) == 2_147_483_647
+
+        client.update_flow_config(flow_id, FlowConfig(history_window_events=4000))
+        assert _read_history_window_events(flow_id, run_id) == 4000
 
         client.stop_flow(flow_id)
 
 
-@pytest.mark.parametrize("history_window_events", [0, -1, 100_001])
+def test_history_window_events_start_unlimited() -> None:
+    flow = NoStateFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("history-window-unlimited")
+        run_id = environment.client.start_flow(
+            flow,
+            flow_id,
+            None,
+            StartFlowOptions(config_override=FlowConfig(history_window_events=0)),
+        )
+        assert _read_history_window_events(flow_id, run_id) == 2_147_483_647
+        environment.client.stop_flow(flow_id)
+
+
+@pytest.mark.parametrize("history_window_events", [-1, 1_000_000_001])
 def test_history_window_events_rejects_out_of_range_start(
     history_window_events: int,
 ) -> None:

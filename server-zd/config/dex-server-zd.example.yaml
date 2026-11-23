@@ -81,12 +81,12 @@ recovery:
   readAheadBytes: 67108864
 history:
   # Approximate history events kept per run; dev and local default to 5000.
-  # FlowConfig.history_window_events overrides it per run.
+  # FlowConfig.history_window_events overrides it per run. 0 keeps the whole history.
   windowEvents: 50000
   # Largest number of history events pruned at once.
   pruneChunkSize: 1000
-  # Largest window that FlowConfig.history_window_events may set.
-  maxWindowEvents: 100000
+  # Largest window that FlowConfig.history_window_events may set. 0 sets no limit.
+  maxWindowEvents: 1000000000
   # Attempt-scoped row bytes written since the last checkpoint that trigger a new one.
   checkpointRowWriteBytesThreshold: 1048576
   # Commands of any kind since the last checkpoint that trigger a new one.

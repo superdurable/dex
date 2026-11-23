@@ -24,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
     FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, TimerSkipCommand, command_reply,
     flow_command,
 };
+use dexzd_protocol::history_window::record_unlimited_history_window;
 use dexzd_request_validation::{
     ClientRequest, validate_client_request, validate_start_flow_request,
 };
@@ -48,8 +49,9 @@ impl FlowCoordinatorRegistry {
         tenant_id: TenantId,
         request: StartFlowRequest,
     ) -> Result<StartFlowResponse, FlowCoordinationError> {
-        let effective_flow_config =
+        let mut effective_flow_config =
             validate_start_flow_request(&request, &self.inner.config.validation)?;
+        record_unlimited_history_window(&mut effective_flow_config);
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         let resolved_timeout_policy =
             if request.flow_timeout_seconds > 0 && request.flow_timeout_policy == 0 {
@@ -61,6 +63,9 @@ impl FlowCoordinatorRegistry {
         let mut request = request;
         let uploads = match request.flow_start_options.as_mut() {
             Some(options) => {
+                if let Some(flow_config) = options.flow_config_override.as_mut() {
+                    record_unlimited_history_window(flow_config);
+                }
                 self.upload_hard_delete_values(&flow, new_run_id, &mut options.attributes)
                     .await?
             }
@@ -241,6 +246,10 @@ impl FlowCoordinatorRegistry {
             ClientRequest::UpdateFlowConfig(&request),
             &self.inner.config.validation,
         )?;
+        let mut request = request;
+        if let Some(flow_config) = request.flow_config.as_mut() {
+            record_unlimited_history_window(flow_config);
+        }
         let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
         self.propose_targeted(&flow, &request.run_id.clone(), |_| {
             flow_command::Command::FlowConfigUpdate(FlowConfigUpdateCommand {

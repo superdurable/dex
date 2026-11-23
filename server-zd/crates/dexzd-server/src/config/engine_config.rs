@@ -263,25 +263,29 @@ pub struct HistoryConfig {
     /// The window serves history reads and Time Travel. A history record counts its events, and
     /// a semantic record without events counts as one. When a run holds more than this many
     /// events plus one prune chunk, the oldest events are pruned until about this many remain.
-    /// A run's `FlowConfig.history_window_events` overrides it. Must be positive.
+    /// A run's `FlowConfig.history_window_events` overrides it. 0 means unlimited: runs that set
+    /// no window of their own disable event-count pruning. Changed in 0.1.38: it had to be positive.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     /// Set by `history.windowEvents`; the deprecated key `history.windowSemanticEvents` is still
     /// accepted with a startup warning. Changed in 0.1.23: the default was 10000 in every mode.
     pub window_events: u32,
     /// Defaults to 1000; largest number of old history events pruned at once, no greater than
-    /// `window_events`.
+    /// `window_events` unless `window_events` is 0.
     ///
     /// A run prunes at most a tenth of its window at once, and at least one event, when that is
     /// smaller.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub prune_chunk_size: u32,
-    /// Defaults to 100000; largest window that `FlowConfig.history_window_events` may set for a
-    /// run.
+    /// Defaults to 1000000000; largest finite window that `FlowConfig.history_window_events` may
+    /// set for a run.
     ///
-    /// StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step
+    /// StartFlow, UpdateFlowConfig, and CloneForkFlow with a larger finite value fail with
+    /// INVALID_ARGUMENT. A Step
     /// result that starts a SubFlow with a larger value is an invalid Worker response, and the
-    /// Step attempt is retried under the Step's retry policy. It does not limit `window_events`. Must be positive. Changes apply to
+    /// Step attempt is retried under the Step's retry policy. It does not limit `window_events`. 0 sets no limit. Changes apply to
     /// later requests only; runs keep the window they already have.
+    /// It never limits an unlimited window: 0, or 2147483647, the value a run records for 0.
+    /// Changed in 0.1.38: it had to be positive.
     pub max_window_events: u32,
     /// Defaults to 1 MiB; a checkpoint is written once the run has written this many bytes of
     /// attempt-scoped rows since the last checkpoint.
@@ -393,7 +397,7 @@ impl Default for HistoryConfig {
         Self {
             window_events: SERVE_HISTORY_WINDOW_EVENTS,
             prune_chunk_size: 1_000,
-            max_window_events: 100_000,
+            max_window_events: 1_000_000_000,
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
             time_travel_replay_memory_bytes: 1024 * 1024 * 1024,

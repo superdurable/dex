@@ -1416,6 +1416,11 @@ interface HistorySettingsDex {
   configUpdates: unknown[];
   /** Fields that replace the summary's, such as a closed status. */
   summaryOverride: Partial<FlowSummary>;
+  /** The server info reply; null fails the read. */
+  serverInfo: Record<string, unknown> | null;
+  /** Holds server info reads while set, until the test answers them; null rejects a read. */
+  shouldHoldServerInfo: boolean;
+  heldServerInfoReads: Array<(reply: Record<string, unknown> | null) => void>;
 }
 
 function historySettingsDex(): HistorySettingsDex {
@@ -1429,6 +1434,9 @@ function historySettingsDex(): HistorySettingsDex {
     heldBlobLoads: [],
     configUpdates: [],
     summaryOverride: {},
+    serverInfo: null,
+    shouldHoldServerInfo: false,
+    heldServerInfoReads: [],
   };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
   const stateResponse = (reply: StateReply) => {
@@ -1464,6 +1472,16 @@ function historySettingsDex(): HistorySettingsDex {
     if (url.pathname === '/api/flows/history') return json(lineagePage(firstAttemptLineage, url.searchParams));
     if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '3' });
     if (url.pathname === '/api/flows/wait') return new Promise<Response>(() => {});
+    if (url.pathname === '/api/server-info') {
+      if (dex.shouldHoldServerInfo) {
+        return new Promise<Response>((resolve, reject) => {
+          dex.heldServerInfoReads.push((reply) => (reply === null
+            ? reject(new Error('server info read failed'))
+            : resolve(json(reply))));
+        });
+      }
+      if (dex.serverInfo !== null) return json(dex.serverInfo);
+    }
     throw new Error(`unexpected request ${input}`);
   }));
   return dex;
@@ -1494,7 +1512,70 @@ function settleStateLoads() {
   return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+/** Answers every held server info read under act; null rejects them. */
+async function answerServerInfoReads(dex: HistorySettingsDex, reply: Record<string, unknown> | null) {
+  await waitFor(() => expect(dex.heldServerInfoReads.length).toBeGreaterThan(0));
+  await act(async () => {
+    for (const answer of dex.heldServerInfoReads.splice(0)) answer(reply);
+    await new Promise((settled) => setTimeout(settled, 0));
+  });
+}
+
 describe('history settings on the run page', () => {
+  it.each([
+    ['0.1.38', 'Whole history'],
+    ['0.1.37', 'Last 2,147,483,647 events'],
+    ['0.1.0', 'Last 2,147,483,647 events'],
+    ['0.1.37-rc.1', 'Last 2,147,483,647 events'],
+  ])('shows the window 2147483647 on server-zd %s as %s', async (serverVersion, label) => {
+    const dex = historySettingsDex();
+    dex.immediateStateReply = { historyWindowEvents: 2147483647 };
+    dex.shouldHoldServerInfo = true;
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect(await within(card).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(dex, { serverEngine: 'zd', serverVersion, currentProtocolVersion: 7 });
+    expect(within(card).getByText(label)).toBeTruthy();
+  });
+
+  it('keeps the numeric window while the server version loads or cannot be read', async () => {
+    const dex = historySettingsDex();
+    dex.immediateStateReply = { historyWindowEvents: 2147483647 };
+    dex.shouldHoldServerInfo = true;
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    await waitFor(() => expect(dex.heldServerInfoReads.length).toBeGreaterThan(0));
+    expect(await within(card).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(dex, { serverEngine: 'zd', serverVersion: '0.1.38', currentProtocolVersion: 7 });
+    expect(within(card).getByText('Whole history')).toBeTruthy();
+
+    cleanup();
+    const failing = historySettingsDex();
+    failing.immediateStateReply = { historyWindowEvents: 2147483647 };
+    failing.shouldHoldServerInfo = true;
+    renderRun();
+    const failedCard = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect(await within(failedCard).findByText('Last 2,147,483,647 events')).toBeTruthy();
+    await answerServerInfoReads(failing, null);
+    expect(within(failedCard).getByText('Last 2,147,483,647 events')).toBeTruthy();
+  });
+
+  it('reads the server version again when the window editor opens after a rollback', async () => {
+    const dex = historySettingsDex();
+    dex.immediateStateReply = { historyWindowEvents: 2147483647 };
+    dex.serverInfo = { serverEngine: 'zd', serverVersion: '0.1.38', currentProtocolVersion: 7 };
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect(await within(card).findByText('Whole history')).toBeTruthy();
+
+    dex.serverInfo = { serverEngine: 'zd', serverVersion: '0.1.37', currentProtocolVersion: 7 };
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit Retention window' }));
+    expect(await within(card).findByText('Enter a positive whole number of events.')).toBeTruthy();
+    expect((within(card).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(card).getByText(/Current value: Last 2,147,483,647 events\./)).toBeTruthy();
+    expect(dex.configUpdates).toEqual([]);
+  });
+
   it('shows a closed run\'s config read failure in the Configuration card and retries it', async () => {
     const dex = historySettingsDex();
     dex.summaryOverride = { flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' };

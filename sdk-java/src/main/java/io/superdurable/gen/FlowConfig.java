@@ -174,7 +174,8 @@ private static final long serialVersionUID = 0L;
    *
    * Use it to keep more history for a run that you inspect or travel back in often, or less
    * history for a run that writes many events and needs less disk. Leave it unset to use the
-   * server's history.windowEvents setting, which defaults to 10000.
+   * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+   * local.
    *
    * The window counts history events. A command that changes the Flow but records no event
    * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -191,12 +192,30 @@ private static final long serialVersionUID = 0L;
    * value can be changed but not cleared back to the server default. A child Flow inherits it
    * from its parent unless its own override sets it.
    *
-   * The value must be positive and at most the server's history.maxWindowEvents setting, which
-   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-   * Step attempt fails and is retried under the Step's retry policy.
+   * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+   * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+   * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+   * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+   * history event carries the run's FlowConfig at start, including a window inherited from its
+   * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+   * also carry the source run's override. History that a finite window already
+   * pruned does not come back, and history objects that pruning already passed may still be
+   * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+   * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+   * values that stay in the window. Local history metadata grows with every event, object storage
+   * keeps the history segments that the window covers, and a run that does not offload keeps that
+   * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+   * window start, so it takes longer as the window grows.
    *
-   * Since server-zd 0.1.21.
+   * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+   * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+   * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+   * INVALID_ARGUMENT.
+   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+   * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+   * 0.1.38 reject 0 as invalid.
+   *
+   * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
    * </pre>
    *
    * <code>optional int32 history_window_events = 7;</code>
@@ -213,7 +232,8 @@ private static final long serialVersionUID = 0L;
    *
    * Use it to keep more history for a run that you inspect or travel back in often, or less
    * history for a run that writes many events and needs less disk. Leave it unset to use the
-   * server's history.windowEvents setting, which defaults to 10000.
+   * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+   * local.
    *
    * The window counts history events. A command that changes the Flow but records no event
    * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -230,12 +250,30 @@ private static final long serialVersionUID = 0L;
    * value can be changed but not cleared back to the server default. A child Flow inherits it
    * from its parent unless its own override sets it.
    *
-   * The value must be positive and at most the server's history.maxWindowEvents setting, which
-   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-   * Step attempt fails and is retried under the Step's retry policy.
+   * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+   * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+   * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+   * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+   * history event carries the run's FlowConfig at start, including a window inherited from its
+   * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+   * also carry the source run's override. History that a finite window already
+   * pruned does not come back, and history objects that pruning already passed may still be
+   * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+   * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+   * values that stay in the window. Local history metadata grows with every event, object storage
+   * keeps the history segments that the window covers, and a run that does not offload keeps that
+   * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+   * window start, so it takes longer as the window grows.
    *
-   * Since server-zd 0.1.21.
+   * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+   * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+   * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+   * INVALID_ARGUMENT.
+   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+   * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+   * 0.1.38 reject 0 as invalid.
+   *
+   * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
    * </pre>
    *
    * <code>optional int32 history_window_events = 7;</code>
@@ -1280,7 +1318,8 @@ private static final long serialVersionUID = 0L;
      *
      * Use it to keep more history for a run that you inspect or travel back in often, or less
      * history for a run that writes many events and needs less disk. Leave it unset to use the
-     * server's history.windowEvents setting, which defaults to 10000.
+     * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+     * local.
      *
      * The window counts history events. A command that changes the Flow but records no event
      * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -1297,12 +1336,30 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-     * Step attempt fails and is retried under the Step's retry policy.
+     * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+     * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+     * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+     * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+     * history event carries the run's FlowConfig at start, including a window inherited from its
+     * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+     * also carry the source run's override. History that a finite window already
+     * pruned does not come back, and history objects that pruning already passed may still be
+     * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+     * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+     * values that stay in the window. Local history metadata grows with every event, object storage
+     * keeps the history segments that the window covers, and a run that does not offload keeps that
+     * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+     * window start, so it takes longer as the window grows.
      *
-     * Since server-zd 0.1.21.
+     * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+     * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+     * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+     * INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+     * 0.1.38 reject 0 as invalid.
+     *
+     * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
      * </pre>
      *
      * <code>optional int32 history_window_events = 7;</code>
@@ -1319,7 +1376,8 @@ private static final long serialVersionUID = 0L;
      *
      * Use it to keep more history for a run that you inspect or travel back in often, or less
      * history for a run that writes many events and needs less disk. Leave it unset to use the
-     * server's history.windowEvents setting, which defaults to 10000.
+     * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+     * local.
      *
      * The window counts history events. A command that changes the Flow but records no event
      * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -1336,12 +1394,30 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-     * Step attempt fails and is retried under the Step's retry policy.
+     * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+     * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+     * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+     * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+     * history event carries the run's FlowConfig at start, including a window inherited from its
+     * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+     * also carry the source run's override. History that a finite window already
+     * pruned does not come back, and history objects that pruning already passed may still be
+     * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+     * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+     * values that stay in the window. Local history metadata grows with every event, object storage
+     * keeps the history segments that the window covers, and a run that does not offload keeps that
+     * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+     * window start, so it takes longer as the window grows.
      *
-     * Since server-zd 0.1.21.
+     * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+     * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+     * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+     * INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+     * 0.1.38 reject 0 as invalid.
+     *
+     * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
      * </pre>
      *
      * <code>optional int32 history_window_events = 7;</code>
@@ -1358,7 +1434,8 @@ private static final long serialVersionUID = 0L;
      *
      * Use it to keep more history for a run that you inspect or travel back in often, or less
      * history for a run that writes many events and needs less disk. Leave it unset to use the
-     * server's history.windowEvents setting, which defaults to 10000.
+     * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+     * local.
      *
      * The window counts history events. A command that changes the Flow but records no event
      * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -1375,12 +1452,30 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-     * Step attempt fails and is retried under the Step's retry policy.
+     * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+     * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+     * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+     * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+     * history event carries the run's FlowConfig at start, including a window inherited from its
+     * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+     * also carry the source run's override. History that a finite window already
+     * pruned does not come back, and history objects that pruning already passed may still be
+     * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+     * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+     * values that stay in the window. Local history metadata grows with every event, object storage
+     * keeps the history segments that the window covers, and a run that does not offload keeps that
+     * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+     * window start, so it takes longer as the window grows.
      *
-     * Since server-zd 0.1.21.
+     * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+     * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+     * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+     * INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+     * 0.1.38 reject 0 as invalid.
+     *
+     * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
      * </pre>
      *
      * <code>optional int32 history_window_events = 7;</code>
@@ -1401,7 +1496,8 @@ private static final long serialVersionUID = 0L;
      *
      * Use it to keep more history for a run that you inspect or travel back in often, or less
      * history for a run that writes many events and needs less disk. Leave it unset to use the
-     * server's history.windowEvents setting, which defaults to 10000.
+     * server's history.windowEvents setting, which defaults to 50000 for serve and 5000 for dev and
+     * local.
      *
      * The window counts history events. A command that changes the Flow but records no event
      * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
@@ -1418,12 +1514,30 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
-     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
-     * Step attempt fails and is retried under the Step's retry policy.
+     * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+     * history from its current window start on. A run may set 0 under any history.maxWindowEvents
+     * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
+     * GetFlowState and dexcli flow state report the run's current value. The FlowStartedOrContinued
+     * history event carries the run's FlowConfig at start, including a window inherited from its
+     * parent, but not the server's history.windowEvents or later changes. A Clone Fork's event can
+     * also carry the source run's override. History that a finite window already
+     * pruned does not come back, and history objects that pruning already passed may still be
+     * deleted. A run that started before server-zd 0.1.23 without history offload is still pruned by
+     * the byte limit it recorded. While the window is unlimited, storage grows with the events and
+     * values that stay in the window. Local history metadata grows with every event, object storage
+     * keeps the history segments that the window covers, and a run that does not offload keeps that
+     * history on the local disk. Time Travel to an event ID, a time, or a Step reads from the current
+     * window start, so it takes longer as the window grows.
      *
-     * Since server-zd 0.1.21.
+     * A finite value must be positive and at most the server's history.maxWindowEvents setting,
+     * which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of 0
+     * sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other values with
+     * INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy. Servers before server-zd
+     * 0.1.38 reject 0 as invalid.
+     *
+     * Since server-zd 0.1.21. Changed in server-zd 0.1.38: 0 sets an unlimited window.
      * </pre>
      *
      * <code>optional int32 history_window_events = 7;</code>

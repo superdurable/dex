@@ -15,6 +15,7 @@ use dexzd_protocol::dex::{
     StepDurability, StepOptions, Value, WorkerTarget, value,
 };
 
+use dexzd_protocol::history_window::is_unlimited_history_window_events;
 use dexzd_protocol::task_queue_names::{overridden_task_queue, target_task_queue_name_error};
 
 use crate::keyword_index::{KeywordValueLimit, validate_indexed_keyword};
@@ -59,9 +60,10 @@ pub struct ValidationConfig {
     pub has_blob_store: bool,
     /// Optional indexed Keyword byte limit; defaults to None (unlimited).
     pub keyword_value_limit: Option<KeywordValueLimit>,
-    /// Largest accepted FlowConfig.history_window_events; defaults to 100000 events.
+    /// Largest accepted FlowConfig.history_window_events; defaults to 1000000000 events.
     ///
-    /// The server sets it from `history.maxWindowEvents`.
+    /// The server sets it from `history.maxWindowEvents`. Zero sets no limit. An unlimited
+    /// window, 0 or its recorded value 2147483647, is accepted under any limit.
     pub max_history_window_events: u32,
 }
 
@@ -78,7 +80,7 @@ impl Default for ValidationConfig {
             attribute_store_names: HashSet::new(),
             has_blob_store: false,
             keyword_value_limit: None,
-            max_history_window_events: 100_000,
+            max_history_window_events: 1_000_000_000,
         }
     }
 }
@@ -571,16 +573,8 @@ pub(crate) fn validate_flow_config(
     config: &ValidationConfig,
     should_require_target: bool,
 ) -> Result<(), ValidationError> {
-    if let Some(window_events) = flow_config.history_window_events
-        && (window_events <= 0 || window_events.unsigned_abs() > config.max_history_window_events)
-    {
-        return Err(invalid(
-            format!("{path}.history_window_events"),
-            format!(
-                "history_window_events must be between 1 and {}, got {window_events}",
-                config.max_history_window_events
-            ),
-        ));
+    if let Some(window_events) = flow_config.history_window_events {
+        validate_history_window_events(path, window_events, config.max_history_window_events)?;
     }
     if flow_config
         .step_durability
@@ -634,6 +628,31 @@ pub(crate) fn validate_flow_config(
         }
     }
     Ok(())
+}
+
+/// Accepts an unlimited window under any maximum; a nonzero maximum limits only finite windows.
+fn validate_history_window_events(
+    path: &str,
+    window_events: i32,
+    max_window_events: u32,
+) -> Result<(), ValidationError> {
+    if is_unlimited_history_window_events(window_events) {
+        return Ok(());
+    }
+    let is_within_max = window_events > 0
+        && (max_window_events == 0 || window_events.unsigned_abs() <= max_window_events);
+    if is_within_max {
+        return Ok(());
+    }
+    let message = if window_events < 0 {
+        format!("history_window_events must not be negative, got {window_events}")
+    } else {
+        format!(
+            "a finite history_window_events must be at most {max_window_events}, got \
+             {window_events}; 0 or 2147483647 disables event-count pruning under any maximum"
+        )
+    };
+    Err(invalid(format!("{path}.history_window_events"), message))
 }
 
 pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_config: &FlowConfig) {

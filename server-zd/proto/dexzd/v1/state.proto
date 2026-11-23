@@ -112,6 +112,7 @@ message RunRecord {
   // Event ID assigned to the next projected history event (starts at 1).
   int64 next_event_id = 13;
   // Run-scoped FlowConfig, including the normalized Worker target.
+  // A history_window_events of 2147483647 records an unlimited window; it is never 0.
   dex.FlowConfig flow_config = 14;
   // Flow timeout: absolute deadline, policy, and handler options. Zero deadline means none.
   int64 timeout_deadline_micros = 15;

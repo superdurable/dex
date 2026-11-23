@@ -17,7 +17,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_request_validation::{
     ClientRequest, ValidationCategory, ValidationConfig, ValidationError, WorkerResponse,
-    validate_client_request, validate_waiting_condition, validate_worker_response,
+    validate_client_request, validate_clone_fork_flow_config, validate_waiting_condition,
+    validate_worker_response,
 };
 
 fn config() -> ValidationConfig {
@@ -1626,7 +1627,7 @@ fn quote_go_string_matches_go_quote_for_combining_marks_and_controls() {
 }
 
 #[test]
-fn history_window_events_must_be_positive_and_within_the_server_maximum() {
+fn history_window_events_must_be_unlimited_or_within_the_server_maximum() {
     let mut config = config();
     config.max_history_window_events = 500;
     let flow_config = |history_window_events| FlowConfig {
@@ -1636,50 +1637,16 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
     for (history_window_events, is_valid) in [
         (1, true),
         (500, true),
-        (0, false),
+        (0, true),
+        (i32::MAX, true),
         (-1, false),
         (i32::MIN, false),
         (501, false),
-        (i32::MAX, false),
+        (i32::MAX - 1, false),
     ] {
-        let mut start = start_request();
-        start.flow_start_options = Some(FlowStartOptions {
-            flow_config_override: Some(flow_config(history_window_events)),
-            ..FlowStartOptions::default()
-        });
-        let update = dex::UpdateFlowConfigRequest {
-            flow_id: "flow-1".into(),
-            flow_config: Some(flow_config(history_window_events)),
-            ..dex::UpdateFlowConfigRequest::default()
-        };
-        let waiting = WaitingCondition {
-            waiting_condition_type: 1,
-            sub_flow_conditions: vec![SubFlowCondition {
-                sub_flow_type: "ChildFlow".into(),
-                start_step_type: "StartStep".into(),
-                options: Some(SubFlowOptions {
-                    flow_config_override: Some(flow_config(history_window_events)),
-                    ..SubFlowOptions::default()
-                }),
-                ..SubFlowCondition::default()
-            }],
-            ..WaitingCondition::default()
-        };
-        let results = [
-            (
-                "StartFlow",
-                validate_client_request(ClientRequest::StartFlow(&start), &config),
-            ),
-            (
-                "UpdateFlowConfig",
-                validate_client_request(ClientRequest::UpdateFlowConfig(&update), &config),
-            ),
-            (
-                "SubFlow",
-                validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config),
-            ),
-        ];
-        for (path, result) in results {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
             if is_valid {
                 result.unwrap_or_else(|error| {
                     panic!("{path} accepts window {history_window_events}: {error:?}")
@@ -1691,13 +1658,16 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
                 error.field_path.ends_with("history_window_events"),
                 "{path}: {error:?}"
             );
-            assert_eq!(
-                error.message,
+            let expected_message = if history_window_events < 0 {
+                format!("history_window_events must not be negative, got {history_window_events}")
+            } else {
                 format!(
-                    "history_window_events must be between 1 and 500, got {history_window_events}"
-                ),
-                "{path}"
-            );
+                    "a finite history_window_events must be at most 500, got \
+                     {history_window_events}; 0 or 2147483647 disables event-count pruning under \
+                     any maximum"
+                )
+            };
+            assert_eq!(error.message, expected_message, "{path}");
             if path != "SubFlow" {
                 assert_eq!(error.category, ValidationCategory::InvalidArgument);
             }
@@ -1717,8 +1687,155 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
     assert_eq!(effective.history_window_events, Some(200));
     assert_eq!(
         ValidationConfig::default().max_history_window_events,
-        100_000
+        1_000_000_000
     );
+}
+
+#[test]
+fn the_default_maximum_accepts_windows_above_the_old_maximum() {
+    let config = config();
+    for (history_window_events, is_valid) in [
+        (100_001, true),
+        (5_000_000, true),
+        (1_000_000_000, true),
+        (1_000_000_001, false),
+        (i32::MAX - 1, false),
+    ] {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
+            if is_valid {
+                result.unwrap_or_else(|error| {
+                    panic!("{path} accepts window {history_window_events}: {error:?}")
+                });
+                continue;
+            }
+            let error = result.expect_err("a window above the default maximum is rejected");
+            assert_eq!(
+                error.message,
+                format!(
+                    "a finite history_window_events must be at most 1000000000, got \
+                     {history_window_events}; 0 or 2147483647 disables event-count pruning under \
+                     any maximum"
+                ),
+                "{path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_zero_maximum_accepts_every_window_that_is_not_negative() {
+    let mut config = config();
+    config.max_history_window_events = 0;
+    for (history_window_events, is_valid) in [
+        (0, true),
+        (1, true),
+        (1_000_000_001, true),
+        (i32::MAX - 1, true),
+        (i32::MAX, true),
+        (-1, false),
+        (i32::MIN, false),
+    ] {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
+            if is_valid {
+                result.unwrap_or_else(|error| {
+                    panic!("{path} accepts window {history_window_events}: {error:?}")
+                });
+                continue;
+            }
+            let error = result.expect_err("a negative window is rejected");
+            assert_eq!(
+                error.message,
+                format!("history_window_events must not be negative, got {history_window_events}"),
+                "{path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_unlimited_recorded_window_passes_to_sub_flows_and_clone_forks_under_a_small_maximum() {
+    let mut config = config();
+    config.max_history_window_events = 500;
+    let unlimited_parent = FlowConfig {
+        history_window_events: Some(i32::MAX),
+        ..config.default_flow_config.clone()
+    };
+    let waiting = WaitingCondition {
+        waiting_condition_type: 1,
+        sub_flow_conditions: vec![SubFlowCondition {
+            sub_flow_type: "ChildFlow".into(),
+            start_step_type: "StartStep".into(),
+            ..SubFlowCondition::default()
+        }],
+        ..WaitingCondition::default()
+    };
+    validate_waiting_condition(Some(&waiting), &unlimited_parent, &config)
+        .expect("a SubFlow inherits the unlimited window of its parent");
+    let cloned = validate_clone_fork_flow_config(&unlimited_parent, None, &config)
+        .expect("a clone fork keeps the unlimited window of its source");
+    assert_eq!(cloned.history_window_events, Some(i32::MAX));
+    let shrunk = validate_clone_fork_flow_config(
+        &unlimited_parent,
+        Some(&FlowConfig {
+            history_window_events: Some(200),
+            ..FlowConfig::default()
+        }),
+        &config,
+    )
+    .expect("a clone fork may set a finite window");
+    assert_eq!(shrunk.history_window_events, Some(200));
+}
+
+/// Validates the window as a StartFlow, an UpdateFlowConfig, and a SubFlow override.
+fn validate_history_window_in_every_request(
+    history_window_events: i32,
+    config: &ValidationConfig,
+) -> [(&'static str, Result<(), ValidationError>); 3] {
+    let flow_config = FlowConfig {
+        history_window_events: Some(history_window_events),
+        ..FlowConfig::default()
+    };
+    let mut start = start_request();
+    start.flow_start_options = Some(FlowStartOptions {
+        flow_config_override: Some(flow_config.clone()),
+        ..FlowStartOptions::default()
+    });
+    let update = dex::UpdateFlowConfigRequest {
+        flow_id: "flow-1".into(),
+        flow_config: Some(flow_config.clone()),
+        ..dex::UpdateFlowConfigRequest::default()
+    };
+    let waiting = WaitingCondition {
+        waiting_condition_type: 1,
+        sub_flow_conditions: vec![SubFlowCondition {
+            sub_flow_type: "ChildFlow".into(),
+            start_step_type: "StartStep".into(),
+            options: Some(SubFlowOptions {
+                flow_config_override: Some(flow_config),
+                ..SubFlowOptions::default()
+            }),
+            ..SubFlowCondition::default()
+        }],
+        ..WaitingCondition::default()
+    };
+    [
+        (
+            "StartFlow",
+            validate_client_request(ClientRequest::StartFlow(&start), config),
+        ),
+        (
+            "UpdateFlowConfig",
+            validate_client_request(ClientRequest::UpdateFlowConfig(&update), config),
+        ),
+        (
+            "SubFlow",
+            validate_waiting_condition(Some(&waiting), &config.default_flow_config, config),
+        ),
+    ]
 }
 
 #[test]

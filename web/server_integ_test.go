@@ -231,6 +231,11 @@ func TestWebServerUpdatesOnlyEditedHistoryConfigFields(t *testing.T) {
 			body:                `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":20,"deleteExpiredHistoryObjects":true}`,
 			historyWindowEvents: ptr.Any(int32(20)),
 		},
+		{
+			name:                "whole history",
+			body:                `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
+			historyWindowEvents: ptr.Any(int32(0)),
+		},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			response := sendJSON(t, http.MethodPut, harness.http.URL+"/api/flows/config/history", scenario.body)
@@ -255,7 +260,6 @@ func TestWebServerUpdatesOnlyEditedHistoryConfigFields(t *testing.T) {
 		`{"runId":"run-1","historyWindowEvents":500}`,
 		`{"flowId":"checkout-1","historyWindowEvents":500}`,
 		`{"flowId":"checkout-1","runId":"run-1"}`,
-		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
 		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":-5}`,
 		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":2147483648}`,
 		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":1.5}`,
@@ -341,6 +345,11 @@ func TestWebServerUpdatesOnlyEditedFlowConfigFields(t *testing.T) {
 			expected: &dexpb.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500))},
 		},
 		{
+			name:     "whole history window",
+			body:     `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
+			expected: &dexpb.FlowConfig{HistoryWindowEvents: ptr.Any(int32(0))},
+		},
+		{
 			name:     "step durability",
 			body:     `{"flowId":"checkout-1","runId":"run-1","stepDurability":2}`,
 			expected: &dexpb.FlowConfig{StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC)},
@@ -384,7 +393,7 @@ func TestWebServerUpdatesOnlyEditedFlowConfigFields(t *testing.T) {
 	for _, invalidBody := range []string{
 		`{"runId":"run-1","stepDurability":1}`,
 		`{"flowId":"checkout-1","runId":"run-1"}`,
-		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":-1}`,
 		`{"flowId":"checkout-1","runId":"run-1","stepDurability":0}`,
 		`{"flowId":"checkout-1","runId":"run-1","stepDurability":3}`,
 		`{"flowId":"checkout-1","runId":"run-1","activeStepSearchMode":4}`,

@@ -28,6 +28,7 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     FlowCloneForkCommand, HistorySegmentRecord, RunRecord, command_reply, flow_command,
 };
+use dexzd_protocol::history_window::record_unlimited_history_window;
 use dexzd_request_validation::{
     ClientRequest, validate_client_request, validate_clone_fork_flow_config,
 };
@@ -136,11 +137,12 @@ impl FlowCoordinatorRegistry {
         let computed = self
             .compute_clone_fork(source, view, source_context, source_run_id, request)
             .await?;
-        let flow_config = validate_clone_fork_flow_config(
+        let mut flow_config = validate_clone_fork_flow_config(
             computed.source_flow_config(),
             request.flow_config_override.as_ref(),
             &self.inner.config.validation,
         )?;
+        record_unlimited_history_window(&mut flow_config);
         let settings = self.inner.config.run_settings;
         if computed.state_bytes() > settings.max_run_state_bytes {
             return Err(FlowCoordinationError::rejected(
@@ -193,6 +195,7 @@ impl FlowCoordinatorRegistry {
         } else {
             computed.timeout_policy()
         };
+        // Keep the request window unchanged for staging. Apply uses the effective window.
         let clone_fork = FlowCloneForkCommand {
             staging_id,
             new_run_id: new_run_id.as_bytes().to_vec(),

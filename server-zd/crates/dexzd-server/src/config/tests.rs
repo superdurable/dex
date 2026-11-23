@@ -346,6 +346,8 @@ fn each_mode_gets_its_default_history_window() {
     .expect("write test config");
     let window_path = temporary.path().join("history-window.yaml");
     fs::write(&window_path, "history:\n  windowEvents: 2000\n").expect("write test config");
+    let unlimited_window_path = temporary.path().join("history-unlimited-window.yaml");
+    fs::write(&unlimited_window_path, "history:\n  windowEvents: 0\n").expect("write test config");
     let deprecated_window_path = temporary.path().join("history-semantic-window.yaml");
     fs::write(
         &deprecated_window_path,
@@ -371,6 +373,13 @@ fn each_mode_gets_its_default_history_window() {
         assert_eq!(
             load_with(Some(window_path.clone())).history.window_events,
             2_000
+        );
+        assert_eq!(
+            load_with(Some(unlimited_window_path.clone()))
+                .history
+                .window_events,
+            0,
+            "an unlimited window is not replaced by the default"
         );
         assert_eq!(
             load_with(Some(deprecated_window_path.clone()))
@@ -753,7 +762,10 @@ fn history_window_settings_default_and_reach_run_settings_and_validation() {
     let default_run_settings = defaults.flow_coordination.run_settings;
     assert_eq!(default_run_settings.history_window_events, 50_000);
     assert_eq!(default_run_settings.history_prune_chunk_events, 1_000);
-    assert_eq!(defaults.validation().max_history_window_events, 100_000);
+    assert_eq!(
+        defaults.validation().max_history_window_events,
+        1_000_000_000
+    );
     assert_eq!(
         defaults.effects.child_run_settings.history_window_events,
         50_000
@@ -782,6 +794,53 @@ fn history_window_settings_default_and_reach_run_settings_and_validation() {
     configuration
         .validate()
         .expect("a server window above the per-run maximum stays valid");
+}
+
+#[test]
+fn zero_history_windows_mean_unlimited_and_reach_run_settings_and_validation() {
+    let parsed = Config::parse_yaml(
+        "history:\n  windowEvents: 0\n  pruneChunkSize: 5000\n  maxWindowEvents: 0\n",
+    )
+    .expect("parse unlimited history window settings");
+    let mut configuration = valid_config();
+    configuration.history = parsed.history;
+    configuration
+        .validate()
+        .expect("an unlimited server window allows any positive prune chunk");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    let run_settings = components.flow_coordination.run_settings;
+    assert_eq!(run_settings.history_window_events, 0);
+    assert_eq!(run_settings.history_prune_chunk_events, 5000);
+    assert_eq!(components.validation().max_history_window_events, 0);
+    assert_eq!(
+        components.effects.child_run_settings.history_window_events,
+        0
+    );
+    let error = Config::parse_yaml("history:\n  windowEvents: -1\n")
+        .expect_err("a negative window does not parse");
+    assert!(error.to_string().contains("windowEvents"), "{error}");
+}
+
+#[test]
+fn the_effective_configuration_log_reports_the_resolved_history_window_settings() {
+    let mut configuration = valid_config();
+    configuration.history.window_events = 0;
+    configuration.history.max_window_events = 0;
+    configuration.history.prune_chunk_size = 700;
+    for has_embedded_object_store in [false, true] {
+        let log = captured_log(|| configuration.log_effective_config(has_embedded_object_store));
+        assert!(log.contains("effective configuration"), "{log}");
+        assert!(log.contains("history_window_events=0"), "{log}");
+        assert!(log.contains("history_max_window_events=0"), "{log}");
+        assert!(log.contains("history_prune_chunk_size=700"), "{log}");
+    }
+    let log = captured_log(|| valid_config().log_effective_config(false));
+    assert!(log.contains("history_window_events=50000"), "{log}");
+    assert!(
+        log.contains("history_max_window_events=1000000000"),
+        "{log}"
+    );
 }
 
 #[test]
@@ -838,15 +897,18 @@ fn the_window_key_set_under_both_names_or_null_is_rejected() {
 
 /// Returns what the deprecated-key startup check logs for `configuration`.
 fn captured_warnings(configuration: &Config) -> String {
+    captured_log(|| configuration.warn_about_deprecated_keys())
+}
+
+/// Returns what `log_lines` logs.
+fn captured_log(log_lines: impl FnOnce()) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let writer_buffer = buffer.clone();
     let subscriber = tracing_subscriber::fmt()
         .with_ansi(false)
         .with_writer(move || CapturedLog(writer_buffer.clone()))
         .finish();
-    tracing::subscriber::with_default(subscriber, || {
-        configuration.warn_about_deprecated_keys();
-    });
+    tracing::subscriber::with_default(subscriber, log_lines);
     let bytes = buffer
         .lock()
         .expect("the log buffer lock is not poisoned")
@@ -1884,14 +1946,12 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("recovery.startupReadRetryBudget", |config| {
             config.recovery.startup_read_retry_budget = Duration::ZERO
         }),
-        ("history.windowEvents", |config| {
-            config.history.window_events = 0
-        }),
         ("history.pruneChunkSize", |config| {
             config.history.prune_chunk_size = config.history.window_events + 1
         }),
-        ("history.maxWindowEvents", |config| {
-            config.history.max_window_events = 0
+        ("history.pruneChunkSize", |config| {
+            config.history.window_events = 0;
+            config.history.prune_chunk_size = 0;
         }),
         ("history.checkpointRowWriteBytesThreshold", |config| {
             config.history.checkpoint_row_write_bytes_threshold = 0

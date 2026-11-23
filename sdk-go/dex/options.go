@@ -255,7 +255,7 @@ type FlowConfig struct {
 	AttributeStoreNames []string
 	// HistoryWindowEvents sets about how many of the newest history events the run keeps for
 	// history reads and Time Travel. Nil uses the server's history.windowEvents setting, which
-	// defaults to 10000.
+	// defaults to 50000 for serve and 5000 for dev and local.
 	//
 	// Raise it for a run that you inspect or travel back in often. Lower it for a run that
 	// writes many events and needs less disk. Dex prunes the oldest events in chunks, and only
@@ -271,11 +271,28 @@ type FlowConfig struct {
 	// update keeps the current value. A SubFlow inherits the value from its parent unless
 	// SubFlowOptions.ConfigOverride sets its own.
 	//
-	// The value must be positive and at most the server's history.maxWindowEvents setting, which
-	// defaults to 100000. StartFlow and UpdateFlowConfig return a *ServiceError whose Code is
-	// codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
+	// Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+	// history from its current window start on. A run may set 0 under any history.maxWindowEvents
+	// setting. The server records 0 as 2147483647, which also means unlimited and may be sent
+	// back. The GetFlowState API and dexcli flow state report the run's current value. The
+	// FlowStartedOrContinued history event carries the run's FlowConfig at start, including a window
+	// inherited from its parent, but not the server's history.windowEvents or later changes. A Clone
+	// Fork's event can also carry the source run's override. History that a
+	// finite window already pruned does not come back, and history objects that pruning already
+	// passed may still be deleted. A run that started before server-zd 0.1.23 without history
+	// offload is still pruned by the byte limit it recorded. While the window is unlimited, storage
+	// grows with the events and values that stay in the window: local history metadata grows with
+	// every event, object storage keeps the history segments that the window covers, and without
+	// history offload the run keeps that history on the local disk. Time Travel to an event ID, a
+	// time, or a Step reads from the current window start, so it takes longer as the window grows.
+	//
+	// A finite value must be positive and at most the server's history.maxWindowEvents setting,
+	// which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of
+	// 0 sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow return a *ServiceError whose
+	// Code is codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
 	// override is an invalid Worker response: the Step attempt fails and Dex retries it under the
-	// Step's retry policy. Servers older than server-zd 0.1.21 ignore the field.
+	// Step's retry policy. Servers older than server-zd 0.1.38 reject 0 as invalid, and servers
+	// older than server-zd 0.1.21 ignore the field.
 	//
 	// Keep more history for a Flow that operators debug often:
 	//
@@ -289,7 +306,13 @@ type FlowConfig struct {
 	//		HistoryWindowEvents: ptr.Any(int32(2000)),
 	//	})
 	//
-	// Since 1.38.0.
+	// Stop pruning an active Flow by event count:
+	//
+	//	err := client.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+	//		HistoryWindowEvents: ptr.Any(int32(0)),
+	//	})
+	//
+	// Since 1.38.0. Changed in 1.45.17: 0 sets an unlimited window with server-zd 0.1.38 or later.
 	HistoryWindowEvents *int32
 
 	// DeleteExpiredHistoryObjects has no effect. The SDK does not send it to the server.

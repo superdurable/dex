@@ -171,6 +171,7 @@ message FlowStartCommand {
   // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 7;
   // Flow configuration after applying server defaults and request overrides.
+  // Since 0.1.38, it records an unlimited history window as 2147483647, never 0.
   dex.FlowConfig effective_flow_config = 8;
 }
 
@@ -438,10 +439,12 @@ message FlowCloneForkCommand {
   // Run ID the owner generated for the new run.
   bytes new_run_id = 2;
   // The client's request; the staging names the same request.
+  // Its history_window_events may be 0, as the client sent it.
   dex.CloneForkFlowRequest request = 3;
   RunSettings settings = 4;
   // The source run's Flow configuration with the request's override applied, validated, and
   // normalized to pull mode.
+  // Since 0.1.38, it records an unlimited history window as 2147483647, never 0.
   dex.FlowConfig effective_flow_config = 5;
   // Flow timeout of the new run, counted from this command; zero means none.
   int64 flow_timeout_duration_micros = 6;
