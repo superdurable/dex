@@ -9,6 +9,7 @@
 package integ
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,10 +41,36 @@ func TestHistoryWindowEventsStartAndUpdate(t *testing.T) {
 	require.Equal(t, int32(3000), readHistoryWindowEvents(t, service, flowID, runID))
 
 	err = integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
-		HistoryWindowEvents: ptr.Any(int32(0)),
+		HistoryWindowEvents: ptr.Any(int32(-1)),
 	})
 	requireInvalidArgument(t, err)
 	require.Equal(t, int32(3000), readHistoryWindowEvents(t, service, flowID, runID))
+
+	// The server records the unlimited window 0 as the largest int32.
+	require.NoError(t, integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+		HistoryWindowEvents: ptr.Any(int32(0)),
+	}))
+	require.Equal(t, int32(math.MaxInt32), readHistoryWindowEvents(t, service, flowID, runID))
+
+	require.NoError(t, integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+		HistoryWindowEvents: ptr.Any(int32(4000)),
+	}))
+	require.Equal(t, int32(4000), readHistoryWindowEvents(t, service, flowID, runID))
+
+	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
+	waitForFlow(t, flowID, false)
+}
+
+func TestHistoryWindowEventsStartsUnlimited(t *testing.T) {
+	ctx := integrationContext(t)
+	service := newFlowServiceClient(t)
+
+	flowID := newFlowID(t, "history-window-unlimited")
+	runID, err := integClient.StartFlow(ctx, noStepFlow{}, flowID, nil, dex.StartFlowOptions{
+		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(0))},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(math.MaxInt32), readHistoryWindowEvents(t, service, flowID, runID))
 
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 	waitForFlow(t, flowID, false)
@@ -51,7 +78,7 @@ func TestHistoryWindowEventsStartAndUpdate(t *testing.T) {
 
 func TestHistoryWindowEventsRejectsOutOfRangeStart(t *testing.T) {
 	ctx := integrationContext(t)
-	for _, windowEvents := range []int32{0, -1, 100001} {
+	for _, windowEvents := range []int32{-1, 1_000_000_001} {
 		flowID := newFlowID(t, "history-window-invalid")
 		_, err := integClient.StartFlow(ctx, noStepFlow{}, flowID, nil, dex.StartFlowOptions{
 			ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(windowEvents)},

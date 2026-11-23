@@ -158,7 +158,7 @@ public final class FlowConfig {
          * Time Travel.
          *
          * <p>Omitting this call uses the server's {@code history.windowEvents} setting, which
-         * defaults to 10000. Raise it for a run that you inspect or travel back in often. Lower it
+         * defaults to 50000 for {@code serve} and 5000 for {@code dev} and {@code local}. Raise it for a run that you inspect or travel back in often. Lower it
          * for a run that writes many events and needs less disk.
          *
          * <p>Dex prunes the oldest events in chunks, and only between commands, so a run keeps
@@ -175,21 +175,38 @@ public final class FlowConfig {
          * the current value. A SubFlow inherits the value from its parent unless its own
          * {@link SubFlowOptions} override sets it.
          *
-         * <p>The value must be positive and at most the server's {@code history.maxWindowEvents}
-         * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). Starting or
+         * <p>Pass 0 to keep the whole history: Dex never prunes the run. A run may set 0 under any
+         * {@code history.maxWindowEvents} setting. The server records 0 as 2147483647, so the
+         * GetFlowState API and the FlowStarted history event report 2147483647, which also keeps
+         * the whole history. Such a run keeps every event and superseded value for its whole
+         * life: its local history metadata grows with every event, its offloaded history objects
+         * are never deleted while it lives, and without history offload it keeps all of its history
+         * on the local disk. Time Travel to an event ID, a time, or a Step takes longer as the
+         * history grows.
+         *
+         * <p>Any other value must be positive and at most the server's
+         * {@code history.maxWindowEvents} setting, which defaults to 1000000000 (100000 before
+         * server-zd 0.1.38). A {@code history.maxWindowEvents} of 0 sets no limit. Starting or
          * updating a Flow with any other value
          * throws {@link io.superdurable.dex.exceptions.DexServiceException} whose
          * {@code getCode()} is {@code INVALID_ARGUMENT}. A Step that starts a SubFlow with such an
          * override is an invalid Worker response: the Step attempt fails and Dex retries it under
-         * the Step's retry policy. Servers older than server-zd 0.1.21 ignore the value.
+         * the Step's retry policy. Servers older than server-zd 0.1.38 reject 0 as invalid, and
+         * servers older than server-zd 0.1.21 ignore the value.
          *
          * <pre>{@code
          * client.updateFlowConfig("order-42", FlowConfig.newBuilder()
          *         .historyWindowEvents(50_000)
          *         .build());
+         * client.updateFlowConfig("order-42", FlowConfig.newBuilder()
+         *         .historyWindowEvents(0)
+         *         .build());
          * }</pre>
          *
-         * @param value the number of newest history events to keep; must be positive
+         * <p>Changed in 1.45.3: 0 keeps the whole history with server-zd 0.1.38 or later.
+         *
+         * @param value the number of newest history events to keep; 0 keeps the whole history,
+         *     and a negative value is invalid
          * @return this builder
          * @since 1.38.0
          */

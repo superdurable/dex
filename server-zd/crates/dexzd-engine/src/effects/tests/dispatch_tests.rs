@@ -25,7 +25,7 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, FlowStopCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
     StepInvocationKey, StepInvocationPhase, StepMethod, flow_command,
-    step_attempt_heartbeat_command,
+    step_attempt_heartbeat_command, step_method_completed_command,
 };
 
 use super::{
@@ -640,9 +640,9 @@ async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invali
     );
     assert!(!failures[0].1, "the Step's retry policy decides the retry");
     assert!(
-        failures[0]
-            .2
-            .contains("history_window_events must be between 1 and 1000000000"),
+        failures[0].2.contains(
+            "history_window_events must be 0 for the whole history or between 1 and 1000000000"
+        ),
         "{}",
         failures[0].2
     );
@@ -652,6 +652,60 @@ async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invali
             .commands_matching(is_method_completed)
             .is_empty()
     );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unlimited_sub_flow_window_is_proposed_as_its_recorded_value() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness.start_flow(start_request("order-1"), settings());
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    dispatch.complete_wait_for(InvokeWaitForMethodResponse {
+        waiting_condition: Some(WaitingCondition {
+            waiting_condition_type: 1,
+            sub_flow_conditions: vec![SubFlowCondition {
+                condition_id: "child".to_owned(),
+                sub_flow_type: "ChildFlow".to_owned(),
+                start_step_type: "ChildStep".to_owned(),
+                options: Some(SubFlowOptions {
+                    flow_config_override: Some(FlowConfig {
+                        history_window_events: Some(0),
+                        ..FlowConfig::default()
+                    }),
+                    ..SubFlowOptions::default()
+                }),
+                ..SubFlowCondition::default()
+            }],
+            ..WaitingCondition::default()
+        }),
+        ..InvokeWaitForMethodResponse::default()
+    });
+    harness.settle().await;
+    let windows: Vec<_> = harness
+        .flow_effect_operations
+        .commands_matching(is_method_completed)
+        .into_iter()
+        .filter_map(|recorded| match recorded.command.command {
+            Some(flow_command::Command::StepMethodCompleted(completed)) => completed.response,
+            _ => None,
+        })
+        .filter_map(|response| match response {
+            step_method_completed_command::Response::WaitFor(response) => {
+                response.waiting_condition
+            }
+            step_method_completed_command::Response::Execute(_) => None,
+        })
+        .flat_map(|waiting| waiting.sub_flow_conditions)
+        .filter_map(|condition| {
+            condition
+                .options?
+                .flow_config_override?
+                .history_window_events
+        })
+        .collect();
+    // Servers before 0.1.38 reject a SubFlow window of 0, so the command records the largest value.
+    assert_eq!(windows, [i32::MAX]);
     harness.shutdown().await;
 }
 

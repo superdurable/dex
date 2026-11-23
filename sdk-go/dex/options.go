@@ -255,7 +255,7 @@ type FlowConfig struct {
 	AttributeStoreNames []string
 	// HistoryWindowEvents sets about how many of the newest history events the run keeps for
 	// history reads and Time Travel. Nil uses the server's history.windowEvents setting, which
-	// defaults to 10000.
+	// defaults to 50000 for serve and 5000 for dev and local.
 	//
 	// Raise it for a run that you inspect or travel back in often. Lower it for a run that
 	// writes many events and needs less disk. Dex prunes the oldest events in chunks, and only
@@ -271,12 +271,21 @@ type FlowConfig struct {
 	// update keeps the current value. A SubFlow inherits the value from its parent unless
 	// SubFlowOptions.ConfigOverride sets its own.
 	//
-	// The value must be positive and at most the server's history.maxWindowEvents setting, which
-	// defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig
-	// return a *ServiceError whose Code is
+	// Set it to 0 to keep the whole history: Dex never prunes the run. A run may set 0 under any
+	// history.maxWindowEvents setting. The server records 0 as 2147483647, so the GetFlowState
+	// API and the FlowStarted history event report 2147483647, which also keeps the whole
+	// history. Such a run keeps every event and superseded value for its whole life:
+	// its local history metadata grows with every event, its offloaded history objects are never
+	// deleted while it lives, and without history offload it keeps all of its history on the
+	// local disk. Time Travel to an event ID, a time, or a Step takes longer as the history grows.
+	//
+	// Any other value must be positive and at most the server's history.maxWindowEvents setting,
+	// which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of
+	// 0 sets no limit. StartFlow and UpdateFlowConfig return a *ServiceError whose Code is
 	// codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
 	// override is an invalid Worker response: the Step attempt fails and Dex retries it under the
-	// Step's retry policy. Servers older than server-zd 0.1.21 ignore the field.
+	// Step's retry policy. Servers older than server-zd 0.1.38 reject 0 as invalid, and servers
+	// older than server-zd 0.1.21 ignore the field.
 	//
 	// Keep more history for a Flow that operators debug often:
 	//
@@ -290,7 +299,13 @@ type FlowConfig struct {
 	//		HistoryWindowEvents: ptr.Any(int32(2000)),
 	//	})
 	//
-	// Since 1.38.0.
+	// Keep the whole history of an active Flow:
+	//
+	//	err := client.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+	//		HistoryWindowEvents: ptr.Any(int32(0)),
+	//	})
+	//
+	// Since 1.38.0. Changed in 1.45.17: 0 keeps the whole history with server-zd 0.1.38 or later.
 	HistoryWindowEvents *int32
 
 	// DeleteExpiredHistoryObjects has no effect. The SDK does not send it to the server.

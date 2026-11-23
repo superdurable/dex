@@ -18,6 +18,7 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectReference, StepAttemptFailureKind, StepInvocationKey, StepMethod,
     StepMethodCompletedCommand, step_method_completed_command,
 };
+use dexzd_protocol::history_window::record_unlimited_sub_flow_history_windows;
 use dexzd_request_validation::{ValidationConfig, WorkerResponse, validate_worker_response};
 
 use crate::effects::{EffectError, HardDeleteObjectOwner, HardDeleteObjects, HardDeleteUploads};
@@ -124,7 +125,7 @@ pub(crate) fn check_worker_result(
     flow_config: &FlowConfig,
     max_value_bytes: u64,
 ) -> WorkerResultCheck {
-    let result = match (method, frame.output) {
+    let mut result = match (method, frame.output) {
         (method, Some(poll_worker_task_frame::Output::WaitFor(output)))
             if method == StepMethod::WaitFor as i32 =>
         {
@@ -186,6 +187,11 @@ pub(crate) fn check_worker_result(
             ),
             is_non_retryable: true,
         };
+    }
+    if let MethodResult::WaitFor(response) = &mut result
+        && let Some(waiting) = response.waiting_condition.as_mut()
+    {
+        record_unlimited_sub_flow_history_windows(waiting);
     }
     WorkerResultCheck::Valid(Box::new(result))
 }

@@ -171,6 +171,7 @@ message FlowStartCommand {
   // Ignored: deduplication compares only the request ID. Older logs may still set it.
   bytes request_fingerprint = 7;
   // Flow configuration after applying server defaults and request overrides.
+  // Since 0.1.38, commands record an unlimited history window as 2147483647, never 0.
   dex.FlowConfig effective_flow_config = 8;
 }
 

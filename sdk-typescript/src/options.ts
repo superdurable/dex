@@ -374,7 +374,8 @@ export interface FlowConfig {
    * Sets how many of the newest history events the run keeps, approximately.
    *
    * The run uses the kept events for history reads and Time Travel.
-   * Omit it to use the server's `history.windowEvents` setting, which defaults to 10000. Raise it
+   * Omit it to use the server's `history.windowEvents` setting, which defaults to 50000 for
+   * `serve` and 5000 for `dev` and `local`. Raise it
    * for a run that you inspect or travel back in often. Lower it for a run that writes many events
    * and needs less disk.
    *
@@ -391,23 +392,34 @@ export interface FlowConfig {
    * it keeps the current value. A SubFlow inherits the value from its parent unless its own
    * `configOverride` sets it.
    *
-   * The value must be a positive integer and at most the server's `history.maxWindowEvents`
-   * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). The field is a
-   * signed 32-bit integer, so only 1 to
-   * 2147483647 can be sent. A non-integer or a value outside that range fails while the SDK
+   * Set it to 0 to keep the whole history: Dex never prunes the run. A run may set 0 under any
+   * `history.maxWindowEvents` setting. The server records 0 as 2147483647, so the GetFlowState API
+   * and the FlowStarted history event report 2147483647, which also keeps the whole history. Such
+   * a run keeps every event and superseded value for its whole life: its local history metadata
+   * grows with every event, its offloaded history objects are never deleted while it lives, and
+   * without history offload it keeps all of its history on the local disk. Time Travel to an event
+   * ID, a time, or a Step takes longer as the history grows.
+   *
+   * Any other value must be a positive integer and at most the server's `history.maxWindowEvents`
+   * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). A
+   * `history.maxWindowEvents` of 0 sets no limit. The field is a signed 32-bit integer, so only 0
+   * to 2147483647 are useful. A non-integer or a value outside the 32-bit range fails while the SDK
    * serializes the request, before it reaches Dex, and the call rejects with an `INTERNAL`
-   * error. `startFlow` and `updateFlowConfig` reject zero, a negative integer, or an integer above
+   * error. `startFlow` and `updateFlowConfig` reject a negative integer or an integer above
    * the server limit with a `DexServiceError` whose `code` is `INVALID_ARGUMENT`. A Step that
    * starts a SubFlow with such an override is an invalid Worker response: the Step attempt fails
-   * and Dex retries it under the Step's retry policy. Servers older than server-zd 0.1.21 ignore
-   * the value.
+   * and Dex retries it under the Step's retry policy. Servers older than server-zd 0.1.38 reject 0
+   * as invalid, and servers older than server-zd 0.1.21 ignore the value.
    *
    * @example
    * ```ts
    * await client.updateFlowConfig("order-42", { historyWindowEvents: 50_000 });
+   * // Keep the whole history from now on.
+   * await client.updateFlowConfig("order-42", { historyWindowEvents: 0 });
    * ```
    *
    * @since 1.38.0
+   * Changed in 1.45.17: 0 keeps the whole history with server-zd 0.1.38 or later.
    */
   readonly historyWindowEvents?: number;
 

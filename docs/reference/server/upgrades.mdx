@@ -128,6 +128,24 @@ a Step that waits only on it stays waiting through a graceful completion
 request. Before you roll back from 0.1.34 or later, stop the Flows whose Steps
 wait on it.
 
+server-zd 0.1.38 accepts 0, which means unlimited, for a Flow run's
+**history_window_events** and for **history.windowEvents** and
+**history.maxWindowEvents**. See
+[History window](/reference/server/configuration#history-window). A Flow run
+records its own unlimited window as 2147483647. An older server, such as a
+standby that still runs it or a server after a rollback, reads that as a
+window larger than any Flow run and prunes nothing. It also never prunes a
+Flow run that recorded a **history.windowEvents** of 0. An older server still
+differs in three ways:
+
+- It fails to start with **history.windowEvents** or **history.maxWindowEvents**
+  set to 0. Set positive values before you roll back.
+- It rejects 0 in StartFlow, UpdateFlowConfig, and SubFlow overrides.
+- It checks the window that a SubFlow inherits and the window that
+  CloneForkFlow copies against its **history.maxWindowEvents**. From a Flow run
+  with an unlimited window, these fail unless that setting is at least
+  2147483647.
+
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
 use isolated blue and green environments, so deployments with ranges that do not

@@ -54,7 +54,7 @@ class FlowConfig:
         history_window_events: About how many of the newest history events the
             run keeps for history reads and Time Travel. ``None``, the default,
             uses the server's ``history.windowEvents`` setting, which defaults to
-            10000.
+            50000 for ``serve`` and 5000 for ``dev`` and ``local``.
 
             Raise it for a run that you inspect or travel back in often. Lower it
             for a run that writes many events and needs less disk. Dex prunes the
@@ -73,24 +73,43 @@ class FlowConfig:
             ``None`` in an update keeps the current value. A SubFlow inherits the
             value from its parent unless its own ``config_override`` sets it.
 
-            The value must be positive and at most the server's
+            Set it to 0 to keep the whole history: Dex never prunes the run. A
+            run may set 0 under any ``history.maxWindowEvents`` setting. The
+            server records 0 as 2147483647, so the GetFlowState API and the
+            FlowStarted history event report 2147483647, which also keeps the
+            whole history. Such a run keeps every event and superseded value
+            for its whole life: its local history metadata grows with every
+            event, its offloaded history objects are never deleted while it
+            lives, and without history offload it keeps all of its history on
+            the local disk. Time Travel to an event ID, a time, or a Step takes
+            longer as the history grows.
+
+            Any other value must be positive and at most the server's
             ``history.maxWindowEvents`` setting, which defaults to 1000000000
-            (100000 before server-zd 0.1.38).
-            The field is a signed 32-bit integer, so only 1 to 2147483647 can be
-            sent. A value outside that range raises ``ValueError`` locally,
-            before any request. ``start_flow`` and ``update_flow_config`` raise
-            ``DexServiceError`` with code ``grpc.StatusCode.INVALID_ARGUMENT`` for
-            zero, a negative value, or a value above the server limit. A
-            Step that starts a SubFlow with such an override is an invalid Worker
-            response: the Step attempt fails and Dex retries it under the Step's
-            retry policy. Servers older than server-zd 0.1.21 ignore the field.
+            (100000 before server-zd 0.1.38). A ``history.maxWindowEvents`` of 0
+            sets no limit.
+            The field is a signed 32-bit integer, so only 0 to 2147483647 are
+            useful. A value outside the 32-bit range raises ``ValueError``
+            locally, before any request. ``start_flow`` and
+            ``update_flow_config`` raise ``DexServiceError`` with code
+            ``grpc.StatusCode.INVALID_ARGUMENT`` for a negative value or a value
+            above the server limit. A Step that starts a SubFlow with such an
+            override is an invalid Worker response: the Step attempt fails and
+            Dex retries it under the Step's retry policy. Servers older than
+            server-zd 0.1.38 reject 0 as invalid, and servers older than
+            server-zd 0.1.21 ignore the field.
 
             Example:
                 >>> client.update_flow_config(
                 ...     "order-42", FlowConfig(history_window_events=50_000)
                 ... )
+                >>> client.update_flow_config(
+                ...     "order-42", FlowConfig(history_window_events=0)
+                ... )
 
             .. versionadded:: 1.38.0
+            .. versionchanged:: 1.45.18
+               0 keeps the whole history with server-zd 0.1.38 or later.
         delete_expired_history_objects: Has no effect. The SDK does not send it
             to the server.
 

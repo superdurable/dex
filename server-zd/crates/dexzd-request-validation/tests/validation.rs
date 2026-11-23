@@ -17,7 +17,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_request_validation::{
     ClientRequest, ValidationCategory, ValidationConfig, ValidationError, WorkerResponse,
-    validate_client_request, validate_waiting_condition, validate_worker_response,
+    validate_client_request, validate_clone_fork_flow_config, validate_waiting_condition,
+    validate_worker_response,
 };
 
 fn config() -> ValidationConfig {
@@ -1626,7 +1627,7 @@ fn quote_go_string_matches_go_quote_for_combining_marks_and_controls() {
 }
 
 #[test]
-fn history_window_events_must_be_positive_and_within_the_server_maximum() {
+fn history_window_events_must_be_unlimited_or_within_the_server_maximum() {
     let mut config = config();
     config.max_history_window_events = 500;
     let flow_config = |history_window_events| FlowConfig {
@@ -1636,11 +1637,12 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
     for (history_window_events, is_valid) in [
         (1, true),
         (500, true),
-        (0, false),
+        (0, true),
+        (i32::MAX, true),
         (-1, false),
         (i32::MIN, false),
         (501, false),
-        (i32::MAX, false),
+        (i32::MAX - 1, false),
     ] {
         for (path, result) in
             validate_history_window_in_every_request(history_window_events, &config)
@@ -1659,7 +1661,8 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
             assert_eq!(
                 error.message,
                 format!(
-                    "history_window_events must be between 1 and 500, got {history_window_events}"
+                    "history_window_events must be 0 for the whole history or between 1 and 500, \
+                     got {history_window_events}"
                 ),
                 "{path}"
             );
@@ -1694,7 +1697,7 @@ fn the_default_maximum_accepts_windows_above_the_old_maximum() {
         (5_000_000, true),
         (1_000_000_000, true),
         (1_000_000_001, false),
-        (i32::MAX, false),
+        (i32::MAX - 1, false),
     ] {
         for (path, result) in
             validate_history_window_in_every_request(history_window_events, &config)
@@ -1709,12 +1712,79 @@ fn the_default_maximum_accepts_windows_above_the_old_maximum() {
             assert_eq!(
                 error.message,
                 format!(
-                    "history_window_events must be between 1 and 1000000000, got {history_window_events}"
+                    "history_window_events must be 0 for the whole history or between 1 and \
+                     1000000000, got {history_window_events}"
                 ),
                 "{path}"
             );
         }
     }
+}
+
+#[test]
+fn a_zero_maximum_accepts_every_window_that_is_not_negative() {
+    let mut config = config();
+    config.max_history_window_events = 0;
+    for (history_window_events, is_valid) in [
+        (0, true),
+        (1, true),
+        (1_000_000_001, true),
+        (i32::MAX - 1, true),
+        (i32::MAX, true),
+        (-1, false),
+        (i32::MIN, false),
+    ] {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
+            if is_valid {
+                result.unwrap_or_else(|error| {
+                    panic!("{path} accepts window {history_window_events}: {error:?}")
+                });
+                continue;
+            }
+            let error = result.expect_err("a negative window is rejected");
+            assert_eq!(
+                error.message,
+                format!("history_window_events must not be negative, got {history_window_events}"),
+                "{path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_unlimited_recorded_window_passes_to_sub_flows_and_clone_forks_under_a_small_maximum() {
+    let mut config = config();
+    config.max_history_window_events = 500;
+    let unlimited_parent = FlowConfig {
+        history_window_events: Some(i32::MAX),
+        ..config.default_flow_config.clone()
+    };
+    let waiting = WaitingCondition {
+        waiting_condition_type: 1,
+        sub_flow_conditions: vec![SubFlowCondition {
+            sub_flow_type: "ChildFlow".into(),
+            start_step_type: "StartStep".into(),
+            ..SubFlowCondition::default()
+        }],
+        ..WaitingCondition::default()
+    };
+    validate_waiting_condition(Some(&waiting), &unlimited_parent, &config)
+        .expect("a SubFlow inherits the unlimited window of its parent");
+    let cloned = validate_clone_fork_flow_config(&unlimited_parent, None, &config)
+        .expect("a clone fork keeps the unlimited window of its source");
+    assert_eq!(cloned.history_window_events, Some(i32::MAX));
+    let shrunk = validate_clone_fork_flow_config(
+        &unlimited_parent,
+        Some(&FlowConfig {
+            history_window_events: Some(200),
+            ..FlowConfig::default()
+        }),
+        &config,
+    )
+    .expect("a clone fork may set a finite window");
+    assert_eq!(shrunk.history_window_events, Some(200));
 }
 
 /// Validates the window as a StartFlow, an UpdateFlowConfig, and a SubFlow override.

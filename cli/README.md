@@ -886,9 +886,9 @@ once.
 keeps for history reads and Time Travel. At `flow start`, omitting it uses the
 server's `history.windowEvents` setting. At `update-config`, omitting it keeps
 the run's current value; an update cannot reset an override back to the server
-default. The server rejects a value that is not positive
-or exceeds its `history.maxWindowEvents` setting. For example, keep more history
-on an active Flow:
+default. `0` keeps the whole history on server-zd 0.1.38 and later. The server
+rejects a negative value or one that exceeds its `history.maxWindowEvents`
+setting. For example, keep more history on an active Flow:
 
 ```bash
 dexcli flow update-config order-123 --config '{"historyWindowEvents":50000}' --yes

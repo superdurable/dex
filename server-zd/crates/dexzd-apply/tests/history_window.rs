@@ -667,6 +667,60 @@ fn update_flow_config_shrinks_the_window_at_the_next_pruning_and_grows_it_for_la
 }
 
 #[test]
+fn an_unlimited_window_keeps_the_events_that_a_finite_window_prunes() {
+    // The server window of 20 prunes 2 at a time once a run holds more than 22 events.
+    let mut finite = Harness::start(settings(20, 2), worker_target_config());
+    let mut unlimited = Harness::start(settings(20, 2), window_config(i32::MAX));
+    let mut unlimited_server_window = Harness::start(settings(0, 2), worker_target_config());
+    for _ in 0..60 {
+        finite.set_attribute();
+        unlimited.set_attribute();
+        unlimited_server_window.set_attribute();
+    }
+    assert!(finite.run_record().pruned_window_event_count > 0);
+    assert!(finite.events_in_window() <= 22);
+    for harness in [&mut unlimited, &mut unlimited_server_window] {
+        let record = harness.run_record();
+        assert_eq!(record.window_event_count, Some(61));
+        assert_eq!(record.pruned_window_event_count, 0);
+        assert_eq!(record.max_pruned_event_id, 0);
+        assert_eq!(harness.events_in_window(), 61);
+        assert_eq!(harness.history_records().keys().nth(1), Some(&2));
+        harness.assert_counters_match_metadata();
+        // Every point stays a Time Travel target: seq 2 is one second after FlowStart.
+        let first_write_time = harness.history_records()[&1].timestamp_micros + SECOND;
+        let reply = harness.time_travel(reset_to_time(first_write_time));
+        let Some(command_reply::Reply::TimeTravel(traveled)) = reply.reply else {
+            panic!("travel to the first write applies: {reply:?}");
+        };
+        assert_eq!(traveled.run_attempt, 2);
+    }
+}
+
+#[test]
+fn update_flow_config_makes_the_window_unlimited_and_finite_again() {
+    let mut harness = Harness::start(settings(10_000, 1000), window_config(20));
+    for _ in 0..30 {
+        harness.set_attribute();
+    }
+    let pruned = harness.run_record().pruned_window_event_count;
+    assert!(pruned > 0);
+    harness.update_window(i32::MAX);
+    for _ in 0..60 {
+        harness.set_attribute();
+    }
+    assert_eq!(harness.run_record().pruned_window_event_count, pruned);
+    let kept = harness.events_in_window();
+    assert!(kept > 80, "the unlimited window kept {kept} events");
+    harness.update_window(20);
+    harness.set_attribute();
+    // A window of 20 prunes 2 at a time; the oversized window drops to 20 plus one chunk at once.
+    assert!(harness.run_record().pruned_window_event_count > pruned);
+    assert!(harness.events_in_window() <= 22);
+    harness.assert_counters_match_metadata();
+}
+
+#[test]
 fn a_small_window_prunes_a_tenth_of_itself_at_once() {
     for (settings, flow_config, chunk_events) in [
         (settings(30, 1000), worker_target_config(), 3),

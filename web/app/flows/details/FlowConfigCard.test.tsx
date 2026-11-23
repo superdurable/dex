@@ -237,7 +237,7 @@ describe('Flow config card', () => {
     expect(editor.querySelector('label')).toBeNull();
     expect(screen.queryByText('Retention window (events)')).toBeNull();
     expect(screen.getByRole('textbox', { name: 'Retention window' })).toBeTruthy();
-    expect(screen.getByText('Number of events.')).toBeTruthy();
+    expect(screen.getByText('Number of events, or 0 for the whole history.')).toBeTruthy();
   });
 
   it('lays a row being edited across the card, below its name', () => {
@@ -273,13 +273,13 @@ describe('Flow config card', () => {
     render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
-    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Retention window'), { target: { value: '1.5' } });
 
-    expect(screen.getByText('Enter a positive whole number of events.')).toBeTruthy();
+    expect(screen.getByText('Enter a whole number of events, or 0 for the whole history.')).toBeTruthy();
     const windowInput = screen.getByLabelText('Retention window');
     expect(windowInput.getAttribute('aria-invalid')).toBe('true');
     const notes = document.getElementById(windowInput.getAttribute('aria-describedby')!);
-    expect(notes?.textContent).toContain('Enter a positive whole number of events.');
+    expect(notes?.textContent).toContain('Enter a whole number of events, or 0 for the whole history.');
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -342,9 +342,32 @@ describe('history settings update', () => {
     });
   });
 
-  it('rejects windows that are not positive 32-bit integers', () => {
-    for (const text of ['0', '-1', '1.5', 'abc', '2147483648']) {
+  it('rejects windows that are not whole 32-bit numbers of at least 0', () => {
+    for (const text of ['-1', '1.5', 'abc', '2147483648']) {
       expect(buildHistorySettingsUpdate(current, text)).toHaveProperty('error');
     }
+  });
+
+  it('sends 0 for the whole history and treats the recorded 2147483647 as the same window', () => {
+    expect(buildHistorySettingsUpdate(current, '0')).toEqual({ update: { historyWindowEvents: 0 } });
+    const unlimited = { historyWindowEvents: 2147483647 };
+    expect(buildHistorySettingsUpdate(unlimited, '0')).toEqual({ update: {} });
+    expect(buildHistorySettingsUpdate(unlimited, '2147483647')).toEqual({ update: {} });
+    expect(buildHistorySettingsUpdate(unlimited, '600')).toEqual({ update: { historyWindowEvents: 600 } });
+  });
+});
+
+describe('unlimited history window', () => {
+  it('shows the recorded unlimited window as the whole history and opens its editor on 0', () => {
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{ historyWindowEvents: 2147483647 }} onSaved={vi.fn()} />);
+    expect(screen.getByText('Whole history')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const windowInput = screen.getByLabelText('Retention window') as HTMLInputElement;
+    expect(windowInput.value).toBe('0');
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(windowInput, { target: { value: '600' } });
+    expect(screen.getByText('This window is smaller than the whole history, so older events are deleted for good.'))
+      .toBeTruthy();
   });
 });

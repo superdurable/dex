@@ -825,7 +825,7 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
     let effective = start.effective_flow_config.as_ref().unwrap();
     assert_eq!(effective.history_window_events, Some(250));
 
-    for history_window_events in [0, -1, 1_000_000_001] {
+    for history_window_events in [-1, 1_000_000_001] {
         let mut request = start_request("rejected-window");
         request
             .flow_start_options
@@ -884,6 +884,59 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
         flow_config.unwrap().history_window_events,
         Some(1_000_000_000)
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unlimited_window_is_proposed_as_its_recorded_value() {
+    let harness = FlowCoordinationHarness::new();
+    let mut request = start_request("unlimited");
+    request
+        .flow_start_options
+        .as_mut()
+        .unwrap()
+        .flow_config_override
+        .as_mut()
+        .unwrap()
+        .history_window_events = Some(0);
+    harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    harness
+        .drive(harness.registry.update_flow_config(
+            TENANT,
+            UpdateFlowConfigRequest {
+                flow_id: "unlimited".to_owned(),
+                flow_config: Some(FlowConfig {
+                    history_window_events: Some(0),
+                    ..FlowConfig::default()
+                }),
+                ..UpdateFlowConfigRequest::default()
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Servers before 0.1.38 fail to apply a recorded 0, so no command carries one.
+    let submitted = harness.submitted();
+    let Some(flow_command::Command::FlowStart(start)) = submitted[0].command.as_ref() else {
+        panic!("expected FlowStart");
+    };
+    let effective = start.effective_flow_config.as_ref().unwrap();
+    assert_eq!(effective.history_window_events, Some(i32::MAX));
+    let start_override = start
+        .request
+        .as_ref()
+        .and_then(|request| request.flow_start_options.as_ref())
+        .and_then(|options| options.flow_config_override.as_ref())
+        .unwrap();
+    assert_eq!(start_override.history_window_events, Some(i32::MAX));
+    let Some(flow_command::Command::FlowConfigUpdate(update)) = submitted[1].command.as_ref()
+    else {
+        panic!("expected FlowConfigUpdate");
+    };
+    let flow_config = update.request.as_ref().unwrap().flow_config.as_ref();
+    assert_eq!(flow_config.unwrap().history_window_events, Some(i32::MAX));
 }
 
 #[tokio::test(start_paused = true)]

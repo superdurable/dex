@@ -419,21 +419,13 @@ impl Config {
             "recovery.startupReadRetryBudget",
             "must be positive",
         )?;
-        ensure(
-            self.history.window_events > 0,
-            "history.windowEvents",
-            "must be positive",
-        )?;
+        // A windowEvents or maxWindowEvents of 0 means unlimited.
         ensure(
             self.history.prune_chunk_size > 0
-                && self.history.prune_chunk_size <= self.history.window_events,
+                && (self.history.window_events == 0
+                    || self.history.prune_chunk_size <= self.history.window_events),
             "history.pruneChunkSize",
-            "must be positive and no larger than history.windowEvents",
-        )?;
-        ensure(
-            self.history.max_window_events > 0,
-            "history.maxWindowEvents",
-            "must be positive",
+            "must be positive and, when history.windowEvents is not 0, no larger than it",
         )?;
         ensure(
             self.history.checkpoint_row_write_bytes_threshold > 0,

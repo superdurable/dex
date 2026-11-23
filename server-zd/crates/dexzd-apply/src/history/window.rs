@@ -18,6 +18,7 @@ use dexzd_keyspace::row_keys::{
 };
 use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
+use dexzd_protocol::history_window::RECORDED_UNLIMITED_HISTORY_WINDOW_EVENTS;
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
@@ -49,6 +50,7 @@ impl HistoryWindowSize {
     /// Returns the size from the run's FlowConfig override or its settings; `None` never prunes.
     ///
     /// Settings of zero never prune. A small window prunes at most a tenth of itself at once.
+    /// The recorded unlimited override never prunes either.
     fn of_run(record: &RunRecord) -> Result<Option<Self>, ApplyError> {
         let settings = record.settings.unwrap_or_default();
         let window_events = match record
@@ -56,6 +58,7 @@ impl HistoryWindowSize {
             .as_ref()
             .and_then(|flow_config| flow_config.history_window_events)
         {
+            Some(RECORDED_UNLIMITED_HISTORY_WINDOW_EVENTS) => return Ok(None),
             Some(configured) => u64::try_from(configured)
                 .ok()
                 .filter(|window_events| *window_events > 0)

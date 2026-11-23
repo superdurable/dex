@@ -846,6 +846,36 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
 }
 
 #[test]
+fn child_flow_inherits_the_recorded_unlimited_window_of_its_parent() {
+    let mut harness = Harness::new();
+    let parent_config = FlowConfig {
+        worker_target: Some(pull_worker()),
+        history_window_events: Some(i32::MAX),
+        ..FlowConfig::default()
+    };
+    harness.start_parent_with_config(parent_config.clone());
+    assert_ok(&harness.submit_sub_flow_wait(SubFlowCondition {
+        condition_id: "child".to_owned(),
+        sub_flow_type: "ChildFlow".to_owned(),
+        start_step_type: "ChildStep".to_owned(),
+        step_options: Some(StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        ..SubFlowCondition::default()
+    }));
+    let start = harness
+        .outbox("parent", PARENT_RUN)
+        .pop()
+        .expect("child start outbox");
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    assert_eq!(
+        harness.record(CHILD_ID, FIRST_CHILD_RUN).flow_config,
+        Some(parent_config)
+    );
+}
+
+#[test]
 fn child_start_accepts_values_admitted_by_parent_with_a_larger_limit() {
     let mut harness = Harness::new();
     harness.start_parent();

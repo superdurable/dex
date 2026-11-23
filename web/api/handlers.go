@@ -186,6 +186,9 @@ func (h *handler) setAttribute(response http.ResponseWriter, request *http.Reque
 	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
 }
 
+// historyWindowEventsRangeError rejects a negative window; 0 keeps the whole history.
+const historyWindowEventsRangeError = "historyWindowEvents must be 0 for the whole history or a positive integer"
+
 // updateFlowHistoryConfig sends only the window because UpdateFlowConfig merges set fields.
 // deleteExpiredHistoryObjects is never forwarded, since the server always deletes expired history.
 func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request *http.Request) {
@@ -220,8 +223,8 @@ func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request 
 		writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
 		return
 	}
-	if *body.HistoryWindowEvents <= 0 {
-		WriteError(response, http.StatusBadRequest, "historyWindowEvents must be a positive integer", nil)
+	if *body.HistoryWindowEvents < 0 {
+		WriteError(response, http.StatusBadRequest, historyWindowEventsRangeError, nil)
 		return
 	}
 	_, err := h.client.UpdateFlowConfig(request.Context(), &dexpb.UpdateFlowConfigRequest{
@@ -273,8 +276,8 @@ func flowConfigUpdateOf(body updateFlowConfigRequest) (*dexpb.FlowConfig, error)
 		return nil, errors.New("historyWindowEvents, stepDurability, activeStepSearchMode, or attributeStoreNames is required")
 	}
 	flowConfig := &dexpb.FlowConfig{HistoryWindowEvents: body.HistoryWindowEvents}
-	if body.HistoryWindowEvents != nil && *body.HistoryWindowEvents <= 0 {
-		return nil, errors.New("historyWindowEvents must be a positive integer")
+	if body.HistoryWindowEvents != nil && *body.HistoryWindowEvents < 0 {
+		return nil, errors.New(historyWindowEventsRangeError)
 	}
 	if body.StepDurability != nil {
 		durability := dexpb.StepDurability(*body.StepDurability)

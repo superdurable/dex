@@ -86,7 +86,8 @@ impl FlowConfig {
     /// Sets how many of the newest history events the run keeps, approximately.
     ///
     /// The run uses the kept events for history reads and Time Travel. Without this builder, the
-    /// run uses the server's `history.windowEvents` setting, which defaults to 10000. Raise it for
+    /// run uses the server's `history.windowEvents` setting, which defaults to 50000 for `serve`
+    /// and 5000 for `dev` and `local`. Raise it for
     /// a run that you inspect or travel back in often. Lower it for a run that writes many events
     /// and needs less disk.
     ///
@@ -103,14 +104,23 @@ impl FlowConfig {
     /// server default: an update without this builder keeps the current value. A SubFlow inherits
     /// the value from its parent unless its own [`crate::SubFlowOptions::config_override`] sets it.
     ///
-    /// The value must be positive and at most the server's `history.maxWindowEvents` setting,
-    /// which defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and
-    /// UpdateFlowConfig return [`crate::SdkError::Service`]
-    /// whose [`crate::ServiceError::code`] is `InvalidArgument` for zero or a value above that
+    /// Pass 0 to keep the whole history: Dex never prunes the run. A run may set 0 under any
+    /// `history.maxWindowEvents` setting. The server records 0 as 2147483647, so the GetFlowState
+    /// API and the FlowStarted history event report 2147483647, which also keeps the whole
+    /// history. Such a run keeps every event and superseded value for its whole life: its local
+    /// history metadata grows with every event, its offloaded history objects are never deleted
+    /// while it lives, and without history offload it keeps all of its history on the local disk.
+    /// Time Travel to an event ID, a time, or a Step takes longer as the history grows.
+    ///
+    /// Any other value must be at most the server's `history.maxWindowEvents` setting, which
+    /// defaults to 1000000000 (100000 before server-zd 0.1.38). A `history.maxWindowEvents` of 0
+    /// sets no limit. StartFlow and UpdateFlowConfig return [`crate::SdkError::Service`]
+    /// whose [`crate::ServiceError::code`] is `InvalidArgument` for a value above that
     /// maximum. A value above `i32::MAX` fails locally with [`crate::SdkError::InvalidArgument`]
     /// before any request. A Step that starts a SubFlow with an invalid override is an invalid Worker
     /// response: the Step attempt fails and Dex retries it under the Step's retry policy. Servers
-    /// older than server-zd 0.1.21 ignore the value.
+    /// older than server-zd 0.1.38 reject 0 as invalid, and servers older than server-zd 0.1.21
+    /// ignore the value.
     ///
     /// ```no_run
     /// # fn update(client: &dex_sdk::Client) -> dex_sdk::SdkResult<()> {
@@ -118,11 +128,13 @@ impl FlowConfig {
     ///     "order-42",
     ///     dex_sdk::FlowConfig::new().history_window_events(50_000),
     /// )?;
+    /// // Keep the whole history from now on.
+    /// client.update_flow_config("order-42", dex_sdk::FlowConfig::new().history_window_events(0))?;
     /// # Ok(())
     /// # }
     /// ```
     ///
-    /// Since 1.38.0.
+    /// Since 1.38.0. Changed in 1.45.8: 0 keeps the whole history with server-zd 0.1.38 or later.
     #[must_use]
     pub fn history_window_events(mut self, value: u32) -> Self {
         self.history_window_events = Some(value);
