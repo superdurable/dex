@@ -506,13 +506,17 @@ dexcli visualize ./order_flow.rs --language rust --json
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Flow Rendering** in Dex Web to browse the loaded definitions. The page
+Open **Designs** in Dex Web to browse the loaded definitions. The page
 renders the graph interactively. A Flow frame contains Step frames, with WaitFor
 paths above Execute decisions. Conditional returns are grouped below dispatch
 diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
-can be shown or hidden independently. Streams are hidden by default. Definitions
-are loaded once during startup; restart **dexcli dev** after changing the
-directory.
+can be shown or hidden independently. Streams are hidden by default. Dex Web
+reads the directory on each definition request, so changes appear on the next
+page load.
+
+Java visualization requires JDK 17 or newer. Use `--java` or `DEX_JAVA` to
+choose the executable. The flag takes precedence, and the default is `java`
+on `PATH`.
 
 Rust visualization requires Cargo and Rust 1.97 or newer.
 Select Cargo with `--cargo` or `DEX_CARGO`. The flag takes precedence over
@@ -611,9 +615,8 @@ reference. Literals, functions, and new `Map`, `WeakMap`, `Set`, and similar
 builtins are not checked. The graph describes source written in these shapes in
 good faith; for untrusted source the guarantee is that the analyzer never runs
 it with `--typescript-compiler`. The graph uses the Go analyzer's node IDs and
-Wait types. Several Flows in one file report `multiple_flows` with one unknown
-node per Flow, as in Go and Python. Version 2.0 Indexed Attributes, Summary,
-Display, and start-input schemas are not analyzed yet. See the
+Wait types. Pass `--flow` to select a registered Flow type from a file with
+multiple Flows. See the
 [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
@@ -687,7 +690,8 @@ Dex Web v2 keys match the Worker.
 
 The command generates Flow Definition Graph 2.0 for Go, Python, TypeScript, Java, and Rust.
 Each Step needs a group and an explanation.
-Go also reads the Dex Web v2 Indexed Attribute, Summary, Display, Action, and Start contracts.
+All five analyzers read Indexed Attributes, Summary, Display, and the Start
+input schema. Go, Python, and TypeScript also read Actions.
 The contract declares Indexed Attributes, the fixed `GetDexSummary` and
 `GetDexDisplay` RPCs, editable Display fields, and conditional Action RPCs.
 Every Version 2 Step must declare exactly one `dex:group` and one
@@ -695,8 +699,9 @@ Every Version 2 Step must declare exactly one `dex:group` and one
 states what the Step does; it is stored on the Step node as
 `metadata.explanation`. Directives use unordered named `name:value` arguments.
 Repeated directive lines retain source order; no `order` property is generated.
-Every Version 2 Step, Attribute, RPC, input struct, and directive must be in the
-same source file.
+Keep Step, Attribute, and RPC declarations and their directives in the Flow
+source file. Keep custom Start input types in that file for Python, TypeScript,
+Java, and Rust. Go can resolve imported Start input types.
 
 Version 2 also recognizes operation-specific Connector factories such as
 `openai.NewCreateResponseStep`. Recognition uses the config's canonical

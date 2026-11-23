@@ -316,7 +316,7 @@ impl Step for RequestManagerApproval {
 - 在 Python、Go 和 TypeScript 中，先用 `dexcli visualize` 生成设计。Worker 启动时上传它，运行在 Dex Web 中的 **Design** 视图就会显示这张图。
 - 在 Python、Go 和 TypeScript 中，提供 payload key 文件时，Worker 和 Client 会加密 payload。`case-status` 和 `customer-email` 保持可读。
 
-Java 和 Rust 示例用各自的 `decide` 命令批准或拒绝退款。Java 和 Rust SDK 不能声明 Dex Web Action，也不能加密 payload。这两个示例没有配置设计，所以它们运行的 **Design** 视图显示空状态。`dexcli visualize` 读取 Go、Python 和 TypeScript 源码。
+Java 和 Rust 示例通过 `decide` 命令批准或拒绝退款，并以未加密的形式存储 payload。它们的 Worker 没有提供设计，因此 **Design** 视图初始为空。`dexcli visualize` 支持这五种语言。要为自己的 Flow 生成设计，请参阅 [Flow 源码可视化](/reference/web/flow-visualization)。
 
 [Go](https://github.com/superdurable/dex/tree/main/examples/go/products/customer-refund/managerapproval)、[Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/customer_refund)、[TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/customer-refund)、[Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/products/customerrefund) 和 [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/customer_refund) 的示例文件夹列出了每个场景的命令：审批、先失败后成功的退款、用 Time Travel 修复缺失的 billing 调用。Go、Python 和 TypeScript 示例还展示了加密。
 
