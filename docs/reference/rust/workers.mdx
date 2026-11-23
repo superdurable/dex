@@ -229,8 +229,9 @@ The defaults are derived in this order:
 
 When the Server's **matching.maxConcurrentTasksCap** is lower, the Worker clamps the
 ceiling to it with a WARN log that names both values, then derives the reserved RPC slots
-and the floor from the clamped ceiling. A Worker with an unset floor first opens one stream
-to learn the cap. A cap of 1 gives one slot, no reserved RPC slot, and a floor of 1.
+and the floor from the clamped ceiling. An adaptive Worker with an unset floor, or a fixed
+Worker with an unset ceiling, first opens one stream to learn the cap. A cap of 1 gives
+one slot, no reserved RPC slot, and a floor of 1.
 
 To keep the earlier fixed behavior, set **min_open_slots** equal to
 **max_concurrent_tasks**. To keep the earlier default slot count, also set

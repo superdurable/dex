@@ -381,6 +381,7 @@ async fn registers_exactly_one_stream_per_slot_and_required_kinds() {
     let mut harness = SlotHarness::new(
         PullWorkerOptions::new()
             .max_concurrent_tasks(4)
+            .min_open_slots(4)
             .reserved_rpc_tasks(2)
             .app_worker_id("slot-worker"),
         Registry::new().register(slot_flow(true, false)).unwrap(),
@@ -459,7 +460,9 @@ async fn registration_limit_fails_start_without_background_retry() {
     let flow = slot_flow(true, false);
     let calls = Arc::clone(&flow.step.calls);
     let mut harness = SlotHarness::new(
-        PullWorkerOptions::new().max_concurrent_tasks(3),
+        PullWorkerOptions::new()
+            .max_concurrent_tasks(3)
+            .min_open_slots(3),
         Registry::new().register(flow).unwrap(),
     )
     .await;

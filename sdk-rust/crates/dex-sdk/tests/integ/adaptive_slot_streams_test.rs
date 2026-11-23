@@ -661,23 +661,26 @@ fn default_slot_streams_without_cap() {
             0,
             captured_logs::warnings_with(&app_worker_id, &["clamped max_concurrent_tasks"])
         );
-        let burst = min_open_slots + 2;
-        let client = server.new_client(&run.registry);
-        let flow_ids = start_flows(&client, &handlers, MODE_BLOCK, burst);
-        handlers.await_entries(burst);
-        require_slot_state(&run, "the burst above the floor", 30 * SECOND, |state| {
-            state.busy == burst && state.registering == 0
-        });
-        assert!(run.state().streams_grown > 0, "{:?}", run.state());
-        handlers.release();
-        require_flows_completed(&client, &flow_ids);
-        require_single_attempts(&handlers);
+        // A floor near 100 leaves no room for a burst above it.
+        if min_open_slots + 2 <= DEFAULT_MAX_CONCURRENT_TASKS {
+            let burst = min_open_slots + 2;
+            let client = server.new_client(&run.registry);
+            let flow_ids = start_flows(&client, &handlers, MODE_BLOCK, burst);
+            handlers.await_entries(burst);
+            require_slot_state(&run, "the burst above the floor", 30 * SECOND, |state| {
+                state.busy == burst && state.registering == 0
+            });
+            assert!(run.state().streams_grown > 0, "{:?}", run.state());
+            handlers.release();
+            require_flows_completed(&client, &flow_ids);
+            require_single_attempts(&handlers);
+        }
         run.require_no_permanent_registration_error();
     }
 
-    // Only the ceiling: adaptive with the derived floor.
+    // Only the ceiling: the derived floor reaches it on high-CPU machines.
     {
-        let ceiling = cpu_count().max(2) + 4;
+        let ceiling = (cpu_count().max(2) + 4).min(200);
         let server = AdaptiveSlotTestServer::start(ServerLimits::default());
         let proxy = PullSlotProxy::start(&runtime, &server.address);
         let app_worker_id = app_worker_id("default-ceiling");
@@ -691,9 +694,8 @@ fn default_slot_streams_without_cap() {
         );
         run.wait_registered(Duration::from_secs(60));
         let min_open_slots = default_min_open_slots(ceiling, 1);
-        assert!(min_open_slots < ceiling);
         require_resolved_slots(&run, &proxy, &app_worker_id, ceiling, 1, min_open_slots);
-        assert!(run.state().is_adaptive);
+        assert_eq!(min_open_slots < ceiling, run.state().is_adaptive);
     }
 
     // A floor equal to the ceiling keeps the Worker fixed.
