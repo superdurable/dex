@@ -36,14 +36,14 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 **Changed**
 
-- Web time travel skips later writes by default. Enable **Apply later writes again** under **Advanced** to match Client and **dexcli flow time-travel** defaults and **POST /api/flows/time-travel** with **skipWritesReapply** omitted (false). [Reference](/reference/web/dex-web#time-travel-dialog).
+- Web time travel skips write reapply by default. Turn on [**Apply later writes again**](/reference/web/dex-web#time-travel-dialog) under **Advanced**. Client, **dexcli flow time-travel**, and **POST /api/flows/time-travel** with **skipWritesReapply** omitted (false) still reapply writes.
 - The time travel and Clone fork dialogs show only their common fields. **SubFlow reset policy** moves under a collapsed **Advanced** section in both, and Clone fork also moves **Task queue** and **ID reuse policy** there. [Reference](/reference/web/dex-web#clone-fork).
 
 ### 1.45.17 (2026-11-20) {#v1-45-17}
 
 **Added**
 
-- **Settings > Codec endpoint** in **Custom** sends optional **Authorization: Bearer** only to the saved **/decode** and **/encode**. **Remember on this browser** shares it by default until deleted. Off uses session storage tabs may inherit. [Reference](/reference/server/payload-encryption#dex-web).
+- [**Settings > Codec endpoint**](/reference/server/payload-encryption#dex-web) in **Custom** sends optional **Authorization: Bearer** on **/decode** and **/encode** only at its saved URL. **Remember on this browser** defaults on and shares it until deleted. Off uses inheritable session storage.
 
 **Changed**
 
@@ -55,13 +55,13 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 **Added**
 
 - **GET /api/codec-server** returns the endpoint and token of a local codec server when the host configures one with **Config.LocalCodecServer**, as **dexcli dev -codec-key-file** does. Otherwise its **configured** field is false.
-- **Settings > Codec endpoint** enables in-browser decryption of **dex/1** values and **dex-encoded:** text. Plaintext stays in page memory, keys and plaintext stay off the Web server, and locked values show the key ID without ciphertext. [Reference](/reference/server/payload-encryption#dex-web).
-- Browser codecs encrypt Channel messages, Start inputs, stop outputs and stop/reset/clone fork reasons. **POST /api/flows/channels/messages** and **PUT /api/flows/attributes** take **encodedValue**, **POST /api/flows/stop** takes **encodedOutput**, and **POST /api/v2/start** takes **encodedInput**.
-- Set attribute creates plaintext Attributes and requires a codec endpoint to update and keep encrypted Attributes encrypted. Display edits, Attribute-based Actions, view RPC outputs, sessions and the inbox read only plaintext. [Reference](/reference/server/payload-encryption#dex-web).
+- [**Settings > Codec endpoint**](/reference/server/payload-encryption#dex-web) decrypts **dex/1** and **dex-encoded:** in page memory. **Auto** uses **dexcli dev -codec-key-file**. **Send cookies** supports SSO. The Web server gets no keys or plaintext. Locked values show key IDs, never ciphertext.
+- Browser codecs encrypt Channel messages, Start inputs, stop outputs and reasons. Web passes **dex/1** intact via **encodedValue** on **POST /api/flows/channels/messages**/**PUT /api/flows/attributes**, **encodedOutput** on **POST /api/flows/stop**, and **encodedInput** on **POST /api/v2/start**.
+- Set attribute creates plaintext and requires a codec for encrypted updates. Display edits, Action conditions and Action inputs from Attributes, view RPC outputs, agent sessions and inbox read only plaintext and flag encryption. [Ref](/reference/server/payload-encryption#dex-web).
 
 **Changed**
 
-- Web API JSON marks encrypted Values as **__dexEnvelope** and wraps objects with keys starting with **__dex** in **__dexEscapedObject** to prevent marker collisions. Failed requests return encrypted gRPC messages in **encodedError** for browser decryption.
+- Web API JSON marks encrypted Values as **__dexEnvelope** and wraps objects with keys starting with **__dex** in **__dexEscapedObject** to prevent marker collisions. A failed request with an encrypted gRPC status message returns it in **encodedError** for browser decryption.
 
 ### 1.45.15 (2026-11-18) {#v1-45-15}
 
@@ -76,13 +76,13 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 **Fixed**
 
-- **Folded** in **Graph** starts Rounds at the Step type that yields the most consistently sized finished Rounds, such as one **AgentDecisionStep** and one tool call per Round. [Reference](/reference/web/dex-web#v1-pages).
+- **Folded** in **Graph** starts Rounds at the repeated Step type whose finished Rounds most often have the same number of Steps, such as one **AgentDecisionStep** and one tool call per Round. [Reference](/reference/web/dex-web#v1-pages).
 
 ### 1.45.14 (2026-11-18) {#v1-45-14}
 
 **Changed**
 
-- In **Graph** with **Folded** on, **×N** opens consecutive Step executions in place and **Hide** folds them again. Long groups show **… N more**, and open groups stay open as events arrive. [Reference](/reference/web/dex-web#v1-pages).
+- In **Graph** with **Folded** on, **×N** opens consecutive executions of one Step type in place and **Hide** folds them again. Long runs show **… N more**, and open runs stay open as events arrive. [Reference](/reference/web/dex-web#v1-pages).
 - A **×N** node folds only executions with the same Step decision, such as **GoTo** or **GracefulComplete**, and the same cancellations. Rounds also fold together only when their Step decisions match. [Reference](/reference/web/dex-web#v1-pages).
 
 ### 1.45.13 (2026-11-17) {#v1-45-13}
@@ -108,11 +108,11 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 - **Graph** nodes drop their borders for soft shadows, rounded corners, and
   tinted WaitFor and Execute chips; edges are thinner, and edges into a
   waiting Step are dashed.
-- **Filter** beside **Legend** hides Timeline events by type or name and counts filtered types. **Select all** and **Clear all** work across types or within one type, and **Show all** resets the saved filter for the Flow type. [Reference](/reference/web/dex-web#v1-pages).
+- **Filter** beside **Legend** counts filtered Timeline types and filters by type or Step type, RPC, Channel or Attribute name. **Select all** and **Clear all** work globally or per type. **Show all** resets the Flow type's saved filter. [Reference](/reference/web/dex-web#v1-pages).
 
 **Changed**
 
-- **Graph** shows the Step decision on completed Execute events in place of **Completed**, with a distinct icon and color. Labels include **Dead end**, **Graceful complete**, **Force complete**, and **Force fail**, with the full decision on hover. [Reference](/reference/web/dex-web#v1-pages).
+- **Graph** replaces **Completed** with the Step decision: next Steps with **+N**, canceled Steps, **Dead end**, **Graceful complete**, **Force complete**, **Force fail**, or **Complete when channels are empty**. Hover for the whole decision. [Reference](/reference/web/dex-web#v1-pages).
 - Timeline adds **Dense** and **Tidy** beside **Legend**. **Dense** is the default with slanted labels, and **Tidy** uses flat, wrapped labels such as **Send User Message** for **send_user_message**. [Reference](/reference/web/dex-web#v1-pages).
 - Only an open run shows the end note at the Timeline lane's newest end; a
   closed run uses that room for events. When an open run's newest end is out of
@@ -168,7 +168,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 **Fixed**
 
-- **Clone fork**, session forks, **Event ID** and **SubFlow reset policy** need protocol 6+ (server-zd 0.1.33+). **POST /api/flows/clone-fork** and **POST /api/flows/time-travel** reject unsupported options with 400 **SERVER_PROTOCOL_UNSUPPORTED**. [Reference](/reference/web/dex-web#clone-fork).
+- [**Clone fork**](/reference/web/dex-web#clone-fork), session forks, **Event ID** and **SubFlow reset policy** need protocol 6+/server-zd 0.1.33+. Else Web omits **subFlowResetPolicy**. **POST /api/flows/clone-fork**/**POST /api/flows/time-travel** reject them (400 **SERVER_PROTOCOL_UNSUPPORTED**).
 - **GET /api/server-info** returns **serverEngine** and **currentProtocolVersion**, and **GET /api/v2/catalog** adds **currentProtocolVersion**.
 
 ### 1.45.7 (2026-11-15) {#v1-45-7}
@@ -176,7 +176,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 **Added**
 
 - Flow details label the **SUB_FLOW_ABANDONED** error type as "SubFlow abandoned by a time travel" instead of "Unknown (7)".
-- **Clone fork…** and **Clone fork from here…** start a new Flow from a chosen point and link it to the source run and event. **POST /api/flows/clone-fork** calls **CloneForkFlow**. [Reference](/reference/web/dex-web#clone-fork).
+- **Clone fork…** and **Clone fork from here…** open a dialog to start a new Flow at a chosen point. The new run links to its source run and event. **POST /api/flows/clone-fork** calls **CloneForkFlow**. [Reference](/reference/web/dex-web#clone-fork).
 - The time travel dialog adds the **Event ID** point and a **SubFlow reset policy** choice. **POST /api/flows/time-travel** accepts **eventId** and **subFlowResetPolicy**.
 
 ### 1.45.6 (2026-11-15) {#v1-45-6}
@@ -193,7 +193,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 - In the **Conversation** tab message box, Enter sends the message, or queues it while a turn runs, and Shift+Enter adds a line. Enter that commits input method text does not send. On a touch-only device, such as a phone, Enter adds a line and the button sends.
 - The **Conversation** tab follows new messages while you are at the newest one, and offers **Jump to latest** when you have scrolled up. A message longer than about 30 lines shows its start with **Show more**.
-- **Conversation** scrolls approval or answer controls into view while you are at the newest item and free of another waiting call. Select the waiting status to jump to the call. [Reference](/reference/web/dex-web#agent-session-view).
+- **Conversation** scrolls new approval or answer controls into view when you are at the newest item and aren't working in another waiting call. Select the waiting status to jump to its call. [Reference](/reference/web/dex-web#agent-session-view).
 
 **Fixed**
 
@@ -274,13 +274,13 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 **Changed**
 
 - Each page uses one bar for views, actions and settings. The jump box (⌘K or Ctrl+K) finds Flows by ID prefix, opens pasted run links and lists recent runs, and Flows returns to your last search. [Reference](/reference/web/dex-web#v1-pages).
-- The run bar shows status, Flow ID, tabs, and **Stop**, **Time travel from #N**, or **Time travel** by status. **Time travel…** is in the action menu and the event panel offers **Time travel from here…**. [Reference](/reference/web/dex-web#v1-pages).
+- The run bar shows status, Flow ID and tabs. Its action is **Stop** while running, with **Time travel…** in the menu, **Time travel from #N** on failure, or **Time travel** on other ended runs. The event panel offers **Time travel from here…**. [Reference](/reference/web/dex-web#v1-pages).
 - The event pager sits above Timeline and Graph and shows its page buttons only when there is more than one page. The selected event is kept in the address. State lists the run's parent and child Flows. The run attempt picker appears only after time travel.
 - Refresh and Copy link are gone from the run page. Resuming Live reads the run again, and the address bar is the link.
 - Run dialogs take focus on their first field, keep Tab inside, and close with Escape. Bar menus take arrow keys. A whole Flows row opens its run, the Run ID column is off by default, and status buttons search by status in one click. Run tabs are ARIA tabs.
 - The expandable left rail shows server status by the Dex mark, then Flows and any available Experimental sections (Designs, Work Queue and Connectors). On phones, open it from the bar's menu. [Reference](/reference/web/dex-web#v1-pages).
 - Early features carry the word **Experimental** in place of a violet dot.
-- Events switches between Timeline and Graph (formerly Execution graph). Overview becomes State, Agent session becomes Conversation, and Flow designs move to Designs. Old tab links still open their views. [Reference](/reference/web/dex-web#run-tabs).
+- Events switches between Timeline and Graph (formerly Execution graph). Overview becomes State, Agent session becomes Conversation, and Designs replaces the Design run tab. Old Design links open under Events and other old tab links still work. [Reference](/reference/web/dex-web#run-tabs).
 - Live moved out of the bar to the event range on Events. It reads **Live** while the page follows the run, and **Updates paused · Resume** after a click.
 - **Input** and **Result** beside the event range on Events select Flow started and Flow closed, which show the run's start input and how it ended.
 - **Group by type**, on by default, on the Flows page groups the page's runs by Flow type, with counts by status and a link to the type's design.
@@ -311,7 +311,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 - Pushes to main no longer publish **superdurable/dex-web:latest**. Run a
   **superdurable/dex-web:vX.Y.Z** release image instead.
 - The **Agent session** message box offers **Work as** with the session's permission in place of **Send** when **Working as** is the only blocker. [Reference](/reference/web/dex-web#agent-session-controls).
-- **Streams** uses the full page width and scrolls with the page, keeping your place as entries arrive. Live transcripts follow new text once you reach the end and show **N new · Back to latest** while you read earlier text.
+- **Streams** uses the full page width and keeps your place as entries arrive above. **Back to latest** stays visible. A live transcript follows only after you reach the end. While you read earlier text, **N new · Back to latest** counts arrivals below.
 
 **Fixed**
 
@@ -331,7 +331,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 **Added**
 
 - **dex-web**, **dexcli dev**, and embedded Dex Web load uploaded definitions without **--flow-rendering-dir** or **FlowRenderingDirectory**. The directory wins and is the only source without server definition RPCs. [Reference](/reference/web/flow-visualization#definition-sources).
-- **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** returns a Flow type's definitions and revision, or 304 on matching **If-None-Match**. **GET /api/flow-definition-types** lists Flow types with definitions. [Reference](/reference/web/flow-visualization#definition-sources).
+- **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** returns definitions with graphs, v2 contract and revision, or 304 for matching **If-None-Match**. **GET /api/flow-definition-types** lists Flow types with definitions. [Reference](/reference/web/flow-visualization#definition-sources).
 - **Designs** shows where each definition comes from, a directory file or an upload, and when an uploaded one was generated and uploaded. Without definitions, it explains how to upload them when a Worker starts. [Reference](/reference/web/flow-visualization#render-definitions-in-dex-web).
 - Each **GET /api/v2/catalog** entry carries its **definitionRevision** and, for a Dex Agents session, **agentSession**. [Reference](/reference/web/dex-web#agent-session-view).
 - Dex Web accepts the optional top-level **generatedAt** field in a Version 2.0 Flow Definition Graph and checks that it is an RFC 3339 timestamp. Earlier releases reject a graph that has the field. [Reference](/reference/web/flow-visualization#generated-at).
@@ -342,7 +342,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 - Dex Web marks invalid, oversized, and duplicate definitions individually so the catalog and **/readyz** keep working. A directory file over the size limit lets the uploaded definition for that type show. [Reference](/reference/web/flow-visualization#definition-sources).
 - Dex Web ignores unknown top-level fields of a Flow Definition Graph. Known fields are still validated strictly. [Reference](/reference/web/flow-visualization#definition-sources).
 - The **Work Queue** link appears when any Flow type has a definition; the page itself says when none has a valid Version 2.0 contract. [Reference](/reference/web/flow-visualization#definition-sources).
-- **Connectors** reads the listing once on load and looks up up to 64 unique releases, four at a time. Missing releases wait five minutes before another lookup, and releases past the limit show the Connector ID. [Reference](/reference/web/local-connector-setup).
+- **Connectors** reads the list once on load and checks each release once per listing, up to 64 with four downloads at a time. It skips retrying missing releases for five minutes and shows Connector IDs past the limit. [Reference](/reference/web/local-connector-setup).
 - Dex Web validates Flow definition nodes, edges and diagnostics and limits Step groups, Version 2.0 lists and start input fields. The page shows an error when it cannot draw a definition. [Reference](/reference/web/flow-visualization#definition-sources).
 
 ## 1.44 {#v1-44}
@@ -378,14 +378,14 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 - The **Agent session** tab has **Session settings**, which shows the session's settings as JSON and saves an edit through **update_session_settings**. The change applies from the next turn. [Reference](/reference/web/dex-web#agent-session-settings).
 - **New session** starts a Dex Agents session with a session ID, a first message, and the **model**, **system_prompt**, and other settings. It is on the **Agent session** tab, and in **Work Queue** on a session Flow type. [Reference](/reference/web/dex-web#agent-new-session).
 - **POST /api/v2/agent-sessions/start**, **/messages**, and **/settings** start a session, call **send_user_message**, and call **update_session_settings**. [Reference](/reference/web/dex-web#agent-session-controls).
-- **connections.json** adds a random, non-secret **authorizationId** UUID on authorization or credential change. Dex Web 1.42 and older cannot load records with it, so remove the field before downgrading. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
+- **connections.json** gets a random, non-secret **authorizationId** UUID on authorization or a credential edit. Refresh write-backs keep it. Remove it before using Dex Web 1.42 or older. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
 
 **Changed**
 
 - Without local Connector setup, the **/api/v2/connector-** routes return HTTP 404 with the code **CONNECTOR_SETUP_UNAVAILABLE**. [Reference](/reference/web/embed-dex-web#limits).
 - Connector UI files send **frame-ancestors**, **sandbox allow-scripts**, and **X-Content-Type-Options: nosniff**. A file with an unknown extension is sent as **application/octet-stream**. [Reference](/reference/web/dex-web#frame-ancestors).
 - The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/dex-web#agent-session-view).
-- **connections.json** writes and Go SDK refreshes lock **connections.json.lock** exclusively. A wait over 15s returns 503 **CONNECTOR_CONNECTIONS_FILE_BUSY**. Restart OAuth on **CONNECTOR_CONNECTION_CHANGED**. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
+- **connections.json** writes and Go SDK write-backs lock **connections.json.lock** exclusively. A wait over 15s fails with 503 **CONNECTOR_CONNECTIONS_FILE_BUSY**. Restart OAuth on **CONNECTOR_CONNECTION_CHANGED**. [Ref](/reference/web/local-connector-setup#choose-the-storage-directory).
 
 ## 1.42 {#v1-42}
 
@@ -399,7 +399,7 @@ This page lists user-visible changes to Dex Web, newest first. Each section cove
 
 - In **Connectors**, **+ Add** lets you pick a catalog Connector and save a named connection to **connections.json** even when no loaded Flow uses it. [Reference](/reference/web/local-connector-setup#add-a-connection).
 - **Connectors** lists every saved connection that no loaded Flow uses, and **Delete connection** deletes one. [Reference](/reference/web/local-connector-setup#start-dex-web).
-- **--allowed-hosts** (**DEX_WEB_ALLOWED_HOSTS**) checks **Host** on **/api** to stop DNS rebinding. It allows loopback names, IPs, the bind address and listed hosts, and returns HTTP 403 **HOST_NOT_ALLOWED** for others. [Reference](/reference/web/dex-web#allowed-hosts).
+- **--allowed-hosts** (**DEX_WEB_ALLOWED_HOSTS**) enables **Host** checks on **/api** to stop DNS rebinding. It allows loopback names, IPs, the bind address and listed hosts, and returns HTTP 403 **HOST_NOT_ALLOWED** for other hosts. [Reference](/reference/web/dex-web#allowed-hosts).
 
 **Changed**
 
@@ -442,9 +442,9 @@ No user-visible changes.
 - **Flow Rendering** is now **Designs**, at the same **/v1/rendering** URL, and draws both schema versions with one graph. [Reference](/reference/web/flow-visualization).
 - The agent inbox URL is **/v1/work-queue?view=agents**. [Reference](/reference/web/dex-web#agent-inbox).
 - Step cards no longer show outcome chips. The Step panel lists outcomes under **Paths out**. [Reference](/reference/web/dex-web#flow-canvas).
-- The Timeline overview counts events in bars, marks failures and retries in red, and shades the visible range. Steps that succeed after a failure show a retry badge. [Reference](/reference/web/dex-web#v1-pages).
+- The Timeline overview counts events in bars and shades the visible range. Failures and Steps retried after failure are red, and Steps that succeed after a failed attempt show a retry badge. [Reference](/reference/web/dex-web#v1-pages).
 - In the Flow design graph, the zoom controls and the **Legend** sit at the top right of the canvas. The legend opens downward, scrolls inside the canvas, and closes from the same corner. The fit button is labeled **Fit the whole Flow**. [Reference](/reference/web/dex-web#flow-canvas).
-- **Streams** lists defined Stream names and **Other name…**, with live status, text, collapsible JSON and progress bars. Newest entries come first, **Back to latest** jumps back, and **Keep last** saves a limit of 100, 500, or 1,000. [Reference](/reference/web/dex-web#v1-pages).
+- **Streams** lists graph Stream names and **Other name…**, with live status, text, collapsible JSON and bars. Newest entries come first. Scrolling down keeps your place. **Back to latest** jumps back, and **Keep last** saves 100, 500 or 1,000. [Reference](/reference/web/dex-web#v1-pages).
 
 **Fixed**
 
