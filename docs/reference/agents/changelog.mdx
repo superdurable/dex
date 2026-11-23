@@ -39,7 +39,7 @@ and upgrade steps.
 
 **Added**
 
-- The Go core offers Dex Connector operations to an agent as tools, as the Python and TypeScript cores do. The new package **connectortools** takes an operation's **sdkgo.AgentTool**, and **builtinloop.WithToolSources** offers its tools to a built-in loop agent. Each call runs in its own tool Step under the connector's Call ID and single-dispatch fence. A limited Mutation keeps its send cap on every attempt, and Connector writes of one model response run in the model's order. A call that waits for approval shows its arguments, without an approval display yet. Stop or drain the Go Workers of a Flow type built from 0.6.15 or earlier before a Worker with Connector tools serves it, and do not roll that Flow type back below 0.6.16 while a Connector call is queued or running.
+- Go **connectortools** wraps **sdkgo.AgentTool** for **builtinloop.WithToolSources**. Stop or drain the Flow type's Go Workers on 0.6.15 or earlier before enabling tools, and roll back below 0.6.16 only after queued and running Connector calls end. [Reference](/reference/agents/connector-tools).
 - Go: the new module **github.com/superdurable/dex/agents/go/eino** runs CloudWeGo Eino ADK agents on the Go session Flow, one RunModel Step per model call and one Step per tool call. [Module](https://github.com/superdurable/dex/tree/main/agents/go/eino).
 - Go Eino agents can call Connector operations as tools beside their own, and a deploy that changes the instruction or renames a tool takes effect at the next model call without breaking the open turn.
 - The Go core reads a model API error's HTTP status from an **HTTPStatusCode** field too, as the go-openai and Volcengine Ark SDK errors that CloudWeGo eino-ext model clients return have, so their transient errors get the backoff and their other 4xx errors fail the turn at once.
@@ -52,7 +52,7 @@ and upgrade steps.
 **Fixed**
 
 - A Go runner's message with a role other than user, assistant, or tool now fails its turn at once, with the model call's usage recorded and no retry, instead of being stored and breaking **get_agent_snapshot** and **list_agent_messages** for the rest of the session.
-- A Go session at the server's **limits.maxFlowStateBytes** now ends with the reason and status **failed**, as Python and TypeScript sessions do, instead of going on after a model answer or tool result that did not fit. The Go **AgentSessionClient** reports the failure even when the session had no room to store it, and a message sent to the failed session returns **AgentSessionFailedError** with the reason.
+- Go sessions now end **failed** if a model or tool result would push them past **limits.maxFlowStateBytes**. **AgentSessionClient** reports even an unstored reason, and sending a message then returns **AgentSessionFailedError** with it. [Reference](/reference/agents/session-limits#at-the-limit).
 
 ### 0.6.15 (2026-11-18) {#v0-6-15}
 
