@@ -493,6 +493,7 @@ edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:review
 node decision:step:Work:18:75 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource attribute Status has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
 == review3-callbackDeferred valid=false
@@ -500,6 +501,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:81 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-contextDestructure valid=false
 == review3-contextInferred valid=false
@@ -509,6 +511,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:86 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-flowConstructorReassign valid=false
 == review3-flowGetter valid=false
@@ -524,6 +527,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:18:68 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource attribute Status has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
 == review3-inferredCallback valid=false
@@ -532,6 +536,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:13:171 condition=""
 node wait:Work:13:96 condition=""
 edge wait_condition resource:channel:first -> wait:Work:13:96 First.for 1
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-moduleObjectAlias valid=false
 == review3-namespaceContext valid=false
@@ -539,11 +544,13 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:81 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-parameterAliasField valid=true
 node decision:step:Work:18:81 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-propertyReflect valid=false
 == review3-proxyResource valid=false
@@ -567,11 +574,13 @@ node decision:rpc:describe:14:283:12:26 condition=""
 node decision:step:Work:13:167 condition=""
 node wait:Work:13:96 condition=""
 edge transition decision:rpc:describe:14:283:12:26 -> step:Work fan-out
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel First has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
 == review3-rpcHiddenExpressionHelper valid=true
 node decision:step:Work:13:167 condition=""
 node wait:Work:13:96 condition=""
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel First has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
 == review3-rpcListSameName valid=true
@@ -599,6 +608,7 @@ warning unused_resource stream Progress has no direct access in the source file
 == review3-rpcVoidHelperCall valid=true
 node decision:step:Work:13:167 condition=""
 node wait:Work:13:96 condition=""
+warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel First has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
 == review3-stepReflect valid=false

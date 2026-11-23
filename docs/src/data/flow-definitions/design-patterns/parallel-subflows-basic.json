@@ -126,6 +126,15 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "SubFlows",
+      "input": {
+        "kind": "array",
+        "items": {
+          "kind": "string"
+        }
+      }
+    }
   }
 }

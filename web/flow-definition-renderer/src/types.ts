@@ -75,7 +75,7 @@ export interface FlowDefinitionGraph {
   generatedAt?: string;
   valid: boolean;
   source: {
-    language: 'go' | 'python' | 'typescript';
+    language: 'go' | 'python' | 'typescript' | 'java' | 'rust';
     path: string;
   };
   flow: {

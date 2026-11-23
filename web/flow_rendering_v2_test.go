@@ -49,6 +49,28 @@ func TestLoadFlowDefinitionsRejectsDuplicateValidV2FlowTypes(t *testing.T) {
 	}
 }
 
+func TestFlowDefinitionFromGraphChecksSourceLanguage(t *testing.T) {
+	graph := validFlowDefinitionV2("RefundFlow", true)
+	for _, language := range []string{"go", "python", "typescript", "java", "rust"} {
+		t.Run(language, func(t *testing.T) {
+			sourceGraph := strings.Replace(graph, `"language":"go"`, `"language":"`+language+`"`, 1)
+			definition, err := flowDefinitionFromGraph("refund.json", []byte(sourceGraph))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if definition.SourceLanguage != language {
+				t.Fatalf("source language = %q, want %q", definition.SourceLanguage, language)
+			}
+		})
+	}
+
+	unknownGraph := strings.Replace(graph, `"language":"go"`, `"language":"unknown"`, 1)
+	_, err := flowDefinitionFromGraph("refund.json", []byte(unknownGraph))
+	if err == nil || err.Error() != `Flow Definition Graph refund.json has unsupported source language "unknown"` {
+		t.Fatalf("unsupported source language error = %v", err)
+	}
+}
+
 func TestLoadFlowDefinitionsRejectsMalformedV2Contract(t *testing.T) {
 	directory := t.TempDir()
 	malformed := strings.Replace(validFlowDefinitionV2("RefundFlow", true), `"rpcName":"GetDexDisplay"`, `"rpcName":"WrongDisplay"`, 1)

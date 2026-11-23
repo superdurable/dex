@@ -448,6 +448,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "AwaitOfferResponse",
+      "input": {
+        "kind": "string"
+      }
+    }
   }
 }

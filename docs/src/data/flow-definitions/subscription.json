@@ -831,7 +831,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step Initialize input cannot drive a form: type Customer cannot be resolved in this file",
+      "span": {
+        "startLine": 163,
+        "startColumn": 48,
+        "endLine": 163,
+        "endColumn": 56
+      }
+    }
+  ],
   "groups": [
     {
       "id": "billing",

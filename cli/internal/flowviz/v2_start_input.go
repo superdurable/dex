@@ -28,9 +28,14 @@ type v2StartInputFact struct {
 }
 
 func (graph *Graph) buildV2StartDefinition(fact v2StartInputFact) *StartDefinition {
+	return graph.buildStartDefinition(fact, "v2_start_input")
+}
+
+func (graph *Graph) buildStartDefinition(fact v2StartInputFact, extractionErrorCode string) *StartDefinition {
 	if fact.StepType == "" {
 		return nil
 	}
+	code := extractionErrorCode
 	if fact.Error == "" {
 		if fact.Input == nil {
 			graph.AddDiagnostic("warning", "v2_start_input", fmt.Sprintf("Start Step %s input type is not statically readable", fact.StepType), fact.Span)
@@ -38,10 +43,11 @@ func (graph *Graph) buildV2StartDefinition(fact v2StartInputFact) *StartDefiniti
 		}
 		if err := validateStartInputSchema(*fact.Input, 0); err != nil {
 			fact.Error = err.Error()
+			code = "v2_start_input"
 		}
 	}
 	if fact.Error != "" {
-		graph.AddDiagnostic("warning", "v2_start_input", fmt.Sprintf("Start Step %s input cannot drive a form: %s", fact.StepType, fact.Error), fact.Span)
+		graph.AddDiagnostic("warning", code, fmt.Sprintf("Start Step %s input cannot drive a form: %s", fact.StepType, fact.Error), fact.Span)
 		return nil
 	}
 	return &StartDefinition{StepType: fact.StepType, Input: *fact.Input}

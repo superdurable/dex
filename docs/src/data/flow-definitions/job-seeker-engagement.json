@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-10T21:14:31Z",
+  "generatedAt": "2026-11-23T07:06:25Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -12,7 +12,7 @@
     "span": {
       "startLine": 138,
       "startColumn": 1,
-      "endLine": 231,
+      "endLine": 232,
       "endColumn": 47
     }
   },
@@ -31,15 +31,15 @@
       }
     },
     {
-      "id": "decision:rpc:accept:210:16",
+      "id": "decision:rpc:accept:211:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accept",
       "phase": "rpc",
       "span": {
-        "startLine": 210,
+        "startLine": 211,
         "startColumn": 16,
-        "endLine": 215,
+        "endLine": 216,
         "endColumn": 10
       },
       "decision": {
@@ -47,15 +47,15 @@
       }
     },
     {
-      "id": "decision:rpc:decline:193:16",
+      "id": "decision:rpc:decline:194:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:decline",
       "phase": "rpc",
       "span": {
-        "startLine": 193,
+        "startLine": 194,
         "startColumn": 16,
-        "endLine": 198,
+        "endLine": 199,
         "endColumn": 10
       },
       "decision": {
@@ -63,15 +63,15 @@
       }
     },
     {
-      "id": "decision:rpc:describe:178:16",
+      "id": "decision:rpc:describe:179:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "phase": "rpc",
       "span": {
-        "startLine": 178,
+        "startLine": 179,
         "startColumn": 16,
-        "endLine": 178,
+        "endLine": 179,
         "endColumn": 60
       },
       "decision": {
@@ -196,9 +196,9 @@
       "kind": "attribute",
       "name": "EngagementStatus",
       "span": {
-        "startLine": 141,
+        "startLine": 142,
         "startColumn": 5,
-        "endLine": 145,
+        "endLine": 146,
         "endColumn": 6
       },
       "resource": {
@@ -224,9 +224,9 @@
       "kind": "attribute",
       "name": "LastUpdateTimeMillis",
       "span": {
-        "startLine": 146,
+        "startLine": 147,
         "startColumn": 5,
-        "endLine": 146,
+        "endLine": 147,
         "endColumn": 67
       },
       "resource": {
@@ -238,9 +238,9 @@
       "kind": "attribute",
       "name": "notes",
       "span": {
-        "startLine": 147,
+        "startLine": 148,
         "startColumn": 5,
-        "endLine": 147,
+        "endLine": 148,
         "endColumn": 36
       },
       "resource": {
@@ -252,9 +252,9 @@
       "kind": "channel",
       "name": "CompleteProcess",
       "span": {
-        "startLine": 149,
+        "startLine": 150,
         "startColumn": 5,
-        "endLine": 149,
+        "endLine": 150,
         "endColumn": 68
       },
       "resource": {
@@ -266,9 +266,9 @@
       "kind": "channel",
       "name": "OptOutReminder",
       "span": {
-        "startLine": 148,
+        "startLine": 149,
         "startColumn": 5,
-        "endLine": 148,
+        "endLine": 149,
         "endColumn": 67
       },
       "resource": {
@@ -280,9 +280,9 @@
       "kind": "rpc",
       "name": "accept",
       "span": {
-        "startLine": 201,
+        "startLine": 202,
         "startColumn": 5,
-        "endLine": 215,
+        "endLine": 216,
         "endColumn": 10
       }
     },
@@ -291,9 +291,9 @@
       "kind": "rpc",
       "name": "decline",
       "span": {
-        "startLine": 185,
+        "startLine": 186,
         "startColumn": 5,
-        "endLine": 198,
+        "endLine": 199,
         "endColumn": 10
       }
     },
@@ -302,9 +302,9 @@
       "kind": "rpc",
       "name": "describe",
       "span": {
-        "startLine": 177,
+        "startLine": 178,
         "startColumn": 5,
-        "endLine": 178,
+        "endLine": 179,
         "endColumn": 60
       }
     },
@@ -313,9 +313,9 @@
       "kind": "rpc",
       "name": "opt_out",
       "span": {
-        "startLine": 181,
+        "startLine": 182,
         "startColumn": 5,
-        "endLine": 182,
+        "endLine": 183,
         "endColumn": 53
       }
     },
@@ -326,9 +326,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 159,
+        "startLine": 160,
         "startColumn": 36,
-        "endLine": 159,
+        "endLine": 160,
         "endColumn": 51
       },
       "metadata": {
@@ -341,9 +341,9 @@
       "name": "NotifyExternalSystem",
       "phase": "execute",
       "span": {
-        "startLine": 162,
+        "startLine": 163,
         "startColumn": 13,
-        "endLine": 162,
+        "endLine": 163,
         "endColumn": 40
       },
       "metadata": {
@@ -356,9 +356,9 @@
       "name": "ProcessTimeout",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 160,
+        "startLine": 161,
         "startColumn": 13,
-        "endLine": 160,
+        "endLine": 161,
         "endColumn": 33
       },
       "metadata": {
@@ -371,9 +371,9 @@
       "name": "Reminder",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 161,
+        "startLine": 162,
         "startColumn": 13,
-        "endLine": 161,
+        "endLine": 162,
         "endColumn": 26
       },
       "metadata": {
@@ -465,26 +465,26 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:rpc:accept:210:16",
+      "from": "decision:rpc:accept:211:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 213,
+        "startLine": 214,
         "startColumn": 17,
-        "endLine": 213,
+        "endLine": 214,
         "endColumn": 71
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:rpc:decline:193:16",
+      "from": "decision:rpc:decline:194:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 196,
+        "startLine": 197,
         "startColumn": 17,
-        "endLine": 196,
+        "endLine": 197,
         "endColumn": 71
       }
     },
@@ -563,9 +563,9 @@
       "to": "rpc:accept",
       "label": "get",
       "span": {
-        "startLine": 202,
+        "startLine": 203,
         "startColumn": 18,
-        "endLine": 202,
+        "endLine": 203,
         "endColumn": 53
       },
       "metadata": {
@@ -579,9 +579,9 @@
       "to": "rpc:decline",
       "label": "get",
       "span": {
-        "startLine": 186,
+        "startLine": 187,
         "startColumn": 18,
-        "endLine": 186,
+        "endLine": 187,
         "endColumn": 53
       },
       "metadata": {
@@ -685,9 +685,9 @@
       "to": "resource:channel:EngagementFlow.complete_process",
       "label": "publish",
       "span": {
-        "startLine": 209,
+        "startLine": 210,
         "startColumn": 9,
-        "endLine": 209,
+        "endLine": 210,
         "endColumn": 53
       },
       "metadata": {
@@ -701,9 +701,9 @@
       "to": "resource:channel:EngagementFlow.opt_out_reminder",
       "label": "publish",
       "span": {
-        "startLine": 182,
+        "startLine": 183,
         "startColumn": 9,
-        "endLine": 182,
+        "endLine": 183,
         "endColumn": 53
       },
       "metadata": {
@@ -791,7 +791,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step Initialize input cannot drive a form: type EngagementInput cannot be resolved in this file",
+      "span": {
+        "startLine": 125,
+        "startColumn": 48,
+        "endLine": 125,
+        "endColumn": 63
+      }
+    }
+  ],
   "groups": [
     {
       "id": "closing",
@@ -823,7 +835,15 @@
     }
   ],
   "v2": {
-    "indexedAttributes": [],
+    "indexedAttributes": [
+      {
+        "attributeKey": "EngagementStatus",
+        "indexKey": "keyword1",
+        "indexType": "keyword",
+        "valueType": "string",
+        "description": "Current engagement status"
+      }
+    ],
     "summary": {
       "rpcName": "GetDexSummary",
       "fields": []

@@ -112,7 +112,18 @@ func TestVisualizeRustWorkflowPatternParity(t *testing.T) {
 			if target := goCancellationRPCMovement(flowType); target != "" {
 				expected["transition:rpc:"+target] = true
 			}
-			require.Equal(t, expected, visualizePatternStructure(rustGraph))
+			actual := visualizePatternStructure(rustGraph)
+			if branches, ok := rustWorkflowPatternExternalJoinBranches[flowType]; ok {
+				for _, target := range branches.targets {
+					transition := "transition:" + branches.owner + ":" + target
+					require.Contains(t, expected, transition)
+					delete(expected, transition)
+				}
+				dynamicTransition := "transition:" + branches.owner + ":Dynamic Step target"
+				require.Contains(t, actual, dynamicTransition)
+				delete(actual, dynamicTransition)
+			}
+			require.Equal(t, expected, actual)
 		})
 	}
 }
@@ -240,6 +251,11 @@ func readVisualizeRustParityGraph(t *testing.T, source string, flowType string, 
 func requireVisualizeExampleDiagnostics(t *testing.T, graph *flowviz.Graph, source string, hiddenSteps, additionalErrors []string) {
 	t.Helper()
 	expectedErrors := append([]string(nil), additionalErrors...)
+	if filepath.Ext(source) == ".rs" && filepath.Base(filepath.Dir(source)) == "workflow_patterns" {
+		for range rustWorkflowPatternExternalJoinBranches[graph.Flow.Name].targets {
+			expectedErrors = append(expectedErrors, "dynamic_step_target")
+		}
+	}
 	var expectedHiddenOwners []string
 	for _, step := range hiddenSteps {
 		expectedErrors = append(expectedErrors, "hidden_dex_decision")
@@ -265,6 +281,33 @@ func requireVisualizeExampleDiagnostics(t *testing.T, graph *flowviz.Graph, sour
 		}
 	}
 	require.ElementsMatch(t, expectedHiddenOwners, actualHiddenOwners)
+}
+
+// Join branch helper defined in another file; the analyzer reads one file.
+var rustWorkflowPatternExternalJoinBranches = map[string]struct {
+	owner   string
+	targets []string
+}{
+	"ParallelSplitSynchronizationFlow": {
+		owner:   "SplitOrder",
+		targets: []string{"PackItems", "ChargePayment"},
+	},
+	"MultiChoiceSynchronizingMergeFlow": {
+		owner:   "SelectNotificationChannels",
+		targets: []string{"SendEmail", "SendSms", "SendPush"},
+	},
+	"StructuredPartialJoinFlow": {
+		owner:   "RequestQuotes",
+		targets: []string{"QuoteFromSupplierA", "QuoteFromSupplierB", "QuoteFromSupplierC"},
+	},
+	"BlockingPartialJoinFlow": {
+		owner:   "StartBlockingRound",
+		targets: []string{"SignalFromBranchA", "SignalFromBranchB", "SignalFromBranchC"},
+	},
+	"CancellingPartialJoinFlow": {
+		owner:   "RequestBids",
+		targets: []string{"BidFromCarrierA", "BidFromCarrierB", "BidFromCarrierC"},
+	},
 }
 
 // These Steps return decisions from review starters in all three languages.

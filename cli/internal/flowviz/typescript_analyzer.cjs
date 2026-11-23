@@ -67,6 +67,7 @@ class TypeScriptAnalyzer {
     this.uses = [];
     this.actions = [];
     this.rpcLockErrors = [];
+    this.viewRPCs = [];
     this.inputTypes = new Map();
   }
 
@@ -268,7 +269,7 @@ class TypeScriptAnalyzer {
     // A Join is a ChannelMap of branch results keyed by round.
     const isJoin = constructor === "Join";
     if (isJoin) this.joinResourceIDs.add(nodeID);
-    if (kind === "attribute" && this.scopesFlowResources) this.attributeDeclarations.set(nodeID,expression);
+    if (kind === "attribute") this.attributeDeclarations.set(nodeID,expression);
     this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:isJoin || constructor.endsWith("Map")}});
   }
 
@@ -312,10 +313,16 @@ class TypeScriptAnalyzer {
   }
 
   resourceValueType(expression) {
-    if (expression.typeArguments?.length) return expression.typeArguments[0].getText(this.tree);
+    const annotation = this.resourceTypeAnnotation(expression);
+    if (annotation) return annotation.getText(this.tree);
     const codec = this.unwrap(expression.arguments?.[1]);
-    if (codec && this.ts.isCallExpression(codec) && this.dexName(codec.expression) === "jsonCodec" && codec.typeArguments?.length) return codec.typeArguments[0].getText(this.tree);
     return (codec && codecValueTypes[this.dexName(codec)]) || "unknown";
+  }
+
+  resourceTypeAnnotation(expression) {
+    if (expression.typeArguments?.length) return expression.typeArguments[0];
+    const codec = this.unwrap(expression.arguments?.[1]);
+    if (codec && this.ts.isCallExpression(codec) && this.dexName(codec.expression) === "jsonCodec") return codec.typeArguments?.[0];
   }
 
   analyzeRegistration(steps) {
@@ -343,7 +350,11 @@ class TypeScriptAnalyzer {
         }
         const declaration = instance?.declaration;
         this.graph.nodes.push({id:`step:${target}`,kind:"step",name:target,phase:this.method(declaration,"waitFor") ? "wait_for+execute":"execute",start:isStart,span:this.span(argument)});
-        if (isStart) { starts++; this.graph.flow.startStepId = `step:${target}`; }
+        if (isStart) {
+          starts++;
+          this.graph.flow.startStepId = `step:${target}`;
+          if (!this.connectorSteps.has(target)) this.startInput = this.startInputFact(target,declaration,argument);
+        }
       }
     });
     if (starts > 1) this.error("multiple_start_steps","Flow defines more than one start Step",steps);
@@ -590,7 +601,7 @@ class TypeScriptAnalyzer {
   }
 
   // Records the resource reads, writes, and publishes of a handler and of the file's helpers it calls.
-  analyzeResourceAccess(ownerID,handler,phase,ownerClass) {
+  analyzeResourceAccess(ownerID,handler,phase,ownerClass,viewRPCName) {
     const accesses = [];
     this.collectResourceAccesses(handler,ownerClass,"",new Set([handler]),accesses,0);
     const seen = new Set();
@@ -598,6 +609,9 @@ class TypeScriptAnalyzer {
       for (const access of accesses) {
         if (!!access.helper !== isHelperAccess) continue;
         this.diagnoseStreamOutsideStep(ownerID,phase,access);
+        if (viewRPCName && ["set","delete","publish","deleteChannelMessage"].includes(access.method)) {
+          this.error("v2_view_rpc_side_effect",`${viewRPCName} must be read-only`,access.call);
+        }
         const kind = this.resourceEdgeKind(access.method,phase);
         const key = `${kind}:${access.resourceID}:${access.method}`;
         if (!kind || kind === "wait_condition" || seen.has(key)) continue;
@@ -861,10 +875,6 @@ class TypeScriptAnalyzer {
     const nodeID = `rpc:${methodName}`;
     if (this.graph.nodes.some(node => node.id === nodeID)) return;
     this.graph.nodes.push({id:nodeID,kind:"rpc",name:methodName,span:this.span(method || anchor)});
-    if (method?.body) {
-      this.analyzeDecisions(nodeID,method,"rpc");
-      this.analyzeResourceAccess(nodeID,method,"rpc",this.flowClass);
-    }
     const options =optionsExpression === undefined ? undefined : this.resolvedValue(optionsExpression,{}).node;
     const optionsObject = options && this.ts.isObjectLiteralExpression(options) ? options : undefined;
     const property = name => optionsObject?.properties.find(candidate => (this.ts.isPropertyAssignment(candidate) || this.ts.isShorthandPropertyAssignment(candidate)) && candidate.name && this.propertyName(candidate.name) === name);
@@ -872,11 +882,196 @@ class TypeScriptAnalyzer {
     const nameProperty = property("name");
     const staticName = nameProperty ? this.staticLiteral(valueOf(nameProperty),{}) : undefined;
     const rpcName = typeof staticName === "string" && staticName ? staticName : methodName;
-    const lockProblems = this.analyzeRPCLocks(nodeID,rpcName,property("lockAttributes"),valueOf);
     const actionProperty = property("action");
-    if (!actionProperty) return;
-    for (const problem of lockProblems) this.rpcLockErrors.push({rpcNodeId:nodeID,rpcName,message:problem.message,span:problem.span});
-    this.actions.push(this.actionEntry(method,methodName,nodeID,rpcName,valueOf(actionProperty),anchor));
+    const hasStaticName = optionsExpression === undefined ||
+      (optionsObject && (!nameProperty || typeof staticName === "string") && !optionsObject.properties.some(candidate => this.ts.isSpreadAssignment(candidate)));
+    const isView = hasStaticName && (rpcName === "GetDexSummary" || rpcName === "GetDexDisplay");
+    if (method?.body) {
+      this.analyzeDecisions(nodeID,method,"rpc");
+      this.analyzeResourceAccess(nodeID,method,"rpc",this.flowClass,isView ? rpcName : undefined);
+    }
+    const lockProblems = this.analyzeRPCLocks(nodeID,rpcName,property("lockAttributes"),valueOf);
+    if (isView || actionProperty) {
+      for (const problem of lockProblems) this.rpcLockErrors.push({rpcNodeId:nodeID,rpcName,message:problem.message,span:problem.span});
+    }
+    if (isView) this.viewRPCs.push(this.viewRPCFact(rpcName,method,anchor,!!property("inputCodec")));
+    if (actionProperty) this.actions.push(this.actionEntry(method,methodName,nodeID,rpcName,valueOf(actionProperty),anchor));
+  }
+
+  viewRPCFact(protocolName,method,anchor,hasInputCodec) {
+    const methodDirectives = method ? this.directiveLines(method,"field") : [];
+    const directives = anchor !== method && methodDirectives.length === 0 ? this.directiveLines(anchor,"field") : methodDirectives;
+    const parameters = method?.parameters.filter(parameter => parameter.name.getText(this.tree) !== "this");
+    if (hasInputCodec || parameters?.length > 1) {
+      this.error("v2_rpc_signature",`RPC ${protocolName} input must be dex.None`,method || anchor);
+    }
+    this.validateReadOnlyViewRPC(protocolName,method,new Set());
+    const outputKeys = this.viewReturnKeys(method,new Set(),true);
+    return {protocolName,directives,outputKeys,span:this.span(method || anchor)};
+  }
+
+  validateReadOnlyViewRPC(protocolName,method,visited) {
+    if (!method?.body || visited.has(method)) return;
+    visited.add(method);
+    this.walk(method.body,node => {
+      if (this.ts.isCallExpression(node)) {
+        const callee = this.unwrap(node.expression);
+        const helper = this.resourceHelper(callee,this.flowClass);
+        this.validateReadOnlyViewRPC(protocolName,helper?.declaration,visited);
+        if (["goTo","goToMany"].includes(this.dexName(callee)) || this.memberCall(callee)?.method === "deleteChannelMessage") {
+          this.error("v2_view_rpc_side_effect",`${protocolName} must be read-only`,node);
+        }
+      }
+      if (this.ts.isObjectLiteralExpression(node) && node.properties.some(property => property.name && this.propertyName(property.name) === "output")) {
+        for (const property of node.properties) {
+          if (property.name && ["nextSteps","cancelingSteps"].includes(this.propertyName(property.name))) {
+            this.error("v2_view_rpc_side_effect",`${protocolName} must be read-only`,property);
+          }
+        }
+      }
+    });
+  }
+
+  viewReturnKeys(method,visited,wrapped) {
+    if (!method?.body || visited.has(method) || visited.size >= maximumHelperDepth) return undefined;
+    const methodVisits = new Set([...visited,method]);
+    const outputs = this.viewReturnExpressions(method.body).map(expression => this.viewExpressionKeys(expression,methodVisits,wrapped));
+    const first = outputs[0];
+    if (first && outputs.every(keys => keys && keys.length === first.length && keys.every((key,index) => key === first[index]))) return first;
+    return undefined;
+  }
+
+  viewReturnExpressions(body) {
+    if (!this.ts.isBlock(body)) return [body];
+    const pending = [body];
+    const returns = [];
+    while (pending.length) {
+      const node = pending.pop();
+      if (this.ts.isReturnStatement(node)) {
+        returns.push(node.expression);
+      } else if (!this.ts.isFunctionLike(node) && !this.ts.isClassLike(node)) {
+        for (const child of node.getChildren(this.tree)) pending.push(child);
+      }
+    }
+    return returns;
+  }
+
+  viewExpressionKeys(expression,visited,wrapped) {
+    const result = this.resolvedValue(expression,{}).node;
+    if (!result) return undefined;
+    if (this.ts.isConditionalExpression(result)) {
+      const left = this.viewExpressionKeys(result.whenTrue,visited,wrapped);
+      const right = this.viewExpressionKeys(result.whenFalse,visited,wrapped);
+      return left && right && left.length === right.length && left.every((key,index) => key === right[index]) ? left : undefined;
+    }
+    if (this.ts.isCallExpression(result)) {
+      const callee = this.unwrap(result.expression);
+      const helper = this.resourceHelper(callee,this.flowClass);
+      if (helper) return this.viewReturnKeys(helper.declaration,visited,wrapped);
+      const localFunction = this.resolvedValue(callee,{}).node;
+      if (localFunction && (this.ts.isArrowFunction(localFunction) || this.ts.isFunctionExpression(localFunction))) {
+        return this.viewReturnKeys(localFunction,visited,wrapped);
+      }
+      return undefined;
+    }
+    if (!this.ts.isObjectLiteralExpression(result)) return undefined;
+    if (result.properties.some(property => !this.propertyValueExpression(property) || this.ts.isComputedPropertyName(property.name))) return undefined;
+    const properties = new Map(result.properties.map(property => [this.propertyName(property.name),this.propertyValueExpression(property)]));
+    if (wrapped) return this.viewExpressionKeys(properties.get("output"),visited,false);
+    return [...properties.keys()].sort();
+  }
+
+  startInputFact(stepType,declaration,registration) {
+    const method = this.method(declaration,"execute");
+    const annotation = method?.parameters.filter(parameter => parameter.name.getText(this.tree) !== "this")[1]?.type;
+    const span = this.span(annotation || method || registration);
+    try {
+      return {stepType,span,input:this.startInputSchema(annotation)};
+    } catch (error) {
+      if (!(error instanceof StartInputExtractionError)) throw error;
+      return {stepType,span,error:error.message};
+    }
+  }
+
+  startInputSchema(type,ancestors=new Set(),depth=0) {
+    if (depth > 32) throw new StartInputExtractionError("nesting exceeds 32 levels");
+    if (!type) throw new StartInputExtractionError("execute must declare an input type in this file");
+    const ts = this.ts;
+    const scalar = {
+      [ts.SyntaxKind.StringKeyword]:"string", [ts.SyntaxKind.NumberKeyword]:"number",
+      [ts.SyntaxKind.BooleanKeyword]:"boolean", [ts.SyntaxKind.VoidKeyword]:"null",
+      [ts.SyntaxKind.UndefinedKeyword]:"null",
+    }[type.kind];
+    if (scalar) return {kind:scalar};
+    if (type.kind === ts.SyntaxKind.BigIntKeyword) return {kind:"integer",minimum:"-9223372036854775808",maximum:"9223372036854775807"};
+    if (ts.isParenthesizedTypeNode(type) || (ts.isTypeOperatorNode(type) && type.operator === ts.SyntaxKind.ReadonlyKeyword)) {
+      return this.startInputSchema(type.type,ancestors,depth+1);
+    }
+    if (ts.isLiteralTypeNode(type)) {
+      if (type.literal.kind === ts.SyntaxKind.NullKeyword) return {kind:"null"};
+      if (ts.isStringLiteral(type.literal)) return {kind:"string",enumValues:[{name:type.literal.text || '""',value:type.literal.text}]};
+    }
+    if (ts.isUnionTypeNode(type)) {
+      const members = type.types.map(member => this.startInputSchema(member,ancestors,depth+1));
+      const values = members.filter(member => member.kind !== "null");
+      const nullable = values.length < members.length;
+      if (values.length === 1) return {...values[0],nullable:nullable || values[0].nullable};
+      if (values.length === 0) return {kind:"null"};
+      if (values.every(member => member.kind === "string" && member.enumValues)) {
+        const enumValues = new Map(values.flatMap(member => member.enumValues).map(entry => [entry.value,entry]));
+        return {kind:"string",nullable,enumValues:[...enumValues.values()]};
+      }
+    }
+    if (ts.isArrayTypeNode(type)) return {kind:"array",items:this.startInputSchema(type.elementType,ancestors,depth+1)};
+    if (ts.isTypeLiteralNode(type)) return this.startInputObject(type.members,ancestors,depth);
+    if (ts.isTypeReferenceNode(type)) return this.startInputReference(type,ancestors,depth);
+    throw new StartInputExtractionError(`type ${type.getText(this.tree)} is unsupported`);
+  }
+
+  startInputReference(reference,ancestors,depth) {
+    const name = reference.typeName.getText(this.tree);
+    const argumentsList = reference.typeArguments || [];
+    const declaration = this.inputTypes.get(name);
+    const binding = this.scopeBindings.get(this.tree)?.has(name) ? this.staticBinding(this.tree,name) : undefined;
+    if (binding && this.ts.isEnumDeclaration(binding)) {
+      if (binding.members.length && binding.members.every(member => this.ts.isIdentifier(member.name) && member.initializer && this.ts.isStringLiteral(member.initializer))) {
+        return {kind:"string",enumValues:binding.members.map(member => ({name:member.name.text,value:member.initializer.text}))};
+      }
+      throw new StartInputExtractionError(`type ${name} is unsupported`);
+    }
+    if (declaration && !argumentsList.length && !declaration.typeParameters?.length) {
+      if (ancestors.has(declaration)) throw new StartInputExtractionError(`type ${name} is recursive`);
+      const nextAncestors = new Set([...ancestors,declaration]);
+      if (this.ts.isTypeAliasDeclaration(declaration)) return this.startInputSchema(declaration.type,nextAncestors,depth+1);
+      if (!declaration.heritageClauses?.length) return this.startInputObject(declaration.members,nextAncestors,depth);
+    }
+    if (!declaration && name === "Date" && !argumentsList.length) return {kind:"string",format:"date-time"};
+    if (!declaration && ["Array","ReadonlyArray"].includes(name) && argumentsList.length === 1) {
+      return {kind:"array",items:this.startInputSchema(argumentsList[0],ancestors,depth+1)};
+    }
+    if (!declaration && name === "Record" && argumentsList.length === 2) {
+      const key = this.startInputSchema(argumentsList[0],ancestors,depth+1);
+      if (key.kind !== "string" || key.enumValues || key.format || key.nullable) throw new StartInputExtractionError("map keys must be strings");
+      return {kind:"map",values:this.startInputSchema(argumentsList[1],ancestors,depth+1)};
+    }
+    throw new StartInputExtractionError(`type ${reference.getText(this.tree)} cannot be resolved in this file`);
+  }
+
+  startInputObject(members,ancestors,depth) {
+    const fields = [];
+    for (const member of members) {
+      if (!this.ts.isPropertySignature(member) || this.ts.isComputedPropertyName(member.name)) {
+        throw new StartInputExtractionError(`object member ${member.getText(this.tree)} must be a named property`);
+      }
+      const name = this.propertyName(member.name);
+      try {
+        fields.push({name,required:!member.questionToken,schema:this.startInputSchema(member.type,ancestors,depth+1)});
+      } catch (error) {
+        if (!(error instanceof StartInputExtractionError)) throw error;
+        throw new StartInputExtractionError(`field ${name}: ${error.message}`);
+      }
+    }
+    return {kind:"object",fields};
   }
 
   analyzeStepLocks(nodeID,declaration) {
@@ -1729,14 +1924,22 @@ class TypeScriptAnalyzer {
   }
 
   directives(declaration) {
+    return this.directiveLines(declaration).map(directive => directive.text);
+  }
+
+  directiveLines(declaration,name) {
     let line = this.tree.getLineAndCharacterOfPosition(declaration.getStart(this.tree)).line;
     const lines = this.source.split(/\r?\n/);
     const directives = [];
     while (line > 0 && lines[line-1].trimStart().startsWith("//")) {
-      const text = lines[--line].trimStart().slice(2).trim();
-      if (text.startsWith("dex:")) directives.unshift(text);
+      const raw = lines[--line];
+      const trimmed = raw.trimStart();
+      const text = trimmed.slice(2).trim();
+      if (text.startsWith("dex:") && (!name || text.split(/\s/,1)[0] === `dex:${name}`)) {
+        directives.push({text,span:{startLine:line+1,startColumn:raw.length-trimmed.length+1,endLine:line+1,endColumn:raw.length+1}});
+      }
     }
-    return directives;
+    return directives.reverse();
   }
 
   indexBindings() {
@@ -2571,16 +2774,21 @@ class TypeScriptAnalyzer {
     if (!this.graph.diagnostics.some(existing => JSON.stringify(existing) === key)) this.graph.diagnostics.push(diagnostic);
   }
   result() {
-    const attributes = this.graph.nodes.filter(node => node.kind === "attribute").map(node => this.attributeFact(node));
-    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds};
+    const attributes = this.graph.nodes.filter(node => node.kind === "attribute")
+      .sort((left,right) => left.span.startLine - right.span.startLine || left.span.startColumn - right.span.startColumn)
+      .map(node => this.attributeFact(node));
+    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds,viewRPCs:this.viewRPCs,startInput:this.startInput};
   }
 
   attributeFact(node) {
-    const fact = {resourceId:node.id,key:node.name,valueType:this.canonicalValueType(node.resource.valueType),isMap:node.resource.map};
     const declaration = this.attributeDeclarations.get(node.id);
+    const annotation = declaration && this.resourceTypeAnnotation(declaration);
+    const valueTypeUnresolved = this.isImportedAttributeType(annotation);
+    const valueType = valueTypeUnresolved ? "json" : this.attributeValueType(node.resource.valueType);
+    const fact = {resourceId:node.id,key:node.name,valueType,valueTypeUnresolved,isMap:node.resource.map};
     if (!declaration) return fact;
     const anchor = this.ts.findAncestor(declaration,parent => this.ts.isVariableStatement(parent) || this.ts.isPropertyDeclaration(parent) || this.ts.isExpressionStatement(parent));
-    fact.directives = this.directives(anchor || declaration).filter(text => /^dex:indexed-attribute(?:\s|$)/.test(text)).map(text => ({text}));
+    fact.directives = this.directiveLines(anchor || declaration,"indexed-attribute");
     fact.span = node.span;
     const index = this.resolvedValue(declaration.arguments?.[2],{}).node;
     if (!index || index.kind === this.ts.SyntaxKind.NullKeyword || (this.ts.isIdentifier(index) && index.text === "undefined")) return fact;
@@ -2596,7 +2804,27 @@ class TypeScriptAnalyzer {
     fact.indexType = {KEYWORD:"keyword",FULL_TEXT:"fulltext",KEYWORD_ARRAY:"keyword-array",INT:"int",DOUBLE:"double",BOOL:"bool",DATETIME:"datetime",keyword:"keyword",fullText:"fulltext",keywordArray:"keyword-array",int:"int",double:"double",bool:"bool",datetime:"datetime"}[indexTypeName] || "unknown";
     return fact;
   }
+
+  attributeValueType(text) {
+    const type = text.replace(/\s/g,"");
+    if (["string[]","readonlystring[]","Array<string>","ReadonlyArray<string>"].includes(type)) return "string-array";
+    if (type === "Uint8Array" || type.endsWith("[]") || /^(?:Readonly)?Array</.test(type)) return "array";
+    if (type.startsWith("{") || type.startsWith("Record<")) return "object";
+    return {string:"string",number:"double",bigint:"int64",boolean:"bool",Date:"datetime"}[type] || "json";
+  }
+
+  isImportedAttributeType(annotation) {
+    if (!annotation || !this.ts.isTypeReferenceNode(annotation)) return false;
+    let root = annotation.typeName;
+    while (this.ts.isQualifiedName(root)) root = root.left;
+    const scope = this.bindingScope(root);
+    const binding = scope && this.staticBinding(scope,root.text);
+    return !!binding && (this.ts.isImportSpecifier(binding) || this.ts.isImportClause(binding) ||
+      this.ts.isNamespaceImport(binding) || this.ts.isImportEqualsDeclaration(binding));
+  }
 }
+
+class StartInputExtractionError extends Error {}
 
 try {
   process.stdout.write(JSON.stringify(new TypeScriptAnalyzer(JSON.parse(fs.readFileSync(0,"utf8"))).analyze()));

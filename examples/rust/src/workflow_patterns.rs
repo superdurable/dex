@@ -31,7 +31,9 @@ pub mod triggers;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dex_sdk::{Client, HandlerError, HandlerResult, JoinRound, Registry, SdkResult, StepMovement};
+use dex_sdk::{
+    Client, HandlerError, HandlerResult, JoinRound, Registry, SdkResult, Step, StepMovement,
+};
 use serde::{Deserialize, Serialize};
 
 /// The time one task held a shared resource, in Unix epoch milliseconds.
@@ -118,6 +120,14 @@ pub(crate) fn sorted<T: Ord>(mut values: Vec<T>) -> Vec<T> {
 
 /// Builds one branch movement of a Join round.
 pub(crate) type JoinBranchBuilder = Box<dyn FnOnce(&JoinRound) -> StepMovement>;
+
+/// Returns a branch builder that starts `step` with the round as its input.
+pub(crate) fn round_branch<BranchStep>(step: BranchStep) -> JoinBranchBuilder
+where
+    BranchStep: Step<Input = JoinRound> + 'static,
+{
+    Box::new(move |round: &JoinRound| StepMovement::to(&step, round.clone()))
+}
 
 pub(crate) fn current_unix_millis() -> HandlerResult<i64> {
     let elapsed = SystemTime::now()

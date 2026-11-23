@@ -24,14 +24,7 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{JoinBranchBuilder, sorted};
-
-fn round_branch<BranchStep>(step: BranchStep) -> JoinBranchBuilder
-where
-    BranchStep: Step<Input = JoinRound> + 'static,
-{
-    Box::new(move |round: &JoinRound| StepMovement::to(&step, round.clone()))
-}
+use super::{round_branch, sorted};
 
 /// The notification branches a caller selects.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

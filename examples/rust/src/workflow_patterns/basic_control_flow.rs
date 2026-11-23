@@ -22,15 +22,7 @@ use dex_sdk::{
     StepDecision, StepList, StepMovement, Wait,
 };
 
-use super::{JoinBranchBuilder, extend_trail, sorted};
-
-/// Returns a branch builder that starts `step` with the round as its input.
-fn round_branch<BranchStep>(step: BranchStep) -> JoinBranchBuilder
-where
-    BranchStep: Step<Input = JoinRound> + 'static,
-{
-    Box::new(move |round: &JoinRound| StepMovement::to(&step, round.clone()))
-}
+use super::{extend_trail, round_branch, sorted};
 
 /// Claims at or above this amount need a manual review.
 pub const MANUAL_REVIEW_CLAIM_AMOUNT: i64 = 1000;

@@ -159,6 +159,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "LongWait",
+      "input": {
+        "kind": "boolean"
+      }
+    }
   }
 }

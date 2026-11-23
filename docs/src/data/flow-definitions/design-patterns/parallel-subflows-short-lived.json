@@ -559,7 +559,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step Init input cannot drive a form: type ParentInput cannot be resolved in this file",
+      "span": {
+        "startLine": 57,
+        "startColumn": 48,
+        "endLine": 57,
+        "endColumn": 59
+      }
+    }
+  ],
   "groups": [
     {
       "id": "requests",

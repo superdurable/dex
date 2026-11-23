@@ -25,8 +25,10 @@ type v2AttributeFact struct {
 	ResourceID string `json:"resourceId,omitempty"`
 	Key        string `json:"key"`
 	ValueType  string `json:"valueType"`
-	IsMap      bool   `json:"isMap"`
-	IsIndexed  bool   `json:"isIndexed,omitempty"`
+	// The index supplies the wire type when a script cannot resolve an imported value type.
+	ValueTypeUnresolved bool `json:"valueTypeUnresolved,omitempty"`
+	IsMap               bool `json:"isMap"`
+	IsIndexed           bool `json:"isIndexed,omitempty"`
 	// IndexKey and IndexType hold the final values after the analyzer applies SDK defaults.
 	IndexKey       string            `json:"indexKey,omitempty"`
 	IndexType      string            `json:"indexType,omitempty"`
@@ -59,6 +61,10 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 		case attribute.ValueType == "list[str]", attribute.ValueType == "string[]",
 			attribute.ValueType == "Array<string>", attribute.ValueType == "readonlystring[]":
 			attribute.ValueType = "string-array"
+		case attribute.ValueTypeUnresolved && attribute.IsIndexed:
+			if indexValueType := v2IndexValueType(attribute.IndexType); indexValueType != "" {
+				attribute.ValueType = indexValueType
+			}
 		}
 		declaration := v2AttributeDeclaration{v2AttributeFact: attribute}
 		if attribute.IsIndexed || len(attribute.DirectiveLines) > 0 {
@@ -72,7 +78,7 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 	}
 	graph.applyV2Views(analysis.ViewRPCs, attributes)
 	if analysis.StartInput != nil {
-		graph.V2.Start = graph.buildV2StartDefinition(*analysis.StartInput)
+		graph.V2.Start = graph.buildStartDefinition(*analysis.StartInput, "start_input_unresolved")
 	}
 }
 
@@ -94,7 +100,15 @@ func (graph *Graph) applyV2Views(facts []v2ViewRPCFact, attributes map[string]v2
 			graph.V2.Display = graph.buildV2View(fact, attributes, graph.V2.IndexedAttributes)
 		default:
 			graph.AddDiagnostic("error", "v2_view_rpc", fmt.Sprintf("unexpected view RPC protocol name %q", fact.ProtocolName), fact.Span)
+			continue
 		}
+		graph.validateV2ViewOutputReadable(fact)
+	}
+}
+
+func (graph *Graph) validateV2ViewOutputReadable(fact v2ViewRPCFact) {
+	if fact.OutputKeys == nil {
+		graph.AddDiagnostic("error", "v2_view_rpc_output", fmt.Sprintf("%s must return its declared fields from a map[string]any literal", fact.ProtocolName), fact.Span)
 	}
 }
 

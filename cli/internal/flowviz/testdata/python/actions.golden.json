@@ -180,6 +180,17 @@
   "diagnostics": [
     {
       "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step FinishStep input cannot drive a form: execute must declare an input annotation in this file",
+      "span": {
+        "startLine": 29,
+        "startColumn": 5,
+        "endLine": 30,
+        "endColumn": 32
+      }
+    },
+    {
+      "severity": "warning",
       "code": "unused_resource",
       "message": "attribute gate-request-key has no direct access in the source file",
       "span": {
