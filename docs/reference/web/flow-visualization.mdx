@@ -137,6 +137,8 @@ Ordinary business helpers and imported models are allowed. A helper must not hid
 
 Go resource access may also be in functions and methods of the same package that a handler calls. The analyzer follows those calls up to six levels deep, including calls inside loops and function literals. A resource passed as an argument is bound to the matching parameter, so access through that parameter counts for the resource.
 
+Python resource access counts only when it is written in the handler method itself. See [Python Waits, movements, and resource access](#python-waits-movements-and-resource-access).
+
 Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST. It runs the interpreter in isolated mode with automatic **site** initialization disabled, so **.pth** import lines and **sitecustomize** never run. It never imports or executes the application module.
 
 For Python, the analyzer recognizes Stream outputs yielded by synchronous Step generators and synchronously enqueued Stream writes in asynchronous Step handlers. Step Stream progress in an RPC or Flow timeout handler is invalid and produces a blocking diagnostic.
@@ -179,6 +181,31 @@ Version 2.0 builds an optional start-input schema from the Start Step's input ty
 In Python and TypeScript, annotate the Start Step's **execute** input using types defined in the same file. Python supports dataclasses, **TypedDict**, **Enum**, **Literal**, optional values, lists, string-key dictionaries, and **datetime**. TypeScript supports interfaces, type aliases, string-literal unions, optional properties, arrays, string-key **Record** types, and **Date**. An unresolved or unsupported input type produces a **start_input_unresolved** warning and leaves the rest of the graph valid.
 
 Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+
+### Python Waits, movements, and resource access {#python-waits-movements-and-resource-access}
+
+The Python analyzer reads Waits, Step movements, and resource access in each Step method, RPC, and `handle_timeout` body. For a complete graph, write them as follows:
+
+- Each `return` in `wait_for` returns a `Wait` call, such as `return Wait.until(APPROVALS.for_one())`. Conditions from `if`, `match`, and conditional expressions are supported.
+- Each `go_to_many` argument is a `StepMovement.of` call or a starred list comprehension or generator of them. It may also be a starred Join `fork` call, whose builders are lambdas or functions of the same file that return `StepMovement.of`. A starred local list also works when the same method builds it from `StepMovement.of` calls with a list literal, a comprehension, `append`, or `extend`.
+- Each Attribute, AttributeMap, Channel, and Stream call, such as `get`, `set`, `delete`, or `publish`, is written in the method body.
+- Each resource is defined in the Flow source file: as a module-level variable, a field of the Flow class, or a field that the Flow's `__init__` assigns. A Step can also hold a resource that the Flow passes to its constructor.
+
+Ordinary helpers can still compute values, such as the text that a `set` call writes.
+
+Other shapes give a partial graph:
+
+| Source shape | What the graph shows | What to change |
+| --- | --- | --- |
+| `wait_for` returns a helper result or a variable in every path | Blocking `hidden_dex_wait` error, "wait_for hides its Dex Wait in a helper". The Step has a Dynamic WaitFor node and no resource access from `wait_for`. | Return the `Wait` call directly. |
+| A `go_to_many` argument is a helper call or another expression, such as `*build_movements(step_input)` | Blocking `dynamic_step_target` error, "fan-out movements must be built directly in the handler". | Write the `StepMovement.of` calls in the method. |
+| `go_to_many(*movements)` uses a local list that a helper returned | The decision has no edge to the targets. A target that nothing else reaches gets the `unreachable_step` warning. | Build the list in the method. |
+| A resource call is in a helper, in the same file or another module | The handler has no read or write edge for it. A resource with no edge anywhere gets the `unused_resource` warning, such as "attribute Summary has no direct access in the source file". | Write the call in the method. |
+| A resource is defined in another module and imported | The graph has no node for the resource and no edges to it. A Wait condition on it is missing from the Wait. No diagnostic names it. | Move the definition into the Flow source file. |
+
+When some `wait_for` returns are `Wait` calls, the graph shows those Waits and leaves out the other returns without a diagnostic. A resource that one handler uses directly gets no warning for access that another handler makes through a helper. Blocking diagnostics make the graph invalid, as described in [Unknown nodes and diagnostics](#unknown-nodes-and-diagnostics).
+
+TypeScript follows same-file helpers in the shapes listed in [TypeScript Waits, RPCs, and resource access](#typescript-waits-rpcs-and-resource-access).
 
 ### Java source and directives
 
