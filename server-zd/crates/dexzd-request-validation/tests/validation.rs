@@ -1658,14 +1658,16 @@ fn history_window_events_must_be_unlimited_or_within_the_server_maximum() {
                 error.field_path.ends_with("history_window_events"),
                 "{path}: {error:?}"
             );
-            assert_eq!(
-                error.message,
+            let expected_message = if history_window_events < 0 {
+                format!("history_window_events must not be negative, got {history_window_events}")
+            } else {
                 format!(
-                    "history_window_events must be 0 for the whole history or between 1 and 500, \
-                     got {history_window_events}"
-                ),
-                "{path}"
-            );
+                    "a finite history_window_events must be at most 500, got \
+                     {history_window_events}; 0 or 2147483647 keeps the whole history under any \
+                     maximum"
+                )
+            };
+            assert_eq!(error.message, expected_message, "{path}");
             if path != "SubFlow" {
                 assert_eq!(error.category, ValidationCategory::InvalidArgument);
             }
@@ -1712,8 +1714,9 @@ fn the_default_maximum_accepts_windows_above_the_old_maximum() {
             assert_eq!(
                 error.message,
                 format!(
-                    "history_window_events must be 0 for the whole history or between 1 and \
-                     1000000000, got {history_window_events}"
+                    "a finite history_window_events must be at most 1000000000, got \
+                     {history_window_events}; 0 or 2147483647 keeps the whole history under any \
+                     maximum"
                 ),
                 "{path}"
             );

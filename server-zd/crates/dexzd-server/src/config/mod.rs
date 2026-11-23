@@ -118,12 +118,16 @@ impl Config {
         }
     }
 
-    /// Logs the effective retention, limits, drain timeout, metrics level, and embedded store
-    /// durability in one line.
+    /// Logs the effective retention, limits, history window, drain timeout, metrics level, and
+    /// embedded store durability in one line.
     pub(crate) fn log_effective_config(&self, has_embedded_object_store: bool) {
         let closed_flow_retention_seconds = self.retention.closed_flow_duration.as_secs_f64();
         let max_value_bytes = self.values.max_value_bytes;
         let max_flow_state_bytes = self.limits.max_flow_state_bytes;
+        // 0 means unlimited for both window settings.
+        let history_window_events = self.history.window_events;
+        let history_max_window_events = self.history.max_window_events;
+        let history_prune_chunk_size = self.history.prune_chunk_size;
         let attempt_drain_timeout_seconds = self.lifecycle.attempt_drain_timeout.as_secs_f64();
         let metrics_level = self.metrics.level.yaml_name();
         if has_embedded_object_store {
@@ -131,6 +135,9 @@ impl Config {
                 closed_flow_retention_seconds,
                 max_value_bytes,
                 max_flow_state_bytes,
+                history_window_events,
+                history_max_window_events,
+                history_prune_chunk_size,
                 attempt_drain_timeout_seconds,
                 metrics_level,
                 durability_mode = self.dev.durability_mode.yaml_name(),
@@ -141,6 +148,9 @@ impl Config {
                 closed_flow_retention_seconds,
                 max_value_bytes,
                 max_flow_state_bytes,
+                history_window_events,
+                history_max_window_events,
+                history_prune_chunk_size,
                 attempt_drain_timeout_seconds,
                 metrics_level,
                 "effective configuration"

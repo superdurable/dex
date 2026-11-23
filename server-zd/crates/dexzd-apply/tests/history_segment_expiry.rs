@@ -1394,6 +1394,80 @@ fn expiry_is_bounded_by_listed_values_and_a_later_command_finishes_it() {
     harness.assert_storage_recounts();
 }
 
+/// Shrinking an unlimited window prunes from the next command that records events, converges over
+/// later commands, and expires only uploaded segments that pruning passed.
+#[test]
+fn shrinking_an_unlimited_window_prunes_from_the_next_event_and_expires_only_passed_segments() {
+    let mut harness = Harness::offloading(
+        settings(true),
+        FlowConfig {
+            history_window_events: Some(i32::MAX),
+            ..FlowConfig::default()
+        },
+    );
+    // More metadata rows than one pruning command scans: 16 pages of 128.
+    for index in 0..2200 {
+        harness.set_attribute("status", format!("v{index}"));
+        if index % 100 == 0 {
+            harness.ack_all();
+        }
+    }
+    harness.ack_all();
+    let before = harness.run_record();
+    assert_eq!(before.pruned_window_event_count, 0);
+    assert!(before.window_event_count > Some(2200));
+    assert!(harness.expired_segments().is_empty());
+
+    harness.update_flow_config(FlowConfig {
+        history_window_events: Some(6),
+        ..FlowConfig::default()
+    });
+    assert_eq!(
+        harness.run_record().window_start_seq,
+        before.window_start_seq,
+        "an update records no event, so pruning waits"
+    );
+    let in_window = |record: &RunRecord| {
+        record.window_event_count.expect("the run counts events") - record.pruned_window_event_count
+    };
+    harness.set_attribute("status", "shrunk".to_owned());
+    let first = harness.run_record();
+    assert!(
+        first.window_start_seq > before.window_start_seq,
+        "the next event starts pruning"
+    );
+    assert!(
+        in_window(&first) > 7,
+        "one command scans a bounded number of rows: {}",
+        in_window(&first)
+    );
+
+    // A window of 6 prunes one event at a time once it holds more than 7.
+    harness.write_until("the window converges", |harness| {
+        in_window(&harness.run_record()) <= 7
+    });
+    harness.write_until("passed segments expire", |harness| {
+        !harness.expired_segments().is_empty()
+    });
+    let record = harness.run_record();
+    assert!(record.history_window_pruned_through_seq < record.window_start_seq);
+    for segment in harness.segments() {
+        if segment.state == HistorySegmentState::Expired as i32 {
+            assert!(
+                segment.last_seq <= record.history_window_pruned_through_seq,
+                "{segment:?} expired before pruning passed it"
+            );
+        }
+        if segment.last_seq >= record.window_start_seq {
+            assert_ne!(
+                segment.state,
+                HistorySegmentState::Expired as i32,
+                "{segment:?} is in the window"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_purge_removes_the_delete_pending_index_row() {
     let mut harness = Harness::offloading(settings(true), FlowConfig::default());

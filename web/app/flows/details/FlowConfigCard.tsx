@@ -18,7 +18,7 @@ const CHANGE_NOT_CLEAR = 'Once set, it can be changed but not cleared.';
 /** What each field does for the run, then whether it can change; from FlowConfig in protos/dex.proto. */
 export const flowConfigFieldHints = {
   historyWindowEvents: 'About how many of the newest history events this run keeps for history reads and Time Travel. '
-    + `Older events are pruned. 0 keeps the whole history. ${CHANGE_NOT_CLEAR}`,
+    + `Older events are pruned. On server-zd 0.1.38 and later, 0 turns off pruning by event count. ${CHANGE_NOT_CLEAR}`,
   stepDurability: 'The durability of Step methods that set none of their own. '
     + 'Sync waits for each result to commit before the run moves on; Async moves on first. '
     + `A change applies to method calls scheduled after it. ${CHANGE_NOT_CLEAR}`,
@@ -31,8 +31,6 @@ export const flowConfigFieldHints = {
 } as const;
 const SERVER_DEFAULT = 'Server default';
 const WHOLE_HISTORY = 'Whole history';
-/** The server's history.windowEvents default, from FlowConfig.history_window_events in protos/dex.proto. */
-const BUILT_IN_DEFAULT_WINDOW_EVENTS = 10_000;
 
 export interface HistorySettings {
   historyWindowEvents: number | undefined;
@@ -56,20 +54,29 @@ export interface FlowConfigChange {
 
 export type HistorySettingsUpdate = { update: FlowConfigChange } | { error: string };
 
-/** Returns only changed fields; every sent field pins an override that cannot be cleared. */
+/**
+ * Returns only changed fields; every sent field pins an override that cannot be cleared.
+ * A server without unlimited windows accepts only positive windows.
+ */
 export function buildHistorySettingsUpdate(
   current: HistorySettings,
   windowText: string,
+  supportsUnlimitedWindow = true,
 ): HistorySettingsUpdate {
   const update: FlowConfigChange = {};
   const trimmedWindow = windowText.trim();
   if (trimmedWindow !== '') {
     const windowEvents = /^\d+$/.test(trimmedWindow) ? Number(trimmedWindow) : Number.NaN;
-    if (!Number.isSafeInteger(windowEvents) || windowEvents > maxInt32) {
-      return { error: 'Enter a whole number of events, or 0 for the whole history.' };
+    const minimumWindowEvents = supportsUnlimitedWindow ? 0 : 1;
+    if (!Number.isSafeInteger(windowEvents) || windowEvents < minimumWindowEvents || windowEvents > maxInt32) {
+      return {
+        error: supportsUnlimitedWindow
+          ? 'Enter a whole number of events, or 0 for the whole history.'
+          : 'Enter a positive whole number of events.',
+      };
     }
     const isUnchanged = windowEvents === current.historyWindowEvents
-      || (isUnlimitedWindow(windowEvents) && isUnlimitedWindow(current.historyWindowEvents));
+      || (supportsUnlimitedWindow && isUnlimitedWindow(windowEvents) && isUnlimitedWindow(current.historyWindowEvents));
     if (!isUnchanged) update.historyWindowEvents = windowEvents;
   }
   return { update };
@@ -91,9 +98,11 @@ function enumLabels(field: 'stepDurability' | 'activeStepSearchMode'): Record<nu
   return field === 'stepDurability' ? stepDurabilityLabels : activeStepSearchModeLabels;
 }
 
-function windowLabel(windowEvents: number | undefined): string {
+function windowLabel(windowEvents: number | undefined, supportsUnlimitedWindow: boolean): string {
   if (windowEvents === undefined) return SERVER_DEFAULT;
-  return isUnlimitedWindow(windowEvents) ? WHOLE_HISTORY : `Last ${windowEvents.toLocaleString()} events`;
+  return supportsUnlimitedWindow && isUnlimitedWindow(windowEvents)
+    ? WHOLE_HISTORY
+    : `Last ${windowEvents.toLocaleString()} events`;
 }
 
 /** Reads an enum field; protojson omits an unset field, and 0 is the unspecified value. */
@@ -146,6 +155,7 @@ export function FlowConfigCard({
   loadError,
   onRetryLoad,
   onSaved,
+  supportsUnlimitedWindow = true,
 }: {
   summary: FlowSummary;
   /** The run's flowConfig, or undefined while it is not loaded. */
@@ -155,6 +165,8 @@ export function FlowConfigCard({
   onRetryLoad?: () => void;
   /** Receives the changed fields and the run they were saved to. */
   onSaved?: (saved: FlowConfigChange, savedRun: FlowSummary) => Promise<void>;
+  /** Whether the server treats a window of 0 as unlimited; false for a server known to be older. */
+  supportsUnlimitedWindow?: boolean;
 }) {
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState('');
@@ -191,6 +203,7 @@ export function FlowConfigCard({
   }
 
   const windowEvents = historySettingsFromFlowConfig(flowConfig).historyWindowEvents;
+  const isCurrentWindowUnlimited = supportsUnlimitedWindow && isUnlimitedWindow(windowEvents);
   const stepDurability = enumValue(flowConfig, 'stepDurability');
   const activeStepSearchMode = enumValue(flowConfig, 'activeStepSearchMode');
   const attributeStoreNames = attributeStoreNamesOf(flowConfig);
@@ -204,7 +217,7 @@ export function FlowConfigCard({
   const startEditing = (field: EditableField) => {
     // Each editor opens on the current value; an unset field opens with nothing chosen.
     const initialDrafts: Record<EditableField, string> = {
-      historyWindowEvents: windowEvents === undefined ? '' : String(isUnlimitedWindow(windowEvents) ? 0 : windowEvents),
+      historyWindowEvents: windowEvents === undefined ? '' : String(isCurrentWindowUnlimited ? 0 : windowEvents),
       stepDurability: stepDurability === undefined ? '' : String(stepDurability),
       activeStepSearchMode: activeStepSearchMode === undefined ? '' : String(activeStepSearchMode),
       attributeStoreNames: attributeStoreNames?.join(', ') ?? '',
@@ -219,7 +232,7 @@ export function FlowConfigCard({
   const pendingChange = (field: EditableField): FlowConfigChange | null | { error: string } => {
     if (field === 'historyWindowEvents') {
       if (draft.trim() === '') return null;
-      const result = buildHistorySettingsUpdate({ historyWindowEvents: windowEvents }, draft);
+      const result = buildHistorySettingsUpdate({ historyWindowEvents: windowEvents }, draft, supportsUnlimitedWindow);
       if ('error' in result) return result;
       return result.update.historyWindowEvents === undefined ? null : result.update;
     }
@@ -277,10 +290,19 @@ export function FlowConfigCard({
     const invalid = change !== null && 'error' in change ? change.error : '';
     const canSave = canEdit && !saving && change !== null && !invalid;
     const draftWindow = Number(draft.trim());
-    // An unset window uses the server default, which is 10,000 events unless the server sets another.
-    const isShrinkingWindow = field === 'historyWindowEvents' && canSave && Number.isFinite(draftWindow)
-      && !isUnlimitedWindow(draftWindow)
-      && (isUnlimitedWindow(windowEvents) || draftWindow < (windowEvents ?? BUILT_IN_DEFAULT_WINDOW_EVENTS));
+    const isFiniteDraft = field === 'historyWindowEvents' && canSave && Number.isFinite(draftWindow)
+      && !(supportsUnlimitedWindow && isUnlimitedWindow(draftWindow));
+    // The server default is not visible here, so any finite window may prune a run that uses it.
+    const windowWarning = !isFiniteDraft ? undefined
+      : windowEvents === undefined
+        ? 'This run uses the server default window, so a finite window may delete older events for good. '
+          + 'Pruning runs after the next event.'
+        : isCurrentWindowUnlimited
+          ? 'This window is smaller than the whole history, so older events may be deleted for good. '
+            + 'Pruning runs after the next event.'
+          : draftWindow < windowEvents
+            ? `This window is smaller than ${windowEvents.toLocaleString()} events, so older events are deleted for good.`
+            : undefined;
     return (
       <div className="history-settings-form flow-config-editor">
         {field === 'historyWindowEvents' && (
@@ -334,18 +356,14 @@ export function FlowConfigCard({
           </>
         )}
         <div className="flow-config-editor-notes" id={hintId}>
-          {field === 'historyWindowEvents' && <p className="overview-note">Number of events, or 0 for the whole history.</p>}
-          {field === 'attributeStoreNames' && <p className="overview-note">Comma-separated store names.</p>}
-          {invalid && <p className="flow-config-invalid">{invalid}</p>}
-          {isShrinkingWindow && (
-            <p className="flow-config-warning">
-              {windowEvents === undefined
-                ? `This window is smaller than the built-in server default of ${BUILT_IN_DEFAULT_WINDOW_EVENTS.toLocaleString()} events, so older events may be deleted for good.`
-                : isUnlimitedWindow(windowEvents)
-                  ? 'This window is smaller than the whole history, so older events are deleted for good.'
-                  : `This window is smaller than ${windowEvents.toLocaleString()} events, so older events are deleted for good.`}
+          {field === 'historyWindowEvents' && (
+            <p className="overview-note">
+              {supportsUnlimitedWindow ? 'Number of events, or 0 for the whole history.' : 'Number of events.'}
             </p>
           )}
+          {field === 'attributeStoreNames' && <p className="overview-note">Comma-separated store names.</p>}
+          {invalid && <p className="flow-config-invalid">{invalid}</p>}
+          {windowWarning && <p className="flow-config-warning">{windowWarning}</p>}
           {field === 'attributeStoreNames' && isTurningSyncOff && (
             <p className="flow-config-warning">This run&apos;s Attributes stop syncing to any store.</p>
           )}
@@ -398,7 +416,7 @@ export function FlowConfigCard({
     <section className="overview-section history-settings-card">
       <header className="overview-section-head"><h2>Configuration</h2></header>
       <dl className="definition-list flow-config-list">
-        {row('historyWindowEvents', windowLabel(windowEvents), flowConfigFieldHints.historyWindowEvents)}
+        {row('historyWindowEvents', windowLabel(windowEvents, supportsUnlimitedWindow), flowConfigFieldHints.historyWindowEvents)}
         {row(
           'stepDurability',
           stepDurability ? stepDurabilityLabels[stepDurability] ?? String(stepDurability) : SERVER_DEFAULT,

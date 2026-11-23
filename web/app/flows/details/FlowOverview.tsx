@@ -6,9 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send } from 'lucide-react';
 import { flowErrorTypeLabel } from '@/lib/semantic';
+import { fetchServerInfoDisplay, supportsUnlimitedHistoryWindow } from '@/lib/serverInfo';
 import type { ActiveStepExecution, FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
@@ -20,6 +21,19 @@ import { AttributeRows, ChannelRows, pendingChannelGroups, RawStateJSON, Section
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
+
+/** Whether the server treats a history window of 0 as unlimited; true until it is known otherwise. */
+function useUnlimitedHistoryWindowSupport(): boolean {
+  const [isSupported, setIsSupported] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchServerInfoDisplay(controller.signal).then((info) => {
+      if (!controller.signal.aborted) setIsSupported(supportsUnlimitedHistoryWindow(info));
+    });
+    return () => controller.abort();
+  }, []);
+  return isSupported;
+}
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
@@ -114,6 +128,7 @@ export function FlowOverview({
   const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const supportsUnlimitedWindow = useUnlimitedHistoryWindowSupport();
   const attributesExpand = useSectionExpand('overview:expand:attributes');
   const channelsExpand = useSectionExpand('overview:expand:channels');
   const routing = flowRoutingData(state, events);
@@ -287,6 +302,7 @@ export function FlowOverview({
           loadError={state ? undefined : closedFlowConfigError}
           onRetryLoad={onRetryClosedFlowConfig}
           onSaved={onHistorySettingsSaved}
+          supportsUnlimitedWindow={supportsUnlimitedWindow}
         />
 
         <OverviewSection title="Identity">

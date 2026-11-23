@@ -355,6 +355,15 @@ describe('history settings update', () => {
     expect(buildHistorySettingsUpdate(unlimited, '2147483647')).toEqual({ update: {} });
     expect(buildHistorySettingsUpdate(unlimited, '600')).toEqual({ update: { historyWindowEvents: 600 } });
   });
+
+  it('accepts only positive windows for a server without unlimited windows', () => {
+    expect(buildHistorySettingsUpdate(current, '0', false)).toEqual({
+      error: 'Enter a positive whole number of events.',
+    });
+    const largest = { historyWindowEvents: 2147483647 };
+    expect(buildHistorySettingsUpdate(largest, '2147483647', false)).toEqual({ update: {} });
+    expect(buildHistorySettingsUpdate(largest, '600', false)).toEqual({ update: { historyWindowEvents: 600 } });
+  });
 });
 
 describe('unlimited history window', () => {
@@ -367,7 +376,44 @@ describe('unlimited history window', () => {
     expect(windowInput.value).toBe('0');
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(windowInput, { target: { value: '600' } });
-    expect(screen.getByText('This window is smaller than the whole history, so older events are deleted for good.'))
-      .toBeTruthy();
+    expect(screen.getByText(
+      'This window is smaller than the whole history, so older events may be deleted for good. '
+        + 'Pruning runs after the next event.',
+    )).toBeTruthy();
+  });
+
+  it('warns that a finite window may prune a run on the server default window', () => {
+    render(<FlowConfigCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const windowInput = screen.getByLabelText('Retention window');
+    const warning = 'This run uses the server default window, so a finite window may delete older events for good. '
+      + 'Pruning runs after the next event.';
+    for (const value of ['20000', '90000']) {
+      fireEvent.change(windowInput, { target: { value } });
+      expect(screen.getByText(warning)).toBeTruthy();
+    }
+    fireEvent.change(windowInput, { target: { value: '0' } });
+    expect(screen.queryByText(/deleted for good/)).toBeNull();
+  });
+
+  it('keeps the numeric window and positive input for a server without unlimited windows', () => {
+    render(
+      <FlowConfigCard
+        summary={runningSummary}
+        flowConfig={{ historyWindowEvents: 2147483647 }}
+        onSaved={vi.fn()}
+        supportsUnlimitedWindow={false}
+      />,
+    );
+    expect(screen.getByText('Last 2,147,483,647 events')).toBeTruthy();
+    expect(screen.queryByText('Whole history')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Retention window' }));
+    const windowInput = screen.getByLabelText('Retention window') as HTMLInputElement;
+    expect(windowInput.value).toBe('2147483647');
+    expect(screen.getByText('Number of events.')).toBeTruthy();
+    fireEvent.change(windowInput, { target: { value: '0' } });
+    expect(screen.getByText('Enter a positive whole number of events.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

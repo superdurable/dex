@@ -13,9 +13,11 @@ mod prune_cursors;
 
 use std::collections::BTreeMap;
 
-use dexzd_apply::read_model::{get_history_events, is_history_event_available, load_blobs};
+use dexzd_apply::read_model::{
+    get_flow_state, get_history_events, is_history_event_available, load_blobs,
+};
 use dexzd_apply::{
-    ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
+    ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_time_travel_for_test,
 };
@@ -162,9 +164,22 @@ impl Harness {
     }
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
+        let command = self.flow_command(body);
+        self.apply_command(command)
+    }
+
+    /// Applies `body` and commits its writes only when it applies.
+    fn try_apply(&mut self, body: Command) -> Result<ApplyOutcome, ApplyError> {
+        let command = self.flow_command(body);
+        let outcome = apply_flow_command(&self.context, &self.state, &command)?;
+        self.state.commit(&outcome);
+        Ok(outcome)
+    }
+
+    fn flow_command(&mut self, body: Command) -> FlowCommand {
         self.now_micros += SECOND;
         let is_start = matches!(body, Command::FlowStart(_));
-        let command = FlowCommand {
+        FlowCommand {
             flow_id: FLOW_ID.to_owned(),
             run_id: if is_start {
                 Vec::new()
@@ -177,8 +192,7 @@ impl Harness {
             tenant_id: 0,
             command: Some(body),
             ..FlowCommand::default()
-        };
-        self.apply_command(command)
+        }
     }
 
     /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
@@ -212,9 +226,16 @@ impl Harness {
     }
 
     fn set_attribute_text(&mut self, padding: String) {
+        let command = self.attributes_set_command(&padding);
+        let outcome = self.apply(command);
+        assert!(is_ok(&outcome.reply), "SetAttributes applies");
+    }
+
+    /// Returns a write of one small Attribute with a new request ID.
+    fn attributes_set_command(&mut self, padding: &str) -> Command {
         self.next_request += 1;
         let request_id = format!("set-{}", self.next_request);
-        let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
+        Command::AttributesSet(AttributesSetCommand {
             request: Some(SetAttributesRequest {
                 attributes: vec![AttributeWrite {
                     key: "status".to_owned(),
@@ -226,8 +247,7 @@ impl Harness {
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: request_id.into_bytes(),
-        }));
-        assert!(is_ok(&outcome.reply), "SetAttributes applies");
+        })
     }
 
     /// Starts and fails the WaitFor attempt, then fires its retry timer.
@@ -303,6 +323,13 @@ impl Harness {
             .get(&(ColumnFamily::Flow, key))
             .expect("the run record exists");
         RunRecord::decode(bytes.as_slice()).expect("the run record decodes")
+    }
+
+    /// Sets the run's event count as if many events had been recorded and none pruned.
+    fn seed_window_event_count(&mut self, window_event_count: u64) {
+        let mut record = self.run_record();
+        record.window_event_count = Some(window_event_count);
+        self.put_run_record(&record);
     }
 
     fn put_run_record(&mut self, record: &RunRecord) {
@@ -695,6 +722,72 @@ fn an_unlimited_window_keeps_the_events_that_a_finite_window_prunes() {
         };
         assert_eq!(traveled.run_attempt, 2);
     }
+}
+
+#[test]
+fn the_recorded_unlimited_window_never_prunes_where_the_same_finite_window_does() {
+    // 2147483647 as a finite RunSettings window prunes past N + M, M = min(1000, N / 10).
+    let window_events = u32::try_from(i32::MAX).expect("i32::MAX fits u32");
+    let threshold = u64::from(window_events) + 1000;
+    let mut unlimited = Harness::start(settings(window_events, 1000), window_config(i32::MAX));
+    let mut finite = Harness::start(settings(window_events, 1000), worker_target_config());
+    for harness in [&mut unlimited, &mut finite] {
+        for _ in 0..5 {
+            harness.set_attribute();
+        }
+        harness.seed_window_event_count(threshold - 1);
+        harness.set_attribute();
+        let record = harness.run_record();
+        assert_eq!(record.window_event_count, Some(threshold));
+        assert_eq!(record.pruned_semantic_event_count, 0, "N + M events stay");
+    }
+    let unlimited_start = unlimited.run_record().window_start_seq;
+    let finite_start = finite.run_record().window_start_seq;
+    unlimited.set_attribute();
+    finite.set_attribute();
+    let unlimited_record = unlimited.run_record();
+    let finite_record = finite.run_record();
+    assert_eq!(unlimited_record.window_event_count, Some(threshold + 1));
+    assert_eq!(finite_record.window_event_count, Some(threshold + 1));
+    assert_eq!(unlimited_record.pruned_semantic_event_count, 0);
+    assert_eq!(unlimited_record.window_start_seq, unlimited_start);
+    assert!(finite_record.pruned_semantic_event_count > 0);
+    assert!(finite_record.window_start_seq > finite_start);
+}
+
+#[test]
+fn a_recorded_zero_window_override_fails_the_next_command_that_records_events() {
+    // The engine never records 0; this locks what apply does if a run held one.
+    let mut harness = Harness::start(settings(20, 2), window_config(20));
+    harness.set_attribute();
+    let mut record = harness.run_record();
+    record
+        .flow_config
+        .as_mut()
+        .expect("the run has a config")
+        .history_window_events = Some(0);
+    harness.put_run_record(&record);
+    // A bookkeeping command records no event, so it applies and keeps the zero.
+    harness.update_flow_config(FlowConfig {
+        step_durability: Some(StepDurability::Async as i32),
+        ..FlowConfig::default()
+    });
+    let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run_id)
+        .expect("the state reads");
+    assert_eq!(
+        state
+            .flow_config
+            .and_then(|config| config.history_window_events),
+        Some(0)
+    );
+    let write = harness.attributes_set_command("");
+    let error = harness
+        .try_apply(write)
+        .expect_err("pruning rejects a recorded zero");
+    assert!(
+        matches!(error, ApplyError::InvariantViolation { .. }),
+        "{error:?}"
+    );
 }
 
 #[test]

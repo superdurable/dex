@@ -1416,6 +1416,8 @@ interface HistorySettingsDex {
   configUpdates: unknown[];
   /** Fields that replace the summary's, such as a closed status. */
   summaryOverride: Partial<FlowSummary>;
+  /** The server info reply; null fails the read. */
+  serverInfo: Record<string, unknown> | null;
 }
 
 function historySettingsDex(): HistorySettingsDex {
@@ -1429,6 +1431,7 @@ function historySettingsDex(): HistorySettingsDex {
     heldBlobLoads: [],
     configUpdates: [],
     summaryOverride: {},
+    serverInfo: null,
   };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
   const stateResponse = (reply: StateReply) => {
@@ -1464,6 +1467,7 @@ function historySettingsDex(): HistorySettingsDex {
     if (url.pathname === '/api/flows/history') return json(lineagePage(firstAttemptLineage, url.searchParams));
     if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '3' });
     if (url.pathname === '/api/flows/wait') return new Promise<Response>(() => {});
+    if (url.pathname === '/api/server-info' && dex.serverInfo !== null) return json(dex.serverInfo);
     throw new Error(`unexpected request ${input}`);
   }));
   return dex;
@@ -1495,6 +1499,18 @@ function settleStateLoads() {
 }
 
 describe('history settings on the run page', () => {
+  it.each([
+    ['0.1.38', 'Whole history'],
+    ['0.1.37', 'Last 2,147,483,647 events'],
+  ])('shows the window 2147483647 on server-zd %s as %s', async (serverVersion, label) => {
+    const dex = historySettingsDex();
+    dex.immediateStateReply = { historyWindowEvents: 2147483647 };
+    dex.serverInfo = { serverEngine: 'zd', serverVersion, currentProtocolVersion: 7 };
+    renderRun();
+    const card = (await screen.findByRole('heading', { name: 'Configuration' })).closest('section')!;
+    expect(await within(card).findByText(label)).toBeTruthy();
+  });
+
   it('shows a closed run\'s config read failure in the Configuration card and retries it', async () => {
     const dex = historySettingsDex();
     dex.summaryOverride = { flowStatus: 'Completed', flowStatusCode: 2, closeTime: '2026-10-24T18:00:00Z' };

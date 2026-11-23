@@ -477,16 +477,25 @@ override, or change it later with **UpdateFlowConfig**. A smaller window takes
 effect at the next pruning. A larger window keeps more of the events recorded
 after the change; pruned events never come back. Once set, the window can be
 changed but not cleared. A child Flow inherits its parent's window unless its
-own override sets one. A value of 0 makes the window unlimited: the server
-never prunes that Flow run. Any Flow run may set 0, whatever
-**history.maxWindowEvents** is. The server records 0 as 2147483647, so
-**GetFlowState** and the FlowStarted history event report 2147483647, which
-also means unlimited. Other values must be positive and at most
-**history.maxWindowEvents**, unless that setting is 0. StartFlow and
-UpdateFlowConfig reject other values with INVALID_ARGUMENT. A Step result that
-starts a SubFlow with such an override is an invalid Worker response: the Step
-attempt fails and is retried under the Step's retry policy. Changed in 0.1.38:
-values had to be positive.
+own override sets one.
+
+A value of 0 makes the window unlimited. It turns off pruning by event count
+and keeps the history from the current window start on. Any Flow run may set
+0, whatever **history.maxWindowEvents** is. The server records 0 as
+2147483647, which also means unlimited and may be sent back. **GetFlowState**
+reports the run's current value. The FlowStarted history event shows the value
+only when the run set it at start. An unlimited window has these limits:
+
+- History that a finite window already pruned does not come back. History
+  objects that pruning already passed may still be deleted.
+- A Flow run that started before 0.1.23 without history offload is still
+  pruned by the byte limit it recorded. See [History offload](#history-offload).
+
+Finite values must be positive and at most **history.maxWindowEvents**, unless
+that setting is 0. StartFlow, UpdateFlowConfig, and CloneForkFlow reject other
+values with INVALID_ARGUMENT. A Step result that starts a SubFlow with such an
+override is an invalid Worker response: the Step attempt fails and is retried
+under the Step's retry policy. Changed in 0.1.38: values had to be positive.
 
 A larger window costs storage in proportion to the events it covers. With
 [history offload](#history-offload), local disk keeps a small metadata row for
@@ -518,7 +527,7 @@ removed or is on another page.
 | --- | --- | --- |
 | **history.windowEvents** | 50000 for **serve**; 5000 for **dev** and **local** | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. 0 makes the window of such runs unlimited. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. Changed in 0.1.23: the default was 10000 in every command. Runs that started earlier keep the size they recorded. Changed in 0.1.38: it had to be positive. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**, unless **windowEvents** is 0. Changed in 0.1.21: the unit was semantic commands. |
-| **history.maxWindowEvents** | 1000000000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents** or an unlimited window of 0. 0 sets no limit. Changing it affects later requests only. Since 0.1.21. Changed in 0.1.38: the default was 100000, and it had to be positive. |
+| **history.maxWindowEvents** | 1000000000 | Largest finite window that a run's **history_window_events** may set. StartFlow, UpdateFlowConfig, and CloneForkFlow with a larger finite value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger finite value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents** or an unlimited window, which a run sets with 0 and reads back as 2147483647. 0 sets no limit. Changing it affects later requests only. Since 0.1.21. Changed in 0.1.38: the default was 100000, and it had to be positive. |
 
 Each Flow run records **windowEvents** and **pruneChunkSize** when it starts. A
 new value applies only to Flow runs that start after the node restarts with it.

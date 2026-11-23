@@ -12,8 +12,7 @@ use crate::dex::{FlowConfig, WaitingCondition};
 
 /// The `history_window_events` that commands and runs record for an unlimited window.
 ///
-/// Servers before 0.1.38 read it as a window larger than any run; a recorded 0 would fail their
-/// apply.
+/// Older appliers require a positive override and treat this value as finite.
 pub const RECORDED_UNLIMITED_HISTORY_WINDOW_EVENTS: i32 = i32::MAX;
 
 /// Returns whether `window_events` keeps the whole history: 0 in a request, or its recorded value.
@@ -37,71 +36,5 @@ pub fn record_unlimited_sub_flow_history_windows(waiting: &mut WaitingCondition)
         .filter_map(|options| options.flow_config_override.as_mut())
     {
         record_unlimited_history_window(flow_config);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::dex::{SubFlowCondition, SubFlowOptions};
-
-    use super::*;
-
-    fn window_config(window_events: Option<i32>) -> FlowConfig {
-        FlowConfig {
-            history_window_events: window_events,
-            ..FlowConfig::default()
-        }
-    }
-
-    #[test]
-    fn only_zero_becomes_the_recorded_unlimited_window() {
-        for (requested, recorded) in [
-            (None, None),
-            (Some(0), Some(i32::MAX)),
-            (Some(1), Some(1)),
-            (Some(250), Some(250)),
-            (Some(i32::MAX), Some(i32::MAX)),
-        ] {
-            let mut flow_config = window_config(requested);
-            record_unlimited_history_window(&mut flow_config);
-            assert_eq!(flow_config.history_window_events, recorded, "{requested:?}");
-        }
-        assert!(is_unlimited_history_window_events(0));
-        assert!(is_unlimited_history_window_events(i32::MAX));
-        assert!(!is_unlimited_history_window_events(1));
-        assert!(!is_unlimited_history_window_events(-1));
-    }
-
-    #[test]
-    fn every_sub_flow_override_records_the_unlimited_window() {
-        let condition = |flow_config_override| SubFlowCondition {
-            options: Some(SubFlowOptions {
-                flow_config_override,
-                ..SubFlowOptions::default()
-            }),
-            ..SubFlowCondition::default()
-        };
-        let mut waiting = WaitingCondition {
-            sub_flow_conditions: vec![
-                condition(Some(window_config(Some(0)))),
-                condition(Some(window_config(Some(30)))),
-                condition(None),
-                SubFlowCondition::default(),
-            ],
-            ..WaitingCondition::default()
-        };
-        record_unlimited_sub_flow_history_windows(&mut waiting);
-        let recorded: Vec<_> = waiting
-            .sub_flow_conditions
-            .iter()
-            .map(|condition| {
-                condition
-                    .options
-                    .as_ref()
-                    .and_then(|options| options.flow_config_override.as_ref())
-                    .and_then(|flow_config| flow_config.history_window_events)
-            })
-            .collect();
-        assert_eq!(recorded, [Some(i32::MAX), Some(30), None, None]);
     }
 }

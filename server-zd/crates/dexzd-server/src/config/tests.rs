@@ -823,6 +823,27 @@ fn zero_history_windows_mean_unlimited_and_reach_run_settings_and_validation() {
 }
 
 #[test]
+fn the_effective_configuration_log_reports_the_resolved_history_window_settings() {
+    let mut configuration = valid_config();
+    configuration.history.window_events = 0;
+    configuration.history.max_window_events = 0;
+    configuration.history.prune_chunk_size = 700;
+    for has_embedded_object_store in [false, true] {
+        let log = captured_log(|| configuration.log_effective_config(has_embedded_object_store));
+        assert!(log.contains("effective configuration"), "{log}");
+        assert!(log.contains("history_window_events=0"), "{log}");
+        assert!(log.contains("history_max_window_events=0"), "{log}");
+        assert!(log.contains("history_prune_chunk_size=700"), "{log}");
+    }
+    let log = captured_log(|| valid_config().log_effective_config(false));
+    assert!(log.contains("history_window_events=50000"), "{log}");
+    assert!(
+        log.contains("history_max_window_events=1000000000"),
+        "{log}"
+    );
+}
+
+#[test]
 fn the_deprecated_window_key_applies_and_logs_a_startup_warning() {
     let parsed = Config::parse_yaml("history:\n  windowSemanticEvents: 2000\n")
         .expect("the deprecated window key still parses");
@@ -876,15 +897,18 @@ fn the_window_key_set_under_both_names_or_null_is_rejected() {
 
 /// Returns what the deprecated-key startup check logs for `configuration`.
 fn captured_warnings(configuration: &Config) -> String {
+    captured_log(|| configuration.warn_about_deprecated_keys())
+}
+
+/// Returns what `log_lines` logs.
+fn captured_log(log_lines: impl FnOnce()) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let writer_buffer = buffer.clone();
     let subscriber = tracing_subscriber::fmt()
         .with_ansi(false)
         .with_writer(move || CapturedLog(writer_buffer.clone()))
         .finish();
-    tracing::subscriber::with_default(subscriber, || {
-        configuration.warn_about_deprecated_keys();
-    });
+    tracing::subscriber::with_default(subscriber, log_lines);
     let bytes = buffer
         .lock()
         .expect("the log buffer lock is not poisoned")

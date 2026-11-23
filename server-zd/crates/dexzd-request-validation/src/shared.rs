@@ -630,7 +630,7 @@ pub(crate) fn validate_flow_config(
     Ok(())
 }
 
-/// Accepts an unlimited window under any maximum, and a positive window up to a nonzero one.
+/// Accepts an unlimited window under any maximum; a nonzero maximum limits only finite windows.
 fn validate_history_window_events(
     path: &str,
     window_events: i32,
@@ -644,12 +644,12 @@ fn validate_history_window_events(
     if is_within_max {
         return Ok(());
     }
-    let message = if max_window_events == 0 {
+    let message = if window_events < 0 {
         format!("history_window_events must not be negative, got {window_events}")
     } else {
         format!(
-            "history_window_events must be 0 for the whole history or between 1 and \
-             {max_window_events}, got {window_events}"
+            "a finite history_window_events must be at most {max_window_events}, got \
+             {window_events}; 0 or 2147483647 keeps the whole history under any maximum"
         )
     };
     Err(invalid(format!("{path}.history_window_events"), message))

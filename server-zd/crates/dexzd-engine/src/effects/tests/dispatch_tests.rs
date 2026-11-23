@@ -640,9 +640,9 @@ async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invali
     );
     assert!(!failures[0].1, "the Step's retry policy decides the retry");
     assert!(
-        failures[0].2.contains(
-            "history_window_events must be 0 for the whole history or between 1 and 1000000000"
-        ),
+        failures[0]
+            .2
+            .contains("a finite history_window_events must be at most 1000000000"),
         "{}",
         failures[0].2
     );
@@ -661,22 +661,29 @@ async fn an_unlimited_sub_flow_window_is_proposed_as_its_recorded_value() {
     harness.rebuild_all_partitions().await;
     harness.start_flow(start_request("order-1"), settings());
     let dispatch = harness.dispatcher.next_dispatch().await;
+    let condition = |sub_flow_index: i32, history_window_events: Option<i32>| SubFlowCondition {
+        condition_id: format!("child-{sub_flow_index}"),
+        sub_flow_type: "ChildFlow".to_owned(),
+        start_step_type: "ChildStep".to_owned(),
+        sub_flow_index,
+        options: Some(SubFlowOptions {
+            flow_config_override: Some(FlowConfig {
+                history_window_events,
+                ..FlowConfig::default()
+            }),
+            ..SubFlowOptions::default()
+        }),
+        ..SubFlowCondition::default()
+    };
     dispatch.complete_wait_for(InvokeWaitForMethodResponse {
         waiting_condition: Some(WaitingCondition {
             waiting_condition_type: 1,
-            sub_flow_conditions: vec![SubFlowCondition {
-                condition_id: "child".to_owned(),
-                sub_flow_type: "ChildFlow".to_owned(),
-                start_step_type: "ChildStep".to_owned(),
-                options: Some(SubFlowOptions {
-                    flow_config_override: Some(FlowConfig {
-                        history_window_events: Some(0),
-                        ..FlowConfig::default()
-                    }),
-                    ..SubFlowOptions::default()
-                }),
-                ..SubFlowCondition::default()
-            }],
+            sub_flow_conditions: vec![
+                condition(0, Some(0)),
+                condition(1, Some(30)),
+                condition(2, None),
+                condition(3, Some(0)),
+            ],
             ..WaitingCondition::default()
         }),
         ..InvokeWaitForMethodResponse::default()
@@ -697,15 +704,15 @@ async fn an_unlimited_sub_flow_window_is_proposed_as_its_recorded_value() {
             step_method_completed_command::Response::Execute(_) => None,
         })
         .flat_map(|waiting| waiting.sub_flow_conditions)
-        .filter_map(|condition| {
+        .map(|condition| {
             condition
-                .options?
-                .flow_config_override?
-                .history_window_events
+                .options
+                .and_then(|options| options.flow_config_override)
+                .and_then(|flow_config| flow_config.history_window_events)
         })
         .collect();
     // Servers before 0.1.38 reject a SubFlow window of 0, so the command records the largest value.
-    assert_eq!(windows, [i32::MAX]);
+    assert_eq!(windows, [Some(i32::MAX), Some(30), None, Some(i32::MAX)]);
     harness.shutdown().await;
 }
 

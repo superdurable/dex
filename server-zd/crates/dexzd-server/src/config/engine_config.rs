@@ -276,14 +276,15 @@ pub struct HistoryConfig {
     /// smaller.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub prune_chunk_size: u32,
-    /// Defaults to 1000000000; largest window that `FlowConfig.history_window_events` may set for a
-    /// run.
+    /// Defaults to 1000000000; largest finite window that `FlowConfig.history_window_events` may
+    /// set for a run.
     ///
-    /// StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step
+    /// StartFlow, UpdateFlowConfig, and CloneForkFlow with a larger finite value fail with
+    /// INVALID_ARGUMENT. A Step
     /// result that starts a SubFlow with a larger value is an invalid Worker response, and the
     /// Step attempt is retried under the Step's retry policy. It does not limit `window_events`. 0 sets no limit. Changes apply to
     /// later requests only; runs keep the window they already have.
-    /// It never limits an unlimited window, which a run requests with 0.
+    /// It never limits an unlimited window: 0, or 2147483647, the value a run records for 0.
     /// Changed in 0.1.38: it had to be positive.
     pub max_window_events: u32,
     /// Defaults to 1 MiB; a checkpoint is written once the run has written this many bytes of

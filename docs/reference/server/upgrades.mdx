@@ -130,21 +130,49 @@ wait on it.
 
 server-zd 0.1.38 accepts 0, which means unlimited, for a Flow run's
 **history_window_events** and for **history.windowEvents** and
-**history.maxWindowEvents**. See
-[History window](/reference/server/configuration#history-window). A Flow run
-records its own unlimited window as 2147483647. An older server, such as a
-standby that still runs it or a server after a rollback, reads that as a
-window larger than any Flow run and prunes nothing. It also never prunes a
-Flow run that recorded a **history.windowEvents** of 0. An older server still
-differs in three ways:
+**history.maxWindowEvents**. It also raises the default of
+**history.maxWindowEvents** from 100000 to 1000000000. See
+[History window](/reference/server/configuration#history-window).
 
-- It fails to start with **history.windowEvents** or **history.maxWindowEvents**
-  set to 0. Set positive values before you roll back.
-- It rejects 0 in StartFlow, UpdateFlowConfig, and SubFlow overrides.
-- It checks the window that a SubFlow inherits and the window that
-  CloneForkFlow copies against its **history.maxWindowEvents**. From a Flow run
-  with an unlimited window, these fail unless that setting is at least
-  2147483647.
+A Flow run records its own unlimited window as 2147483647. 0.1.38 never prunes
+such a Flow run by event count. An older server, such as a standby that still
+runs it or a server after a rollback, applies the same value as a finite
+window of 2147483647 events. It prunes once the Flow run holds more than that
+window plus one prune chunk: with the default chunk of 1000, from 2147484648
+unpruned events on. A Flow run that reaches this count while an older server
+applies its partition ends up with different history on the two versions. Do
+not run mixed versions or roll back while a Flow run with an unlimited window
+can reach this count. A Flow run that recorded a **history.windowEvents** of 0
+and sets no window of its own is never pruned by event count on either
+version. On every version, a Flow run that started before 0.1.23 without
+history offload is still pruned by the byte limit it recorded; see
+[History offload](/reference/server/configuration#history-offload).
+
+An older server also differs in these ways:
+
+- It fails to start when **history.windowEvents** or **history.maxWindowEvents**
+  is 0. It also requires **history.pruneChunkSize** to be positive and no
+  larger than **history.windowEvents**.
+- It rejects a window of 0 on all four request paths: StartFlow,
+  UpdateFlowConfig, CloneForkFlow, and a SubFlow override in a Step result.
+- Its **history.maxWindowEvents** defaults to 100000. It checks every window
+  that a request sets or carries over against that maximum. A SubFlow without
+  a window of its own carries over its parent's window, and CloneForkFlow
+  carries over the source's. When that window is larger than the maximum,
+  such as 200000 or an unlimited window of 2147483647, the request fails. A
+  SubFlow start then fails its Step attempt as an invalid Worker response.
+  Raise the maximum on the older server, or give the SubFlow or the clone a
+  smaller window of its own.
+
+To roll back to an older server:
+
+1. Set **history.windowEvents** to a positive value no smaller than
+   **history.pruneChunkSize**, such as 50000 with the default chunk of 1000.
+2. Set **history.maxWindowEvents** to a positive value at least as large as
+   every window your Flow runs set. Use 2147483647 when any Flow run has an
+   unlimited window.
+3. Check that no Flow run with an unlimited window can reach 2147484648
+   unpruned events before you move on.
 
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,

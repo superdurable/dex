@@ -271,18 +271,23 @@ type FlowConfig struct {
 	// update keeps the current value. A SubFlow inherits the value from its parent unless
 	// SubFlowOptions.ConfigOverride sets its own.
 	//
-	// Set it to 0 to keep the whole history: Dex never prunes the run. A run may set 0 under any
-	// history.maxWindowEvents setting. The server records 0 as 2147483647, so the GetFlowState
-	// API and the FlowStarted history event report 2147483647, which also keeps the whole
-	// history. Such a run keeps every event and superseded value for its whole life:
-	// its local history metadata grows with every event, its offloaded history objects are never
-	// deleted while it lives, and without history offload it keeps all of its history on the
-	// local disk. Time Travel to an event ID, a time, or a Step takes longer as the history grows.
+	// Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
+	// history from its current window start on. A run may set 0 under any history.maxWindowEvents
+	// setting. The server records 0 as 2147483647, which also means unlimited and may be sent
+	// back. The GetFlowState API reports the run's current value. The FlowStarted history event
+	// shows the value only when the run set it at start. History that a finite window already
+	// pruned does not come back, and history objects that pruning already passed may still be
+	// deleted. A run that started before server-zd 0.1.23 without history offload is still pruned
+	// by the byte limit it recorded. An unlimited window keeps every later event and superseded
+	// value for the run's whole life: its local history metadata grows with every event, its
+	// offloaded history objects stay until the run is deleted, and without history offload it
+	// keeps all of its history on the local disk. Time Travel to an event ID, a time, or a Step
+	// takes longer as the history grows.
 	//
-	// Any other value must be positive and at most the server's history.maxWindowEvents setting,
+	// A finite value must be positive and at most the server's history.maxWindowEvents setting,
 	// which defaults to 1000000000 (100000 before server-zd 0.1.38). A history.maxWindowEvents of
-	// 0 sets no limit. StartFlow and UpdateFlowConfig return a *ServiceError whose Code is
-	// codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
+	// 0 sets no limit. StartFlow, UpdateFlowConfig, and CloneForkFlow return a *ServiceError whose
+	// Code is codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
 	// override is an invalid Worker response: the Step attempt fails and Dex retries it under the
 	// Step's retry policy. Servers older than server-zd 0.1.38 reject 0 as invalid, and servers
 	// older than server-zd 0.1.21 ignore the field.
@@ -299,13 +304,13 @@ type FlowConfig struct {
 	//		HistoryWindowEvents: ptr.Any(int32(2000)),
 	//	})
 	//
-	// Keep the whole history of an active Flow:
+	// Stop pruning an active Flow by event count:
 	//
 	//	err := client.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
 	//		HistoryWindowEvents: ptr.Any(int32(0)),
 	//	})
 	//
-	// Since 1.38.0. Changed in 1.45.17: 0 keeps the whole history with server-zd 0.1.38 or later.
+	// Since 1.38.0. Changed in 1.45.17: 0 sets an unlimited window with server-zd 0.1.38 or later.
 	HistoryWindowEvents *int32
 
 	// DeleteExpiredHistoryObjects has no effect. The SDK does not send it to the server.
