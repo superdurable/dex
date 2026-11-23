@@ -304,23 +304,24 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)
 	require.NotEmpty(t, sources)
+	warmVisualizeRustAnalyzer(t, repositoryRoot)
 	for _, source := range sources {
 		relative, err := filepath.Rel(repositoryRoot, source)
 		require.NoError(t, err)
 		relative = filepath.ToSlash(relative)
 		t.Run(relative, func(t *testing.T) {
-			var options flowviz.AnalyzeOptions
-			if filepath.Ext(source) == ".java" {
-				options.JavaPath = javaVisualizationExecutable(t)
-			}
-			graph, analyzeErr := flowviz.Analyze(t.Context(), source, options)
-			require.NoError(t, analyzeErr)
-			if filepath.Ext(source) == ".java" {
+			t.Parallel()
+			switch filepath.Ext(source) {
+			case ".java":
+				options := flowviz.AnalyzeOptions{JavaPath: javaVisualizationExecutable(t)}
+				graph, err := analyzeParallelVisualization(t, source, options)
+				require.NoError(t, err)
 				flows := javaVisualizationFlowTypes(graph)
 				for _, flowType := range flows {
 					t.Run(flowType, func(t *testing.T) {
-						options.FlowType = flowType
-						selected, err := flowviz.Analyze(t.Context(), source, options)
+						t.Parallel()
+						selection := flowviz.AnalyzeOptions{FlowType: flowType, JavaPath: options.JavaPath}
+						selected, err := analyzeParallelVisualization(t, source, selection)
 						require.NoError(t, err)
 						require.Equal(t, flowType, selected.Flow.Name)
 						requireJavaExampleGraph(t, source, selected)
@@ -330,16 +331,31 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 					requireJavaExampleGraph(t, source, graph)
 				}
 				return
+			case ".rs":
+				requireVisualizeRustCargo(t)
 			}
-			require.Equal(t, "2.0", graph.SchemaVersion)
+			graph := readVisualizeExampleGraph(t, source, "")
 			first, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			second, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			require.Equal(t, first, second)
-			requireNoUnexpectedVisualizeDiagnostics(t, graph, source)
+			scanVisualizeExample(t, source, graph)
 		})
 	}
+}
+
+var parallelVisualizationToolSlots = make(chan struct{}, 4)
+
+func analyzeParallelVisualization(t *testing.T, source string, options flowviz.AnalyzeOptions) (*flowviz.Graph, error) {
+	t.Helper()
+	// Go package loading and JVM compilation each use multiple threads.
+	switch filepath.Ext(source) {
+	case ".go", ".java":
+		parallelVisualizationToolSlots <- struct{}{}
+		defer func() { <-parallelVisualizationToolSlots }()
+	}
+	return flowviz.Analyze(t.Context(), source, options)
 }
 
 func requireNoUnexpectedVisualizeDiagnostics(t *testing.T, graph *flowviz.Graph, source string) {
@@ -1037,7 +1053,6 @@ func visualizerRepositoryRoot(t *testing.T) string {
 
 var multiFlowExampleDirectories = map[string]bool{
 	"workflow-patterns": true,
-	"workflow_patterns": true,
 }
 
 func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
@@ -1051,6 +1066,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 		{directory: filepath.Join(repositoryRoot, "examples/go"), extension: ".go", marker: "GetSteps("},
 		{directory: filepath.Join(repositoryRoot, "examples/python"), extension: ".py", marker: "(Flow["},
 		{directory: filepath.Join(repositoryRoot, "examples/java"), extension: ".java", marker: "implements Flow<"},
+		{directory: filepath.Join(repositoryRoot, "examples/rust"), extension: ".rs", marker: "impl Flow for "},
 	}
 	result := make([]string, 0)
 	for _, root := range roots {
@@ -1058,7 +1074,7 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 			if walkErr != nil {
 				return walkErr
 			}
-			if entry.IsDir() && path != root.directory && strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() && path != root.directory && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "target") {
 				return filepath.SkipDir
 			}
 			// Workflow pattern catalogs define several small Flows per file; visualize renders one Flow per file.

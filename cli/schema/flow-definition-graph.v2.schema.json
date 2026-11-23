@@ -28,7 +28,7 @@
       "additionalProperties": false,
       "required": ["language", "path"],
       "properties": {
-        "language": {"enum": ["go", "python", "typescript", "java"]},
+        "language": {"enum": ["go", "python", "typescript", "java", "rust"]},
         "path": {"type": "string"}
       }
     },

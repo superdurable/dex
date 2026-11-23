@@ -8,6 +8,7 @@ on:
       - "examples/go/**"
       - "examples/python/**"
       - "examples/java/**"
+      - "examples/rust/**"
       - "sdk-go/**"
       - "protos/**"
       - "go.work"
@@ -33,7 +34,9 @@ jobs:
   check:
     name: Build and local-stack integration
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -55,6 +58,17 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - name: Check Rust Flow analyzer
+        working-directory: cli/internal/flowviz/rust_analyzer
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/dexcli/flowviz-rust
+          key: flowviz-rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('cli/internal/flowviz/rust_analyzer/Cargo.*', 'cli/internal/flowviz/rust_analyzer/src/*.rs') }}
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -100,7 +114,7 @@ jobs:
         working-directory: cli
         env:
           GOWORK: "off"
-        run: go test -tags=integration ./internal/command -run 'TestVisualize|TestWeb' -count=1 -v
+        run: go test -tags=integration ./internal/command -run 'TestVisualize|TestWeb' -count=1 -v -timeout 30m
       - name: Test local server-zd mode
         working-directory: cli
         env:

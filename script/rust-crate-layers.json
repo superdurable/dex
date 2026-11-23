@@ -1,4 +1,11 @@
 {
+  "cli/internal/flowviz/rust_analyzer": {
+    "layers": {
+      "dex-flowviz-rust": 0
+    },
+    "ffi_crates": [],
+    "print_crates": []
+  },
   "sdk-rust": {
     "layers": {
       "dex-blob-cache": 0,

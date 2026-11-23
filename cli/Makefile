@@ -10,4 +10,4 @@ test:
 	GOWORK=off go test ./... $(TEST_ARGS)
 
 integration-test:
-	GOWORK=off go test -tags=integration ./internal/... -count=1 -v $(TEST_ARGS)
+	GOWORK=off go test -tags=integration ./internal/... -count=1 -v -timeout 30m $(TEST_ARGS)

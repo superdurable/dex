@@ -24,7 +24,13 @@ from typing import Callable
 FALLBACK_UPSTREAM = "origin/main"
 REMOTE_TAG_TIMEOUT_SECONDS = 15
 
-CARGO_WORKSPACES = ("server-zd", "sdk-rust", "s3local", "examples/rust")
+CARGO_WORKSPACES = (
+    "server-zd",
+    "sdk-rust",
+    "s3local",
+    "examples/rust",
+    "cli/internal/flowviz/rust_analyzer",
+)
 # Keep in sync with GENERATED_CODE_PATHS in the root Makefile; a test compares them.
 GENERATED_CODE_PATHS = (
     "sdk-go/gen/dexpb",

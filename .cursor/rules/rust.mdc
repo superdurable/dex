@@ -7,6 +7,8 @@ alwaysApply: false
 ## Rust Code Conventions
 
 These rules apply to all hand-written Rust workspaces and standalone packages.
+The hand-written workspaces are `server-zd`, `sdk-rust`, `s3local`,
+`examples/rust`, and `cli/internal/flowviz/rust_analyzer`.
 Run `make rust-rules-check` and each package's formatting, Clippy, and test targets.
 The checker discovers Cargo manifests automatically through Cargo metadata.
 

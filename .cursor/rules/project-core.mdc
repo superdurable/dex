@@ -277,7 +277,7 @@ Deployment and operations guidance may name server-zd and its configuration.
 These files are generated. Never hand-merge them:
 
 - every `Cargo.lock` of a hand-written Rust workspace (`server-zd`,
-  `sdk-rust`, `s3local`, `examples/rust`);
+  `sdk-rust`, `s3local`, `examples/rust`, `cli/internal/flowviz/rust_analyzer`);
 - generated code from `make generated-code`;
 - `docs/src/data/flow-definitions/**/*.json`;
 - the newest server-zd format_compat testdata version (`objects/`,

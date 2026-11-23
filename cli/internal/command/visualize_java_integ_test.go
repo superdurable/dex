@@ -119,9 +119,9 @@ func TestVisualizeJavaWorkflowPatternParity(t *testing.T) {
 			goSource := goFlowFiles[flowType]
 			require.NotEmpty(t, goSource)
 			javaSource := filepath.Join(examples, "java/src/main/java/io/superdurable/dex/patterns/workflowpatterns", flowType+".java")
-			goGraph, err := flowviz.Analyze(t.Context(), goSource, flowviz.AnalyzeOptions{FlowType: flowType})
+			goGraph, err := analyzeParallelVisualization(t, goSource, flowviz.AnalyzeOptions{FlowType: flowType})
 			require.NoError(t, err)
-			javaGraph, err := flowviz.Analyze(t.Context(), javaSource, flowviz.AnalyzeOptions{FlowType: flowType, JavaPath: javaPath})
+			javaGraph, err := analyzeParallelVisualization(t, javaSource, flowviz.AnalyzeOptions{FlowType: flowType, JavaPath: javaPath})
 			require.NoError(t, err)
 			require.Equal(t, flowType, goGraph.Flow.Name)
 			require.Equal(t, flowType, javaGraph.Flow.Name)

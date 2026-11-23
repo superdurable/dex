@@ -42,7 +42,8 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
         self.write(LOCK, "base\n")
         self.write(SEEDS, "1 100\n")
         self.write(FLOW_DEFINITION, "{}\n")
-        self.write("server-zd/Cargo.toml", "[workspace]\n")
+        for workspace in regenerate_derived.CARGO_WORKSPACES:
+            self.write(f"{workspace}/Cargo.toml", "[workspace]\n")
         self.write(OLD_STATE, "old\n")
         self.write("server-zd/testdata/v2/README.md", "readme\n")
         self.write(NEWEST_STATE, "newest\n")
@@ -136,10 +137,10 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((self.repository / "ran").exists())
 
+        cargo_groups = tuple(f"cargo-lock:{workspace}" for workspace in regenerate_derived.CARGO_WORKSPACES)
         overrides = [
             argument
-            for group in ("cargo-lock:server-zd", "cargo-lock:sdk-rust", "cargo-lock:s3local",
-                          "cargo-lock:examples/rust", "generated-code", "format-compat")
+            for group in (*cargo_groups, "generated-code", "format-compat")
             for argument in ("--generator-command", f"{group}=true")
         ]
         result = self.regenerate(
