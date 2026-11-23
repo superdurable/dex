@@ -483,7 +483,7 @@ FlowService port bound to the remote host's loopback address too.
 
 ## Visualize Flow source
 
-Render a static possible-path graph from one Go, Python, or TypeScript Flow source file in
+Render a static possible-path graph from one Go, Python, TypeScript, or Java Flow source file in
 your local browser:
 
 ```bash
@@ -781,12 +781,13 @@ state-load and start-input errors above are reported in every mode.
 | `cross_flow_read_not_found_unhandled` | a Step calls `InvokeRPC*` with no `errors.As` for `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` on its call path |
 
 ```text
-dexcli visualize SOURCE [--language auto|go|python|typescript] [--schema-version 2.0]
+dexcli visualize SOURCE [--language auto|go|python|typescript|java] [--schema-version 2.0]
                          [--flow FlowType]
                          [--lint app]
                          [--open=true|false]
                          [--json [--out PATH_PREFIX|-]]
                          [--python PYTHON_PATH]
+                         [--java JAVA_PATH]
 ```
 
 Use `--flow` with the registered Flow type when the source defines multiple
@@ -794,6 +795,17 @@ Flows. If the name is missing or unknown, the diagnostic lists the available
 Flow types. You can omit `--schema-version`. Its only accepted value is `2.0`.
 Invalid command usage exits with status 2. See the
 [Flow Definition Graph 2.0 schema](schema/flow-definition-graph.v2.schema.json).
+
+**Since 1.47.23.** Java visualization requires JDK 17 or newer. The command
+uses `java` from `PATH` by default. Set `DEX_JAVA` to the executable path or
+override it with `--java`. Put `// dex:group` and `// dex:explanation` lines
+directly above the Step class, `// dex:indexed-attribute` above the indexed
+Attribute field, and `// dex:field` above the `@RPC` annotation for
+`GetDexSummary` or `GetDexDisplay`. The Start form reads `getInputType()` or
+the `Flow` type argument. Declare input classes, records, nested types, and
+enums in the same file. See the
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#java-source-and-directives)
+for directive syntax.
 
 The friendly Flow commands are:
 

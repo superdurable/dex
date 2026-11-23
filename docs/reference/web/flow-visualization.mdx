@@ -1,12 +1,12 @@
 ---
 title: Flow source visualization
 sidebar_label: Flow visualization
-description: "dexcli visualize turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph, as a page or as JSON."
+description: "dexcli visualize turns one Go, Python, TypeScript, or Java Flow source file into a static Flow Definition Graph, as a page or as JSON."
 ---
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
+**dexcli visualize** turns one Go, Python, TypeScript, or Java Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
 
 ```bash
 dexcli visualize ./order_flow.go
@@ -168,7 +168,7 @@ Pass `--flow` to select one Flow type from a file with multiple Flows. Without i
 
 The TypeScript analyzer reads one file, so a SubFlow node names the expression passed to **SubFlow.run**, such as the imported child Flow instance, instead of the child's Flow type. Step option locks and state loads stay out of the graph, as in Go. The analyzer also leaves out the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
 
 The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 
@@ -177,6 +177,29 @@ Step groups and explanations must be in the same file. Named directive parameter
 Version 2.0 builds an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
 Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+
+### Java source and directives
+
+**Since 1.47.23.** Java analysis requires JDK 17 or newer. The command infers Java from `.java` or accepts `--language java`. It uses `java` from `PATH` by default. Set `DEX_JAVA` to a different executable or pass `--java` to override it.
+
+```bash
+dexcli visualize ./OrderFlow.java --java /path/to/jdk/bin/java --json
+```
+
+The analyzer parses the supplied file with javac. It finds classes that implement `Flow` and `Step`, including nested classes. Targets such as `StepDecision.goTo(Ship.class, input)` use the Step type returned by a literal `getStepType()`, or the class's simple name by default. A target from another file keeps its simple name and produces a `step_type_unresolved` warning.
+
+Put `dex:group` and `dex:explanation` on consecutive comment lines directly above the Step class. For an Attribute defined with `AttributeIndex`, put `dex:indexed-attribute` above the field. Put `dex:field` above the `@RPC` annotation on the method with protocol name `GetDexSummary` or `GetDexDisplay`. Set the protocol name with `@RPC(name = "GetDexSummary")` or use that exact Java method name.
+
+```text
+// dex:group group-id:shipping group-label:"Shipping"
+// dex:explanation text:"Ship the order."
+
+// dex:indexed-attribute attribute-key:status index-key:status index-type:keyword value-type:string description:"Order status."
+
+// dex:field attribute-key:statusText value-type:string editable:false description:"Order status."
+```
+
+For the Start form, the analyzer reads a class literal returned by `getInputType()` or reads the input type argument of `Flow`. Input classes, records, nested types, and enums must be declared in the same file. Primitive types, strings, lists, string-keyed maps, `Optional`, and date-time types are supported. If a type cannot be represented, the graph reports `start_input_unresolved` and omits the Start form.
 
 ### TypeScript Waits, RPCs, and resource access {#typescript-waits-rpcs-and-resource-access}
 

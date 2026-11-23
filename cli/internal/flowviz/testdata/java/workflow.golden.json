@@ -1,0 +1,1021 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "java",
+    "path": "workflow.java"
+  },
+  "flow": {
+    "name": "OrderFlow",
+    "startStepId": "step:Begin",
+    "span": {
+      "startLine": 17,
+      "startColumn": 1,
+      "endLine": 110,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:Begin",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Begin",
+      "phase": "execute",
+      "span": {
+        "startLine": 74,
+        "startColumn": 9,
+        "endLine": 81,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision-dispatch:step:ShipOrder",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ShipOrder",
+      "phase": "execute",
+      "span": {
+        "startLine": 101,
+        "startColumn": 9,
+        "endLine": 108,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexDisplay:60:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexDisplay",
+      "phase": "rpc",
+      "span": {
+        "startLine": 60,
+        "startColumn": 16,
+        "endLine": 60,
+        "endColumn": 83
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:GetDexSummary:54:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:GetDexSummary",
+      "phase": "rpc",
+      "span": {
+        "startLine": 54,
+        "startColumn": 16,
+        "endLine": 54,
+        "endColumn": 72
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:expedite:66:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:expedite",
+      "phase": "rpc",
+      "span": {
+        "startLine": 66,
+        "startColumn": 16,
+        "endLine": 66,
+        "endColumn": 102
+      },
+      "decision": {
+        "type": "rpcResult",
+        "cancellations": [
+          {
+            "stepId": "step:ShipOrder",
+            "scope": "all"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:Begin:79:23",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Begin",
+      "condition": "input.choice() == Choice.HOLD",
+      "phase": "execute",
+      "span": {
+        "startLine": 79,
+        "startColumn": 23,
+        "endLine": 79,
+        "endColumn": 60
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Begin:80:23",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Begin",
+      "condition": "!(input.choice() == Choice.HOLD)",
+      "phase": "execute",
+      "span": {
+        "startLine": 80,
+        "startColumn": 23,
+        "endLine": 80,
+        "endColumn": 121
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:Finish:118:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:Finish",
+      "phase": "execute",
+      "span": {
+        "startLine": 118,
+        "startColumn": 16,
+        "endLine": 118,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "decision:step:ShipOrder:102:60",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:ShipOrder",
+      "condition": "orders.get(context, input) == null",
+      "phase": "execute",
+      "span": {
+        "startLine": 102,
+        "startColumn": 60,
+        "endLine": 102,
+        "endColumn": 99
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:ShipOrder:104:24",
+      "kind": "decision",
+      "name": "forceCompleteIfChannelsEmpty",
+      "parentId": "step:ShipOrder",
+      "condition": "\"pending\".equals(input)",
+      "phase": "execute",
+      "span": {
+        "startLine": 104,
+        "startColumn": 24,
+        "endLine": 104,
+        "endColumn": 129
+      },
+      "decision": {
+        "type": "forceCompleteIfChannelsEmpty",
+        "checkedChannels": [
+          "resource:channel:signal",
+          "resource:channel:approvals"
+        ]
+      }
+    },
+    {
+      "id": "decision:step:ShipOrder:106:48",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:ShipOrder",
+      "condition": "\"branch\".equals(input)",
+      "phase": "execute",
+      "span": {
+        "startLine": 106,
+        "startColumn": 48,
+        "endLine": 106,
+        "endColumn": 92
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:ShipOrder:107:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ShipOrder",
+      "phase": "execute",
+      "span": {
+        "startLine": 107,
+        "startColumn": 20,
+        "endLine": 107,
+        "endColumn": 91
+      },
+      "decision": {
+        "type": "gracefulComplete",
+        "cancellations": [
+          {
+            "stepId": "step:Finish",
+            "scope": "siblings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:timeout_handler:OrderFlow:44:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "timeout_handler:OrderFlow",
+      "phase": "timeout",
+      "span": {
+        "startLine": 44,
+        "startColumn": 16,
+        "endLine": 44,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:orders",
+      "kind": "attribute",
+      "name": "orders",
+      "span": {
+        "startLine": 24,
+        "startColumn": 5,
+        "endLine": 24,
+        "endColumn": 93
+      },
+      "resource": {
+        "valueType": "string",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:state",
+      "kind": "attribute",
+      "name": "state",
+      "span": {
+        "startLine": 22,
+        "startColumn": 5,
+        "endLine": 22,
+        "endColumn": 134
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:statusText",
+      "kind": "attribute",
+      "name": "statusText",
+      "span": {
+        "startLine": 23,
+        "startColumn": 5,
+        "endLine": 23,
+        "endColumn": 92
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:channel:approvals",
+      "kind": "channel",
+      "name": "approvals",
+      "span": {
+        "startLine": 26,
+        "startColumn": 5,
+        "endLine": 26,
+        "endColumn": 95
+      },
+      "resource": {
+        "valueType": "string",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:shipping",
+      "kind": "channel",
+      "name": "shipping",
+      "span": {
+        "startLine": 28,
+        "startColumn": 5,
+        "endLine": 28,
+        "endColumn": 81
+      },
+      "resource": {
+        "valueType": "string",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:signal",
+      "kind": "channel",
+      "name": "signal",
+      "span": {
+        "startLine": 25,
+        "startColumn": 5,
+        "endLine": 25,
+        "endColumn": 83
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:stream:progress",
+      "kind": "stream",
+      "name": "progress",
+      "span": {
+        "startLine": 27,
+        "startColumn": 5,
+        "endLine": 27,
+        "endColumn": 91
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "rpc:GetDexDisplay",
+      "kind": "rpc",
+      "name": "GetDexDisplay",
+      "span": {
+        "startLine": 58,
+        "startColumn": 5,
+        "endLine": 61,
+        "endColumn": 6
+      }
+    },
+    {
+      "id": "rpc:GetDexSummary",
+      "kind": "rpc",
+      "name": "GetDexSummary",
+      "span": {
+        "startLine": 52,
+        "startColumn": 5,
+        "endLine": 55,
+        "endColumn": 6
+      }
+    },
+    {
+      "id": "rpc:expedite",
+      "kind": "rpc",
+      "name": "expedite",
+      "span": {
+        "startLine": 63,
+        "startColumn": 5,
+        "endLine": 67,
+        "endColumn": 6
+      }
+    },
+    {
+      "id": "step:Begin",
+      "kind": "step",
+      "name": "Begin",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 36,
+        "startColumn": 35,
+        "endLine": 36,
+        "endColumn": 40
+      },
+      "metadata": {
+        "explanation": "Choose how to ship the order."
+      }
+    },
+    {
+      "id": "step:Finish",
+      "kind": "step",
+      "name": "Finish",
+      "phase": "execute",
+      "span": {
+        "startLine": 36,
+        "startColumn": 59,
+        "endLine": 36,
+        "endColumn": 65
+      },
+      "metadata": {
+        "explanation": "Close the order."
+      }
+    },
+    {
+      "id": "step:ShipOrder",
+      "kind": "step",
+      "name": "ShipOrder",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 36,
+        "startColumn": 53,
+        "endLine": 36,
+        "endColumn": 57
+      },
+      "metadata": {
+        "explanation": "Wait for approval and ship the order."
+      }
+    },
+    {
+      "id": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+      "kind": "subflow",
+      "name": "LabelFlow",
+      "external": true,
+      "span": {
+        "startLine": 98,
+        "startColumn": 29,
+        "endLine": 98,
+        "endColumn": 64
+      }
+    },
+    {
+      "id": "timeout_handler:OrderFlow",
+      "kind": "timeout_handler",
+      "name": "handleTimeout",
+      "span": {
+        "startLine": 43,
+        "startColumn": 5,
+        "endLine": 45,
+        "endColumn": 6
+      }
+    },
+    {
+      "id": "wait:ShipOrder:95:20",
+      "kind": "wait",
+      "name": "anyComboOf",
+      "parentId": "step:ShipOrder",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 95,
+        "startColumn": 20,
+        "endLine": 98,
+        "endColumn": 98
+      },
+      "wait": {
+        "type": "anyComboOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "signal.for 1",
+            "resourceId": "resource:channel:signal",
+            "span": {
+              "startLine": 96,
+              "startColumn": 45,
+              "endLine": 96,
+              "endColumn": 60
+            }
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "approvals[input].for 2",
+            "resourceId": "resource:channel:approvals",
+            "expression": "input, 2",
+            "span": {
+              "startLine": 96,
+              "startColumn": 62,
+              "endLine": 96,
+              "endColumn": 86
+            }
+          },
+          {
+            "index": 2,
+            "kind": "channel",
+            "label": "shipping[null].for first branch",
+            "resourceId": "resource:channel:shipping",
+            "expression": "null",
+            "span": {
+              "startLine": 96,
+              "startColumn": 88,
+              "endLine": 96,
+              "endColumn": 117
+            }
+          },
+          {
+            "index": 0,
+            "kind": "timer",
+            "label": "Duration.ofMinutes(5) timer",
+            "expression": "Duration.ofMinutes(5)",
+            "span": {
+              "startLine": 97,
+              "startColumn": 45,
+              "endLine": 97,
+              "endColumn": 84
+            }
+          },
+          {
+            "index": 1,
+            "kind": "subflow",
+            "label": "LabelFlow",
+            "subFlowId": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+            "span": {
+              "startLine": 98,
+              "startColumn": 29,
+              "endLine": 98,
+              "endColumn": 64
+            }
+          },
+          {
+            "index": 2,
+            "kind": "gracefulCompletion",
+            "label": "Graceful completion requested",
+            "span": {
+              "startLine": 98,
+              "startColumn": 66,
+              "endLine": 98,
+              "endColumn": 96
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:rpc:expedite:66:16",
+      "to": "step:Finish",
+      "label": "fan-out",
+      "span": {
+        "startLine": 66,
+        "startColumn": 35,
+        "endLine": 66,
+        "endColumn": 70
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "cancel",
+      "from": "decision:rpc:expedite:66:16",
+      "to": "step:ShipOrder",
+      "label": "withCancelingSteps",
+      "span": {
+        "startLine": 66,
+        "startColumn": 91,
+        "endLine": 66,
+        "endColumn": 101
+      },
+      "metadata": {
+        "scope": "all"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:Begin:79:23",
+      "to": "step:Finish",
+      "label": "goTo",
+      "condition": "input.choice() == Choice.HOLD",
+      "span": {
+        "startLine": 79,
+        "startColumn": 23,
+        "endLine": 79,
+        "endColumn": 60
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Begin:80:23",
+      "to": "step:Finish",
+      "label": "fan-out",
+      "condition": "!(input.choice() == Choice.HOLD)",
+      "span": {
+        "startLine": 80,
+        "startColumn": 85,
+        "endLine": 80,
+        "endColumn": 120
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:Begin:80:23",
+      "to": "step:ShipOrder",
+      "label": "fan-out",
+      "condition": "!(input.choice() == Choice.HOLD)",
+      "span": {
+        "startLine": 80,
+        "startColumn": 45,
+        "endLine": 80,
+        "endColumn": 83
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:ShipOrder:104:24",
+      "to": "step:Finish",
+      "label": "fan-out",
+      "condition": "\"pending\".equals(input)",
+      "span": {
+        "startLine": 104,
+        "startColumn": 74,
+        "endLine": 104,
+        "endColumn": 109
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "cancel",
+      "from": "decision:step:ShipOrder:107:20",
+      "to": "step:Finish",
+      "label": "withCancelingSiblingSteps",
+      "span": {
+        "startLine": 107,
+        "startColumn": 78,
+        "endLine": 107,
+        "endColumn": 90
+      },
+      "metadata": {
+        "scope": "siblings"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:timeout_handler:OrderFlow:44:16",
+      "to": "step:Finish",
+      "label": "goTo",
+      "span": {
+        "startLine": 44,
+        "startColumn": 16,
+        "endLine": 44,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:orders",
+      "to": "step:ShipOrder",
+      "label": "get",
+      "span": {
+        "startLine": 102,
+        "startColumn": 17,
+        "endLine": 102,
+        "endColumn": 43
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:state",
+      "to": "rpc:GetDexDisplay",
+      "label": "get",
+      "span": {
+        "startLine": 60,
+        "startColumn": 62,
+        "endLine": 60,
+        "endColumn": 80
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:statusText",
+      "to": "rpc:GetDexSummary",
+      "label": "get",
+      "span": {
+        "startLine": 54,
+        "startColumn": 50,
+        "endLine": 54,
+        "endColumn": 70
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "wait_condition",
+      "from": "resource:channel:approvals",
+      "to": "wait:ShipOrder:95:20",
+      "label": "approvals[input].for 2",
+      "span": {
+        "startLine": 96,
+        "startColumn": 62,
+        "endLine": 96,
+        "endColumn": 86
+      },
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "wait_condition",
+      "from": "resource:channel:shipping",
+      "to": "wait:ShipOrder:95:20",
+      "label": "shipping[null].for first branch",
+      "span": {
+        "startLine": 96,
+        "startColumn": 88,
+        "endLine": 96,
+        "endColumn": 117
+      },
+      "metadata": {
+        "conditionIndex": 2
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "wait_condition",
+      "from": "resource:channel:signal",
+      "to": "wait:ShipOrder:95:20",
+      "label": "signal.for 1",
+      "span": {
+        "startLine": 96,
+        "startColumn": 45,
+        "endLine": 96,
+        "endColumn": 60
+      },
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_lock",
+      "from": "rpc:expedite",
+      "to": "resource:attribute:orders",
+      "label": "lock",
+      "span": {
+        "startLine": 63,
+        "startColumn": 59,
+        "endLine": 63,
+        "endColumn": 123
+      },
+      "metadata": {
+        "instance": "current",
+        "phase": "rpc",
+        "rpcName": "expedite"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_lock",
+      "from": "rpc:expedite",
+      "to": "resource:attribute:state",
+      "label": "lock",
+      "span": {
+        "startLine": 63,
+        "startColumn": 28,
+        "endLine": 63,
+        "endColumn": 35
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "expedite"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_publish",
+      "from": "rpc:expedite",
+      "to": "resource:channel:signal",
+      "label": "publish",
+      "span": {
+        "startLine": 65,
+        "startColumn": 9,
+        "endLine": 65,
+        "endColumn": 44
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_write",
+      "from": "step:Begin",
+      "to": "resource:attribute:orders",
+      "label": "set",
+      "span": {
+        "startLine": 75,
+        "startColumn": 13,
+        "endLine": 75,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_write",
+      "from": "step:Begin",
+      "to": "resource:attribute:state",
+      "label": "set",
+      "span": {
+        "startLine": 76,
+        "startColumn": 13,
+        "endLine": 76,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_write",
+      "from": "step:Begin",
+      "to": "resource:stream:progress",
+      "label": "write",
+      "span": {
+        "startLine": 77,
+        "startColumn": 13,
+        "endLine": 77,
+        "endColumn": 48
+      },
+      "metadata": {
+        "bestEffort": true,
+        "phase": "execute",
+        "repeatable": true,
+        "role": "progress"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_lock",
+      "from": "step:ShipOrder",
+      "to": "resource:attribute:state",
+      "label": "lock",
+      "span": {
+        "startLine": 91,
+        "startColumn": 106,
+        "endLine": 91,
+        "endColumn": 118
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_publish",
+      "from": "step:ShipOrder",
+      "to": "resource:channel:shipping",
+      "label": "endBranch",
+      "span": {
+        "startLine": 106,
+        "startColumn": 48,
+        "endLine": 106,
+        "endColumn": 92
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "failure_transition",
+      "from": "step:ShipOrder",
+      "to": "step:Finish",
+      "label": "Execute failure",
+      "span": {
+        "startLine": 91,
+        "startColumn": 20,
+        "endLine": 91,
+        "endColumn": 90
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "failure_transition",
+      "from": "timeout_handler:OrderFlow",
+      "to": "step:Finish",
+      "label": "Timeout handler failure",
+      "span": {
+        "startLine": 48,
+        "startColumn": 16,
+        "endLine": 48,
+        "endColumn": 87
+      },
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "subflow",
+      "from": "wait:ShipOrder:95:20",
+      "to": "subflow:wait:ShipOrder:95:20:1:LabelFlow:98:29",
+      "label": "start",
+      "span": {
+        "startLine": 98,
+        "startColumn": 29,
+        "endLine": 98,
+        "endColumn": 64
+      },
+      "metadata": {
+        "conditionIndex": 1
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "shipping",
+      "label": "Shipping",
+      "stepIds": [
+        "step:Begin",
+        "step:ShipOrder",
+        "step:Finish"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [
+      {
+        "attributeKey": "state",
+        "indexKey": "state",
+        "indexType": "keyword",
+        "valueType": "string",
+        "description": "Order state."
+      }
+    ],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": [
+        {
+          "attributeKey": "statusText",
+          "valueType": "string",
+          "editable": false,
+          "description": "Order status."
+        }
+      ]
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": [
+        {
+          "attributeKey": "state",
+          "valueType": "string",
+          "editable": false,
+          "description": "Order state."
+        }
+      ]
+    },
+    "actions": [],
+    "start": {
+      "stepType": "Begin",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "choice",
+            "required": true,
+            "schema": {
+              "kind": "string",
+              "enumValues": [
+                {
+                  "name": "SEND",
+                  "value": "SEND"
+                },
+                {
+                  "name": "HOLD",
+                  "value": "HOLD"
+                }
+              ]
+            }
+          },
+          {
+            "name": "note",
+            "required": false,
+            "schema": {
+              "kind": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "recipients",
+            "required": true,
+            "schema": {
+              "kind": "array",
+              "nullable": true,
+              "items": {
+                "kind": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
