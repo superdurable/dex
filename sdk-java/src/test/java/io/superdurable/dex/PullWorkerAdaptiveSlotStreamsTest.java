@@ -479,7 +479,7 @@ final class PullWorkerAdaptiveSlotStreamsTest {
                             && current.getRpcOnlyOpen() == 1);
             requireRegisteredStreams(proxy, appWorkerID, floor - 1, 1);
             final PullSlotStreamState state = run.worker.getPullSlotStreamState();
-            assertTrue(state.isAdaptive(), state::toString);
+            assertEquals(floor < cap, state.isAdaptive(), state::toString);
             assertEquals(cap, state.getTotalCapacity(), state::toString);
             assertEquals(1, state.getRpcOnlySlots(), state::toString);
             assertEquals(floor - 1, state.getFloor(), state::toString);

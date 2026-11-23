@@ -26,10 +26,11 @@ import java.time.Duration;
  *
  * <p>Changed in 1.45.7: with {@link Builder#minOpenSlots(int)} below maxConcurrentTasks the Worker
  * is adaptive. It keeps between minOpenSlots and maxConcurrentTasks slot streams open, so idle
- * Workers hold fewer Server streams. With minOpenSlots unset or equal to maxConcurrentTasks the
- * Worker is fixed and keeps every slot open as before.
+ * Workers hold fewer Server streams. When unset, minOpenSlots defaults to
+ * min(T, max(R + 1, CPU count)), where T is maxConcurrentTasks and R is reservedRpcTasks.
+ * The Worker is fixed only when the floor equals the ceiling and keeps every slot open.
  *
- * <p>Changed in 1.45.7: a Worker is adaptive by default. Unset maxConcurrentTasks defaults to 100
+ * <p>Changed in 1.45.7: an unset floor usually makes a Worker adaptive. Unset maxConcurrentTasks defaults to 100
  * instead of the CPU count. Unset minOpenSlots defaults to about the CPU count instead of
  * maxConcurrentTasks. An idle Worker therefore keeps about the CPU count of streams open and
  * grows up to 100 under load. Set minOpenSlots equal to maxConcurrentTasks to keep a fixed Worker.
@@ -194,24 +195,25 @@ public final class PullWorkerOptions {
         }
 
         /**
-         * Sets the number of long-lived execution-slot streams for Step and RPC tasks.
+         * Sets the ceiling of execution-slot streams for Step and RPC tasks.
          *
          * <p>This also sizes the Worker's handler pool. Worker start fails when a fixed Worker with
          * an explicit maxConcurrentTasks exceeds the Server's per-Worker limit,
          * matching.maxConcurrentTasksCap. Every received task
          * executes without a capacity rejection. The server limit defaults to 256. Lower this
          * option or raise the server limit before starting the Worker; this failure is not retried
-         * in the background. Budget server matching.maxStreams for the sum of Worker slots,
-         * including overlap during deployments.
+         * in the background. A fixed Worker holds every slot's stream. An adaptive Worker holds
+         * about its floor while idle and grows up to this ceiling under load. Budget idle streams
+         * by the floor and peak streams by this ceiling, including overlap during deployments.
          *
          * <p>Changed in 1.35.0: this value is also the exact stream count, and exceeding the
          * server cap fails startup.
          *
          * <p>Changed in 1.45.7: this value is the ceiling of the slot streams, including the
-         * reserved RPC-only slots. A fixed Worker, whose {@link #minOpenSlots(int)} is unset or
-         * equal to this value, keeps this many streams open. An adaptive Worker, whose
-         * minOpenSlots is below this value, opens streams up to it only while every open
-         * Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
+         * reserved RPC-only slots. An unset {@link #minOpenSlots(int)} defaults to
+         * min(T, max(R + 1, CPU count)). A Worker is fixed only when its floor equals this ceiling.
+         * An adaptive Worker, whose floor is below this value, opens streams up to it only while
+         * every open Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
          * warning that names both values, instead of failing start:
          *
          * <ul>
