@@ -33,7 +33,10 @@ func TestVisualizeScriptStepInstancesGolden(t *testing.T) {
 			var graph flowviz.Graph
 			require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
 			require.True(t, graph.Valid, graph.Diagnostics)
-			require.Empty(t, graph.Diagnostics)
+			require.Len(t, graph.Diagnostics, 1)
+			require.Equal(t, "warning", graph.Diagnostics[0].Severity)
+			require.Equal(t, "start_input_unresolved", graph.Diagnostics[0].Code)
+			require.Nil(t, graph.V2.Start)
 			require.Equal(t, "step:First", graph.Flow.StartStepID)
 			for _, stepType := range []string{"First", "Second"} {
 				require.True(t, hasDecisionEdge(&graph, "step:"+stepType, "transition", "step:First"))

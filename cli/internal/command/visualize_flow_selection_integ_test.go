@@ -48,6 +48,9 @@ func TestVisualizeSelectsRegisteredFlowType(t *testing.T) {
 				require.True(t, graph.Valid, graph.Diagnostics)
 				require.Equal(t, flowType, graph.Flow.Name)
 				require.Equal(t, source.startSteps[index], graph.Flow.StartStepID)
+				require.NotNil(t, graph.V2.Start)
+				require.Equal(t, strings.TrimPrefix(source.startSteps[index], "step:"), graph.V2.Start.StepType)
+				require.Equal(t, "null", graph.V2.Start.Input.Kind)
 				require.Len(t, nodesOfKind(graph.Nodes, "step"), 1)
 				prefix := []string{"first", "second"}[index]
 				require.Len(t, nodesOfKind(graph.Nodes, "attribute"), 2)
@@ -152,14 +155,14 @@ SECOND_INDEXED = Attribute("secondIndexed", str, index=AttributeIndex(IndexType.
 # dex:group group-id:"first" group-label:"First"
 # dex:explanation text:"Completes the ordinary Flow."
 class FirstStep(Step[None]):
-    def execute(self, context, input):
+    def execute(self, context, input: None):
         FIRST_STATE.get(context)
         return graceful_complete()
 
 # dex:group group-id:"second" group-label:"Second"
 # dex:explanation text:"Completes the renamed Flow."
 class SecondStep(Step[None]):
-    def execute(self, context, input):
+    def execute(self, context, input: None):
         return graceful_complete()
 
     def get_step_options(self):
@@ -204,14 +207,14 @@ const secondIndexed = new Attribute("secondIndexed", stringCodec, { type: IndexT
 // dex:explanation text:"Completes the ordinary Flow."
 class FirstStep {
   readonly inputCodec = voidCodec;
-  execute(context: Context) { firstState.get(context); return gracefulComplete(); }
+  execute(context: Context, _input: void) { firstState.get(context); return gracefulComplete(); }
 }
 
 // dex:group group-id:"second" group-label:"Second"
 // dex:explanation text:"Completes the renamed Flow."
 class SecondStep {
   readonly inputCodec = voidCodec;
-  execute() { return gracefulComplete(); }
+  execute(_context: Context, _input: void) { return gracefulComplete(); }
   getStepOptions() { return { executeLockAttributes: [secondState.lock()] }; }
 }
 

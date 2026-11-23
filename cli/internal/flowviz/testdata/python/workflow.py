@@ -7,10 +7,12 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from typing import final
-from dex import Attribute, Flow, PersistenceSchema, Step, StepList, Stream, force_complete
+from dex import Attribute, AttributeIndex, Flow, IndexType, PersistenceSchema, RPCResult, Step, StepList, Stream, force_complete, rpc
 from catalog_connector import create_lookup as lookup_record, create_trigger
 
 RESULT = Attribute("LookupResult", dict)
+# dex:indexed-attribute attribute-key:LookupState index-key:keyword1 index-type:keyword value-type:string description:"Lookup state"
+STATE = Attribute("LookupState", str, AttributeIndex(IndexType.KEYWORD, "keyword1"))
 PROGRESS = Stream("LookupProgress", dict, 65536)
 TEXT = Stream("LookupText", str, 65536)
 CONNECTION_NAME = "primary"
@@ -43,7 +45,12 @@ class CatalogFlow(Flow):
         return StepList.start_step(self.lookup).other_steps(self.finish)
 
     def get_persistence_schema(self):
-        return PersistenceSchema.of(RESULT, PROGRESS, TEXT)
+        return PersistenceSchema.of(RESULT, STATE, PROGRESS, TEXT)
+
+    # dex:field attribute-key:LookupState value-type:string editable:false description:"Lookup state"
+    @rpc(name="GetDexDisplay")
+    def display(self, context):
+        return RPCResult({"LookupState": STATE.get(context)})
 
     def get_connector_trigger_bindings(self):
         return [create_trigger(connection_name=CONNECTION_NAME, binding_name="updates")]

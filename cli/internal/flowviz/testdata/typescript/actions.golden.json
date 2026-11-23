@@ -212,6 +212,17 @@
   "diagnostics": [
     {
       "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step FinishStep input cannot drive a form: type unknown is unsupported",
+      "span": {
+        "startLine": 44,
+        "startColumn": 45,
+        "endLine": 44,
+        "endColumn": 52
+      }
+    },
+    {
+      "severity": "warning",
       "code": "unused_resource",
       "message": "attribute gate-request-key has no direct access in the source file",
       "span": {

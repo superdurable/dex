@@ -72,7 +72,7 @@ func (analysis *scriptAnalysis) applyV2Metadata() {
 	}
 	graph.applyV2Views(analysis.ViewRPCs, attributes)
 	if analysis.StartInput != nil {
-		graph.V2.Start = graph.buildV2StartDefinition(*analysis.StartInput)
+		graph.V2.Start = graph.buildStartDefinition(*analysis.StartInput, "start_input_unresolved")
 	}
 }
 

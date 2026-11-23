@@ -795,6 +795,15 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "RequestReviews",
+      "input": {
+        "kind": "array",
+        "items": {
+          "kind": "string"
+        }
+      }
+    }
   }
 }

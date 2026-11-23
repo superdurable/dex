@@ -18,7 +18,7 @@ JOIN_WAIT_METHODS = {"for_all_branches", "for_first_branch", "for_branches", "fo
 JOIN_FORK_METHODS = {"fork", "fork_with_round_key"}
 
 
-class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
+class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def __init__(self, path, source, flow_type):
         self.path = path
         self.source = source
@@ -56,6 +56,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.node_ids = set()
         self.actions = []
         self.rpc_lock_errors = []
+        self.view_rpcs = []
+        self.start_input = None
         self.initialize_connectors()
 
     def analyze(self):
@@ -327,20 +329,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
                 continue
             first_diagnostic = len(self.graph["diagnostics"])
-            resource_name = target.id
-            if value.args:
-                if isinstance(value.args[0], ast.Constant) and isinstance(value.args[0].value, str):
-                    resource_name = value.args[0].value
-                elif isinstance(value.args[0], ast.Name):
-                    constant = self.module_constant(value.args[0].id)
-                    if constant is None and owner:
-                        constant = self.class_constant(owner, value.args[0].id)
-                    if constant is not None:
-                        resource_name = constant
-                    else:
-                        self.error("dynamic_resource_name", f"resource {target.id} must use a static name", self.span(value.args[0]))
-                else:
-                    self.error("dynamic_resource_name", f"resource {target.id} must use a static name", self.span(value.args[0]))
+            resource_name = self.resource_name(value, target.id, owner)
             key = f"{owner}.{target.id}" if owner else target.id
             node_id = f"resource:{kind}:{key}"
             self.resources[key] = node_id
@@ -446,20 +435,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
 
     def add_resource(self, kind, target_name, call, owner, source_node):
         first_diagnostic = len(self.graph["diagnostics"])
-        resource_name = target_name
-        if call.args:
-            if isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
-                resource_name = call.args[0].value
-            elif isinstance(call.args[0], ast.Name):
-                constant = self.module_constant(call.args[0].id)
-                if constant is None and owner:
-                    constant = self.class_constant(owner, call.args[0].id)
-                if constant is not None:
-                    resource_name = constant
-                else:
-                    self.error("dynamic_resource_name", f"resource {target_name} must use a static name", self.span(call.args[0]))
-            else:
-                self.error("dynamic_resource_name", f"resource {target_name} must use a static name", self.span(call.args[0]))
+        resource_name = self.resource_name(call, target_name, owner)
         key = f"{owner}.{target_name}" if owner else target_name
         node_id = f"resource:{kind}:{key}"
         self.resources[key] = node_id
@@ -473,6 +449,18 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.record_resource_diagnostics(node_id, first_diagnostic)
         self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(source_node), "resource": resource})
         return node_id
+
+    def resource_name(self, call, target_name, owner):
+        expression = self.argument_value(call, "name", 0)
+        if expression is None:
+            return target_name
+        name = self.static_python_string(expression)
+        if name is None and owner and isinstance(expression, ast.Name):
+            name = self.class_constant(owner, expression.id)
+        if name is None:
+            self.error("dynamic_resource_name", f"resource {target_name} must use a static name", self.span(expression))
+            return target_name
+        return name
 
     def record_resource_diagnostics(self, resource_id, first_diagnostic):
         if len(self.flow_classes) > 1:
@@ -531,6 +519,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             if is_start:
                 starts += 1
                 self.graph["flow"]["startStepId"] = node_id
+                self.start_input = self.start_input_fact(step_name, step_class, expression)
         if starts > 1:
             self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
         step_types = [node["name"] for node in self.graph["nodes"] if node["kind"] == "step"]
@@ -618,10 +607,14 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.analyze_resources(node_id, statement, "timeout")
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
                 node_id = f"rpc:{statement.name}"
-                rpc_name = self.rpc_protocol_name(statement)
+                protocol_name = self.rpc_protocol_name(statement)
+                rpc_name = protocol_name or statement.name
                 self.add_node({"id": node_id, "kind": "rpc", "name": statement.name, "span": self.span(statement)})
                 self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"}, {"rpcName": rpc_name})
-                self.analyze_rpc_action(node_id, rpc_name, statement)
+                is_view = protocol_name in {"GetDexSummary", "GetDexDisplay"}
+                if is_view:
+                    self.view_rpcs.append(self.view_rpc_fact(rpc_name, statement))
+                self.analyze_rpc_action(node_id, rpc_name, statement, is_view)
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
                 self.analyze_rpc_state_loads(node_id, statement.decorator_list)
@@ -637,11 +630,15 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
 
     def rpc_protocol_name(self, method):
         decorator = self.rpc_decorator(method)
-        for keyword in decorator.keywords if decorator else []:
+        if decorator is None:
+            return method.name
+        if any(keyword.arg is None for keyword in decorator.keywords):
+            return None
+        for keyword in decorator.keywords:
             if keyword.arg == "name":
-                name = self.static_python_string(keyword.value)
-                if name:
-                    return name
+                if isinstance(keyword.value, ast.Constant) and keyword.value.value is None:
+                    return method.name
+                return self.static_python_string(keyword.value)
         return method.name
 
     def static_python_string(self, expression):
@@ -686,20 +683,16 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         return self.preceding_directives(first_line)
 
     def preceding_directives(self, first_line):
-        directives = []
-        lines = self.source.splitlines()
-        while first_line > 0 and lines[first_line - 1].lstrip().startswith("#"):
-            text = lines[first_line - 1].lstrip()[1:].strip()
-            if text.startswith("dex:"):
-                directives.insert(0, text)
-            first_line -= 1
-        return directives
+        return [line["text"] for line in self.preceding_directive_lines(first_line)]
 
-    def analyze_rpc_action(self, node_id, rpc_name, method):
+    def analyze_rpc_action(self, node_id, rpc_name, method, is_view):
         decorator = self.rpc_decorator(method)
         keywords = {keyword.arg: keyword.value for keyword in decorator.keywords} if decorator else {}
         expression = keywords.get("action")
-        if expression is None or (isinstance(expression, ast.Constant) and expression.value is None):
+        has_action = expression is not None and not (isinstance(expression, ast.Constant) and expression.value is None)
+        if has_action or is_view:
+            self.check_action_rpc_locks(node_id, rpc_name, keywords.get("lock_attributes"))
+        if not has_action:
             return
         entry = {
             "rpcNodeId": node_id, "rpcName": rpc_name, "span": self.span(expression), "error": "",
@@ -711,7 +704,6 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         except ValueError as error:
             entry["error"] = f"RPC {rpc_name} Action {error}"
         self.actions.append(entry)
-        self.check_action_rpc_locks(node_id, rpc_name, keywords.get("lock_attributes"))
 
     def unreadable(self, expression, construct, instead):
         return ValueError(f"{construct} is not static ({self.unparse(expression)} at line {getattr(expression, 'lineno', 0)}); {instead}")
@@ -799,34 +791,45 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.rpc_lock_errors.append({"rpcNodeId": node_id, "rpcName": rpc_name, "span": self.span(lock), "message": f"dexcli cannot resolve the lock_attributes of RPC {rpc_name} ({self.unparse(lock)} at line {lock.lineno}); Dex Web must take them to invoke it. List Attribute lock() calls in the rpc decorator."})
                 return
 
-    def action_analysis_result(self):
-        attributes = [
-            self.attribute_fact(node)
-            for node in self.graph["nodes"] if node["kind"] == "attribute"
-        ]
-        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors, "persistenceResourceIds": self.persistence_resource_ids, "diagnosticResourceIds": self.diagnostic_resource_ids}
+    def metadata_analysis_result(self):
+        attribute_nodes = [node for node in self.graph["nodes"] if node["kind"] == "attribute"]
+        attribute_nodes.sort(key=lambda node: (node["span"]["startLine"], node["span"]["startColumn"]))
+        attributes = [self.attribute_fact(node) for node in attribute_nodes]
+        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors, "persistenceResourceIds": self.persistence_resource_ids, "diagnosticResourceIds": self.diagnostic_resource_ids, "viewRPCs": self.view_rpcs, "startInput": self.start_input}
 
     def attribute_fact(self, node):
         resource = node["resource"]
-        fact = {"resourceId": node["id"], "key": node["name"], "valueType": self.python_action_value_type(resource["valueType"]), "isMap": resource["map"]}
-        if self.persistence_resource_ids is None:
-            return fact
         call, declaration = self.resource_declarations[node["id"]]
+        value_type = self.python_action_value_type(resource["valueType"])
+        type_expression = self.argument_value(call, "value_type", 1)
+        if type_expression is None and isinstance(call.func, ast.Subscript):
+            type_expression = call.func.slice
+        if self.imported_name(type_expression) == "datetime.datetime":
+            value_type = "datetime"
+        elif value_type == "dict" or value_type.startswith(("dict[", "Dict[", "typing.Dict[")):
+            value_type = "object"
+        elif value_type in {"list[str]", "List[str]", "typing.List[str]"}:
+            value_type = "string-array"
+        elif value_type == "list" or value_type.startswith(("list[", "List[", "typing.List[")):
+            value_type = "array"
+        fact = {"resourceId": node["id"], "key": node["name"], "valueType": value_type, "isMap": resource["map"]}
+        if self.flow_class is None:
+            return fact
         index = self.argument_value(call, "index", 2)
         index, _ = self.resolved_value(index, EvaluationFrame())
         if index is not None and not (isinstance(index, ast.Constant) and index.value is None):
             fact["isIndexed"] = True
             fact["indexType"] = "unknown"
             if isinstance(index, ast.Call) and self.is_dex_reference(index.func, "AttributeIndex"):
-                index_type = self.argument_value(index, "type", 0)
+                index_type, _ = self.resolved_value(self.argument_value(index, "type", 0), EvaluationFrame())
                 index_key, _ = self.resolved_value(self.argument_value(index, "index_key", 1), EvaluationFrame())
-                index_name = self.symbol(index_type).rsplit(".", 1)[-1]
+                index_name = index_type.attr if isinstance(index_type, ast.Attribute) and self.is_dex_reference(index_type.value, "IndexType") else ""
                 key = index_key.value if isinstance(index_key, ast.Constant) and isinstance(index_key.value, str) else ""
                 fact["indexKey"] = key or ("" if resource["map"] else node["name"])
-                fact["indexType"] = index_name.lower().replace("full_text", "fulltext").replace("_", "-")
+                fact["indexType"] = index_name.lower().replace("full_text", "fulltext").replace("_", "-") or "unknown"
         fact["directives"] = [
-            {"text": text} for text in self.preceding_directives(declaration.lineno - 1)
-            if text.split(maxsplit=1)[0] == "dex:indexed-attribute"
+            line for line in self.preceding_directive_lines(declaration.lineno - 1)
+            if line["text"].split(maxsplit=1)[0] == "dex:indexed-attribute"
         ]
         fact["span"] = node["span"]
         return fact
@@ -1614,8 +1617,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
     def resource_details(self, call):
         short = self.symbol(call.func).rsplit(".", 1)[-1]
         value_type = "unknown"
-        if len(call.args) > 1:
-            value_type = self.unparse(call.args[1])
+        explicit_type = self.argument_value(call, "value_type", 1)
+        if explicit_type is not None:
+            value_type = self.unparse(explicit_type)
             if value_type == "type(None)":
                 value_type = "None"
         elif isinstance(call.func, ast.Subscript):
@@ -1761,7 +1765,7 @@ def main():
     analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
-    result.update(analyzer.action_analysis_result())
+    result.update(analyzer.metadata_analysis_result())
     json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"))
 
 
