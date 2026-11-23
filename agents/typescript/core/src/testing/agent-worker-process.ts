@@ -20,6 +20,9 @@ export const agentWorkerServerAddressVariable = "DEX_AGENTS_SERVER_ADDRESS";
 /**
  * Environment variable naming the BlobCache directory of a Worker child process. When it is unset,
  * the child uses a new temporary directory and deletes it on exit.
+ * Give each Worker child that runs at the same time its own directory, because only one open
+ * BlobCache may use a directory at a time. A child inherits this variable from the test process's
+ * environment, so a value set there reaches every child.
  */
 export const agentWorkerBlobCacheDirectoryVariable = "DEX_AGENTS_BLOB_CACHE_DIR";
 /** Line a Worker child process prints once every queue is registered; the same as the Python core. */
@@ -36,7 +39,11 @@ export interface KillableWorkerProcessOptions {
   readonly serverAddress: string;
   /** Log file; output of every start is appended to it. */
   readonly logPath: string;
-  /** Extra environment variables for the child, such as a directory for tool marker files. */
+  /**
+   * Extra environment variables for the child, such as a directory for tool marker files.
+   * When two children run at the same time, give each its own
+   * {@link agentWorkerBlobCacheDirectoryVariable}.
+   */
   readonly environment?: Readonly<Record<string, string>>;
   /** Milliseconds to wait for {@link agentWorkerReadyLine}. Defaults to 60,000. */
   readonly readyTimeoutMs?: number;

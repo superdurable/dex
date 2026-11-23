@@ -54,6 +54,17 @@ export async function stopPullGreeting(worker: Worker, client: Client): Promise<
 
 Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
 
+## Blob cache {#blob-cache}
+
+The **cache** in the example comes from
+[openBlobCache](pathname:///api/typescript/latest/functions/openBlobCache.html),
+whose page lists the rules for its directory. Give each process its own
+directory, as [Blob cache](/components/application#blob-cache) says.
+
+Changed in 1.45.17: when a cache write fails, the Step, RPC, or Client call
+continues. The SDK logs the error with **console.warn** and uses the value it
+loaded from Dex.
+
 ## Readiness
 
 **waitPullRegistered** waits until the Worker's slot streams have registered with
