@@ -40,6 +40,7 @@ import {
 import { workerErrorResponse } from "../src/grpc-status.js";
 import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 import { PullWorker } from "../src/pull-worker.js";
+import { resolvePullSlotDefaults } from "../src/pull-slot-streams.js";
 import type { StepOutputEmitter } from "../src/invocation-context.js";
 import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
@@ -63,11 +64,30 @@ test("pull options reject invalid capacity and Worker IDs", async () => {
   await worker.close();
 });
 
+test("unset floor and reserve resolve from the ceiling and the CPU count", () => {
+  const cases: Array<[number, number | undefined, number | undefined, number, number, number]> = [
+    // ceiling, floor, reserve, CPU count, expected floor, expected reserve
+    [100, undefined, undefined, 8, 8, 1],
+    [100, undefined, undefined, 1, 2, 1],
+    [100, undefined, undefined, 128, 100, 1],
+    [4, undefined, undefined, 8, 4, 1],
+    [1, undefined, undefined, 8, 1, 0],
+    [100, undefined, 0, 1, 1, 0],
+    [100, undefined, 3, 2, 4, 3],
+    [100, 1, undefined, 8, 1, 0],
+    [100, 100, undefined, 8, 100, 1],
+  ];
+  for (const [ceiling, floor, reserve, cpuCount, expectedFloor, expectedReserve] of cases) {
+    assert.deepEqual(resolvePullSlotDefaults(ceiling, floor, reserve, cpuCount),
+      { minOpenSlots: expectedFloor, reservedRpcTasks: expectedReserve }, JSON.stringify([ceiling, floor, reserve, cpuCount]));
+  }
+});
+
 test("unset reserve defaults to one and a one-slot Worker warns once", async (context) => {
   const warning = context.mock.method(console, "warn", () => {});
   for (const maxConcurrentTasks of [1, 4]) {
     const harness = await startHarness();
-    const worker = harness.worker(async () => InvokeWorkerRPCResponse.create({}), { maxConcurrentTasks, reservedRpcTasks: undefined } as unknown as PullWorkerOptions);
+    const worker = harness.worker(async () => InvokeWorkerRPCResponse.create({}), { maxConcurrentTasks, minOpenSlots: maxConcurrentTasks, reservedRpcTasks: undefined } as unknown as PullWorkerOptions);
     try {
       assert.equal(Reflect.get(worker, "reservedRpcTasks"), maxConcurrentTasks === 1 ? 0 : 1);
       worker.start();
@@ -135,7 +155,7 @@ test("reserved execution slots register all Flow types, reuse streams, and never
     const worker = harness.worker(async () => {
       await gate;
       return InvokeWorkerRPCResponse.create({});
-    }, { maxConcurrentTasks: 3, reservedRpcTasks, idleStreamsPerQueue: 20 });
+    }, { maxConcurrentTasks: 3, minOpenSlots: 3, reservedRpcTasks, idleStreamsPerQueue: 20 });
     Reflect.set(worker, "flowTypes", ["TestFlow", "OtherFlow"]);
     const streams: CapturedStream[] = [];
     try {
@@ -786,7 +806,7 @@ test("close drains a task, then resets its stream and waits for a handler that i
 test("Worker start rejects a concurrency limit below its total slot count by half-closing without retrying", async () => {
   const harness = await startHarness();
   const worker = new Worker(new Registry([new TestFlow()]), {} as BlobCache, {
-    serverAddress: harness.address, pull: { maxConcurrentTasks: 3, reservedRpcTasks: 1 },
+    serverAddress: harness.address, pull: { maxConcurrentTasks: 3, minOpenSlots: 3, reservedRpcTasks: 1 },
   });
   const limitMessage = /maxConcurrentTasks 3 exceeds Server matching.maxConcurrentTasksCap 2/;
   try {
@@ -821,7 +841,7 @@ test("a lower concurrency limit after a reconnect warns and keeps the running Wo
   const harness = await startHarness();
   const warnings: unknown[][] = [];
   context.mock.method(console, "warn", (...values: unknown[]) => { warnings.push(values); });
-  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 2, reservedRpcTasks: 0 });
+  const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), { maxConcurrentTasks: 2, minOpenSlots: 2, reservedRpcTasks: 0 });
   try {
     worker.start();
     const first = await harness.nextStream();
@@ -845,7 +865,7 @@ test("Worker start and readiness settle when the Server permanently rejects ever
   context.mock.method(console, "error", () => {});
   const harness = await startHarness();
   const worker = new Worker(new Registry([new TestFlow()]), {} as BlobCache, {
-    serverAddress: harness.address, pull: { maxConcurrentTasks: 2, reservedRpcTasks: 0 },
+    serverAddress: harness.address, pull: { maxConcurrentTasks: 2, minOpenSlots: 2, reservedRpcTasks: 0 },
   });
   try {
     const startOutcome: { failure?: unknown } = {};
@@ -1427,7 +1447,7 @@ test("permanent rejection preserves readiness while another stream holds the que
   const harness = await startHarness();
   let rejectionCount = 0;
   const worker = harness.worker(async () => InvokeWorkerRPCResponse.create(), {
-    maxConcurrentTasks: 2, reservedRpcTasks: 0, idleStreamsPerQueue: 2, stopOnPermanentStreamRejection: true,
+    maxConcurrentTasks: 2, minOpenSlots: 2, reservedRpcTasks: 0, idleStreamsPerQueue: 2, stopOnPermanentStreamRejection: true,
   }, () => { rejectionCount++; });
   try {
     worker.start();

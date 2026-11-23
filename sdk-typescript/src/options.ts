@@ -1309,18 +1309,20 @@ export interface PullWorkerOptions {
   readonly stopOnPermanentStreamRejection?: boolean;
   /**
    * Number of execution slots, each represented by one long-lived poll stream.
-   * Zero or omission uses the logical CPU count. Negative values are invalid.
+   * Zero or omission uses 100. Negative values are invalid.
    * For a fixed Worker with this value set explicitly, Worker.start fails if it exceeds the Server
    * per-Worker limit, matching.maxConcurrentTasksCap.
    * Requires a nonnegative safe integer; construction throws RangeError otherwise.
    * Changed in SDK v1.35.0: this is also the exact stream count, and exceeding the cap fails startup.
    *
    * Changed in 1.45.7: this is the ceiling of the slot streams, including the RPC-only slots.
-   * A fixed Worker, whose `minOpenSlots` is unset or equal to this value, keeps this many streams
-   * open. An adaptive Worker, whose `minOpenSlots` is below it, opens streams up to it only while
-   * every open Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
-   * warning that names both values, instead of failing `Worker.start`:
-   * - a fixed Worker with this option unset, whose CPU-count default exceeds the cap;
+   * When unset, this value defaults to 100 and is clamped to the Server cap. An unset `minOpenSlots`
+   * defaults to `min(T, max(R + 1, CPU count))` after the clamp, where T is this resolved ceiling and
+   * R is the resolved `reservedRpcTasks`. The Worker is adaptive when that floor is below T; when
+   * the derived floor equals T, it is fixed and keeps T streams open. An adaptive Worker opens
+   * streams up to T only while every open Step-and-RPC stream is busy. Two cases clamp the value
+   * to the Server cap with a warning that names both values, instead of failing `Worker.start`:
+   * - a fixed Worker with this option unset, whose default of 100 exceeds the cap;
    * - an adaptive Worker, with this option set or unset.
    *
    * A fixed Worker with this option unset therefore opens one stream first, learns the cap from its
@@ -1330,18 +1332,31 @@ export interface PullWorkerOptions {
    * clamped value. In an adaptive Worker, a lower cap reported on a reconnect lowers its capacity:
    * it half-closes the surplus streams, RPC-only streams first, and keeps running. A fixed Worker
    * keeps the earlier behavior.
+   *
+   * Changed in 1.45.17: zero or omission uses 100 instead of the logical CPU count. The
+   * `minOpenSlots` default also changed, so a Worker with no options, or with only this option
+   * set, is adaptive. It holds about the CPU count of streams while idle and grows up to this
+   * value. The Server cap still applies: the Worker clamps an unset value, or any value in an
+   * adaptive Worker, to the cap with a warning that names both values. It then derives the
+   * `reservedRpcTasks` and `minOpenSlots` defaults from the clamped value. A Worker whose
+   * `minOpenSlots` default may drop with that clamp opens one stream first and opens the others
+   * after the first acknowledgement. To keep the earlier slot count, set this option to
+   * `os.availableParallelism()`. To keep every slot open, set `minOpenSlots` to the same value.
    */
   readonly maxConcurrentTasks?: number;
   /**
    * Fewest slot streams the Worker keeps open.
    *
    * It uses the same unit as `maxConcurrentTasks`, so it counts the reserved RPC-only slots too.
-   * Zero or omission, the default, uses the resolved `maxConcurrentTasks`: every slot keeps a
-   * stream, the Worker is fixed, and it behaves as earlier releases did. Negative values and
-   * non-integers are invalid.
+   * Zero or omission, the default, uses `min(maxConcurrentTasks, max(reservedRpcTasks + 1, cpuCount))`,
+   * where `cpuCount` is `os.availableParallelism()` and the other two are the resolved values.
+   * With more CPUs than slots, the default equals `maxConcurrentTasks`, and the Worker is fixed.
+   * Otherwise the Worker is adaptive and holds about the CPU count of streams while idle.
+   * Negative values and non-integers are invalid.
    *
    * A value below `maxConcurrentTasks` makes the Worker adaptive. Use it when idle Workers should
    * hold fewer Server streams, such as in a large fleet or with a high `maxConcurrentTasks`.
+   * A value equal to `maxConcurrentTasks` makes the Worker fixed: every slot keeps a stream.
    * An adaptive Worker:
    * - starts with `minOpenSlots - reservedRpcTasks` Step-and-RPC streams, and opens the RPC-only
    *   streams after the first registration;
@@ -1364,8 +1379,16 @@ export interface PullWorkerOptions {
    * `reservedRpcTasks + 1 <= minOpenSlots <= maxConcurrentTasks`, using the resolved values. When
    * `reservedRpcTasks` is unset, its default reserves one slot only when both `maxConcurrentTasks`
    * and `minOpenSlots` are at least two. `Worker.start` fails at the first registration when the
-   * Server cap lowers `maxConcurrentTasks` below `minOpenSlots`, or to `reservedRpcTasks` or less;
-   * the error names the values and the cap.
+   * Server cap lowers `maxConcurrentTasks` below an explicit `minOpenSlots`, or to an explicit
+   * `reservedRpcTasks` or less; the error names the values and the cap.
+   *
+   * Changed in 1.45.17: zero or omission uses `min(maxConcurrentTasks, max(reservedRpcTasks + 1, cpuCount))`
+   * instead of `maxConcurrentTasks`, so a Worker that leaves this option unset is adaptive unless
+   * it has at least as many CPUs as slots. When the Server cap clamps `maxConcurrentTasks`, this
+   * default comes from the clamped value. An adaptive Worker with this option unset therefore
+   * opens one Step-and-RPC stream first, and opens its other floor streams after the first
+   * acknowledgement. That adds one round trip to `Worker.start`. To keep the earlier fixed
+   * behavior, set this option equal to `maxConcurrentTasks`.
    *
    * @example
    * ```ts
@@ -1377,6 +1400,9 @@ export interface PullWorkerOptions {
    * } finally {
    *   await worker.close();
    * }
+   *
+   * // Fixed: all 64 slot streams stay open.
+   * const fixed = new Worker(registry, cache, { pull: { maxConcurrentTasks: 64, minOpenSlots: 64 } });
    * ```
    * @since 1.45.7
    */
@@ -1399,6 +1425,10 @@ export interface PullWorkerOptions {
    * Changed in 1.45.7: unset also reserves zero when `minOpenSlots` is 1, and start then warns
    * once that RPCs may wait behind Steps. The value must also leave one Step-and-RPC slot within
    * `minOpenSlots`.
+   * Changed in 1.45.17: the rule for an unset value is unchanged, but `maxConcurrentTasks` now
+   * defaults to 100, so a Worker with no options reserves one slot. When the Server cap clamps
+   * `maxConcurrentTasks`, the default comes from the clamped value: a cap of 1 reserves zero.
+   * An unset `minOpenSlots` then defaults to at least this value plus one.
    */
   readonly reservedRpcTasks?: number;
   /**

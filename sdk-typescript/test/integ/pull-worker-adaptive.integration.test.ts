@@ -145,7 +145,7 @@ test("adaptive Worker treats the node stream limit as a soft growth limit", { ti
   const scope = new TestScope(t);
   const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 20, maxStreams: 20 });
   const proxy = await PullSlotProxy.start(scope, server.address);
-  const fixed = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 14, appWorkerID: workerID("fixed-filler") },
+  const fixed = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 14, minOpenSlots: 14, appWorkerID: workerID("fixed-filler") },
     { shrinkWindowMs: HOUR_MS, isParkedOnly: true });
   await fixed.worker.waitPullRegistered({ timeoutMs: 60_000 });
   const handlers = new AdaptiveSlotHandlers();
@@ -247,25 +247,48 @@ test("adaptive Worker retries a soft-rejected floor stream at most once per wind
 // Design Test 14.
 test("a Server cap of one probes, clamps, or fails start as configured", { timeout: 300_000 }, async (t) => {
   const cpuCount = availableParallelism();
-  await t.test("fixed with an unset ceiling probes and clamps", async (subtest) => {
+  await t.test("fixed with an unset ceiling probes, clamps, and fails on its explicit floor", async (subtest) => {
     const scope = new TestScope(subtest);
     const warnings = captureConsole(subtest, "warn");
     const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 1 });
     const proxy = await PullSlotProxy.start(scope, server.address);
     const releaseAcknowledgements = proxy.holdAcknowledgements();
     const appWorkerID = workerID("fixed-probe");
-    const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), { appWorkerID }, { shrinkWindowMs: HOUR_MS });
+    const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), { minOpenSlots: 100, appWorkerID }, { shrinkWindowMs: HOUR_MS });
+    assert.equal(run.state().isAdaptive, false);
     // F4: only the probe stream registers before the first acknowledgement.
     await eventually(() => proxy.registersSince(appWorkerID, 0).length === 1, 10_000, () => "the probe stream did not register");
     await never(() => proxy.registersSince(appWorkerID, 0).length > 1, 300, "a stream registered before the probe's acknowledgement");
     releaseAcknowledgements();
+    assert.match(String(await run.awaitRunResult(30_000)), /minOpenSlots 100 exceeds the slot ceiling 1/);
+    assert.ok(hasMessage(warnings, "clamped maxConcurrentTasks 100, the default,", "1"), warnings.join("\n"));
+    assert.equal(proxy.registersSince(appWorkerID, 0).length, 1);
+  });
+  await t.test("every option unset clamps to one Step-and-RPC slot and no RPC-only slot", async (subtest) => {
+    const scope = new TestScope(subtest);
+    const warnings = captureConsole(subtest, "warn");
+    captureConsole(subtest, "info");
+    const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 1 });
+    const proxy = await PullSlotProxy.start(scope, server.address);
+    const releaseAcknowledgements = proxy.holdAcknowledgements();
+    const appWorkerID = workerID("default-one");
+    const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), { appWorkerID }, { shrinkWindowMs: HOUR_MS });
+    assert.equal(run.state().isAdaptive, cpuCount < 100);
+    // An unset floor may drop with the clamp, so only the probe stream registers before the first acknowledgement.
+    await eventually(() => proxy.registersSince(appWorkerID, 0).length === 1, 10_000, () => "the probe stream did not register");
+    await never(() => proxy.registersSince(appWorkerID, 0).length > 1, 300, "a stream registered before the probe's acknowledgement");
+    releaseAcknowledgements();
+    // T = 1, R = 0, and the floor is 1.
     await requireCapOfOneWorkerServes(server, proxy, run, appWorkerID);
-    if (cpuCount > 1) assert.ok(hasMessage(warnings, "clamped maxConcurrentTasks", `${cpuCount}`, "1"), warnings.join("\n"));
-    assert.equal(run.state().isAdaptive, false);
+    const state = run.state();
+    assert.equal(state.floor, 1);
+    assert.equal(state.effectiveCeiling, 1);
+    requireNoPermanentRegistrationError(run);
+    assert.ok(hasMessage(warnings, "clamped maxConcurrentTasks 100, the default,", "1"), warnings.join("\n"));
   });
   for (const configuredCeiling of [4, 0]) {
     await t.test(`adaptive floor of one with ceiling ${configuredCeiling}`, async (subtest) => {
-      const maxConcurrentTasks = configuredCeiling === 0 && cpuCount < 2 ? 2 : configuredCeiling;
+      const maxConcurrentTasks = configuredCeiling;
       const scope = new TestScope(subtest);
       const warnings = captureConsole(subtest, "warn");
       const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 1 });
@@ -279,7 +302,7 @@ test("a Server cap of one probes, clamps, or fails start as configured", { timeo
     });
   }
   const optionsByMode: Record<string, PullWorkerOptions> = {
-    fixed: cpuCount < 2 ? { maxConcurrentTasks: 2, minOpenSlots: 2, reservedRpcTasks: 1 } : { reservedRpcTasks: 1 },
+    fixed: { minOpenSlots: 100, reservedRpcTasks: 1 },
     adaptive: { maxConcurrentTasks: 4, minOpenSlots: 2, reservedRpcTasks: 1 },
   };
   for (const [mode, options] of Object.entries(optionsByMode)) {
@@ -288,11 +311,8 @@ test("a Server cap of one probes, clamps, or fails start as configured", { timeo
       captureConsole(subtest, "warn");
       const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 1 });
       const run = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { ...options, appWorkerID: workerID("reserved-one") }, { shrinkWindowMs: HOUR_MS });
+      assert.equal(run.state().isAdaptive, mode === "adaptive");
       const message = String(await run.awaitRunResult(30_000));
-      if (mode === "fixed" && options.maxConcurrentTasks === 2) {
-        assert.match(message, /maxConcurrentTasks 2 exceeds Server matching.maxConcurrentTasksCap 1/);
-        return;
-      }
       assert.match(message, /reservedRpcTasks 1 must be less than the slot ceiling 1/);
       assert.match(message, /matching.maxConcurrentTasksCap 1/);
     });
@@ -300,8 +320,59 @@ test("a Server cap of one probes, clamps, or fails start as configured", { timeo
   await t.test("fixed with an explicit ceiling above the cap fails start", async (subtest) => {
     const scope = new TestScope(subtest);
     const server = await AdaptiveSlotTestServer.start(scope, { maxConcurrentTasksCap: 1 });
-    const run = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 2, appWorkerID: workerID("fixed-two") }, { shrinkWindowMs: HOUR_MS });
+    const run = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 2, minOpenSlots: 2, appWorkerID: workerID("fixed-two") }, { shrinkWindowMs: HOUR_MS });
     assert.match(String(await run.awaitRunResult(30_000)), /maxConcurrentTasks 2 exceeds Server matching.maxConcurrentTasksCap 1/);
+  });
+});
+
+// Phase 2 defaults: a ceiling of 100 and a floor of min(T, max(R + 1, CPU count)), derived after any clamp.
+test("unset floor and ceiling resolve to the phase 2 defaults", { timeout: 300_000 }, async (t) => {
+  const cpuCount = availableParallelism();
+  const cases: ReadonlyArray<{ name: string; options: PullWorkerOptions; cap?: number; ceiling: number; isClamped: boolean }> = [
+    { name: "no options", options: {}, ceiling: 100, isClamped: false },
+    { name: "ceiling only", options: { maxConcurrentTasks: 40 }, ceiling: 40, isClamped: false },
+    { name: "a cap below 100 with an unset ceiling", options: {}, cap: 12, ceiling: 12, isClamped: true },
+  ];
+  for (const testCase of cases) {
+    await t.test(testCase.name, async (subtest) => {
+      const scope = new TestScope(subtest);
+      const warnings = captureConsole(subtest, "warn");
+      captureConsole(subtest, "info");
+      const server = await AdaptiveSlotTestServer.start(scope, testCase.cap === undefined ? {} : { maxConcurrentTasksCap: testCase.cap });
+      const proxy = await PullSlotProxy.start(scope, server.address);
+      const appWorkerID = workerID("defaults");
+      const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), { ...testCase.options, appWorkerID }, { shrinkWindowMs: HOUR_MS });
+      await run.worker.waitPullRegistered({ timeoutMs: 60_000 });
+      const reserved = testCase.ceiling >= 2 ? 1 : 0;
+      const floor = Math.min(testCase.ceiling, Math.max(reserved + 1, cpuCount));
+      const unclampedFloor = Math.min(100, Math.max(reserved + 1, cpuCount));
+      const isAdaptive = testCase.isClamped ? unclampedFloor < 100 : floor < testCase.ceiling;
+      await requireSlotState(run, "the default slot counts", (state) => state.registering === 0 && state.open === floor - reserved
+        && state.rpcOnlyOpen === reserved);
+      await requireRegisteredStreams(proxy, appWorkerID, floor - reserved, reserved);
+      const state = run.state();
+      assert.equal(state.isAdaptive, isAdaptive);
+      assert.equal(state.totalCapacity, testCase.ceiling);
+      assert.equal(state.effectiveCeiling, testCase.ceiling - reserved);
+      assert.equal(state.floor, floor - reserved);
+      assert.equal(state.rpcOnlySlots, reserved);
+      requireNoPermanentRegistrationError(run);
+      assert.equal(hasMessage(warnings, "clamped maxConcurrentTasks 100, the default,", `${testCase.cap}`), testCase.isClamped, warnings.join("\n"));
+    });
+  }
+  await t.test("floor equal to the ceiling stays fixed", async (subtest) => {
+    const scope = new TestScope(subtest);
+    const server = await AdaptiveSlotTestServer.start(scope);
+    const proxy = await PullSlotProxy.start(scope, server.address);
+    const appWorkerID = workerID("defaults-fixed");
+    const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 6, minOpenSlots: 6, appWorkerID }, { shrinkWindowMs: HOUR_MS });
+    await run.worker.waitPullRegistered({ timeoutMs: 60_000 });
+    await requireRegisteredStreams(proxy, appWorkerID, 5, 1);
+    const state = run.state();
+    assert.equal(state.isAdaptive, false);
+    assert.equal(state.open, 5);
+    assert.equal(state.floor, 5);
+    assert.equal(state.effectiveCeiling, 5);
   });
 });
 
@@ -330,7 +401,7 @@ test("a ceiling above the Server cap clamps in adaptive mode and fails in fixed 
   await t.test("fixed fails start", async (subtest) => {
     const scope = new TestScope(subtest);
     const server = await AdaptiveSlotTestServer.start(scope);
-    const run = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 300, appWorkerID: workerID("fixed-300") }, { shrinkWindowMs: HOUR_MS });
+    const run = startAdaptiveSlotWorker(scope, server.address, new AdaptiveSlotHandlers(), { maxConcurrentTasks: 300, minOpenSlots: 300, appWorkerID: workerID("fixed-300") }, { shrinkWindowMs: HOUR_MS });
     assert.match(String(await run.awaitRunResult(30_000)), /maxConcurrentTasks 300 exceeds Server matching.maxConcurrentTasksCap 256/);
   });
 });
@@ -385,7 +456,7 @@ test("fixed Worker keeps the permanent rejection after the cap drops to one", { 
       const proxy = await PullSlotProxy.start(scope, server.address);
       const appWorkerID = workerID("fixed-drop");
       const run = startAdaptiveSlotWorker(scope, proxy.address, new AdaptiveSlotHandlers(), {
-        maxConcurrentTasks: 4, appWorkerID, stopOnPermanentStreamRejection: shouldStop,
+        maxConcurrentTasks: 4, minOpenSlots: 4, appWorkerID, stopOnPermanentStreamRejection: shouldStop,
       }, { shrinkWindowMs: 1_000 });
       await run.worker.waitPullRegistered({ timeoutMs: 60_000 });
       await requireRegisteredStreams(proxy, appWorkerID, 3, 1);
@@ -564,7 +635,7 @@ test("fixed Worker keeps parallel startup and a constant stream count", { timeou
   const releaseAcknowledgements = proxy.holdAcknowledgements();
   const handlers = new AdaptiveSlotHandlers();
   const appWorkerID = workerID("fixed-parallel");
-  const run = startAdaptiveSlotWorker(scope, proxy.address, handlers, { maxConcurrentTasks: 4, appWorkerID }, { shrinkWindowMs: 1_000 });
+  const run = startAdaptiveSlotWorker(scope, proxy.address, handlers, { maxConcurrentTasks: 4, minOpenSlots: 4, appWorkerID }, { shrinkWindowMs: 1_000 });
   // Test 16: every stream opens before the first acknowledgement arrives.
   await eventually(() => proxy.registersSince(appWorkerID, 0).length === 4, 10_000, () => proxy.describe(appWorkerID));
   releaseAcknowledgements();
@@ -766,7 +837,7 @@ test("adaptive Worker drains a graceful stop during growth without spending retr
   handlers.release();
   await stopping;
   assert.equal(await run.awaitRunResult(10_000), undefined);
-  const replacement = startAdaptiveSlotWorker(scope, server.address, handlers, { maxConcurrentTasks: 8, appWorkerID: workerID("fixed-replacement") }, { shrinkWindowMs: HOUR_MS });
+  const replacement = startAdaptiveSlotWorker(scope, server.address, handlers, { maxConcurrentTasks: 8, minOpenSlots: 8, appWorkerID: workerID("fixed-replacement") }, { shrinkWindowMs: HOUR_MS });
   await replacement.worker.waitPullRegistered({ timeoutMs: 60_000 });
   await requireFlowsCompleted(client, flowIds);
   for (const entry of handlers.drainEntries()) assert.equal(entry.attempt, 1, `a Step spent a retry: ${JSON.stringify(entry)}`);
@@ -777,7 +848,7 @@ test("adaptive Worker takes over the load of a fixed Worker that leaves", { time
   const scope = new TestScope(t);
   const server = await AdaptiveSlotTestServer.start(scope);
   const handlers = new AdaptiveSlotHandlers();
-  const fixed = startAdaptiveSlotWorker(scope, server.address, handlers, { maxConcurrentTasks: 4, appWorkerID: workerID("fixed-fleet") }, { shrinkWindowMs: HOUR_MS });
+  const fixed = startAdaptiveSlotWorker(scope, server.address, handlers, { maxConcurrentTasks: 4, minOpenSlots: 4, appWorkerID: workerID("fixed-fleet") }, { shrinkWindowMs: HOUR_MS });
   const adaptive = startAdaptiveSlotWorker(scope, server.address, handlers, { maxConcurrentTasks: 16, minOpenSlots: 2, appWorkerID: workerID("adaptive-fleet") }, { shrinkWindowMs: 1_000 });
   await fixed.worker.waitPullRegistered({ timeoutMs: 60_000 });
   await adaptive.worker.waitPullRegistered({ timeoutMs: 60_000 });
