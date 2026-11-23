@@ -19,9 +19,36 @@ from dex.flow_service_tls_options import FlowServiceTlsOptions
 from dex.payload_encryption import PayloadEncryptionOptions
 
 
+_DEFAULT_MAX_CONCURRENT_TASKS = 100
+
+
 def _default_reserved_rpc_tasks(max_concurrent_tasks: int, min_open_slots: int) -> int:
     # One RPC-only slot only when the ceiling and the floor both leave room for it.
     return int(max_concurrent_tasks >= 2 and min_open_slots >= 2)
+
+
+def _resolve_open_slot_floor_and_reserve(
+    max_concurrent_tasks: int,
+    min_open_slots: int,
+    reserved_rpc_tasks: int | None,
+    cpu_count: int,
+) -> tuple[int, int]:
+    """Resolve unset floor and reserve defaults from the resolved ceiling, without a cycle.
+
+    Returns:
+        The resolved ``(min_open_slots, reserved_rpc_tasks)``. An explicit
+        value is returned unchanged, even when it does not fit
+        ``max_concurrent_tasks``.
+    """
+    # The candidate is the default floor with one reserved slot, so R is 1 exactly when T >= 2.
+    floor_candidate = min_open_slots or min(max_concurrent_tasks, max(2, cpu_count))
+    reserve = (
+        reserved_rpc_tasks
+        if reserved_rpc_tasks is not None
+        else _default_reserved_rpc_tasks(max_concurrent_tasks, floor_candidate)
+    )
+    floor = min_open_slots or min(max_concurrent_tasks, max(reserve + 1, cpu_count))
+    return floor, reserve
 
 
 @dataclass(frozen=True)
@@ -54,12 +81,38 @@ class PullWorkerOptions:
        ``max_concurrent_tasks`` the Worker is fixed and keeps every slot open,
        as before.
 
+    .. versionchanged:: 1.45.18
+       Workers are adaptive by default. ``max_concurrent_tasks`` defaults to
+       100 instead of the CPU count, and ``min_open_slots`` defaults to about
+       the CPU count instead of ``max_concurrent_tasks``. Set
+       ``min_open_slots`` equal to ``max_concurrent_tasks`` to keep a fixed
+       Worker. Set ``max_concurrent_tasks`` to the CPU count to keep the
+       earlier default slot count.
+
     Attributes:
         max_concurrent_tasks: The most tasks the Worker runs at once, including
             the reserved RPC slots. Each running task holds one long-lived poll
-            stream. Zero uses the CPU count. Negative values are invalid. Start
-            fails if an explicit value of a fixed Worker exceeds the Server's
-            nonzero per-Worker limit reported by matching.maxConcurrentTasksCap.
+            stream. Zero, the default, uses 100. Negative values are invalid.
+            With the default ``min_open_slots`` the Worker is adaptive: it
+            keeps about the CPU count of streams open while idle and opens
+            more, up to this value, under load. Start fails if an explicit
+            value of a fixed Worker exceeds the Server's nonzero per-Worker
+            limit reported by matching.maxConcurrentTasksCap. Any other value
+            above that limit, including the default, is clamped to the limit
+            at the first registration with a WARNING log that names both
+            values, and the ``min_open_slots`` and ``reserved_rpc_tasks``
+            defaults then come from the clamped value. To learn the cap
+            first, a Worker opens one stream before the others when it is
+            fixed with this option unset, or adaptive with
+            ``min_open_slots`` unset.
+
+            .. versionchanged:: 1.45.18
+               Zero uses 100 instead of the CPU count. Because the
+               ``min_open_slots`` default changed too, a Worker that sets only
+               this option is now adaptive when the value is above about the
+               CPU count. Set ``min_open_slots`` to the same value to keep the
+               Worker fixed, or set this option to the CPU count to keep the
+               earlier default slot count.
 
             .. versionchanged:: 1.45.7
                This is the ceiling of the slot streams. A fixed Worker, whose
@@ -91,6 +144,15 @@ class PullWorkerOptions:
             .. versionchanged:: 1.45.7
                None also reserves zero when ``min_open_slots`` is 1, and start
                then warns that RPCs may wait behind long-running Steps.
+
+            .. versionchanged:: 1.45.18
+               The resolved task limit defaults to 100, so None reserves one
+               slot for a Worker that sets no options, and the default
+               ``min_open_slots`` leaves room for it. With
+               ``min_open_slots`` unset, None reserves one slot exactly when
+               the resolved task limit is at least two. When the Server cap
+               clamps the task limit, None is derived again from the clamped
+               value, so a cap of 1 reserves zero.
         idle_streams_per_queue: Deprecated; accepted for source compatibility and
             has no effect. ``max_concurrent_tasks`` and ``min_open_slots``
             determine the number of slot streams. Zero remains valid; negative
@@ -141,16 +203,30 @@ class PullWorkerOptions:
             .. versionadded:: 1.45.1
         min_open_slots: The fewest slot streams the Worker keeps open. It uses
             the same unit as ``max_concurrent_tasks``, so it counts the reserved
-            RPC-only slots too. Zero, the default, uses the resolved
-            ``max_concurrent_tasks``: every slot keeps a stream, the Worker is
-            fixed, and it behaves as earlier releases did. Negative values are
+            RPC-only slots too. Zero, the default, uses
+            ``min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))``
+            with the resolved values. The Worker resolves
+            ``max_concurrent_tasks`` first, then ``reserved_rpc_tasks`` against
+            that default floor, and then the floor itself. With every option
+            unset, on a machine with at least two CPUs, the Worker therefore
+            keeps the CPU count of streams open while idle, one of them
+            reserved for RPCs, and grows up to 100. Negative values are
             invalid.
 
             A value below ``max_concurrent_tasks`` makes the Worker adaptive.
-            Use it when idle Workers should hold fewer Server streams, such as a
-            large fleet or a high ``max_concurrent_tasks``. An adaptive Worker
+            Set it equal to ``max_concurrent_tasks`` to keep a fixed Worker:
+            every slot keeps a stream, as in earlier releases. A lower value
+            holds fewer Server streams while idle, such as for a large fleet or
+            a high ``max_concurrent_tasks``. An adaptive Worker
             starts with ``min_open_slots - reserved_rpc_tasks`` Step-and-RPC
             streams and opens the RPC-only streams after the first registration.
+            When ``min_open_slots`` is unset, the Worker first opens one
+            Step-and-RPC stream, learns the Server cap from its registration,
+            derives the floor and the reserve from the clamped ceiling, and
+            then opens the other streams. This adds one round trip to start
+            and keeps a cap below the default floor from rejecting streams.
+            With an explicit ``min_open_slots`` it opens the floor streams at
+            once.
             When a task takes its last idle Step-and-RPC stream, it doubles its
             Step-and-RPC streams, one batch at a time, up to
             ``max_concurrent_tasks``. Every 30 seconds it half-closes half of
@@ -179,12 +255,24 @@ class PullWorkerOptions:
             ``reserved_rpc_tasks + 1 <= min_open_slots <= max_concurrent_tasks``
             with the resolved values. When ``reserved_rpc_tasks`` is None, its
             default reserves one slot only when both ``max_concurrent_tasks``
-            and ``min_open_slots`` are at least two. Start fails at the first
+            and ``min_open_slots`` are at least two. When the Server cap clamps
+            ``max_concurrent_tasks``, an unset ``min_open_slots`` is derived
+            again from the clamped value. Start fails at the first
             registration when the Server cap lowers ``max_concurrent_tasks``
-            below ``min_open_slots`` or to ``reserved_rpc_tasks`` or less; the
-            error names the values and the cap.
+            below an explicit ``min_open_slots`` or to an explicit
+            ``reserved_rpc_tasks`` or less; the error names the values and the
+            cap.
 
             .. versionadded:: 1.45.7
+
+            .. versionchanged:: 1.45.18
+               Zero uses
+               ``min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))``
+               instead of ``max_concurrent_tasks``, so a Worker is adaptive by
+               default. Set this option equal to ``max_concurrent_tasks`` to
+               keep the earlier fixed behavior. An adaptive Worker with this
+               option unset opens one stream first and the other floor
+               streams after the first registration.
 
     Raises:
         ValueError: If a numeric option is negative, the reserve reaches the task
@@ -203,6 +291,9 @@ class PullWorkerOptions:
         >>> # Between 8 and 64 slot streams, one of them reserved for RPCs.
         >>> adaptive = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=8)
         >>> adaptive_worker = Worker(registry, cache, WorkerOptions(pull=adaptive))
+        >>> # Fixed: all 64 slot streams stay open.
+        >>> fixed = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=64)
+        >>> fixed_worker = Worker(registry, cache, WorkerOptions(pull=fixed))
     """
 
     max_concurrent_tasks: int = 0
@@ -224,11 +315,10 @@ class PullWorkerOptions:
             raise ValueError("max_concurrent_tasks must not be negative")
         if self.min_open_slots < 0:
             raise ValueError("min_open_slots must not be negative")
-        task_limit = self.max_concurrent_tasks or os.cpu_count() or 1
-        open_slot_floor = self.min_open_slots or task_limit
-        if open_slot_floor > task_limit:
+        task_limit = self.max_concurrent_tasks or _DEFAULT_MAX_CONCURRENT_TASKS
+        if self.min_open_slots > task_limit:
             raise ValueError(
-                f"min_open_slots {open_slot_floor} must not exceed "
+                f"min_open_slots {self.min_open_slots} must not exceed "
                 f"max_concurrent_tasks {task_limit}"
             )
         if self.reserved_rpc_tasks is not None and (
@@ -237,10 +327,11 @@ class PullWorkerOptions:
             raise ValueError(
                 "reserved_rpc_tasks must be nonnegative and less than max_concurrent_tasks"
             )
-        reserved_rpc_tasks = (
-            self.reserved_rpc_tasks
-            if self.reserved_rpc_tasks is not None
-            else _default_reserved_rpc_tasks(task_limit, open_slot_floor)
+        open_slot_floor, reserved_rpc_tasks = _resolve_open_slot_floor_and_reserve(
+            task_limit,
+            self.min_open_slots,
+            self.reserved_rpc_tasks,
+            os.cpu_count() or 1,
         )
         if reserved_rpc_tasks + 1 > open_slot_floor:
             raise ValueError(

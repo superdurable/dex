@@ -215,31 +215,41 @@ finally:
     worker_thread.join()
 ```
 
-By default the Worker is fixed: it opens exactly `max_concurrent_tasks`
-long-lived streams. Each stream is one execution slot serving the sticky queue
-and every registered Flow type. Flow type names must be unique within a Dex
-server. Concurrency defaults to the CPU count. Start fails if an explicit
-`max_concurrent_tasks` exceeds the Server's reported
-`matching.maxConcurrentTasksCap`; zero means no limit was reported. With
-`max_concurrent_tasks` unset, the Worker opens one stream first and clamps its
-CPU-count default to the cap with a warning. The Worker checks the limit on
-its first registration only. After a failed check it half-closes its streams,
-drops any task they receive, and never reports readiness; registration waiters
-raise the limit error. A lower limit reported on a later reconnect is logged as
-a warning, and the Worker keeps running.
+Each slot stream is one long-lived execution slot serving the sticky queue and
+every registered Flow type. Flow type names must be unique within a Dex server.
+By default the Worker is adaptive. `max_concurrent_tasks`, the ceiling,
+defaults to 100. `min_open_slots`, the floor, defaults to
+`min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))`. Both count
+the reserved RPC slots. On a machine with at least two CPUs, an idle Worker
+with no options set therefore holds the CPU count of streams and grows up to
+100 under load. It doubles its Step-and-RPC streams when a task takes the last
+idle one and half-closes half of the idle surplus every 30 seconds. A Worker
+that sets only `max_concurrent_tasks` is adaptive too.
+`worker.pull_slot_stream_state()` returns a snapshot of the open, busy, and
+idle streams.
 
-Set `min_open_slots` below `max_concurrent_tasks` to make the Worker adaptive.
-It then keeps between `min_open_slots` and `max_concurrent_tasks` slot streams
-open, both counting the reserved RPC slots, so an idle Worker holds fewer
-Server streams. It doubles its Step-and-RPC streams when a task takes the last
-idle one and half-closes half of the idle surplus every 30 seconds. An adaptive
-Worker clamps `max_concurrent_tasks` to the Server cap with a warning instead
-of failing start. `worker.pull_slot_stream_state()` returns a snapshot of the
-open, busy, and idle streams.
+Set `min_open_slots` equal to `max_concurrent_tasks` to keep a fixed Worker. A
+fixed Worker opens exactly `max_concurrent_tasks` streams and keeps them open.
+Set `max_concurrent_tasks` to the CPU count to keep the slot count of releases
+before 1.45.18.
+
+The Server reports its per-Worker limit, `matching.maxConcurrentTasksCap`, on
+the first registration; zero means no limit. A ceiling above that limit is
+clamped to it with a warning that names both values, and the unset floor and
+RPC reserve are derived again from the clamped ceiling. The exception is an
+explicit `max_concurrent_tasks` of a fixed Worker: start then fails. A fixed
+Worker with `max_concurrent_tasks` unset, or an adaptive Worker with
+`min_open_slots` unset, opens one stream first to learn the limit and opens the
+others after its registration. After a failed check the Worker half-closes its streams, drops any task
+they receive, and never reports readiness; registration waiters raise the limit
+error. When a fixed Worker learns a lower limit on a later reconnect, it logs a
+warning and keeps running.
 
 ```python
 # Between 8 and 64 slot streams, one of them reserved for RPCs.
 pull = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=8)
+# Fixed: all 64 slot streams stay open.
+fixed = PullWorkerOptions(max_concurrent_tasks=64, min_open_slots=64)
 ```
 `idle_streams_per_queue` is deprecated, remains accepted, and has no effect.
 Each slot executes every task it receives and never rejects a task for capacity.
@@ -327,13 +337,12 @@ prevents shutdown. The default is False and retries indefinitely. Always call
 
 Set `reserved_rpc_tasks` when synchronous RPC latency must stay responsive
 behind long-running Steps. When unset, it reserves one slot if the resolved task
-limit is at least two, otherwise zero. With the CPU-count default, Steps get one
-fewer slot than before. Set it explicitly to zero to opt out. With one slot and
+limit is at least two, otherwise zero. Set it explicitly to zero to opt out. With one slot and
 no explicit reserve, Worker start logs one warning: RPCs may wait behind
 long-running Steps; use a limit of at least two or set the reserve explicitly.
 Flows must stay responsive because RPCs share Worker task capacity with Steps.
 The value must be nonnegative and less than `max_concurrent_tasks` after its
-CPU-count default is resolved; invalid values fail construction. RPC and Step
+default of 100 is resolved; invalid values fail construction. RPC and Step
 handlers count together. Reserved slots register as `RPC_ONLY`; the remaining
 slots register as `STEP_AND_RPC`. The Server assigns Steps only to the latter.
 The Worker never declines a Step for capacity.

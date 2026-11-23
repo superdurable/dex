@@ -21,7 +21,11 @@ import grpc
 
 from dex.dexpb import dex_pb2 as pb
 from dex.pull_registration import PullSlotStreamState
-from dex.worker_options import PullWorkerOptions, _default_reserved_rpc_tasks
+from dex.worker_options import (
+    _DEFAULT_MAX_CONCURRENT_TASKS,
+    PullWorkerOptions,
+    _resolve_open_slot_floor_and_reserve,
+)
 
 if TYPE_CHECKING:
     from dex._pull_worker import PullStream, PullWorkerRuntime
@@ -95,15 +99,15 @@ class PullSlotStreams:
         self.lock = threading.Lock()
         self.settings = _PullSlotSettings()
         configured_max_concurrent_tasks = (
-            options.max_concurrent_tasks or os.cpu_count() or 1
+            options.max_concurrent_tasks or _DEFAULT_MAX_CONCURRENT_TASKS
         )
-        min_open_slots = options.min_open_slots or configured_max_concurrent_tasks
-        reserved_rpc_tasks = (
-            options.reserved_rpc_tasks
-            if options.reserved_rpc_tasks is not None
-            else _default_reserved_rpc_tasks(
-                configured_max_concurrent_tasks, min_open_slots
-            )
+        # The clamp at the first acknowledgement derives the defaults again with this count.
+        self._cpu_count = os.cpu_count() or 1
+        min_open_slots, reserved_rpc_tasks = _resolve_open_slot_floor_and_reserve(
+            configured_max_concurrent_tasks,
+            options.min_open_slots,
+            options.reserved_rpc_tasks,
+            self._cpu_count,
         )
         self.configured_max_concurrent_tasks = configured_max_concurrent_tasks
         self.max_concurrent_tasks = configured_max_concurrent_tasks
@@ -226,13 +230,11 @@ class PullSlotStreams:
                     "is_max_concurrent_tasks_explicit": self.is_max_concurrent_tasks_explicit,
                 },
             )
-        min_open_slots = (
-            self.min_open_slots if self.is_min_open_slots_explicit else ceiling
-        )
-        reserved_rpc_tasks = (
-            self.reserved_rpc_tasks
-            if self.is_reserved_rpc_tasks_explicit
-            else _default_reserved_rpc_tasks(ceiling, min_open_slots)
+        min_open_slots, reserved_rpc_tasks = _resolve_open_slot_floor_and_reserve(
+            ceiling,
+            self.min_open_slots if self.is_min_open_slots_explicit else 0,
+            self.reserved_rpc_tasks if self.is_reserved_rpc_tasks_explicit else None,
+            self._cpu_count,
         )
         if reserved_rpc_tasks >= ceiling:
             return (
@@ -904,12 +906,12 @@ class PullSlotStreams:
         return newest
 
     def _is_cap_probe_pending_locked(self) -> bool:
-        # F4: a fixed Worker with an unset ceiling opens one stream until the first acknowledgement.
-        return (
-            not self.is_adaptive
-            and not self.is_max_concurrent_tasks_explicit
-            and not self.has_checked_registration_limit
-        )
+        # One stream until the first acknowledgement: F4, or an adaptive Worker whose floor follows the cap.
+        if self.has_checked_registration_limit:
+            return False
+        if self.is_adaptive:
+            return not self.is_min_open_slots_explicit
+        return not self.is_max_concurrent_tasks_explicit
 
     def _step_slot_open_locked(self) -> int:
         # S.

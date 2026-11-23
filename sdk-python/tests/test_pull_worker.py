@@ -100,32 +100,77 @@ def test_pull_options_validate_capacity() -> None:
 
 
 @pytest.mark.parametrize(
-    ("max_concurrent_tasks", "min_open_slots", "reserved_rpc_tasks", "is_adaptive"),
-    [(8, 0, 1, False), (8, 8, 1, False), (8, 2, 1, True), (8, 1, 0, True)],
+    (
+        "max_concurrent_tasks",
+        "min_open_slots",
+        "reserved_rpc_tasks_option",
+        "cpu_count",
+        "ceiling",
+        "reserved_rpc_tasks",
+        "open_slot_floor",
+        "is_adaptive",
+    ),
+    [
+        # Every option unset: ceiling 100, floor min(100, max(R + 1, CPU count)).
+        (0, 0, None, 8, 100, 1, 8, True),
+        (0, 0, None, 2, 100, 1, 2, True),
+        (0, 0, None, 1, 100, 1, 2, True),
+        (0, 0, None, 128, 100, 1, 100, False),
+        # Only the ceiling set: adaptive above the derived floor.
+        (64, 0, None, 8, 64, 1, 8, True),
+        (8, 0, None, 4, 8, 1, 4, True),
+        (8, 0, None, 8, 8, 1, 8, False),
+        (2, 0, None, 1, 2, 1, 2, False),
+        (1, 0, None, 8, 1, 0, 1, False),
+        # An explicit reserve raises the default floor to R + 1.
+        (0, 0, 5, 4, 100, 5, 6, True),
+        (0, 0, 0, 8, 100, 0, 8, True),
+        # An explicit floor.
+        (8, 8, None, 4, 8, 1, 8, False),
+        (0, 100, None, 8, 100, 1, 100, False),
+        (8, 2, None, 4, 8, 1, 2, True),
+        (8, 1, None, 4, 8, 0, 1, True),
+    ],
 )
 def test_min_open_slots_resolves_mode_and_reserve(
     max_concurrent_tasks: int,
     min_open_slots: int,
+    reserved_rpc_tasks_option: int | None,
+    cpu_count: int,
+    ceiling: int,
     reserved_rpc_tasks: int,
+    open_slot_floor: int,
     is_adaptive: bool,
 ) -> None:
-    runtime = PullWorkerRuntime(
-        Registry([]),
-        None,
-        PullWorkerOptions(
-            max_concurrent_tasks=max_concurrent_tasks, min_open_slots=min_open_slots
-        ),
-        "localhost:8801",
-        None,
-    )
+    with patch("os.cpu_count", return_value=cpu_count):
+        runtime = PullWorkerRuntime(
+            Registry([]),
+            None,
+            PullWorkerOptions(
+                max_concurrent_tasks=max_concurrent_tasks,
+                min_open_slots=min_open_slots,
+                reserved_rpc_tasks=reserved_rpc_tasks_option,
+            ),
+            "localhost:8801",
+            None,
+        )
     state = runtime.slot_stream_state()
+    assert runtime.max_concurrent_tasks == ceiling
     assert runtime.reserved_rpc_tasks == reserved_rpc_tasks
     assert state.is_adaptive is is_adaptive
-    assert state.total_capacity == max_concurrent_tasks
+    assert state.total_capacity == ceiling
     assert state.rpc_only_slots == reserved_rpc_tasks
-    assert state.effective_ceiling == max_concurrent_tasks - reserved_rpc_tasks
-    assert state.floor == (min_open_slots or max_concurrent_tasks) - reserved_rpc_tasks
+    assert state.effective_ceiling == ceiling - reserved_rpc_tasks
+    assert state.floor == open_slot_floor - reserved_rpc_tasks
     assert (state.open, state.busy, state.idle, state.registering) == (0, 0, 0, 0)
+
+
+def test_unset_ceiling_accepts_a_floor_above_the_cpu_count() -> None:
+    with patch("os.cpu_count", return_value=2):
+        options = PullWorkerOptions(min_open_slots=64)
+    assert options.min_open_slots == 64
+    with pytest.raises(ValueError, match="must not exceed max_concurrent_tasks 100"):
+        PullWorkerOptions(min_open_slots=101)
 
 
 @pytest.mark.parametrize("client_type", [Client, AsyncClient])
