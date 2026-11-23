@@ -330,9 +330,12 @@ const flow = createClaudeAgentSessionFlow(
 - A custom tool that the turn already called but a deploy renamed or removed is served the same way,
   replay-only, when a Worker resumes the turn. The resumed CLI receives the call's recorded result, or
   `outcome_unknown` for a single-attempt call that was in flight. An `idempotent_write` retried on such
-  a Worker cannot run the gone tool, so its record becomes `outcome_unknown`. A new call of that tool is
-  denied ("this agent does not offer this tool now"), and the next model call sees only the new tool
-  list.
+  a Worker cannot run the gone tool, so its record becomes `outcome_unknown`. Two cases keep the record
+  `succeeded`, with the approved placeholder as output: a call that needed approval, whose tool Step
+  cannot tell it from a Claude Code tool, and a call whose first tool Step attempt runs on such a
+  Worker. The resumed CLI still receives `outcome_unknown` for both, and the turn writes
+  `tool_call_finished` with that status. A new call of that tool is denied ("this agent does not offer
+  this tool now"), and the next model call sees only the new tool list.
 
 ## Images
 
