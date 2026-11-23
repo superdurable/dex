@@ -57,14 +57,12 @@ does not have:
 - **Dex Web Actions.** The Rust SDK cannot declare an Action on an RPC, so Dex
   Web shows no **Approve refund** or **Reject refund** button. Approve or
   reject with the `decide` command instead.
-- **The design graph.** `dexcli visualize` generates a design from Go, Python,
-  and TypeScript sources, not from Rust. This example uses `dex-sdk` 1.44.0,
-  which has no design upload, so the run has no **Design** graph in Dex Web.
-  Since 1.45.0 the Rust SDK can upload an existing Flow Definition Graph 2.x
-  JSON file from the Worker (`WorkerOptions::flow_definition_paths` or
-  `flow_definitions`) or the Client. `dexcli dev -flow-rendering-dir` also lets
-  Dex Web read existing graph files. History, State, and Time Travel work as
-  usual.
+- **The design graph.** `dexcli visualize` can generate a design from a Rust
+  Flow whose Steps have `// dex:group` and `// dex:explanation` comments. Rust
+  SDK 1.45.0 adds `WorkerOptions::flow_definition_paths` for uploading existing
+  design JSON at Worker startup. This example pins `dex-sdk` 1.44.0, which has
+  no design upload. The run's **Design** view is empty unless a definition is
+  supplied separately, for example with `dexcli dev --flow-rendering-dir`.
 - **Payload encryption.** The Rust SDK has no payload codec, so this example
   stores Flow values unencrypted.
 

@@ -6,7 +6,7 @@ description: "dexcli visualize turns one Go, Python, TypeScript, Java, or Rust F
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go, Python, TypeScript, Java, or Rust Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
+`dexcli visualize` turns one Flow source file into a static Flow Definition Graph. The graph shows the paths the analyzer can determine from the source. It supports Go, Python, and TypeScript. **Since 1.47.23.** It also supports Java and Rust.
 
 ```bash
 dexcli visualize ./order_flow.go
@@ -172,11 +172,23 @@ The TypeScript analyzer reads one file, so a SubFlow node names the expression p
 
 In Go, an Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In Python, an Execute method annotated with `StepDecision` gets **hidden_dex_decision** when it directly returns a helper call and none of its returns is a recognized decision. When a Python Execute method hides its decision in another way, such as without the annotation or by returning a variable, the graph leaves that decision out without a diagnostic. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized.
 
-The TypeScript, Java, and Rust analyzers each work from a single source file. Recursive analysis across files is not supported.
+The Python, TypeScript, Java, and Rust analyzers each read the supplied Flow source file. Keep the registered Steps, Dex declarations, and custom Start input types in that file. Go uses package type information and can resolve types defined in other files or packages.
 
 The analyzer requires static control flow. It reports reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, and movement collections that escape the handler as unsupported.
 
-Step groups and explanations must be in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. **Changed in 1.47.23.** All five analyzers read Indexed Attributes, Summary, Display, and start-input schemas. The Go, Python, and TypeScript analyzers also read Actions. Declare view RPCs with the protocol names **GetDexSummary** and **GetDexDisplay**. See [Dex Web](/reference/web/dex-web) for the directives.
+Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics.
+
+**Changed in 1.47.23.** All five analyzers read Indexed Attributes, Summary, Display, and Start input schemas. Actions come from Go, Python, and TypeScript sources only. The Java and Rust SDKs have no Action API.
+
+Use one `dex:group` and one `dex:explanation` on each local Step. Add `dex:indexed-attribute` to each indexed Attribute you want to expose in the graph. Add one `dex:field` per Summary or Display field. The view RPC protocol names are `GetDexSummary` and `GetDexDisplay`. See [Dex Web](/reference/web/dex-web) for directive arguments.
+
+| Source | Comment prefix | Group and explanation | Indexed Attribute | Summary and Display fields |
+| --- | --- | --- | --- | --- |
+| Go | `//` | Above the Step type | Above the indexed variable declaration | Above the RPC method |
+| Python | `#` | Above the Step class or its decorators | Above the indexed Attribute assignment | Above the `@rpc` decorator |
+| TypeScript | `//` | Above the Step class | Above the indexed Attribute declaration | Above the `@rpc` decorator on the RPC method |
+| Java | `//` | Above the Step class, including any Javadoc and annotations | Above the indexed Attribute field | Above the `@RPC` annotation |
+| Rust | `//` | Above the Step struct, or above its `impl Step` if neither directive is on the struct | Above the indexed Attribute declaration | Above the function bound to the RPC |
 
 Version 2.0 builds an optional start-input schema from the Start Step's input type. In Go, this is the Step registered with **DefineStartStep**. The Go analyzer follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
@@ -238,13 +250,13 @@ Put **dex:group** and **dex:explanation** on consecutive comment lines above the
 // dex:field attribute-key:statusText value-type:string editable:false description:"Order status."
 ```
 
-For the Start form, the analyzer reads a class literal returned by **getInputType()** or reads the input type argument of **Flow**. Input classes, records, nested types, and enums must be declared in the same file. Primitive types, strings, lists, string-keyed maps, **Optional**, and date-time types are supported. If a type cannot be represented, the graph reports **start_input_unresolved** and omits the Start form.
+For the **Start** form, the analyzer looks for a class literal returned by `getInputType()` on the starting Step, or on the Flow if the Step has no override. It falls back to the input type argument of `Flow`, then to the starting Step's `Step` type argument. Declare input classes, records, nested types, and enums in the same file. The analyzer supports primitive types, strings, lists, string-keyed maps, `Optional`, and date-time types. If a type cannot be represented, the graph reports `start_input_unresolved` and omits the **Start** form.
 
 ### Rust source {#rust-source}
 
 **Since 1.47.23.** Pass a `.rs` file or specify `--language rust`. The Rust analyzer requires Cargo and Rust 1.97 or newer. Use `--cargo /path/to/cargo` or set `DEX_CARGO` to select Cargo. The flag takes precedence. The default is `cargo` on `PATH`.
 
-Dexcli builds the embedded analyzer on its first run, which takes about 5 to 30 seconds depending on the machine. It reuses the binary under `dexcli/flowviz-rust` in the operating system's user cache directory. Cache that directory in CI, typically `~/.cache/dexcli/flowviz-rust` on Linux or `~/Library/Caches/dexcli/flowviz-rust` on macOS. Include the Cargo version and analyzer sources in the cache key. Dexcli removes stale analyzer versions from the directory.
+Dexcli builds the embedded analyzer on its first run using `cargo build --release --locked`. Cargo needs access to its registry or a local cache with the dependencies. Later runs reuse the binary under `dexcli/flowviz-rust` in the operating system's user cache directory. The cache entry depends on the OS, architecture, Cargo version, and embedded analyzer sources. Dexcli removes stale analyzer versions from that directory.
 
 The analyzer reads `impl Flow` and `impl Step` in the given file. A string literal returned directly or through a file-local `const` or `static` in `flow_type()` or `step_type()` overrides the Rust type name. The analyzer warns when it cannot resolve the name. Pass the registered name to `--flow` for a file with multiple Flows.
 

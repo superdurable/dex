@@ -135,13 +135,16 @@ The Worker ID has the form `refund-worker-<random>`, so **Serving Worker ID**
 in Dex Web shows no host name. Set `DEX_FLOW_SERVICE_ADDRESS` when Dex is not
 at `127.0.0.1:8801`.
 
-### No design view and no Dex Web Actions
+### Flow design and refund decisions
 
-The Java SDK does not declare Dex Web Actions yet, and `dexcli visualize`
-does not read Java sources. So this Worker uploads no design. Dex Web shows the
-run, its History, and its Attributes, but no **Design** or **Actions** tab.
-Approve or reject with `customer-refund decide`. The Python version of this
-example shows both tabs.
+`dexcli visualize` can generate a design from a Java Flow whose Steps have
+`// dex:group` and `// dex:explanation` comments. Java SDK 1.45.0 adds
+`WorkerOptions.Builder.flowDefinitionPaths(List<Path>)` for uploading existing
+design JSON at Worker startup. This example pins 1.44.0 and uploads no design,
+so its **Design** view is empty unless a definition is supplied separately.
+
+Approve or reject with `customer-refund decide`. The Java SDK has no Action API,
+so the run has no **Actions** tab.
 
 Both RPCs lock `case-status`: Dex takes the lock before it calls the RPC.
 `approveRefund` and `rejectRefund` then reject a blank reason and check that
