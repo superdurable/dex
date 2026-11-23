@@ -106,6 +106,32 @@ describe('stepContext', () => {
       .toBe('the flow starts here');
   });
 
+  it('lists the flow start and every Step that loops back to a start Step', () => {
+    const reply = step({ id: 'step:Reply', stepType: 'GenerateReplyStep', isStart: true });
+    const waitCustomer = step({ id: 'step:WaitCustomer', stepType: 'WaitForCustomerStep' });
+    const waitNudge = step({ id: 'step:WaitNudge', stepType: 'WaitAfterNudgeStep' });
+    const close = step({ id: 'step:Close', stepType: 'CloseConversationStep' });
+    const loop = {
+      steps: [reply, waitCustomer, waitNudge, close],
+      transitions: [
+        transition('step:Reply', 'step:WaitCustomer', 'transition'),
+        transition('step:WaitCustomer', 'step:Reply', 'transition'),
+        transition('step:WaitCustomer', 'step:WaitNudge', 'transition'),
+        transition('step:WaitNudge', 'step:Reply', 'transition'),
+        transition('step:WaitNudge', 'step:Close', 'transition'),
+      ],
+    } as unknown as PocFlow;
+
+    const startFacts = labelled(stepContext(loop, reply, groups));
+    expect(startFacts['Reached from'])
+      .toBe('the flow start, WaitForCustomerStep, WaitAfterNudgeStep');
+    expect(startFacts['Then goes to']).toBe('WaitForCustomerStep');
+
+    const waitFacts = labelled(stepContext(loop, waitNudge, groups));
+    expect(waitFacts['Reached from']).toBe('WaitForCustomerStep');
+    expect(waitFacts['Then goes to']).toBe('GenerateReplyStep, CloseConversationStep');
+  });
+
   it('omits the phase line when no group claims the Step', () => {
     expect(labelled(stepContext(flow, sink, groups))['In phase']).toBeUndefined();
   });
