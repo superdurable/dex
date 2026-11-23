@@ -12,7 +12,7 @@ use dex_protocol::dex::PollWorkerSlotKind;
 use tonic::Code;
 
 use super::slot_stream_state::PullSlotStreamState;
-use super::slot_streams::{SlotMachine, SlotPhase, default_reserved_rpc_tasks};
+use super::slot_streams::{ResolvedSlotFloor, SlotMachine, SlotPhase, resolve_slot_floor};
 
 const RPC_ONLY_SLOT_KIND: &str = "RPC_ONLY";
 
@@ -45,16 +45,19 @@ impl SlotMachine<'_> {
                 "clamped max_concurrent_tasks {configured} to the Server matching.maxConcurrentTasksCap {limit}"
             );
         }
-        let min_open_slots = if config.is_min_open_slots_explicit {
-            config.min_open_slots
-        } else {
-            ceiling
-        };
-        let reserved_rpc_tasks = if config.is_reserved_rpc_tasks_explicit {
-            config.reserved_rpc_tasks
-        } else {
-            default_reserved_rpc_tasks(ceiling, min_open_slots)
-        };
+        let ResolvedSlotFloor {
+            min_open_slots,
+            reserved_rpc_tasks,
+        } = resolve_slot_floor(
+            ceiling,
+            config
+                .is_min_open_slots_explicit
+                .then_some(config.min_open_slots),
+            config
+                .is_reserved_rpc_tasks_explicit
+                .then_some(config.reserved_rpc_tasks),
+            config.cpu_count,
+        );
         if reserved_rpc_tasks >= ceiling {
             return Err(format!(
                 "reserved_rpc_tasks {reserved_rpc_tasks} must be less than the slot ceiling {ceiling}, \

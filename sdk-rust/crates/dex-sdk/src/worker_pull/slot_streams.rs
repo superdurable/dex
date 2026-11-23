@@ -20,6 +20,9 @@ use super::{PullState, StreamSlot};
 use crate::context::InvocationCancellation;
 use crate::pull_registration::PullRegistration;
 
+/// The ceiling of a Worker whose `max_concurrent_tasks` is unset (decision D3).
+pub(super) const DEFAULT_MAX_CONCURRENT_TASKS: usize = 100;
+
 /// W, the shrink window of decision D6.
 pub(super) const DEFAULT_SHRINK_WINDOW: Duration = Duration::from_secs(30);
 
@@ -148,6 +151,8 @@ pub(super) struct SlotConfig {
     pub(super) is_reserved_rpc_tasks_explicit: bool,
     pub(super) is_min_open_slots_explicit: bool,
     pub(super) is_adaptive: bool,
+    /// The CPU count read at construction; the default floor derives from it.
+    pub(super) cpu_count: usize,
     pub(super) shrink_window: Duration,
     pub(super) app_worker_id: String,
 }
@@ -192,6 +197,50 @@ pub(super) fn default_reserved_rpc_tasks(
     min_open_slots: usize,
 ) -> usize {
     usize::from(max_concurrent_tasks >= 2 && min_open_slots >= 2)
+}
+
+/// The floor and reserved RPC slot count resolved against one ceiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ResolvedSlotFloor {
+    pub(super) min_open_slots: usize,
+    pub(super) reserved_rpc_tasks: usize,
+}
+
+/// Resolves the floor and reserved RPC slots for ceiling `T`; explicit values are kept as given.
+///
+/// The order avoids circularity:
+/// 1. With an explicit floor, an unset `R` uses [`default_reserved_rpc_tasks`] of `T` and that
+///    floor.
+/// 2. With an unset floor, an unset `R` uses [`default_reserved_rpc_tasks`] of `T` and the floor
+///    candidate `min(T, max(2, cpu_count))`, which is at least 2 exactly when `T` is. The floor
+///    is then `min(T, max(R + 1, cpu_count))`.
+///
+/// Returns the values without validating them; the caller checks `R < T` and
+/// `R + 1 <= floor <= T`.
+pub(super) fn resolve_slot_floor(
+    max_concurrent_tasks: usize,
+    explicit_min_open_slots: Option<usize>,
+    explicit_reserved_rpc_tasks: Option<usize>,
+    cpu_count: usize,
+) -> ResolvedSlotFloor {
+    if let Some(min_open_slots) = explicit_min_open_slots {
+        return ResolvedSlotFloor {
+            min_open_slots,
+            reserved_rpc_tasks: explicit_reserved_rpc_tasks.unwrap_or_else(|| {
+                default_reserved_rpc_tasks(max_concurrent_tasks, min_open_slots)
+            }),
+        };
+    }
+    let reserved_rpc_tasks = explicit_reserved_rpc_tasks.unwrap_or_else(|| {
+        let floor_candidate = max_concurrent_tasks.min(cpu_count.max(2));
+        default_reserved_rpc_tasks(max_concurrent_tasks, floor_candidate)
+    });
+    let min_open_slots =
+        max_concurrent_tasks.min(cpu_count.max(reserved_rpc_tasks.saturating_add(1)));
+    ResolvedSlotFloor {
+        min_open_slots,
+        reserved_rpc_tasks,
+    }
 }
 
 /// The state machine over the locked pull state; readiness comes from the registration.
@@ -581,11 +630,17 @@ impl SlotMachine<'_> {
 
     /// Reports F4: a fixed Worker with an unset ceiling opens one stream until the first
     /// acknowledgement.
+    ///
+    /// An adaptive Worker with an unset floor probes too: its default floor derives from the
+    /// clamped ceiling, which only the first acknowledgement reveals.
     fn is_cap_probe_pending(&self) -> bool {
         let config = &self.state.config;
-        !config.is_adaptive
-            && !config.is_max_concurrent_tasks_explicit
-            && !self.state.has_checked_registration_limit
+        let has_unknown_floor = if config.is_adaptive {
+            !config.is_min_open_slots_explicit
+        } else {
+            !config.is_max_concurrent_tasks_explicit
+        };
+        has_unknown_floor && !self.state.has_checked_registration_limit
     }
 
     /// Returns S.

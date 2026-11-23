@@ -50,7 +50,10 @@ mod worker_identity;
 
 pub use slot_stream_state::PullSlotStreamState;
 pub(crate) use slot_streams::PullSlotSettings;
-use slot_streams::{SlotAttempt, SlotConfig, SlotMachine, SlotStreams, default_reserved_rpc_tasks};
+use slot_streams::{
+    DEFAULT_MAX_CONCURRENT_TASKS, ResolvedSlotFloor, SlotAttempt, SlotConfig, SlotMachine,
+    SlotStreams, resolve_slot_floor,
+};
 use task_deadline::task_deadline;
 use task_frame_sender::TaskFrameSender;
 use worker_error::worker_error_response;
@@ -199,17 +202,14 @@ impl PullWorker {
         dispatcher: &WorkerDispatcher,
         channel: CredentialChannel,
     ) -> SdkResult<Self> {
-        let max_concurrent_tasks = match options.max_concurrent_tasks {
-            Some(value) => value,
-            None => std::thread::available_parallelism()
-                .map(std::num::NonZeroUsize::get)
-                .map_err(|error| SdkError::Service {
-                    service: crate::ServiceError::local(
-                        "worker",
-                        format!("read CPU count: {error}"),
-                    ),
-                })?,
-        };
+        let cpu_count = std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .map_err(|error| SdkError::Service {
+                service: crate::ServiceError::local("worker", format!("read CPU count: {error}")),
+            })?;
+        let max_concurrent_tasks = options
+            .max_concurrent_tasks
+            .unwrap_or(DEFAULT_MAX_CONCURRENT_TASKS);
         let stop_drain_timeout = options
             .stop_drain_timeout
             .unwrap_or(Duration::from_secs(30));
@@ -218,15 +218,20 @@ impl PullWorker {
                 "pull Worker task limit and drain timeout must be positive",
             ));
         }
-        let min_open_slots = options.min_open_slots.unwrap_or(max_concurrent_tasks);
+        let ResolvedSlotFloor {
+            min_open_slots,
+            reserved_rpc_tasks,
+        } = resolve_slot_floor(
+            max_concurrent_tasks,
+            options.min_open_slots,
+            options.reserved_rpc_tasks,
+            cpu_count,
+        );
         if min_open_slots > max_concurrent_tasks {
             return Err(invalid(format!(
                 "min_open_slots {min_open_slots} must not exceed max_concurrent_tasks {max_concurrent_tasks}"
             )));
         }
-        let reserved_rpc_tasks = options
-            .reserved_rpc_tasks
-            .unwrap_or_else(|| default_reserved_rpc_tasks(max_concurrent_tasks, min_open_slots));
         if reserved_rpc_tasks >= max_concurrent_tasks {
             return Err(invalid(
                 "reserved_rpc_tasks must be less than max_concurrent_tasks",
@@ -271,6 +276,7 @@ impl PullWorker {
             is_reserved_rpc_tasks_explicit: options.reserved_rpc_tasks.is_some(),
             is_min_open_slots_explicit: options.min_open_slots.is_some(),
             is_adaptive: min_open_slots < max_concurrent_tasks,
+            cpu_count,
             shrink_window: options.slot_settings.shrink_window,
             app_worker_id: app_worker_id.clone(),
         };
@@ -942,6 +948,7 @@ impl PullShared {
             is_reserved_rpc_tasks_explicit: true,
             is_min_open_slots_explicit: false,
             is_adaptive: false,
+            cpu_count: 1,
             shrink_window: slot_streams::DEFAULT_SHRINK_WINDOW,
             app_worker_id: "test-worker".to_string(),
         };

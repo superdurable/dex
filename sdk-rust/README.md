@@ -454,9 +454,14 @@ let client = Client::try_new(
 )?;
 ```
 
-A fixed Worker, the default, opens exactly `max_concurrent_tasks` long-lived poll streams. Each stream
-is one execution slot serving the Worker's sticky queue and every registered Flow type.
-The task limit defaults to the CPU count. An idle slot is ready for work; a busy slot
+Each long-lived poll stream is one execution slot serving the Worker's sticky queue and
+every registered Flow type. A fixed Worker, whose `min_open_slots` equals
+`max_concurrent_tasks`, opens exactly `max_concurrent_tasks` streams. Since 1.45.8 the
+default Worker is adaptive (see below): the task limit defaults to 100, and
+`min_open_slots` defaults to `min(max_concurrent_tasks, max(reserved_rpc_tasks + 1, CPU count))`.
+Before 1.45.8 the task limit defaulted to the CPU count and the Worker was fixed. Set
+`min_open_slots` equal to `max_concurrent_tasks` to keep a fixed Worker, and set
+`max_concurrent_tasks` to the CPU count to keep the earlier slot count. An idle slot is ready for work; a busy slot
 executes its task and sends its final output before becoming ready again. The Worker
 executes every assignment and never rejects work for capacity. Start fails with a
 `FAILED_PRECONDITION` service error when the configured task limit exceeds the
@@ -465,8 +470,11 @@ half-closes and drops any task already sent, so Dex returns it without consuming
 attempt. A lower limit reported after a later reconnect only logs a warning.
 Since 1.45.7 this failure applies to an explicit `max_concurrent_tasks` of a fixed
 Worker. A fixed Worker without `max_concurrent_tasks` opens one stream first, learns
-the cap from its acknowledgement, and clamps its CPU-count default to the cap with a
-WARN log before it opens the other streams.
+the cap from its acknowledgement, and clamps its default to the cap with a
+WARN log before it opens the other streams. Since 1.45.8 an adaptive Worker without
+`min_open_slots` probes the same way, then derives `reserved_rpc_tasks` and
+`min_open_slots` from the clamped limit; a cap of 1 gives one slot, no reserved RPC
+slot, and a floor of 1.
 The deprecated `idle_streams_per_queue` setting is still accepted and has no effect.
 
 `min_open_slots` (since 1.45.7) below `max_concurrent_tasks` makes the Worker
@@ -535,6 +543,7 @@ instead of half-closing it.
 Steps and RPCs. The Server routes each assignment to an eligible idle slot; the Worker
 never declines a Step to preserve the reservation. When unset, one slot is reserved
 if the resolved task limit and `min_open_slots` are both at least two, otherwise zero.
+With `min_open_slots` unset as well, that is when the resolved task limit is at least two.
 Set zero to let Steps use
 all slots. With one slot and no explicit reservation, startup warns that RPCs may
 wait behind long-running Steps. The reservation must be less than the resolved
