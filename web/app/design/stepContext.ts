@@ -50,16 +50,16 @@ export function stepContext(
 
   facts.push({ label: 'Who acts', value: ACTOR_PHRASE[step.actor] });
 
-  if (step.isStart) {
+  const inbound = flow.transitions
+    .filter((t) => t.toStepId === step.id && t.kind === 'transition' && !t.isSelfLoop)
+    .map((t) => stepTypeOf(flow, t.fromStepId))
+    .filter((name): name is string => name !== null);
+  if (step.isStart && inbound.length === 0) {
     facts.push({ label: 'Reached from', value: 'the flow starts here' });
-  } else {
-    const inbound = flow.transitions
-      .filter((t) => t.toStepId === step.id && t.kind === 'transition' && !t.isSelfLoop)
-      .map((t) => stepTypeOf(flow, t.fromStepId))
-      .filter((name): name is string => name !== null);
-    if (inbound.length > 0) {
-      facts.push({ label: 'Reached from', value: unique(inbound).join(', ') });
-    }
+  } else if (step.isStart) {
+    facts.push({ label: 'Reached from', value: ['the flow start', ...unique(inbound)].join(', ') });
+  } else if (inbound.length > 0) {
+    facts.push({ label: 'Reached from', value: unique(inbound).join(', ') });
   }
 
   // The wait phase already carries one prose line, paraphrased with identifiers verbatim.
