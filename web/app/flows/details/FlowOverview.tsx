@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send } from 'lucide-react';
 import { flowErrorTypeLabel } from '@/lib/semantic';
 import { fetchServerInfoDisplay, supportsUnlimitedHistoryWindow } from '@/lib/serverInfo';
@@ -22,17 +22,22 @@ import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
-/** Whether the server treats a history window of 0 as unlimited; true until it is known otherwise. */
-function useUnlimitedHistoryWindowSupport(): boolean {
-  const [isSupported, setIsSupported] = useState(true);
+/**
+ * Whether the server confirms that a history window of 0 is unlimited; false until a read confirms it.
+ * `refresh` reads the server version again.
+ */
+function useUnlimitedHistoryWindowSupport(): { isSupported: boolean; refresh: () => void } {
+  const [isSupported, setIsSupported] = useState(false);
+  const [readNumber, setReadNumber] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void fetchServerInfoDisplay(controller.signal).then((info) => {
       if (!controller.signal.aborted) setIsSupported(supportsUnlimitedHistoryWindow(info));
     });
     return () => controller.abort();
-  }, []);
-  return isSupported;
+  }, [readNumber]);
+  const refresh = useCallback(() => setReadNumber((current) => current + 1), []);
+  return { isSupported, refresh };
 }
 
 function useSectionExpand(persistKey: string) {
@@ -128,7 +133,7 @@ export function FlowOverview({
   const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const supportsUnlimitedWindow = useUnlimitedHistoryWindowSupport();
+  const unlimitedWindowSupport = useUnlimitedHistoryWindowSupport();
   const attributesExpand = useSectionExpand('overview:expand:attributes');
   const channelsExpand = useSectionExpand('overview:expand:channels');
   const routing = flowRoutingData(state, events);
@@ -302,7 +307,8 @@ export function FlowOverview({
           loadError={state ? undefined : closedFlowConfigError}
           onRetryLoad={onRetryClosedFlowConfig}
           onSaved={onHistorySettingsSaved}
-          supportsUnlimitedWindow={supportsUnlimitedWindow}
+          supportsUnlimitedWindow={unlimitedWindowSupport.isSupported}
+          onWindowEditorOpen={unlimitedWindowSupport.refresh}
         />
 
         <OverviewSection title="Identity">

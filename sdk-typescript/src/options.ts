@@ -395,14 +395,16 @@ export interface FlowConfig {
    * Set it to 0 for an unlimited window. 0 turns off pruning by event count and keeps the run's
    * history from its current window start on. A run may set 0 under any `history.maxWindowEvents`
    * setting. The server records 0 as 2147483647, which also means unlimited and may be sent back.
-   * The GetFlowState API reports the run's current value. The FlowStarted history event shows the
-   * value only when the run set it at start. History that a finite window already pruned does not
-   * come back, and history objects that pruning already passed may still be deleted. A run that
-   * started before server-zd 0.1.23 without history offload is still pruned by the byte limit it
-   * recorded. An unlimited window keeps every later event and superseded value for the run's whole
-   * life: its local history metadata grows with every event, its offloaded history objects stay
-   * until the run is deleted, and without history offload it keeps all of its history on the local
-   * disk. Time Travel to an event ID, a time, or a Step takes longer as the history grows.
+   * The GetFlowState API and `dexcli flow state` report the run's current value. The FlowStarted
+   * history event carries the run's FlowConfig at start, including a window inherited from its
+   * parent, but not the server's `history.windowEvents` or later changes. History that a finite
+   * window already pruned does not come back, and history objects that pruning already passed may
+   * still be deleted. A run that started before server-zd 0.1.23 without history offload is still
+   * pruned by the byte limit it recorded. While the window is unlimited, storage grows with the
+   * events and values that stay in the window: local history metadata grows with every event,
+   * object storage keeps the history segments that the window covers, and without history offload
+   * the run keeps that history on the local disk. Time Travel to an event ID, a time, or a Step
+   * reads from the current window start, so it takes longer as the window grows.
    *
    * A finite value must be a positive integer and at most the server's `history.maxWindowEvents`
    * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). A

@@ -711,7 +711,7 @@ async fn an_unlimited_sub_flow_window_is_proposed_as_its_recorded_value() {
                 .and_then(|flow_config| flow_config.history_window_events)
         })
         .collect();
-    // Servers before 0.1.38 reject a SubFlow window of 0, so the command records the largest value.
+    // Servers before 0.1.38 reject a SubFlow window of 0.
     assert_eq!(windows, [Some(i32::MAX), Some(30), None, Some(i32::MAX)]);
     harness.shutdown().await;
 }

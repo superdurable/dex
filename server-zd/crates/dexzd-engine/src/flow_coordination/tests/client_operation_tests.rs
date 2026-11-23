@@ -917,7 +917,7 @@ async fn an_unlimited_window_is_proposed_as_its_recorded_value() {
         .await
         .unwrap();
 
-    // Servers before 0.1.38 fail to apply a recorded 0, so no command carries one.
+    // Servers before 0.1.38 fail to apply a recorded 0 in these fields.
     let submitted = harness.submitted();
     let Some(flow_command::Command::FlowStart(start)) = submitted[0].command.as_ref() else {
         panic!("expected FlowStart");

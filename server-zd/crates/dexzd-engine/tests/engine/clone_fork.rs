@@ -1040,8 +1040,7 @@ async fn the_task_queue_override_routes_the_new_run() {
     node.shutdown().await;
 }
 
-/// From an early point, a clone inherits the source's unlimited window, records an explicit 0 as
-/// unlimited, and keeps a finite override.
+/// Clones from an early point: inherited, explicit 0, and finite windows.
 #[tokio::test(start_paused = true)]
 async fn a_clone_records_an_unlimited_history_window_as_the_largest_int32() {
     let (_cluster, node) = start_node(FlowCoordinationConfig::default()).await;

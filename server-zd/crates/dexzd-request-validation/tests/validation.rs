@@ -1663,8 +1663,8 @@ fn history_window_events_must_be_unlimited_or_within_the_server_maximum() {
             } else {
                 format!(
                     "a finite history_window_events must be at most 500, got \
-                     {history_window_events}; 0 or 2147483647 keeps the whole history under any \
-                     maximum"
+                     {history_window_events}; 0 or 2147483647 disables event-count pruning under \
+                     any maximum"
                 )
             };
             assert_eq!(error.message, expected_message, "{path}");
@@ -1715,8 +1715,8 @@ fn the_default_maximum_accepts_windows_above_the_old_maximum() {
                 error.message,
                 format!(
                     "a finite history_window_events must be at most 1000000000, got \
-                     {history_window_events}; 0 or 2147483647 keeps the whole history under any \
-                     maximum"
+                     {history_window_events}; 0 or 2147483647 disables event-count pruning under \
+                     any maximum"
                 ),
                 "{path}"
             );

@@ -483,8 +483,11 @@ A value of 0 makes the window unlimited. It turns off pruning by event count
 and keeps the history from the current window start on. Any Flow run may set
 0, whatever **history.maxWindowEvents** is. The server records 0 as
 2147483647, which also means unlimited and may be sent back. **GetFlowState**
-reports the run's current value. The FlowStarted history event shows the value
-only when the run set it at start. An unlimited window has these limits:
+and **dexcli flow state** report the run's current value. The FlowStarted
+history event carries the run's Flow configuration at start, including a window
+that it inherited from its parent. It does not show the node's
+**history.windowEvents**, and it does not show later changes. An unlimited
+window has these limits:
 
 - History that a finite window already pruned does not come back. History
   objects that pruning already passed may still be deleted.
@@ -505,13 +508,13 @@ record, checkpoint, and superseded value in the window. Time travel to an event
 ID, a time, or a Step reads the window from its start, so it takes longer in a
 larger window.
 
-An unlimited window has these costs for the whole life of the Flow run. Its
-local metadata rows grow with every event. With offload, its history objects
-are deleted only when the Flow run is deleted after its retention. Without
-offload, local disk keeps all of its history and superseded values. Time travel
-to an event ID, a time, or a Step reads from the first event, so it slows down
-as the history grows. Use it for Flow runs whose whole history you need, not
-for Flow runs that record events without end.
+While a Flow run's window is unlimited, these costs grow with the events and
+values that stay in its window. Its local metadata rows grow with every event.
+With offload, object storage keeps the history segments that the window still
+covers. Without offload, local disk keeps that history and its superseded
+values. Time travel to an event ID, a time, or a Step reads from the current
+window start, so it slows down as the window grows. Use it for Flow runs whose
+whole history you need, not for Flow runs that record events without end.
 
 History reads, such as **dexcli flow history --all**, return only the retained
 events. [Time travel](/reference/server/runtime-client#time-travel) can target only

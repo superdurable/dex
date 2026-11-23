@@ -75,20 +75,15 @@ export function serverInfoSummaryOf(info: ServerInfoDisplay): string | undefined
 
 /** The first server-zd release where a history window of 0 is unlimited. */
 const UNLIMITED_HISTORY_WINDOW_SERVER_ZD_VERSION = [0, 1, 38] as const;
-/** The version that a server-zd build without a release stamp reports. */
-const UNSTAMPED_SERVER_ZD_VERSION = '0.1.0';
 
 /**
- * True unless the server is known to predate unlimited history windows: another engine, or a
- * released server-zd before 0.1.38. Unknown info and unreleased builds, which report 0.1.0 or a
- * prerelease version, count as current.
+ * True only for a release of server-zd 0.1.38 or later.
+ * Unknown, unstamped, and prerelease builds read as unsupported.
  */
 export function supportsUnlimitedHistoryWindow(info: ServerInfoDisplay): boolean {
-  if (info.engineLabel === undefined) return true;
   if (info.engineLabel !== ENGINE_LABEL.zd) return false;
-  if (info.serverVersion === UNSTAMPED_SERVER_ZD_VERSION) return true;
   const release = /^(\d+)\.(\d+)\.(\d+)$/.exec(info.serverVersion ?? '');
-  if (!release) return true;
+  if (!release) return false;
   const version = release.slice(1).map(Number);
   for (const [index, part] of version.entries()) {
     const minimum = UNLIMITED_HISTORY_WINDOW_SERVER_ZD_VERSION[index];

@@ -186,8 +186,8 @@ func (h *handler) setAttribute(response http.ResponseWriter, request *http.Reque
 	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
 }
 
-// historyWindowEventsRangeError rejects a negative window; 0 keeps the whole history.
-const historyWindowEventsRangeError = "historyWindowEvents must be 0 for the whole history or a positive integer"
+// historyWindowEventsRangeError rejects a negative window; 0 disables event-count pruning.
+const historyWindowEventsRangeError = "historyWindowEvents must be 0, which disables event-count pruning, or a positive integer"
 
 // updateFlowHistoryConfig sends only the window because UpdateFlowConfig merges set fields.
 // deleteExpiredHistoryObjects is never forwarded, since the server always deletes expired history.

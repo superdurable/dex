@@ -16,17 +16,18 @@ describe('unlimited history window support', () => {
     }
   });
 
-  it('does not hold for released server-zd versions before 0.1.38 or for other engines', () => {
+  it('does not hold for releases before 0.1.38 or other engines', () => {
     for (const serverVersion of ['0.1.37', '0.1.21', '0.0.9']) {
       expect(supportsUnlimitedHistoryWindow({ engineLabel: 'server-zd', serverVersion }), serverVersion).toBe(false);
     }
     expect(supportsUnlimitedHistoryWindow({ engineLabel: 'Temporal', serverVersion: '1.25.0' })).toBe(false);
   });
 
-  it('holds for unreleased builds and unknown servers', () => {
-    for (const serverVersion of ['0.1.0', '0.1.0-dev.gabc1234', '', undefined]) {
-      expect(supportsUnlimitedHistoryWindow({ engineLabel: 'server-zd', serverVersion }), `${serverVersion}`).toBe(true);
+  it('does not hold for unknown, unstamped, prerelease, or build-metadata versions', () => {
+    const unconfirmed = ['0.1.0', '0.1.0-dev.gabc1234', '0.1.37-rc.1', '0.1.38-rc.1', '0.1.38+build.1', '', undefined];
+    for (const serverVersion of unconfirmed) {
+      expect(supportsUnlimitedHistoryWindow({ engineLabel: 'server-zd', serverVersion }), `${serverVersion}`).toBe(false);
     }
-    expect(supportsUnlimitedHistoryWindow({})).toBe(true);
+    expect(supportsUnlimitedHistoryWindow({})).toBe(false);
   });
 });

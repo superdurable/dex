@@ -757,7 +757,7 @@ fn the_recorded_unlimited_window_never_prunes_where_the_same_finite_window_does(
 
 #[test]
 fn a_recorded_zero_window_override_fails_the_next_command_that_records_events() {
-    // The engine never records 0; this locks what apply does if a run held one.
+    // RunRecord.flow_config never holds 0; this locks apply's behavior if it did.
     let mut harness = Harness::start(settings(20, 2), window_config(20));
     harness.set_attribute();
     let mut record = harness.run_record();
@@ -774,19 +774,22 @@ fn a_recorded_zero_window_override_fails_the_next_command_that_records_events() 
     });
     let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run_id)
         .expect("the state reads");
+    let flow_config = state.flow_config.expect("the run has a config");
+    assert_eq!(flow_config.history_window_events, Some(0));
     assert_eq!(
-        state
-            .flow_config
-            .and_then(|config| config.history_window_events),
-        Some(0)
+        flow_config.step_durability,
+        Some(StepDurability::Async as i32)
     );
     let write = harness.attributes_set_command("");
     let error = harness
         .try_apply(write)
         .expect_err("pruning rejects a recorded zero");
+    let ApplyError::InvariantViolation { detail } = &error else {
+        panic!("a recorded zero is an invariant violation: {error:?}");
+    };
     assert!(
-        matches!(error, ApplyError::InvariantViolation { .. }),
-        "{error:?}"
+        detail.contains("history_window_events 0") && detail.contains("not positive"),
+        "{detail}"
     );
 }
 

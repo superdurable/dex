@@ -56,12 +56,12 @@ export type HistorySettingsUpdate = { update: FlowConfigChange } | { error: stri
 
 /**
  * Returns only changed fields; every sent field pins an override that cannot be cleared.
- * A server without unlimited windows accepts only positive windows.
+ * Without confirmed unlimited windows, only positive windows are accepted.
  */
 export function buildHistorySettingsUpdate(
   current: HistorySettings,
   windowText: string,
-  supportsUnlimitedWindow = true,
+  supportsUnlimitedWindow: boolean,
 ): HistorySettingsUpdate {
   const update: FlowConfigChange = {};
   const trimmedWindow = windowText.trim();
@@ -155,7 +155,8 @@ export function FlowConfigCard({
   loadError,
   onRetryLoad,
   onSaved,
-  supportsUnlimitedWindow = true,
+  supportsUnlimitedWindow = false,
+  onWindowEditorOpen,
 }: {
   summary: FlowSummary;
   /** The run's flowConfig, or undefined while it is not loaded. */
@@ -165,8 +166,10 @@ export function FlowConfigCard({
   onRetryLoad?: () => void;
   /** Receives the changed fields and the run they were saved to. */
   onSaved?: (saved: FlowConfigChange, savedRun: FlowSummary) => Promise<void>;
-  /** Whether the server treats a window of 0 as unlimited; false for a server known to be older. */
+  /** Whether the server confirmed that a window of 0 is unlimited; false while unconfirmed. */
   supportsUnlimitedWindow?: boolean;
+  /** Called when the window editor opens, so the parent can read the server version again. */
+  onWindowEditorOpen?: () => void;
 }) {
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState('');
@@ -226,6 +229,7 @@ export function FlowConfigCard({
     setIsTurningSyncOff(attributeStoreNames?.length === 0);
     setError('');
     setEditing(field);
+    if (field === 'historyWindowEvents') onWindowEditorOpen?.();
   };
 
   /** Returns the change the draft makes, null while nothing changed, or why the draft cannot be saved. */
@@ -301,7 +305,8 @@ export function FlowConfigCard({
           ? 'This window is smaller than the whole history, so older events may be deleted for good. '
             + 'Pruning runs after the next event.'
           : draftWindow < windowEvents
-            ? `This window is smaller than ${windowEvents.toLocaleString()} events, so older events are deleted for good.`
+            ? `This window is smaller than ${windowEvents.toLocaleString()} events, so older events may be deleted `
+              + 'for good. Pruning runs after the next event.'
             : undefined;
     return (
       <div className="history-settings-form flow-config-editor">

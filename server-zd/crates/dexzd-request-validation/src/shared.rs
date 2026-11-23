@@ -649,7 +649,7 @@ fn validate_history_window_events(
     } else {
         format!(
             "a finite history_window_events must be at most {max_window_events}, got \
-             {window_events}; 0 or 2147483647 keeps the whole history under any maximum"
+             {window_events}; 0 or 2147483647 disables event-count pruning under any maximum"
         )
     };
     Err(invalid(format!("{path}.history_window_events"), message))

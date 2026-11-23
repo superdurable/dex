@@ -10,9 +10,7 @@
 
 use crate::dex::{FlowConfig, WaitingCondition};
 
-/// The `history_window_events` that commands and runs record for an unlimited window.
-///
-/// Older appliers require a positive override and treat this value as finite.
+/// Recorded unlimited FlowConfig override. Older appliers treat it as finite.
 pub const RECORDED_UNLIMITED_HISTORY_WINDOW_EVENTS: i32 = i32::MAX;
 
 /// Returns whether `window_events` keeps the whole history: 0 in a request, or its recorded value.

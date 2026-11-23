@@ -307,35 +307,70 @@ impl Harness {
 
     /// Acknowledges every SEALED segment, oldest first, keeping the content of its object.
     fn ack_all(&mut self) {
-        loop {
-            let uploaded_through_seq = self.run_record().history_uploaded_through_seq;
-            let Some(segment) = self
-                .segments()
-                .into_iter()
-                .find(|segment| segment.last_seq > uploaded_through_seq)
-            else {
-                return;
-            };
-            let content = read_history_segment_content(
-                &self.state,
-                self.context.flow_hash,
-                self.run(),
-                segment.first_seq,
-            )
-            .expect("the segment content reads")
-            .expect("the segment exists");
-            let encoded = encode_history_segment(&content).expect("the content encodes");
-            let outcome = self.apply(Command::HistorySegmentUploaded(
-                HistorySegmentUploadedCommand {
-                    first_seq: segment.first_seq,
-                    last_seq: segment.last_seq,
-                    content_checksum: encoded.content_checksum.to_vec(),
-                    object_size_bytes: encoded.bytes.len() as u64,
-                },
-            ));
-            assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
-            self.uploaded.insert(segment.first_seq, (segment, content));
+        while self.ack_oldest_sealed() {}
+    }
+
+    /// Acknowledges the oldest SEALED segment; returns false when none waits.
+    fn ack_oldest_sealed(&mut self) -> bool {
+        let uploaded_through_seq = self.run_record().history_uploaded_through_seq;
+        let Some(segment) = self
+            .segments()
+            .into_iter()
+            .find(|segment| segment.last_seq > uploaded_through_seq)
+        else {
+            return false;
+        };
+        let content = read_history_segment_content(
+            &self.state,
+            self.context.flow_hash,
+            self.run(),
+            segment.first_seq,
+        )
+        .expect("the segment content reads")
+        .expect("the segment exists");
+        let encoded = encode_history_segment(&content).expect("the content encodes");
+        let outcome = self.apply(Command::HistorySegmentUploaded(
+            HistorySegmentUploadedCommand {
+                first_seq: segment.first_seq,
+                last_seq: segment.last_seq,
+                content_checksum: encoded.content_checksum.to_vec(),
+                object_size_bytes: encoded.bytes.len() as u64,
+            },
+        ));
+        assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
+        self.uploaded.insert(segment.first_seq, (segment, content));
+        true
+    }
+
+    /// Runs `step` and returns how many segments it expired.
+    ///
+    /// Each was UPLOADED before `step` and lies within the pruned history after it.
+    fn assert_expiries_of(&mut self, step: impl FnOnce(&mut Self)) -> usize {
+        let states_before: BTreeMap<u64, i32> = self
+            .segments()
+            .into_iter()
+            .map(|segment| (segment.first_seq, segment.state))
+            .collect();
+        step(self);
+        let pruned_through_seq = self.run_record().history_window_pruned_through_seq;
+        let mut expired_count = 0;
+        for segment in self.expired_segments() {
+            let state_before = states_before.get(&segment.first_seq).copied();
+            if state_before == Some(HistorySegmentState::Expired as i32) {
+                continue;
+            }
+            assert_eq!(
+                state_before,
+                Some(HistorySegmentState::Uploaded as i32),
+                "{segment:?} was uploaded before it expired"
+            );
+            assert!(
+                segment.last_seq <= pruned_through_seq,
+                "{segment:?} expired past pruned seq {pruned_through_seq}"
+            );
+            expired_count += 1;
         }
+        expired_count
     }
 
     /// Applies small Attribute writes, acknowledging uploads after each, until `is_done`.
@@ -1394,8 +1429,6 @@ fn expiry_is_bounded_by_listed_values_and_a_later_command_finishes_it() {
     harness.assert_storage_recounts();
 }
 
-/// Shrinking an unlimited window prunes from the next command that records events, converges over
-/// later commands, and expires only uploaded segments that pruning passed.
 #[test]
 fn shrinking_an_unlimited_window_prunes_from_the_next_event_and_expires_only_passed_segments() {
     let mut harness = Harness::offloading(
@@ -1430,7 +1463,9 @@ fn shrinking_an_unlimited_window_prunes_from_the_next_event_and_expires_only_pas
     let in_window = |record: &RunRecord| {
         record.window_event_count.expect("the run counts events") - record.pruned_window_event_count
     };
-    harness.set_attribute("status", "shrunk".to_owned());
+    let mut expired_count = harness.assert_expiries_of(|harness| {
+        harness.set_attribute("status", "shrunk".to_owned());
+    });
     let first = harness.run_record();
     assert!(
         first.window_start_seq > before.window_start_seq,
@@ -1443,28 +1478,52 @@ fn shrinking_an_unlimited_window_prunes_from_the_next_event_and_expires_only_pas
     );
 
     // A window of 6 prunes one event at a time once it holds more than 7.
-    harness.write_until("the window converges", |harness| {
-        in_window(&harness.run_record()) <= 7
-    });
-    harness.write_until("passed segments expire", |harness| {
-        !harness.expired_segments().is_empty()
+    for round in 0..400 {
+        if in_window(&harness.run_record()) <= 7 && expired_count > 0 {
+            break;
+        }
+        expired_count += harness.assert_expiries_of(|harness| {
+            harness.set_attribute("other", format!("small-{round}"));
+        });
+        loop {
+            let mut has_acked = false;
+            expired_count += harness.assert_expiries_of(|harness| {
+                has_acked = harness.ack_oldest_sealed();
+            });
+            if !has_acked {
+                break;
+            }
+        }
+    }
+    assert!(
+        in_window(&harness.run_record()) <= 7,
+        "the window converges"
+    );
+    assert!(expired_count > 0, "passed segments expire");
+
+    // A segment sealed but not yet uploaded, and every segment in the window, stay.
+    harness.assert_expiries_of(|harness| {
+        harness.set_attribute("other", "unacknowledged".to_owned());
     });
     let record = harness.run_record();
-    assert!(record.history_window_pruned_through_seq < record.window_start_seq);
-    for segment in harness.segments() {
-        if segment.state == HistorySegmentState::Expired as i32 {
-            assert!(
-                segment.last_seq <= record.history_window_pruned_through_seq,
-                "{segment:?} expired before pruning passed it"
-            );
-        }
-        if segment.last_seq >= record.window_start_seq {
-            assert_ne!(
-                segment.state,
-                HistorySegmentState::Expired as i32,
-                "{segment:?} is in the window"
-            );
-        }
+    let newest = harness.segments().pop().expect("the run has segments");
+    assert_eq!(
+        newest.state,
+        HistorySegmentState::Sealed as i32,
+        "{newest:?}"
+    );
+    let window_segments: Vec<_> = harness
+        .segments()
+        .into_iter()
+        .filter(|segment| segment.last_seq >= record.window_start_seq)
+        .collect();
+    assert!(!window_segments.is_empty());
+    for segment in window_segments {
+        assert_ne!(
+            segment.state,
+            HistorySegmentState::Expired as i32,
+            "{segment:?} is in the window"
+        );
     }
 }
 

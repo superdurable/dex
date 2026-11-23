@@ -195,7 +195,7 @@ impl FlowCoordinatorRegistry {
         } else {
             computed.timeout_policy()
         };
-        // Apply only compares this request with the staging; it reads the effective config.
+        // Keep the request window unchanged for staging. Apply uses the effective window.
         let clone_fork = FlowCloneForkCommand {
             staging_id,
             new_run_id: new_run_id.as_bytes().to_vec(),
