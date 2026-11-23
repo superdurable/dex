@@ -384,8 +384,10 @@ reported by the Server, naming the configured value and `matching.maxConcurrentT
 Since 1.45.17, `maxConcurrentTasks` defaults to 100 (earlier releases used the logical CPU count),
 and an unset `minOpenSlots` defaults to `min(maxConcurrentTasks, max(reservedRpcTasks + 1, cpuCount))`
 (earlier releases used `maxConcurrentTasks`). A Worker with no options, or with only
-`maxConcurrentTasks`, is therefore adaptive: it holds about the CPU count of streams while idle
-and grows up to the ceiling. An unset `maxConcurrentTasks` is clamped to the Server cap with a
+`maxConcurrentTasks`, is adaptive when the derived floor is below the ceiling: it holds about the CPU
+count of streams while idle and grows up to the ceiling. When the CPU count is at least the ceiling,
+the derived floor equals the ceiling, so the Worker stays fixed. An unset `maxConcurrentTasks` is
+clamped to the Server cap with a
 warning, and the `minOpenSlots` and `reservedRpcTasks` defaults then come from the clamped value.
 A Worker whose defaults may drop with that clamp opens one stream first and opens the others after
 its acknowledgement. To keep the earlier behavior, set `maxConcurrentTasks` to

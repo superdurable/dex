@@ -1316,11 +1316,13 @@ export interface PullWorkerOptions {
    * Changed in SDK v1.35.0: this is also the exact stream count, and exceeding the cap fails startup.
    *
    * Changed in 1.45.7: this is the ceiling of the slot streams, including the RPC-only slots.
-   * A fixed Worker, whose `minOpenSlots` is unset or equal to this value, keeps this many streams
-   * open. An adaptive Worker, whose `minOpenSlots` is below it, opens streams up to it only while
-   * every open Step-and-RPC stream is busy. Two cases now clamp the value to the Server cap with a
-   * warning that names both values, instead of failing `Worker.start`:
-   * - a fixed Worker with this option unset, whose CPU-count default exceeds the cap;
+   * When unset, this value defaults to 100 and is clamped to the Server cap. An unset `minOpenSlots`
+   * defaults to `min(T, max(R + 1, CPU count))` after the clamp, where T is this resolved ceiling and
+   * R is the resolved `reservedRpcTasks`. The Worker is adaptive when that floor is below T; when
+   * the derived floor equals T, it is fixed and keeps T streams open. An adaptive Worker opens
+   * streams up to T only while every open Step-and-RPC stream is busy. Two cases clamp the value
+   * to the Server cap with a warning that names both values, instead of failing `Worker.start`:
+   * - a fixed Worker with this option unset, whose default of 100 exceeds the cap;
    * - an adaptive Worker, with this option set or unset.
    *
    * A fixed Worker with this option unset therefore opens one stream first, learns the cap from its
