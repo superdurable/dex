@@ -14,7 +14,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -35,7 +37,11 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}
-	command := exec.CommandContext(ctx, pythonPath, "-I", "-S", "-c", pythonConnectorAnalyzerSource+"\n"+pythonBindingAnalyzerSource+"\n"+pythonAnalyzerSource)
+	command, removeScript, err := newPythonAnalyzerCommand(ctx, pythonPath)
+	if err != nil {
+		return nil, err
+	}
+	defer removeScript()
 	command.Stdin = bytes.NewReader(request)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -55,4 +61,24 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 		return nil, fmt.Errorf("decode Python analyzer output: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return result.definition(), nil
+}
+
+func newPythonAnalyzerCommand(ctx context.Context, pythonPath string) (*exec.Cmd, func(), error) {
+	// Linux limits each argument to 128 KiB, which the combined script can exceed.
+	directory, err := os.MkdirTemp("", "dexcli-python-analyzer-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create Python analyzer directory: %w", err)
+	}
+	removeDirectory := func() {
+		if removeErr := os.RemoveAll(directory); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: remove Python analyzer directory %s: %v\n", directory, removeErr)
+		}
+	}
+	scriptPath := filepath.Join(directory, "python_analyzer.py")
+	script := pythonConnectorAnalyzerSource + "\n" + pythonBindingAnalyzerSource + "\n" + pythonAnalyzerSource
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		removeDirectory()
+		return nil, nil, fmt.Errorf("write Python analyzer script: %w", err)
+	}
+	return exec.CommandContext(ctx, pythonPath, "-I", "-S", scriptPath), removeDirectory, nil
 }
