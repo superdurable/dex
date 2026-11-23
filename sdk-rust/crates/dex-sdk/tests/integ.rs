@@ -99,6 +99,8 @@ mod reset_test;
 mod reset_workflow;
 #[path = "integ/rpc_no_state_workflow.rs"]
 mod rpc_no_state_workflow;
+#[path = "integ/rpc_request_id_test.rs"]
+mod rpc_request_id_test;
 #[path = "integ/rpc_test.rs"]
 mod rpc_test;
 #[path = "integ/rpc_with_memo_test.rs"]
