@@ -456,28 +456,38 @@ final class PullWorkerAdaptiveSlotStreamsTest {
     // Phase 2: a cap below 100 clamps an unset ceiling, and R and the floor come from the clamped T.
     @Test
     void capBelowDefaultCeilingClampsAndDerivesFloor() throws Exception {
-        final int cap = 50;
-        final int floor = Math.min(cap, Math.max(2, Runtime.getRuntime().availableProcessors()));
-        final AdaptiveSlotTestServer server = startServer("default-cap", AdaptiveSlotTestServer.Limits.cap(cap));
-        final PullSlotProxy proxy = startProxy(server);
-        final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
-                track(new PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture());
-        final String appWorkerID = newAppWorkerID("default-cap");
-        final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
-                pull(appWorkerID), ONE_HOUR);
-        run.waitRegistered(Duration.ofMinutes(2));
-        assertTrue(logs.hasWarning("clamped maxConcurrentTasks 100", "maxConcurrentTasksCap 50",
-                "explicit maxConcurrentTasks: false"), logs::describe);
-        assertEquals(1, logs.countWarnings("clamped maxConcurrentTasks"));
-        requireRegisteredStreams(proxy, appWorkerID, floor - 1, 1);
-        final PullSlotStreamState state = run.worker.getPullSlotStreamState();
-        assertTrue(state.isAdaptive(), state::toString);
-        assertEquals(cap, state.getTotalCapacity(), state::toString);
-        assertEquals(1, state.getRpcOnlySlots(), state::toString);
-        assertEquals(floor - 1, state.getFloor(), state::toString);
-        assertEquals(floor - 1, state.getOpen(), state::toString);
-        assertEquals(cap - 1, state.getEffectiveCeiling(), state::toString);
-        requireNoPermanentRegistrationError(run);
+        // Cap 12 sits below the CPU-count floor on larger machines; cap 50 usually sits above it.
+        for (int cap : new int[] {12, 50}) {
+            final int floor = Math.min(cap, Math.max(2, Runtime.getRuntime().availableProcessors()));
+            final AdaptiveSlotTestServer server = startServer("default-cap", AdaptiveSlotTestServer.Limits.cap(cap));
+            final PullSlotProxy proxy = startProxy(server);
+            final Runnable releaseAcknowledgements = proxy.holdAcknowledgements();
+            final PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture logs =
+                    track(new PullWorkerAdaptiveSlotSupport.PullWorkerLogCapture());
+            final String appWorkerID = newAppWorkerID("default-cap");
+            final WorkerRun run = startTrackedWorker(proxy.address(), new PullWorkerAdaptiveSlotHandlers(),
+                    pull(appWorkerID), ONE_HOUR);
+            // The floor derives from the clamped ceiling, so the adaptive Worker probes first.
+            requireProbeRegisterOnly(proxy, appWorkerID);
+            releaseAcknowledgements.run();
+            run.waitRegistered(Duration.ofMinutes(2));
+            assertTrue(logs.hasWarning("clamped maxConcurrentTasks 100", "maxConcurrentTasksCap " + cap,
+                    "explicit maxConcurrentTasks: false"), logs::describe);
+            assertEquals(1, logs.countWarnings("clamped maxConcurrentTasks"));
+            requireSlotState(run, "the derived floor at cap " + cap,
+                    current -> current.getOpen() == floor - 1 && current.getRegistering() == 0
+                            && current.getRpcOnlyOpen() == 1);
+            requireRegisteredStreams(proxy, appWorkerID, floor - 1, 1);
+            final PullSlotStreamState state = run.worker.getPullSlotStreamState();
+            assertTrue(state.isAdaptive(), state::toString);
+            assertEquals(cap, state.getTotalCapacity(), state::toString);
+            assertEquals(1, state.getRpcOnlySlots(), state::toString);
+            assertEquals(floor - 1, state.getFloor(), state::toString);
+            assertEquals(cap - 1, state.getEffectiveCeiling(), state::toString);
+            assertEquals(0L, state.getGrowRejectedAtCap(), state::toString);
+            requireNoPermanentRegistrationError(run);
+            closeResources();
+        }
     }
 
     // Covers design Test 14: an adaptive Worker with a floor of one, with the ceiling set or not.
