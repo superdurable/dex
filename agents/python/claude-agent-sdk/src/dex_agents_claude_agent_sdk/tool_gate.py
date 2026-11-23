@@ -634,7 +634,9 @@ class ToolCallGate:
         # The CLI prefixes a hook denial, so a custom tool returns even its rejection itself.
         # Application hooks are skipped on replay, so every allow carries the approved input.
         if served_tool_name is not None and self._is_unrun_removed_custom_tool_call(record):
-            # The tool Step took the gone tool for a CLI tool; an earlier attempt may have run it.
+            # The tool Step took the gone tool for a CLI tool: it needed approval, its first
+            # attempt ran here, or an older adapter wrote the record. An earlier attempt may
+            # have run it.
             record = replace(record, status=ToolCallStatus.OUTCOME_UNKNOWN, output=None)
             self._turn.events.write_tool_call_finished(
                 call_id, record.tool_name, ToolCallStatus.OUTCOME_UNKNOWN

@@ -55,6 +55,7 @@ from dex_agents import (
     ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
+    ToolOutcomeUnknownError,
     ToolTaskCancellation,
     ToolTaskPoll,
     ToolTaskPollOutcome,
@@ -114,6 +115,12 @@ _GEN_AI_PROVIDER_NAMES = {
 }
 # A gateway relays requests to a backend that the CLI does not name.
 _CLAUDE_PROVIDERS_WITHOUT_GEN_AI_PROVIDER = frozenset({"gateway"})
+# The error of a retried call whose custom tool this Worker lacks.
+# The text matches the TypeScript adapter.
+_REMOVED_CUSTOM_TOOL_RETRY_ERROR = (
+    "{tool_name} did not run on this attempt: this Worker no longer offers it, "
+    "and an earlier attempt may have run it."
+)
 
 _running_deferred_tool_execution: ContextVar[DeferredToolExecution | None] = ContextVar(
     "dex_agents_claude_agent_sdk_deferred_tool_execution", default=None
@@ -721,6 +728,22 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         that runs inside the CLI is only marked approved here; the resumed turn
         runs it.
 
+        A retry of a call whose custom tool this Worker no longer has, because
+        a deploy renamed or removed it, cannot run the tool, and an earlier
+        attempt may have run it. When the call needed no approval, it can only
+        be such a custom tool, because a tool that runs inside the CLI defers
+        only for approval. That retry raises ``ToolOutcomeUnknownError``, so
+        the session records ``OUTCOME_UNKNOWN`` and the resumed CLI receives
+        that record. A call that needed approval cannot be told from a tool
+        that runs inside the CLI, so its retry still marks it approved. The
+        first attempt of any call does too, because no earlier attempt ran it.
+
+        .. versionchanged:: 0.6.17
+            A retry of a removed custom tool's call without approval raises
+            ``ToolOutcomeUnknownError``. Before, it returned
+            ``APPROVED_CLI_TOOL_OUTPUT``, and the call's record said
+            ``SUCCEEDED`` while the model read that its outcome was unknown.
+
         Args:
             call: The approved record and its idempotency key.
 
@@ -738,7 +761,9 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 schema, the custom tool returned ``is_error``, or the source
                 raised it. The model sees the text.
             ToolOutcomeUnknownError: The source cannot tell whether the call
-                took effect. The session records ``OUTCOME_UNKNOWN``.
+                took effect, or a retry of a call without approval finds no
+                custom tool of its name on this Worker. The session records
+                ``OUTCOME_UNKNOWN``.
             LookupError: A source built the call, but no source of that name
                 is configured on this Worker, so the effect class decides.
             Exception: Any exception the handler or source raises fails the
@@ -756,6 +781,11 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             )
         custom_tool = self._tool_catalog.custom_tool(record.tool_name)
         if custom_tool is None:
+            # Claude Code tools defer only for approval, so this was a custom tool a deploy removed.
+            if call.attempt > 1 and not record.requires_approval:
+                raise ToolOutcomeUnknownError(
+                    _REMOVED_CUSTOM_TOOL_RETRY_ERROR.format(tool_name=record.tool_name)
+                )
             return ToolExecutionResult(
                 output=APPROVED_CLI_TOOL_OUTPUT, is_finished_by_resumed_turn=True
             )

@@ -560,7 +560,8 @@ export class ToolCallGate {
     // Application hooks are skipped on replay, so every allow carries the recorded, approved input.
     const recordedInput = recordedToolInput(record);
     if (servedToolName !== undefined && this.isUnrunRemovedCustomToolCall(record)) {
-      // The tool Step took the gone tool for a CLI tool; an earlier attempt may have run it.
+      // The tool Step took the gone tool for a CLI tool: it needed approval, its first attempt ran here, or an
+      // older adapter wrote the record. An earlier attempt may have run it.
       this.turn.events.writeToolCallFinished(record.toolCallId, record.toolName, "outcome_unknown");
       this.planCustomToolCall(record.toolCallId, servedToolName, { ...record, status: "outcome_unknown", output: null });
       return preToolUseDecision("allow", undefined, recordedInput);

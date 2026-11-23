@@ -21,6 +21,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   collectTurnImages,
   describeToolCallOutcome,
   isFinalToolCallStatus,
@@ -294,6 +295,9 @@ const sdkStrippedEnvironmentVariables: ReadonlySet<string> = new Set([
 const requireFromAdapter = createRequire(import.meta.url);
 let loadedOpenTelemetryApi: typeof OpenTelemetryApi | null | undefined;
 const runningDeferredToolExecution = new AsyncLocalStorage<DeferredToolExecution>();
+// The error of a retried call whose custom tool this Worker lacks. The text matches the Python adapter.
+const removedCustomToolRetryError = (toolName: string): string =>
+  `${toolName} did not run on this attempt: this Worker no longer offers it, and an earlier attempt may have run it.`;
 
 /**
  * Returns the deferred tool call that the running custom tool handler serves.
@@ -655,6 +659,17 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * argument carries only `signal`, `requestId`, and `_meta`. A tool that runs inside the CLI is only
    * marked approved here; the resumed turn runs it.
    *
+   * A retry of a call whose custom tool this Worker no longer has, because a deploy renamed or removed it, cannot
+   * run the tool, and an earlier attempt may have run it. When the call needed no approval, it can only be such a
+   * custom tool, because a tool that runs inside the CLI defers only for approval. That retry throws
+   * `ToolOutcomeUnknownError`, so the session records `outcome_unknown` and the resumed CLI receives that record.
+   * A call that needed approval cannot be told from a tool that runs inside the CLI, so its retry still marks it
+   * approved. The first attempt of any call does too, because no earlier attempt ran it.
+   *
+   * Changed in 0.6.17: a retry of a removed custom tool's call without approval throws `ToolOutcomeUnknownError`.
+   * Before, it returned {@link approvedCliToolOutput}, and the call's record said `succeeded` while the model read
+   * that its outcome was unknown.
+   *
    * A source's outcome reaches the session unchanged. A `ToolTaskStarted` makes the session poll the task through
    * {@link pollToolTask}, and a `ToolInputRequested` makes it wait for the user's answer and run the call again.
    *
@@ -679,8 +694,8 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
    * returned as `images` instead.
    * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
    * returned `isError`, or the source threw it. The model sees the text.
-   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the call took effect. The session records
-   * `outcome_unknown`.
+   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the call took effect, or when a retry of a
+   * call without approval finds no custom tool of its name on this Worker. The session records `outcome_unknown`.
    * @throws {RangeError} When a source built the call but no source of that name is configured on this Worker, so
    * the effect decides the outcome.
    * @throws Any error the handler or the source throws, which fails the Step attempt.
@@ -697,6 +712,10 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner<DeferredToolOutco
     }
     const customTool = this.toolCatalog.customTool(record.toolName);
     if (customTool === undefined) {
+      // Claude Code tools defer only for approval, so this was a custom tool a deploy removed.
+      if (call.attempt > 1 && !record.requiresApproval) {
+        throw new ToolOutcomeUnknownError(removedCustomToolRetryError(record.toolName));
+      }
       return { output: approvedCliToolOutput, isFinishedByResumedTurn: true };
     }
     const toolArguments = parseCustomToolArguments(customTool, record.arguments);
