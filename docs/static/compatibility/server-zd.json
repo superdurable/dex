@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.superdurable.io/compatibility/server-zd.schema.json",
   "schemaVersion": 1,
-  "generatedAt": "2026-11-22",
+  "generatedAt": "2026-11-23",
   "servers": [
     {
       "serverZd": "0.1.37",
@@ -24,7 +24,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -143,7 +143,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -262,7 +262,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -381,7 +381,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -500,7 +500,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -619,7 +619,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -738,7 +738,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -857,7 +857,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -976,7 +976,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
@@ -1092,7 +1092,7 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.16"
+          "newest": "1.45.2"
         },
         "rust": {
           "oldest": "0.9.0",
