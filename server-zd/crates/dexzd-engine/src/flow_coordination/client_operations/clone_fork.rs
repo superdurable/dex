@@ -195,17 +195,14 @@ impl FlowCoordinatorRegistry {
         } else {
             computed.timeout_policy()
         };
-        let mut recorded_request = CloneForkFlowRequest {
-            attributes: request_attributes,
-            ..request.clone()
-        };
-        if let Some(override_config) = recorded_request.flow_config_override.as_mut() {
-            record_unlimited_history_window(override_config);
-        }
+        // Apply only compares this request with the staging; it reads the effective config.
         let clone_fork = FlowCloneForkCommand {
             staging_id,
             new_run_id: new_run_id.as_bytes().to_vec(),
-            request: Some(recorded_request),
+            request: Some(CloneForkFlowRequest {
+                attributes: request_attributes,
+                ..request.clone()
+            }),
             settings: Some(settings),
             effective_flow_config: Some(flow_config),
             flow_timeout_duration_micros: duration_micros,

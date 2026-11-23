@@ -1040,6 +1040,66 @@ async fn the_task_queue_override_routes_the_new_run() {
     node.shutdown().await;
 }
 
+/// From an early point, a clone inherits the source's unlimited window, records an explicit 0 as
+/// unlimited, and keeps a finite override.
+#[tokio::test(start_paused = true)]
+async fn a_clone_records_an_unlimited_history_window_as_the_largest_int32() {
+    let (_cluster, node) = start_node(FlowCoordinationConfig::default()).await;
+    let mut start = source_start("start-source");
+    start
+        .flow_start_options
+        .as_mut()
+        .expect("the source has start options")
+        .flow_config_override = Some(FlowConfig {
+        history_window_events: Some(0),
+        ..pull_config("source-queue")
+    });
+    let source_run = node.start_source(start).await;
+    let window_of = |flow_id: &str, run_id: RunId| {
+        node.record_of(flow_id, run_id)
+            .flow_config
+            .and_then(|config| config.history_window_events)
+    };
+    assert_eq!(window_of(SOURCE_FLOW, source_run), Some(i32::MAX));
+    node.set_flow_attribute(SOURCE_FLOW, "stage", string_value("first"))
+        .await;
+    let first_event_id = node.record_of(SOURCE_FLOW, source_run).next_event_id - 1;
+    node.set_flow_attribute(SOURCE_FLOW, "stage", string_value("second"))
+        .await;
+    let cases = [
+        ("inherited", None, i32::MAX),
+        ("explicit-zero", Some(0), i32::MAX),
+        ("finite", Some(300), 300),
+    ];
+    for (label, override_window, expected_window) in cases {
+        let flow_id = format!("clone-window-{label}");
+        let response = node
+            .clone_fork(CloneForkFlowRequest {
+                point_type: FlowCloneForkPointType::EventId as i32,
+                event_id: first_event_id,
+                flow_config_override: override_window.map(|history_window_events| FlowConfig {
+                    history_window_events: Some(history_window_events),
+                    ..FlowConfig::default()
+                }),
+                ..clone_request(&flow_id, &format!("request-window-{label}"))
+            })
+            .await
+            .unwrap_or_else(|error| panic!("the {label} clone fork applies: {error:?}"));
+        let clone_run: RunId = response.run_id.parse().expect("the run ID parses");
+        assert_eq!(
+            window_of(&flow_id, clone_run),
+            Some(expected_window),
+            "{label}"
+        );
+        assert_eq!(
+            node.attributes_of(&flow_id, clone_run).get("stage"),
+            Some(&string_value("first")),
+            "{label} copies the early point"
+        );
+    }
+    node.shutdown().await;
+}
+
 /// A time travel of the new run to its beginning returns to the copied point.
 #[tokio::test(start_paused = true)]
 async fn a_time_travel_to_the_beginning_returns_to_the_copied_point() {
