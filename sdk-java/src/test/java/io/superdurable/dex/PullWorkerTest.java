@@ -288,8 +288,8 @@ final class PullWorkerTest {
         }
         try (Worker worker = new Worker(new Registry(Collections.<Flow<?>>emptyList()), new EmptyBlobCache())) {
             assertFalse(worker.getPullRegistrationState().isReady());
-            assertEquals(Runtime.getRuntime().availableProcessors() >= 2 ? 2 : 1,
-                    worker.getPullRegistrationState().getQueues().size());
+            // The default ceiling of 100 always reserves one RPC-only slot.
+            assertEquals(2, worker.getPullRegistrationState().getQueues().size());
             assertThrows(java.util.concurrent.TimeoutException.class,
                     () -> worker.waitPullRegistered(Duration.ZERO));
         }
@@ -433,7 +433,24 @@ final class PullWorkerTest {
         final PullWorkerOptions defaults = PullWorkerOptions.newBuilder()
                 .maxConcurrentTasks(0).idleStreamsPerQueue(0)
                 .stopDrainTimeout(Duration.ZERO).build();
-        assertEquals(Runtime.getRuntime().availableProcessors(), defaults.getMaxConcurrentTasks());
+        final int processors = Runtime.getRuntime().availableProcessors();
+        assertEquals(100, defaults.getMaxConcurrentTasks());
+        assertEquals(1, defaults.getReservedRpcTasks());
+        assertEquals(Math.min(100, Math.max(2, processors)), defaults.getMinOpenSlots());
+        final PullWorkerOptions ceilingOnly = PullWorkerOptions.newBuilder().maxConcurrentTasks(64).build();
+        assertEquals(Math.min(64, Math.max(2, processors)), ceilingOnly.getMinOpenSlots());
+        assertEquals(1, ceilingOnly.getReservedRpcTasks());
+        final PullWorkerOptions reserveThree = PullWorkerOptions.newBuilder().reservedRpcTasks(3).build();
+        assertEquals(Math.min(100, Math.max(4, processors)), reserveThree.getMinOpenSlots());
+        final PullWorkerOptions fixed = PullWorkerOptions.newBuilder().minOpenSlots(100).build();
+        assertEquals(100, fixed.getMinOpenSlots());
+        assertEquals(1, fixed.getReservedRpcTasks());
+        final PullWorkerOptions single = PullWorkerOptions.newBuilder().maxConcurrentTasks(1).build();
+        assertEquals(1, single.getMinOpenSlots());
+        assertEquals(0, single.getReservedRpcTasks());
+        assertEquals(1, PullWorkerOptions.defaultMinOpenSlots(1, 0, processors));
+        assertEquals(2, PullWorkerOptions.defaultMinOpenSlots(100, 1, 1));
+        assertEquals(64, PullWorkerOptions.defaultMinOpenSlots(64, 1, 128));
         assertEquals(Duration.ofSeconds(30), defaults.getStopDrainTimeout());
         final String workerID = PullWorker.generateAppWorkerID("My.Host_Name");
         assertTrue(workerID.matches("my-host-name-[a-z2-7]{8}"));
@@ -2247,6 +2264,8 @@ final class PullWorkerTest {
                                     .appWorkerID("pull-java-unit")
                                     .taskQueue(taskQueue)
                                     .maxConcurrentTasks(capacity)
+                                    // These tests cover fixed Workers; the adaptive ones are real-server tests.
+                                    .minOpenSlots(capacity)
                                     .reservedRpcTasks(reservedRpcTasks)
                                     .idleStreamsPerQueue(idleStreams)
                                     .stopOnPermanentStreamRejection(shouldStopOnRejection)
