@@ -485,7 +485,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step First input cannot drive a form: type InputT cannot be resolved in this file",
+      "span": {
+        "startLine": 24,
+        "startColumn": 36,
+        "endLine": 24,
+        "endColumn": 42
+      }
+    }
+  ],
   "groups": [
     {
       "id": "instances",

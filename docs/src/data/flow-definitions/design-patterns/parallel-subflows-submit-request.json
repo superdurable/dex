@@ -51,7 +51,19 @@
     }
   ],
   "edges": [],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step SubmitStep input cannot drive a form: type SubmitRequestInput cannot be resolved in this file",
+      "span": {
+        "startLine": 52,
+        "startColumn": 45,
+        "endLine": 52,
+        "endColumn": 63
+      }
+    }
+  ],
   "groups": [
     {
       "id": "submit",

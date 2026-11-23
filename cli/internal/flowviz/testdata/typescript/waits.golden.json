@@ -1013,6 +1013,28 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "AwaitApproval",
+      "input": {
+        "kind": "object",
+        "fields": [
+          {
+            "name": "useSignal",
+            "required": true,
+            "schema": {
+              "kind": "boolean"
+            }
+          },
+          {
+            "name": "minutes",
+            "required": true,
+            "schema": {
+              "kind": "number"
+            }
+          }
+        ]
+      }
+    }
   }
 }

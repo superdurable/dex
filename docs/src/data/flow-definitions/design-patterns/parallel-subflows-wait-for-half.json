@@ -418,6 +418,15 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "WaitForHalfInit",
+      "input": {
+        "kind": "array",
+        "items": {
+          "kind": "string"
+        }
+      }
+    }
   }
 }

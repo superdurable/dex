@@ -32,7 +32,10 @@ func TestScriptV2ViewRPCFacts(t *testing.T) {
 		spanLine   int
 		fieldCount int
 	}{
-		{name: "unknown output keys", viewRPCs: `[{` + display + `}]`, fieldCount: 1},
+		{
+			name: "unknown output keys", viewRPCs: `[{` + display + `}]`, code: "v2_view_rpc_output",
+			messages: []string{"GetDexDisplay must return its declared fields from a map[string]any literal"}, spanLine: 4, fieldCount: 1,
+		},
 		{name: "matching output keys", viewRPCs: `[{` + display + `,"outputKeys":["state"]}]`, fieldCount: 1},
 		{
 			name: "known empty output", viewRPCs: `[{` + display + `,"outputKeys":[]}]`,
@@ -43,7 +46,7 @@ func TestScriptV2ViewRPCFacts(t *testing.T) {
 			messages: []string{`GetDexDisplay omits declared field "state"`, `GetDexDisplay returns undeclared field "extra"`}, spanLine: 4, fieldCount: 1,
 		},
 		{
-			name: "analyzer error", viewRPCs: `[{` + display + `,"error":"GetDexDisplay must be read-only"}]`,
+			name: "analyzer error", viewRPCs: `[{` + display + `,"outputKeys":["state"],"error":"GetDexDisplay must be read-only"}]`,
 			code: "v2_view_rpc", messages: []string{"GetDexDisplay must be read-only"}, spanLine: 4, fieldCount: 1,
 		},
 		{
@@ -51,7 +54,7 @@ func TestScriptV2ViewRPCFacts(t *testing.T) {
 			code: "v2_view_rpc", messages: []string{`unexpected view RPC protocol name "GetOtherView"`}, spanLine: 6,
 		},
 		{
-			name: "duplicate name", viewRPCs: `[{` + display + `},{"protocolName":"GetDexDisplay","span":{"startLine":8}}]`,
+			name: "duplicate name", viewRPCs: `[{` + display + `,"outputKeys":["state"]},{"protocolName":"GetDexDisplay","span":{"startLine":8}}]`,
 			code: "v2_view_rpc", messages: []string{`view RPC "GetDexDisplay" is declared more than once`}, spanLine: 8, fieldCount: 1,
 		},
 	} {
@@ -117,14 +120,18 @@ func TestScriptV2MetadataMatchesGo(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			field := fmt.Sprintf(displayDirective, test.key, test.valueType)
+			outputKeys := `[]`
+			if test.outputEntry != "" {
+				outputKeys = `["state"]`
+			}
 			payload := fmt.Sprintf(`{
 				"graph":{"valid":true,"source":{"language":"typescript"}},
 				"attributes":[{"key":"state","valueType":"string","isIndexed":true,"indexKey":"state","indexType":"keyword",
 					"directives":[{"text":%q}]}],
-				"viewRPCs":[{"protocolName":"GetDexSummary"},{"protocolName":"GetDexDisplay",
+				"viewRPCs":[{"protocolName":"GetDexSummary","outputKeys":[]},{"protocolName":"GetDexDisplay","outputKeys":%s,
 					"directives":[{"text":%q,"span":{"startLine":4,"startColumn":1,"endLine":4,"endColumn":100}}]}],
 				"startInput":{"stepType":"FinishStep","input":%s}
-			}`, indexedDirective, field, test.scriptInput)
+			}`, indexedDirective, outputKeys, field, test.scriptInput)
 			var analysis scriptAnalysis
 			require.NoError(t, json.Unmarshal([]byte(payload), &analysis))
 			scriptGraph := analysis.definition()

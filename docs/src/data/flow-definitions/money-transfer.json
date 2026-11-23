@@ -354,7 +354,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step CheckBalance input cannot drive a form: type TransferRequest cannot be resolved in this file",
+      "span": {
+        "startLine": 168,
+        "startColumn": 48,
+        "endLine": 168,
+        "endColumn": 63
+      }
+    }
+  ],
   "groups": [
     {
       "id": "debit",

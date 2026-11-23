@@ -235,6 +235,12 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "ProcessMessage",
+      "input": {
+        "kind": "string"
+      }
+    }
   }
 }

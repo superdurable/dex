@@ -105,8 +105,10 @@ class UpdateIndeedPosting(Step[None]):
 
 
 class JobPostingFlow(Flow[None]):
+    # dex:indexed-attribute attribute-key:Title index-key:text1 index-type:fulltext value-type:string description:"Job posting title"
     title = Attribute("Title", str, AttributeIndex(IndexType.FULL_TEXT, "text1"))
     job_description = Attribute("JobDescription", str)
+    # dex:indexed-attribute attribute-key:LastUpdateTimeMillis index-key:int1 index-type:int value-type:int64 description:"Last update time in milliseconds"
     last_update_time_millis = Attribute(
         "LastUpdateTimeMillis",
         int,

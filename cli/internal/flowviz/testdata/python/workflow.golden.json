@@ -9,23 +9,39 @@
     "name": "CatalogFlow",
     "startStepId": "step:LookupRecord",
     "span": {
-      "startLine": 27,
+      "startLine": 29,
       "startColumn": 1,
-      "endLine": 49,
+      "endLine": 56,
       "endColumn": 89
     }
   },
   "nodes": [
     {
-      "id": "decision:step:FinishStep:24:16",
+      "id": "decision:rpc:display:53:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:display",
+      "phase": "rpc",
+      "span": {
+        "startLine": 53,
+        "startColumn": 16,
+        "endLine": 53,
+        "endColumn": 62
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:FinishStep:26:16",
       "kind": "decision",
       "name": "forceComplete",
       "parentId": "step:FinishStep",
       "phase": "execute",
       "span": {
-        "startLine": 24,
+        "startLine": 26,
         "startColumn": 16,
-        "endLine": 24,
+        "endLine": 26,
         "endColumn": 32
       },
       "decision": {
@@ -58,13 +74,27 @@
       }
     },
     {
+      "id": "resource:attribute:STATE",
+      "kind": "attribute",
+      "name": "LookupState",
+      "span": {
+        "startLine": 15,
+        "startColumn": 1,
+        "endLine": 15,
+        "endColumn": 85
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
       "id": "resource:stream:PROGRESS",
       "kind": "stream",
       "name": "LookupProgress",
       "span": {
-        "startLine": 14,
+        "startLine": 16,
         "startColumn": 1,
-        "endLine": 14,
+        "endLine": 16,
         "endColumn": 49
       },
       "resource": {
@@ -76,13 +106,24 @@
       "kind": "stream",
       "name": "LookupText",
       "span": {
-        "startLine": 15,
+        "startLine": 17,
         "startColumn": 1,
-        "endLine": 15,
+        "endLine": 17,
         "endColumn": 40
       },
       "resource": {
         "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:display",
+      "kind": "rpc",
+      "name": "display",
+      "span": {
+        "startLine": 52,
+        "startColumn": 5,
+        "endLine": 53,
+        "endColumn": 62
       }
     },
     {
@@ -91,9 +132,9 @@
       "name": "FinishStep",
       "phase": "execute",
       "span": {
-        "startLine": 43,
+        "startLine": 45,
         "startColumn": 61,
-        "endLine": 43,
+        "endLine": 45,
         "endColumn": 72
       },
       "metadata": {
@@ -107,9 +148,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 43,
+        "startLine": 45,
         "startColumn": 36,
-        "endLine": 43,
+        "endLine": 45,
         "endColumn": 47
       },
       "metadata": {
@@ -151,6 +192,22 @@
   "edges": [
     {
       "id": "edge:0001",
+      "kind": "resource_read",
+      "from": "resource:attribute:STATE",
+      "to": "rpc:display",
+      "label": "get",
+      "span": {
+        "startLine": 53,
+        "startColumn": 42,
+        "endLine": 53,
+        "endColumn": 60
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0002",
       "kind": "resource_write",
       "from": "step:LookupRecord",
       "to": "resource:attribute:RESULT",
@@ -160,7 +217,7 @@
       }
     },
     {
-      "id": "edge:0002",
+      "id": "edge:0003",
       "kind": "resource_write",
       "from": "step:LookupRecord",
       "to": "resource:stream:PROGRESS",
@@ -174,7 +231,7 @@
       }
     },
     {
-      "id": "edge:0003",
+      "id": "edge:0004",
       "kind": "resource_write",
       "from": "step:LookupRecord",
       "to": "resource:stream:TEXT",
@@ -188,7 +245,7 @@
       }
     },
     {
-      "id": "edge:0004",
+      "id": "edge:0005",
       "kind": "failure_transition",
       "from": "step:LookupRecord",
       "to": "step:FinishStep",
@@ -198,15 +255,15 @@
       }
     },
     {
-      "id": "edge:0005",
+      "id": "edge:0006",
       "kind": "transition",
       "from": "step:LookupRecord",
       "to": "step:FinishStep",
       "label": "found",
       "span": {
-        "startLine": 30,
+        "startLine": 32,
         "startColumn": 23,
-        "endLine": 40,
+        "endLine": 42,
         "endColumn": 10
       },
       "metadata": {
@@ -214,15 +271,15 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "transition",
       "from": "step:LookupRecord",
       "to": "step:FinishStep",
       "label": "unavailable",
       "span": {
-        "startLine": 30,
+        "startLine": 32,
         "startColumn": 23,
-        "endLine": 40,
+        "endLine": 42,
         "endColumn": 10
       },
       "metadata": {
@@ -242,14 +299,29 @@
     }
   ],
   "v2": {
-    "indexedAttributes": [],
+    "indexedAttributes": [
+      {
+        "attributeKey": "LookupState",
+        "indexKey": "keyword1",
+        "indexType": "keyword",
+        "valueType": "string",
+        "description": "Lookup state"
+      }
+    ],
     "summary": {
       "rpcName": "GetDexSummary",
       "fields": []
     },
     "display": {
       "rpcName": "GetDexDisplay",
-      "fields": []
+      "fields": [
+        {
+          "attributeKey": "LookupState",
+          "valueType": "string",
+          "editable": false,
+          "description": "Lookup state"
+        }
+      ]
     },
     "actions": [],
     "connectorTriggerBindings": [

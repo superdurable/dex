@@ -29,6 +29,9 @@ var pythonConnectorAnalyzerSource string
 //go:embed python_binding_analyzer.py
 var pythonBindingAnalyzerSource string
 
+//go:embed python_v2_metadata.py
+var pythonV2MetadataSource string
+
 func analyzePython(ctx context.Context, sourcePath string, source []byte, pythonPath string, flowType string) (*Graph, error) {
 	if strings.TrimSpace(pythonPath) == "" {
 		pythonPath = "python3"
@@ -75,7 +78,7 @@ func newPythonAnalyzerCommand(ctx context.Context, pythonPath string) (*exec.Cmd
 		}
 	}
 	scriptPath := filepath.Join(directory, "python_analyzer.py")
-	script := pythonConnectorAnalyzerSource + "\n" + pythonBindingAnalyzerSource + "\n" + pythonAnalyzerSource
+	script := strings.Join([]string{pythonConnectorAnalyzerSource, pythonBindingAnalyzerSource, pythonV2MetadataSource, pythonAnalyzerSource}, "\n")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
 		removeDirectory()
 		return nil, nil, fmt.Errorf("write Python analyzer script: %w", err)

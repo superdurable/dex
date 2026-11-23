@@ -27,7 +27,7 @@ func TestPythonJoinDefinitionGolden(t *testing.T) {
 	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
 	require.NoError(t, err)
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
-	require.Empty(t, graph.Diagnostics)
+	require.Equal(t, []string{"start_input_unresolved"}, diagnosticCodes(graph))
 
 	requirePythonJoinEdge(t, graph, "transition", "step:RequestQuotes", "step:QuoteFromSupplierA")
 	requirePythonJoinEdge(t, graph, "transition", "step:RequestQuotes", "step:QuoteFromSupplierB")

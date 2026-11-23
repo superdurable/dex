@@ -143,6 +143,14 @@
       "rpcName": "GetDexDisplay",
       "fields": []
     },
-    "actions": []
+    "actions": [],
+    "start": {
+      "stepType": "InitStep",
+      "input": {
+        "kind": "integer",
+        "minimum": "-9223372036854775808",
+        "maximum": "9223372036854775807"
+      }
+    }
   }
 }

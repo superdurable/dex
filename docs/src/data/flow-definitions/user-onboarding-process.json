@@ -991,7 +991,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "start_input_unresolved",
+      "message": "Start Step Submit input cannot drive a form: type SignupForm cannot be resolved in this file",
+      "span": {
+        "startLine": 171,
+        "startColumn": 48,
+        "endLine": 171,
+        "endColumn": 58
+      }
+    }
+  ],
   "groups": [
     {
       "id": "verification",
