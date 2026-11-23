@@ -580,6 +580,30 @@ async def _registration_waiter_settles_when_every_stream_is_rejected(
         flow_server.stop(grace=None).wait(timeout=5)
 
 
+@pytest.mark.parametrize(("max_concurrent_tasks", "max_workers"), [(0, 100), (8, 8)])
+def test_worker_handler_pool_follows_the_ceiling_and_starts_threads_on_demand(
+    max_concurrent_tasks: int, max_workers: int
+) -> None:
+    worker = Worker(
+        Registry((IndexedFlow(),)),
+        MemoryBlobCache(),
+        WorkerOptions(
+            pull=PullWorkerOptions(max_concurrent_tasks=max_concurrent_tasks),
+            server_address="127.0.0.1:1",
+        ),
+    )
+    try:
+        executor = worker._executor
+        assert executor._max_workers == max_workers
+        assert len(executor._threads) == 0
+        for _ in range(3):
+            executor.submit(lambda: None).result(timeout=5)
+        # Sequential handlers reuse the idle thread instead of starting new ones.
+        assert len(executor._threads) == 1
+    finally:
+        worker.close()
+
+
 def _start_flow_server(service: SyncService) -> tuple[grpc.Server, int]:
     server = grpc.server(ThreadPoolExecutor(max_workers=6))
     dex_pb2_grpc.add_FlowServiceServicer_to_server(  # type: ignore[no-untyped-call]

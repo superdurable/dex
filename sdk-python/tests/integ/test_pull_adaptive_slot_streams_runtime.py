@@ -471,7 +471,9 @@ def test_adaptive_soft_rejection_at_node_limit(harness: AdaptiveSlotHarness) -> 
         server.address,
         fixed_handlers,
         PullWorkerOptions(
-            max_concurrent_tasks=14, app_worker_id=app_id("fixed-filler")
+            max_concurrent_tasks=14,
+            min_open_slots=14,
+            app_worker_id=app_id("fixed-filler"),
         ),
         _HOUR,
         is_parked_only=True,
@@ -681,18 +683,24 @@ def require_cap_of_one_worker_serves(
 def test_cap_of_one_fixed_unset_ceiling_probes_and_clamps(
     harness: AdaptiveSlotHarness,
 ) -> None:
-    """Design Test 14, fixed mode with an unset ceiling."""
+    """Design Test 14, fixed mode with an unset ceiling.
+
+    With every option unset, only a CPU count of at least 100 makes the
+    default floor equal the default ceiling, so the test patches it.
+    """
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
     proxy = harness.proxy(server.address)
     release_acknowledgements = proxy.hold_acknowledgements()
     logs = harness.logs()
     worker_id = app_id("fixed-probe")
-    run = harness.worker(
-        proxy.address,
-        AdaptiveSlotHandlers(),
-        PullWorkerOptions(app_worker_id=worker_id),
-        _HOUR,
-    )
+    with patch("os.cpu_count", return_value=128):
+        run = harness.worker(
+            proxy.address,
+            AdaptiveSlotHandlers(),
+            PullWorkerOptions(app_worker_id=worker_id),
+            _HOUR,
+        )
+    assert not run.state().is_adaptive
     # F4: only the probe stream registers before the first acknowledgement.
     eventually(lambda: len(proxy.registers_since(worker_id, 0.0)) == 1, 10)
     never(
@@ -702,10 +710,67 @@ def test_cap_of_one_fixed_unset_ceiling_probes_and_clamps(
     )
     release_acknowledgements()
     require_cap_of_one_worker_serves(harness, server, proxy, run, worker_id)
-    cpu_count = os.cpu_count() or 1
-    if cpu_count > 1:
-        assert logs.has_warning("clamped max_concurrent_tasks", str(cpu_count), "1")
+    assert logs.has_warning("clamped max_concurrent_tasks", "100", "1")
     assert not run.state().is_adaptive
+
+
+def test_fixed_floor_at_default_ceiling_probes_first(
+    harness: AdaptiveSlotHarness,
+) -> None:
+    """F4 after phase 2: a floor set to the default ceiling is fixed and probes the cap first."""
+    server = harness.server()
+    proxy = harness.proxy(server.address)
+    release_acknowledgements = proxy.hold_acknowledgements()
+    logs = harness.logs()
+    worker_id = app_id("fixed-default-ceiling")
+    run = harness.worker(
+        proxy.address,
+        AdaptiveSlotHandlers(),
+        PullWorkerOptions(min_open_slots=100, app_worker_id=worker_id),
+        _HOUR,
+    )
+    state = run.state()
+    assert not state.is_adaptive
+    assert state.total_capacity == 100
+    assert state.rpc_only_slots == 1
+    eventually(lambda: len(proxy.registers_since(worker_id, 0.0)) == 1, 10)
+    never(
+        lambda: len(proxy.registers_since(worker_id, 0.0)) > 1,
+        0.3,
+        "a stream registered before the probe's acknowledgement",
+    )
+    release_acknowledgements()
+    run.wait_registered()
+    require_slot_state(
+        run,
+        "every slot of the fixed Worker open",
+        lambda state: state.open == 99
+        and state.rpc_only_open == 1
+        and state.registering == 0
+        and state.total_capacity == 100,
+    )
+    require_registered_streams(proxy, worker_id, 99, 1)
+    assert logs.count_warnings("clamped max_concurrent_tasks") == 0
+
+
+def test_fixed_floor_at_default_ceiling_above_cap_fails_start(
+    harness: AdaptiveSlotHarness,
+) -> None:
+    """An explicit floor of 100 cannot fit a lower cap; start fails after the probe."""
+    server = harness.server(ServerLimits(max_concurrent_tasks_cap=10))
+    proxy = harness.proxy(server.address)
+    worker_id = app_id("fixed-floor-above-cap")
+    run = harness.worker(
+        proxy.address,
+        AdaptiveSlotHandlers(),
+        PullWorkerOptions(min_open_slots=100, app_worker_id=worker_id),
+        _HOUR,
+    )
+    failure = run.await_start_result(30)
+    assert failure is not None
+    assert "min_open_slots=100 exceeds the slot ceiling 10" in str(failure)
+    assert "matching.maxConcurrentTasksCap=10" in str(failure)
+    assert len(proxy.registers_since(worker_id, 0.0)) == 1
 
 
 @pytest.mark.parametrize("max_concurrent_tasks", [4, 0])
@@ -713,8 +778,6 @@ def test_cap_of_one_adaptive_floor_of_one(
     harness: AdaptiveSlotHarness, max_concurrent_tasks: int
 ) -> None:
     """Design Test 14, adaptive mode with the ceiling set or not."""
-    if max_concurrent_tasks == 0 and (os.cpu_count() or 1) < 2:
-        max_concurrent_tasks = 2
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
     proxy = harness.proxy(server.address)
     logs = harness.logs()
@@ -736,38 +799,206 @@ def test_cap_of_one_adaptive_floor_of_one(
         assert register.slot_kind == STEP_AND_RPC
 
 
+def test_default_options_are_adaptive(harness: AdaptiveSlotHarness) -> None:
+    """Phase 2: with no options the Worker holds the CPU-count floor and grows toward 100."""
+    cpu_count = os.cpu_count() or 1
+    open_slot_floor = min(100, max(2, cpu_count))
+    server = harness.server()
+    proxy = harness.proxy(server.address)
+    handlers = AdaptiveSlotHandlers()
+    worker_id = app_id("default-options")
+    run = harness.worker(
+        proxy.address, handlers, PullWorkerOptions(app_worker_id=worker_id), _HOUR
+    )
+    run.wait_registered()
+    require_slot_state(
+        run,
+        f"the default floor of {open_slot_floor} slots",
+        lambda state: state.is_adaptive is (open_slot_floor < 100)
+        and state.total_capacity == 100
+        and state.rpc_only_slots == 1
+        and state.floor == open_slot_floor - 1
+        and state.effective_ceiling == 99
+        and state.open == open_slot_floor - 1
+        and state.rpc_only_open == 1
+        and state.registering == 0,
+    )
+    require_registered_streams(proxy, worker_id, open_slot_floor - 1, 1)
+    load = min(99, open_slot_floor + 4)
+    client = harness.client(server.address, run)
+    flow_ids = start_flows(client, flow_of(run), MODE_BLOCK, load)
+    handlers.await_entries(load)
+    require_slot_state(
+        run,
+        f"growth above the floor to {load} busy streams",
+        lambda state: state.busy == load and load <= state.open <= 99,
+    )
+    handlers.release.set()
+    require_flows_completed(client, flow_ids)
+    require_attempts_were_first(handlers)
+
+
+def test_ceiling_only_is_adaptive(harness: AdaptiveSlotHarness) -> None:
+    """Phase 2: a Worker that sets only the ceiling is adaptive with the derived floor."""
+    server = harness.server()
+    proxy = harness.proxy(server.address)
+    handlers = AdaptiveSlotHandlers()
+    worker_id = app_id("ceiling-only")
+    with patch("os.cpu_count", return_value=4):
+        run = harness.worker(
+            proxy.address,
+            handlers,
+            PullWorkerOptions(max_concurrent_tasks=32, app_worker_id=worker_id),
+            _HOUR,
+        )
+    run.wait_registered()
+    require_slot_state(
+        run,
+        "the floor of min(32, max(R + 1, 4)) slots",
+        lambda state: state.is_adaptive
+        and state.total_capacity == 32
+        and state.rpc_only_slots == 1
+        and state.floor == 3
+        and state.effective_ceiling == 31
+        and state.open == 3
+        and state.rpc_only_open == 1
+        and state.registering == 0,
+    )
+    require_registered_streams(proxy, worker_id, 3, 1)
+    client = harness.client(server.address, run)
+    flow_ids = start_flows(client, flow_of(run), MODE_BLOCK, 8)
+    handlers.await_entries(8)
+    require_slot_state(
+        run,
+        "growth above the floor to 8 busy streams",
+        lambda state: state.busy == 8 and 8 <= state.open <= 31,
+    )
+    handlers.release.set()
+    require_flows_completed(client, flow_ids)
+    require_attempts_were_first(handlers)
+
+
+def start_default_worker_behind_probe(
+    harness: AdaptiveSlotHarness,
+    proxy: PullSlotProxy,
+    worker_id: str,
+    cpu_count: int,
+) -> AdaptiveSlotWorkerRun:
+    """Start a Worker with every option unset and check that it probes the cap first."""
+    release_acknowledgements = proxy.hold_acknowledgements()
+    with patch("os.cpu_count", return_value=cpu_count):
+        run = harness.worker(
+            proxy.address,
+            AdaptiveSlotHandlers(),
+            PullWorkerOptions(app_worker_id=worker_id),
+            _HOUR,
+        )
+    assert run.state().is_adaptive
+    eventually(lambda: len(proxy.registers_since(worker_id, 0.0)) == 1, 10)
+    never(
+        lambda: len(proxy.registers_since(worker_id, 0.0)) > 1,
+        0.3,
+        "a floor stream registered before the probe's acknowledgement",
+    )
+    release_acknowledgements()
+    run.wait_registered()
+    return run
+
+
+@pytest.mark.parametrize(("cpu_count", "open_slot_floor"), [(2, 2), (8, 8), (18, 12)])
+def test_cap_below_default_ceiling_derives_defaults_from_the_clamp(
+    harness: AdaptiveSlotHarness, cpu_count: int, open_slot_floor: int
+) -> None:
+    """Phase 2: cap 12 clamps the default ceiling; R and the floor come from T = 12.
+
+    An adaptive Worker with an unset floor opens one probe stream first, so
+    with 18 CPUs the floor drops from 18 to min(12, max(2, 18)) = 12 before
+    the other floor streams open, and no stream is rejected.
+    """
+    server = harness.server(ServerLimits(max_concurrent_tasks_cap=12))
+    proxy = harness.proxy(server.address)
+    logs = harness.logs()
+    worker_id = app_id("default-cap-twelve")
+    run = start_default_worker_behind_probe(harness, proxy, worker_id, cpu_count)
+    require_slot_state(
+        run,
+        f"T = 12, R = 1, and a floor of {open_slot_floor} slots",
+        lambda state: state.is_adaptive
+        and state.total_capacity == 12
+        and state.rpc_only_slots == 1
+        and state.floor == open_slot_floor - 1
+        and state.effective_ceiling == 11
+        and state.open == open_slot_floor - 1
+        and state.rpc_only_open == 1
+        and state.registering == 0,
+    )
+    require_registered_streams(proxy, worker_id, open_slot_floor - 1, 1)
+    require_no_permanent_registration_error(run)
+    assert not proxy.rejections_since(worker_id, 0.0)
+    assert logs.has_warning("clamped max_concurrent_tasks", "100", "12")
+    client = harness.client(server.address, run)
+    flow_ids = start_flows(client, flow_of(run), MODE_QUICK, 2)
+    require_flows_completed(client, flow_ids)
+    parked = parked_of(run)
+    parked_id = start_parked_flow(client, parked)
+    assert client.invoke_rpc(parked.get_slot_status, parked_id) == "ok"
+
+
+@pytest.mark.parametrize("cpu_count", [2, 8, 18])
+def test_cap_of_one_default_options(
+    harness: AdaptiveSlotHarness, cpu_count: int
+) -> None:
+    """Phase 2: cap 1 with every option unset gives T = 1, R = 0, and a floor of 1."""
+    server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
+    proxy = harness.proxy(server.address)
+    logs = harness.logs()
+    worker_id = app_id("default-cap-one")
+    run = start_default_worker_behind_probe(harness, proxy, worker_id, cpu_count)
+    require_cap_of_one_worker_serves(harness, server, proxy, run, worker_id)
+    require_no_permanent_registration_error(run)
+    assert not proxy.rejections_since(worker_id, 0.0)
+    state = run.state()
+    assert (state.floor, state.effective_ceiling) == (1, 1)
+    assert logs.has_warning("clamped max_concurrent_tasks", "100", "1")
+    for register in proxy.registers_since(worker_id, 0.0):
+        assert register.slot_kind == STEP_AND_RPC
+
+
 @pytest.mark.parametrize(
-    "pull",
+    ("pull", "cpu_count"),
     [
-        PullWorkerOptions(max_concurrent_tasks=18, min_open_slots=1),
-        PullWorkerOptions(),
+        (PullWorkerOptions(max_concurrent_tasks=18, min_open_slots=1), 8),
+        # A CPU count of at least 100 makes the default floor equal the default ceiling.
+        (PullWorkerOptions(), 128),
+        (PullWorkerOptions(), 2),
     ],
-    ids=["adaptive", "fixed-unset-ceiling"],
+    ids=["adaptive", "fixed-unset-ceiling", "default-options"],
 )
 def test_cap_of_one_first_acknowledgement_snapshot_is_consistent(
-    harness: AdaptiveSlotHarness, pull: PullWorkerOptions
+    harness: AdaptiveSlotHarness, pull: PullWorkerOptions, cpu_count: int
 ) -> None:
     """A snapshot read during the first acknowledgement's clamp never mixes old and new capacities.
 
     Another thread reads the snapshot in a tight loop across the cap-1 first
     acknowledgement. Every sample must satisfy
-    E == max(0, C - max(R_eff, Sr + Hr)) and 0 <= G <= E. The fixed case
-    also drops its default RPC-only reserve from 1 to 0 at the clamp.
+    E == max(0, C - max(R_eff, Sr + Hr)) and 0 <= G <= E. The unset-option
+    cases also drop their default RPC-only reserve from 1 to 0 at the clamp.
     """
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
     proxy = harness.proxy(server.address)
     release_acknowledgements = proxy.hold_acknowledgements()
     worker_id = app_id("snapshot-consistency")
-    run = harness.worker(
-        proxy.address,
-        AdaptiveSlotHandlers(),
-        PullWorkerOptions(
-            max_concurrent_tasks=pull.max_concurrent_tasks,
-            min_open_slots=pull.min_open_slots,
-            app_worker_id=worker_id,
-        ),
-        _HOUR,
-    )
+    with patch("os.cpu_count", return_value=cpu_count):
+        run = harness.worker(
+            proxy.address,
+            AdaptiveSlotHandlers(),
+            PullWorkerOptions(
+                max_concurrent_tasks=pull.max_concurrent_tasks,
+                min_open_slots=pull.min_open_slots,
+                app_worker_id=worker_id,
+            ),
+            _HOUR,
+        )
     sampler = SnapshotInvariantSampler(run)
     try:
         eventually(lambda: len(proxy.registers_since(worker_id, 0.0)) >= 1, 10)
@@ -857,15 +1088,11 @@ def test_cap_of_one_explicit_reserved_rpc_slot_fails_start(
 ) -> None:
     """Design Test 14: an explicit reserved RPC slot cannot fit a cap of 1."""
     options = {
-        "fixed": PullWorkerOptions(reserved_rpc_tasks=1),
+        "fixed": PullWorkerOptions(min_open_slots=100, reserved_rpc_tasks=1),
         "adaptive": PullWorkerOptions(
             max_concurrent_tasks=4, min_open_slots=2, reserved_rpc_tasks=1
         ),
     }
-    if (os.cpu_count() or 1) < 2:
-        options["fixed"] = PullWorkerOptions(
-            max_concurrent_tasks=2, min_open_slots=2, reserved_rpc_tasks=1
-        )
     pull = options[mode]
     server = harness.server(ServerLimits(max_concurrent_tasks_cap=1))
     run = harness.worker(
@@ -881,12 +1108,6 @@ def test_cap_of_one_explicit_reserved_rpc_slot_fails_start(
     )
     failure = run.await_start_result(30)
     assert failure is not None
-    if mode == "fixed" and pull.max_concurrent_tasks == 2:
-        assert (
-            "max_concurrent_tasks=2 exceeds Server matching.maxConcurrentTasksCap=1"
-            in str(failure)
-        )
-        return
     assert "reserved_rpc_tasks=1 must be less than the slot ceiling 1" in str(failure)
     assert "matching.maxConcurrentTasksCap=1" in str(failure)
 
@@ -899,7 +1120,9 @@ def test_cap_of_one_fixed_explicit_ceiling_above_cap_fails_start(
     run = harness.worker(
         server.address,
         AdaptiveSlotHandlers(),
-        PullWorkerOptions(max_concurrent_tasks=2, app_worker_id=app_id("fixed-two")),
+        PullWorkerOptions(
+            max_concurrent_tasks=2, min_open_slots=2, app_worker_id=app_id("fixed-two")
+        ),
         _HOUR,
     )
     failure = run.await_start_result(30)
@@ -950,7 +1173,11 @@ def test_fixed_ceiling_above_cap_fails_start(harness: AdaptiveSlotHarness) -> No
     run = harness.worker(
         server.address,
         AdaptiveSlotHandlers(),
-        PullWorkerOptions(max_concurrent_tasks=300, app_worker_id=app_id("fixed-300")),
+        PullWorkerOptions(
+            max_concurrent_tasks=300,
+            min_open_slots=300,
+            app_worker_id=app_id("fixed-300"),
+        ),
         _HOUR,
     )
     failure = run.await_start_result(30)
@@ -1032,6 +1259,7 @@ def test_fixed_cap_drop_to_one(harness: AdaptiveSlotHarness, should_stop: bool) 
         AdaptiveSlotHandlers(),
         PullWorkerOptions(
             max_concurrent_tasks=4,
+            min_open_slots=4,
             app_worker_id=worker_id,
             stop_on_permanent_stream_rejection=should_stop,
         ),
@@ -1390,7 +1618,9 @@ def test_fixed_mode_unchanged(harness: AdaptiveSlotHarness) -> None:
     run = harness.worker(
         proxy.address,
         handlers,
-        PullWorkerOptions(max_concurrent_tasks=4, app_worker_id=worker_id),
+        PullWorkerOptions(
+            max_concurrent_tasks=4, min_open_slots=4, app_worker_id=worker_id
+        ),
         1.0,
     )
     # Test 16: every stream opens before the first acknowledgement arrives.
@@ -1752,7 +1982,9 @@ def test_adaptive_graceful_stop_during_growth(harness: AdaptiveSlotHarness) -> N
         server.address,
         handlers,
         PullWorkerOptions(
-            max_concurrent_tasks=8, app_worker_id=app_id("fixed-replacement")
+            max_concurrent_tasks=8,
+            min_open_slots=8,
+            app_worker_id=app_id("fixed-replacement"),
         ),
         _HOUR,
     )
@@ -1768,7 +2000,11 @@ def test_adaptive_mixed_fleet(harness: AdaptiveSlotHarness) -> None:
     fixed = harness.worker(
         server.address,
         handlers,
-        PullWorkerOptions(max_concurrent_tasks=4, app_worker_id=app_id("fixed-fleet")),
+        PullWorkerOptions(
+            max_concurrent_tasks=4,
+            min_open_slots=4,
+            app_worker_id=app_id("fixed-fleet"),
+        ),
         _HOUR,
     )
     adaptive = harness.worker(
