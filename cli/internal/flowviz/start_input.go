@@ -25,32 +25,17 @@ import (
 	"github.com/superdurable/dex/cli/internal/pointervalue"
 )
 
-const maximumStartInputDepth = 32
-
-func (analyzer *goAnalyzer) collectV2StartDefinition() *StartDefinition {
-	if analyzer.startStepType == "" {
-		return nil
+func (analyzer *goAnalyzer) readV2StartInput() v2StartInputFact {
+	fact := v2StartInputFact{StepType: analyzer.startStepType}
+	if fact.StepType != "" && analyzer.startInputType != nil {
+		schema, err := analyzer.startInputSchema(analyzer.startInputType, 0, make(map[types.Type]bool))
+		if err != nil {
+			fact.Error = err.Error()
+		} else {
+			fact.Input = &schema
+		}
 	}
-	if analyzer.startInputType == nil {
-		analyzer.graph.AddDiagnostic(
-			"warning",
-			"v2_start_input",
-			fmt.Sprintf("Start Step %s input type is not statically readable", analyzer.startStepType),
-			nil,
-		)
-		return nil
-	}
-	schema, err := analyzer.startInputSchema(analyzer.startInputType, 0, make(map[types.Type]bool))
-	if err != nil {
-		analyzer.graph.AddDiagnostic(
-			"warning",
-			"v2_start_input",
-			fmt.Sprintf("Start Step %s input cannot drive a form: %v", analyzer.startStepType, err),
-			nil,
-		)
-		return nil
-	}
-	return &StartDefinition{StepType: analyzer.startStepType, Input: schema}
+	return fact
 }
 
 func (analyzer *goAnalyzer) registeredStepInputType(expression ast.Expr) types.Type {

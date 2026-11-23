@@ -16,11 +16,16 @@ import (
 	"strings"
 )
 
-// scriptAttribute is one Attribute or AttributeMap that a Python or TypeScript Flow file declares.
+// scriptAttribute is one Attribute or AttributeMap the Flow file declares, with its optional index settings and directive lines.
 type scriptAttribute struct {
-	Key       string `json:"key"`
-	ValueType string `json:"valueType"`
-	IsMap     bool   `json:"isMap"`
+	Key        string            `json:"key"`
+	ValueType  string            `json:"valueType"`
+	IsMap      bool              `json:"isMap"`
+	IsIndexed  bool              `json:"isIndexed,omitempty"`
+	IndexKey   string            `json:"indexKey,omitempty"`
+	IndexType  string            `json:"indexType,omitempty"`
+	Directives []v2DirectiveLine `json:"directives,omitempty"`
+	Span       *Span             `json:"span,omitempty"`
 }
 
 // scriptAction is one Action an RPC declares, as a Python or TypeScript analyzer read it.

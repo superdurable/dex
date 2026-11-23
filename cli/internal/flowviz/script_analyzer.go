@@ -26,6 +26,8 @@ type scriptAnalysis struct {
 	Attributes    []scriptAttribute    `json:"attributes"`
 	Actions       []scriptAction       `json:"actions"`
 	RPCLockErrors []scriptRPCLockError `json:"rpcLockErrors"`
+	ViewRPCs      []v2ViewRPCFact      `json:"viewRPCs,omitempty"`
+	StartInput    *v2StartInputFact    `json:"startInput,omitempty"`
 }
 
 type scriptStepAnnotations struct {
@@ -114,6 +116,7 @@ func (analysis *scriptAnalysis) definition(schemaVersion string) *Graph {
 	}
 	if schemaVersion == SchemaVersionV2 {
 		analysis.applyStepAnnotations()
+		analysis.applyV2Metadata()
 		analysis.applyActions()
 	}
 	return graph
