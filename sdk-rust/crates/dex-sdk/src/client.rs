@@ -312,15 +312,19 @@ impl Client {
         rpc: Rpc<Input, Output>,
         input: Input,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &input, &RpcInvokeOptions::new())
+        self.do_invoke_rpc(flow_id, rpc.name(), &input, RpcInvokeOptions::new())
     }
 
-    /// Invokes a registered RPC with typed input and additive runtime map-instance selections.
+    /// Invokes a registered RPC with typed input and per-call options.
+    ///
+    /// Use [`RpcInvokeOptions::request_id`] to retry the same logical call, or use the map-instance
+    /// options to add runtime locks and loads to the RPC definition.
     ///
     /// # Errors
     ///
     /// Returns a local definition error for an unregistered or wrong-kind selection. Invalid map
-    /// instance names and all errors documented by [`Self::invoke_rpc`] are also returned.
+    /// instance names, request ID errors documented by [`RpcInvokeOptions::request_id`], and all
+    /// errors documented by [`Self::invoke_rpc`] are also returned.
     pub fn invoke_rpc_with_options<Input: Value, Output: Value>(
         &self,
         flow_id: &str,
@@ -328,7 +332,7 @@ impl Client {
         input: Input,
         options: RpcInvokeOptions,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &input, &options)
+        self.do_invoke_rpc(flow_id, rpc.name(), &input, options)
     }
 
     /// Invokes a registered no-input RPC and decodes its typed output.
@@ -339,21 +343,21 @@ impl Client {
         flow_id: &str,
         rpc: Rpc<(), Output>,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &(), &RpcInvokeOptions::new())
+        self.do_invoke_rpc(flow_id, rpc.name(), &(), RpcInvokeOptions::new())
     }
 
-    /// Invokes a registered no-input RPC with additive runtime map-instance selections.
+    /// Invokes a registered no-input RPC with per-call options.
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`Self::invoke_rpc_with_options`].
+    /// Supports the same options and returns the same errors as [`Self::invoke_rpc_with_options`].
     pub fn invoke_rpc_without_input_with_options<Output: Value>(
         &self,
         flow_id: &str,
         rpc: Rpc<(), Output>,
         options: RpcInvokeOptions,
     ) -> SdkResult<Output> {
-        self.do_invoke_rpc(flow_id, rpc.name(), &(), &options)
+        self.do_invoke_rpc(flow_id, rpc.name(), &(), options)
     }
 
     /// Appends one typed best-effort Stream message with source metadata.
@@ -960,7 +964,7 @@ impl Client {
         flow_id: &str,
         rpc_name: &str,
         input: &Input,
-        invoke_options: &RpcInvokeOptions,
+        invoke_options: RpcInvokeOptions,
     ) -> SdkResult<Output> {
         let (flow, rpc) = self.registry.rpc_with_flow(rpc_name)?;
         let mut lock_attribute_keys = rpc
@@ -1024,7 +1028,9 @@ impl Client {
             input: Some(value_mapper::encode(input)?),
             timeout_seconds: optional_seconds(rpc.timeout)?,
             lock_attribute_keys: lock_attribute_keys.into_iter().collect(),
-            request_id: Uuid::new_v4().to_string(),
+            request_id: invoke_options
+                .request_id
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
             is_transactional: rpc.is_transactional,
             load_attribute_map_instances: load_attribute_map_instances.into_iter().collect(),
             load_channel_names,
