@@ -39,7 +39,7 @@ and upgrade steps.
 
 **Added**
 
-- Go **connectortools** wraps **sdkgo.AgentTool** for **builtinloop.WithToolSources**. Stop or drain the Flow type's Go Workers on 0.6.15 or earlier before enabling tools, and roll back below 0.6.16 only after queued and running Connector calls end. [Reference](/reference/agents/connector-tools).
+- The Go core offers Connector operations to an agent as tools, through **connectortools** and **builtinloop.WithToolSources**. First stop or drain the Flow type's Go Workers on 0.6.15 or earlier. Do not roll back below 0.6.16 while a Connector call is queued or running. [Reference](/reference/agents/connector-tools).
 - Go: the new module **github.com/superdurable/dex/agents/go/eino** runs CloudWeGo Eino ADK agents on the Go session Flow, one RunModel Step per model call and one Step per tool call. [Module](https://github.com/superdurable/dex/tree/main/agents/go/eino).
 - Go Eino agents can call Connector operations as tools beside their own, and a deploy that changes the instruction or renames a tool takes effect at the next model call without breaking the open turn.
 - The Go core reads a model API error's HTTP status from an **HTTPStatusCode** field too, as the go-openai and Volcengine Ark SDK errors that CloudWeGo eino-ext model clients return have, so their transient errors get the backoff and their other 4xx errors fail the turn at once.
