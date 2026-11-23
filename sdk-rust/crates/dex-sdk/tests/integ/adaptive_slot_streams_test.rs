@@ -751,18 +751,21 @@ fn default_slot_streams_clamped_by_cap() {
     captured_logs::install();
     let runtime = test_runtime();
 
-    // A cap below the CPU count also lowers the derived floor.
-    let cap = (cpu_count() / 2).clamp(2, 99);
-    {
+    // Cap 12 lowers the derived floor on a machine with more CPUs; a cap above the CPU count
+    // keeps the Worker adaptive after the clamp.
+    for cap in [12, (cpu_count().max(2) + 4).min(99)] {
         let server = AdaptiveSlotTestServer::start(ServerLimits::cap(cap));
         let proxy = PullSlotProxy::start(&runtime, &server.address);
         let release_acknowledgements = proxy.hold_acknowledgements();
+        let handlers = AdaptiveSlotHandlers::new(false);
         let app_worker_id = app_worker_id("default-cap");
         let run = AdaptiveSlotWorkerRun::start(
             &runtime,
             &proxy.address,
-            &AdaptiveSlotHandlers::new(false),
-            PullWorkerOptions::new().app_worker_id(&app_worker_id),
+            &handlers,
+            PullWorkerOptions::new()
+                .app_worker_id(&app_worker_id)
+                .shrink_window_for_test(Duration::from_secs(3600)),
         );
         // The unset floor derives from the clamped ceiling, so one stream probes the cap first.
         require_single_probe_register(&proxy, &app_worker_id);
@@ -785,6 +788,22 @@ fn default_slot_streams_clamped_by_cap() {
                 &["clamped max_concurrent_tasks", "100", &cap.to_string()]
             )
         );
+        // Below the clamped ceiling, a burst grows the Worker above its derived floor.
+        let min_open_slots = default_min_open_slots(cap, 1);
+        if min_open_slots + 3 <= cap {
+            let burst = min_open_slots + 2;
+            let client = server.new_client(&run.registry);
+            let flow_ids = start_flows(&client, &handlers, MODE_BLOCK, burst);
+            handlers.await_entries(burst);
+            require_slot_state(&run, "the burst above the floor", 30 * SECOND, |state| {
+                state.busy == burst && state.registering == 0
+            });
+            assert!(run.state().streams_grown > 0, "{:?}", run.state());
+            handlers.release();
+            require_flows_completed(&client, &flow_ids);
+            require_single_attempts(&handlers);
+        }
+        run.require_no_permanent_registration_error();
     }
 
     // A cap of 1 with every option unset: T = 1, R = 0, and a floor of 1.

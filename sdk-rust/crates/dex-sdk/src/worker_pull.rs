@@ -202,11 +202,19 @@ impl PullWorker {
         dispatcher: &WorkerDispatcher,
         channel: CredentialChannel,
     ) -> SdkResult<Self> {
-        let cpu_count = std::thread::available_parallelism()
-            .map(std::num::NonZeroUsize::get)
-            .map_err(|error| SdkError::Service {
-                service: crate::ServiceError::local("worker", format!("read CPU count: {error}")),
-            })?;
+        // Only the default floor reads the CPU count; an explicit floor never uses it.
+        let cpu_count = if options.min_open_slots.is_some() {
+            1
+        } else {
+            std::thread::available_parallelism()
+                .map(std::num::NonZeroUsize::get)
+                .map_err(|error| SdkError::Service {
+                    service: crate::ServiceError::local(
+                        "worker",
+                        format!("read CPU count: {error}"),
+                    ),
+                })?
+        };
         let max_concurrent_tasks = options
             .max_concurrent_tasks
             .unwrap_or(DEFAULT_MAX_CONCURRENT_TASKS);
