@@ -328,17 +328,32 @@ Client client = new Client(registry, blobCache,
 new Thread(worker::start).start();
 ```
 
-A fixed Worker, the default, keeps exactly `maxConcurrentTasks` long-lived execution-slot streams.
+A fixed Worker, whose `minOpenSlots` equals `maxConcurrentTasks`, keeps exactly
+`maxConcurrentTasks` long-lived execution-slot streams.
 Every stream serves the sticky Worker identity and every registered Flow type;
 its registration has an empty queue. A stream is ready while idle and busy while
 its task runs. The Worker executes every delivered task and never rejects for
 capacity. It can reject an unknown Step or RPC before invoking its handler.
-The default slot count is the available CPU count. Worker start fails if it
-exceeds the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit.
-Since 1.45.7 that failure applies to an explicit `maxConcurrentTasks` of a fixed
-Worker. A fixed Worker with `maxConcurrentTasks` unset opens one stream first,
-learns the cap from its registration, and clamps its CPU-count default to the cap
-with a warning before it opens the other streams.
+Worker start fails if an explicit `maxConcurrentTasks` of a fixed Worker exceeds
+the Server's reported `matching.maxConcurrentTasksCap` per-Worker limit. A fixed
+Worker with `maxConcurrentTasks` unset opens one stream first, learns the cap
+from its registration, and clamps its default to the cap with a warning before
+it opens the other streams.
+
+Since 1.45.7 a Worker is adaptive by default. Unset `maxConcurrentTasks` is 100,
+and unset `minOpenSlots` is `min(T, max(R + 1, CPU count))`, where `T` is the
+resolved `maxConcurrentTasks` after any clamp to the Server cap and `R` is the
+resolved `reservedRpcTasks`. The Worker resolves `T` first, then `R` (1 when
+`T` is at least 2 and `minOpenSlots` is unset or at least 2, otherwise 0), then
+the floor. An idle
+Worker therefore keeps about the CPU count of streams open and grows up to 100.
+Because the floor default depends on the clamped `T`, an adaptive Worker with
+`minOpenSlots` unset opens one Step-and-RPC stream first, like the fixed-mode
+probe, and opens the rest of its floor after the first registration.
+Set `minOpenSlots` equal to `maxConcurrentTasks` to keep the earlier fixed
+behavior, and set both to `Runtime.getRuntime().availableProcessors()` to keep
+the earlier default slot count. The handler pool is sized by the ceiling and
+creates its threads on demand.
 The deprecated `idleStreamsPerQueue` option is accepted but has no effect.
 
 `minOpenSlots` (since 1.45.7) below `maxConcurrentTasks` makes the Worker

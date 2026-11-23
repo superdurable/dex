@@ -226,16 +226,18 @@ the Server decides between a stored and an uploaded document.
 
 ## Capacity and shutdown
 
-| Setting | Java name |
-| --- | --- |
-| Concurrent tasks | **maxConcurrentTasks** |
-| Fewest open slot streams | **minOpenSlots** |
-| Reserved RPC slots | **reservedRpcTasks** |
-| Stop drain timeout | **stopDrainTimeout** |
-| Shutdown | **stop** |
-| Slot stream snapshot | **getPullSlotStreamState()** |
+| Setting | Java name | Default |
+| --- | --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** | 100 |
+| Fewest open slot streams | **minOpenSlots** | min(T, max(R + 1, CPU count)) |
+| Reserved RPC slots | **reservedRpcTasks** | 1 when T and the floor are both at least 2, otherwise 0 |
+| Stop drain timeout | **stopDrainTimeout** | 30 seconds |
+| Shutdown | **stop** | |
+| Slot stream snapshot | **getPullSlotStreamState()** | |
 
-The option names are builder methods.
+The option names are builder methods. T is the resolved **maxConcurrentTasks**,
+after any clamp to the Server cap. R is the resolved **reservedRpcTasks**. The
+CPU count is **Runtime.getRuntime().availableProcessors()**.
 
 The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
 has no effect.
@@ -245,7 +247,30 @@ adaptive, and **Worker.getPullSlotStreamState()** returns a snapshot of its slot
 streams. For example, a task limit of 64 with **minOpenSlots** of 8 keeps between
 8 and 64 slot streams, one of them reserved for RPCs. A fixed Worker with
 **maxConcurrentTasks** unset also changes in 1.45.7: it opens one stream first and
-clamps its CPU-count default to the Server cap with a warning. See
+clamps its default to the Server cap with a warning.
+
+Changed in 1.45.7: a Worker is adaptive by default.
+
+- Unset **maxConcurrentTasks** is 100 instead of the CPU count.
+- Unset **minOpenSlots** is min(T, max(R + 1, CPU count)) instead of
+  **maxConcurrentTasks**.
+- A Worker with no options set keeps about the CPU count of slot streams open
+  while idle and grows up to 100 under load. With one CPU it keeps two streams:
+  one Step-and-RPC stream and one reserved RPC-only stream.
+- A Worker that sets only **maxConcurrentTasks** above the CPU count is also
+  adaptive.
+- A Server cap below 100 clamps an unset **maxConcurrentTasks** with a warning
+  that names both values. The **minOpenSlots** and **reservedRpcTasks** defaults
+  then come from the clamped value. With a cap of 1, a Worker with no options
+  set runs one Step-and-RPC stream and no RPC-only stream.
+- An adaptive Worker with **minOpenSlots** unset opens one Step-and-RPC stream
+  first and learns the Server cap from its registration. It then opens the rest
+  of its floor.
+
+To keep the earlier fixed behavior, set **minOpenSlots** equal to
+**maxConcurrentTasks**. To keep the earlier default slot count as well, set
+both to the CPU count. A fixed Worker with an explicit **minOpenSlots** above
+the Server cap fails start with an error that names the values and the cap. See
 [Adaptive slot streams](/reference/server/workers#adaptive-slot-streams) and the
 [API reference](pathname:///api/java/latest/io/superdurable/dex/PullWorkerOptions.Builder.html#minOpenSlots(int)).
 

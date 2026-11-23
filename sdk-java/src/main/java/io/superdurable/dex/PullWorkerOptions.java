@@ -29,6 +29,11 @@ import java.time.Duration;
  * Workers hold fewer Server streams. With minOpenSlots unset or equal to maxConcurrentTasks the
  * Worker is fixed and keeps every slot open as before.
  *
+ * <p>Changed in 1.45.7: a Worker is adaptive by default. Unset maxConcurrentTasks defaults to 100
+ * instead of the CPU count. Unset minOpenSlots defaults to about the CPU count instead of
+ * maxConcurrentTasks. An idle Worker therefore keeps about the CPU count of streams open and
+ * grows up to 100 under load. Set minOpenSlots equal to maxConcurrentTasks to keep a fixed Worker.
+ *
  * <pre>{@code
  * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
  *         .maxConcurrentTasks(8)
@@ -38,6 +43,9 @@ import java.time.Duration;
  * }</pre>
  */
 public final class PullWorkerOptions {
+    static final int DEFAULT_MAX_CONCURRENT_TASKS = 100;
+
+    private final int availableProcessors;
     private final int maxConcurrentTasks;
     private final int reservedRpcTasks;
     private final int minOpenSlots;
@@ -57,9 +65,16 @@ public final class PullWorkerOptions {
         this.isMaxConcurrentTasksExplicit = builder.maxConcurrentTasks != 0;
         this.isReservedRpcTasksExplicit = builder.reservedRpcTasks != null;
         this.isMinOpenSlotsExplicit = builder.minOpenSlots != 0;
+        this.availableProcessors = Runtime.getRuntime().availableProcessors();
         this.maxConcurrentTasks = builder.maxConcurrentTasks == 0
-                ? Runtime.getRuntime().availableProcessors() : builder.maxConcurrentTasks;
-        this.minOpenSlots = builder.minOpenSlots == 0 ? maxConcurrentTasks : builder.minOpenSlots;
+                ? DEFAULT_MAX_CONCURRENT_TASKS : builder.maxConcurrentTasks;
+        // Resolution order: ceiling T, then reserve R, then floor; R never depends on the derived floor.
+        final int resolvedReservedRpcTasks = builder.reservedRpcTasks == null
+                ? defaultReservedRpcTasks(maxConcurrentTasks,
+                        isMinOpenSlotsExplicit ? builder.minOpenSlots : maxConcurrentTasks)
+                : builder.reservedRpcTasks;
+        this.minOpenSlots = isMinOpenSlotsExplicit ? builder.minOpenSlots
+                : defaultMinOpenSlots(maxConcurrentTasks, resolvedReservedRpcTasks, availableProcessors);
         if (minOpenSlots > maxConcurrentTasks) {
             throw new IllegalArgumentException("minOpenSlots " + minOpenSlots
                     + " must not exceed maxConcurrentTasks " + maxConcurrentTasks);
@@ -67,8 +82,7 @@ public final class PullWorkerOptions {
         this.shouldWarnRpcCapacity = builder.reservedRpcTasks == null && maxConcurrentTasks == 1;
         this.shouldWarnFloorRpcCapacity = builder.reservedRpcTasks == null && maxConcurrentTasks >= 2
                 && minOpenSlots == 1;
-        this.reservedRpcTasks = builder.reservedRpcTasks == null
-                ? defaultReservedRpcTasks(maxConcurrentTasks, minOpenSlots) : builder.reservedRpcTasks;
+        this.reservedRpcTasks = resolvedReservedRpcTasks;
         if (reservedRpcTasks < 0 || reservedRpcTasks >= maxConcurrentTasks) {
             throw new IllegalArgumentException("reservedRpcTasks must be nonnegative and less than maxConcurrentTasks");
         }
@@ -88,8 +102,15 @@ public final class PullWorkerOptions {
         return maxConcurrentTasks >= 2 && minOpenSlots >= 2 ? 1 : 0;
     }
 
+    // The unset floor: min(T, max(R + 1, CPU count)), so an idle Worker keeps about the CPU count open.
+    static int defaultMinOpenSlots(final int maxConcurrentTasks, final int reservedRpcTasks,
+            final int availableProcessors) {
+        return Math.min(maxConcurrentTasks, Math.max(reservedRpcTasks + 1, availableProcessors));
+    }
+
     /**
-     * Creates a builder with CPU-count execution slots and a 30-second drain.
+     * Creates a builder with a ceiling of 100 execution slots, a CPU-count floor, and a 30-second
+     * drain.
      *
      * @return a mutable pull options builder
      */
@@ -115,6 +136,10 @@ public final class PullWorkerOptions {
 
     int getMinOpenSlots() {
         return minOpenSlots;
+    }
+
+    int getAvailableProcessors() {
+        return availableProcessors;
     }
 
     boolean isMaxConcurrentTasksExplicit() {
@@ -190,7 +215,7 @@ public final class PullWorkerOptions {
          * warning that names both values, instead of failing start:
          *
          * <ul>
-         *   <li>a fixed Worker with this value unset, whose CPU-count default exceeds the cap;</li>
+         *   <li>a fixed Worker with this value unset, whose default exceeds the cap;</li>
          *   <li>an adaptive Worker, with this value set or unset.</li>
          * </ul>
          *
@@ -202,7 +227,26 @@ public final class PullWorkerOptions {
          * capacity: it half-closes the surplus streams, RPC-only streams first, and keeps running.
          * A fixed Worker keeps the earlier behavior for a lower cap on a reconnect.
          *
-         * @param value a nonnegative count; zero uses the available CPU count
+         * <p>Changed in 1.45.7: zero, the default, now means 100 instead of the available CPU
+         * count. Because the minOpenSlots default is about the CPU count, a Worker that leaves this
+         * value unset, or sets only this value above the CPU count, is adaptive. Its idle stream
+         * count stays near the CPU count, as in earlier releases, and only capacity above it
+         * adapts. When the Server cap is below 100, an unset value is clamped to the cap with a
+         * warning that names both values, and the Worker keeps running. To keep the earlier
+         * default slot count, set this value to {@code Runtime.getRuntime().availableProcessors()}.
+         * To keep every slot open at all times, also set {@link #minOpenSlots(int)} to the same
+         * value.
+         *
+         * <pre>{@code
+         * // Earlier releases' defaults: CPU-count slots, every slot open.
+         * int processors = Runtime.getRuntime().availableProcessors();
+         * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
+         *         .maxConcurrentTasks(processors)
+         *         .minOpenSlots(processors)
+         *         .build();
+         * }</pre>
+         *
+         * @param value a nonnegative count; zero uses 100
          * @return this builder
          * @throws IllegalArgumentException if value is negative
          */
@@ -219,8 +263,16 @@ public final class PullWorkerOptions {
          * maxConcurrentTasks.
          *
          * <p>This value uses the same unit as {@link #maxConcurrentTasks(int)}, so it counts the
-         * reserved RPC-only slots too. Zero, the default, uses the resolved maxConcurrentTasks:
-         * every slot keeps a stream, the Worker is fixed, and it behaves as earlier releases did.
+         * reserved RPC-only slots too. Zero, the default, uses
+         * {@code min(maxConcurrentTasks, max(reservedRpcTasks + 1, CPU count))}, with the resolved
+         * maxConcurrentTasks and reservedRpcTasks. The CPU count is
+         * {@code Runtime.getRuntime().availableProcessors()}. With the default maxConcurrentTasks of
+         * 100, an idle Worker therefore keeps about the CPU count of streams open, and the Worker
+         * is adaptive unless the CPU count reaches 100.
+         *
+         * <p>Set this value equal to maxConcurrentTasks for a fixed Worker: every slot keeps a
+         * stream, as in earlier releases. Use a fixed Worker when every slot must be open at all
+         * times, for example to serve a burst without registration round trips.
          *
          * <p>A value below maxConcurrentTasks makes the Worker adaptive. Use it when idle Workers
          * should hold fewer Server streams, such as a large fleet or a high maxConcurrentTasks. An
@@ -251,8 +303,20 @@ public final class PullWorkerOptions {
          * values. When reservedRpcTasks is unset, its default reserves one slot only when both
          * maxConcurrentTasks and minOpenSlots are at least two. With minOpenSlots of one and no
          * explicit reserve, start logs a warning that RPCs may wait behind Steps. Worker start fails
-         * at the first registration when the Server cap lowers maxConcurrentTasks below
-         * minOpenSlots, or to reservedRpcTasks or less. That error names the values and the cap.
+         * at the first registration when the Server cap lowers maxConcurrentTasks below an
+         * explicit minOpenSlots, or to reservedRpcTasks or less. That error names the values and
+         * the cap. An unset minOpenSlots never fails this way: after a clamp, its default and the
+         * reservedRpcTasks default come from the clamped maxConcurrentTasks. With a cap of one and
+         * every option unset, the Worker runs one Step-and-RPC stream and no RPC-only stream.
+         *
+         * <p>Changed in 1.45.7: zero now means
+         * {@code min(maxConcurrentTasks, max(reservedRpcTasks + 1, CPU count))} instead of
+         * maxConcurrentTasks, so a Worker that leaves this value unset is adaptive whenever
+         * maxConcurrentTasks is above that floor. Set this value equal to maxConcurrentTasks to keep
+         * the earlier fixed behavior. Because the default depends on the clamped
+         * maxConcurrentTasks, an adaptive Worker with this value unset opens one Step-and-RPC
+         * stream first, learns the Server cap from its registration, and then opens the rest of
+         * its floor. That adds one round trip to start.
          *
          * <pre>{@code
          * // Between 8 and 64 slot streams, one of them reserved for RPCs.
@@ -265,7 +329,8 @@ public final class PullWorkerOptions {
          * new Thread(worker::start).start();
          * }</pre>
          *
-         * @param value a nonnegative count; zero uses the resolved maxConcurrentTasks
+         * @param value a nonnegative count; zero uses
+         *     {@code min(maxConcurrentTasks, max(reservedRpcTasks + 1, CPU count))}
          * @return this builder
          * @throws IllegalArgumentException if value is negative; build throws if the resolved value
          *     exceeds maxConcurrentTasks or is not above reservedRpcTasks
@@ -288,7 +353,8 @@ public final class PullWorkerOptions {
         /**
          * Reserves streams that accept only RPC tasks to protect RPC latency from long-running Steps.
          *
-         * <p>Unset reserves one slot when the resolved task limit is at least two, otherwise zero.
+         * <p>Unset reserves one slot when the resolved task limit and minOpenSlots are both at
+         * least two, otherwise zero.
          * Set zero to opt out. With one slot and no explicit reserve, Worker start logs a warning
          * about RPC starvation. The remaining streams accept Steps and RPCs. The Server routes
          * Steps only to those streams, and the Worker never declines a Step for capacity.
@@ -301,6 +367,14 @@ public final class PullWorkerOptions {
          *
          * <p>Changed in 1.45.7: unset also reserves zero when {@link #minOpenSlots(int)} is one,
          * and start then warns that RPCs may wait behind Steps.
+         *
+         * <p>Changed in 1.45.7: unset reserves one slot whenever the resolved task limit is at
+         * least two, unless minOpenSlots is explicitly one, because the minOpenSlots default is
+         * then at least two as well. The default
+         * task limit is now 100, so a Worker with no options set reserves one RPC-only slot even on
+         * a single-CPU machine. When the Server cap clamps an unset or adaptive task limit, this
+         * default comes from the clamped limit: a cap of one reserves zero. An explicit value at or
+         * above the clamped limit fails start with an error that names the value and the cap.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()

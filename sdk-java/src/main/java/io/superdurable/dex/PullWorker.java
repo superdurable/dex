@@ -586,9 +586,13 @@ final class PullWorker {
                     + " to the Server matching.maxConcurrentTasksCap " + limit
                     + " (explicit maxConcurrentTasks: " + options.isMaxConcurrentTasksExplicit() + ")");
         }
-        final int resolvedMinOpenSlots = options.isMinOpenSlotsExplicit() ? minOpenSlots : ceiling;
+        // The same order as PullWorkerOptions: the clamped T, then R, then the floor.
         final int resolvedReservedRpcTasks = options.isReservedRpcTasksExplicit() ? reservedRpcTasks
-                : PullWorkerOptions.defaultReservedRpcTasks(ceiling, resolvedMinOpenSlots);
+                : PullWorkerOptions.defaultReservedRpcTasks(ceiling,
+                        options.isMinOpenSlotsExplicit() ? minOpenSlots : ceiling);
+        final int resolvedMinOpenSlots = options.isMinOpenSlotsExplicit() ? minOpenSlots
+                : PullWorkerOptions.defaultMinOpenSlots(ceiling, resolvedReservedRpcTasks,
+                        options.getAvailableProcessors());
         if (resolvedReservedRpcTasks >= ceiling) {
             return "reservedRpcTasks " + resolvedReservedRpcTasks + " must be less than the slot ceiling " + ceiling
                     + ", which is maxConcurrentTasks " + configuredMaxConcurrentTasks
@@ -1065,8 +1069,12 @@ final class PullWorker {
     }
 
     // Reports F4: a fixed Worker with an unset ceiling opens one stream until the first acknowledgement.
+    // An adaptive Worker with an unset floor probes too, because its floor derives from the clamped ceiling.
     private boolean isCapProbePending() {
-        return !isAdaptive && !options.isMaxConcurrentTasksExplicit() && !hasCheckedRegistrationLimit;
+        if (hasCheckedRegistrationLimit) {
+            return false;
+        }
+        return isAdaptive ? !options.isMinOpenSlotsExplicit() : !options.isMaxConcurrentTasksExplicit();
     }
 
     // Returns S.
