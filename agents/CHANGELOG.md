@@ -8,12 +8,12 @@ for the Dex SDK and framework versions each release supports.
 
 ### Connectors as tools in the Go core
 
-- Go `connectortools` exposes `sdkgo.AgentTool` operations via `NewConnectorTool` and `NewConnectorToolSource`. Pass the source to `builtinloop.WithToolSources`. Requires `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0+. [Ref](../docs/reference/agents/connector-tools.mdx#install)
+- Go `connectortools` adds `NewConnectorTool` and `NewConnectorToolSource` for `builtinloop.WithToolSources`. Calls use `DeferredToolExecution.StepContext`. Needs `github.com/superdurable/dex-connectors-library/sdkgo` v0.39.0+. [Ref](../docs/reference/agents/connector-tools.mdx#install)
 - `ToolSourceRouter.ExecuteDeferredToolCall` runs Go source calls once per tool Step attempt, before framework tool nodes, middleware, or handlers. Dex blocks a second router call and records the source's outcome and error regardless of the runner's return.
-- Go checks `InputSchema` before calls and caps JSON at 64 KiB. Success is **succeeded**, **uncertain** or marked **unknown** is **outcome_unknown**, and other branches are **failed**. Retry fails the attempt after a whole-second delay. [Ref](../docs/reference/agents/connector-tools.mdx#outcomes)
-- Go `limited` Mutations pass pinned `MaxSends` or `ToolPolicy.MaxSends` (1–10) via `sdkgo.WithMaxSends` each attempt. Connector writes run serially in reply order, marking later ones **failed** and `skipped` if one is unsuccessful. [Ref](../docs/reference/agents/connector-tools.mdx#bounded-resends)
-- `ToolSource`, `ToolSourceRouter`, and `SourceToolListing` list Go tools at runtime. Go adds `DeferredToolCall.Ordered`, `ToolOutcomeUnknownError`, `ToolExecutionResult.TruncatedOutputBytes`, and `ToolCallStepOptionsProvider`. `ResolveToolPolicy` keeps explicit `MaxSends`. No approval display yet.
-- Stop or drain all Go Workers at 0.6.15 or earlier for a Flow type before serving it with tool sources. Roll back below 0.6.16 only after queued Connector writes and in-flight Connector calls finish. Older Workers can wait forever or record a write retry **failed** rather than **outcome_unknown**.
+- Go checks `InputSchema` before calls and cuts JSON at 64 KiB by default. Success is **succeeded**, **uncertain** or marked **unknown** is **outcome_unknown**, and the rest are **failed**. Retry fails after its whole-second delay. [Ref](../docs/reference/agents/connector-tools.mdx#outcomes)
+- Go passes pinned `MaxSends` or `ToolPolicy.MaxSends` (1–10) via `sdkgo.WithMaxSends` per attempt for `RepeatOnUnknown` `limited`. Connector writes follow reply order singly. Later ones are **failed** and `skipped` on non-success. [Ref](../docs/reference/agents/connector-tools.mdx#bounded-resends)
+- Go adds `ToolSource`, `ToolSourceRouter`, `SourceToolListing`, `DeferredToolCall.Ordered`, `ToolOutcomeUnknownError`, `ToolExecutionResult.TruncatedOutputBytes`, `ToolCallStepOptionsProvider`, `ToolCallStepOptions`, and `BoundedResendExecuteRetry`. `ResolveToolPolicy` keeps explicit `MaxSends`.
+- Stop or drain 0.6.15 and older Go Workers before serving a Flow type with tool sources. Roll back below 0.6.16 only after queued Connector writes and in-flight Connector calls finish. Old Workers can stall writes or mark write retries **failed** instead of **outcome_unknown**, risking duplicates.
 
 ### Eino adapter
 
@@ -70,11 +70,11 @@ for the Dex SDK and framework versions each release supports.
 
 ### Go core
 
-- Go **RunModel** reads `HTTPStatusCode` int in the error chain, backing off transient statuses and failing other HTTP 4xx at once. These field-only errors have no **Retry-After**, and `Code` is still ignored. [Ref](../docs/reference/agents/workers.mdx#model-api-errors)
-- Go **RunModel** fails without retry on roles besides `user`, `assistant`, or `tool` in `TurnCompleted.NewMessages` or `ToolCallsRequested.NewMessages`. It records usage and **last_turn_error**. `MessageRole.IsValid` checks roles. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
+- Go **RunModel** reads `HTTPStatusCode` int from the error chain. It backs off transient errors and ends the turn on other 4xx. Errors recognized by that field alone lack **Retry-After** headers. Status lookup ignores `Code`. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
+- Go **RunModel** fails the turn without retry for invalid roles in `TurnCompleted.NewMessages` or `ToolCallsRequested.NewMessages`. It saves usage and names the message in **last_turn_error**. `MessageRole.IsValid` checks roles. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
 - Go sessions fail when a Step commit would exceed `limits.maxFlowStateBytes`. If the failure route can commit, it records **failed**, **last_turn_error**, and **turn_failed** and clears the turn. [Ref](../docs/reference/agents/session-limits.mdx#at-the-limit)
-- `AgentSessionClient.GetAgentSnapshot` reports **failed** and the Flow reason even if unstored. On failed sessions, `SendUserMessage` returns `AgentSessionFailedError` with the reason, wrapping `*dex.FlowNotActiveOrNotFoundError`. [Ref](../docs/reference/agents/session-limits.mdx#at-the-limit)
-- Go `TurnCompleted.TurnError` fails without retry, stores `NewMessages` and `Usage`, sets `AgentState.LastTurnError`, and emits **turn_failed**. Blank text fails with usage recorded, and the next completed turn clears `LastTurnError`. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
+- `AgentSessionClient.GetAgentSnapshot` reports **failed** and the Flow reason even if absent from state. `SendUserMessage` on failed sessions returns `AgentSessionFailedError` with the reason, wrapping `*dex.FlowNotActiveOrNotFoundError`. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
+- Go `TurnCompleted.TurnError` fails the turn without retry, saves `NewMessages` and `Usage`, sets `AgentState.LastTurnError`, and emits **turn_failed**. Blank text keeps only outcome usage. The next completed turn clears `LastTurnError`. [Ref](../docs/reference/agents/changelog.mdx#v0-6-16)
 
 ### Added
 
@@ -82,15 +82,15 @@ for the Dex SDK and framework versions each release supports.
 
 ### Changed
 
-- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk** document **isError** and **ToolExecutionError** for definite failures (**failed**). Other thrown write errors and, since 0.6.15, definite write failures on later attempts record **outcome_unknown**.
-- **RunModel** and **CompactContext** back off transient model errors with jitter and **Retry-After**, and fail fast on other 4xx. **RunModel** defaults to 10 attempts (was 3), and 1 disables retries. **ModelRetryPolicy** tunes backoff. [Ref](../docs/reference/agents/workers.mdx#model-api-errors)
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk** READMEs add **Report a definite failure**. Use **isError** or **ToolExecutionError** only for settled calls. Other thrown write errors and definite write failures on retries since 0.6.15 record **outcome_unknown**.
+- **RunModel**/**CompactContext** back off transient errors. Other 4xx fail fast. Default **RunModel** cap is 10 (was 3), 3 if unclassified. 1 disables retries. **ModelRetryPolicy** via **RunModelLimit.retry** or **WithModelRetryPolicy**. [Ref](../docs/reference/agents/workers.mdx#model-api-errors)
 - **@superdurable/dex-agents-pi**: a failed pi-ai model call whose error
   text pi-ai reports as retryable, such as a 429 or 503, retries with the same
   backoff.
 
 ### Fixed
 
-- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk** show the first deferred call's result in the reply's tool results when a second such call is refused. The refusal asks to call that tool alone if needed and no longer implies the first succeeded. (#2111)
+- **dex-agents-claude-agent-sdk** and **@superdurable/dex-agents-claude-agent-sdk** show the first deferred call’s recorded result and refusal of a later deferrable call in the same reply, so the model can avoid repeating a write. The refusal asks to call the later tool alone if needed. (#2111)
 - Go records `*ToolExecutionError` as **outcome_unknown** on a later attempt of a non-**read** call that no tool source built. With that error, first attempts, reads, and tool-source calls still record **failed**. [Ref](../docs/reference/agents/failures.mdx#retry-refusal)
 
 ## 0.6.15 (2026-11-18)
