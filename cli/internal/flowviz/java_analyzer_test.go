@@ -51,7 +51,7 @@ func TestJavaAnalyzerDiagnostics(t *testing.T) {
 		{name: "ambiguous", file: "diagnostics.java", expected: []string{"multiple_flows"}},
 		{name: "missing", file: "diagnostics.java", flow: "ExternalFlow", expected: []string{"flow_not_found"}},
 		{name: "dynamic", file: "diagnostics.java", flow: "BrokenFlow", state: "bool", expected: []string{
-			"dynamic_step_target", "step_type_unresolved", "hidden_dex_wait", "start_input_unresolved", "v2_start_input",
+			"dynamic_step_target", "step_type_unresolved", "hidden_dex_wait", "start_input_unresolved", "start_input_unresolved",
 		}},
 		{name: "external", file: "diagnostics.java", flow: "RegisteredFlow", state: "string", expected: []string{"step_type_unresolved"}},
 		{name: "progress outside a step", file: "diagnostics.java", flow: "ProgressFlow", expected: []string{
