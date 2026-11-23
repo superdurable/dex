@@ -176,7 +176,8 @@ public final class FlowConfig {
          * {@link SubFlowOptions} override sets it.
          *
          * <p>The value must be positive and at most the server's {@code history.maxWindowEvents}
-         * setting, which defaults to 100000. Starting or updating a Flow with any other value
+         * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). Starting or
+         * updating a Flow with any other value
          * throws {@link io.superdurable.dex.exceptions.DexServiceException} whose
          * {@code getCode()} is {@code INVALID_ARGUMENT}. A Step that starts a SubFlow with such an
          * override is an invalid Worker response: the Step attempt fails and Dex retries it under

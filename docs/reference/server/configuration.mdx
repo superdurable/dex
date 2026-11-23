@@ -483,6 +483,14 @@ with INVALID_ARGUMENT. A Step result that starts a SubFlow with such an override
 is an invalid Worker response: the Step attempt fails and is retried under the
 Step's retry policy.
 
+A larger window costs storage in proportion to the events it covers. With
+[history offload](#history-offload), local disk keeps a small metadata row for
+each point in the window, and object storage keeps every history segment that
+the window still covers. Without offload, local disk keeps every history
+record, checkpoint, and superseded value in the window. Time travel to an event
+ID, a time, or a Step reads the window from its start, so it takes longer in a
+larger window.
+
 History reads, such as **dexcli flow history --all**, return only the retained
 events. [Time travel](/reference/server/runtime-client#time-travel) can target only
 a point inside the window. Time travel to the beginning is always available.
@@ -497,7 +505,7 @@ removed or is on another page.
 | --- | --- | --- |
 | **history.windowEvents** | 50000 for **serve**; 5000 for **dev** and **local** | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. Changed in 0.1.23: the default was 10000 in every command. Runs that started earlier keep the size they recorded. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**. Changed in 0.1.21: the unit was semantic commands. |
-| **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
+| **history.maxWindowEvents** | 1000000000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. Changed in 0.1.38: the default was 100000. |
 
 Each Flow run records **windowEvents** and **pruneChunkSize** when it starts. A
 new value applies only to Flow runs that start after the node restarts with it.

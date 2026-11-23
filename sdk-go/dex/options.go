@@ -272,7 +272,8 @@ type FlowConfig struct {
 	// SubFlowOptions.ConfigOverride sets its own.
 	//
 	// The value must be positive and at most the server's history.maxWindowEvents setting, which
-	// defaults to 100000. StartFlow and UpdateFlowConfig return a *ServiceError whose Code is
+	// defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig
+	// return a *ServiceError whose Code is
 	// codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
 	// override is an invalid Worker response: the Step attempt fails and Dex retries it under the
 	// Step's retry policy. Servers older than server-zd 0.1.21 ignore the field.

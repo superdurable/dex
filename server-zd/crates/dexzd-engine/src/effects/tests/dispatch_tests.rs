@@ -621,7 +621,7 @@ async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invali
                 start_step_type: "ChildStep".to_owned(),
                 options: Some(SubFlowOptions {
                     flow_config_override: Some(FlowConfig {
-                        history_window_events: Some(100_001),
+                        history_window_events: Some(1_000_000_001),
                         ..FlowConfig::default()
                     }),
                     ..SubFlowOptions::default()
@@ -642,7 +642,7 @@ async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invali
     assert!(
         failures[0]
             .2
-            .contains("history_window_events must be between 1 and 100000"),
+            .contains("history_window_events must be between 1 and 1000000000"),
         "{}",
         failures[0].2
     );

@@ -392,7 +392,8 @@ export interface FlowConfig {
    * `configOverride` sets it.
    *
    * The value must be a positive integer and at most the server's `history.maxWindowEvents`
-   * setting, which defaults to 100000. The field is a signed 32-bit integer, so only 1 to
+   * setting, which defaults to 1000000000 (100000 before server-zd 0.1.38). The field is a
+   * signed 32-bit integer, so only 1 to
    * 2147483647 can be sent. A non-integer or a value outside that range fails while the SDK
    * serializes the request, before it reaches Dex, and the call rejects with an `INTERNAL`
    * error. `startFlow` and `updateFlowConfig` reject zero, a negative integer, or an integer above

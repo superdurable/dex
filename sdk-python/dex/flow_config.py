@@ -74,7 +74,8 @@ class FlowConfig:
             value from its parent unless its own ``config_override`` sets it.
 
             The value must be positive and at most the server's
-            ``history.maxWindowEvents`` setting, which defaults to 100000.
+            ``history.maxWindowEvents`` setting, which defaults to 1000000000
+            (100000 before server-zd 0.1.38).
             The field is a signed 32-bit integer, so only 1 to 2147483647 can be
             sent. A value outside that range raises ``ValueError`` locally,
             before any request. ``start_flow`` and ``update_flow_config`` raise

@@ -104,7 +104,8 @@ impl FlowConfig {
     /// the value from its parent unless its own [`crate::SubFlowOptions::config_override`] sets it.
     ///
     /// The value must be positive and at most the server's `history.maxWindowEvents` setting,
-    /// which defaults to 100000. StartFlow and UpdateFlowConfig return [`crate::SdkError::Service`]
+    /// which defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and
+    /// UpdateFlowConfig return [`crate::SdkError::Service`]
     /// whose [`crate::ServiceError::code`] is `InvalidArgument` for zero or a value above that
     /// maximum. A value above `i32::MAX` fails locally with [`crate::SdkError::InvalidArgument`]
     /// before any request. A Step that starts a SubFlow with an invalid override is an invalid Worker

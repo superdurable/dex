@@ -753,7 +753,10 @@ fn history_window_settings_default_and_reach_run_settings_and_validation() {
     let default_run_settings = defaults.flow_coordination.run_settings;
     assert_eq!(default_run_settings.history_window_events, 50_000);
     assert_eq!(default_run_settings.history_prune_chunk_events, 1_000);
-    assert_eq!(defaults.validation().max_history_window_events, 100_000);
+    assert_eq!(
+        defaults.validation().max_history_window_events,
+        1_000_000_000
+    );
     assert_eq!(
         defaults.effects.child_run_settings.history_window_events,
         50_000

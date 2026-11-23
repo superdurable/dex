@@ -1642,44 +1642,9 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
         (501, false),
         (i32::MAX, false),
     ] {
-        let mut start = start_request();
-        start.flow_start_options = Some(FlowStartOptions {
-            flow_config_override: Some(flow_config(history_window_events)),
-            ..FlowStartOptions::default()
-        });
-        let update = dex::UpdateFlowConfigRequest {
-            flow_id: "flow-1".into(),
-            flow_config: Some(flow_config(history_window_events)),
-            ..dex::UpdateFlowConfigRequest::default()
-        };
-        let waiting = WaitingCondition {
-            waiting_condition_type: 1,
-            sub_flow_conditions: vec![SubFlowCondition {
-                sub_flow_type: "ChildFlow".into(),
-                start_step_type: "StartStep".into(),
-                options: Some(SubFlowOptions {
-                    flow_config_override: Some(flow_config(history_window_events)),
-                    ..SubFlowOptions::default()
-                }),
-                ..SubFlowCondition::default()
-            }],
-            ..WaitingCondition::default()
-        };
-        let results = [
-            (
-                "StartFlow",
-                validate_client_request(ClientRequest::StartFlow(&start), &config),
-            ),
-            (
-                "UpdateFlowConfig",
-                validate_client_request(ClientRequest::UpdateFlowConfig(&update), &config),
-            ),
-            (
-                "SubFlow",
-                validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config),
-            ),
-        ];
-        for (path, result) in results {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
             if is_valid {
                 result.unwrap_or_else(|error| {
                     panic!("{path} accepts window {history_window_events}: {error:?}")
@@ -1717,8 +1682,87 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
     assert_eq!(effective.history_window_events, Some(200));
     assert_eq!(
         ValidationConfig::default().max_history_window_events,
-        100_000
+        1_000_000_000
     );
+}
+
+#[test]
+fn the_default_maximum_accepts_windows_above_the_old_maximum() {
+    let config = config();
+    for (history_window_events, is_valid) in [
+        (100_001, true),
+        (5_000_000, true),
+        (1_000_000_000, true),
+        (1_000_000_001, false),
+        (i32::MAX, false),
+    ] {
+        for (path, result) in
+            validate_history_window_in_every_request(history_window_events, &config)
+        {
+            if is_valid {
+                result.unwrap_or_else(|error| {
+                    panic!("{path} accepts window {history_window_events}: {error:?}")
+                });
+                continue;
+            }
+            let error = result.expect_err("a window above the default maximum is rejected");
+            assert_eq!(
+                error.message,
+                format!(
+                    "history_window_events must be between 1 and 1000000000, got {history_window_events}"
+                ),
+                "{path}"
+            );
+        }
+    }
+}
+
+/// Validates the window as a StartFlow, an UpdateFlowConfig, and a SubFlow override.
+fn validate_history_window_in_every_request(
+    history_window_events: i32,
+    config: &ValidationConfig,
+) -> [(&'static str, Result<(), ValidationError>); 3] {
+    let flow_config = FlowConfig {
+        history_window_events: Some(history_window_events),
+        ..FlowConfig::default()
+    };
+    let mut start = start_request();
+    start.flow_start_options = Some(FlowStartOptions {
+        flow_config_override: Some(flow_config.clone()),
+        ..FlowStartOptions::default()
+    });
+    let update = dex::UpdateFlowConfigRequest {
+        flow_id: "flow-1".into(),
+        flow_config: Some(flow_config.clone()),
+        ..dex::UpdateFlowConfigRequest::default()
+    };
+    let waiting = WaitingCondition {
+        waiting_condition_type: 1,
+        sub_flow_conditions: vec![SubFlowCondition {
+            sub_flow_type: "ChildFlow".into(),
+            start_step_type: "StartStep".into(),
+            options: Some(SubFlowOptions {
+                flow_config_override: Some(flow_config),
+                ..SubFlowOptions::default()
+            }),
+            ..SubFlowCondition::default()
+        }],
+        ..WaitingCondition::default()
+    };
+    [
+        (
+            "StartFlow",
+            validate_client_request(ClientRequest::StartFlow(&start), config),
+        ),
+        (
+            "UpdateFlowConfig",
+            validate_client_request(ClientRequest::UpdateFlowConfig(&update), config),
+        ),
+        (
+            "SubFlow",
+            validate_waiting_condition(Some(&waiting), &config.default_flow_config, config),
+        ),
+    ]
 }
 
 #[test]

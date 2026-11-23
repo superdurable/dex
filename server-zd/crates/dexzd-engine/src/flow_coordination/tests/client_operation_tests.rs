@@ -804,7 +804,7 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
         .config
         .validation
         .max_history_window_events;
-    assert_eq!(max_window_events, 100_000);
+    assert_eq!(max_window_events, 1_000_000_000);
     let mut request = start_request("windowed");
     request
         .flow_start_options
@@ -825,7 +825,7 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
     let effective = start.effective_flow_config.as_ref().unwrap();
     assert_eq!(effective.history_window_events, Some(250));
 
-    for history_window_events in [0, -1, 100_001] {
+    for history_window_events in [0, -1, 1_000_000_001] {
         let mut request = start_request("rejected-window");
         request
             .flow_start_options
@@ -880,7 +880,10 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
         panic!("expected FlowConfigUpdate");
     };
     let flow_config = update.request.as_ref().unwrap().flow_config.as_ref();
-    assert_eq!(flow_config.unwrap().history_window_events, Some(100_000));
+    assert_eq!(
+        flow_config.unwrap().history_window_events,
+        Some(1_000_000_000)
+    );
 }
 
 #[tokio::test(start_paused = true)]

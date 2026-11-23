@@ -192,7 +192,8 @@ private static final long serialVersionUID = 0L;
    * from its parent unless its own override sets it.
    *
    * The value must be positive and at most the server's history.maxWindowEvents setting, which
-   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+   * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+   * other values with INVALID_ARGUMENT.
    * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
    * Step attempt fails and is retried under the Step's retry policy.
    *
@@ -231,7 +232,8 @@ private static final long serialVersionUID = 0L;
    * from its parent unless its own override sets it.
    *
    * The value must be positive and at most the server's history.maxWindowEvents setting, which
-   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+   * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+   * other values with INVALID_ARGUMENT.
    * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
    * Step attempt fails and is retried under the Step's retry policy.
    *
@@ -1298,7 +1300,8 @@ private static final long serialVersionUID = 0L;
      * from its parent unless its own override sets it.
      *
      * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+     * other values with INVALID_ARGUMENT.
      * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
      * Step attempt fails and is retried under the Step's retry policy.
      *
@@ -1337,7 +1340,8 @@ private static final long serialVersionUID = 0L;
      * from its parent unless its own override sets it.
      *
      * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+     * other values with INVALID_ARGUMENT.
      * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
      * Step attempt fails and is retried under the Step's retry policy.
      *
@@ -1376,7 +1380,8 @@ private static final long serialVersionUID = 0L;
      * from its parent unless its own override sets it.
      *
      * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+     * other values with INVALID_ARGUMENT.
      * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
      * Step attempt fails and is retried under the Step's retry policy.
      *
@@ -1419,7 +1424,8 @@ private static final long serialVersionUID = 0L;
      * from its parent unless its own override sets it.
      *
      * The value must be positive and at most the server's history.maxWindowEvents setting, which
-     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * defaults to 1000000000 (100000 before server-zd 0.1.38). StartFlow and UpdateFlowConfig reject
+     * other values with INVALID_ARGUMENT.
      * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
      * Step attempt fails and is retried under the Step's retry policy.
      *

@@ -275,7 +275,7 @@ pub struct HistoryConfig {
     /// smaller.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub prune_chunk_size: u32,
-    /// Defaults to 100000; largest window that `FlowConfig.history_window_events` may set for a
+    /// Defaults to 1000000000; largest window that `FlowConfig.history_window_events` may set for a
     /// run.
     ///
     /// StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step
@@ -393,7 +393,7 @@ impl Default for HistoryConfig {
         Self {
             window_events: SERVE_HISTORY_WINDOW_EVENTS,
             prune_chunk_size: 1_000,
-            max_window_events: 100_000,
+            max_window_events: 1_000_000_000,
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
             time_travel_replay_memory_bytes: 1024 * 1024 * 1024,

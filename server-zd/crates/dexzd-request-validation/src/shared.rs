@@ -59,7 +59,7 @@ pub struct ValidationConfig {
     pub has_blob_store: bool,
     /// Optional indexed Keyword byte limit; defaults to None (unlimited).
     pub keyword_value_limit: Option<KeywordValueLimit>,
-    /// Largest accepted FlowConfig.history_window_events; defaults to 100000 events.
+    /// Largest accepted FlowConfig.history_window_events; defaults to 1000000000 events.
     ///
     /// The server sets it from `history.maxWindowEvents`.
     pub max_history_window_events: u32,
@@ -78,7 +78,7 @@ impl Default for ValidationConfig {
             attribute_store_names: HashSet::new(),
             has_blob_store: false,
             keyword_value_limit: None,
-            max_history_window_events: 100_000,
+            max_history_window_events: 1_000_000_000,
         }
     }
 }
