@@ -69,6 +69,35 @@ Agent: <the model's reply about order 1001>
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="eino">
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/agent-harnesses/cmd/agent-quick-start/main.go',
+  }}>
+<SdkSnippet lang="go">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/go/agent-harnesses
+cd agent-harnesses
+go run ./cmd/agent-quick-start eino "Look up order 1001"
+```
+
+需要 Go 1.26 或更高版本。它使用本地 demo 模型运行，因此不需要 API key。要调用真实模型，把 `DEX_EINO_MODEL` 设为一个 OpenAI 模型名，例如 **gpt-5-mini**，并设置 `OPENAI_API_KEY`。
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session eino-quick-start-3dbd0c70
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+使用 Go 1.27 时，第一行是 Eino 所用的 JSON 库 sonic 的提示，说它改用 `encoding/json`。可以忽略。
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="google-adk">
 
 <SdkTabs
@@ -325,7 +354,7 @@ Agent: <the model's reply about order 1001>
 cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
 ```
 
-Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用，以及人如何在 Dex Web 中批准它。
+Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用。在 Python 和 TypeScript 中，它还介绍人如何在 Dex Web 中批准这次调用。
 
 :::note 给 coding agent
 在命令后加上 `--approve`，代替输入 **y**。程序会批准每个正在等待的调用，并打印批准了什么。没有终端时，程序不会询问：它打印 `cancel_order` 正在等待审批，然后退出，效果和第 3 步中按 Ctrl+C 一样。随后用 `--session-id SESSION_ID --approve` 继续。
@@ -350,6 +379,7 @@ Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
     typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+    go: 'examples/go/agent-harnesses/cmd/agent-quick-start/main.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -362,6 +392,13 @@ pkill -9 -f agent_harness_examples.quick_start
 
 ```bash
 pkill -9 -f quick-start-main.js
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```bash
+pkill -9 -f agent-quick-start
 ```
 
 </SdkSnippet>

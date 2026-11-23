@@ -11,6 +11,7 @@
 /** Agent frameworks in tab order, alphabetical. The Markdown exporter keeps the same labels. */
 export const agentFrameworks = [
   {id: 'claude-agent-sdk', label: 'Claude Agent SDK'},
+  {id: 'eino', label: 'Eino'},
   {id: 'google-adk', label: 'Google ADK'},
   {id: 'langchain-langgraph', label: 'LangChain and LangGraph'},
   {id: 'mastra', label: 'Mastra'},

@@ -13,10 +13,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -71,28 +75,15 @@ func startBinaryDexServiceInDirectory(
 	// Per-test servers skip fsync for speed; YAML, unlike a flag, also suits older binaries.
 	configuration["dev"] = map[string]any{"durabilityMode": "processCrashSafe"}
 	createAttributeSyncFencingTables(t, testConfig.AttributeStore.Stores)
-	address, err := reserveBinaryDexAddress()
-	require.NoError(t, err)
 	configurationPath := filepath.Join(dataDirectory, "integ-testconfig.yaml")
 	configurationBytes, err := yaml.Marshal(configuration)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(configurationPath, configurationBytes, 0o600))
-	arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
 	outputPath := filepath.Join(dataDirectory, "server.log")
 	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
-	command := exec.Command(*dexServerBinary, arguments...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	command.Stdout = outputFile
-	command.Stderr = outputFile
-	require.NoError(t, command.Start())
-	process := &binaryDexProcess{command: command, done: make(chan struct{})}
-	go func() {
-		process.waitErr = command.Wait()
-		close(process.done)
-	}()
+	// Registered before any process starts, so it runs after every process stop cleanup.
 	t.Cleanup(func() {
-		process.stop(t)
 		require.NoError(t, outputFile.Close())
 		if t.Failed() {
 			output, readErr := os.ReadFile(outputPath)
@@ -103,7 +94,7 @@ func startBinaryDexServiceInDirectory(
 			}
 		}
 	})
-	require.NoError(t, waitForBinaryDex(address, process, 15*time.Second))
+	address, process := startBinaryDexProcessOnFreePort(t, dataDirectory, configurationPath, outputFile)
 	var connection *grpc.ClientConn
 	if testConfig.Credential != "" {
 		connection = newDexClientConnectionWithCredential(t, address, testConfig.Credential, testconfig.DefaultGrpcMaxMessageBytes)
@@ -372,13 +363,119 @@ func binaryStreamStoreConfig(settings testconfig.StreamStoreConfig) map[string]a
 	return configuration
 }
 
-func reserveBinaryDexAddress() (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
+// maxBinaryDexStartAttempts bounds how often a start moves to a new port after another process took one.
+const maxBinaryDexStartAttempts = 3
+
+// binaryDexPortInUseText appears in dex-server-zd's listen error when another process holds its address.
+const binaryDexPortInUseText = "Address already in use"
+
+// startBinaryDexProcessOnFreePort returns the address and process of a serving dex-server-zd, moving to a new port when another process took one.
+func startBinaryDexProcessOnFreePort(
+	t *testing.T,
+	dataDirectory string,
+	configurationPath string,
+	outputFile *os.File,
+) (string, *binaryDexProcess) {
+	t.Helper()
+	for attempt := 1; ; attempt++ {
+		address, err := reserveBinaryDexAddress()
+		require.NoError(t, err)
+		outputInfo, err := outputFile.Stat()
+		require.NoError(t, err)
+		arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
+		process := startBinaryDexProcess(t, arguments, outputFile)
+		waitErr := waitForBinaryDex(address, process, 15*time.Second)
+		if waitErr == nil {
+			return address, process
+		}
+		if attempt == maxBinaryDexStartAttempts || !hasLostListenAddress(t, process, address, outputFile.Name(), outputInfo.Size()) {
+			require.NoError(t, waitErr)
+		}
+		t.Logf("Dex Server could not listen on %s; starting it again on a new port", address)
 	}
-	address := listener.Addr().String()
-	return address, listener.Close()
+}
+
+func startBinaryDexProcess(t *testing.T, arguments []string, outputFile *os.File) *binaryDexProcess {
+	t.Helper()
+	command := exec.Command(*dexServerBinary, arguments...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Stdout = outputFile
+	command.Stderr = outputFile
+	require.NoError(t, command.Start())
+	process := &binaryDexProcess{command: command, done: make(chan struct{})}
+	go func() {
+		process.waitErr = command.Wait()
+		close(process.done)
+	}()
+	t.Cleanup(func() { process.stop(t) })
+	return process
+}
+
+// hasLostListenAddress reports whether the exited process logged, after logOffset, that address was in use.
+func hasLostListenAddress(t *testing.T, process *binaryDexProcess, address string, outputPath string, logOffset int64) bool {
+	t.Helper()
+	select {
+	case <-process.done:
+	default:
+		return false
+	}
+	output, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(output[logOffset:]), "\n") {
+		if strings.Contains(line, address) && strings.Contains(line, binaryDexPortInUseText) {
+			return true
+		}
+	}
+	return false
+}
+
+// Test ports lie below the Linux and macOS ephemeral ranges, so the server's port-0 listeners cannot take them.
+const (
+	firstBinaryDexPort = 20000
+	lastBinaryDexPort  = 32767
+)
+
+var binaryDexPorts = newBinaryDexPortAllocator()
+
+// binaryDexPortAllocator hands out ports in rotating order, so a port repeats only after the whole range.
+type binaryDexPortAllocator struct {
+	mu       sync.Mutex
+	nextPort int
+}
+
+func newBinaryDexPortAllocator() *binaryDexPortAllocator {
+	// A random start keeps test processes running side by side from probing the same ports first.
+	return &binaryDexPortAllocator{nextPort: firstBinaryDexPort + rand.IntN(lastBinaryDexPort-firstBinaryDexPort+1)}
+}
+
+// reserveBinaryDexAddress returns a free 127.0.0.1 address outside the ephemeral port range.
+//
+// It returns an error when no port in the range is free or a probe fails for another reason.
+func reserveBinaryDexAddress() (string, error) {
+	return binaryDexPorts.reserveAddress()
+}
+
+func (allocator *binaryDexPortAllocator) reserveAddress() (string, error) {
+	allocator.mu.Lock()
+	defer allocator.mu.Unlock()
+	portCount := lastBinaryDexPort - firstBinaryDexPort + 1
+	for range portCount {
+		port := allocator.nextPort
+		allocator.nextPort = firstBinaryDexPort + (port-firstBinaryDexPort+1)%portCount
+		address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+		listener, err := net.Listen("tcp", address)
+		if errors.Is(err, syscall.EADDRINUSE) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("probe %s: %w", address, err)
+		}
+		if err := listener.Close(); err != nil {
+			return "", fmt.Errorf("close the probe listener on %s: %w", address, err)
+		}
+		return address, nil
+	}
+	return "", fmt.Errorf("no free port in %d-%d", firstBinaryDexPort, lastBinaryDexPort)
 }
 
 func waitForBinaryDex(address string, process *binaryDexProcess, timeout time.Duration) (waitErr error) {

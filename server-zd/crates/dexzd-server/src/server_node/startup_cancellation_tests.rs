@@ -19,7 +19,7 @@ use s3local_server::ServerConfig;
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
 
-use super::{LeaseExpiryResponse, start_server};
+use super::{LeaseExpiryResponse, PublicApiListener, start_server};
 use crate::config::{Config, CredentialSource};
 
 const BUCKET: &str = "dex-serve";
@@ -74,6 +74,7 @@ async fn an_aborted_serve_start_waiting_for_a_held_lease_releases_the_grpc_liste
     let waiting = tokio::spawn(async move {
         start_server(
             &configuration,
+            PublicApiListener::BindAfterConfigurationChecks,
             None,
             &mut cancellation,
             LeaseExpiryResponse::StopNodeOnly,
@@ -156,6 +157,7 @@ async fn a_signal_during_the_object_store_startup_check_cancels_startup_promptly
     let starting = tokio::spawn(async move {
         start_server(
             &configuration,
+            PublicApiListener::BindAfterConfigurationChecks,
             None,
             &mut cancellation,
             LeaseExpiryResponse::StopNodeOnly,

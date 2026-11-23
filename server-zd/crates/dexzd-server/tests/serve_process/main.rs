@@ -30,6 +30,7 @@ mod queued_restart;
 mod removed_history_keys;
 mod robustness;
 mod search_outbox;
+mod single_node_listen;
 mod single_node_partition_count;
 mod standby_failover;
 mod standby_health;

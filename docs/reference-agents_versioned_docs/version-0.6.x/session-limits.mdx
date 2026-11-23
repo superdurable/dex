@@ -129,7 +129,13 @@ Compaction keeps the model input under the context window. To turn it on, set
 agent on the built-in agent loop, with the model's context window in tokens. The runner must
 support compaction. The built-in agent loop does, and so do the adapters for the OpenAI Agents
 SDK, Pydantic AI, LangChain and LangGraph, Google ADK, the Vercel AI SDK, and
-Mastra.
+Mastra. The Go core has no compaction, so a session on the Go built-in loop or
+the Eino adapter sends every stored message to the model. Its turns fail once
+the conversation outgrows the model's context window, well before the default
+state limit. The provider rejects the model call, usually with HTTP 400, so the
+turn fails without a retry ([Model API errors](/reference/agents/0.6.x/workers#model-api-errors)).
+Every later turn sends the whole conversation again and fails the same way. Start a new
+session before the conversation reaches the window.
 
 Before a model call whose input would reach 85 percent of the window, the
 session runs a **CompactContext** Step instead. It makes one model call that

@@ -167,6 +167,7 @@ type clientTestFlowService struct {
 	listStreamRequest     *dexpb.ListStreamMessagesRequest
 	getAttributesRequest  *dexpb.GetAttributesRequest
 	loadBlobsRequestCount int
+	nearDeadlineWaitCount int
 }
 
 func (service *clientTestFlowService) WriteStream(
@@ -178,10 +179,16 @@ func (service *clientTestFlowService) WriteStream(
 }
 
 func (service *clientTestFlowService) ReadStream(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.ReadStreamRequest,
 ) (*dexpb.ReadStreamResponse, error) {
 	service.readStreamRequest = request
+	if request.FlowId == "timeout" {
+		return nil, clientTestLongPollTimeoutError()
+	}
+	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
+	}
 	value, err := encodeValue(clientTestRPCOutput{Status: "working"})
 	if err != nil {
 		return nil, err
@@ -312,13 +319,16 @@ func (service *clientTestFlowService) InvokeRPC(
 }
 
 func (service *clientTestFlowService) WaitForAttribute(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.WaitForAttributeRequest,
 ) (*dexpb.WaitForAttributeResponse, error) {
 	service.waitAttributeRequest = request
 	service.waitAttributeRequests = append(service.waitAttributeRequests, request)
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
+	}
+	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	if request.FlowId == "reattach-attribute" && len(service.waitAttributeRequests) == 1 {
 		return nil, clientTestServiceError(
@@ -345,10 +355,13 @@ func (service *clientTestFlowService) StopFlow(
 }
 
 func (service *clientTestFlowService) WaitForFlow(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.WaitForFlowRequest,
 ) (*dexpb.FlowResult, error) {
 	service.waitFlowRequest = request
+	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
+	}
 	if request.FlowId == "timeout" {
 		return nil, clientTestServiceError(
 			codes.DeadlineExceeded,
@@ -483,13 +496,16 @@ func (service *clientTestFlowService) UpdateFlowConfig(
 }
 
 func (service *clientTestFlowService) WaitForStepCompletion(
-	_ context.Context,
+	ctx context.Context,
 	request *dexpb.WaitForStepCompletionRequest,
 ) (*dexpb.WaitForStepCompletionResponse, error) {
 	service.waitStepRequest = request
 	service.waitStepRequests = append(service.waitStepRequests, request)
 	if request.FlowId == "inactive" {
 		return nil, clientTestMissingFlowError()
+	}
+	if request.FlowId == clientTestAnswerNearDeadlineFlowID {
+		return nil, service.answerLongPollTimeoutNearDeadline(ctx)
 	}
 	if request.FlowId == "cancelled-step" {
 		return nil, status.Error(codes.Canceled, "Stream removed (RST_STREAM (Received RST_STREAM with error code 8))")
@@ -538,6 +554,38 @@ func clientTestMissingFlowError() error {
 		"Flow does not exist",
 		nil,
 	)
+}
+
+// clientTestAnswerNearDeadlineFlowID makes a fake wait answer shortly before the caller's deadline.
+const clientTestAnswerNearDeadlineFlowID = "answer-near-deadline"
+
+// clientTestDeadlineAnswerLead exceeds the Server's 200 ms lead but stays inside the SDK margin.
+const clientTestDeadlineAnswerLead = 500 * time.Millisecond
+
+func clientTestLongPollTimeoutError() error {
+	return clientTestServiceError(
+		codes.DeadlineExceeded,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
+		"long poll timed out",
+		nil,
+	)
+}
+
+// answerLongPollTimeoutNearDeadline answers before the caller's deadline, as a Dex Server does.
+func (service *clientTestFlowService) answerLongPollTimeoutNearDeadline(ctx context.Context) error {
+	service.nearDeadlineWaitCount++
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		return status.Error(codes.InvalidArgument, "the near-deadline test call needs a deadline")
+	}
+	answer := time.NewTimer(time.Until(deadline) - clientTestDeadlineAnswerLead)
+	defer answer.Stop()
+	select {
+	case <-answer.C:
+		return clientTestLongPollTimeoutError()
+	case <-ctx.Done():
+		return status.FromContextError(ctx.Err()).Err()
+	}
 }
 
 func TestClientUpdateFlowConfigPreservesWorkerTarget(t *testing.T) {
@@ -1143,6 +1191,159 @@ func TestClientCancelledWaitWithinRequestBudgetIsServiceError(t *testing.T) {
 	var serviceErr *ServiceError
 	require.ErrorAs(t, err, &serviceErr)
 	require.Equal(t, codes.Canceled, serviceErr.Code)
+}
+
+func TestClientLongPollTimeoutBeforeContextDeadline(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	_, err := client.WaitForFlow(ctx, "timeout", WaitForFlowOptions{})
+	requireClientLongPollTimeout(t, err, "timeout")
+
+	var value clientTestRPCOutput
+	_, err = client.ReadStream(ctx, "timeout", clientTestThinking, "resume-1", &value)
+	requireClientLongPollTimeout(t, err, "timeout")
+
+	require.NoError(t, client.WaitForStepCompletion(
+		ctx,
+		"reattach-step",
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		WaitForStepCompletionOptions{},
+	))
+	require.Len(t, service.waitStepRequests, 2)
+
+	var matched string
+	require.NoError(t, client.WaitForAttributeMatch(
+		ctx,
+		"reattach-attribute",
+		clientTestStatus,
+		AttributeMatchEqual("ready"),
+		&matched,
+		WaitForAttributeOptions{},
+	))
+	require.Equal(t, "ready", matched)
+	require.Len(t, service.waitAttributeRequests, 2)
+}
+
+func TestClientLongPollTimeoutWithinRequestTimeoutRepeatsWait(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx := context.Background()
+
+	require.NoError(t, client.WaitForStepCompletion(
+		ctx,
+		"reattach-step",
+		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
+		WaitForStepCompletionOptions{RequestTimeout: 5 * time.Minute},
+	))
+	require.Len(t, service.waitStepRequests, 2)
+	require.LessOrEqual(t, service.waitStepRequests[1].RequestTimeoutSeconds, int32(300))
+	require.Positive(t, service.waitStepRequests[1].RequestTimeoutSeconds)
+
+	var matched string
+	require.NoError(t, client.WaitForAttributeMatch(
+		ctx,
+		"reattach-attribute",
+		clientTestStatus,
+		AttributeMatchEqual("ready"),
+		&matched,
+		WaitForAttributeOptions{RequestTimeout: 5 * time.Minute},
+	))
+	require.Equal(t, "ready", matched)
+	require.Len(t, service.waitAttributeRequests, 2)
+}
+
+func TestClientWaitAnsweredAtCallerDeadlineIsCallerTimeout(t *testing.T) {
+	stepExecution := StepExecutionID{StepType: GetFinalStepType(clientTestStep{})}
+	contextDeadlineCalls := map[string]func(context.Context, *Client) error{
+		"WaitForFlow": func(ctx context.Context, client *Client) error {
+			_, err := client.WaitForFlow(ctx, clientTestAnswerNearDeadlineFlowID, WaitForFlowOptions{})
+			return err
+		},
+		"ReadStream": func(ctx context.Context, client *Client) error {
+			var value clientTestRPCOutput
+			_, err := client.ReadStream(ctx, clientTestAnswerNearDeadlineFlowID, clientTestThinking, "", &value)
+			return err
+		},
+		"WaitForStepCompletion": func(ctx context.Context, client *Client) error {
+			return client.WaitForStepCompletion(
+				ctx, clientTestAnswerNearDeadlineFlowID, stepExecution, WaitForStepCompletionOptions{},
+			)
+		},
+		"WaitForAttributeMatch": func(ctx context.Context, client *Client) error {
+			var matched string
+			return client.WaitForAttributeMatch(
+				ctx,
+				clientTestAnswerNearDeadlineFlowID,
+				clientTestStatus,
+				AttributeMatchEqual("ready"),
+				&matched,
+				WaitForAttributeOptions{},
+			)
+		},
+	}
+	for name, call := range contextDeadlineCalls {
+		t.Run("context deadline/"+name, func(t *testing.T) {
+			t.Parallel()
+			client, service := newClientIntegration(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+			err := call(ctx, client)
+			require.NoError(t, ctx.Err(), "the fake Server must answer before the caller's deadline")
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			var longPollTimeout *LongPollTimeoutError
+			require.False(t, errors.As(err, &longPollTimeout), "the caller's deadline ended the wait: %v", err)
+			requireClientNoWaitAfterNearDeadlineAnswer(t, service)
+		})
+	}
+
+	requestTimeoutCalls := map[string]func(context.Context, *Client) error{
+		"WaitForStepCompletion": func(ctx context.Context, client *Client) error {
+			return client.WaitForStepCompletion(
+				ctx,
+				clientTestAnswerNearDeadlineFlowID,
+				stepExecution,
+				WaitForStepCompletionOptions{RequestTimeout: 2 * time.Second},
+			)
+		},
+		"WaitForAttributeMatch": func(ctx context.Context, client *Client) error {
+			var matched string
+			return client.WaitForAttributeMatch(
+				ctx,
+				clientTestAnswerNearDeadlineFlowID,
+				clientTestStatus,
+				AttributeMatchEqual("ready"),
+				&matched,
+				WaitForAttributeOptions{RequestTimeout: 2 * time.Second},
+			)
+		},
+	}
+	for name, call := range requestTimeoutCalls {
+		t.Run("request timeout/"+name, func(t *testing.T) {
+			t.Parallel()
+			client, service := newClientIntegration(t)
+			err := call(context.Background(), client)
+			var requestTimeout *RequestTimeoutError
+			require.ErrorAs(t, err, &requestTimeout)
+			require.NotErrorIs(t, err, context.DeadlineExceeded)
+			requireClientNoWaitAfterNearDeadlineAnswer(t, service)
+		})
+	}
+}
+
+// requireClientNoWaitAfterNearDeadlineAnswer fails when the SDK called the Server again so close to the deadline.
+func requireClientNoWaitAfterNearDeadlineAnswer(t *testing.T, service *clientTestFlowService) {
+	t.Helper()
+	require.Equal(t, 1, service.nearDeadlineWaitCount, "the wait must end at the near-deadline answer")
+}
+
+func requireClientLongPollTimeout(t *testing.T, err error, flowID string) {
+	t.Helper()
+	var longPollTimeout *LongPollTimeoutError
+	require.ErrorAs(t, err, &longPollTimeout)
+	require.Equal(t, flowID, longPollTimeout.FlowID)
+	require.Equal(t, codes.DeadlineExceeded, longPollTimeout.Code)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {

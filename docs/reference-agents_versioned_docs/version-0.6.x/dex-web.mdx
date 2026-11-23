@@ -10,6 +10,8 @@ sidebar_label: Dex Web
 Flow Definition Graph. **dexcli visualize** cannot read the session Flow,
 because the Flow lives in the agents package and each application chooses its
 Flow type. The Python and TypeScript packages ship the session graph instead.
+The Go packages ship none, so Dex Web shows the Steps of a session that Go
+Workers serve, without the graph and its Actions.
 
 ## Upload the session graph from the Worker {#upload-the-graph}
 

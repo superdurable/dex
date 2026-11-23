@@ -103,6 +103,35 @@ one model call per **RunModel** rarely needs it.
 - A changed limit applies to each **RunModel** scheduled after the Worker
   restarts. An attempt in flight, and its retries, keep their limit.
 
+### Model API errors {#model-api-errors}
+
+**RunModel** and **CompactContext** sort the error of a failed model call
+into three kinds. Changed in 0.6.16.
+
+| Error | What happens |
+| --- | --- |
+| HTTP 408, 409, 429, or 5xx, or a connection error or timeout | Retries with exponential backoff and jitter |
+| Any other HTTP 4xx, such as 400 or 401 | Fails the turn at once, without a retry |
+| Anything else | Retries up to the attempts of **RunModelLimit**, 3 by default |
+
+- The backoff starts at 1 second and doubles up to 30 seconds. Each wait is
+  drawn between half of that value and all of it, so sessions that failed
+  together do not retry together.
+- When the provider sends **Retry-After** or **retry-after-ms**, the wait is
+  at least that long.
+- The retries stop once their nominal waits add up to more than 2 minutes.
+  That rides out a typical provider outage or rate-limit window. Then the turn
+  fails, and **last_turn_error** holds the model API's error.
+- The transient retries come on top of the attempts. With the defaults, Dex
+  allows 10 attempts, so a Worker crash can also use them. The 30 minute retry
+  budget still applies.
+- Setting the attempts to 1 disables every retry.
+- Change the backoff with **retry** in **run_model_limit** (**runModelLimit**),
+  a **ModelRetryPolicy**, or with **WithModelRetryPolicy** in Go.
+- The session reads the HTTP status from the error the model client raises, or
+  from an error it wraps. A runner that replaces the client's error with its
+  own loses the status, and the error retries up to the attempts.
+
 ## Separate Worker pools {#worker-pools}
 
 Dex routes work by Flow type. Every Worker that registers an agent's Flow type
