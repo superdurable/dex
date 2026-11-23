@@ -27,12 +27,12 @@ test covers the cell yet, so its text states the design, not a checked result.
 
 | Step | Interrupted | What happens | Worker kill | Server restart | Takeover |
 | --- | --- | --- | --- | --- | --- |
-| **RunModel** | Before any output reaches Dex | That model call runs again, up to 3 attempts within 30 minutes. Then the turn fails. If tools already ran, a note in the history tells the next turn's model not to repeat them. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **RunModel** | Before any output reaches Dex | That model call runs again, within 30 minutes and the attempts Dex allows: 3, plus the retries for a transient model API error, 10 in all by default (see [Model API errors](/reference/agents/0.6.x/workers#model-api-errors)). Then the turn fails. If tools already ran, a note in the history tells the next turn's model not to repeat them. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **RunModel** | After output reached Dex | The same. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallTool**, for an idempotent write | Before the first heartbeat reaches Dex | The call runs again with the same idempotency key. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CallTool**, for an idempotent write | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**, for an idempotent write | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallTool**, for a read | While the tool runs | The call runs again. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CallTool** | Every attempt | After the last attempt, a read records **failed** and a write records **outcome_unknown**. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | Not tested |
+| **CallTool** | Every attempt | After the last attempt, a read records **failed** and a write records **outcome_unknown**. A retry that refuses a write, such as after a deploy renamed its tool, records **outcome_unknown**; see [A retry that refuses the call](#retry-refusal). | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | Not tested |
 | **CallSingleAttemptTool** | Before the first heartbeat reaches Dex | The call records **outcome_unknown** and does not run again. The model sees that the outcome is unknown. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallSingleAttemptTool** | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **AwaitToolApproval** | While it waits | Nothing runs again. The wait lives in Dex Server. A later approval runs the tool once. | [Python][py-tools], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
@@ -40,7 +40,7 @@ test covers the cell yet, so its text states the design, not a checked result.
 | **AwaitTimer** | While it waits | Nothing runs again. The Timer fires once. A Timer that came due during an outage fires when Dex Server is back. | [Python][py-stepwise], [TypeScript][ts-stepwise] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **PollToolTask** | Between two polls | Polling goes on with the same task. No second task starts. | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **PollToolTask** | During a poll | The poll runs again. No second task starts. | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CompactContext** | During the summary call | Only the summary call runs again, up to 3 attempts within 30 minutes. The session stores one summary. If every attempt fails, the turn fails, and the next user message compacts again. | [Python][py-compaction], [TypeScript][ts-compaction] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CompactContext** | During the summary call | Only the summary call runs again, within 30 minutes and the same attempts as **RunModel**. The session stores one summary. If every attempt fails, the turn fails, and the next user message compacts again. | [Python][py-compaction], [TypeScript][ts-compaction] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | A wait for a user message | While the session is idle | Nothing runs again. The next message starts a turn. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | Any Step | Queued, before Dex hands it to a Worker | The Step stays in the queue and uses no attempt. It runs as attempt 1 when a Worker takes it. | [Python][py-stepwise], [TypeScript][ts-stepwise] | [server-zd][zd-queued] | [server-zd][zd-queued] |
 | **CallTool** for a read, **PollToolTask**, **CompactContext** | Before the first heartbeat reaches Dex | By design, the same as the rows above for that Step. | Not tested | Not tested | Not tested |
@@ -94,6 +94,29 @@ unknown. To check it, see
 
 A tool Step that waits in the queue does not fail and uses no attempt. See
 [Keep tool Steps dispatchable](/reference/agents/0.6.x/workers#dispatchable).
+
+## A retry that refuses the call {#retry-refusal}
+
+Changed in 0.6.15 in Python and TypeScript, and in 0.6.16 in Go. A tool Step
+attempt can end with a failure the model should see: `ToolExecutionError`. On
+the first attempt the
+call records **failed**. On a later attempt of a call that is not a read, the
+call records **outcome_unknown** with the same error text.
+
+A later attempt follows one that reached a Worker and ended without a result,
+so the earlier attempt may have run the tool. A retry can refuse a call before
+the tool runs, for example after a deploy:
+
+- the tool was renamed, so the error is `unknown tool <name>`;
+- its schema changed, so the error is `invalid arguments for <name>: ...`.
+
+That refusal says nothing about the earlier attempt. Before then such a call
+recorded **failed**, and the model could call the write again with a new tool
+call ID and a new idempotency key.
+
+A read still records **failed**. So does a call that a tool source built, such
+as a Connector or MCP tool, because the source classifies its own errors. See
+[Connector tools](/reference/agents/0.6.x/connector-tools).
 
 [py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
 [py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py

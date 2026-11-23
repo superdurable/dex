@@ -22,6 +22,7 @@ shared/              # mock services
 cmd/server/          # default Worker and HTTP entrypoint (`dex-samples`)
 cmd/deal-dsl/    # Deal DSL Worker and HTTP entrypoint (`dex-deal-dsl`)
 codec-server/        # deployable payload-encryption codec server (own Go module)
+agent-harnesses/     # the order support agent on CloudWeGo Eino with Dex Agents (own Go module)
 ```
 
 HTTP routes use category prefixes:
@@ -168,6 +169,7 @@ details.
 - [AI Agent](./products/ai-agent) (a durable chat agent with approvals, Timers, failure routes and a Slack connector Step; separate `dex-ai-agent` binary)
 - [Connector factory](./products/connector-factory) (OpenAI operation-specific factories, recovery, Result Attributes, and Streams)
 - [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate Go module)
+- [Agent harnesses](./agent-harnesses/) (the order support agent on CloudWeGo Eino as a durable Dex agent session, with the Agent Quick Start and HTTP session routes; a separate Go module on Go 1.26)
 
 ## Patterns
 

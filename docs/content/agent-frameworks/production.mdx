@@ -65,7 +65,8 @@ connects. The session itself loses nothing.
   response is lost, a retry can queue the same message twice. Before you resend,
   read the session with `get_agent_snapshot` and look for the message in
   **messages** and `queued_messages`. If it is queued twice, remove the copy
-  with `delete_queued_message`.
+  with `delete_queued_message`. In a Go session the copy stays and runs its own
+  turn, because Go Workers serve no `delete_queued_message`.
 
 [Send a message once](/agent-frameworks/sessions#send-a-message-once) has a helper that does this for each SDK.
 

@@ -69,6 +69,35 @@ Agent: <the model's reply about order 1001>
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="eino">
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/agent-harnesses/cmd/agent-quick-start/main.go',
+  }}>
+<SdkSnippet lang="go">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/go/agent-harnesses
+cd agent-harnesses
+go run ./cmd/agent-quick-start eino "Look up order 1001"
+```
+
+You need Go 1.26 or later. It runs on a local demo model, so it needs no API key. To call a real model, set `DEX_EINO_MODEL` to an OpenAI model name, such as **gpt-5-mini**, and set `OPENAI_API_KEY`.
+
+It prints the session ID and the agent's reply:
+
+```text
+Session eino-quick-start-3dbd0c70
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+With Go 1.27, a first line from sonic, the JSON library that Eino uses, says that it falls back to `encoding/json`. It is harmless.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="google-adk">
 
 <SdkTabs
@@ -325,7 +354,7 @@ Run the same command with the message **Cancel order 1002**. The program stops a
 cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
 ```
 
-The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call, and how a person approves it in Dex Web.
+The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call. In Python and TypeScript, it also shows how a person approves the call in Dex Web.
 
 :::note For coding agents
 Add `--approve` to the command in place of typing **y**. The program then approves each waiting call and prints what it approved. Without a terminal, the program does not ask: it prints that `cancel_order` waits for approval and exits, which stops it as Ctrl+C does in step 3. Resume with `--session-id SESSION_ID --approve`.
@@ -350,6 +379,7 @@ This step stops the program while a tool call runs. The example can slow each to
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
     typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+    go: 'examples/go/agent-harnesses/cmd/agent-quick-start/main.go',
   }}>
 <SdkSnippet lang="python">
 
@@ -362,6 +392,13 @@ pkill -9 -f agent_harness_examples.quick_start
 
 ```bash
 pkill -9 -f quick-start-main.js
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```bash
+pkill -9 -f agent-quick-start
 ```
 
 </SdkSnippet>

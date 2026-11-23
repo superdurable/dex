@@ -9,7 +9,9 @@ sidebar_label: Spend limits
 A spend limit is usually per account or per API key, across many sessions. Dex
 has no built-in limit. An application implements **ModelSpendLimit** and passes it
 as **spend_limit** in the Python **AgentSessionOptions** or **spendLimit** in
-TypeScript. Without one, the session checks nothing.
+TypeScript. Without one, the session checks nothing. The Go core has no
+**ModelSpendLimit**, so a session on Go Workers, such as an Eino agent, checks
+nothing either.
 
 The session calls the interface around each model call of **RunModel** and
 **CompactContext**:
