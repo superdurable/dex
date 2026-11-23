@@ -8,7 +8,7 @@ require (
 	github.com/eino-contrib/jsonschema v1.0.3
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex-connectors-library/sdkgo v0.39.0
-	github.com/superdurable/dex/agents/go/core v0.6.16
+	github.com/superdurable/dex/agents/go/core v0.6.17
 	github.com/superdurable/dex/sdk-go v1.45.6
 )
 
