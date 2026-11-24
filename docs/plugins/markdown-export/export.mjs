@@ -35,6 +35,7 @@ const localeCopies = {
     steps: 'Steps',
     when: 'when',
     diagram: 'Diagram',
+    watchOnYouTube: 'Watch on YouTube',
     graph: {
       conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
       flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.', flowGraph: 'Flow graph',
@@ -80,6 +81,7 @@ const localeCopies = {
     steps: 'Step 列表',
     when: '条件',
     diagram: '图示',
+    watchOnYouTube: '在 YouTube 上观看',
     graph: {
       conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
       flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。', flowGraph: 'Flow 图',
@@ -515,6 +517,7 @@ async function expandJsx(node, context) {
   if (name === 'CrashTimeline') return expandCrashTimeline(node, context);
   if (name === 'ServerZdCompatibilityMatrix') return expandServerZdCompatibilityMatrix(context);
   if (name === 'ServerZdCompatibility') return expandServerZdCompatibility(node, context);
+  if (name === 'YouTubeVideo') return expandYouTubeVideo(node, context);
   if (name === 'img') {
     const image = {type: 'image', ...imageProperties(node, context)};
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
@@ -560,6 +563,17 @@ async function expandServerZdCompatibility(node, context) {
   const table = serverCompatibilityTable(await readServerZdCompatibility(context), version ?? latest, context.locale);
   const summary = paragraph(table.summary);
   return table.header ? [summary, ...diagramTable({header: table.header, rows: table.rows}, undefined, context, node)] : [summary];
+}
+
+// Mirrors YouTubeVideo.tsx without the player: its text link to the video.
+function expandYouTubeVideo(node, context) {
+  const videoId = attribute(node, 'videoId', context);
+  const title = attribute(node, 'title', context);
+  if (typeof videoId !== 'string' || !/^[\w-]+$/.test(videoId)) fail(context, node, 'YouTubeVideo requires a videoId');
+  if (typeof title !== 'string' || !title.trim()) fail(context, node, 'YouTubeVideo requires a title');
+  return [{type: 'paragraph', children: [
+    {type: 'link', url: `https://youtu.be/${videoId}`, children: [text(context.copy.watchOnYouTube)]},
+    text(`${context.copy.separator}${title.trim()}`)]}];
 }
 
 async function readServerZdCompatibility(context) {

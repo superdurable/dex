@@ -4034,5 +4034,13 @@
   {
     "from": "/zh-Hans/reference/server/0.1.27/workers/",
     "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/intro/compared-to-durable-execution",
+    "to": "/intro/compared-to-temporal"
+  },
+  {
+    "from": "/zh-Hans/intro/compared-to-durable-execution",
+    "to": "/zh-Hans/intro/compared-to-temporal"
   }
 ]

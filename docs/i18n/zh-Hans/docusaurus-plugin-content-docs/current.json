@@ -59,6 +59,10 @@
     "message": "评估 Dex",
     "description": "The label for category Evaluate Dex in sidebar docs"
   },
+  "sidebar.docs.category.Dex vs. Temporal": {
+    "message": "Dex 与 Temporal 对比",
+    "description": "The label for category Dex vs. Temporal in sidebar docs"
+  },
   "sidebar.docs.category.Correctness and Expressiveness": {
     "message": "正确性与表达能力",
     "description": "The label for category Correctness and Expressiveness in sidebar docs"

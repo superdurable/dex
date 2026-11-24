@@ -370,9 +370,11 @@ try {
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
     allContent: {'docusaurus-plugin-content-docs': {primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars,
       docs: [{...fallback, permalink: '/'}, {...translated, source: '@site/reference/translated.mdx', permalink: '/translated/'}]}]}}}};
-  await writeFile(join(contentPath, 'index.mdx'), '# Home\n\n:::caution\n\nCareful.\n\n:::\n\n:::tip Short title\n\nTip.\n\n:::\n\n[Chinese](/zh-Hans/translated/)\n\n[Go API](/api/go/1.33/)\n\n[Java API](pathname:///api/java/latest/)\n');
+  await writeFile(join(contentPath, 'index.mdx'), '# Home\n\n:::caution\n\nCareful.\n\n:::\n\n:::tip Short title\n\nTip.\n\n:::\n\n[Chinese](/zh-Hans/translated/)\n\n[Go API](/api/go/1.33/)\n\n[Java API](pathname:///api/java/latest/)\n\n<YouTubeVideo videoId="abc_123-X" title="Sample video" poster="/img/sample.jpg" />\n');
   await exportMarkdown(english);
   const englishHome = await readFile(join(siteDir, 'build/index.md'), 'utf8');
+  // A video exports as its text link, so the Markdown twin names no player.
+  assert.match(englishHome, /\n\[Watch on YouTube\]\(https:\/\/youtu\.be\/abc_123-X\): Sample video\n/);
   assert.match(englishHome, /> \*\*Caution\*\*/);
   assert.match(englishHome, /> \*\*Tip: Short title\*\*/);
   assert.match(englishHome, /\[Go API\]\(https:\/\/docs.example.test\/api\/go\/1.33\/\)/, 'API reference links skip the disk check');
@@ -382,6 +384,7 @@ try {
   const failures = [
     ['# Heading\n\n<UnrecognizedDiagram />\n', /index.mdx:3: Unknown JSX component <UnrecognizedDiagram>/],
     ['# Heading\n\n<DexSystemDiagram />\n', /index.mdx:3: DexSystemDiagram requires markdownDescription/],
+    ['# Heading\n\n<YouTubeVideo videoId="abc" poster="/img/sample.jpg" />\n', /index.mdx:3: YouTubeVideo requires a title/],
     ['# Heading\n\nTotal {1 + 1}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\n{/* hidden comment */}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\nexport const value = 1;\n', /index.mdx:3: Only imports are supported in MDX modules/],

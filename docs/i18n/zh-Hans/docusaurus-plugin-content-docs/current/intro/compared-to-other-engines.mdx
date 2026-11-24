@@ -1,0 +1,77 @@
+---
+title: Dex 与其他引擎对比
+sidebar_label: Dex 与其他引擎对比
+slug: /intro/compared-to-other-engines
+description: Dex 与其他 durable execution 工具的对比：以 Restate 为例的基于日志的运行时、以 DBOS 为例的基于数据库的库、Step function 服务，以及 Agent 框架的 checkpoint，每类都有术语对照。
+---
+
+# Dex 与其他引擎对比
+
+本页把 Dex 与 Temporal 以外的 durable execution 工具做对照：基于日志的运行时、基于数据库的库、Step function 服务，以及 Agent 框架的 checkpoint。Temporal 的对比见 [Dex 与 Temporal 对比](/intro/compared-to-temporal)。
+
+<a id="replay-based-workflow-engines"></a>
+
+**基于重放的引擎。** Cadence 与 Temporal 采用相同的重放模型，因此 [Temporal 的对比](/intro/compared-to-temporal)同样适用于 Cadence。
+
+## 基于日志的运行时 {#journal-based-durable-function-runtimes}
+
+Restate 是一个例子。handler 通过运行时 context 执行每个副作用，运行时把结果记录在日志里。失败之后，handler 再次运行，并拿到已记录的结果。virtual object 按 key 保存状态，每个 key 只有一个写入方。
+
+| Restate | Dex |
+| --- | --- |
+| Workflow、service handler | Flow |
+| 记录在日志里的操作（`ctx.run`） | Step `Execute` |
+| Virtual object 和它的 key | 每个 key 一个长期运行的 Flow，key 就是 Flow ID。关闭的 Flow 在保留期后删除，而 virtual object 会持续存在。 |
+| Object 状态 | Attribute |
+| Awakeable 或 durable promise | Step 等待的 Channel 消息 |
+| Durable sleep | Timer |
+
+日志调用之间的 handler 代码必须是确定的，因为它会再次运行。Restate 按幂等键对调用去重。Dex 按 Flow ID 和 request ID 对 Flow 启动去重。
+
+## 基于数据库的库 {#database-backed-workflow-libraries}
+
+DBOS 是一个例子。Workflow 和 step 是你应用里加了注解的函数。DBOS 把它们的 checkpoint 存在你的 PostgreSQL 数据库里，不增加其他服务器。workflow 函数在 step 之间必须是确定的。DBOS 的 `send` 接受幂等键。
+
+| DBOS | Dex |
+| --- | --- |
+| Workflow、Workflow ID | Flow、Flow ID |
+| Step | Step `Execute` |
+| Send 和 receive | Channel |
+| Events | Attribute，通过 RPC 读取 |
+| Queue | Task queue。每个 Worker 的任务槽限制它的工作量。 |
+
+Dex 在对象存储上运行自己的服务器，并可以用 [Attribute Store 同步](/components/your-database#attribute-store-sync)把 Attribute 值复制到你的数据库。
+
+## Restate 或 DBOS 更合适的情况 {#when-restate-or-dbos-fits}
+
+- **你的流程是一个服务里的一个短函数，而你已经在运行 PostgreSQL。** 基于数据库的库不会增加新的 server。
+- **你希望每个 key 只有一个写入方，而且不用声明锁。** Restate 的 virtual object 默认就是这样。在 Dex 里，你要声明 Attribute 锁。
+
+## Step function 服务 {#step-function-services}
+
+AWS Step Functions 是一个例子：用 JSON 定义语言写的状态机，每个状态调用一个服务。两者都记录一张显式的状态图。Dex 的 Step 和决定是用你的语言写的代码。它们在你的 Worker 上运行，所以 Step 可以调用任何库。
+
+## Agent 框架的 checkpoint {#agent-framework-checkpoints}
+
+LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保存图的状态，interrupt 让图暂停以等待人工输入。checkpointer 只保存状态。恢复崩溃的运行，或在 timer 到期时唤醒它，需要托管平台或自定义代码。Dex Server 为每个 session 做这两件事。
+
+| Agent 框架 | Dex |
+| --- | --- |
+| Thread ID | Session ID，也就是 Flow ID |
+| Checkpoint | 每次模型调用或工具调用之后 session 的 Attribute |
+| 等待人工输入的 interrupt | 等待审批的工具调用，或者一个问题 |
+
+使用[持久化 Agent](/agent-frameworks)，你可以保留自己的框架。adapter 把 agent 包装在一个 session Flow 里。
+
+## 运行在 durable execution 引擎上的 Agent 框架 {#agent-frameworks-on-a-durable-execution-engine}
+
+运行在 Temporal 上的 OpenAI Agents SDK，运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装后的工具调用记录为引擎的一个单元。崩溃后，只有正在进行的那次调用会再次运行。Dex 增加了两项能力：
+
+- 每个工具有一个效果类别。读取可以再次运行。非幂等的写入默认只尝试一次。如果它被中断，模型会收到 `outcome_unknown`。见[工具调用](/agent-frameworks/tool-calls)。
+- 效果类别也决定默认的审批方式。审批等待不占用 Worker，可以持续几分钟或几天。见[审批](/agent-frameworks/approvals)。
+
+## 下一步 {#next}
+
+- [性能](/intro/performance)：单个 Dex 节点实测的吞吐量和延迟。
+- [限制](/intro/limits)：团队在生产中运行 Dex 时可能遇到的意外。
+- [持久化 Agent](/agent-frameworks)：保留你的 Agent 框架，在 Dex 上运行它。
