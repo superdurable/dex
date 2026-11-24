@@ -533,6 +533,204 @@ func rpcTransitionTargets(graph *Graph, rpcID string, condition string) []string
 	return targets
 }
 
+// A Wait.allOf or Wait.anyOf argument that spreads a SubFlow.run map with a fixed child Flow is one SubFlow condition.
+func TestTypeScriptSpreadSubFlowRunMap(t *testing.T) {
+	const reviewSubFlow = "SubFlow.run(reviewFlow, input),"
+	const signalWait = `return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`
+	const deadline = `Timer.byDuration(2_000, "deadline")`
+	const reviewBoundsClass = "class ReviewBounds implements Step<number> {\n"
+	const reviewBoundsReturn = "    return Wait.allOf(\n      approvals.atLeast(3),"
+	// Each Wait gains an inputs parameter typed as an array, the only receiver the analyzer accepts.
+	withInputs := func(signature string, replacements ...string) []string {
+		return append([]string{signature, strings.Replace(signature, "): Wait {", ", inputs: readonly number[]): Wait {", 1)}, replacements...)
+	}
+	allOfArgument := func(argument string, replacements ...string) []string {
+		return withInputs("  waitFor(_context: Context, input: number): Wait {", append([]string{reviewSubFlow, argument + ","}, replacements...)...)
+	}
+	signalWaitReplacement := func(wait string) []string {
+		return withInputs("  waitFor(context: Context, input: ApprovalInput): Wait {", signalWait, wait)
+	}
+	anyOfWait := func(arguments string) []string { return signalWaitReplacement("return Wait.anyOf(" + arguments + ");") }
+	fieldInReviewBounds := func(field string) string { return reviewBoundsClass + "  " + field + "\n\n" }
+	type expectedSubFlow struct {
+		waitIDPrefix   string
+		label          string
+		conditionIndex int
+		timerIndex     int
+	}
+	inReviewBounds := &expectedSubFlow{waitIDPrefix: "wait:ReviewBounds:", label: "reviewFlow", conditionIndex: 4, timerIndex: -1}
+	const arrowRun = "...inputs.map((value) => SubFlow.run(reviewFlow, value))"
+	cases := map[string]struct {
+		replacement []string
+		accepted    *expectedSubFlow
+	}{
+		"allOf with an arrow callback":         {allOfArgument(arrowRun), inReviewBounds},
+		"allOf with a parenthesized callback":  {allOfArgument("...(inputs.map(((value) => (SubFlow.run(reviewFlow, value)))))"), inReviewBounds},
+		"allOf with an unused index parameter": {allOfArgument("...inputs.map((value, position) => SubFlow.run(reviewFlow, value))"), inReviewBounds},
+		"allOf with a following Timer": {
+			allOfArgument(arrowRun + ",\n      Timer.byDuration(1_000)"),
+			&expectedSubFlow{waitIDPrefix: "wait:ReviewBounds:", label: "reviewFlow", conditionIndex: 4, timerIndex: 5},
+		},
+		"allOf with a module const alias of an import": {
+			allOfArgument("...inputs.map((value) => SubFlow.run(stableReview, value))"), inReviewBounds,
+		},
+		"allOf with a readonly field": {
+			allOfArgument("...inputs.map((value) => SubFlow.run(this.review, value))", reviewBoundsClass, fieldInReviewBounds("private readonly review = reviewFlow;")),
+			inReviewBounds,
+		},
+		"anyOf with a function callback": {
+			anyOfWait("...inputs.map(function (value) {\n        return SubFlow.run(reviewFlow, value);\n      }), " + deadline),
+			&expectedSubFlow{waitIDPrefix: "wait:AwaitApproval:", label: "reviewFlow", conditionIndex: 0, timerIndex: 1},
+		},
+		"array literal receiver":     {replacement: allOfArgument("...[input].map((value) => SubFlow.run(reviewFlow, value))")},
+		"receiver cast to an array":  {replacement: allOfArgument("...(input as unknown as number[]).map((value) => SubFlow.run(reviewFlow, value))")},
+		"custom map object":          {replacement: allOfArgument("...fakeList.map((value: number) => SubFlow.run(reviewFlow, value))")},
+		"reassigned array parameter": {replacement: allOfArgument(arrowRun, reviewBoundsReturn, "    inputs = [];\n"+reviewBoundsReturn)},
+		"optional chain before map":  {replacement: allOfArgument("...inputs?.map((value) => SubFlow.run(reviewFlow, value))")},
+		"optional map call":          {replacement: allOfArgument("...inputs.map?.((value) => SubFlow.run(reviewFlow, value))")},
+		"optional SubFlow.run call":  {replacement: allOfArgument("...inputs.map((value) => SubFlow.run?.(reviewFlow, value))")},
+		"parenthesized optional run": {replacement: allOfArgument("...inputs.map((value) => (SubFlow?.run)(reviewFlow, value))")},
+		"parenthesized optional map": {replacement: allOfArgument("...(inputs?.slice)!().map((value) => SubFlow.run(reviewFlow, value))")},
+		"optional this field":        {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(this?.review, value))", reviewBoundsClass, fieldInReviewBounds("private readonly review = reviewFlow;"))},
+		"async callback":             {replacement: allOfArgument("...inputs.map(async (value) => SubFlow.run(reviewFlow, value))")},
+		"generator callback":         {replacement: allOfArgument("...inputs.map(function* (value) {\n        return SubFlow.run(reviewFlow, value);\n      })")},
+		"named callback reference":   {replacement: allOfArgument("...inputs.map(startReview)")},
+		"extra map argument":         {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(reviewFlow, value), undefined)")},
+		"destructured parameter":     {replacement: allOfArgument("...inputs.map(({ valueOf }) => SubFlow.run(reviewFlow, valueOf()))")},
+		"default parameter":          {replacement: allOfArgument("...inputs.map((value, child = reviewFlow) => SubFlow.run(child, value))")},
+		"rest parameter":             {replacement: allOfArgument("...inputs.map((...values) => SubFlow.run(reviewFlow, values[0]))")},
+		"default that rebinds a let": {replacement: allOfArgument(
+			"...inputs.map((payload, _position, _list, child = (selectedFlow = payload % 2 ? reviewFlow : otherReview)) => SubFlow.run(selectedFlow, payload))",
+			reviewBoundsReturn, "    let selectedFlow = reviewFlow;\n"+reviewBoundsReturn,
+		)},
+		"local let alias":                     {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(selectedFlow, value))", reviewBoundsReturn, "    let selectedFlow = reviewFlow;\n"+reviewBoundsReturn)},
+		"local const of an index":             {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(selectedFlow, value))", reviewBoundsReturn, "    const selectedFlow = [reviewFlow, otherReview][input % 2];\n"+reviewBoundsReturn)},
+		"local const of a call":               {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(selectedFlow, value))", reviewBoundsReturn, "    const selectedFlow = findReviewFlow(input);\n"+reviewBoundsReturn)},
+		"module let alias":                    {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(mutableReview, value))")},
+		"module const of a call":              {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(pickedReview, value))")},
+		"getter field":                        {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(this.review, value))", reviewBoundsClass, fieldInReviewBounds("get review() {\n    return reviewFlow;\n  }"))},
+		"writable field":                      {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(this.review, value))", reviewBoundsClass, fieldInReviewBounds("private review = reviewFlow;"))},
+		"Flow from this in a function":        {replacement: allOfArgument("...inputs.map(function (value) {\n        return SubFlow.run(this.review, value);\n      })", reviewBoundsClass, fieldInReviewBounds("private readonly review = reviewFlow;"))},
+		"Flow is the item":                    {replacement: allOfArgument("...inputs.map((flow) => SubFlow.run(flow, input))")},
+		"parameter shadows the Flow":          {replacement: allOfArgument("...inputs.map((reviewFlow) => SubFlow.run(reviewFlow, input))")},
+		"Flow is a property of the item":      {replacement: allOfArgument("...inputs.map((item) => SubFlow.run(item.flow, input))")},
+		"Flow from an indexed list":           {replacement: allOfArgument("...inputs.map((value) => SubFlow.run([reviewFlow][value], value))")},
+		"Flow from a call":                    {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(findReviewFlow(value), value))")},
+		"spread SubFlow.run arguments":        {replacement: allOfArgument("...inputs.map((value) => SubFlow.run(...[reviewFlow, value] as const))")},
+		"Flow from the callback arguments":    {replacement: allOfArgument("...inputs.map(function (value) {\n        return SubFlow.run(arguments[0], value);\n      })")},
+		"spread of a copied SubFlow.run list": {replacement: allOfArgument(arrowRun + ".slice(0)")},
+		"spread of a local SubFlow.run list":  {replacement: allOfArgument("...reviews", reviewBoundsReturn, "    const reviews = inputs.map((value) => SubFlow.run(reviewFlow, value));\n"+reviewBoundsReturn)},
+		"spread map of Timer conditions":      {replacement: allOfArgument("...inputs.map((milliseconds) => Timer.byDuration(milliseconds))")},
+		"spread in Wait.until":                {replacement: signalWaitReplacement("return Wait.until(" + arrowRun + ");")},
+		"spread in Wait.skipImmediately":      {replacement: signalWaitReplacement("return Wait.skipImmediately(" + arrowRun + ");")},
+		"spread in Wait.anyCombinationOf":     {replacement: signalWaitReplacement("return Wait.anyCombinationOf(" + arrowRun + ");")},
+		"spread in ConditionCombination.of":   {replacement: anyOfWait("ConditionCombination.of(" + arrowRun + "), " + deadline)},
+	}
+	helpers := "\nfunction startReview(value: number) {\n  return SubFlow.run(reviewFlow, value);\n}\n" +
+		"\nfunction findReviewFlow(_value: number) {\n  return reviewFlow;\n}\n" +
+		"\nconst otherReview = reviewFlow;\nconst stableReview = reviewFlow;\nlet mutableReview = reviewFlow;\nconst pickedReview = findReviewFlow(0);\n" +
+		"\nconst fakeList = {\n  map(_transform: (value: number) => unknown) {\n    return [SubFlow.run(otherReview, 0)];\n  },\n};\n"
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := string(source)
+			for pair := 0; pair < len(testCase.replacement); pair += 2 {
+				require.Contains(t, modified, testCase.replacement[pair])
+				modified = strings.Replace(modified, testCase.replacement[pair], testCase.replacement[pair+1], 1)
+			}
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			if testCase.accepted == nil {
+				require.False(t, graph.Valid)
+				require.Contains(t, diagnosticCodes(graph), "dynamic_wait_condition")
+				// Only ReviewBounds' direct SubFlow.run, when it is left in place, may draw a SubFlow edge.
+				expectedEdges := strings.Count(modified, reviewSubFlow)
+				subFlowEdges := 0
+				for _, edge := range graph.Edges {
+					if edge.Kind == "subflow" {
+						subFlowEdges++
+					}
+				}
+				require.Equal(t, expectedEdges, subFlowEdges)
+				return
+			}
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			expected := testCase.accepted
+			requireSpreadSubFlowCondition(t, graph, expected.waitIDPrefix, expected.label, expected.conditionIndex, expected.timerIndex)
+		})
+	}
+}
+
+func TestTypeScriptParallelSubFlowsExampleDrawsSpreadSubFlow(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	require.NoError(t, err)
+	t.Setenv("NODE_PATH", filepath.Join(root, "web", "node_modules"))
+	source, err := os.ReadFile(filepath.Join(root, "examples", "typescript", "src", "patterns", "parallel-subflows", "parallel-subflows.ts"))
+	require.NoError(t, err)
+	sourcePath := filepath.Join(t.TempDir(), "parallel-subflows.ts")
+	require.NoError(t, os.WriteFile(sourcePath, source, 0o644))
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{FlowType: "BasicParentFlow"})
+	require.NoError(t, err)
+	require.NotContains(t, diagnosticCodes(graph), "dynamic_wait_condition")
+	requireSpreadSubFlowCondition(t, graph, "wait:SubFlowsStep:", "exampleSubFlow", 0, -1)
+}
+
+// requireSpreadSubFlowCondition requires one SubFlow condition with label at conditionIndex, its node and start edge, and one Timer at timerIndex, or no Timer when timerIndex is negative.
+func requireSpreadSubFlowCondition(t *testing.T, graph *Graph, waitIDPrefix string, label string, conditionIndex int, timerIndex int) {
+	t.Helper()
+	var waitNode *Node
+	for index := range graph.Nodes {
+		node := &graph.Nodes[index]
+		if node.Kind == "wait" && strings.HasPrefix(node.ID, waitIDPrefix) && slices.ContainsFunc(node.Wait.Conditions, func(condition WaitCondition) bool { return condition.Kind == "subflow" }) {
+			require.Nil(t, waitNode, "two Waits with SubFlow conditions")
+			waitNode = node
+		}
+	}
+	require.NotNil(t, waitNode)
+	var subFlow *WaitCondition
+	timerIndexes := make([]int, 0)
+	for index := range waitNode.Wait.Conditions {
+		condition := &waitNode.Wait.Conditions[index]
+		require.NotEqual(t, "unknown", condition.Kind, condition.Label)
+		if condition.Kind == "subflow" {
+			require.Nil(t, subFlow, "two SubFlow conditions")
+			subFlow = condition
+		}
+		if condition.Kind == "timer" {
+			timerIndexes = append(timerIndexes, *condition.Index)
+		}
+	}
+	if timerIndex < 0 {
+		require.Empty(t, timerIndexes)
+	} else {
+		require.Equal(t, []int{timerIndex}, timerIndexes)
+	}
+	require.Equal(t, label, subFlow.Label)
+	require.Equal(t, conditionIndex, *subFlow.Index)
+	subFlowNodes := 0
+	for _, node := range graph.Nodes {
+		if node.ID == subFlow.SubFlowID {
+			require.Equal(t, "subflow", node.Kind)
+			require.True(t, node.External)
+			subFlowNodes++
+		}
+	}
+	require.Equal(t, 1, subFlowNodes)
+	edges := 0
+	for _, edge := range graph.Edges {
+		if edge.Kind == "subflow" && edge.To == subFlow.SubFlowID {
+			require.Equal(t, waitNode.ID, edge.From)
+			require.Equal(t, "start", edge.Label)
+			require.EqualValues(t, conditionIndex, edge.Metadata["conditionIndex"])
+			edges++
+		}
+	}
+	require.Equal(t, 1, edges)
+}
+
 func hasScriptEdge(graph *Graph, kind string, from string, to string) bool {
 	for _, edge := range graph.Edges {
 		if edge.Kind == kind && edge.From == from && edge.To == to {
