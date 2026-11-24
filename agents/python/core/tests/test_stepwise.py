@@ -19,6 +19,7 @@ import pytest
 from dex import StepExecutionId, TimerId
 
 from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PENDING_INTERRUPTS,
     QUESTION_DEADLINE_PASSED,
@@ -865,7 +866,11 @@ async def test_a_wrapper_sees_an_unclassified_policy_effect_and_records_outcome_
     session_id = harness.new_session_id()
     await harness.sessions.start_session(session_id, "send-unclassified")
     snapshot = await harness.wait_for_turns(session_id, 1)
-    assert snapshot.messages[-1].text == f"send_record: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[
+        -1
+    ].text == "send_record: " + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="connection reset after send"
+    )
     # The tool declares IDEMPOTENT_WRITE; only the policy's UNCLASSIFIED lets its error propagate.
     assert await harness.executed_step_types(session_id) == [
         "StartAgentSession",

@@ -15,7 +15,7 @@ import json
 from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
     FRAMEWORK_RUN_STATE,
-    OUTCOME_UNKNOWN_TOOL_RESULT,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
     TURN_FAILURE_NOTE_HEADER,
@@ -202,7 +202,12 @@ async def test_idempotent_write_that_exhausts_its_attempts_records_an_unknown_ou
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[-1].text == (
+        "charge: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="charge attempt 3 lost its connection"
+        )
+    )
     assert harness.invocations.count("charge") == 3
     assert "RecordToolFailure" in await harness.executed_step_types(session_id)
 

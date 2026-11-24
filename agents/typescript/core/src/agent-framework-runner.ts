@@ -849,6 +849,9 @@ export class ToolOutcomeUnknownError extends Error {
  *
  * Changed in 0.6.15: a later attempt of a call that is not a `read` records `outcome_unknown`, not `failed`.
  *
+ * Changed in 0.6.18: an `outcome_unknown` record of another thrown error sets {@link AgentToolCall.toolStepThrew}, so
+ * the model reads that error's message with the unknown outcome.
+ *
  * @example
  * ```ts
  * if (response.status === 404) {

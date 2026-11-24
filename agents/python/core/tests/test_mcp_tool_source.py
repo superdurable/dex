@@ -45,6 +45,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     TURN_CANCELLED_NOTE_HEADER,
     AgentEvent,
@@ -498,7 +499,13 @@ async def test_broken_stream_during_an_unclassified_write_is_never_reissued(
     )
     snapshot = await mcp_harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"local__send_message: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[-1].text == (
+        "local__send_message: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="MCP tool send_message of server 'local' returned no result: "
+            "MCP error -32000: Connection closed"
+        )
+    )
     assert mcp_harness.tool_runs("send_message") == [f"{session_id}/turn-1/turn-1-call-0"]
     steps = await mcp_harness.executed_step_types(session_id)
     assert "RecordToolOutcomeUnknown" in steps
@@ -985,7 +992,13 @@ async def test_gateway_error_after_the_server_ran_a_write_records_outcome_unknow
     snapshot = await mcp_harness.wait_for_turns(session_id, 1)
 
     # The server ran the write, so a "failed" record would invite the model to repeat it.
-    assert snapshot.messages[-1].text == f"gateway__send_message: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    # The MCP client's error text after this prefix depends on the gateway's answer.
+    assert (snapshot.messages[-1].text or "").startswith(
+        "gateway__send_message: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="MCP tool send_message of server 'gateway' returned no result: MCP error -32"
+        )
+    )
     assert mcp_harness.tool_runs("send_message") == [f"{session_id}/turn-1/turn-1-call-0"]
     assert "RecordToolOutcomeUnknown" in await mcp_harness.executed_step_types(session_id)
 

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import {
+  outcomeUnknownThrownErrorToolResult,
   outcomeUnknownToolResult,
   turnFailureNoteFooter,
   turnFailureNoteHeader,
@@ -364,7 +365,10 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     await agent.sessions.startSession(sessionId, 'call charge {"amount":5,"fail_attempts":3}');
     const snapshot = await agent.waitForTurns(sessionId, 1);
 
-    assert.equal(snapshot.messages.at(-1)?.text, `charge: ${outcomeUnknownToolResult}`);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `charge: ${outcomeUnknownThrownErrorToolResult.replace("{error}", "charge attempt 3 lost its connection")}`,
+    );
     assert.equal(agent.invocations.count("charge"), 3);
   });
 
@@ -396,7 +400,10 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
     const snapshot = await agent.waitForTurns(sessionId, 1);
 
-    assert.equal(snapshot.messages.at(-1)?.text, `publish: ${outcomeUnknownToolResult}`);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `publish: ${outcomeUnknownThrownErrorToolResult.replace("{error}", "publish lost its connection after it sent the message")}`,
+    );
     assert.equal(agent.invocations.count("publish"), 1);
   });
 

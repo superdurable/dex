@@ -427,11 +427,12 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         throw error;
       }
       const outputText = typeof output === "string" ? output : JSON.stringify(output);
-      if (outputText === defaultToolErrorOutput || outputText === describeDefaultTimeout(graphTool)) {
-        throw new Error(
-          `tool ${toolCall.toolName} failed and returned the SDK default text ${JSON.stringify(outputText)}; ` +
-            "create it with errorFunction: null and throw ToolExecutionError for failures the model should see",
-        );
+      // A write's model reads this message, so it neither quotes the SDK's "Please try again." nor advises developers.
+      if (outputText === defaultToolErrorOutput) {
+        throw new Error(`tool ${toolCall.toolName} failed, and the SDK default text replaced its error message`);
+      }
+      if (outputText === describeDefaultTimeout(graphTool)) {
+        throw new Error(`tool ${toolCall.toolName} returned the SDK default timeout text: ${outputText}`);
       }
       return { output: outputText };
     });

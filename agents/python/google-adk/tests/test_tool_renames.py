@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import json
 
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, MessageRole
+from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
+    MessageRole,
+)
 from tests.conftest import AdkAgentHarness
 from tests.scripted_adk_agent import RENAMED_TOOLS_ENVIRONMENT_VARIABLE, SLOW_WRITE_GATE
 
@@ -93,7 +97,11 @@ async def test_renamed_idempotent_write_retried_after_a_kill_records_outcome_unk
     assert snapshot.state is not None
     assert snapshot.state.last_turn_error is None
     # The killed attempt may have charged, so the retry that finds no tool is not a failure.
-    assert snapshot.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    # The last attempt raised the LookupError, so the model reads it with the unknown outcome.
+    thrown = OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="no agent under assistant has tool charge"
+    )
+    assert snapshot.messages[-1].text == f"charge: {thrown}"
     assert harness.invocations.count("charge") == 1
     # Every retry finds no tool, so the failure route records the write's unknown outcome.
     assert await harness.executed_step_types(session_id) == [

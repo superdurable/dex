@@ -16,6 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
     TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL,
@@ -41,6 +42,10 @@ SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRI
 # ToolEffect as dex-agents 0.6.11 decodes it, a pinned copy of that release's contract.
 RELEASED_0_6_11_TOOL_EFFECTS = ("read", "idempotent_write", "non_idempotent_write", "unclassified")
 FAILED = "The tool call failed: "
+
+
+def _thrown(error: str) -> str:
+    return OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error=error)
 
 
 def _calls(*calls: tuple[str, dict[str, Any]], hold: str | None = None) -> str:
@@ -199,7 +204,9 @@ async def test_a_write_whose_connector_retries_after_a_send_is_never_sent_again(
     words = "retry-after-send"
     _, lines = await _run_turn(harness, ("post_note", {"accountId": "a-1", "text": words}))
     # A single attempt: a Retry goes to the Step, whose one attempt then fails.
-    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert lines == [
+        f"post_note: {_thrown('connector fake-ledger postNote retry (RATE_LIMIT): rate limited')}"
+    ]
     assert len(ledger.sends("postNote")) == 1
 
     _, lines = await _run_turn(harness, ("post_note_retried", {"accountId": "a-1", "text": words}))
@@ -233,7 +240,10 @@ async def test_a_retry_safe_write_whose_retries_run_out_is_unknown(
     _, lines = await _run_turn(
         harness, ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "retry-always"})
     )
-    assert lines == [f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert lines == [
+        "create_payout: "
+        + _thrown("connector fake-ledger createPayout retry (RATE_LIMIT): rate limited")
+    ]
     assert ledger.writes("createPayout") == []
 
 
@@ -326,7 +336,10 @@ async def test_a_manifest_without_repeat_on_unknown_keeps_the_write_to_one_attem
     assert record.effect is ToolEffect.NON_IDEMPOTENT_WRITE
     assert _stored_reference(record) == '{"tool": "send_message_unreviewed"}'
     assert record.status is ToolCallStatus.OUTCOME_UNKNOWN
-    assert lines == [f"send_message_unreviewed: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert lines == [
+        "send_message_unreviewed: "
+        + _thrown("connector fake-ledger sendMessage retry (TRANSPORT): response lost")
+    ]
     assert len(ledger.writes("sendMessage")) == 1
 
 
@@ -456,7 +469,7 @@ async def test_a_single_attempt_write_that_asks_to_retry_is_unknown_and_skips_th
     )
     # The fence recorded notSent, but the core no longer reads it.
     assert lines == [
-        f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+        f"post_note: {_thrown('connector fake-ledger postNote retry (RATE_LIMIT): rate limited')}",
         f"create_payout: {FAILED}{SKIPPED_ERROR}",
     ]
     assert ledger.writes() == []
@@ -610,7 +623,10 @@ async def test_a_removed_tool_ends_its_stored_call_by_its_effect_class(
     assert await harness.sessions.resolve_interrupt(session_id, "call-0", approved=True)
     snapshot = await harness.wait_for_turns(session_id, 1)
     # approved_payout is IDEMPOTENT_WRITE: retries run out and the write may have run.
-    assert _answer_lines(snapshot) == [f"approved_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert _answer_lines(snapshot) == [
+        "approved_payout: "
+        + _thrown("connector tool approved_payout is not configured on this Worker")
+    ]
     assert ledger.sends() == []
 
 

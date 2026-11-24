@@ -26,6 +26,7 @@ import {
 } from "ai";
 
 import type { AgentFrameworkRunner, AgentSnapshot, DeferredToolOutcome } from "../../src/index.js";
+import { outcomeUnknownThrownErrorToolResult } from "../../src/index.js";
 import type { AgentSessionFlow } from "../../src/index.js";
 import {
   AgentSessionTestClient,
@@ -101,6 +102,7 @@ describe("agent UI streams with an in-process Worker", () => {
       "Events",
       "Question",
       "Task",
+      "ThrownWrite",
     ]) {
       const markerDirectory = mkdtempSync(join(engine.stateDirectory, `markers-${name}-`));
       flowsByName.set(name, {
@@ -189,6 +191,26 @@ describe("agent UI streams with an in-process Worker", () => {
     );
     assert.deepEqual(describeUIMessageParts(stored.messages[1]), expectedParts);
     await validateUIMessages({ messages: [...chat.messages, ...stored.messages] });
+  });
+
+  test("a write whose tool threw streams the error with the unknown outcome, as the stored messages show it", async () => {
+    const { sessions, server } = stack("ThrownWrite");
+    const sessionId = newSessionId("thrown-write");
+    await sessions.startSession(sessionId);
+    const chat = new AgentUIStreamTestChat({ sessionId, baseUrl: server.baseUrl, recordingFetch: new RecordingFetch() });
+    // sync_inventory is an idempotent write that throws on every attempt.
+    await chat.sendMessage({ text: "call sync_inventory" });
+
+    assert.equal(chat.status, "ready");
+    const thrownOutcome = outcomeUnknownThrownErrorToolResult.replace("{error}", "inventory service unavailable");
+    const toolPart = (message: UIMessage | AgentUIMessage | undefined): string | undefined =>
+      describeUIMessageParts(message).find((part) => part.startsWith("tool sync_inventory "));
+    assert.equal(
+      toolPart(chat.lastMessage),
+      `tool sync_inventory output-error {"requested_by":"call sync_inventory"} !! ${thrownOutcome}`,
+    );
+    const stored = await fetchStoredMessages(server, sessionId);
+    assert.ok(toolPart(stored.messages[1])?.endsWith(` ${thrownOutcome}`), toolPart(stored.messages[1]));
   });
 
   test("a dropped connection resumed with the last resume token continues exactly, with no repeated or missing part", async () => {

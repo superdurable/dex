@@ -676,6 +676,21 @@ class AgentToolCall:
             ignores it, and drops it when it rewrites the record.
 
             .. versionadded:: 0.6.0
+        tool_step_threw: Whether the last attempt of the call's tool Step
+            failed by raising an exception, on an ``OUTCOME_UNKNOWN`` record.
+            ``False`` for every other record. The tool, its runner, or its
+            tool source raised an exception that is neither a
+            ``ToolExecutionError`` nor a ``ToolOutcomeUnknownError``, such as
+            an HTTP client's error for a 400 response. A write records
+            ``OUTCOME_UNKNOWN`` for it, and ``error`` holds the message the
+            Worker reported. Dex ending the attempt without an answer, such as
+            for a lost Worker or a passed time limit, leaves it ``False``;
+            ``error`` then holds Dex's text. ``describe_tool_call_outcome``
+            shows the model the raised message only when it is ``True``.
+            Encoding omits it when it is ``False``. A Worker before 0.6.18
+            ignores it, and drops it when it rewrites the record.
+
+            .. versionadded:: 0.6.18
     """
 
     tool_call_id: str
@@ -708,6 +723,7 @@ class AgentToolCall:
     images: list[AgentImageReference] = field(default_factory=list)
     runner_tool_state: str | None = None
     approval_display: AgentInterruptDisplay | None = None
+    tool_step_threw: bool = field(default=False, metadata={"dex_json_omit_default": True})
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -16,6 +16,7 @@ import pytest
 
 from dex_agents import (
     FRAMEWORK_RUN_STATE,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
@@ -293,7 +294,11 @@ async def test_idempotent_custom_write_that_exhausts_its_attempts_records_outcom
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[
+        -1
+    ].text == "charge: " + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="charge attempt 3 lost its connection"
+    )
     assert harness.invocations.count("charge") == 3
 
 
@@ -325,7 +330,11 @@ async def test_plain_error_from_a_single_attempt_write_records_outcome_unknown(
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
 
-    assert snapshot.messages[-1].text == f"publish: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[
+        -1
+    ].text == "publish: " + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="publish lost its connection after it sent the message"
+    )
     assert harness.invocations.count("publish") == 1
 
 

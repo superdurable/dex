@@ -22,6 +22,7 @@ cancellation once.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -131,8 +132,26 @@ async def test_embedded_agent_answers_one_turn(tmp_path: Path) -> None:
     assert replies[-1] == DEMO_REPLY_PREFIX + "Order 1001: 2 notebooks, shipped."
 
 
-async def test_unknown_outcomes_are_reported_once() -> None:
-    sessions = _RecordingSessions()
+# The result dex-agents 0.6.18 and later give a write whose tool raised an error.
+_THROWN_ERROR_RESULT = (
+    "The tool call's outcome is unknown: it ended with an error, so it may or may not have "
+    "taken effect. It will not be retried automatically. Error: Client error '400 Bad "
+    "Request': order 1002 is already cancelled"
+)
+
+
+@pytest.mark.parametrize(
+    "tool_output",
+    [
+        OUTCOME_UNKNOWN_TOOL_RESULT,
+        _THROWN_ERROR_RESULT,
+        # Some adapters give the model the text inside a JSON object.
+        json.dumps({"error": _THROWN_ERROR_RESULT}),
+    ],
+    ids=["no-result", "raised-error", "raised-error-in-json"],
+)
+async def test_unknown_outcomes_are_reported_once(tool_output: str) -> None:
+    sessions = _RecordingSessions(tool_output)
     checked: list[str] = []
 
     async def check(key: str, arguments: str) -> str:
@@ -150,7 +169,7 @@ async def test_unknown_outcomes_are_reported_once() -> None:
 class _RecordingSessions:
     """A session whose history holds one cancel_order call with an unknown outcome."""
 
-    def __init__(self) -> None:
+    def __init__(self, tool_output: str) -> None:
         self.messages = [
             AgentMessage(
                 sequence=1,
@@ -159,7 +178,7 @@ class _RecordingSessions:
                 tool_call_id="call-7",
                 tool_name="cancel_order",
                 tool_arguments='{"order_id": "1002"}',
-                tool_output=OUTCOME_UNKNOWN_TOOL_RESULT,
+                tool_output=tool_output,
                 framework_item="{}",
                 created_at="2026-11-11T00:00:00Z",
             )

@@ -22,7 +22,7 @@ import pytest
 import pytest_asyncio
 
 from dex_agents import (
-    OUTCOME_UNKNOWN_TOOL_RESULT,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     TURN_FAILURE_NOTE_HEADER,
     AgentImageReference,
     AgentUserMessage,
@@ -243,7 +243,13 @@ async def test_a_tool_result_with_an_invalid_image_fails_the_attempt(
     snapshot = await image_harness.wait_for_turns(session_id, 1)
 
     tool_messages = [message for message in snapshot.messages if message.role is MessageRole.TOOL]
-    assert [message.tool_output for message in tool_messages] == [OUTCOME_UNKNOWN_TOOL_RESULT]
+    invalid_image_error = (
+        "Flow ImageAgent Step CallSingleAttemptTool execute returned an invalid result: images[0]: "
+        "image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp"
+    )
+    assert [message.tool_output for message in tool_messages] == [
+        OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error=invalid_image_error)
+    ]
     assert [message.images for message in tool_messages] == [[]]
 
 

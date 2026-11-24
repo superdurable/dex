@@ -17,6 +17,7 @@ from datetime import timedelta
 
 from dex_agents import (
     MISSING_TOOL_TASK_POLLER,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     TURN_CANCELLED_NOTE_HEADER,
     AgentEvent,
@@ -259,7 +260,12 @@ async def test_declining_a_started_write_task_question_does_not_claim_the_tool_n
     assert _finished_statuses(await harness.agent_events(session_id)) == [
         str(ToolCallStatus.OUTCOME_UNKNOWN)
     ]
-    assert snapshot.messages[-1].text == f"publish_report: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert snapshot.messages[-1].text == (
+        "publish_report: "
+        + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+            error="the report task cannot take a declined question"
+        )
+    )
     assert harness.task_invocations.count(f"cancel {CALL_0}") == 3
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 
@@ -584,7 +590,9 @@ async def test_a_poll_that_keeps_failing_records_the_outcome_by_effect(
     read_result, write_result, failed_task_result = (snapshot.messages[-1].text or "").split("; ")
     assert read_result.startswith("report: The tool call failed: ")
     assert "the task server is unreachable" in read_result
-    assert write_result == f"publish_report: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert write_result == "publish_report: " + OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="the task server is unreachable"
+    )
     assert failed_task_result == "report: The tool call failed: the report failed"
     polls = [name for name in harness.task_invocations.names() if name.startswith("poll ")]
     for tool_call_id in (CALL_0, "turn-1-call-1"):

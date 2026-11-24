@@ -224,7 +224,7 @@ the write again:
 | The handler | Records | The model reads |
 | --- | --- | --- |
 | Returns `is_error=True`, or raises `dex_agents.ToolExecutionError` | `failed` | The text; nothing took effect |
-| Raises any other exception | `outcome_unknown` for a write, once its attempts run out | `OUTCOME_UNKNOWN_TOOL_RESULT`: the write may have taken effect |
+| Raises any other exception | `outcome_unknown` for a write, once its attempts run out | `OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT` with the exception's message: the write may have taken effect. A crash, or a call without a final record, gets `OUTCOME_UNKNOWN_TOOL_RESULT` |
 
 Return `is_error=True`, or raise `ToolExecutionError`, only for an answer that
 settles the call, such as an HTTP 4xx from the service. Let a broken

@@ -24,6 +24,7 @@ from dex_agents import (
     MAX_SESSION_SETTINGS_BYTES,
     MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
     MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
+    OUTCOME_UNKNOWN_ERROR_MAX_BYTES,
     TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
     AgentSessionFlow,
     AgentSessionOptions,
@@ -193,6 +194,7 @@ def test_limits_and_final_statuses_match_the_python_constants() -> None:
         "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
         "default_retained_message_limit": AgentSessionOptions().retained_message_limit,
         "tool_call_note_max_output_bytes": TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
+        "outcome_unknown_error_max_bytes": OUTCOME_UNKNOWN_ERROR_MAX_BYTES,
         "session_terminal_lease_maximum_ttl_seconds": SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS,
         "session_terminal_lease_maximum_host_name_length": (
             SESSION_TERMINAL_LEASE_MAXIMUM_HOST_NAME_LENGTH

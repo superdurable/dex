@@ -1229,7 +1229,13 @@ so the tool's source can resolve the tool without listing it again.
   attempts; `CallSingleAttemptTool` does not retry. When the attempts run out,
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool
   and `outcome_unknown` for a write. The model then sees
-  `outcomeUnknownToolResult`, because the write may have taken effect.
+  `outcomeUnknownToolResult`, because the write may have taken effect. When the
+  last attempt threw, the record sets `toolStepThrew` and the model sees
+  `outcomeUnknownThrownErrorToolResult` instead: the same warning, plus the
+  error's message, cut at `outcomeUnknownErrorMaxBytes` (1,024 UTF-8 bytes).
+  A crash keeps `outcomeUnknownToolResult`, and a passed time limit usually does too. The SDK also aborts the
+  Step at the deadline, so when the tool's abort error reaches Dex first, the model reads that error. Changed in
+  0.6.18.
 - When a tool Step's recovery error has `attemptProgress`
   `StepAttemptProgress.NOT_STARTED`, no attempt reached a Worker and the tool
   never ran. The call is then recorded as `failed` with an `error` that starts with

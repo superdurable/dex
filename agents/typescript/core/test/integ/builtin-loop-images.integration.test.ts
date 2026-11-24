@@ -18,7 +18,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import {
   InMemoryMediaStore,
   LocalDirectoryMediaStore,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   type AgentFrameworkRunner,
   type DeferredToolOutcome,
   type AgentImageReference,
@@ -401,9 +401,11 @@ describe("images through a built-in loop session", () => {
 
     // As for a tool source, the session refuses the reference and the single attempt is unknown.
     const toolMessages = snapshot.messages.filter((message) => message.role === "tool");
+    const invalidImageError =
+      "images[0]: image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp";
     assert.deepEqual(
       toolMessages.map((message) => message.toolOutput),
-      [outcomeUnknownToolResult],
+      [outcomeUnknownThrownErrorToolResult.replace("{error}", invalidImageError)],
     );
     assert.deepEqual(
       toolMessages.map((message) => message.images),
