@@ -38,6 +38,10 @@ Modeling:
 - [ ] WaitFor calls no external system; provider calls are in Execute.
 - [ ] No external polling in WaitFor or through a Timer loop; external waits use the Polling pattern.
 - [ ] No other Flow is started or mutated from WaitFor.
+- [ ] The Flow owns every business decision and the status it reports; the controller only passes facts, starts Flows, calls RPCs, and reads. See [client.md](client.md#the-flow-owns-decisions-and-status).
+- [ ] No WaitFor, RPC, Timer duration, or decision reads the wall clock. A deadline is a Timer raced against the decision Channel with AnyOf, and Execute checks whether the Timer fired.
+- [ ] Each Channel has one consuming Step type. Concurrent writers publish to a Channel that one waiting Step consumes; no RPC does a locked read-modify-write of a shared list.
+- [ ] Every Step returns its decision directly from Execute, targets Steps statically, and is composed, not subclassed from another Step.
 
 State:
 
@@ -71,5 +75,7 @@ Wiring and tests:
 
 - [ ] Worker and Client share one registry and payload configuration; the Worker waits for registration and stops gracefully.
 - [ ] Build or type-check passes.
+- [ ] `dexcli visualize` ran on every Flow source file, in every language, and every error diagnostic is fixed.
+- [ ] Tests keep the real business durations and skip Timers through the Client.
 - [ ] A real-Server integration test covers the main path, Worker replacement at a wait, retry and recovery, duplicate requests, terminal behavior, and heartbeat cadence. See [testing.md](testing.md).
 - [ ] Stable names stay compatible with open Flows, or a migration is explicit.

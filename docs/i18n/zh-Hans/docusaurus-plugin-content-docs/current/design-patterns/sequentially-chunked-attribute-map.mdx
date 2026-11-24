@@ -118,6 +118,10 @@ client.invoke_rpc_with_options(
 
 Archive chunk 不会再改变，所以同一页再读一次（例如重试时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
 
+旧记录不需要永久保留时，设置一个保留窗口。归档 chunk 的那次调用同时删除超出窗口的 archive chunk，并在 state 里记录最早保留的 token，分页读到那里就停止。
+
+并发 append 都会争用 **current**。冲突频繁时，改为把每条记录发布到 Channel，由一个等待中的 Step 负责 append，做法见 [Inbound Event Loop](/design-patterns/inbound-event-loop)。
+
 ## HTTP API
 
 ```text

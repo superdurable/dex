@@ -74,6 +74,33 @@ branches stay ordinary decisions in the main story. A Step that catches its
 own error and then picks the next Step makes an ordinary decision. To hide
 that handling, return the error so the failure route runs.
 
+## Steps the analyzer can read
+
+The graph comes from source, so every Step must show its decisions and
+targets statically. These rules hold in every language:
+
+- **Return decisions directly from Execute.** Write the GoTo, GoToMany,
+  closing decision, or dead end in the Execute method's return. A helper may
+  compute the input or record state. It never builds or returns the decision.
+- **Target Steps statically.** Name the registered Step instance, its class
+  when exactly one instance is registered, or a Step reference built from a
+  literal Step type. Never compute a target, build a new Step object in the
+  decision, or pass `self` or `this` as the target. To loop, name the Step's
+  own registered target, as for any other Step.
+- **Build fan-out in the method.** Write each movement of a GoToMany inside
+  the Execute method, not in a helper.
+- **Compose Steps; do not subclass them.** Each registered Step type defines
+  its own WaitFor and Execute and extends only the SDK's Step base and its
+  type parameters. Share
+  logic through plain functions or constructor-injected collaborators.
+- **Keep Flow and Step objects plain.** Assign each field once, in the
+  constructor or as a class field. Do not pass the Step object to other
+  functions, rebind it, or decorate its class.
+
+The [Flow and Step names](https://docs.superdurable.io/reference/web/flow-visualization#flow-and-step-names)
+and [supported source profile](https://docs.superdurable.io/reference/web/flow-visualization#supported-source-profile)
+sections list the exact forms and diagnostics for each language.
+
 ## Indexed Attributes
 
 Every indexed Attribute has a matching directive. The directive values must
@@ -200,7 +227,7 @@ dexcli visualize path/to/flow-source --schema-version 2.0 --json --out DIRECTORY
 ```
 
 Analysis neither deploys nor calls providers. Require `valid: true` and fix
-every blocking diagnostic. With blocking diagnostics the command still writes
+every error diagnostic before handoff, in every language. With blocking diagnostics the command still writes
 partial JSON and exits non-zero. Keep the rendering in one project command,
 so every Flow is checked, not only the one you edited.
 
@@ -216,8 +243,12 @@ syntax or type errors.
 | `v2_action` | Use direct typed Action registration, a declared scalar condition, and one permission. |
 | `v2_action_input` | Declare every JSON field once. Make each `required:false` field optional in the input type. |
 | `v2_start_input` | Use a concrete typed start input the form can render. |
+| `v2_step_group`, `v2_step_explanation` | Give each local Step exactly one `dex:group` and one `dex:explanation` directly above its declaration. |
 | `hidden_dex_decision` | Return Dex decisions directly from Step methods. Helpers may compute input or record state. |
-| `unknown_step_target` | Register the target and use its real Step type or the exact static Connector Step reference. |
+| `unknown_step_target` | Register the target and use its registered instance, its class, or a Step reference with a literal Step type, or the exact static Connector Step reference. Never construct a Step in a decision. |
+| `dynamic_step_target` | Write every target and fan-out movement statically in the Execute method. |
+| `dynamic_class` | Keep the Flow or Step object plain: no `self` or `this` passed as a target or argument, no rebinding, no reflective writes, no class decorators. |
+| `step_inheritance_unsupported` | Move shared logic into a helper function and keep each Step method on the registered class. |
 | `connector_factory_step_type` | Give the operation factory a nonempty compile-time Step type. |
 | `unused_resource` | Use the primitive visibly in the Flow's Step or RPC methods, or in helpers that the analyzer follows for the language. Remove obsolete scaffold state. |
 | `connector_release_required` | Require an exact official published package version with no local replacement. Handoff pins the exact official release. |

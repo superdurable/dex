@@ -682,6 +682,8 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict.
 - Updating old records needs another pattern or an index.
+- Set a retention window when old records need not be kept forever. The commit that archives a chunk also deletes the archived chunks past the window and records the oldest kept token in the state, so paging stops there.
+- Many concurrent appenders contend on `current`. When they would conflict often, let them publish to a Channel and let one waiting Step append, as in the [Inbound event loop](#inbound-event-loop).
 
 ### Hash-partitioned AttributeMap
 

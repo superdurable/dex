@@ -4,6 +4,15 @@ The Client is the application's boundary to Dex. It starts, stops, inspects, and
 
 Inside a Step or RPC handler, read and write through the Context, never through a Client. A Step may hold an injected Client only to start or call another top-level Flow.
 
+## The Flow owns decisions and status
+
+The controller, the application code that calls the Client, passes inputs, chooses the Flow ID and Request ID, starts Flows, invokes RPCs, waits, and reads. The Flow owns every business decision and the status or state it reports.
+
+- A Step decides routing, thresholds, eligibility, and outcomes from its input and Attributes, and writes the status Attribute itself.
+- An RPC validates a command and writes or publishes it; the Flow's own code applies the business rule.
+- Pass raw business facts as start input. Do not compute a decision or an initial status in the controller and pass it as start input or initial Attributes.
+- The controller never repeats a rule the Flow applies. Two copies drift apart, and Dex Web, history, and later reads then disagree with the rule that ran.
+
 ## Operations
 
 | Operation | Purpose | Notes |
@@ -112,6 +121,7 @@ WaitForFlow returns the terminal status and output. Use it when the caller needs
 
 ## Self-check
 
+- Does every business decision and status write live in a Step or RPC, with the controller only passing facts and reading results?
 - Is each read after a write classified by the matrix above, with no polling on strong pairs?
 - Does each response read all its values in one Client Attribute read call or one read-only RPC?
 - Is every wait bounded by a request timeout at an HTTP boundary?

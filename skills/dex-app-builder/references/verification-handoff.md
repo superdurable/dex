@@ -215,8 +215,18 @@ Ensure:
   filter and Flow ID resolver, and a typed target;
 - the application starts with the local Connector configuration Dex Web
   writes and survives a Dex Web restart, or the gap is a stated blocker;
-- every Flow renders to a `valid: true` FDG 2.0 definition through one
-  project command, and the rendered type names match the Worker;
+- `dexcli visualize` ran on every Flow source file, in every language, and
+  every error diagnostic was fixed before handoff; every Flow renders to a
+  `valid: true` FDG 2.0 definition through one project command, and the
+  rendered type names match the Worker;
+- every Step returns its decision directly from Execute, targets Steps
+  statically, and is composed rather than subclassed from another Step;
+- the Flow owns every business decision and the status it reports; the
+  controller only passes facts, starts Flows, calls RPCs, and reads;
+- no WaitFor, RPC, Timer duration, or decision reads the wall clock;
+  deadlines are Timers that Execute checks for having fired;
+- tests skip business Timers through the Client and keep the real
+  durations;
 - dependencies and Connector versions are pinned to exact releases, with no
   local path dependency, `go.work`, local `replace`, branch, pseudo-version,
   or commit SHA in the

@@ -7,4 +7,8 @@ bump: patch
 - **dex-sdk** language references apply the same directive rule for Python, TypeScript, Java, and Rust.
 - **dex-app-builder** has a getting-started route for requests to learn, set up, or understand Dex: explain the core model, install `dexcli`, start `dexcli dev`, then start from an example or the user's own process. **dex-sdk** routes these requests to it.
 - **dex-app-builder** links the version check directly and reads the lifecycle hook status before its fallback.
+- **dex-sdk** and **dex-app-builder** add a business-shape-to-pattern table that names the matching design pattern with its one-line rule, and a list of the rules agents most often miss: no wall clock in Flow logic, one waiting Step for a deadline, real durations in tests, Flow-owned decisions and status, Channel-based concurrent writers, one consuming Step type per Channel, and bounded growing collections. **dex-app-builder** loads Dex SDK before any Flow code.
+- **dex-sdk** Client guidance states that the Flow owns business decisions and the status it reports; the controller only passes facts, starts Flows, calls RPCs, and reads.
+- **dex-sdk** Sequentially chunked AttributeMap deletes archived chunks past a retention window and routes frequent concurrent appenders through a Channel.
+- **dex-app-builder** FDG authoring and both self-checks require decisions returned directly from Execute, static Step targets, composed rather than subclassed Steps, the group and explanation directives, and a clean `dexcli visualize` run in every language.
 - Skills link examples that show a mechanism, not product examples under `examples/*/products/`. The five product-example links now point to a pattern skeleton or a Connector example, or are removed.

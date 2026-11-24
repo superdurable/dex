@@ -33,7 +33,9 @@ repository-backed host.
   [Connector Contributor](../dex-connector-contributor/SKILL.md).
 - Standalone SDK implementation, debugging, or operations belongs to
   [Dex SDK](../dex-sdk/SKILL.md).
-- Product work stays here. Load Dex SDK when you implement the backend.
+- Product work stays here. Load the [Dex SDK](../dex-sdk/SKILL.md) skill
+  before you design or write any Flow code. It holds the Primitive rules and
+  patterns that this skill does not repeat.
 - A missing released Connector capability routes that contribution to
   Connector Contributor. The application itself stays here.
 - Honor a specialist the user invokes explicitly.
@@ -119,6 +121,54 @@ precedence.
   Use stable, granular Action permissions.
 - Do not mutate another repository or publish or deploy without
   authorization.
+
+## Match the business shape to a pattern
+
+Before you design a Flow, find its shape below and read the matching section
+of the Dex SDK [patterns](../dex-sdk/references/core/patterns.md). Each gist
+is the rule; the section adds the skeleton and edge cases.
+
+| Business shape | Pattern | Gist |
+| --- | --- | --- |
+| Wait for a person's or system's decision, with a deadline or escalation | [Deferred choice](../dex-sdk/references/core/patterns.md#deferred-choice) | One waiting Step on AnyOf(decision Channels, Timer). Execute checks whether the Timer fired, then routes. RPCs only publish. |
+| Many callers add entries, replies, or events to the same record at once | [Inbound event loop](../dex-sdk/references/core/patterns.md#inbound-event-loop) | RPCs validate and publish to a Channel. One waiting Step consumes the batch, writes state, and loops back to itself. |
+| Close or act after a period of inactivity | [Inactivity tracker](../dex-sdk/references/core/patterns.md#inactivity-tracker) | AnyOf(Timer(window), activity Channel). Activity loops back for a fresh Timer; a fired Timer acts. |
+| A collection that grows without bound | [Sequentially chunked AttributeMap](../dex-sdk/references/core/patterns.md#sequentially-chunked-attributemap) | Append to a bounded current chunk, archive full chunks, delete chunks past retention, load only the chunks a read needs. |
+| Keyed records with direct lookup | [Hash-partitioned AttributeMap](../dex-sdk/references/core/patterns.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances; lock and load only that instance. |
+| Wait for an external system to become ready or finish | [Polling](../dex-sdk/references/core/patterns.md#polling) | Poll inside one long-running Execute with short calls and heartbeats; never a Timer loop, a WaitFor, or retries as the loop. |
+| Recurring work, or reminders until the recipient opts out | [Cron schedule](../dex-sdk/references/core/patterns.md#cron-schedule), [Reminder](../dex-sdk/references/core/patterns.md#reminder) | AnyOf(Timer, control Channels) in a loop; start the next wait together with the run. |
+| A failure that a person must resolve | [Manual recovery](../dex-sdk/references/core/patterns.md#manual-recovery) | The Execute failure route goes to a Step that waits on retry and skip Channels. |
+| A deadline for the whole process | [Graceful timeout](../dex-sdk/references/core/patterns.md#graceful-timeout) | The Flow timeout and its timeout handler, not a competing Step. |
+| Independent branches of one lifecycle, then a join | [Parallel Steps](../dex-sdk/references/core/patterns.md#parallel-steps) | GoToMany; a Join waits for all, the first, or n branches. |
+| Branches take turns on shared multi-Step work | [Critical section](../dex-sdk/references/core/patterns.md#critical-section) | One token message in a Channel; every exit publishes it back. |
+
+## Rules agents most often miss
+
+These Dex SDK rules apply even before you load it:
+
+- **No wall clock in Flow logic.** WaitFor, RPC handlers, Timer durations,
+  and decisions never read the current time, such as `Date.now()`,
+  `datetime.now()`, or `time.Now`. Take durations from input, configuration,
+  or Attributes. Only an external call's timeout inside Execute may use the
+  clock.
+- **A deadline is one waiting Step** on AnyOf(decision Channel, Timer). Its
+  Execute checks whether the Timer fired, then routes. No Timer-only Step that
+  an RPC cancels, and no clock comparison.
+- **Tests keep real durations** and skip the Timer through the Client. Never
+  make a business deadline a parameter only to shorten it.
+- **The Flow owns decisions and status.** The controller passes facts,
+  chooses IDs, starts Flows, calls RPCs, and reads. Steps apply business rules
+  and write the status, including the initial one.
+- **Concurrent writers go through a Channel.** An RPC validates and
+  publishes; one waiting Step consumes and writes. No RPC locks a shared list
+  for read-modify-write.
+- **One consuming Step type per Channel.**
+- **Bound growing collections** in a sequentially chunked AttributeMap with
+  retention, never one Attribute rewritten on each change.
+- **The graph reads from source.** Return decisions directly from Execute,
+  target Steps statically, compose Steps instead of subclassing them, give
+  each Step its group and explanation directives, and fix every
+  `dexcli visualize` error diagnostic before handoff.
 
 ## Source authority
 

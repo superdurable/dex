@@ -118,6 +118,10 @@ A page token is **current** or the 20-digit name of an archived chunk; see [Chun
 
 Archived chunks are immutable, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
 
+Set a retention window when old records need not be kept forever. The call that archives a chunk also deletes the archived chunks past the window. It records the oldest kept token in the state, so paging stops there.
+
+Many concurrent appends contend on **current**. When they would conflict often, publish each record to a Channel instead. One waiting Step then appends it, as in the [Inbound Event Loop](/design-patterns/inbound-event-loop).
+
 ## HTTP API
 
 ```text
