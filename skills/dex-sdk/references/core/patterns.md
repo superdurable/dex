@@ -210,7 +210,7 @@ HandleRequest.execute -> if a request was consumed: goTo(HandleChild, request)
 HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))
 HandleChild.execute -> record the result; goTo(HandleRequest)
 rpc sendRequest(request) -> if intakeClosed or Requests.size >= buffer limit: return false
-                            Requests.publish(request); return true
+                            Requests.publish(request); return true    // locks intakeClosed
 rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()   // locks intakeClosed
 CloseIntake.waitFor -> Until(CloseRequests.ForOne())
 CloseIntake.execute (loads Requests) -> hand back each queued request; delete them from Requests
