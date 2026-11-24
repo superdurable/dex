@@ -16,6 +16,7 @@ Before the first substantive Dex-related response, follow the [Dex Skills versio
 | Request | Skill |
 | --- | --- |
 | A Dex product, application, or business process, end to end | dex-app-builder. It loads this skill's core references and the references for the application's language. |
+| Learn, install, set up, or understand Dex, with no concrete process yet | dex-app-builder, through its getting-started route |
 | Add or change an official Connector, operation, Trigger, or UI unit | dex-connector-contributor |
 | Implement, debug, test, or operate code that uses the Dex SDK | this skill |
 

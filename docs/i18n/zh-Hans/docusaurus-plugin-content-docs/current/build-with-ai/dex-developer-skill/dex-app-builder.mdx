@@ -30,9 +30,20 @@ $dex-app-builder Design and build an event-registration application.
 - 判断 Dex Web 是否够用，还是需要自定义 UI；
 - 基于受支持的模板构建新的 Dex 应用；
 - 使用已发布的 Connector，或找出缺少的 Connector；
-- 从 UI 到后端，构建并测试一个完整功能。
+- 从 UI 到后端，构建并测试一个完整功能；
+- 在还没有具体流程时，先了解并搭建 Dex。
 
 如果只是范围很小的 SDK 调试，或者独立贡献官方 Connector，请直接调用 [Dex SDK](./dex-sdk.mdx) 或 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
+
+## 入门 Dex {#get-started-with-dex}
+
+App Builder 也可以帮你了解并搭建 Dex。例如这样问它：
+
+```text
+$dex-app-builder Help me understand and set up Dex.
+```
+
+它先用几句话讲清核心模型，然后安装 `dexcli`。接着它启动 `dexcli dev`，并告诉你 Dex Web 的地址。最后，它问你是从一个示例开始，还是从你自己的流程开始。
 
 ## 开始实现前 {#before-implementation}
 

@@ -1,6 +1,6 @@
 ---
 name: dex-app-builder
-description: Primary entry point for designing and building Dex applications and process products with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a backend in Go, Python, TypeScript, Java, or Rust with released connectors, and local verification with dexcli dev.
+description: Primary entry point for designing and building Dex applications and process products with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, and for requests to learn, get started with, set up, or understand Dex, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a backend in Go, Python, TypeScript, Java, or Rust with released connectors, and local verification with dexcli dev.
 ---
 
 # Dex App Builder
@@ -18,13 +18,17 @@ language (Go, Python, TypeScript, Java, or Rust), `dexcli` (including
 
 ## Session start and routing
 
-Run the Dex Skills version check that the [Dex SDK skill](../dex-sdk/SKILL.md)
-describes, once per session. It must never block the task.
+Run the [Dex Skills version check](../dex-sdk/references/core/plugin-version-check.md)
+once per session. Read the lifecycle hook status first. Run its fallback
+only when the status is `unavailable` or absent. The check never blocks the
+task.
 
 Confirm a writable workspace and file and command tools before you claim
 implementation. Without them, provide discovery and a handoff for a
 repository-backed host.
 
+- A request to learn, install, set up, or understand Dex, with no concrete
+  business process yet, follows [Getting started](references/getting-started.md).
 - Standalone official Connector work belongs to
   [Connector Contributor](../dex-connector-contributor/SKILL.md).
 - Standalone SDK implementation, debugging, or operations belongs to
