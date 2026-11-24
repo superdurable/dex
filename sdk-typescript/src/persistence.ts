@@ -136,8 +136,29 @@ export class Attribute<T> {
 
   /**
    * Reads the current value from handler decision state.
+   *
+   * The read includes writes staged earlier in the same handler. Reading an Attribute that has no
+   * value does not throw. It returns `false` for a codec with wire kind `bool`, `0n` for `int64`,
+   * `0` for `double`, and `undefined` for every other codec, including `stringCodec`. The return
+   * type is still `T`, so check for `undefined` before using a string or JSON value. A value that
+   * was deleted reads the same way.
+   *
+   * A numeric or Boolean read therefore cannot tell an unset value from a stored zero or `false`.
+   * When that difference matters, use a string or JSON codec, or keep a separate Attribute that
+   * records whether the value was set.
+   *
+   * @example
+   * ```ts
+   * let reservationId: string | undefined = reservationIdAttribute.get(context);
+   * if (reservationId === undefined) {
+   *   reservationId = await reserveStock(input);
+   *   reservationIdAttribute.set(context, reservationId);
+   * }
+   * ```
    * @param context - Current Step or RPC Context.
-   * @returns The decoded Attribute value.
+   * @returns The decoded Attribute value. When no value is stored, `false`, `0n`, or `0` for a
+   *   `bool`, `int64`, or `double` codec, and `undefined` for any other codec.
+   * @throws {ValueMappingError} When the codec cannot decode the stored value.
    */
   public get(context: Context): T {
     return context.getAttribute(this);
@@ -327,9 +348,28 @@ export class AttributeMap<T> {
 
   /**
    * Reads one map instance from handler decision state.
+   *
+   * The handler must load the instance, or the whole map, through its load options. Reading an
+   * instance outside that scope throws `AttributeMapNotLoadedError`, whether or not the
+   * instance has a value.
+   *
+   * Reading a loaded instance that has no value does not throw. Like {@link Attribute.get}, it
+   * returns `false`, `0n`, or `0` for a `bool`, `int64`, or `double` codec, and `undefined` for
+   * every other codec.
+   *
+   * @example
+   * ```ts
+   * const note: Note = notes.get(context, "n1") ?? { lines: [] };
+   * note.lines.push(text);
+   * notes.set(context, "n1", note);
+   * ```
    * @param context - Current Step or RPC Context.
    * @param instance - The map instance. Slash is prohibited because it is a reserved character.
-   * @returns The decoded instance value.
+   * @returns The decoded instance value. When the loaded instance has no value, `false`, `0n`, or
+   *   `0` for a `bool`, `int64`, or `double` codec, and `undefined` for any other codec.
+   * @throws {AttributeMapNotLoadedError} When the handler did not load this instance or the whole
+   *   map.
+   * @throws {ValueMappingError} When the codec cannot decode the stored value.
    */
   public get(context: Context, instance: string): T {
     return context.getAttribute(this, instance);

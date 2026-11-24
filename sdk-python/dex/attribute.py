@@ -260,14 +260,39 @@ class Attribute(Generic[ValueT]):
     def get(self, context: Context) -> ValueT:
         """Return the current value from a Step or RPC Context.
 
+        The read includes writes staged earlier in the same handler. Reading an
+        Attribute that has no value does not raise. It returns ``False`` for a
+        ``bool`` value type, ``0`` for ``int``, ``0.0`` for ``float``, and
+        ``None`` for every other value type. A value that was deleted, or set to
+        ``None``, reads the same way.
+
+        A numeric or Boolean read therefore cannot tell an unset value from a
+        stored zero or ``False``. When that difference matters, use a ``str`` or
+        dataclass value type, or keep a separate Attribute that records whether
+        the value was set.
+
+        Example::
+
+            class ReserveStockStep(Step[str]):
+                def __init__(self, reservation_id: Attribute[str]) -> None:
+                    self.reservation_id = reservation_id
+
+                def execute(self, context: Context, input: str) -> StepDecision:
+                    reservation_id = self.reservation_id.get(context)
+                    if reservation_id is None:
+                        reservation_id = reserve_stock(input)
+                        self.reservation_id.set(context, reservation_id)
+                    return graceful_complete(reservation_id)
+
         Args:
             context: The current handler Context.
 
         Returns:
-            The decoded value.
+            The decoded value. When the Attribute has no value, the zero value
+            of a ``bool``, ``int``, or ``float`` value type, or ``None`` for any
+            other value type.
 
         Raises:
-            KeyError: If the Attribute has no value.
             TypeError: If the stored value cannot be decoded as ``value_type``.
         """
         return context._get_attribute(self, None)
@@ -464,15 +489,40 @@ class AttributeMap(Generic[ValueT]):
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.
 
+        The handler must load the instance, or the whole map, through its load
+        options. Reading an instance outside that scope raises
+        ``AttributeMapNotLoadedError``, whether or not the instance has a value.
+
+        Reading a loaded instance that has no value does not raise. Like
+        :meth:`Attribute.get`, it returns ``False``, ``0``, or ``0.0`` for a
+        ``bool``, ``int``, or ``float`` value type, and ``None`` for every other
+        value type.
+
+        Example::
+
+            notes = AttributeMap("notes", Note)
+
+            @rpc(load_attribute_map_instances=(notes.load("n1"),))
+            def append_note(self, context: Context, text: str) -> None:
+                note = notes.get(context, "n1")
+                if note is None:
+                    note = Note(lines=[])
+                note.lines.append(text)
+                notes.set(context, "n1", note)
+
         Args:
             context: The current handler Context.
             instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
-            The decoded instance value.
+            The decoded instance value. When the loaded instance has no value,
+            the zero value of a ``bool``, ``int``, or ``float`` value type, or
+            ``None`` for any other value type.
 
         Raises:
-            KeyError: If the instance has no value.
+            AttributeMapNotLoadedError: If the handler did not load this
+                instance or the whole map.
+            TypeError: If the stored value cannot be decoded as ``value_type``.
             ValueError: If ``instance`` is empty or contains ``/``.
         """
         return context._get_attribute(self, instance)
