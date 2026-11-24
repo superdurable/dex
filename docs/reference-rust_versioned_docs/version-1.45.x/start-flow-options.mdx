@@ -21,6 +21,7 @@ cannot change after the Flow starts.
 | **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values. |
 | **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
+| **TaskQueue** | The task queue whose Workers run the Flow. See [Task queue](#task-queue). |
 
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
@@ -299,6 +300,33 @@ API → StartFlow for the owning operation → accepted response
 Owning Flow Execute → StartFlow for separately owned work → durable progress
 Worker replacement → retry the same downstream start identity → no duplicate launch
 ```
+
+## Task queue {#task-queue}
+
+**StartFlowOptions::task_queue** names the task queue whose Workers run the
+Flow's Steps and RPCs. The default, the empty name, selects the default task
+queue. **dex.default** also selects it explicitly. Since 1.45.1.
+
+- Only Workers whose **PullWorkerOptions::task_queue** equals the name, and
+  that register the Flow type, run the Flow. See
+  [Task queue](./workers.mdx#task-queue) for the Worker side.
+- The Flow keeps its task queue for its whole run. **Client::update_flow_config**
+  cannot change it. SubFlows inherit it unless
+  [SubFlowOptions::task_queue](./subflow.mdx#task-queue) names another one.
+- When no Worker pulls the task queue, Steps wait durably for one, and RPCs
+  fail after the Server's Worker dispatch wait.
+- A name has 1 to 63 ASCII letters, digits, dots, underscores, or hyphens.
+  Names starting with **dex.** are reserved; only **dex.default** is accepted.
+  **Client::start_flow_with_options** returns **SdkError::InvalidArgument** for
+  an invalid name.
+- A non-empty name, including **dex.default**, requires Server protocol
+  version 5. With an older Server, the start returns **SdkError::Service**
+  before it sends the request.
+
+The task queue is a start option, not a **FlowConfig** field, because it
+cannot change after the start.
+
+API reference: [StartFlowOptions::task_queue](https://docs.rs/dex-sdk/1.45.1/dex_sdk/struct.StartFlowOptions.html#method.task_queue).
 
 ## RetryPolicy {#retry-policy}
 

@@ -2,6 +2,7 @@
 id: waits
 title: Waits
 sidebar_label: Waits
+description: "Dex stores the wait durably and checks the conditions whenever related state changes. A condition waits for a Timer, a Channel, a SubFlow, or a graceful completion request."
 ---
 
 # Waits
@@ -9,7 +10,8 @@ sidebar_label: Waits
 **WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
 Dex stores the wait durably and checks the conditions whenever related state
 changes. A condition waits for a [Timer](/concepts/primitives/timer), a
-[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+[Channel](/concepts/primitives/channel), a [SubFlow](/concepts/primitives/subflow),
+or a [graceful completion request](#graceful-completion-requests).
 
 - **Until** waits for one condition.
 - **AnyOf** is met when any condition is met.
@@ -55,7 +57,8 @@ they are also ready, and their messages stay queued.
 
 When several **AnyOf** conditions are ready at the same check, Dex selects the
 first ready one in this order: Timer conditions, then Channel conditions, then
-SubFlow conditions, each kind in the order you declared them. A condition that
+SubFlow conditions, then the graceful completion condition, each kind in the
+order you declared them. A condition that
 is not ready does not block a later one that is. So across kinds, the order of
 the arguments in your call does not decide which condition wins.
 
@@ -112,6 +115,34 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 ```
 
 Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)
+
+## Graceful completion requests {#graceful-completion-requests}
+
+Since 1.45.3. `Condition::graceful_completion_requested` returns a condition
+that completes once the Flow has a graceful completion request. The request
+comes from a Step that returns `StepDecision::graceful_complete`, or from
+`Client::stop_flow` with `StopFlowOptions::graceful_complete`. A request made
+before the Wait starts completes the condition at once.
+
+Use it in a Step that would otherwise wait indefinitely, such as one that waits
+for the next user message. Combine it with that message in `Wait::any_of`. In
+`execute`, handle a message that the Wait consumed first. A ready message
+wins the `any_of`, but the condition still reports completed when a request
+exists. When there is no message and
+`ctx.is_graceful_completion_condition_completed()` is true, return
+`StepDecision::dead_end()`. The Flow completes once no other Step is active.
+
+When the request arrives, Dex checks only the Waits that include this
+condition. A Wait holds at most one. It needs Server protocol version 7, and
+against an older Server the Step fails with
+`GracefulCompletionConditionUnsupportedError`. To keep working with older
+Servers, add the condition only when
+[`ctx.supports_graceful_completion_condition()`](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Context.html#method.supports_graceful_completion_condition)
+returns `true` in `wait_for`; it reads the Worker's negotiated protocol and
+sends no request. The
+[`Condition` API reference](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Condition.html#method.graceful_completion_requested)
+shows an example. The server rules are in
+[Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
 
 ## Join parallel branches {#join}
 
