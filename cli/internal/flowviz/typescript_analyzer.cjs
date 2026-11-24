@@ -506,15 +506,16 @@ class TypeScriptAnalyzer {
 
   waitConditions(waitID,call) {
     const conditions = [];
-    for (const [index,argument] of call.arguments.entries()) this.collectWaitCondition(waitID,argument,index,conditions);
+    const acceptsSubFlowSpread = ["allOf","anyOf"].includes(this.waitType(call));
+    for (const [index,argument] of call.arguments.entries()) this.collectWaitCondition(waitID,argument,index,conditions,acceptsSubFlowSpread);
     return conditions;
   }
 
   // Each argument is one condition at its index; ConditionCombination.of numbers its own arguments, as Go's Combo does.
-  collectWaitCondition(waitID,argument,index,conditions) {
+  collectWaitCondition(waitID,argument,index,conditions,acceptsSubFlowSpread = false) {
     if (this.ts.isSpreadElement(argument)) {
       // A spread SubFlow.run map is one SubFlow condition, as in the Python analyzer.
-      const subFlowRun = this.mappedSubFlowRun(argument.expression);
+      const subFlowRun = acceptsSubFlowSpread ? this.mappedSubFlowRun(argument.expression) : undefined;
       if (subFlowRun) this.collectWaitCondition(waitID,subFlowRun,index,conditions);
       else this.addUnknownWaitCondition(argument,index,conditions);
       return;
@@ -553,39 +554,36 @@ class TypeScriptAnalyzer {
     this.graph.edges.push({kind:"wait_condition",from:resourceID,to:waitID,label,span,metadata:{conditionIndex:index}});
   }
 
-  // Returns the SubFlow.run call of items.map(item => SubFlow.run(flow, item)) when flow does not depend on item.
+  // Returns the SubFlow.run call of items.map(item => SubFlow.run(flow, item)) when flow is the same for every item.
   mappedSubFlowRun(expression) {
     const mapCall = this.unwrap(expression);
-    if (!mapCall || !this.ts.isCallExpression(mapCall) || mapCall.arguments.length !== 1) return undefined;
+    if (!mapCall || !this.ts.isCallExpression(mapCall) || this.ts.isOptionalChain(mapCall) || mapCall.arguments.length !== 1) return undefined;
     const mapCallee = this.unwrap(mapCall.expression);
-    if (!mapCallee || !this.ts.isPropertyAccessExpression(mapCallee) || mapCallee.name.text !== "map") return undefined;
+    if (!mapCallee || !this.ts.isPropertyAccessExpression(mapCallee) || this.ts.isOptionalChain(mapCallee) || mapCallee.name.text !== "map") return undefined;
     const callback = this.unwrap(mapCall.arguments[0]);
     if (!callback || !(this.ts.isArrowFunction(callback) || this.ts.isFunctionExpression(callback))) return undefined;
+    // An async callback returns a Promise and a generator returns an iterator, not a condition.
+    if (callback.asteriskToken || callback.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.AsyncKeyword)) return undefined;
     const statements = this.handlerStatements(callback);
     if (statements.length !== 1 || !this.ts.isReturnStatement(statements[0])) return undefined;
     const run = this.unwrap(statements[0].expression);
-    const runCallee = run && this.ts.isCallExpression(run) ? this.unwrap(run.expression) : undefined;
+    if (!run || !this.ts.isCallExpression(run) || this.ts.isOptionalChain(run)) return undefined;
+    const runCallee = this.unwrap(run.expression);
     if (!runCallee || !this.ts.isPropertyAccessExpression(runCallee) || this.dexName(runCallee.expression) !== "SubFlow" || runCallee.name.text !== "run") return undefined;
     const target = run.arguments[0];
-    if (!target || this.readsParameterOf(target,callback)) return undefined;
+    if (!target || this.ts.isSpreadElement(target) || !this.isItemIndependentFlowReference(target,callback)) return undefined;
     return run;
   }
 
-  // Conservative: any read of a callback parameter name counts, including destructured names.
-  readsParameterOf(expression,callback) {
-    const names = new Set();
-    const collectNames = node => {
-      if (this.ts.isIdentifier(node)) names.add(node.text);
-      this.ts.forEachChild(node,collectNames);
-    };
-    for (const parameter of callback.parameters) collectNames(parameter.name);
-    let reads = false;
-    const visit = node => {
-      if (this.ts.isIdentifier(node) && this.isValueReference(node) && names.has(node.text)) reads = true;
-      this.ts.forEachChild(node,visit);
-    };
-    visit(expression);
-    return reads;
+  // Supported: a name or dotted name chain whose root is bound outside the callback, or this in an arrow callback.
+  isItemIndependentFlowReference(target,callback) {
+    let root = this.unwrap(target);
+    while (root && this.ts.isPropertyAccessExpression(root) && !this.ts.isOptionalChain(root)) root = this.unwrap(root.expression);
+    if (!root) return false;
+    if (root.kind === this.ts.SyntaxKind.ThisKeyword) return this.ts.isArrowFunction(callback);
+    if (!this.ts.isIdentifier(root)) return false;
+    const scope = this.bindingScope(root);
+    return !!scope && scope !== callback;
   }
 
   addUnknownWaitCondition(node,index,conditions) {

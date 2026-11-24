@@ -200,7 +200,6 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 	const approveBranches = "    if (decision === \"skip\") {\n" + skipReturn + "\n    }\n    return { output: status.get(context) };"
 	const signalWait = `return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`
 	const publish = "approvals.publish(context, decision);"
-	const reviewSubFlow = "SubFlow.run(reviewFlow, input),"
 	emptyReturn := func(statement string) string {
 		return "    if (decision === \"skip\") " + statement + "\n    return { output: decision, nextSteps: [StepMovement.of(FailingWait, decision)] };"
 	}
@@ -284,32 +283,6 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 		"publish with a computed key": {
 			replacements: []replacement{{publish, "const method = \"publish\";\n    approvals[method](context, decision);"}},
 			codes:        []string{"dynamic_resource_access"},
-		},
-		"allOf over a spread SubFlow.run map": {
-			replacements: []replacement{{reviewSubFlow, "...[input, input + 1].map((value) => SubFlow.run(reviewFlow, value)),"}},
-			check:        checkOneReviewSubFlow("wait:ReviewBounds:"),
-		},
-		"anyOf over a spread SubFlow.run map with a block body": {
-			replacements: []replacement{{
-				signalWait,
-				"return Wait.anyOf(...[1, 2].map(function (value) {\n        return SubFlow.run(reviewFlow, value);\n      }), Timer.byDuration(2_000, \"deadline\"));",
-			}},
-			check: checkOneReviewSubFlow("wait:AwaitApproval:"),
-		},
-		"spread SubFlow.run map whose Flow is the item": {
-			replacements: []replacement{{reviewSubFlow, "...[reviewFlow].map((flow) => SubFlow.run(flow, input)),"}},
-			codes:        []string{"dynamic_wait_condition"},
-		},
-		"spread local SubFlow.run list": {
-			replacements: []replacement{{
-				"    return Wait.allOf(\n      approvals.atLeast(3),",
-				"    const reviews = [input].map((value) => SubFlow.run(reviewFlow, value));\n    return Wait.allOf(\n      approvals.atLeast(3),",
-			}, {reviewSubFlow, "...reviews,"}},
-			codes: []string{"dynamic_wait_condition"},
-		},
-		"spread map of Timer conditions": {
-			replacements: []replacement{{reviewSubFlow, "...[1_000].map((milliseconds) => Timer.byDuration(milliseconds)),"}},
-			codes:        []string{"dynamic_wait_condition"},
 		},
 	}
 	helpers := "\nfunction plannedMovement(input: string) {\n  return StepMovement.of(FailingWait, input);\n}\n" +
@@ -560,35 +533,144 @@ func rpcTransitionTargets(graph *Graph, rpcID string, condition string) []string
 	return targets
 }
 
-// checkOneReviewSubFlow requires one reviewFlow SubFlow condition, node, and start edge under the Waits with waitIDPrefix.
-func checkOneReviewSubFlow(waitIDPrefix string) func(t *testing.T, graph *Graph) {
-	return func(t *testing.T, graph *Graph) {
-		t.Helper()
-		subFlowIDs := make([]string, 0)
-		for _, node := range graph.Nodes {
-			if node.Kind != "wait" || !strings.HasPrefix(node.ID, waitIDPrefix) {
-				continue
-			}
-			for _, condition := range node.Wait.Conditions {
-				require.NotEqual(t, "unknown", condition.Kind, condition.Label)
-				if condition.Kind == "subflow" {
-					require.Equal(t, "reviewFlow", condition.Label)
-					require.True(t, hasScriptEdge(graph, "subflow", node.ID, condition.SubFlowID))
-					subFlowIDs = append(subFlowIDs, condition.SubFlowID)
-				}
-			}
-		}
-		require.Len(t, subFlowIDs, 1)
-		subFlowNodes := 0
-		for _, node := range graph.Nodes {
-			if node.ID == subFlowIDs[0] {
-				require.Equal(t, "subflow", node.Kind)
-				require.True(t, node.External)
-				subFlowNodes++
-			}
-		}
-		require.Equal(t, 1, subFlowNodes)
+// A Wait.allOf or Wait.anyOf argument that spreads a SubFlow.run map with a fixed child Flow is one SubFlow condition.
+func TestTypeScriptSpreadSubFlowRunMap(t *testing.T) {
+	const reviewSubFlow = "SubFlow.run(reviewFlow, input),"
+	const signalWait = `return Wait.anyOf(approvals.forOne("approval"), Timer.byDuration(2_000, "deadline"));`
+	allOfArgument := func(argument string) []string { return []string{reviewSubFlow, argument + ","} }
+	anyOfWait := func(arguments string) []string { return []string{signalWait, "return Wait.anyOf(" + arguments + ");"} }
+	type expectedSubFlow struct {
+		waitIDPrefix   string
+		conditionIndex int
+		timerIndex     int
 	}
+	inReviewBounds := &expectedSubFlow{waitIDPrefix: "wait:ReviewBounds:", conditionIndex: 4, timerIndex: -1}
+	inAwaitApproval := &expectedSubFlow{waitIDPrefix: "wait:AwaitApproval:", conditionIndex: 0, timerIndex: 1}
+	const deadline = `Timer.byDuration(2_000, "deadline")`
+	cases := map[string]struct {
+		replacement []string
+		accepted    *expectedSubFlow
+	}{
+		"allOf with an arrow callback":         {allOfArgument("...[input, input + 1].map((value) => SubFlow.run(reviewFlow, value))"), inReviewBounds},
+		"allOf with a parenthesized callback":  {allOfArgument("...([input].map(((value) => (SubFlow.run(reviewFlow, value)))))"), inReviewBounds},
+		"allOf with an unused index parameter": {allOfArgument("...[input].map((value, position) => SubFlow.run(reviewFlow, value))"), inReviewBounds},
+		"allOf with a parameter destructured from a key named like the Flow": {
+			allOfArgument("...[{ reviewFlow: input }].map(({ reviewFlow: payload }) => SubFlow.run(reviewFlow, payload))"), inReviewBounds,
+		},
+		"allOf with a default value that reads the Flow": {
+			allOfArgument("...[{ payload: input }].map(({ reviewFlow: child = reviewFlow, payload }) => SubFlow.run(reviewFlow, payload ?? child))"), inReviewBounds,
+		},
+		"anyOf with a function callback": {
+			anyOfWait("...[1, 2].map(function (value) {\n        return SubFlow.run(reviewFlow, value);\n      }), " + deadline), inAwaitApproval,
+		},
+		"optional chain before map":           {replacement: allOfArgument("...[input]?.map((value) => SubFlow.run(reviewFlow, value))")},
+		"optional map call":                   {replacement: allOfArgument("...[input].map?.((value) => SubFlow.run(reviewFlow, value))")},
+		"optional SubFlow.run call":           {replacement: allOfArgument("...[input].map((value) => SubFlow.run?.(reviewFlow, value))")},
+		"async callback":                      {replacement: allOfArgument("...[input].map(async (value) => SubFlow.run(reviewFlow, value))")},
+		"generator callback":                  {replacement: allOfArgument("...[input].map(function* (value) {\n        return SubFlow.run(reviewFlow, value);\n      })")},
+		"named callback reference":            {replacement: allOfArgument("...[input].map(startReview)")},
+		"extra map argument":                  {replacement: allOfArgument("...[input].map((value) => SubFlow.run(reviewFlow, value), undefined)")},
+		"Flow is the item":                    {replacement: allOfArgument("...[reviewFlow].map((flow) => SubFlow.run(flow, input))")},
+		"parameter shadows the Flow":          {replacement: allOfArgument("...[reviewFlow].map((reviewFlow) => SubFlow.run(reviewFlow, input))")},
+		"Flow is a property of the item":      {replacement: allOfArgument("...[{ flow: reviewFlow }].map((item) => SubFlow.run(item.flow, input))")},
+		"Flow is a nested destructured name":  {replacement: allOfArgument("...[{ nested: { flow: reviewFlow } }].map(({ nested: { flow } }) => SubFlow.run(flow, input))")},
+		"Flow from an indexed list":           {replacement: allOfArgument("...[0].map((value) => SubFlow.run([reviewFlow][value], value))")},
+		"Flow from a call":                    {replacement: allOfArgument("...[input].map((value) => SubFlow.run(findReviewFlow(value), value))")},
+		"spread SubFlow.run arguments":        {replacement: allOfArgument("...[input].map((value) => SubFlow.run(...[reviewFlow, value] as const))")},
+		"Flow from the callback arguments":    {replacement: allOfArgument("...[[reviewFlow]].map(function (value) {\n        return SubFlow.run(arguments[0][0], input);\n      })")},
+		"Flow from this in a function":        {replacement: allOfArgument("...[input].map(function (value) {\n        return SubFlow.run(this.review, value);\n      })")},
+		"spread of a copied SubFlow.run list": {replacement: allOfArgument("...[input].map((value) => SubFlow.run(reviewFlow, value)).slice(0)")},
+		"spread of a local SubFlow.run list": {replacement: []string{
+			"    return Wait.allOf(\n      approvals.atLeast(3),",
+			"    const reviews = [input].map((value) => SubFlow.run(reviewFlow, value));\n    return Wait.allOf(\n      approvals.atLeast(3),",
+			reviewSubFlow, "...reviews,",
+		}},
+		"spread map of Timer conditions":    {replacement: allOfArgument("...[1_000].map((milliseconds) => Timer.byDuration(milliseconds))")},
+		"spread in Wait.until":              {replacement: []string{signalWait, "return Wait.until(...[1].map((value) => SubFlow.run(reviewFlow, value)));"}},
+		"spread in Wait.skipImmediately":    {replacement: []string{signalWait, "return Wait.skipImmediately(...[1].map((value) => SubFlow.run(reviewFlow, value)));"}},
+		"spread in Wait.anyCombinationOf":   {replacement: []string{signalWait, "return Wait.anyCombinationOf(...[1].map((value) => SubFlow.run(reviewFlow, value)));"}},
+		"spread in ConditionCombination.of": {replacement: anyOfWait("ConditionCombination.of(...[1].map((value) => SubFlow.run(reviewFlow, value))), " + deadline)},
+	}
+	helpers := "\nfunction startReview(value: number) {\n  return SubFlow.run(reviewFlow, value);\n}\n" +
+		"\nfunction findReviewFlow(_value: number) {\n  return reviewFlow;\n}\n"
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "waits.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := string(source)
+			for pair := 0; pair < len(testCase.replacement); pair += 2 {
+				require.Contains(t, modified, testCase.replacement[pair])
+				modified = strings.Replace(modified, testCase.replacement[pair], testCase.replacement[pair+1], 1)
+			}
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified+helpers), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{})
+			require.NoError(t, err)
+			if testCase.accepted == nil {
+				require.False(t, graph.Valid)
+				require.Contains(t, diagnosticCodes(graph), "dynamic_wait_condition")
+				// Only ReviewBounds' direct SubFlow.run, when it is left in place, may draw a SubFlow edge.
+				expectedEdges := strings.Count(modified, reviewSubFlow)
+				subFlowEdges := 0
+				for _, edge := range graph.Edges {
+					if edge.Kind == "subflow" {
+						subFlowEdges++
+					}
+				}
+				require.Equal(t, expectedEdges, subFlowEdges)
+				return
+			}
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			requireSpreadSubFlowCondition(t, graph, testCase.accepted.waitIDPrefix, testCase.accepted.conditionIndex, testCase.accepted.timerIndex)
+		})
+	}
+}
+
+// requireSpreadSubFlowCondition requires one reviewFlow SubFlow condition at conditionIndex with its node and start edge, and a Timer at timerIndex unless it is negative.
+func requireSpreadSubFlowCondition(t *testing.T, graph *Graph, waitIDPrefix string, conditionIndex int, timerIndex int) {
+	t.Helper()
+	var waitNode *Node
+	for index := range graph.Nodes {
+		node := &graph.Nodes[index]
+		if node.Kind == "wait" && strings.HasPrefix(node.ID, waitIDPrefix) && slices.ContainsFunc(node.Wait.Conditions, func(condition WaitCondition) bool { return condition.Kind == "subflow" }) {
+			require.Nil(t, waitNode, "two Waits with SubFlow conditions")
+			waitNode = node
+		}
+	}
+	require.NotNil(t, waitNode)
+	var subFlow *WaitCondition
+	for index := range waitNode.Wait.Conditions {
+		condition := &waitNode.Wait.Conditions[index]
+		require.NotEqual(t, "unknown", condition.Kind, condition.Label)
+		if condition.Kind == "subflow" {
+			require.Nil(t, subFlow, "two SubFlow conditions")
+			subFlow = condition
+		}
+		if condition.Kind == "timer" {
+			require.Equal(t, timerIndex, *condition.Index)
+		}
+	}
+	require.Equal(t, "reviewFlow", subFlow.Label)
+	require.Equal(t, conditionIndex, *subFlow.Index)
+	subFlowNodes := 0
+	for _, node := range graph.Nodes {
+		if node.ID == subFlow.SubFlowID {
+			require.Equal(t, "subflow", node.Kind)
+			require.True(t, node.External)
+			subFlowNodes++
+		}
+	}
+	require.Equal(t, 1, subFlowNodes)
+	edges := 0
+	for _, edge := range graph.Edges {
+		if edge.Kind == "subflow" && edge.To == subFlow.SubFlowID {
+			require.Equal(t, waitNode.ID, edge.From)
+			require.Equal(t, "start", edge.Label)
+			require.EqualValues(t, conditionIndex, edge.Metadata["conditionIndex"])
+			edges++
+		}
+	}
+	require.Equal(t, 1, edges)
 }
 
 func hasScriptEdge(graph *Graph, kind string, from string, to string) bool {
