@@ -39,6 +39,11 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
     message: 'Watch on YouTube',
     description: 'The text link under an embedded video that opens it on YouTube',
   });
+  const captionSeparator = translate({
+    id: 'docs.video.captionSeparator',
+    message: ': ',
+    description: 'The separator between the Watch on YouTube link and the video title',
+  });
   return (
     <figure className={styles.video}>
       <div className={styles.frame}>
@@ -67,7 +72,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
         <a href={watchUrl} target="_blank" rel="noopener noreferrer">
           {watchLabel}
         </a>
-        {': '}
+        {captionSeparator}
         {title}
       </figcaption>
     </figure>

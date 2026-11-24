@@ -39,6 +39,10 @@
     "message": "播放视频：{title}",
     "description": "The accessible name of the button that loads and plays an embedded video"
   },
+  "docs.video.captionSeparator": {
+    "message": "：",
+    "description": "The separator between the Watch on YouTube link and the video title"
+  },
   "docs.video.watchOnYouTube": {
     "message": "在 YouTube 上观看",
     "description": "The text link under an embedded video that opens it on YouTube"
