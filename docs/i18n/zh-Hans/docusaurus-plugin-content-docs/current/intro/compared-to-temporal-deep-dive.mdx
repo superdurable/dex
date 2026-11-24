@@ -234,7 +234,7 @@ impl Step for Tracker {
 对会话 A 的 Query 也会失败。在第 2 版上开始的会话正常运行。Temporal 文档给出两种解决办法：
 
 - **[Patching](https://docs.temporal.io/develop/python/versioning#patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步：加上 patch 运行新代码，之后用 `deprecate_patch` 标记这个 patch，等不再有运行旧代码的 Workflow Execution 时再删掉它。Temporal 说要等 patch 之前开始的 Workflow "have left retention" 之后再弃用 patch。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。会话 B 是在没有保护的第 2 版上开始的，到了第 3 版它报出镜像的非确定性错误。先上线了没有保护的改动的团队，会再遇到这第二起事故。
-- **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** "A Pinned Workflow is guaranteed to complete on a single Worker Deployment Version." 旧版本要继续 poll，"to allow pinned Workflows to finish executing"。Auto-Upgrade 的 Workflow 会移到最新版本，它们 "need to be kept replay-safe manually"。
+- **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** "A Pinned Workflow is guaranteed to complete on a single Worker Deployment Version." 旧版本可以继续 poll，"to allow pinned Workflows to finish executing"。Auto-Upgrade 的 Workflow 会移到最新版本，它们 "need to be kept replay-safe manually"。
 
 **Dex。** 第 2 版加了 `AnalyzeSentimentStep`。`WaitForCustomerStep` 和 `WaitAfterNudgeStep` 改为转到它，而不是 `GenerateReplyStep`。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow_v2.py)。
 
