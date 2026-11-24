@@ -31,7 +31,7 @@ Action input types in one source file.
 
 - Register every durable primitive in the Flow's persistence schema.
 - Register every Step with the Flow.
-- Register both view RPCs with the Flow.
+- Register every view RPC the Flow defines.
 - Use the Flow and Step type names that the SDK derives. Do not add type-name
   overrides. In Go, a generic Flow or Step type is the exception: it must
   implement `GetFlowType` or `GetStepType` to get a stable name.
@@ -76,30 +76,27 @@ that handling, return the error so the failure route runs.
 
 ## Steps the analyzer can read
 
-The graph comes from source, so every Step must show its decisions and
-targets statically. These rules hold in every language:
+The graph comes from source, so every Step shows its decisions and targets
+in a form the analyzer can read. These rules hold in every language:
 
-- **Return decisions directly from Execute.** Write the GoTo, GoToMany,
-  closing decision, or dead end in the Execute method's return. A helper may
-  compute the input or record state. It never builds or returns the decision.
-- **Target Steps statically.** Name the registered Step instance, its class
-  when exactly one instance is registered, or a Step reference built from a
-  literal Step type. Never compute a target, build a new Step object in the
-  decision, or pass `self` or `this` as the target. To loop, name the Step's
-  own registered target, as for any other Step.
-- **Build fan-out in the method.** Write each movement of a GoToMany inside
-  the Execute method, not in a helper.
-- **Compose Steps; do not subclass them.** Each registered Step type defines
-  its own WaitFor and Execute and extends only the SDK's Step base and its
-  type parameters. Share
-  logic through plain functions or constructor-injected collaborators.
-- **Keep Flow and Step objects plain.** Assign each field once, in the
-  constructor or as a class field. Do not pass the Step object to other
-  functions, rebind it, or decorate its class.
+- **Return analyzer-visible decisions from Execute.** A helper may compute
+  the input or record state. The decision itself is returned by Execute.
+- **Resolvable targets.** Use a target the analyzer can resolve to a
+  registered Step. For a loop, use the same static target form as for any
+  other transition. In Python, name the registered target instead of passing
+  bare `self` to `go_to`.
+- **Fan-out.** Construct fan-out with movement builders supported by the
+  language's analyzer.
+- **Compose Steps.** Implement Execute on each registered Step and define
+  WaitFor when the Step needs a wait. Share behavior through functions or
+  collaborators instead of subclassing another Step.
+- **Static fields.** Keep analyzer-visible fields statically bound and follow
+  the source profile for the project's language.
 
-The [Flow and Step names](https://docs.superdurable.io/reference/web/flow-visualization#flow-and-step-names)
-and [supported source profile](https://docs.superdurable.io/reference/web/flow-visualization#supported-source-profile)
-sections list the exact forms and diagnostics for each language.
+The [supported source profile](https://docs.superdurable.io/reference/web/flow-visualization#supported-source-profile),
+[Flow and Step names](https://docs.superdurable.io/reference/web/flow-visualization#flow-and-step-names),
+and [diagnostics](https://docs.superdurable.io/reference/web/flow-visualization#unknown-nodes-and-diagnostics)
+sections list each language's supported source forms and diagnostics.
 
 ## Indexed Attributes
 
@@ -118,8 +115,11 @@ are few. Index an Attribute only when a list needs it.
 ## Summary and Display
 
 The two view RPCs are named `GetDexSummary` and `GetDexDisplay`. Each takes no
-input and returns a map of field values. FDG 2.0 requires both, even when a
-Flow has little to show. In Go, both have the signature
+input and returns a map of field values. Define and register the view RPCs
+your language's FDG profile requires. Each declared view returns one literal
+map whose keys match its declared fields. App Builder projects may define
+both views for consistent Dex Web presentation. In Go, both are required
+and have the signature
 `func (flow *F) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error)`,
 and you register them with `dex.DefineRPC(flow.GetDexSummary, nil)` and
 `dex.DefineRPC(flow.GetDexDisplay, nil)`.
@@ -237,18 +237,14 @@ syntax or type errors.
 
 | Diagnostic | Correction |
 | --- | --- |
-| `v2_view_rpc` | Define and register both view methods with the exact signatures. |
+| `v2_view_rpc` | Define and register the view methods the language's profile requires, with the exact signatures. |
 | `v2_view_rpc_output` | Return one literal map with exactly the declared field keys. |
 | `v2_directive` | Match the Attribute's real type and the argument names. An unnamed list is `array` (a list of strings is `string-array`), not `json`. |
 | `v2_action` | Use direct typed Action registration, a declared scalar condition, and one permission. |
 | `v2_action_input` | Declare every JSON field once. Make each `required:false` field optional in the input type. |
 | `v2_start_input` | Use a concrete typed start input the form can render. |
-| `v2_step_group`, `v2_step_explanation` | Give each local Step exactly one `dex:group` and one `dex:explanation` directly above its declaration. |
 | `hidden_dex_decision` | Return Dex decisions directly from Step methods. Helpers may compute input or record state. |
-| `unknown_step_target` | Register the target and use its registered instance, its class, or a Step reference with a literal Step type, or the exact static Connector Step reference. Never construct a Step in a decision. |
-| `dynamic_step_target` | Write every target and fan-out movement statically in the Execute method. |
-| `dynamic_class` | Keep the Flow or Step object plain: no `self` or `this` passed as a target or argument, no rebinding, no reflective writes, no class decorators. |
-| `step_inheritance_unsupported` | Move shared logic into a helper function and keep each Step method on the registered class. |
+| `unknown_step_target` | Register the target and use its real Step type or the exact static Connector Step reference. |
 | `connector_factory_step_type` | Give the operation factory a nonempty compile-time Step type. |
 | `unused_resource` | Use the primitive visibly in the Flow's Step or RPC methods, or in helpers that the analyzer follows for the language. Remove obsolete scaffold state. |
 | `connector_release_required` | Require an exact official published package version with no local replacement. Handoff pins the exact official release. |

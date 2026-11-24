@@ -116,11 +116,11 @@ client.invoke_rpc_with_options(
 
 A page token is **current** or the 20-digit name of an archived chunk; see [Chunk page tokens](/reference/server/runtime-data#chunk-page-tokens) for the validation rules.
 
-Archived chunks are immutable, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
+Archived chunks are immutable, so a page read again, such as on a retry, returns the same records while its chunk is retained. To update older records, use a different pattern or a separate index.
 
-Set a retention window when old records need not be kept forever. The call that archives a chunk also deletes the archived chunks past the window. It records the oldest kept token in the state, so paging stops there.
+For an append-only history, archive bounded chunks and load only the requested page. If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 
-Many concurrent appends contend on **current**. When they would conflict often, publish each record to a Channel instead. One waiting Step then appends it, as in the [Inbound Event Loop](/design-patterns/inbound-event-loop).
+Many concurrent appends contend on **current**. When they would conflict often, route them through an RPC that publishes each record to a Channel. One writing Step consumes it and appends, as in the [Inbound Event Loop](/design-patterns/inbound-event-loop).
 
 ## HTTP API
 

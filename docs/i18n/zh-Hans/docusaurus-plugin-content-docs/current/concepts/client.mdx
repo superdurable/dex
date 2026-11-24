@@ -21,9 +21,7 @@ slug: /concepts/client
 
 ## 由 Flow 做决定 {#flow-owns-decisions}
 
-调用 Client 的代码只负责传入业务事实、启动 Flow、调用 RPC、等待和读取。所有业务决定都由 Flow 做出。它的 Step 执行阈值、路由、资格判断等规则，并写入 Flow 对外报告的状态。
-
-把原始事实作为 start input 传入，由第一个 Step 计算决定和初始状态。每条规则只保留在 Flow 里。调用方代码里的第二份副本会逐渐偏离，Dex Web 和之后的读取就会显示与实际运行不同的规则。
+调用方提供业务事实。这个流程的决定和状态归 Flow 所有。Flow 的 Step 和 RPC handler 执行业务规则，并写入得出的状态。初始状态依赖这些规则时，在第一个 Step 里计算。Dex Web 和之后的读取使用已提交的状态。
 
 ## 保证
 

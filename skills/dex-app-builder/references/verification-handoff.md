@@ -219,12 +219,15 @@ Ensure:
   every error diagnostic was fixed before handoff; every Flow renders to a
   `valid: true` FDG 2.0 definition through one project command, and the
   rendered type names match the Worker;
-- every Step returns its decision directly from Execute, targets Steps
-  statically, and is composed rather than subclassed from another Step;
-- the Flow owns every business decision and the status it reports; the
-  controller only passes facts, starts Flows, calls RPCs, and reads;
-- no WaitFor, RPC, Timer duration, or decision reads the wall clock;
-  deadlines are Timers that Execute checks for having fired;
+- every Step returns analyzer-visible decisions from Execute, uses targets
+  the analyzer can resolve, and is composed rather than subclassed from
+  another Step;
+- the Flow owns the decisions and status of its process; the caller only
+  supplies facts, starts Flows, calls RPCs, and reads;
+- business deadlines, routing, decisions, retry-stable identities, WaitFor,
+  and RPC handlers never read the wall clock; a decision with a deadline
+  races its Channels and Timer in one waiting Step that checks the Timer
+  result;
 - tests skip business Timers through the Client and keep the real
   durations;
 - dependencies and Connector versions are pinned to exact releases, with no
