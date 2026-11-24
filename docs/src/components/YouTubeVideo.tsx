@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import React, {type ReactNode, useState} from 'react';
+import React, {type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState} from 'react';
 import {translate} from '@docusaurus/Translate';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import styles from './YouTubeVideo.module.css';
@@ -14,15 +14,33 @@ import styles from './YouTubeVideo.module.css';
 export type YouTubeVideoProps = {
   /** The YouTube video ID, such as the part after youtu.be/. */
   videoId: string;
-  /** The video title. It names the play button and the player frame. */
+  /** The video title. It names the play link and the player frame. */
   title: string;
   /** A self-hosted poster image path under static/, such as /img/videos/name.jpg. */
   poster: string;
 };
 
 // The player loads only after a click, so a reader who does not play the video sends no request to YouTube.
+// The poster is a link to YouTube, so it still works before hydration or without JavaScript.
 export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps): ReactNode {
   const [isPlaying, setIsPlaying] = useState(false);
+  const playerRef = useRef<HTMLIFrameElement>(null);
+  // The poster link disappears on activation, so focus moves to the player that replaces it.
+  useEffect(() => {
+    if (isPlaying) playerRef.current?.focus();
+  }, [isPlaying]);
+  const playInline = (event: MouseEvent<HTMLAnchorElement>) => {
+    // A modified or middle click keeps the link's own behavior, such as opening a new tab.
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setIsPlaying(true);
+  };
+  // Enter activates a link natively; Space plays the video, as it would on a button.
+  const playOnSpace = (event: KeyboardEvent<HTMLAnchorElement>) => {
+    if (event.key !== ' ') return;
+    event.preventDefault();
+    setIsPlaying(true);
+  };
   const posterUrl = useBaseUrl(poster);
   const watchUrl = `https://youtu.be/${encodeURIComponent(videoId)}`;
   const playerUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1`;
@@ -30,7 +48,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
     {
       id: 'docs.video.play',
       message: 'Play video: {title}',
-      description: 'The accessible name of the button that loads and plays an embedded video',
+      description: 'The accessible name of the poster link that loads and plays an embedded video',
     },
     {title},
   );
@@ -49,6 +67,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
       <div className={styles.frame}>
         {isPlaying ? (
           <iframe
+            ref={playerRef}
             className={styles.player}
             src={playerUrl}
             title={title}
@@ -57,7 +76,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
             referrerPolicy="strict-origin-when-cross-origin"
           />
         ) : (
-          <button type="button" className={styles.poster} onClick={() => setIsPlaying(true)} aria-label={playLabel}>
+          <a href={watchUrl} className={styles.poster} onClick={playInline} onKeyDown={playOnSpace} aria-label={playLabel}>
             <img src={posterUrl} alt="" width={1280} height={720} loading="lazy" decoding="async" />
             <span className={styles.playIcon} aria-hidden="true">
               <svg viewBox="0 0 68 48" width="68" height="48">
@@ -65,7 +84,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
                 <path d="M27 15v18l16-9z" />
               </svg>
             </span>
-          </button>
+          </a>
         )}
       </div>
       <figcaption className={styles.caption}>

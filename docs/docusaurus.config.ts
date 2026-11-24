@@ -172,7 +172,7 @@ const config: Config = {
     ],
   ],
 
-  clientModules: ['./src/clientModules/sdkFromQuery.ts'],
+  clientModules: ['./src/clientModules/sdkFromQuery.ts', './src/clientModules/movedSectionAnchors.ts'],
 
   themes: [
     [

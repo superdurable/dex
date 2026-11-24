@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 本页是 Dex vs. Temporal 视频系列的文字版，每集的每个部分对应一节。第 1 集在两个引擎上各写同一个 AI 客服会话，在会话未结束时改代码，再让一个会话一直聊下去。每个数字都来自 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) 仓库里的脚本。
 
-两边的 server 都在一台笔记本上以本地开发模式运行，使用默认限制。AI 回复和情绪分析都是本地 mock，不是真实的模型。演示仓库列出了所用的版本。关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。视频是英文的。
+两边的 server 都在一台笔记本上以本地开发模式运行，使用默认限制。AI 回复和情绪分析都是本地 mock，不是真实的模型。演示仓库列出了[所用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below)。关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。视频是英文的。
 
 ## 场景和需求 {#scenario}
 
@@ -30,7 +30,7 @@ AI 客服回答客户的问题。每个会话对应一个 Temporal workflow 或�
 
 [从 3:55 开始观看](https://youtu.be/fzl88JWt734?t=235)
 
-大多数人一开始这样写计时器。Signal handler 回复消息，并设置 `nudge_at` 字段。主函数 sleep 到 `nudge_at`，然后发提醒。见 [naive_conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/naive_conversation_workflow.py)。
+这是计时器的一种直接写法。Signal handler 回复消息，并设置 `nudge_at` 字段。主函数 sleep 到 `nudge_at`，然后发提醒。见 [naive_conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/naive_conversation_workflow.py)。
 
 ### 真实运行 {#natural-temporal-code-run}
 
@@ -48,11 +48,11 @@ AI 客服回答客户的问题。每个会话对应一个 Temporal workflow 或�
 
 [从 5:49 开始观看](https://youtu.be/fzl88JWt734?t=349)
 
-Temporal 把 workflow 代码切成一个个 [workflow task](https://docs.temporal.io/tasks) 来运行。Worker 用 [command](https://docs.temporal.io/references/commands) 完成每个 workflow task："A Command is an action a Worker requests from the Temporal Service when it completes a Workflow Task Execution."
+Temporal 把 workflow 代码切成一个个 [workflow task](https://docs.temporal.io/tasks) 来运行。Worker 用 [command](https://docs.temporal.io/references/commands) 完成每个 workflow task。Temporal 的定义是：Command 是 Worker 在完成一次 Workflow Task Execution 时，请求 Temporal Service 执行的一个动作。
 
 计时器就是一条 command。调用 `sleep` 会发出一条 StartTimer command，server 按 `nudge_at` 当时的值记录这个计时器。之后 Signal handler 修改了 `nudge_at`。改一个变量不会发出任何 command。所以最早的那个计时器照样在第 30 秒触发。
 
-这段代码是合法的 Python。它违反的是代码里看不出来的约定：哪些语句会变成 command，以及在什么时候。
+这段代码是合法的 Python，Timer 也按原定时间触发了。应用逻辑修改了 `nudge_at`，却没有启动新的 Timer。哪些语句会变成 command、在什么时候变成 command，代码里看不出来。
 
 ## Temporal 的正确写法 {#correct-temporal-code}
 
@@ -225,7 +225,7 @@ impl Step for Tracker {
 
 会话还开着的时候来了新需求：回复之前先分析每条客户消息的情绪。
 
-**Temporal。** 第 2 版在 `generate_reply` 之前运行一个 `analyze_sentiment` activity。会话 A 是在第 1 版上开始的。部署之后，它的下一条消息被接收，却一直得不到回复。workflow task 失败并不断重试：
+**Temporal。** 第 2 版在 `generate_reply` 之前运行一个 `analyze_sentiment` activity。会话 A 是在第 1 版上开始的。部署之后，它的下一条消息被接收，却一直得不到回复。workflow task 失败并不断重试，运行本身保持打开：
 
 ```text
 [TMPRL1100] Nondeterminism error: Activity type of scheduled event 'generate_reply' does not match activity type of activity command 'analyze_sentiment'
@@ -233,8 +233,8 @@ impl Step for Tracker {
 
 对会话 A 的 Query 也会失败。在第 2 版上开始的会话正常运行。Temporal 文档给出两种解决办法：
 
-- **[Patching](https://docs.temporal.io/develop/python/versioning#patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步：加上 patch 运行新代码，之后用 `deprecate_patch` 标记这个 patch，等不再有运行旧代码的 Workflow Execution 时再删掉它。Temporal 说要等 patch 之前开始的 Workflow "have left retention" 之后再弃用 patch。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。会话 B 是在没有保护的第 2 版上开始的，到了第 3 版它报出镜像的非确定性错误。先上线了没有保护的改动的团队，会再遇到这第二起事故。
-- **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** "A Pinned Workflow is guaranteed to complete on a single Worker Deployment Version." 旧版本可以继续 poll，"to allow pinned Workflows to finish executing"。Auto-Upgrade 的 Workflow 会移到最新版本，它们 "need to be kept replay-safe manually"。
+- **[Patching](https://docs.temporal.io/develop/python/workflows/versioning#versioning-with-patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步。第一步，加上 patch，让新代码和旧代码并存。第二步，删掉旧代码，用 `deprecate_patch()` 把这个 patch 标记为弃用。第三步，等不再有运行上一版代码的打开的 Workflow Execution 时，删掉 `deprecate_patch()`。对第二步和第三步，Temporal 还要求等到用 patch 之前的代码开始的 Workflow 都已超出 retention 期。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。在演示里，会话 B 是在没有保护的第 2 版上开始的。到了第 3 版，它报出镜像的非确定性错误。
+- **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** Temporal 保证 Pinned 的 Workflow 在同一个 Worker Deployment Version 上运行到结束。其他版本可以继续 poll，让 Pinned 的 Workflow 运行完。Auto-Upgrade 的 Workflow 会移到它的目标版本，也就是它的 Task Queue 的 Current Version 或 Ramping Version。Temporal 要求用 patching 手动让 Auto-Upgrade 的 Workflow 保持与旧 history 兼容。
 
 **Dex。** 第 2 版加了 `AnalyzeSentimentStep`。`WaitForCustomerStep` 和 `WaitAfterNudgeStep` 改为转到它，而不是 `GenerateReplyStep`。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow_v2.py)。
 
@@ -248,14 +248,16 @@ impl Step for Tracker {
 
 [从 15:02 开始观看](https://youtu.be/fzl88JWt734?t=902)
 
-Temporal 对每个 Workflow Execution 都有限制。下表的值来自 [Temporal Cloud 的限制](https://docs.temporal.io/cloud/limits)和[自托管的默认值](https://docs.temporal.io/self-hosted-guide/defaults)：
+Temporal 对每个 Workflow Execution 都有限制。Temporal Cloud 的[限制](https://docs.temporal.io/evaluate/cloud/limits)是固定的。自托管的 server 有[默认值](https://docs.temporal.io/self-hosted-guide/defaults)，其中 history 的限制可以配置：
 
-| 限制 | 值 |
-| --- | --- |
-| Event History | 51,200 个事件或 50 MB。10,240 个事件和 10 MB 时警告。 |
-| Payload | 2 MB。512 KB 时警告。 |
-| 一次 Event History 事务 | 4 MB |
-| 每个 Workflow Execution 的 Signal 数，Temporal Cloud 上 | 10,000 |
+| 限制 | Temporal Cloud | 自托管的默认值 |
+| --- | --- | --- |
+| Event History | 51,200 个事件或 50 MB。超过 10,240 个事件或 10 MB 后警告。 | 51,200 个事件或 50 MB 时报错。10,240 个事件或 10 MB 时警告。 |
+| Payload | 每个请求 2 MB | 2 MB 时报错。512 KB 时警告。 |
+| 一次 Event History 事务 | 4 MB | 未列出 |
+| 每个 Workflow Execution 的 Signal 数 | 10,000 | 未列出 |
+
+达到任意一个阈值就会警告。演示运行的是使用默认限制的本地开发 server。Temporal 用 MB 和 KB 写这些限制。下文实测的字节数是精确值，server 实际执行的 payload 上限是 2 MiB，即 2,097,152 字节。
 
 ### 一直聊下去的会话 {#history-limit-flood}
 
@@ -267,16 +269,16 @@ Temporal 对每个 Workflow Execution 都有限制。下表的值来自 [Tempora
 
 ### Continue-As-New {#continue-as-new}
 
-[Continue-As-New](https://docs.temporal.io/develop/python/continue-as-new) 结束当前运行，用全新的 history 开始一次新的运行。workflow 代码要自己做这些事：
+[Continue-As-New](https://docs.temporal.io/develop/python/workflows/continue-as-new) 结束当前运行，用全新的 history 开始一次新的运行。新的运行保留同一个 Workflow ID，得到一个新的 Run ID。workflow 代码要自己做这些事：
 
 1. 检查 `workflow.info().is_continue_as_new_suggested()`。
-2. 等所有 Signal 和 Update handler 运行完。Temporal 的建议是："Complete all handlers before using Continue-as-New."
+2. 等所有 Signal 和 Update handler 运行完。Temporal 建议在使用 Continue-As-New 之前，先让所有 handler 运行完。
 3. 给状态做一个 snapshot：聊天记录、所有未回复的消息、客服、状态和计时器的截止时间。
 4. 把 snapshot 作为下一次运行的输入，在新的运行里从它恢复状态。
 
 演示的 [conversation_workflow_inline_transcript.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow_inline_transcript.py) 用 249 行做到了这些。不做 Continue-As-New 的 workflow 是 148 行。它按 server 的建议串联运行，每次运行约 4,100 个事件。
 
-snapshot 是一个 payload，所以最大 2 MB。回复了 3,531 条追问之后，下一次运行的输入是 2,199,782 字节，而上限是 2,097,152。workflow task 失败：
+snapshot 是一个 payload，所以最大 2 MB。回复了 3,531 条追问之后，下一次运行的输入是 2,199,782 字节，而上限是 2,097,152 字节。workflow task 失败：
 
 ```text
 [TMPRL1103] Attempted to upload payloads with size that exceeded the error limit.
@@ -284,11 +286,11 @@ snapshot 是一个 payload，所以最大 2 MB。回复了 3,531 条追问之后
 
 workflow 仍然是 Running，继续接收 Signal，但不再回复。停下来的位置随每次 Continue-As-New 的时机而变。
 
-对于大的 payload，Temporal 给出的办法是 [External Storage](https://docs.temporal.io/external-storage)，目前是 Public Preview。它把 payload 存在 Event History 之外，在 history 里只记录一个引用。用本地目录作为存储时，演示回复了 10,000 条消息，每条只回复一次。workflow 完成之后，存下的对象仍然留着。Temporal 文档写明它 "does not automatically delete payloads from your external store"。
+对于大的 payload，Temporal 给出的办法是 [External Storage](https://docs.temporal.io/external-storage)，目前是 Public Preview。它把 payload 存在 Event History 之外，在 history 里只记录一个引用。用本地目录作为存储时，演示回复了 10,000 条消息，每条只回复一次。workflow 完成之后，存下的对象仍然留着。Temporal 文档写明，它不会自动删除外部存储里的 payload。
 
 ### 每次 activity 都带上会话内容 {#context-in-activity}
 
-真实的模型调用需要整个会话，而不只是最新一条消息。`ConversationWithContextWorkflow` 把聊天记录作为普通输入传给每次回复的 activity。它不做 Continue-As-New，也不用 External Storage。Temporal 把每个 activity 的输入记录在它的 `ActivityTaskScheduled` 事件里。所以每次回复都把聊天记录在 history 里再存一份，history 随消息数的平方增长。
+这个实现把完整的聊天记录作为上下文交给每次回复。`ConversationWithContextWorkflow` 把聊天记录作为普通输入传给每次回复的 activity。它不做 Continue-As-New，也不用 External Storage。Temporal 把每个 activity 的输入记录在它的 `ActivityTaskScheduled` 事件里。所以每次回复都把聊天记录在 history 里再存一份，history 随消息数的平方增长。
 
 | 消息 | 接收的追问 | 终止时 |
 | --- | --- | --- |
@@ -301,13 +303,13 @@ workflow 仍然是 Running，继续接收 Signal，但不再回复。停下来�
 
 Dex Flow 承受同样的负载 30 分钟。发出的 14,138 条追问全部得到回复，结束时没有积压，Flow 仍在运行。在大约三分钟的一段慢速期里，压测程序因背压丢弃了 14,400 次计划发送中的 262 次。
 
-每条追问运行三个 Step 方法和一个 RPC，大约 4 个 history 事件。Dex 保留每次运行最新的一段事件，并清理更早的事件。结束时这次运行保留了 5,056 个事件，最大的事件 ID 是 56,555。[History window](/reference/server/configuration#history-window)（英文）给出默认值。
+Dex 保留每次运行最新的一段事件，并清理更早的事件。旧的 history 随窗口被清理，Flow 继续运行。[History window](/reference/server/configuration#history-window)（英文）给出默认值。演示仓库列出了[实测的事件数](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going)（英文）。
 
 Flow 把聊天记录分块存在一个 AttributeMap 里，占用运行 64 MiB 状态预算中的 32 MiB 以内。追加的内容放不下时，`TrimTranscriptStep` 把最旧的块合并进摘要并删除它们。用 8 KiB 的消息时，聊天记录达到 33.2 MB，仍在预算之内。64 个块进入了摘要，Flow 继续运行。
 
 ### 数据大小 {#data-size}
 
-Temporal 把一个 payload 限制在 2 MB，512 KB 时警告。activity 的输入和 Continue-As-New 的 snapshot 都受这个限制。Dex 默认把一个值（例如一个 Attribute 值或一条 Channel 消息）限制在 16 MiB。一次 Flow 运行默认最多保存 64 MiB 的活跃状态。history 和为 Time Travel 保留的旧值不计入。见 [Limits](/reference/server/configuration#limits) 和 [Flow state budget](/reference/server/configuration#flow-state-budget)（英文）。
+Temporal 把一个 payload 限制在 2 MB。自托管的 server 默认在 512 KB 时警告。activity 的输入和 Continue-As-New 的 snapshot 都受这个限制。Dex 默认把一个值（例如一个 Attribute 值或一条 Channel 消息）限制在 16 MiB。一次 Flow 运行默认最多保存 64 MiB 的活跃状态。history 和为 Time Travel 保留的旧值不计入。见 [Limits](/reference/server/configuration#limits) 和 [Flow state budget](/reference/server/configuration#flow-state-budget)（英文）。
 
 ## 完整代码 {#complete-code}
 
@@ -329,33 +331,38 @@ Temporal 把一个 payload 限制在 2 MB，512 KB 时警告。activity 的输�
 
 ## 运行服务器 {#run-the-server}
 
-Temporal 需要一个数据库。Dex 只需要对象存储。
+Temporal 需要一个数据库。Dex Server 是一个二进制，运行在对象存储或 db9 上。
 
 | | Temporal Service | Dex Server |
 | --- | --- | --- |
 | 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。活跃节点停止时，备用节点接管。见 [Dex Server](/components/server)。 |
-| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发。 | 对象存储，例如 Amazon S3，或者用 db9 代替。 |
-| 搜索存储 | Visibility 存储。生产环境推荐 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
+| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发和测试。 | 对象存储，例如 Amazon S3，或者用 [db9](/reference/server/object-storage#db9)（英文）代替。 |
+| 搜索存储 | Visibility 存储：Elasticsearch、OpenSearch、MySQL、PostgreSQL 或 SQLite。Temporal 建议生产环境使用 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
 
-活跃的 Dex 节点故障转移时，每个进行中的 Step 尝试都会再次运行。见[故障转移和部署](/concepts/failover-and-deploys)。[性能](/intro/performance)给出单个 Dex 节点实测的吞吐量和延迟。
+关于 Temporal 的事实来自 [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server)、[Persistence](https://docs.temporal.io/temporal-service/persistence) 和 [Visibility](https://docs.temporal.io/self-hosted-guide/visibility)。
+
+活跃的 Dex 节点故障转移时，Dex 让 Worker 已经收到的每个 Step 尝试失败。每个尝试按它的 Step 的重试策略重试。见[故障转移和部署](/concepts/failover-and-deploys)。[性能](/intro/performance)给出单个 Dex 节点实测的吞吐量和延迟。
 
 ## 并发的默认行为 {#concurrency-defaults}
 
-Temporal 默认每个 Workflow 只有一个写入方。Dex 并行运行一个 Flow 的多个 Step，要求你声明锁。
+Temporal 的 Python Workflow 在一个线程上运行它的协程，协程在每个 `await` 处交错执行。Dex 并行运行并行分支上的 Step，需要时由你声明锁。
 
-Temporal Workflow 在单线程上运行。Signal 和 Update handler 仍然可能在每个 `await` 处和主函数交错执行。对于先读、再等待、再写入的 handler，Temporal 建议使用 workflow mutex。
+在 Temporal 的 Python Workflow 里，Signal 和 Update handler 和主函数同时运行，在每个 `await` 处切换。对于跨越 `await` 的更新，Temporal 建议用 [`asyncio.Lock`](https://docs.temporal.io/develop/python/workflows/message-passing#use-asynciolock-to-prevent-concurrent-handler-execution) 保护。
 
-Dex 在不同的 Worker 上并行运行同一个 Flow 的多个 Step。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。由你选择哪些 Attribute 需要[锁](/concepts/primitives/attribute#locking)。没有锁时，两个先读后写的写入方可能互相覆盖。
+Flow 有并行分支时，Dex 并行运行这些分支上的 Step，可能在同一个 Worker 上，也可能在多个 Worker 上。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。必须单独运行的先读后写，用[锁](/concepts/primitives/attribute#locking)保护。没有锁时，两个先读后写的写入方可能互相覆盖。
 
 ## 自己运行 {#run-it-yourself}
 
-演示需要 `uv`、`temporal` CLI 和 `dexcli`。每个脚本启动自己的 server，打印结果，并停掉它启动的东西。脚本在 [scripts](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/scripts) 目录里。
+演示需要 `uv`、`temporal` CLI 和 `dexcli`。每个脚本启动自己的 server，打印结果。脚本在 [scripts](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/scripts) 目录里。演示仓库列出了本页数字[所用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below)（英文）。
+
+除了 `d-design.sh`，每个脚本都会停掉它启动的东西。`d-design.sh` 的默认值是 `KEEP=1`，成功运行之后 Dex 会继续运行。用 `scripts/dex/stop.sh` 停掉它，或者用 `KEEP=0` 运行这个脚本。
 
 | 主题 | Temporal | Dex |
 | --- | --- | --- |
 | 空闲计时器 | `scripts/temporal/t1-naive-timer.sh` | `scripts/dex/d1-timer.sh` |
 | 改代码 | `scripts/temporal/t2-change-code.sh`、`scripts/temporal/t2-patch-fix.sh` | `scripts/dex/d2-change-code.sh`、`scripts/dex/d2-idle-window-variation.sh` |
 | history 上限 | `scripts/temporal/t5-flood.sh`、`scripts/temporal/t6-continue-as-new.sh` | `scripts/dex/d5-flood-fair.sh` |
+| External Storage | `EXTERNAL_STORAGE=1 scripts/temporal/t6-continue-as-new.sh` | |
 | 每次 activity 带上会话内容，聊天记录预算 | `scripts/temporal/t8-context-in-activity.sh` | `scripts/dex/d7-transcript-budget.sh` |
 | Flow design | | `scripts/dex/d-design.sh` |
 

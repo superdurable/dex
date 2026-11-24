@@ -12,8 +12,8 @@ class MarkdownExport {
   }
 
   async postBuild(properties) {
-    const {exportMarkdown} = await import('./export.mjs');
-    await exportMarkdown({...properties, allContent: this.allContent});
+    const {exportMarkdown, movedMarkdownPages} = await import('./export.mjs');
+    await exportMarkdown({...properties, allContent: this.allContent, movedMarkdown: movedMarkdownPages});
   }
 }
 

@@ -9,7 +9,7 @@ import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDia
 
 # Dex vs. Temporal
 
-Dex and Temporal both run processes that survive crashes, restarts, and long waits. Temporal rebuilds a run by replaying workflow code against its Event History, while Dex saves each Step's result and state and continues from there. Temporal's service runs on a database, and Dex runs as one binary on object storage.
+Dex and Temporal both run processes that survive crashes, restarts, and long waits. Temporal rebuilds a run by replaying workflow code against its Event History, while Dex saves each Step's result and state and continues from there. Temporal's service runs on a database, and Dex Server runs as one binary on object storage or db9.
 
 <YouTubeVideo videoId="fzl88JWt734" title="Dex vs Temporal, Ep. 1: one idle timer, three production problems" poster="/img/videos/dex-vs-temporal-ep1.jpg" />
 
@@ -21,36 +21,36 @@ Each topic links to its full section in [Dex vs. Temporal in Depth](/intro/compa
 
 | Topic | Temporal | Dex |
 | --- | --- | --- |
-| [Writing code](/intro/compared-to-temporal-deep-dive#natural-temporal-code) | Workflow code runs as workflow tasks, and each task sends commands to the server. Correct code follows this implicit contract. In the demo, the natural idle-timer code sent the reminder at second 30 instead of 50, with no error. | Each Step declares what it waits for and where it goes next. The demo Flow sent the reminder at second 50.4. |
-| [Changing code](/intro/compared-to-temporal-deep-dive#change-code) | An open workflow fails with a non-determinism error after a deploy that changes its commands. Patching or Worker Versioning keeps old runs on the old path. | Open Flows run the new code from their next Step. The demo added a Step, and open conversations went through it. |
-| [Long-running processes](/intro/compared-to-temporal-deep-dive#history-limit) | A Workflow Execution's history holds at most 51,200 events or 50 MB. In the demo, the server terminated the workflow after 4,266 messages, at 51,201 events. With the conversation passed to each reply activity, it terminated after 408 messages at the 50 MB limit. Continue-As-New is code you write. | Dex keeps a window of each run's newest events and prunes older ones. The demo Flow answered 14,138 messages in 30 minutes and kept running, with its transcript in Attributes. |
-| [Data size](/intro/compared-to-temporal-deep-dive#data-size) | A payload holds at most 2 MB, with a warning at 512 KB. | A value holds up to 16 MiB, and a Flow run holds up to 64 MiB of active state, by default. See [Limits](/reference/server/configuration#limits). |
+| [Writing code](/intro/compared-to-temporal-deep-dive#natural-temporal-code) | Workflow code runs as workflow tasks, and each task sends commands to the server. The code does not show which statements become commands. In the demo, a direct idle-timer implementation sent the reminder at second 30 instead of 50, with no error. Its Timer fired as scheduled, and the code never set a new one. | Each Step declares what it waits for and where it goes next. The demo Flow sent the reminder at second 50.4. |
+| [Changing code](/intro/compared-to-temporal-deep-dive#change-code) | If a deploy changes the commands that an open run produces, that run's Workflow Task fails with a non-determinism error and is retried. The run stays open. Patching keeps the new code compatible with old histories. Pinned Worker Versioning keeps each run on the Worker version it started on. | Each Step runs the code of the Worker that takes it. A wait that is already registered keeps its conditions. The demo added a Step, and open conversations went through it. |
+| [Long-running processes](/intro/compared-to-temporal-deep-dive#history-limit) | A Workflow Execution's history holds at most 51,200 events or 50 MB. These limits are fixed on Temporal Cloud and are defaults on a self-hosted server. In the demo, the server terminated the workflow after 4,266 messages, at 51,201 events. With the conversation passed to each reply activity, it terminated at the 50 MB limit, after accepting 408 messages and answering 407. Continue-As-New is code you write. | Dex keeps a window of each run's newest events and prunes older ones. The demo Flow answered 14,138 messages in 30 minutes and kept running, with its transcript in Attributes. |
+| [Data size](/intro/compared-to-temporal-deep-dive#data-size) | A payload holds at most 2 MB. A self-hosted server warns at 512 KB by default. | A value holds up to 16 MiB, and a Flow run holds up to 64 MiB of active state, by default. See [Limits](/reference/server/configuration#limits). |
 | [Seeing the process](/intro/compared-to-temporal-deep-dive#complete-code) | The process shape is the workflow code. | `dexcli visualize` draws the Flow design from source. Dex Web shows which Step a run waits in. |
-| [Running the server](/intro/compared-to-temporal-deep-dive#run-the-server) | Frontend, History, Matching, and Worker services on a database. | One binary on object storage. |
+| [Running the server](/intro/compared-to-temporal-deep-dive#run-the-server) | Frontend, History, Matching, and Worker services on a database. | One binary on object storage or db9. |
 
 ## Replay and saved Step results {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
 The two engines rebuild a run in different ways after a Worker stops.
 
-<RecoveryModelDiagram markdownDescription="A Worker stops mid-run. Temporal: the Event History holds every command and result; a new Worker replays the workflow function from the top to the last await, so workflow code must be deterministic. Dex: Step results and Attributes are saved with each decision; a new Worker runs only the next Step, and finished Steps never run again, so each external effect must be idempotent." />
+<RecoveryModelDiagram markdownDescription="A Worker stops mid-run. Temporal: the Event History holds every command and result; a new Worker replays the workflow function from the top to the last await, so workflow code must be deterministic. Dex: Step results and Attributes are saved with each decision; a Worker continues from that saved progress with the next Step, and work that was in progress may be retried under its retry policy, so each external effect must be idempotent." />
 
 **Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning to continue it. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. Workflow code must therefore make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
 
-**Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves the Step's result, its Attribute writes, and the decision together. To continue a run, a Worker runs only the next Step. It reads the saved Attributes. Nothing is replayed.
+**Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves each finished Step's result, its Attribute writes, and the decision together. A Worker continues from that saved state: it runs the next Step and reads the saved Attributes. Work that was in progress may be retried under its retry policy. [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again in each case.
 
 | | Temporal: replays workflow code | Dex: saves each Step's result |
 | --- | --- | --- |
 | Orchestration code | Must be deterministic. Clock reads, random values, and I/O go through Temporal APIs or into Activities. | Ordinary code. A Step can read the clock, use random values, and call any library. |
 | Recover after a bug fix | Reset starts a new run from an earlier event. | Time Travel restores Attributes, Channel messages, and waiting Steps at an earlier point, with the same Run ID. |
-| State after a Worker stops | Rebuilt by replaying the Event History, and cached on a Worker between tasks | Read from the Attributes saved with each Step. A Worker keeps no cache. |
+| State after a Worker stops | Rebuilt by replaying the Event History, and cached on a Worker between tasks | Read from the Attributes saved with each Step. Recovery needs no history cache in the Worker. |
 
 ## What they share {#what-they-share}
 
 - A server records each run's progress outside your process. After a crash, the run continues from that record.
 - Workers in your own process pull tasks from the server. Your code never runs inside the server.
 - Timers are durable. A run that waits on a Timer or a message holds no Worker.
-- Each unit of work has a retry policy and timeouts. The default backoff is the same: 1 second, doubling up to 100 seconds, with no attempt limit. Dex also stops retrying a Step after 4 hours by default; see [Limits](/intro/limits).
-- A run has a business ID. At most one run with that ID is open at a time, and a reuse policy decides what happens to the next start.
+- Temporal Activities and Dex Step methods have a retry policy and timeouts. Their default backoff is the same: 1 second, doubling up to 100 seconds, with no attempt limit. Dex also stops retrying a Step after 4 hours by default; see [Limits](/intro/limits). A Temporal Workflow Task retries on its own schedule, and a Temporal Workflow Execution has no retry policy by default.
+- A run has a business ID. At most one run with that ID is open at a time.
 - A unit of work can run more than once. Code that calls another system passes an idempotency key.
 
 ## Terms map {#term-map}
@@ -58,22 +58,22 @@ The two engines rebuild a run in different ways after a Worker stops.
 | Temporal | Dex | Notes |
 | --- | --- | --- |
 | Workflow, Workflow ID, Run ID | [Flow](/concepts/flow), Flow ID, Run ID | Same roles. |
-| Workflow code between Activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` | Control flow is data that Dex saves, not code that runs again. |
+| Workflow code between Activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` | Control flow is data that Dex saves with each Step. |
 | Activity | The `Execute` method of a [Step](/concepts/step) | One retry unit. Give each durable call its own Step. |
 | Local Activity | Closest: an ASYNC Step | Both trade some durability for latency. See [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async). |
 | Timer, `sleep` | [Timer](/concepts/primitives/timer) in a Step's `WaitFor` | Both durable. |
-| Signal | [Channel](/concepts/primitives/channel) message | Both are accepted with no Worker online. |
+| Signal | [Channel](/concepts/primitives/channel) message | Temporal accepts a Signal with no Worker online. In Dex, the FlowService request `PublishToChannel` stores a Channel message with no Worker online. See [Send a command at most once](/concepts/client#inbound-commands). |
 | Query | Read-only [RPC](/concepts/primitives/rpc) | |
 | Update | [RPC](/concepts/primitives/rpc) that writes Attributes or publishes to a Channel | Both need a Worker. |
 | Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
 | Task Queue | Task queue | A Flow names its task queue at start and keeps it. Inside a task queue, Dex routes by Flow type. |
-| Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. A Worker keeps no history cache. |
+| Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. Recovery needs no history cache in the Worker. |
 | Search Attributes | Indexed Attributes | |
-| Workflow ID Reuse and Conflict Policy | ID reuse policy and start request ID | See [Flow identity](/concepts/flow). |
-| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | Cooperative in both. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
+| Workflow ID Conflict Policy, for an open Workflow ID. Workflow ID Reuse Policy, for a closed one. | ID reuse policy, for open and closed Flow IDs. Start request ID. | The start request ID lets Dex recognize a retried start request. See [StartFlowOptions](/reference/python/start-flow-options). |
+| Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | In both, your Worker code stops its external work cooperatively. Dex discards anything a canceled attempt returns later. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
 | Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel keeps the Run ID. |
-| Continue-As-New | No equivalent needed | Dex prunes old history events. See [The history limit](/intro/compared-to-temporal-deep-dive#history-limit). |
+| Continue-As-New, to keep the history small | No new run needed for history size | Dex prunes old history events. See [The history limit](/intro/compared-to-temporal-deep-dive#history-limit). |
 | Patching, Worker Versioning | Keep old Step types and change data additively | See [Changing the code](/intro/compared-to-temporal-deep-dive#change-code). |
 | Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
 | Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
@@ -87,7 +87,7 @@ The video series compares the two engines one topic at a time. Each episode has 
 
 - **Episode 1: one idle timer, three production problems.** Writing code, changing code, and a conversation that keeps going. [Watch it on YouTube](https://youtu.be/fzl88JWt734), or read [Dex vs. Temporal in Depth](/intro/compared-to-temporal-deep-dive).
 
-Later episodes cover operations, features that Temporal lacks, and the server architecture. Each one is added to this list when it is published.
+New episodes are listed here when they are published.
 
 ## Next
 

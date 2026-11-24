@@ -37,7 +37,7 @@
   },
   "docs.video.play": {
     "message": "播放视频：{title}",
-    "description": "The accessible name of the button that loads and plays an embedded video"
+    "description": "The accessible name of the poster link that loads and plays an embedded video"
   },
   "docs.video.captionSeparator": {
     "message": "：",

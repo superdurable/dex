@@ -199,12 +199,8 @@ const sidebars: SidebarsConfig = {
       items: [
         'intro/what-is-dex',
         'intro/compared-to-database',
-        {
-          type: 'category',
-          label: 'Dex vs. Temporal',
-          link: {type: 'doc', id: 'intro/compared-to-temporal'},
-          items: ['intro/compared-to-temporal-deep-dive'],
-        },
+        'intro/compared-to-temporal',
+        'intro/compared-to-temporal-deep-dive',
         'intro/compared-to-other-engines',
         'intro/performance',
         'intro/limits',

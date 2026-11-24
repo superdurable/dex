@@ -189,7 +189,8 @@ try {
   await writeFile(join(siteDir, 'src/data/graph.json'), JSON.stringify(graph));
   await writeFile(join(outDir, 'img/example.png'), '');
   await writeFile(join(contentPath, 'index.mdx'), homeSource);
-  await writeFile(join(contentPathLocalized, 'translated.mdx'), '# Translated\n');
+  await writeFile(join(contentPathLocalized, 'translated.mdx'),
+    '# Translated\n\n<YouTubeVideo videoId="abc_123-X" title="示例视频" poster="/img/sample.jpg" />\n');
   await writeFile(join(contentPath, 'translated.mdx'), '# English source\n');
   await writeFile(join(contentPath, 'older.mdx'), '# Earlier version\n');
   await writeFile(join(contentPath, 'agents.mdx'), '# Agents\n\n<FrameworkTabs>\n<FrameworkTab framework="claude-agent-sdk">\n\nClaude agents.\n\n</FrameworkTab>\n<FrameworkTab framework="mastra">\n\n## Setup\n\nMastra agents.\n\n</FrameworkTab>\n</FrameworkTabs>\n');
@@ -225,6 +226,7 @@ try {
   const sidebars = {docs: [{type: 'category', label: '参考', link: {type: 'doc', id: 'translated'}, items: []}, {type: 'doc', id: 'index'}]};
   const options = {siteDir, outDir, baseUrl: '/zh-Hans/', siteConfig: {url: 'https://docs.example.test', title: 'Fixture', trailingSlash: true},
     i18n: {currentLocale: 'zh-Hans', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
+    movedMarkdown: [{from: '/old-page/', to: '/translated/', languagesTo: '/'}],
     routesPaths: ['/zh-Hans/', '/zh-Hans/agents/', '/zh-Hans/compatibility/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
     allContent: {'docusaurus-plugin-content-docs': {
       primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved, agents, compatibility]}]},
@@ -257,6 +259,20 @@ try {
   const translatedPage = await readFile(join(outDir, 'translated.md'), 'utf8');
   assert.match(translatedPage, /\nlocale: "zh-Hans"\n/);
   assert.doesNotMatch(translatedPage, /site_locale|本页内容是英文原文/);
+  // A video exports as a localized text link with the locale's separator, and no player or poster.
+  assert.match(translatedPage, /\n\[在 YouTube 上观看\]\(https:\/\/youtu\.be\/abc_123-X\)：示例视频\n/);
+  assert.doesNotMatch(translatedPage, /iframe|youtube-nocookie|sample\.jpg/);
+  // A moved page's old Markdown names its successor: the .md file one page, each language file another.
+  const movedOld = await readFile(join(outDir, 'old-page.md'), 'utf8');
+  assert.match(movedOld, /\n本页已移至 \[Translated\]\(https:\/\/docs\.example\.test\/zh-Hans\/translated\.md\)。\n$/);
+  assert.match(movedOld, /\ncanonical_url: "https:\/\/docs\.example\.test\/zh-Hans\/translated\/"\n/);
+  for (const language of ['python', 'go', 'java', 'rust']) {
+    assert.match(await readFile(join(outDir, `old-page.${language}.md`), 'utf8'),
+      new RegExp(`\\(https://docs\\.example\\.test/zh-Hans/index\\.${language}\\.md\\)。\\n$`));
+  }
+  // The fixture home has no TypeScript file, so the old TypeScript file names the home's default file.
+  assert.match(await readFile(join(outDir, 'old-page.typescript.md'), 'utf8'), /\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)。\n$/);
+  assert.doesNotMatch(await readFile(join(outDir, 'llms.txt'), 'utf8'), /old-page/);
   assert.match(home, /<a id="stable"><\/a>\n\n## Local heading/);
   assert.match(home, /> \*\*备注：Read first\*\*/);
   assert.match(home, /> \*\*重要\*\*\n>\n> Every admonition keyword is supported./);
@@ -366,7 +382,7 @@ try {
   // llms-full.txt shows Python code, so llms-full.python.txt is the same file.
   assert.equal(await readFile(join(outDir, 'llms-full.python.txt'), 'utf8'), full);
 
-  const english = {...options, baseUrl: '/', outDir: join(siteDir, 'build'), routesPaths: ['/', '/translated/'],
+  const english = {...options, baseUrl: '/', outDir: join(siteDir, 'build'), routesPaths: ['/', '/translated/'], movedMarkdown: [],
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
     allContent: {'docusaurus-plugin-content-docs': {primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars,
       docs: [{...fallback, permalink: '/'}, {...translated, source: '@site/reference/translated.mdx', permalink: '/translated/'}]}]}}}};
@@ -375,6 +391,10 @@ try {
   const englishHome = await readFile(join(siteDir, 'build/index.md'), 'utf8');
   // A video exports as its text link, so the Markdown twin names no player.
   assert.match(englishHome, /\n\[Watch on YouTube\]\(https:\/\/youtu\.be\/abc_123-X\): Sample video\n/);
+  assert.doesNotMatch(englishHome, /iframe|youtube-nocookie|sample\.jpg/);
+  // A moved page whose successor is not a page fails the build instead of linking a missing file.
+  await assert.rejects(exportMarkdown({...english, movedMarkdown: [{from: '/old-page/', to: '/translated/', languagesTo: '/gone/'}]}),
+    /Moved Markdown \/old-page\/ names a missing page \/gone\//);
   assert.match(englishHome, /> \*\*Caution\*\*/);
   assert.match(englishHome, /> \*\*Tip: Short title\*\*/);
   assert.match(englishHome, /\[Go API\]\(https:\/\/docs.example.test\/api\/go\/1.33\/\)/, 'API reference links skip the disk check');
@@ -385,6 +405,7 @@ try {
     ['# Heading\n\n<UnrecognizedDiagram />\n', /index.mdx:3: Unknown JSX component <UnrecognizedDiagram>/],
     ['# Heading\n\n<DexSystemDiagram />\n', /index.mdx:3: DexSystemDiagram requires markdownDescription/],
     ['# Heading\n\n<YouTubeVideo videoId="abc" poster="/img/sample.jpg" />\n', /index.mdx:3: YouTubeVideo requires a title/],
+    ['# Heading\n\n<YouTubeVideo videoId="a/b?c" title="Bad" poster="/img/sample.jpg" />\n', /index.mdx:3: YouTubeVideo requires a videoId/],
     ['# Heading\n\nTotal {1 + 1}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\n{/* hidden comment */}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\nexport const value = 1;\n', /index.mdx:3: Only imports are supported in MDX modules/],

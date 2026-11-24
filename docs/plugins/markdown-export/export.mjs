@@ -30,6 +30,7 @@ const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution
 const localeCopies = {
   en: {
     separator: ': ',
+    movedTo: 'This page moved to',
     example: 'Example',
     flow: 'Flow',
     steps: 'Steps',
@@ -76,6 +77,7 @@ const localeCopies = {
   },
   'zh-Hans': {
     separator: '：',
+    movedTo: '本页已移至',
     example: '例子',
     flow: 'Flow',
     steps: 'Step 列表',
@@ -121,6 +123,12 @@ const localeCopies = {
 };
 // SDK languages that get their own llms-full file. Python is the default llms-full.txt.
 const fullLanguages = ['go', 'java', 'typescript', 'rust'];
+// Published Markdown of moved pages. Static hosting cannot redirect a .md file, so each old file names its successor.
+// `to` receives the old .md file, and `languagesTo` receives each old .<language>.md file. Routes omit the locale.
+export const movedMarkdownPages = [
+  {from: '/intro/compared-to-durable-execution/', to: '/intro/compared-to-temporal/',
+    languagesTo: '/intro/compared-to-temporal-deep-dive/'},
+];
 // Must match the content types rendered by DexSkillHostTabs.tsx.
 const hostContainerTypes = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 // Output written outside this build's postBuild, such as generated API reference, may not exist yet.
@@ -151,7 +159,7 @@ export function localeCopy(locale) {
   return localeCopies[locale] ?? localeCopies.en;
 }
 
-export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, siteConfig, i18n, routesPaths}) {
+export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, siteConfig, i18n, routesPaths, movedMarkdown = []}) {
   const versions = [];
   for (const [pluginId, instance] of Object.entries(allContent['docusaurus-plugin-content-docs'] ?? {})) {
     for (const version of instance.loadedVersions) {
@@ -309,6 +317,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       : '';
     entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${summary ? `: ${summary}` : ''}${frameworkLinks}`);
   }
+  await writeMovedMarkdown({movedMarkdown, exported, writtenPaths, outDir, baseUrl, siteUrl: siteConfig.url, locale, copy});
   // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
   const sections = llmsSections(versions.filter(item => item.version.isLast), copy, movedPages);
   const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote, copy.frameworkNote,
@@ -335,6 +344,31 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     if (!language) await writeOutput(outDir, baseUrl, `${baseUrl}llms-full.python.txt`, fullText);
   }
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
+}
+
+// Writes a short moved notice at each old Markdown path. These files are not routes, so the sitemap and llms.txt skip them.
+async function writeMovedMarkdown({movedMarkdown, exported, writtenPaths, outDir, baseUrl, siteUrl, locale, copy}) {
+  const byRoute = new Map(exported.map(item => [routeKey(item.page.permalink), item]));
+  const localeRoute = route => `${baseUrl}${route.replace(/^\//, '')}`;
+  for (const {from, to, languagesTo} of movedMarkdown) {
+    const oldPath = markdownPath(localeRoute(from), baseUrl);
+    for (const language of [undefined, ...sdkOrder]) {
+      const target = byRoute.get(routeKey(localeRoute(language ? languagesTo : to)));
+      if (!target) throw new Error(`Moved Markdown ${from} names a missing page ${language ? languagesTo : to}`);
+      // A successor without that language's file gets its default file, as language links elsewhere do.
+      const languagePath = language && languageMarkdownPath(target.pathname, language);
+      const targetPath = languagePath && writtenPaths.has(languagePath) ? languagePath : target.pathname;
+      const path = language ? languageMarkdownPath(oldPath, language) : oldPath;
+      if (writtenPaths.has(path)) throw new Error(`Duplicate Markdown output: ${path}`);
+      writtenPaths.add(path);
+      const fields = {title: target.page.title, canonical_url: target.frontMatter.canonical_url, locale: target.frontMatter.locale};
+      const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
+      const link = `[${escapeLabel(target.page.title)}](${new URL(targetPath, siteUrl).href})`;
+      const sentenceEnd = locale === 'zh-Hans' ? '。' : '.';
+      await writeOutput(outDir, baseUrl, path,
+        `---\n${yaml}\n---\n\n# ${target.page.title}\n\n${copy.movedTo} ${link}${sentenceEnd}\n`);
+    }
+  }
 }
 
 function llmsSections(versions, copy, movedPages = new Set()) {

@@ -699,6 +699,18 @@ for (const localeRoot of ['', 'zh-Hans/']) {
 assert.deepEqual([...indexedMarkdown].sort(), [...indexableMarkdownUrls].sort(),
   'llms.txt indexes must cover every indexable docs page exactly once and omit archived versions');
 assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+// Published Markdown of a moved page still answers, and names the successor's file for the same language.
+for (const localeRoot of ['', 'zh-Hans/']) {
+  for (const language of [undefined, ...sdkOrder]) {
+    const suffix = language ? `.${language}.md` : '.md';
+    const oldPath = `${localeRoot}intro/compared-to-durable-execution${suffix}`;
+    const successor = `${siteOrigin}/${localeRoot}intro/${language ? 'compared-to-temporal-deep-dive' : 'compared-to-temporal'}${suffix}`;
+    const text = await readFile(join(root, oldPath), 'utf8');
+    assert.ok(text.includes(`](${successor})`), `${oldPath} must link ${successor}`);
+    assert.ok(outputFilePaths.has(new URL(successor).pathname.slice(1)), `${oldPath} links missing ${successor}`);
+    assert.equal(indexedMarkdown.has(`${siteOrigin}/${oldPath}`), false, `llms.txt must not list ${oldPath}`);
+  }
+}
 // A concept page's Go file links the Go reference, and the note about the Python reference stays in the Python file.
 {
   const stepGo = await readFile(join(root, 'concepts/step.go.md'), 'utf8');

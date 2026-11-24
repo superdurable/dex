@@ -32,6 +32,7 @@
 }
 
 .poster {
+  display: block;
   padding: 0;
   cursor: pointer;
   background: #000;
@@ -68,7 +69,8 @@
   fill-opacity: 1;
 }
 
-.poster:focus-visible {
+.poster:focus-visible,
+.player:focus-visible {
   outline: 3px solid var(--ifm-color-primary);
   outline-offset: -3px;
 }
