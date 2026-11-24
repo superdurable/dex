@@ -18,6 +18,7 @@
 package blobcache
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -44,8 +45,8 @@ type fileStore interface {
 	pathFor(blobID string) string
 	// stage writes a complete temporary entry without publishing it.
 	stage(metadata fileMetadata, payload []byte) (string, commitResult, error)
-	// publish atomically places a staged entry at its final path.
-	publish(metadata fileMetadata, tempPath string) (commitResult, error)
+	// publish atomically places a staged entry at its final path, or keeps an identical file already there.
+	publish(metadata fileMetadata, payload []byte, tempPath string) (commitResult, error)
 	// read validates the stored entry before returning its payload.
 	read(entry *diskEntry) ([]byte, error)
 	// remove deletes one entry while treating an absent file as removed.
@@ -191,12 +192,7 @@ func (store *localFileStoreImpl) stage(metadata fileMetadata, payload []byte) (s
 	}
 	tempPath := tempFile.Name()
 
-	header := encodeHeader(fileHeader{
-		blobIDLength:  uint32(len(metadata.blobID)),
-		payloadLength: uint64(len(payload)),
-		checksum:      metadata.checksum,
-	})
-	if err := writeAll(tempFile, header); err != nil {
+	if err := writeAll(tempFile, entryHeader(metadata, payload)); err != nil {
 		result, failure := store.failCommit(tempFile, tempPath, fmt.Errorf("write blob cache header: %w", err))
 		return "", result, failure
 	}
@@ -215,19 +211,96 @@ func (store *localFileStoreImpl) stage(metadata fileMetadata, payload []byte) (s
 	return tempPath, commitResult{}, nil
 }
 
-func (store *localFileStoreImpl) publish(metadata fileMetadata, tempPath string) (commitResult, error) {
+func (store *localFileStoreImpl) publish(metadata fileMetadata, payload []byte, tempPath string) (commitResult, error) {
 	if err := os.MkdirAll(filepath.Dir(metadata.path), 0o700); err != nil {
 		return store.failCommit(nil, tempPath, fmt.Errorf("create blob cache shard: %w", err))
 	}
-	if _, err := os.Lstat(metadata.path); err == nil {
+	finalFile, err := store.inspectFinalFile(metadata, payload)
+	if err != nil {
+		return store.failCommit(nil, tempPath, err)
+	}
+	switch finalFile {
+	case finalFileIdentical:
+		// Another cache on this directory committed the same bytes first.
+		if err := os.Remove(tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			// As in Rust: try the removal once more, and report an orphan only if that fails too.
+			return store.failCommit(nil, tempPath, fmt.Errorf("discard blob cache temp file: %w", err))
+		}
+		return commitResult{}, nil
+	case finalFileDifferent:
 		return store.failCommit(nil, tempPath, fmt.Errorf("%w: final path already exists", ErrContentMismatch))
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return store.failCommit(nil, tempPath, fmt.Errorf("inspect final cache path: %w", err))
 	}
 	if err := os.Rename(tempPath, metadata.path); err != nil {
 		return store.failCommit(nil, tempPath, fmt.Errorf("commit blob cache file: %w", err))
 	}
 	return commitResult{}, nil
+}
+
+// inspectFinalFile reports whether the final path is missing, or holds exactly the bytes that stage wrote.
+func (store *localFileStoreImpl) inspectFinalFile(metadata fileMetadata, payload []byte) (finalFileState, error) {
+	fileInfo, err := os.Lstat(metadata.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return finalFileMissing, nil
+	}
+	if err != nil {
+		return finalFileMissing, fmt.Errorf("inspect final cache path: %w", err)
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return finalFileDifferent, nil
+	}
+	file, err := os.Open(metadata.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return finalFileMissing, nil
+	}
+	if err != nil {
+		return finalFileMissing, fmt.Errorf("open final cache path: %w", err)
+	}
+	identical, compareErr := fileHoldsEntry(file, metadata, payload)
+	closeErr := file.Close()
+	if err := errors.Join(compareErr, closeErr); err != nil {
+		return finalFileMissing, err
+	}
+	if identical {
+		return finalFileIdentical, nil
+	}
+	return finalFileDifferent, nil
+}
+
+func fileHoldsEntry(file *os.File, metadata fileMetadata, payload []byte) (bool, error) {
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return false, fmt.Errorf("stat final cache path: %w", err)
+	}
+	if fileInfo.Size() != metadata.size {
+		return false, nil
+	}
+	buffer := make([]byte, 64*1024)
+	for _, expected := range [][]byte{entryHeader(metadata, payload), []byte(metadata.blobID), payload} {
+		for len(expected) > 0 {
+			actual := buffer[:min(len(buffer), len(expected))]
+			_, err := io.ReadFull(file, actual)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return false, nil
+			}
+			if err != nil {
+				return false, fmt.Errorf("read final cache path: %w", err)
+			}
+			if !bytes.Equal(actual, expected[:len(actual)]) {
+				return false, nil
+			}
+			expected = expected[len(actual):]
+		}
+	}
+	return true, nil
+}
+
+// entryHeader returns the header stage writes for an entry, which fileHoldsEntry compares against.
+func entryHeader(metadata fileMetadata, payload []byte) []byte {
+	return encodeHeader(fileHeader{
+		blobIDLength:  uint32(len(metadata.blobID)),
+		payloadLength: uint64(len(payload)),
+		checksum:      metadata.checksum,
+	})
 }
 
 func (store *localFileStoreImpl) read(entry *diskEntry) ([]byte, error) {
@@ -377,6 +450,14 @@ type scanCollector struct {
 type commitResult struct {
 	orphanPath string
 }
+
+type finalFileState int
+
+const (
+	finalFileMissing finalFileState = iota
+	finalFileIdentical
+	finalFileDifferent
+)
 
 func writeAll(writer io.Writer, value []byte) error {
 	for len(value) > 0 {

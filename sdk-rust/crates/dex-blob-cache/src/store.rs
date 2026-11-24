@@ -46,6 +46,12 @@ pub(crate) struct CommitFailure {
     pub(crate) orphan_path: Option<PathBuf>,
 }
 
+enum FinalFile {
+    Missing,
+    Identical,
+    Different,
+}
+
 impl From<BlobCacheError> for CommitFailure {
     fn from(error: BlobCacheError) -> Self {
         Self {
@@ -124,6 +130,7 @@ impl LocalFileStore {
     pub(crate) fn publish(
         &self,
         metadata: &FileMetadata,
+        payload: &[u8],
         temp_path: &Path,
     ) -> Result<(), CommitFailure> {
         let parent = metadata
@@ -131,19 +138,57 @@ impl LocalFileStore {
             .parent()
             .ok_or_else(|| BlobCacheError::InvalidBlob("cache path has no parent".to_owned()))?;
         let result = create_private_directory(parent, "create blob cache shard")
-            .and_then(|()| match fs::symlink_metadata(&metadata.path) {
-                Ok(_) => Err(BlobCacheError::ContentMismatch(metadata.blob_id.clone())),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(BlobCacheError::io("inspect final cache path", error)),
-            })
-            .and_then(|()| {
-                fs::rename(temp_path, &metadata.path)
-                    .map_err(|error| BlobCacheError::io("commit blob cache file", error))
+            .and_then(|()| self.inspect_final_file(metadata, payload))
+            .and_then(|final_file| match final_file {
+                FinalFile::Missing => fs::rename(temp_path, &metadata.path)
+                    .map_err(|error| BlobCacheError::io("commit blob cache file", error)),
+                // Another cache on this directory committed the same bytes first.
+                FinalFile::Identical => remove_file_if_present(temp_path)
+                    .map_err(|error| BlobCacheError::io("discard blob cache temp file", error)),
+                FinalFile::Different => {
+                    Err(BlobCacheError::ContentMismatch(metadata.blob_id.clone()))
+                }
             });
         if let Err(error) = result {
             return Err(self.failed_commit(temp_path, error));
         }
         Ok(())
+    }
+
+    fn inspect_final_file(
+        &self,
+        metadata: &FileMetadata,
+        payload: &[u8],
+    ) -> Result<FinalFile, BlobCacheError> {
+        match fs::symlink_metadata(&metadata.path) {
+            Ok(found) if !found.file_type().is_file() => return Ok(FinalFile::Different),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(FinalFile::Missing);
+            }
+            Err(error) => return Err(BlobCacheError::io("inspect final cache path", error)),
+        }
+        let mut file = match File::open(&metadata.path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(FinalFile::Missing);
+            }
+            Err(error) => return Err(BlobCacheError::io("open final cache path", error)),
+        };
+        let file_size = file
+            .metadata()
+            .map_err(|error| BlobCacheError::io("stat final cache path", error))?
+            .len();
+        if i64::try_from(file_size).ok() != Some(metadata.size) {
+            return Ok(FinalFile::Different);
+        }
+        let header = encode_file_header(metadata, payload)?;
+        for expected in [&header[..], metadata.blob_id.as_bytes(), payload] {
+            if !read_matches(&mut file, expected)? {
+                return Ok(FinalFile::Different);
+            }
+        }
+        Ok(FinalFile::Identical)
     }
 
     fn failed_commit(&self, temp_path: &Path, error: BlobCacheError) -> CommitFailure {
@@ -378,15 +423,7 @@ impl LocalFileStore {
         metadata: &FileMetadata,
         payload: &[u8],
     ) -> Result<(), BlobCacheError> {
-        let header = encode_header(FileHeader {
-            blob_id_length: u32::try_from(metadata.blob_id.len()).map_err(|_| {
-                BlobCacheError::InvalidBlob("blob ID length overflows u32".to_owned())
-            })?,
-            payload_length: u64::try_from(payload.len()).map_err(|_| {
-                BlobCacheError::InvalidBlob("payload length overflows u64".to_owned())
-            })?,
-            checksum: metadata.checksum,
-        });
+        let header = encode_file_header(metadata, payload)?;
         file.write_all(&header)
             .map_err(|error| BlobCacheError::io("write blob cache header", error))?;
         file.write_all(metadata.blob_id.as_bytes())
@@ -401,6 +438,36 @@ impl LocalFileStore {
             .display()
             .to_string()
     }
+}
+
+fn encode_file_header(
+    metadata: &FileMetadata,
+    payload: &[u8],
+) -> Result<[u8; FIXED_HEADER_SIZE], BlobCacheError> {
+    Ok(encode_header(FileHeader {
+        blob_id_length: u32::try_from(metadata.blob_id.len())
+            .map_err(|_| BlobCacheError::InvalidBlob("blob ID length overflows u32".to_owned()))?,
+        payload_length: u64::try_from(payload.len())
+            .map_err(|_| BlobCacheError::InvalidBlob("payload length overflows u64".to_owned()))?,
+        checksum: metadata.checksum,
+    }))
+}
+
+/// Returns whether the next bytes of `file` equal `expected`; a short file returns false.
+fn read_matches(file: &mut File, expected: &[u8]) -> Result<bool, BlobCacheError> {
+    let mut buffer = [0_u8; 64 * 1024];
+    for expected_chunk in expected.chunks(buffer.len()) {
+        let actual_chunk = &mut buffer[..expected_chunk.len()];
+        match file.read_exact(actual_chunk) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+            Err(error) => return Err(BlobCacheError::io("read final cache path", error)),
+        }
+        if actual_chunk != expected_chunk {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn absolute_path(path: &Path) -> Result<PathBuf, BlobCacheError> {

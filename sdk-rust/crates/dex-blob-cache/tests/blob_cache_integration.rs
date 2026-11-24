@@ -44,6 +44,81 @@ fn blob_cache_round_trips_deletes_and_enforces_immutable_ids() {
 }
 
 #[test]
+fn blob_cache_keeps_identical_file_from_another_cache_on_the_same_directory() {
+    let directory = TestDirectory::new();
+    let first = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+    let second = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+
+    assert!(first.put("shared-id", b"shared-payload").unwrap());
+    assert_eq!(second.get("shared-id").unwrap(), None);
+    assert!(second.put("shared-id", b"shared-payload").unwrap());
+    assert_eq!(second.get("shared-id").unwrap().unwrap(), b"shared-payload");
+    assert_eq!(regular_files(&directory.path().join("blobs")).len(), 1);
+    assert!(regular_files(&directory.path().join("tmp")).is_empty());
+
+    assert!(first.put("taken-id", b"first-payload").unwrap());
+    assert!(matches!(
+        second.put("taken-id", b"second-payload"),
+        Err(BlobCacheError::ContentMismatch(_))
+    ));
+    assert_eq!(second.get("taken-id").unwrap(), None);
+    assert_eq!(first.get("taken-id").unwrap().unwrap(), b"first-payload");
+    assert!(regular_files(&directory.path().join("tmp")).is_empty());
+
+    second.close().unwrap();
+    first.close().unwrap();
+}
+
+#[test]
+fn blob_cache_compares_every_byte_of_a_file_from_another_cache() {
+    let directory = TestDirectory::new();
+    let first = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+    let second = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+
+    // Same length: the size matches, and the header's checksum differs.
+    assert!(first.put("same-size-id", b"payload-one").unwrap());
+    assert!(matches!(
+        second.put("same-size-id", b"payload-two"),
+        Err(BlobCacheError::ContentMismatch(_))
+    ));
+
+    // One payload byte changed on disk: the size, the header and the blob ID still match.
+    let payload = b"flipped-payload";
+    assert!(first.put("flipped-id", payload).unwrap());
+    let path = path_for(directory.path(), "flipped-id");
+    let mut stored = fs::read(&path).unwrap();
+    *stored.last_mut().unwrap() ^= 0x01;
+    fs::write(&path, &stored).unwrap();
+    assert!(matches!(
+        second.put("flipped-id", payload),
+        Err(BlobCacheError::ContentMismatch(_))
+    ));
+    assert!(regular_files(&directory.path().join("tmp")).is_empty());
+
+    second.close().unwrap();
+    first.close().unwrap();
+}
+
+#[test]
+fn blob_cache_counts_kept_file_against_max_bytes() {
+    // The second cache holds one file. If the kept file cost nothing, it would admit
+    // the next blob without evicting, and the directory would hold two files.
+    let payload = [0_u8; 64];
+    let max_bytes = (24 + "kept-a".len() + payload.len()) as i64;
+    let directory = TestDirectory::new();
+    let first = BlobCache::open(config(directory.path(), 1 << 20)).unwrap();
+    let second = BlobCache::open(config(directory.path(), max_bytes)).unwrap();
+
+    assert!(first.put("kept-a", &payload).unwrap());
+    assert!(second.put("kept-a", &payload).unwrap());
+    second.put("kept-b", &payload).unwrap();
+    assert!(owned_bytes(directory.path()) <= max_bytes as u64);
+
+    second.close().unwrap();
+    first.close().unwrap();
+}
+
+#[test]
 fn blob_cache_rejects_oversized_values_without_writing() {
     let directory = TestDirectory::new();
     let cache = BlobCache::open(config(directory.path(), 64)).unwrap();
@@ -159,6 +234,55 @@ fn blob_cache_commits_one_file_for_concurrent_same_id_puts() {
 
     assert_eq!(regular_files(&directory.path().join("blobs")).len(), 1);
     cache.close().unwrap();
+}
+
+#[test]
+fn blob_cache_keeps_concurrent_puts_of_the_same_bytes_from_two_caches() {
+    const KEYS: usize = 4;
+    const WORKERS: usize = 16;
+    const ROUNDS: usize = 20;
+    let directory = TestDirectory::new();
+    let caches = [
+        BlobCache::open(config(directory.path(), 1 << 20)).unwrap(),
+        BlobCache::open(config(directory.path(), 1 << 20)).unwrap(),
+    ];
+    let payload_for = |key: usize| format!("shared-payload-{key}").into_bytes();
+
+    for round in 0..ROUNDS {
+        let barrier = Barrier::new(WORKERS);
+        thread::scope(|scope| {
+            for worker_index in 0..WORKERS {
+                // Each key is put by both caches: cache (worker / 4) % 2, key worker % 4.
+                let cache = &caches[(worker_index / KEYS) % caches.len()];
+                let key = worker_index % KEYS;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    let blob_id = format!("round-{round}-key-{key}");
+                    assert!(cache.put(&blob_id, &payload_for(key)).unwrap(), "{blob_id}");
+                });
+            }
+        });
+        for key in 0..KEYS {
+            let blob_id = format!("round-{round}-key-{key}");
+            for cache in &caches {
+                assert_eq!(
+                    cache.get(&blob_id).unwrap().unwrap(),
+                    payload_for(key),
+                    "{blob_id}"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        regular_files(&directory.path().join("blobs")).len(),
+        ROUNDS * KEYS
+    );
+    assert!(regular_files(&directory.path().join("tmp")).is_empty());
+
+    for cache in caches {
+        cache.close().unwrap();
+    }
 }
 
 #[test]

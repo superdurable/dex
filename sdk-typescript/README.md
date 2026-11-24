@@ -360,6 +360,7 @@ in one process or in two. Separate processes, such as two replicas of a Worker,
 need separate directories. A restarted process can reuse its directory. Since
 1.45.17, a failed cache write does not fail a Step, RPC, or Client call: the
 SDK logs it with `console.warn` and uses the value it loaded from Dex.
+Since 1.45.17, a cache write that finds the same bytes already on disk keeps that file.
 
 After `await worker.start()`, call `await worker.waitPullRegistered({ timeoutMs: 10_000 })`
 to wait until at least one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream have registered.

@@ -166,6 +166,9 @@ func (cache *Cache) Get(blobID string) ([]byte, bool, error) {
 
 // Put attempts to admit and atomically commit an immutable blob.
 // It returns true when the blob is stored or identical content already exists. Oversized or policy-rejected blobs return false, nil. Validation, mismatch, storage, or reconciliation failures return an error.
+// Changed in v0.1.3: when the blob's file is already on disk with the same bytes, such as a file another cache on this
+// directory wrote, Put keeps that file as this cache's entry, counts it against MaxBytes like a new write, and returns
+// true. A file already there with different bytes still returns ErrContentMismatch.
 func (cache *Cache) Put(blobID string, payload []byte) (bool, error) {
 	if err := validateBlobID(blobID); err != nil {
 		return false, err
@@ -211,7 +214,7 @@ func (cache *Cache) Put(blobID string, payload []byte) (bool, error) {
 		}
 		return false, nil
 	}
-	commitResult, err := cache.store.publish(metadata, tempPath)
+	commitResult, err := cache.store.publish(metadata, payload, tempPath)
 	if err != nil {
 		if commitResult.orphanPath != "" {
 			cache.addCleanupPath(commitResult.orphanPath)
