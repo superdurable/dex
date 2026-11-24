@@ -115,7 +115,8 @@ These rules collide with two App Builder defaults:
   `AGENTS.md`. They are target requirements, not a custom UI decision. Dex Web
   still owns management.
 - A Managed Dex App backend follows the example's stack, so it is TypeScript
-  unless the user asked for Go.
+  unless the user asked for Go. Python, Java and Rust are not managed stacks:
+  say so and offer TypeScript, Go, or an application that runs locally.
 
 ## Strict YAML in dex-app.yaml
 
