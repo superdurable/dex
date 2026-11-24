@@ -242,6 +242,7 @@ there. See
 ## Self-check
 
 - [ ] Flow class named after its domain, not `final` if it has RPCs.
+- [ ] Step classes are domain names, never `Init`, `Start`, or `Process`.
 - [ ] Every reachable Step in `getSteps()`; every definition in `getPersistenceSchema()`.
 - [ ] Step inputs are concrete classes; DTO wire names are stable.
 - [ ] Client code uses the registered Flow's definition objects.

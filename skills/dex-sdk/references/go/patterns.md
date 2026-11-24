@@ -38,7 +38,7 @@ var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
 
 type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (awaitInit) GetStepType() string { return "Init" }
+func (awaitInit) GetStepType() string { return "SplitItems" }
 
 func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
 	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
@@ -247,7 +247,12 @@ type awaitInbound struct {
 	dex.StepDefaults
 }
 
-func (awaitInbound) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+// The input is a pending resolution reason, or "" while the conversation is open.
+func (awaitInbound) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait, error) {
+	if pendingResolution != "" {
+		// Drain replies accepted before the Flow closes.
+		return dex.Until(Replies.AtLeast(1)), nil
+	}
 	// Replies are declared before Resolutions, so queued replies win first.
 	return dex.AnyOf(
 		Replies.AtLeast(1),
@@ -256,7 +261,7 @@ func (awaitInbound) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
 	), nil
 }
 
-func (awaitInbound) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (awaitInbound) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.GoTo(closeInactiveConversation{}, nil), nil
 	}
@@ -279,7 +284,10 @@ func (awaitInbound) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, err
 	if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(awaitInbound{}, nil), nil
+	if pendingResolution != "" {
+		return dex.GoTo(resolveConversation{}, pendingResolution), nil
+	}
+	return dex.GoTo(awaitInbound{}, ""), nil
 }
 
 type resolveConversation struct {
@@ -287,7 +295,11 @@ type resolveConversation struct {
 }
 
 func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("resolved: " + reason), nil
+	return dex.ForceCompleteIfChannelsEmpty(
+		"resolved: "+reason,
+		[]dex.ChannelDef{Replies},
+		dex.MovementOf(awaitInbound{}, reason),
+	), nil
 }
 
 type closeInactiveConversation struct {
@@ -295,7 +307,12 @@ type closeInactiveConversation struct {
 }
 
 func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("inactive"), nil
+	// A reply accepted at the deadline reopens the conversation.
+	return dex.ForceCompleteIfChannelsEmpty(
+		"inactive",
+		[]dex.ChannelDef{Replies},
+		dex.MovementOf(awaitInbound{}, ""),
+	), nil
 }
 ```
 
@@ -303,6 +320,9 @@ func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDe
   an RPC wrote `Transcript`, both would need its lock, and replies would fail
   with lock conflicts while the Step runs.
 - `Replies.AtLeast(1)` takes every queued reply in one execution.
+- Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
+  a reply accepted after the resolution is still recorded. The fallback
+  returns to `awaitInbound` with the pending resolution.
 
 ## Durable Timer
 

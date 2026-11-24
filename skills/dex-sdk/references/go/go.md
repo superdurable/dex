@@ -242,6 +242,7 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 
 - [ ] Every Flow, Step, Attribute, Channel, Stream, and map is registered.
 - [ ] Type names follow the default-name rule.
+- [ ] Flow and Step types are domain names, never `Init`, `Start`, or `Process`.
 - [ ] Every error is returned or matched with `errors.As`; none is parsed from text.
 - [ ] Every Client call has a deadline.
 - [ ] External effects use an idempotency key from durable identity.

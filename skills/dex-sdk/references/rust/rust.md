@@ -272,6 +272,7 @@ Rules:
 ## Self-check
 
 - [ ] Flow type named after its domain; RPC names start with a verb.
+- [ ] Step types are domain names, never `Init`, `Start`, or `Process`.
 - [ ] Definitions are `static LazyLock`; RPCs are `const`.
 - [ ] Every reachable Step in `steps()`; every definition in `persistence()`.
 - [ ] Durable values are owned serde types with stable field names.

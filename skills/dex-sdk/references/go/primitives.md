@@ -487,6 +487,12 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
 - `StepOptions` holds per-method timeouts, `HeartbeatTimeout`, `WaitForRetry`
   and `ExecuteRetry` (`*dex.RetryPolicy`), failure routes, durability, locks,
   and loads. Leave a field zero to use the default.
+- A Step whose provider call can stay silent for minutes sets
+  `HeartbeatTimeout` to at least that call's `ExecuteMethodTimeout`, or
+  heartbeats from a loop of short calls. It also sets
+  `ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: n, TotalDuration: d}` with
+  `d` covering `n` times `ExecuteMethodTimeout` plus backoff. The defaults are
+  in the [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Route an exhausted `Execute` with
   `ExecuteFailure: dex.ProceedToOnExecuteFailure(recoveryStep{}, nil)`. Route an
   exhausted `WaitFor` with `WaitForFailure: dex.ProceedOnWaitForFailure`; the

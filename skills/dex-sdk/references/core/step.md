@@ -151,7 +151,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 - To bound one long attempt, set the method timeout, not the retry total duration.
 - To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff.
-- Always set the retry total duration explicitly for a long-running Step, because its default is long.
+- Always set the retry total duration explicitly for a long-running Step. It must cover every attempt you allow: maximum attempts times the method timeout, plus the backoff between them. With long attempts, the default budget can end retries before the last attempt.
 - Use the attempt deadline to size an external call's timeout and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout.
 - When an external call needs a stricter deadline, wrap it in a child context or the SDK's cancellation mechanism.
 - Do not infer durability from a large attempt timeout. The timeout is a safety bound.
@@ -163,6 +163,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - An explicit valueless heartbeat clears the checkpoint. A Stream message keeps the current one.
 - Heartbeats are not acknowledged. A returned heartbeat call does not prove Dex stored it, even for SYNC. Checkpoints are batched; the next attempt may get an older value. Never use a checkpoint as the only record of an external effect.
 - The default heartbeat timeout is short. A non-streaming provider call, such as a long LLM generation, is silent for its whole duration and fails a healthy attempt. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
+- A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), keeps the default heartbeat timeout. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
 
 ### Retry and failure policy

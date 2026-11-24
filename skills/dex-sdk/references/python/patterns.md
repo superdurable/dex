@@ -16,7 +16,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
 | Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; see below | closest: the inactivity example |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
@@ -134,7 +134,8 @@ from datetime import timedelta
 
 from dex import (
     Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult, Step,
-    StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc,
+    StepDecision, StepList, StepMovement, Timer, Wait,
+    force_complete_if_channels_empty, go_to, rpc,
 )
 
 INACTIVITY_WINDOW = timedelta(hours=24)
@@ -146,16 +147,26 @@ TRANSCRIPT = Attribute("transcript", list[str])
 
 class ResolveConversation(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        return graceful_complete(f"resolved: {input}")
+        return force_complete_if_channels_empty(
+            f"resolved: {input}", StepMovement.of(AwaitInbound, input), REPLIES
+        )
 
 
 class CloseInactiveConversation(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        return graceful_complete("inactive")
+        # A reply accepted at the deadline reopens the conversation.
+        return force_complete_if_channels_empty(
+            "inactive", StepMovement.of(AwaitInbound, ""), REPLIES
+        )
 
 
-class AwaitInbound(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
+class AwaitInbound(Step[str]):
+    """The input is a pending resolution reason, or "" while open."""
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        if input:
+            # Drain replies accepted before the Flow closes.
+            return Wait.until(REPLIES.at_least(1))
         # Replies are declared before resolutions, so queued replies win first.
         return Wait.any_of(
             REPLIES.at_least(1),
@@ -163,7 +174,7 @@ class AwaitInbound(Step[None]):
             Timer.by_duration(INACTIVITY_WINDOW),
         )
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    def execute(self, context: Context, input: str) -> StepDecision:
         if context.has_timer_fired():
             return go_to(CloseInactiveConversation, None)
         replies = REPLIES.results(context)
@@ -172,16 +183,18 @@ class AwaitInbound(Step[None]):
         # An unset list Attribute reads as None.
         transcript = TRANSCRIPT.get(context) or []
         TRANSCRIPT.set(context, [*transcript, *replies])
-        return go_to(AwaitInbound, None)
+        if input:
+            return go_to(ResolveConversation, input)
+        return go_to(AwaitInbound, "")
 
 
-class ConversationFlow(Flow[None]):
+class ConversationFlow(Flow[str]):
     def __init__(self) -> None:
         self.await_inbound = AwaitInbound()
         self.resolve_conversation = ResolveConversation()
         self.close_inactive_conversation = CloseInactiveConversation()
 
-    def get_steps(self) -> StepList[None]:
+    def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.await_inbound).other_steps(
             self.resolve_conversation, self.close_inactive_conversation
         )
@@ -205,6 +218,9 @@ class ConversationFlow(Flow[None]):
   RPC wrote `TRANSCRIPT`, both would need its lock, and replies would fail
   with `RpcLockConflictError` while the Step runs.
 - `REPLIES.at_least(1)` takes every queued reply in one execution.
+- Both closing Steps use `force_complete_if_channels_empty` on `REPLIES`, so a
+  reply accepted after the resolution is still recorded. The fallback returns
+  to `AwaitInbound` with the pending resolution. Start the Flow with `""`.
 
 ## Python notes for the other patterns
 

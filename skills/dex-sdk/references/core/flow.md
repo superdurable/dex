@@ -28,7 +28,7 @@ Rules:
 
 - Dex rejects a read or write of an Attribute or Channel name that the schema does not declare. Register every one before use.
 - A Flow with no start Step, or an empty Step list, is valid when RPCs drive it into Steps later.
-- One Step type can run many times, including in parallel. Its input distinguishes the executions.
+- One Step type can run many times, including in parallel. Its input distinguishes the executions. That fits the same work on different items. Different kinds of work, such as calls to different services, get distinct domain-named Step types, never one Step type with a kind field.
 - Initial Attribute values passed at start must match an Attribute or AttributeMap in the schema. Dex creates the Flow and its initial values in one operation, so the first Step sees them.
 - Flow completion with a null output stores no output. When "completed with null" must differ from "completed without output", return an explicit result object.
 
@@ -79,6 +79,34 @@ Put the follow-on work and its typed input in the first Flow's graph and state:
 
 A downstream start is a separate acceptance boundary, not part of the Step's commit. Persist its stable Flow ID, a Request ID bound to the complete downstream request, and its start options in the owning Flow's input or state. If the Worker dies after the start is accepted but before the Step commits, the retried Execute repeats the same start safely. Never mark downstream work complete only because its start succeeded.
 
+### Child jobs with their own identity
+
+A SubFlow's Flow ID derives from its parent. Model a child job as a top-level child Flow when it needs its own business identity: people or systems look it up, retry it, or stop it by its own number, or something other than the parent can start it. The parent starts it from a Step through the Client and receives its result durably.
+
+```text
+StartChildJob.execute(job)                    // Client injected through the Flow constructor
+    client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,
+                     reuse = disallow, ignore already started, Flow timeout = the job's limit)
+    goTo(AwaitChildJob, job)
+AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
+AwaitChildJob.execute(job)
+    if a report was consumed: record it; continue
+    else: read the child's state with the Client (DescribeFlow, then its outcome Attribute)
+          still running: goTo(AwaitChildJob, job)
+          closed: record its outcome, or "stopped" when it has none; continue
+rpc recordChildOutcome(number, outcome) -> ChildReports[number].publish(outcome)
+
+ChildJobFlow last Step -> write its outcome Attribute; call the parent's recordChildOutcome RPC
+                          (a closed parent counts as delivered); complete
+```
+
+- Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
+- Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
+- The child writes its outcome to an Attribute before it reports, so the parent can still read it after the child closes.
+- Give every child its own Flow timeout. A closing parent never stops its children.
+- A child closed by StopFlow (cancel, fail, or terminate) runs no more application code, so it never reports. The parent then reconciles: when it stops a child, it records the stopped outcome itself; when StopFlow says not found, not active, or closing, the child already ended, so it reads the child's terminal state and outcome. A parent that waits for every child also needs a reconcile Timer, for children that someone else stopped. To let a child finish its own report, give the child a stop RPC that ends it through its own Steps.
+- Children that finish after a quorum, or while the parent stops the rest, still count. Record their reports or terminal outcomes before the parent completes.
+
 ## Flow options
 
 Start options are immutable after the start. Flow configuration can change while the Flow runs.
@@ -115,6 +143,7 @@ The timeout handler is the Flow's last chance to record a business outcome and c
 
 - Configure its method timeout, heartbeat timeout, retry, failure route, durability, locks, and state loads in its timeout handler options. These need a positive Flow timeout and the handler policy.
 - Its timing starts after the deadline fires, so it can run past the original deadline.
+- Active Steps, including Steps that wait on a Channel or Timer, keep running while it runs. To end the Flow at the deadline, it returns ForceComplete or ForceFail. GracefulComplete, or a GoTo to a Step that completes gracefully, closes the Flow only after every active Step ends.
 - It runs once per run. There is no Flow-level retry.
 - It may stage Attribute writes, Channel deletions, and Channel publications with its decision.
 - It receives ordinary Attributes and Channel sizes. AttributeMap values and pending messages need explicit selections in its options.
@@ -160,6 +189,7 @@ Treat StepOptions as part of the graph, not tuning added later. See [step.md](st
 - Is every top-level Flow justified by owner, retention, wait, and terminal-lifecycle differences?
 - Does any pair of Flows exchange RPCs or messages on frequent events? Then merge them or move the decision.
 - Does one owning Flow durably start dependent work, including recovery between downstream acceptance and Step commit?
+- Does a parent of top-level child Flows record children that were stopped without reporting, or that finished after a quorum?
 - Is every Flow type named after its domain and unique in the registry?
 - Is every Attribute, Channel, and Stream in the persistence schema?
 - Can an operator identify the current business state from Dex Web or dexcli?

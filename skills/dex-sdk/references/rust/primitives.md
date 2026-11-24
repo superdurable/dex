@@ -166,6 +166,12 @@ fn options(&self) -> StepOptions<Self::Input> {
   (`initial_interval`, `backoff_coefficient`, `maximum_interval`,
   `maximum_attempts`, `total_duration`). Bound retries whenever a recovery
   route must eventually run.
+- A Step whose provider call can stay silent for minutes sets
+  `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
+  heartbeats from a loop of short calls. It also sets `maximum_attempts(n)` and
+  `total_duration(d)` on `execute_retry`, with `d` covering `n` times
+  `execute_method_timeout` plus backoff. The defaults are in the
+  [StepOptions reference](https://docs.superdurable.io/reference/rust/step-options#defaults).
 - Failure routes: `on_execute_failure_proceed_to(&Recovery)` and
   `wait_for_failure(WaitForFailurePolicy::Proceed)`. See
   [error-handling.md](error-handling.md).
@@ -505,7 +511,7 @@ building blocks:
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |

@@ -198,7 +198,13 @@ class RecordChargeFailure implements Step<Order> {
 - Durability is `"sync"` or `"async"`. Set a Flow-wide default with
   `StartFlowOptions.configOverride.stepDurability`. Override one method with
   `waitForDurability` or `executeDurability`.
-- Defaults and units are in the installed declarations.
+- Defaults and units are in the installed declarations and the
+  [StepOptions reference](https://docs.superdurable.io/reference/typescript/step-options#defaults).
+- A Step whose provider call can stay silent for minutes sets
+  `heartbeatTimeoutMs` to at least that call's `executeMethodTimeoutMs`, or
+  heartbeats from a loop of short calls. It also sets
+  `executeRetry: { maximumAttempts: n, totalDurationMs: d }` with `d` covering
+  `n` times `executeMethodTimeoutMs` plus backoff.
 
 ## Heartbeat and cancellation
 

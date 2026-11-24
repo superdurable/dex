@@ -127,6 +127,7 @@ Before you design a Flow, find its shape below and read the matching section of 
 | A deadline for the whole process | [Graceful timeout](references/core/patterns.md#graceful-timeout) | The Flow timeout and its timeout handler, not a competing Step. |
 | Independent branches of one lifecycle, then a join | [Parallel Steps](references/core/patterns.md#parallel-steps) | GoToMany; a Join waits for all, the first, or n branches. |
 | Branches take turns on shared multi-Step work | [Critical section](references/core/patterns.md#critical-section) | A handoff Step consumes the only token. Every application-controlled exit returns it, including failure and early exit. Protected Steps finish through a token-releasing path. |
+| Child jobs tracked by their own number: looked up, retried, stopped, or started by others | [Top-level child Flows](references/core/flow.md#child-jobs-with-their-own-identity) | A Step starts each child through the Client with a stable Flow ID and Request ID. The child reports back through an RPC, or the parent polls its terminal state. The parent reconciles stopped children and children that finish after a quorum. |
 
 ## Rules agents most often miss
 
@@ -138,12 +139,14 @@ Before you design a Flow, find its shape below and read the matching section of 
 - **One consumer contract per Channel.** Each Channel has one consumer contract: one Step type with one wait shape. For an event every waiter must receive, use one ChannelMap key per waiter and publish to each key.
 - **Bound growing collections.** Keep them in a sequentially chunked AttributeMap, with a retention window when old entries expire, never in one Attribute rewritten on each change. Each append, whether in an RPC or in the Step that consumes a Channel, loads only the current chunk instance.
 - **The graph reads from source.** Return analyzer-visible decisions from Execute, use targets the analyzer can resolve, compose Steps instead of subclassing them, and fix every `dexcli visualize` error diagnostic before handoff.
+- **Long-running Steps set their time budget.** When a provider call can stay silent for minutes, set the heartbeat timeout to at least that call's method timeout, or heartbeat from a loop of short calls. Set the retry total duration explicitly so it covers maximum attempts times the method timeout, plus backoff. The defaults fit short calls; see [step.md](references/core/step.md#time-bounds) and the language's StepOptions reference.
+- **Child jobs with their own identity are top-level Flows.** SubFlow IDs derive from the parent. A child that people look up, retry, or stop by its own number is a top-level Flow that a Step starts with a stable Flow ID and Request ID, and whose result the parent receives durably. A child stopped by StopFlow never reports, and children can finish after a quorum, so the parent reconciles both. See [flow.md](references/core/flow.md#child-jobs-with-their-own-identity).
 
 ## Model before implementation
 
 For non-trivial work, run the [design review](references/core/self-check.md#design-review), then write the Flow model before code. These rules apply everywhere:
 
-- **Names.** Name Flow types after their domain. Start every RPC name with a concrete action verb and its subject, such as `getQueuedMessages`. Prefer complete, precise names to short or generic ones such as `Get`, `Update`, `Manager`, `Data`, or `Handler`.
+- **Names.** Name Flow and Step types after their domain, such as `ReserveStock`, never `Init`, `Start`, or `Process`. Give each fixed kind of work its own Step type, not a kind field. Start every RPC name with a concrete action verb and its subject, such as `getQueuedMessages`. Prefer complete, precise names to short or generic ones such as `Get`, `Update`, `Manager`, `Data`, or `Handler`.
 - **WaitFor versus Execute.** Execute does work; WaitFor only declares the wait and may write Dex state for it. WaitFor never calls an external system. Keep every provider call in Execute, idempotent or compensatable. Never poll a provider from WaitFor or with a Timer loop; use the [Polling pattern](references/core/patterns.md#polling).
 - **Commit boundaries.** Each WaitFor, Execute, and RPC call commits separately. Give a provider action its own Step when its success deserves its own checkpoint, retry policy, failure route, or audit boundary.
 - **One owning Flow.** Start one domain-named Flow at the API boundary for a multi-step mutation. Never chain dependent starts in the API handler. See [flow.md](references/core/flow.md#own-downstream-starts-durably).
@@ -151,7 +154,7 @@ For non-trivial work, run the [design review](references/core/self-check.md#desi
 - **Dex-first state.** Default durable state to Attributes and AttributeMaps, not a new database. See [data-handling.md](references/core/data-handling.md#dex-first-state-ownership).
 - **Start first.** Call StartFlow first with stable identity. Do not read before or after a successful start to guard duplicates. See [error-handling.md](references/core/error-handling.md#start-first-reconcile-only-after-an-error).
 - **Typed failures.** Keep typed Dex errors until domain policy can tell a business rejection, a closed-Flow race, a retryable failure, and a local defect apart.
-- **Terminal reads.** Read retained state with a Client Attribute read or a query-only RPC. Never decode Step outputs from history for a business read.
+- **Terminal reads.** Read retained state with a Client Attribute read or a query-only RPC. Never decode Step outputs from history for a business read. Every result or status a user must see has such a read path: a result Attribute, or the Flow's completion output from WaitForFlow.
 - **Open Flows.** Keep stable names compatible with open Flow runs. See [application.md](references/core/application.md#versioning-flow-code).
 
 ## Complete the vertical slice

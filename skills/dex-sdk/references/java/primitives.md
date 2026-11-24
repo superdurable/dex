@@ -161,6 +161,12 @@ public StepOptions getStepOptions() {
   (`initialInterval`, `backoffCoefficient`, `maximumInterval`,
   `maximumAttempts`, `totalDuration`). Bound retries whenever a recovery route
   must eventually run.
+- A Step whose provider call can stay silent for minutes sets
+  `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
+  heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
+  `totalDuration(d)` on `executeRetry`, with `d` covering `n` times
+  `executeMethodTimeout` plus backoff. The defaults are in the
+  [StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults).
 - Failure routes: `onExecuteFailureProceedTo(Recovery.class)` and
   `waitForFailure(WaitForFailurePolicy.PROCEED)`. See
   [error-handling.md](error-handling.md).
@@ -485,7 +491,7 @@ building blocks:
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |

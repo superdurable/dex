@@ -2,7 +2,7 @@
 
 A SubFlow is a child Flow run that a parent Step starts in WaitFor and waits on as a Condition. The child has its own identity, history, retries, and lifecycle. The parent's Execute reads the child's result.
 
-A separate top-level Flow that a Step starts through a Client is not a SubFlow. See [flow.md](flow.md#own-downstream-starts-durably).
+A separate top-level Flow that a Step starts through a Client is not a SubFlow. See [flow.md](flow.md#own-downstream-starts-durably). A child job that needs its own business identity, such as a number people look it up, retry it, or stop it by, is such a top-level child Flow; see [flow.md](flow.md#child-jobs-with-their-own-identity).
 
 ## Evolution gate
 
@@ -34,7 +34,7 @@ ParentStep.execute(context, input)
 
 ## Identity and reuse
 
-- Dex generates the child Flow ID from the parent Flow ID, the Step execution ID, and the Condition index.
+- Dex generates the child Flow ID from the parent Flow ID, the Step execution ID, and the Condition index. The application cannot choose it, so a child that needs its own business ID is a top-level child Flow.
 - Name every Step that starts SubFlows without `-` in its Step type. Dex fails such a WaitFor attempt without retry. A Step that only waits on Timers or Channels may keep a dash. See [Step types that start SubFlows](https://docs.superdurable.io/reference/server/runtime-data#subflow-step-types).
 - A later run of the same parent Flow ID can generate the same child Flow ID, so the start follows the SubFlow reuse policy. The default policy reuses the earlier run's running or completed child. Use a different parent Flow ID when both children must keep running. See [Later parent runs](https://docs.superdurable.io/reference/server/runtime-data#subflow-parent-lifecycle).
 - SubFlow options are the start options plus a SubFlow reuse policy. The default restarts a child only when the previous one exited abnormally. ATTACH never restarts. ALWAYS_RESTART terminates a running child and starts a fresh one.
