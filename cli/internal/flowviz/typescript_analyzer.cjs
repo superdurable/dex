@@ -555,35 +555,103 @@ class TypeScriptAnalyzer {
   }
 
   // Returns the SubFlow.run call of items.map(item => SubFlow.run(flow, item)) when flow is the same for every item.
+  // The analyzer has no type checker, so it accepts only one conservative shape and leaves the rest to dynamic_wait_condition.
   mappedSubFlowRun(expression) {
-    const mapCall = this.unwrap(expression);
-    if (!mapCall || !this.ts.isCallExpression(mapCall) || this.ts.isOptionalChain(mapCall) || mapCall.arguments.length !== 1) return undefined;
-    const mapCallee = this.unwrap(mapCall.expression);
-    if (!mapCallee || !this.ts.isPropertyAccessExpression(mapCallee) || this.ts.isOptionalChain(mapCallee) || mapCallee.name.text !== "map") return undefined;
-    const callback = this.unwrap(mapCall.arguments[0]);
+    const mapCall = this.stripTypeWrappers(expression);
+    if (!mapCall || !this.ts.isCallExpression(mapCall) || this.hasOptionalChain(mapCall) || mapCall.arguments.length !== 1) return undefined;
+    const mapCallee = this.stripTypeWrappers(mapCall.expression);
+    if (!this.ts.isPropertyAccessExpression(mapCallee) || mapCallee.name.text !== "map" || !this.isArrayParameter(mapCallee.expression)) return undefined;
+    const callback = this.stripTypeWrappers(mapCall.arguments[0]);
     if (!callback || !(this.ts.isArrowFunction(callback) || this.ts.isFunctionExpression(callback))) return undefined;
     // An async callback returns a Promise and a generator returns an iterator, not a condition.
     if (callback.asteriskToken || callback.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.AsyncKeyword)) return undefined;
+    if (!callback.parameters.every(parameter => this.ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)) return undefined;
     const statements = this.handlerStatements(callback);
     if (statements.length !== 1 || !this.ts.isReturnStatement(statements[0])) return undefined;
-    const run = this.unwrap(statements[0].expression);
-    if (!run || !this.ts.isCallExpression(run) || this.ts.isOptionalChain(run)) return undefined;
-    const runCallee = this.unwrap(run.expression);
-    if (!runCallee || !this.ts.isPropertyAccessExpression(runCallee) || this.dexName(runCallee.expression) !== "SubFlow" || runCallee.name.text !== "run") return undefined;
+    const run = this.stripTypeWrappers(statements[0].expression);
+    if (!run || !this.ts.isCallExpression(run) || this.hasOptionalChain(run)) return undefined;
+    const runCallee = this.stripTypeWrappers(run.expression);
+    if (!this.ts.isPropertyAccessExpression(runCallee) || this.dexName(runCallee.expression) !== "SubFlow" || runCallee.name.text !== "run") return undefined;
     const target = run.arguments[0];
-    if (!target || this.ts.isSpreadElement(target) || !this.isItemIndependentFlowReference(target,callback)) return undefined;
+    if (!target || this.ts.isSpreadElement(target) || this.hasOptionalChain(target) || !this.isFixedFlowReference(this.stripTypeWrappers(target),callback)) return undefined;
     return run;
   }
 
-  // Supported: a name or dotted name chain whose root is bound outside the callback, or this in an arrow callback.
-  isItemIndependentFlowReference(target,callback) {
-    let root = this.unwrap(target);
-    while (root && this.ts.isPropertyAccessExpression(root) && !this.ts.isOptionalChain(root)) root = this.unwrap(root.expression);
-    if (!root) return false;
-    if (root.kind === this.ts.SyntaxKind.ThisKeyword) return this.ts.isArrowFunction(callback);
-    if (!this.ts.isIdentifier(root)) return false;
-    const scope = this.bindingScope(root);
-    return !!scope && scope !== callback;
+  stripTypeWrappers(expression) {
+    while (expression && (this.ts.isParenthesizedExpression(expression) || this.ts.isAsExpression(expression) || this.ts.isSatisfiesExpression(expression) || this.ts.isNonNullExpression(expression) || this.ts.isTypeAssertionExpression(expression))) expression = expression.expression;
+    return expression;
+  }
+
+  // Parentheses end optional-chain propagation, so every link of the chain is checked.
+  hasOptionalChain(expression) {
+    for (let node = this.stripTypeWrappers(expression); node; node = this.stripTypeWrappers(node.expression)) {
+      if (!(this.ts.isPropertyAccessExpression(node) || this.ts.isElementAccessExpression(node) || this.ts.isCallExpression(node))) return false;
+      if (node.questionDotToken) return true;
+    }
+    return false;
+  }
+
+  // Supported: a never-reassigned parameter whose type annotation is an array, readonly array, or tuple type.
+  isArrayParameter(receiver) {
+    receiver = this.stripTypeWrappers(receiver);
+    if (!receiver || !this.ts.isIdentifier(receiver)) return false;
+    const declaration = this.localBindingDeclaration(receiver);
+    if (!declaration || !this.ts.isParameter(declaration) || !declaration.type || !this.ts.isIdentifier(declaration.name)) return false;
+    let type = declaration.type;
+    if (this.ts.isTypeOperatorNode(type) && type.operator === this.ts.SyntaxKind.ReadonlyKeyword) type = type.type;
+    if (!this.isArrayTypeNode(type) && !this.ts.isTupleTypeNode(type)) return false;
+    return this.staticBinding(declaration.parent,receiver.text) === declaration;
+  }
+
+  // Supported: an import, a module const of a Flow reference, or this.field in an arrow callback.
+  isFixedFlowReference(target,callback) {
+    if (this.ts.isIdentifier(target)) return this.isModuleFlowReference(target,new Set());
+    if (!this.ts.isPropertyAccessExpression(target) || !this.ts.isArrowFunction(callback)) return false;
+    const owner = this.selfReferenceClass(this.stripTypeWrappers(target.expression));
+    return !!owner && this.isReadonlyFlowField(owner,target.name.text);
+  }
+
+  isModuleFlowReference(identifier,seen) {
+    if (seen.has(identifier.text) || this.bindingScope(identifier) !== this.tree) return false;
+    seen.add(identifier.text);
+    const declaration = this.staticBinding(this.tree,identifier.text);
+    if (!declaration) return false;
+    if (this.ts.isImportSpecifier(declaration) || this.ts.isImportClause(declaration)) return !declaration.isTypeOnly;
+    const statement = declaration.parent?.parent;
+    if (!this.ts.isVariableDeclaration(declaration) || !statement || !this.ts.isVariableStatement(statement) || statement.parent !== this.tree) return false;
+    if (!(statement.declarationList.flags & this.ts.NodeFlags.Const) || !this.ts.isIdentifier(declaration.name)) return false;
+    return this.isFlowValueExpression(declaration.initializer,seen);
+  }
+
+  // Supported: new of a Flow class declared in this file or of an import, or a module Flow reference.
+  isFlowValueExpression(expression,seen) {
+    const value = this.stripTypeWrappers(expression);
+    if (!value) return false;
+    if (this.ts.isIdentifier(value)) return this.isModuleFlowReference(value,seen);
+    if (!this.ts.isNewExpression(value) || !this.ts.isIdentifier(value.expression)) return false;
+    const flowClass = this.classes.get(value.expression.text);
+    if (flowClass && this.bindingScope(value.expression) === this.tree) return !!this.method(flowClass,"getSteps");
+    const declaration = this.bindingScope(value.expression) === this.tree ? this.staticBinding(this.tree,value.expression.text) : undefined;
+    return !!declaration && (this.ts.isImportSpecifier(declaration) || this.ts.isImportClause(declaration));
+  }
+
+  // Supported: a readonly parameter property typed as a Flow class of this file, or a readonly field initialized to a Flow value.
+  isReadonlyFlowField(owner,name) {
+    if (this.hasDynamicFields || this.dynamicClasses.has(owner) || this.thisStores.get(owner)?.has(name)) return false;
+    const isReadonly = node => !!node.modifiers?.some(modifier => modifier.kind === this.ts.SyntaxKind.ReadonlyKeyword);
+    for (const member of owner.members) {
+      if (this.ts.isConstructorDeclaration(member)) {
+        const parameter = member.parameters.find(candidate => this.ts.isIdentifier(candidate.name) && candidate.name.text === name);
+        if (!parameter) continue;
+        const type = parameter.type;
+        const flowClass = type && this.ts.isTypeReferenceNode(type) && this.ts.isIdentifier(type.typeName) ? this.classes.get(type.typeName.text) : undefined;
+        return isReadonly(parameter) && !!flowClass && !!this.method(flowClass,"getSteps");
+      }
+      if (this.ts.isPropertyDeclaration(member) && member.name && this.propertyName(member.name) === name && !this.isStatic(member)) {
+        return isReadonly(member) && this.isFlowValueExpression(member.initializer,new Set());
+      }
+    }
+    return false;
   }
 
   addUnknownWaitCondition(node,index,conditions) {
