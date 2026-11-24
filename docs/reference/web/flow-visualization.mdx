@@ -283,6 +283,7 @@ Every **return** ends its path. Statements after a statement that always returns
 
 - The return value is a **Wait.until**, **Wait.allOf**, **Wait.anyOf**, **Wait.anyCombinationOf**, or **Wait.skipImmediately** call. The call is written in the **return**, or bound to a **const** declared directly in the **waitFor** body that is used only as a returned value. Each return is its own Wait node. Conditions come from **if**, **switch**, and conditional expressions, as for Execute decisions.
 - Each Wait argument is a condition call written in place with a dot: **Timer.byDuration**, **SubFlow.run**, **ConditionCombination.of**, or a **forOne**, **forN**, **atLeast**, **atMost**, **range**, or Join branch condition on a resource reference described below. Each **ConditionCombination.of** numbers its own conditions from 0, as Go numbers a **Combo**. A static millisecond duration gets a unit label, such as **2 seconds timer**.
+- A Wait argument may also spread a **map** written in place whose callback only returns **SubFlow.run**, such as `...requests.map((request) => SubFlow.run(childFlow, request))`. The child Flow argument must not read the callback's parameters. The graph shows one SubFlow condition for the whole group, as the Python analyzer does for a starred generator. Changed in dexcli 1.48.1: this form was a **dynamic_wait_condition**.
 - A **waitFor** that only throws is a failure Wait, as for Go and Python.
 - The graph uses the Go names for two Wait types: **skipWaitImmediately** and **anyComboOf**.
 
@@ -304,7 +305,7 @@ Resource access in Execute, **waitFor**, RPC, and **handleTimeout**:
 These shapes are blocking diagnostics:
 
 - A **waitFor** return that is not a supported Wait, such as a helper call or a module-level Wait constant, produces **hidden_dex_wait**.
-- A Wait argument that is not a supported condition, such as a spread, a helper call, a bound name, a computed method key, or a condition on a local alias, produces **dynamic_wait_condition**. The graph shows that condition as unknown. The Go analyzer follows condition helpers.
+- A Wait argument that is not a supported condition, such as any other spread, a spread of a bound list, a helper call, a bound name, a computed method key, or a condition on a local alias, produces **dynamic_wait_condition**. The graph shows that condition as unknown. The Go analyzer follows condition helpers.
 - An RPC result stored in a variable, any other returned value, or a recursive result helper produces **hidden_dex_decision**.
 - A **nextSteps** or **cancelingSteps** value that is not a supported list, such as an alias, a spread, a list that is changed or passed on, or a movement built in a helper, produces **dynamic_step_target**.
 - These produce **dynamic_resource_access**:

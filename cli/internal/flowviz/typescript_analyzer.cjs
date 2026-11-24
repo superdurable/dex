@@ -512,6 +512,13 @@ class TypeScriptAnalyzer {
 
   // Each argument is one condition at its index; ConditionCombination.of numbers its own arguments, as Go's Combo does.
   collectWaitCondition(waitID,argument,index,conditions) {
+    if (this.ts.isSpreadElement(argument)) {
+      // A spread SubFlow.run map is one SubFlow condition, as in the Python analyzer.
+      const subFlowRun = this.mappedSubFlowRun(argument.expression);
+      if (subFlowRun) this.collectWaitCondition(waitID,subFlowRun,index,conditions);
+      else this.addUnknownWaitCondition(argument,index,conditions);
+      return;
+    }
     // Supported: the condition call written directly as the argument.
     const call = this.unwrap(argument);
     const callee = call && this.ts.isCallExpression(call) ? this.unwrap(call.expression) : undefined;
@@ -544,6 +551,41 @@ class TypeScriptAnalyzer {
     const {label,expression} = this.channelConditionLabel(resourceID,method,call.arguments);
     conditions.push({index,kind:"channel",label,resourceId:resourceID,...(expression ? {expression} : {}),span});
     this.graph.edges.push({kind:"wait_condition",from:resourceID,to:waitID,label,span,metadata:{conditionIndex:index}});
+  }
+
+  // Returns the SubFlow.run call of items.map(item => SubFlow.run(flow, item)) when flow does not depend on item.
+  mappedSubFlowRun(expression) {
+    const mapCall = this.unwrap(expression);
+    if (!mapCall || !this.ts.isCallExpression(mapCall) || mapCall.arguments.length !== 1) return undefined;
+    const mapCallee = this.unwrap(mapCall.expression);
+    if (!mapCallee || !this.ts.isPropertyAccessExpression(mapCallee) || mapCallee.name.text !== "map") return undefined;
+    const callback = this.unwrap(mapCall.arguments[0]);
+    if (!callback || !(this.ts.isArrowFunction(callback) || this.ts.isFunctionExpression(callback))) return undefined;
+    const statements = this.handlerStatements(callback);
+    if (statements.length !== 1 || !this.ts.isReturnStatement(statements[0])) return undefined;
+    const run = this.unwrap(statements[0].expression);
+    const runCallee = run && this.ts.isCallExpression(run) ? this.unwrap(run.expression) : undefined;
+    if (!runCallee || !this.ts.isPropertyAccessExpression(runCallee) || this.dexName(runCallee.expression) !== "SubFlow" || runCallee.name.text !== "run") return undefined;
+    const target = run.arguments[0];
+    if (!target || this.readsParameterOf(target,callback)) return undefined;
+    return run;
+  }
+
+  // Conservative: any read of a callback parameter name counts, including destructured names.
+  readsParameterOf(expression,callback) {
+    const names = new Set();
+    const collectNames = node => {
+      if (this.ts.isIdentifier(node)) names.add(node.text);
+      this.ts.forEachChild(node,collectNames);
+    };
+    for (const parameter of callback.parameters) collectNames(parameter.name);
+    let reads = false;
+    const visit = node => {
+      if (this.ts.isIdentifier(node) && this.isValueReference(node) && names.has(node.text)) reads = true;
+      this.ts.forEachChild(node,visit);
+    };
+    visit(expression);
+    return reads;
   }
 
   addUnknownWaitCondition(node,index,conditions) {
