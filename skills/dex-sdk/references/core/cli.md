@@ -39,7 +39,7 @@ For a Go, Python, or TypeScript Flow, run `dexcli visualize SOURCE` once the sha
 3. Share the Dex Web URL before you continue.
 4. Keep it running while you implement, and run tests on separate isolated stacks.
 
-The visualizer reads Flow source without running it. Java and Rust source is not supported. Full management metadata (Indexed Attribute presentation, Summary and Display, Actions) comes only from Go Flow definitions. Python and TypeScript Steps carry `dex:group` and `dex:explanation` comments directly above each Step class; a missing or malformed directive is a blocking analyzer error. The rules are in the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
+The visualizer reads Flow source without running it. Java and Rust source is not supported. Full management metadata (Indexed Attribute presentation, Summary and Display) comes only from Go Flow definitions. For Actions, use only the directives and options that the Flow visualization reference lists for the language. Python and TypeScript Steps carry `dex:group` and `dex:explanation` comments directly above each Step class; a missing or malformed directive is a blocking analyzer error. The rules are in the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
 
 ## Inspect a Flow
 

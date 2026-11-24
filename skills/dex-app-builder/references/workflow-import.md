@@ -29,7 +29,8 @@ semantics](n8n-semantics.md).
     faithful default, the recommendation, and the `D` row that asks; the row
     becomes `mapped` or `diverged` once the user decides.
 - A row's state describes its own element. A value computation reproduced in
-  Go is `mapped` even when its consumer is `blocked`; note the dependency. A
+  the application's language is `mapped` even when its consumer is `blocked`;
+  note the dependency. A
   node whose parts map differently gets sub-rows, such as `N3a` and `N3b`.
   A placeholder node whose behavior only the user can supply, and an unknown
   source fact such as the release, timezone, locale, or workflow ID, is
@@ -94,7 +95,7 @@ application's owning documentation.
 
 Read release-tagged connector files in this order: the web view of the
 component tag; then a local clone of the official connector library, after
-`git tag -l <directory>/go/<version>` (some older releases use `<directory>/<version>`)
+`git tag -l <directory>/<language>/<version>` (some older releases use `<directory>/<version>`)
 confirms the tag, through
 `git show <that tag>:<directory>/<file>`, never the working tree or
 `main`; otherwise record a `blocked` verification row and write no design
@@ -102,7 +103,7 @@ fields for that operation. Record which source you used. In zsh, write a tag
 held in a variable as `"${TAG}:path"`, because `$TAG:` is parsed as a modifier:
 
 ```bash
-TAG=<directory>/go/<version>
+TAG=<directory>/<language>/<version>
 git -C /path/to/dex-connectors-library show "${TAG}:<directory>/connector.yaml"
 ```
 
@@ -361,7 +362,8 @@ library decision](connector-architecture.md#internal-connector-library-decision)
 check the catalog for whether a generic HTTP connector is released.
 
 Read, at the tag, the operation's `connector.yaml` (branches, idempotency, and
-execution policy) and its Go input and output types and validation function,
+execution policy) and its input and output types and validation function in
+the application's language,
 since the manifest names those types but not their fields or validation.
 Record each connector-imposed difference as its own row in the ledger's
 connector-imposed differences section:
@@ -459,19 +461,21 @@ operators: keep hand-written predicate expectations, with the
   fixtures, through the consuming operation's input validation at the tag, so
   a derived required field is never blank. Before implementation, record each
   validation rule as a connector-imposed difference row; once code exists,
-  assert it in a Go test that calls the operation's validation at the tag (or a
+  assert it in a test in the application's language that calls the
+  operation's validation at the tag (or a
   copy of it, citing the tag). Push each fixture through the consuming
   connector's typed output before claiming parity; for a connector gap, each
   value the planned type must carry, such as null versus missing, becomes a
-  contribution requirement. A value the Go type cannot represent, such as null versus
+  contribution requirement. A value the operation's type cannot represent, such as null versus
   missing versus empty, becomes a connector contribution requirement or a
   `diverged` row that states the exact difference.
 - Golden the final effect payload, not only the upstream node: read the
   integration node's `execute()` for transforms applied after expressions
   resolve, such as `String()` coercion, trimming, a footer, MIME parts, or
   header folding.
-- Port each node to a pure Go function called from an application Step. Assert
-  byte equality against the golden files in the application repository.
+- Port each node to a pure function in the application's language, called
+  from an application Step. Write its tests in that language. Assert byte
+  equality against the golden files in the application repository.
 - Code-node ports reproduce Code JavaScript: `null` and `undefined`
   interpolate as text, a throw fails the node, `String.replace` with a string
   replaces only the first occurrence, and truthiness treats `""`, `0`, and
@@ -481,9 +485,11 @@ operators: keep hand-written predicate expectations, with the
   yields an empty value. See
   [n8n semantics](n8n-semantics.md#parameter-expressions) for both. Luxon
   formats and calendar arithmetic run in the source timezone.
-- Port non-trivial expressions as pure Go helpers tested against the
-  expression goldens. Go's `strings.ToLower` and `strings.TrimSpace` differ from
-  JavaScript for `İ`, a word-final `Σ`, U+0085, and U+FEFF.
+- Port non-trivial expressions as pure helpers in the application's language,
+  tested against the expression goldens. The language's lowercase and trim
+  functions can differ from JavaScript. For example, Go's `strings.ToLower`
+  and `strings.TrimSpace` differ for `İ`, a word-final `Σ`, U+0085, and
+  U+FEFF.
 
 ## 8. Confirm the design
 

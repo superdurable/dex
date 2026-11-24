@@ -205,11 +205,10 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
 
 ## Dex Web metadata
 
-The FDG 2.0 analyzer reads Python source for Step groups, explanations, and
-Connector package manifests only. A Python Flow cannot publish Summary,
-Display, Action, or Indexed Attribute presentation metadata; do not invent
-syntax for it. Put exactly one group line and one explanation line directly
-above each local Step class:
+The FDG 2.0 analyzer reads Python source. Use only the `dex:` directives and
+options that the Flow visualization reference lists for Python. Skip a
+capability it does not list, and never invent syntax for it. Put exactly one
+group line and one explanation line directly above each local Step class:
 
 ```python
 # dex:group group-id:lookup group-label:"Lookup"

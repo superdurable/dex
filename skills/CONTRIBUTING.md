@@ -9,8 +9,8 @@ This repository publishes one plugin with three root-level skills:
 - `dex-sdk` owns public Dex SDK implementation guidance and its Core and
   language references.
 - `dex-app-builder` owns the business-first product workflow and its stricter
-  Go backend constraints. It links to `dex-sdk` instead of copying SDK
-  references.
+  backend constraints for every SDK language. It links to `dex-sdk` instead
+  of copying SDK references.
 - `dex-connector-contributor` is the thin bootstrap for official
   connector-library work. It resolves the checkout and then follows that
   repository's rules, while linking to `dex-sdk` Core/Go when needed.
@@ -79,6 +79,9 @@ otherwise miss:
   (`https://docs.superdurable.io/reference/...`, latest version only) and to
   `examples/` on the `main` branch of `superdurable/dex`. No link pins a
   release tag or commit.
+- Link examples that show a mechanism, such as primitives, patterns,
+  configuration, and tests. Do not link product examples under
+  `examples/*/products/`, which carry business logic.
 - A few narrow exceptions cover destinations the Developer reference cannot
   replace. Each one is listed with its reason in
   `ALLOWED_EXTERNAL_URL_EXCEPTIONS` in `script/check-package.py`: the

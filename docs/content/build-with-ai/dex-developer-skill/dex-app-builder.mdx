@@ -3,15 +3,15 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
-description: "Dex App Builder is the primary skill for creating a Dex application or process product. It covers the whole path: working out the business process, choosing the UI, building the Go backend, testing locally, and handing off the result."
+description: "Dex App Builder is the primary skill for creating a Dex application or process product. It covers the whole path: working out the business process, choosing the UI, building the backend in Go, Python, TypeScript, Java, or Rust, testing locally, and handing off the result."
 ---
 
 # Dex App Builder
 
 Dex App Builder is the **primary skill** for creating a Dex application or
 process product. It covers the whole path: working out the business process,
-choosing the UI, building the Go backend, testing locally, and handing off the
-result.
+choosing the UI, building the backend in Go, Python, TypeScript, Java, or
+Rust, testing locally, and handing off the result.
 
 ## Install and use
 
@@ -81,12 +81,16 @@ generated API client, is not by itself a reason to build a custom UI.
 
 ### 3. Design and implement the Flow
 
-The backend uses the supported application template and the Dex Go SDK. App
+The backend uses the Dex SDK for the application's language: Go, Python,
+TypeScript, Java, or Rust. An existing application keeps its language. A new
+application uses the language you name, or TypeScript when you name none. App
 Builder loads [Dex SDK](./dex-sdk.mdx) for the general SDK rules, then adds
 stricter rules of its own:
 
-- write the application backend in Go;
-- target strict Dex Web and Flow Definition Graph 2.0 rendering;
+- target strict Dex Web and Flow Definition Graph 2.0 rendering, with the
+  directives that the
+  [Flow visualization reference](/reference/web/flow-visualization) lists for
+  the language;
 - call external providers only from `Execute`;
 - keep provider calls and Dex changes out of `WaitFor`;
 - model each human operation as a typed Action with an explicit permission;
@@ -119,7 +123,7 @@ broken. App Builder then loads
 [Dex Connector Contributor](./dex-connector-contributor.mdx).
 
 While the contribution is in review, the application can test against a local
-copy of the Connector module. The application is not ready for production
+copy of the Connector package. The application is not ready for production
 until that Connector is released with an exact version. The skill never
 commits a branch, commit SHA, pseudo-version, or local replacement as a
 production dependency.
@@ -130,7 +134,7 @@ When App Builder finishes, you have:
 
 - a confirmed process and permission model;
 - a clear choice between Dex Web and a custom UI;
-- a Go Dex application built on the supported template;
+- a Dex application in the chosen language;
 - test evidence from local runs and a real Dex Server;
 - a list of Connector releases that still block production, if any;
 - a repository ready for review.

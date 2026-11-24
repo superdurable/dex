@@ -13,7 +13,7 @@ publisher, while the stable plugin ID remains `superdurable-dex`.
 
 | Skill | Responsibility |
 | --- | --- |
-| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a Go backend and UI, and verify locally with source-available Dex. |
+| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a backend in Go, Python, TypeScript, Java, or Rust and a UI, and verify locally with source-available Dex. |
 | `dex-sdk` | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
 | `dex-connector-contributor` | Create, verify, and upstream official connector operations, Triggers, and configuration UI units. |
 
@@ -292,7 +292,7 @@ lockfile remain authoritative.
 ## Dex App Builder
 
 `dex-app-builder` builds a Dex application with source-available Dex only: the Dex
-Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
+SDK for the application's language, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
 (server-zd), Dex Web, and released official connectors.
 
 It starts with business discovery: process maintainers, managers, terminal
@@ -306,20 +306,21 @@ operations, Work Queue discovers actionable Runs, and timeline/graph views show
 progress and failures. A request for an admin backend is not itself a reason
 for Custom UI; discovery must record a specific Dex Web capability gap.
 
-The backend is Go-only by product decision and must satisfy strict Dex Web / FDG 2.0 rendering.
-Official Connectors are not Go-only: the catalog lists the languages of each connector and
-of each operation and Trigger, and `dex-sdk` describes Python and TypeScript use.
-An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
-versions. An effectively empty repository becomes a Go module on an exact
-released Dex Go SDK paired with the installed `dexcli`. App Builder does not
-invent a TypeScript backend or borrow SDK setup from a neighboring project.
+The backend can be Go, Python, TypeScript, Java, or Rust, and must satisfy strict Dex Web / FDG 2.0
+rendering with the directives the Flow visualization reference lists for that language.
+An existing application keeps its language and its pinned toolchain, Dex SDK, `dexcli`, and frontend
+versions. Otherwise App Builder uses the language the user names, or TypeScript when the user names
+none. An effectively empty repository gets an exact released Dex SDK for that language paired with
+the installed `dexcli`. App Builder does not borrow SDK setup from a neighboring project. The
+catalog lists the languages of each connector and of each operation and Trigger, and App Builder
+uses the connector packages for the application's language.
 
 No custom UI uses Dex Web for every management interaction, so the
-application ships only its Go Worker plus any confirmed integration ingress.
+application ships only its Worker plus any confirmed integration ingress.
 For a custom frontend, App Builder first builds only low-fidelity static pages
 when an interaction choice is unresolved, then designs the Flow, Connector
-boundaries, and application API contract together, generates the Go server
-interfaces and TypeScript client, implements the Go backend, wires the UI
+boundaries, and application API contract together, generates the server
+interfaces and TypeScript client, implements the backend, wires the UI
 through the generated client after the real Dex and Connector paths run, and
 adds visual polish only after real E2E passes. The application does not ship a
 mock backend or mock controls.
@@ -328,14 +329,14 @@ Connector integrations reuse released dedicated connectors from
 `superdurable/dex-connectors-library`. Selection starts from the canonical
 published [`catalog.yaml`](https://connectors.superdurable.io/catalog.yaml),
 then verifies every exact Trigger, Query, Mutation, or UI capability, and its
-`go` language support, against the selected component tag's immutable `connector.yaml`. If the catalog or release
+support for the application's language, against the selected component tag's immutable `connector.yaml`. If the catalog or release
 manifest cannot be verified, App Builder stops connector-dependent
 implementation instead of guessing from memory or falling back to a provider
 SDK. Query/Mutation factories become Connector Steps, Triggers start typed
 Flows or invoke typed RPCs, and RPC-requested provider work moves to a
 Connector Step. A missing or defective public connector capability routes to
 `dex-connector-contributor`; the application can test the local connector
-through an uncommitted Go `replace` while its upstream PR is reviewed, then
+through an uncommitted local package override while its upstream PR is reviewed, then
 must pin the exact release. Generic HTTP is reserved for controlled internal
 systems.
 

@@ -37,18 +37,13 @@ Identify each of these from the supplied intent first:
 
 ## Stack checkpoint
 
-Classify the repository before you propose a language. An effectively empty
-repository gets the stack in [workspace bootstrap](workspace-bootstrap.md): a
-Go backend on an exact released Dex Go SDK paired with the installed `dexcli`,
-plus a React and Vite frontend only for a confirmed custom UI. Do not offer
-TypeScript, Node, or another SDK language as an equivalent default.
-
-Only an explicit user request can replace the Go backend for a new
-application. Before you accept it, explain that App Builder, strict FDG 2.0,
-and Dex Web management metadata require Go. A non-Go backend becomes a
-standalone `dex-sdk` project. Python and TypeScript projects may use official
-Connectors where the catalog lists their language. Java and Rust have no
-Connector SDK.
+Classify the repository before you propose a language. Pick the backend
+language with the rule in
+[workspace bootstrap](workspace-bootstrap.md#choose-the-language). The backend
+uses an exact released Dex SDK for that language, paired with the installed
+`dexcli`. Add a React and Vite frontend only for a confirmed custom UI. Use
+the official Connector packages that the catalog lists for the application's
+language.
 
 ## Actor, role, operation, and permission matrix
 
@@ -145,8 +140,8 @@ owner, so it never pollutes the authoritative store.
 | product-specific | yes or no | concrete option | measured requirement, not speculation | required before a SubFlow | Step, independent top-level Flow, or confirmed SubFlow |
 
 New applications default to no SubFlows. Use static or dynamic parallel
-Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary Go
-helpers first. Provider abstraction, research stages, model calls, code reuse,
+Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary
+helper functions first. Provider abstraction, research stages, model calls, code reuse,
 an independent retry policy, and ordinary bounded fan-out never justify a
 SubFlow.
 
@@ -241,8 +236,9 @@ integration UI. Follow the discovery procedure in
 - For a public external product, match each need to an exact released
   capability, not a Connector name. Verify the full contract in the
   component tag's immutable `connector.yaml`.
-- Require `go` in the Connector's `languages` map and in the capability's
-  own `languages` list. A capability without `go` is a gap.
+- Require the application's language in the Connector's `languages` map and
+  in the capability's own `languages` list. A capability without that
+  language is a gap.
 - Record the catalog URL, Connector ID, capability kind and name, component
   tag, immutable manifest URL, and the reuse or gap decision.
 

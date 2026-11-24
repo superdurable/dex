@@ -25,8 +25,8 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 - All three Skills may be selected by matching natural-language descriptions.
 - `dex-app-builder` is the default end-to-end product workflow for business
   discovery, Flow and FDG modeling, an explicit no-custom-UI or custom-UI
-  decision, Go backend implementation, and local verification with source-available
-  Dex tooling.
+  decision, backend implementation in Go, Python, TypeScript, Java, or Rust,
+  and local verification with source-available Dex tooling.
 - `dex-sdk` is the specialist for implementing, debugging, testing, and
   operating applications through the public Dex SDK.
 - `dex-connector-contributor` is the thin bootstrap for official
@@ -38,13 +38,17 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 - If the user explicitly invokes a specialist, honor that choice and do not
   expand it into the App Builder workflow.
 - During backend implementation, `dex-app-builder` loads `dex-sdk` and follows
-  only its Core and Go guidance. Do not duplicate those references.
+  only its Core guidance and the guidance for the application's language. Do
+  not duplicate those references.
 - `dex-connector-contributor` loads `dex-sdk` Core and Go guidance when needed.
   The target connector repository owns connector-specific implementation,
   acceptance, release, and pull-request rules; `dex-app-builder` owns
   application use of released connectors.
-- App Builder constraints are stricter: Go only, strict FDG 2.0, provider effects
-  only in `Execute`, and no provider or Dex mutations in `WaitFor`.
+- App Builder constraints are stricter: strict FDG 2.0 with only the
+  directives the Flow visualization reference lists for the language,
+  provider effects only in `Execute`, and no provider or Dex mutations in
+  `WaitFor`. App Builder treats Go, Python, TypeScript, Java, and Rust
+  equally and never tells users what a language lacks.
 
 ## Skill content: the stable layer for agents
 
@@ -60,7 +64,8 @@ parameters, defaults, limits, configuration, flags, error codes, and version
 differences belong in SDK doc comments and the versioned docs Developer
 reference. Link to the Developer reference and to `examples/` for those
 details. Never link to the docs Primitives, Components, or Design pattern
-pages.
+pages. Link examples that show a mechanism, such as primitives, patterns,
+configuration, and tests, not product examples under `examples/*/products/`.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
 relation, a Component, or a design pattern changes. Update the matching docs

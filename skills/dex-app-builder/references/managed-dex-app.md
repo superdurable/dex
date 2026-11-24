@@ -23,7 +23,7 @@ and the language-neutral product constraints: Dex as the store, effects only
 in `Execute`, start identity, and credentials outside the code. Implement the
 TypeScript shape with the [Dex SDK](../../dex-sdk/SKILL.md) TypeScript
 references, and follow the example's `AGENTS.md` for the Flow shapes its check
-accepts. Go FDG authoring applies only to the Go profile. Connectors work on
+accepts. Connectors work on
 every profile; use the connector packages of the application's language. The
 repository shape and the checks come from this file.
 
@@ -115,8 +115,7 @@ These rules collide with two App Builder defaults:
   `AGENTS.md`. They are target requirements, not a custom UI decision. Dex Web
   still owns management.
 - A Managed Dex App backend follows the example's stack, so it is TypeScript
-  unless the user asked for Go. The Go-only rule applies to applications that
-  run locally only.
+  unless the user asked for Go.
 
 ## Strict YAML in dex-app.yaml
 

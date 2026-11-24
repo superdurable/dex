@@ -224,10 +224,11 @@ there. See
   an ordinary Attribute. Keep them behind the application's secret management.
   A short-lived secret that the Flow itself must hold belongs in a hard-delete
   Attribute. See [../core/connector.md](../core/connector.md).
-- The FDG 2.0 management metadata (Summary, Display, Action, Indexed Attribute,
-  group, explanation) is read from Go source only. Do not invent Java
-  annotations for it. Java Flows still work with Dex Web, the CLI, and the
-  Client.
+- For FDG 2.0 management metadata, use only the `dex:` directives and options
+  that the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+  lists for Java. Skip a capability it does not list, and never invent Java
+  annotations or syntax for it. Java Flows work with Dex Web, the CLI, and
+  the Client.
 
 ## Java gotchas
 

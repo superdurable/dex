@@ -204,7 +204,8 @@ n8n 1.96; earlier tags use PascalCase names):
 - An expression that returns a Luxon DateTime is serialized as ISO 8601 with
   its offset. Luxon macro formats such as `toFormat('DDD')` and
   `toLocaleString()` depend on the instance locale.
-- Luxon maps to Go as follows. `toFormat('yyyy-MM-dd')` is
+- Port Luxon to the date library of the application's language with the same
+  wall-clock rules. In Go, Luxon maps as follows. `toFormat('yyyy-MM-dd')` is
   `Format("2006-01-02")`. Calendar arithmetic (`plus` and `minus` with days,
   weeks, or months), `set` of an hour, and `startOf('day')` keep the wall clock
   in the same `*time.Location`, so they map to `AddDate` and `time.Date`, except
@@ -234,8 +235,9 @@ n8n 1.96; earlier tags use PascalCase names):
   - Template literals render `null` as `null`, `undefined` as `undefined`, and
     objects as `[object Object]`. `NaN` in an output item serializes as null.
   - `""`, `0`, `null`, and `undefined` are all falsy.
-  - `toLowerCase`, `trim`, and `toLocaleString` differ from Go's standard
-    library; port them with golden cases.
+  - `toLowerCase`, `trim`, and `toLocaleString` can differ from the standard
+    library of the application's language, such as Go's; port them with
+    golden cases.
 - `console.log` output is not saved with the execution: a manual run sends it to
   the browser console, and other runs discard it unless `CODE_ENABLE_STDOUT` is
   true. The Code node runs sloppy-mode
@@ -251,14 +253,14 @@ n8n 1.96; earlier tags use PascalCase names):
 | App Trigger, such as Gmail Trigger | The matching released connector Trigger, with the provider event ID as the request ID. If it is missing, contribute it. A trigger that accepts anyone, such as a Telegram Trigger without chat or user restrictions, is source behavior to record. |
 | Form Trigger | A Dex Web Start Flow form, or a participant Custom UI when the form is participant-facing. |
 | Error Trigger, workflow `errorWorkflow` | An Execute-failure route to an explicit recovery Step. |
-| Set (Edit Fields) | A typed Go mapping inside the consuming application Step. |
-| IF, Filter, Switch | A Go predicate in an application Step that chooses the movement. An unconnected output ends without a movement. |
+| Set (Edit Fields) | A typed mapping inside the consuming application Step. |
+| IF, Filter, Switch | A predicate in an application Step that chooses the movement. An unconnected output ends without a movement. |
 | Merge | An await-all Join: the split Step forks the branches and the merge Step, and each branch's success and failure routes both end the branch with one result, so each branch counts once. Replicate the merge mode exactly: append, combine by key or position, or choose a branch. Under execution order `v1`, choose-branch requires inputs 1 and 2, so when one never receives items the Merge and everything after it never run and the execution ends without an error; the other modes run with the missing input empty. |
 | Loop Over Items | Bounded dynamic parallel Steps when the body is application Steps, or batched Steps when the source paces a rate limit. When the body reaches a Connector Step, process items one at a time with a persisted cursor, because a Connector result carries no item context. |
-| Split Out, Aggregate, Sort, Limit, Remove Duplicates, Date & Time | Pure Go transforms. Deduplication across executions needs durable state. |
-| Code, Function, Function Item | A pure Go function in an application Step, with golden parity tests. |
+| Split Out, Aggregate, Sort, Limit, Remove Duplicates, Date & Time | Pure transforms in the application's language. Deduplication across executions needs durable state. |
+| Code, Function, Function Item | A pure function in the application's language, called from an application Step, with golden parity tests in that language. |
 | HTTP Request | The dedicated connector operation for that provider. A call to an organization-controlled internal service follows the [internal connector library decision](connector-architecture.md#internal-connector-library-decision); check the catalog for whether a generic HTTP connector is released before planning one. |
-| Wait (`resume` timeInterval) | An application Step whose WaitFor returns `dex.Until(dex.Timer(amount × unit))`, measured from when that Step starts, as n8n measures from when the Wait node runs; its Execute builds the next Step's input. A Connector Step cannot wait. Never compute or persist a deadline in WaitFor. n8n resumes an overdue wait whenever the instance comes back, however late, so give the waiting Step an explicit Execute retry total duration that covers the longest tolerated Worker outage, or an Execute-failure route that records the outcome. |
+| Wait (`resume` timeInterval) | An application Step whose WaitFor waits on a Timer of amount × unit (`dex.Until(dex.Timer(amount × unit))` in Go), measured from when that Step starts, as n8n measures from when the Wait node runs; its Execute builds the next Step's input. A Connector Step cannot wait. Never compute or persist a deadline in WaitFor. n8n resumes an overdue wait whenever the instance comes back, however late, so give the waiting Step an explicit Execute retry total duration that covers the longest tolerated Worker outage, or an Execute-failure route that records the outcome. |
 | Wait (`resume` specificTime) | An earlier application Step's Execute computes the instant from typed input in the workflow timezone; the waiting Step's Timer covers the remaining duration. |
 | Wait (`resume` webhook or form) | A Channel or typed RPC resume. Without `limitWaitTime` (off by default), n8n waits forever. |
 | Wait used as a delay before reading a submitted job's result | The Dex Polling pattern in the [Dex SDK patterns](../../dex-sdk/references/core/patterns.md): after the start Step, one long-running Step's Execute owns the whole wait, bounded only by its Execute method timeout and retry total duration, never by a Timer loop. A Connector Step makes one provider call per execution, so without a released operation that waits for the job to finish the row is `blocked` on a connector gap. |
@@ -363,7 +365,7 @@ instead creates failed Flows, which is a `diverged` row.
 | --- | --- |
 | Set | Before 3.3, input fields pass through next to the set fields; from 3.3 they are dropped unless `includeOtherFields` is on. A string field that resolves to null or undefined becomes the text `null` or `undefined` at 3.0, fails the node at 3.1 unless `ignoreConversionErrors` is on, and becomes null from 3.2; a field of another type becomes null. Binary data is dropped through 3.3 unless `includeBinary` is set, and from 3.4 is kept while input fields are kept. |
 | Gmail send | From 2.1, the footer "This email was sent automatically with n8n" is appended unless `options.appendAttribution` is false; reply never appends it. `emailType` defaults to html (text before n8n 1.10), and html mail has no text/plain part at all. The message is trimmed. The mail composer turns line breaks in the subject into spaces; check it at the nodemailer version n8n pins. Read the Dex `gmail` send operation's input validation at the tag: when it requires a text body or builds its own headers, an HTML-only source message is a recorded difference. |
-| Send Email | From 2.1, the same footer is appended unless `appendAttribution` is false. Read the Dex email connector's Go types and connection fields at the tag for its body format, its sender (often fixed per connection), and the hosts its connection requires. |
+| Send Email | From 2.1, the same footer is appended unless `appendAttribution` is false. Read the Dex email connector's types and connection fields at the tag for its body format, its sender (often fixed per connection), and the hosts its connection requires. |
 | Telegram send message | `parse_mode` is Markdown when unset, so the text is parsed as markup. From 1.1, "This message was sent automatically with n8n" is appended for Markdown or HTML unless `appendAttribution` is false; from 1.2, link previews are off by default. |
 | Slack post or update | From 2.1, an "Automated with this n8n workflow" link is appended unless `includeLinkToWorkflow` is false. |
 | Microsoft Teams create message | From 1.1, a "Powered by this n8n workflow" link is appended, as HTML, unless `includeLinkToWorkflow` is false. |

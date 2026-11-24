@@ -1,6 +1,6 @@
 ---
 name: dex-app-builder
-description: Primary entry point for designing and building Dex applications and process products with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a Go backend with released connectors, and local verification with dexcli dev.
+description: Primary entry point for designing and building Dex applications and process products with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a backend in Go, Python, TypeScript, Java, or Rust with released connectors, and local verification with dexcli dev.
 ---
 
 # Dex App Builder
@@ -11,7 +11,8 @@ choices. Ask only for missing business facts, access, or consequential
 choices. Do not turn discovery, design, wireframes, or source checks into
 repeated approval gates.
 
-The toolchain is source-available Dex: the Dex Go SDK, `dexcli` (including
+The toolchain is source-available Dex: the Dex SDK for the application's
+language (Go, Python, TypeScript, Java, or Rust), `dexcli` (including
 `dexcli dev` and the FDG analyzer behind `dexcli visualize`), Dex Server
 (server-zd), Dex Web, and released official Connectors.
 
@@ -44,20 +45,20 @@ reference once its facts are recorded.
 
 | Stage | Goal | Reference |
 | --- | --- | --- |
-| 0. Workspace | Classify the repository, choose or keep the stack, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
+| 0. Workspace | Classify the repository, choose or keep the language, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
 | 0'. Import | Convert an exported workflow, such as n8n JSON, before the normal stages | [Workflow import](references/workflow-import.md) and [n8n semantics](references/n8n-semantics.md) |
 | 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, Connectors, management mapping | [Product discovery](references/product-discovery.md) |
 | 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web](references/dex-web-v2.md) |
 | 3. Backend | Flow design, Dex-first storage, Actions, Workers, API contract | [Backend implementation](references/backend-implementation.md) |
-| 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [Go FDG authoring](references/fdg-authoring.md) |
+| 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [FDG authoring](references/fdg-authoring.md) |
 | 3b. Connectors | Catalog discovery, Connector Steps, Triggers, `llm`, credentials | [Connector architecture](references/connector-architecture.md) |
 | 4. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
 | 4'. Managed Dex App | Repository rules, checks, import, and Live for Dex Cloud | [Managed Dex App](references/managed-dex-app.md) |
 
-Before Stage 0 picks a stack, ask whether the application runs locally only
-or is imported into Dex Cloud as a Managed Dex App. A Managed Dex App is the
-one exception to Go backend only: the example repository's TypeScript shape
-replaces Stage 0's Go bootstrap. Build it to its repository rules, and hand
+Before Stage 0 picks a language, ask whether the application runs locally only
+or is imported into Dex Cloud as a Managed Dex App. A Managed Dex App starts
+from the example repository's shape instead of Stage 0's bootstrap. Build it
+to its repository rules, and hand
 off with its checks and import steps instead of the local `dexcli dev` steps.
 Import and publishing stay the user's steps.
 
@@ -69,11 +70,15 @@ Never report compilation as provider or end-to-end success.
 These App Builder rules are stricter than the Dex SDK rules. They take
 precedence.
 
-- **Go backend only.** This is a product decision. Strict FDG 2.0 only, and
-  Dex Web metadata comes only from the Go analyzer. Connectors also ship
-  for Python and TypeScript, but App Builder uses the Go packages.
-  Exception: a Managed Dex App on the TypeScript profile
-  ([Managed Dex App](references/managed-dex-app.md)).
+- **One backend language, chosen in Stage 0.** Go, Python, TypeScript, Java,
+  and Rust are equal choices. Stage 0 keeps an existing application's
+  language, uses the language the user names, and otherwise uses TypeScript.
+  The rest of the workflow is the same for every language.
+- **Strict FDG 2.0, with the directives listed for the language.** Use only
+  the `dex:` directives and options that the
+  [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+  lists for the application's language. Skip a capability it does not list.
+  Never invent syntax, and never ask the user to switch languages for it.
 - **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
   history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
   binary or image when deployed. Do not recreate management APIs or UI. A
@@ -100,8 +105,9 @@ precedence.
   and uncertain-effect handling in the application before coding. Keep open
   Flow runs compatible across deploys.
 - **Credentials stay outside.** Keep them out of code, Flow state, logs, and
-  definitions. Locally, Dex Web configures Connector connections. A Go
-  application reads them through the Connector SDK's `sdkgo/projectconfig`.
+  definitions. Locally, Dex Web configures Connector connections. The
+  application reads them through the project configuration loader of its
+  language's Connector SDK.
   An operator or hosting platform supplies the deployed configuration. Dex
   hosts none.
 - **Authorization at the trusted boundary.** A browser permission selection
@@ -113,7 +119,7 @@ precedence.
 ## Source authority
 
 Inspect the existing manifests and source before you select tools. An
-existing project keeps its pinned Go toolchain, Dex SDK, `dexcli`, Server,
+existing project keeps its pinned language toolchain, Dex SDK, `dexcli`, Server,
 Connector, and frontend versions unless the user asks for an upgrade.
 
 Use the current SDK and Connector sources as the truth for API names. Copy API
@@ -125,17 +131,27 @@ investigation.
 
 Volatile details live in the versioned Dex Developer reference: flags,
 defaults, limits, configuration keys, error codes, and version differences.
-Find the version the project pins (the Go SDK in `go.mod`, `dexcli version`,
-the Server release), then open that version with the version selector in the
-reference sidebar.
+Find the version the project pins (the SDK in the project manifest or
+lockfile, `dexcli version`, the Server release), then open that version with
+the version selector in the reference sidebar.
 
 - [Developer reference overview and compatibility matrix](https://docs.superdurable.io/reference/)
-- [Go SDK](https://docs.superdurable.io/reference/go/)
+- The SDK reference for the application's language:
+  [Go](https://docs.superdurable.io/reference/go/),
+  [Python](https://docs.superdurable.io/reference/python/),
+  [TypeScript](https://docs.superdurable.io/reference/typescript/),
+  [Java](https://docs.superdurable.io/reference/java/), or
+  [Rust](https://docs.superdurable.io/reference/rust/)
 - [Dex Web](https://docs.superdurable.io/reference/web/), including the
   [Flow source analyzer](https://docs.superdurable.io/reference/web/flow-visualization)
 - [CLI](https://docs.superdurable.io/reference/cli/)
 - [Server](https://docs.superdurable.io/reference/server/)
-- [Go examples](https://github.com/superdurable/dex/tree/main/examples/go)
+- The runnable examples for the application's language:
+  [Go](https://github.com/superdurable/dex/tree/main/examples/go),
+  [Python](https://github.com/superdurable/dex/tree/main/examples/python),
+  [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript),
+  [Java](https://github.com/superdurable/dex/tree/main/examples/java), or
+  [Rust](https://github.com/superdurable/dex/tree/main/examples/rust)
 - [Connector catalog](https://connectors.superdurable.io/catalog.yaml) and
   [Connector library](https://github.com/superdurable/dex-connectors-library)
 

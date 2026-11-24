@@ -1,14 +1,16 @@
 # Stage 3: design the Flow, Connectors, and API contract, then implement the backend
 
-Load the [Dex SDK skill](../../dex-sdk/SKILL.md) and follow its routing with Go
-as the only language. Load only the Core and Go references that the approved
-design needs. Dex SDK holds the Primitive rules, design patterns, error
-handling, testing, and Worker lifecycle. Do not restate them in the
-application.
+Load the [Dex SDK skill](../../dex-sdk/SKILL.md) and follow its routing for
+the application's language, chosen in
+[workspace bootstrap](workspace-bootstrap.md#choose-the-language). Load only
+the Core and language references that the approved design needs. Dex SDK
+holds the Primitive rules, design patterns, error handling, testing, and
+Worker lifecycle. Do not restate them in the application.
 
-The App Builder constraints take precedence over Dex SDK: Go only, external
-effects only in `Execute`, no provider or Dex mutation in `WaitFor`, and strict
-FDG 2.0 rendering.
+The App Builder constraints take precedence over Dex SDK: external effects
+only in `Execute`, no provider or Dex mutation in `WaitFor`, and strict FDG 2.0
+rendering with the directives the Flow visualization reference lists for the
+language.
 
 ## Design before code
 
@@ -22,7 +24,7 @@ documentation. Then state, before you edit a Flow:
 - retries, timeouts, and recovery, including uncertain effects;
 - Connector boundaries.
 
-Read [Go FDG authoring](fdg-authoring.md) before you edit a Flow. New
+Read [FDG authoring](fdg-authoring.md) before you edit a Flow. New
 applications default to no SubFlows. Use parallel Steps inside one lifecycle.
 Use independently started top-level Flows with typed RPCs or Channels only
 when the confirmed data lifecycle needs another owner. Implement a SubFlow
@@ -43,14 +45,15 @@ Dex Flow state is the default durable application store.
 | The same domain facts for several processes | one stable domain or entity Flow that owns them and exposes typed operations |
 
 - Read committed Attributes and exact AttributeMap instances from the
-  application API with Go `Client.GetAttributes`, in one call per response.
+  application API with the Client Attribute read (`Client.GetAttributes` in
+  Go), in one call per response.
   It needs no Worker and reads a closed Run until it is purged.
 - Use a typed read-only RPC instead when Flow code must compute the response,
   or when it needs pending Channel messages or a whole AttributeMap.
 - Cross-Flow reuse alone never justifies a database or duplicated state in
   each process Flow.
 - A short-lived secret a Flow must carry, such as an API key supplied at
-  start, goes in a hard-delete Attribute (`dex.HardDeleteOnNull()`). Delete
+  start, goes in a hard-delete Attribute (`dex.HardDeleteOnNull()` in Go). Delete
   it after its last use. Never index it, sync it, use it in an Action
   condition, or show it in Summary, Display, or anything else Dex Web shows.
   Return it only to callers authorized to hold it. Design the Step to request
@@ -97,8 +100,9 @@ Keep personal data in these Attributes to what the process needs.
 
 ## Human operations
 
-- Model each human operation as a typed Go Action with one
-  `dex.ActionRequiresPermission` option. Use lowercase domain keys such as
+- Model each human operation as a typed Action with exactly one permission
+  (`dex.ActionRequiresPermission` in Go), where the Flow visualization
+  reference lists Actions for the language. Use lowercase domain keys such as
   `refund.manage` or `refund.message`.
 - An Action RPC rechecks current state. It takes business locks when its
   state check and effect must commit atomically.
@@ -117,22 +121,24 @@ permission model.
   bounded timeout, and query-first reconciliation of uncertain outcomes.
 - `WaitFor` only declares durable conditions. It never queries or mutates
   providers or Dex state, and it never computes or persists a deadline.
-- Fail a deterministic, non-retryable condition with `dex.ForceFail`. A
+- Fail a deterministic, non-retryable condition with the SDK's force-fail
+  decision (`dex.ForceFail` in Go). A
   returned error is retried for the whole retry budget. Return errors only
   for transient faults.
 
 ## Workers
 
-Every Go Worker is a pull Worker. Follow the Dex SDK Worker lifecycle rules.
-The App Builder essentials:
+Every Worker is a pull Worker. Follow the Dex SDK Worker lifecycle rules for
+the language. The App Builder essentials:
 
 - Set the Server address on both the Worker and the Client. There is no
   Worker address.
-- Run `Worker.Start` on a goroutine. Gate startup on a bounded
-  `WaitPullRegistered(ctx)`. Keep handling `Start` errors.
-- Readiness combines `PullRegistrationState().IsReady` with the application's
-  own lifecycle health. `Stop` keeps the latched readiness, so mark shutdown
-  separately.
+- Start the Worker without blocking the process's other work. Gate startup
+  on a bounded wait for pull registration. Keep handling start errors. In Go,
+  run `Worker.Start` on a goroutine and wait with `WaitPullRegistered(ctx)`.
+- Readiness combines the Worker's pull registration state with the
+  application's own lifecycle health. Stopping keeps the latched readiness,
+  so mark shutdown separately.
 - Start replacement Workers and wait for their registration before you stop
   old ones.
 - When a release adds a Step type or RPC name, start the new Workers first.
@@ -143,7 +149,8 @@ The App Builder essentials:
 - With Server authentication on, set a credential on both the Client and the
   Worker.
 
-The [Go Worker reference](https://docs.superdurable.io/reference/go/workers)
+The Workers page of the language's SDK reference, such as the
+[Go Worker reference](https://docs.superdurable.io/reference/go/workers),
 has the options, defaults, and capacity rules.
 
 ## Connectors
@@ -161,10 +168,10 @@ product is a Connector contribution and a release blocker.
 For Custom UI, design the application HTTP API contract in the same pass as
 the Flow and Connector boundaries. Follow
 [UI workflow](ui-workflow.md#2-contract-and-backend-design): an OpenAPI or
-existing contract source, generated Go server interfaces and TypeScript
-client, no hand-written transport types, and no Dex internals in the
-contract. Do not resume dynamic frontend work while the Go Flow, Connector,
-and application boundary are being implemented.
+existing contract source, generated server interfaces in the backend's
+language and a TypeScript client, no hand-written transport types, and no Dex
+internals in the contract. Do not resume dynamic frontend work while the
+Flow, Connector, and application boundary are being implemented.
 
 ## Local Dex stack
 
@@ -173,7 +180,7 @@ Show Dex Web early. As soon as a Flow source first renders with
 you finish implementation or tests:
 
 1. Render every Flow file into one persistent definition directory:
-   `dexcli visualize path/to/flow.go --schema-version 2.0 --json --out DIRECTORY/<flow-name>`.
+   `dexcli visualize path/to/flow-source --schema-version 2.0 --json --out DIRECTORY/<flow-name>`.
 2. Start one long-lived `dexcli dev` for the user in the background, on stable
    ports with persistent state. Pass that directory with
    `--flow-rendering-dir`, and any local Connector override a Connector
