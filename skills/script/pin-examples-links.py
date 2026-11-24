@@ -9,7 +9,11 @@ import re
 from pathlib import Path
 
 
-EXAMPLES_LINK = re.compile(r"(https://github\.com/superdurable/dex/(?:tree|blob)/)main(/examples/)")
+SKILL_DIRECTORIES = {"dex-app-builder", "dex-sdk", "dex-connector-contributor"}
+EXAMPLES_LINK = re.compile(
+    r"""(https://github\.com/superdurable/dex/(?:tree|blob)/)main(?=/examples(?:/|[)#?\s'"]|$))"""
+)
+UNPINNED_EXAMPLES_LINK = re.compile(r"superdurable/dex/(?:tree|blob)/main/examples(?![\w-])", re.IGNORECASE)
 
 
 def main() -> None:
@@ -29,12 +33,17 @@ def main() -> None:
 def pin_examples_links(mirror_directory: Path, dex_commit: str) -> tuple[int, int]:
     files_changed = 0
     links_changed = 0
-    replacement = rf"\g<1>{dex_commit}\g<2>"
-    for directory, subdirectories, filenames in os.walk(mirror_directory, onerror=raise_walk_error):
+    unpinned_locations = []
+    replacement = rf"\g<1>{dex_commit}"
+    for directory_name, subdirectories, filenames in os.walk(mirror_directory, onerror=raise_walk_error):
+        directory = Path(directory_name)
+        if directory == mirror_directory:
+            subdirectories[:] = sorted(SKILL_DIRECTORIES.intersection(subdirectories))
+            continue
         if ".git" in subdirectories:
             subdirectories.remove(".git")
         for filename in filenames:
-            path = Path(directory) / filename
+            path = directory / filename
             if filename == ".git" or path.is_symlink() or not path.is_file():
                 continue
             contents = path.read_bytes()
@@ -49,6 +58,14 @@ def pin_examples_links(mirror_directory: Path, dex_commit: str) -> tuple[int, in
                 path.write_bytes(rewritten.encode("utf-8"))
                 files_changed += 1
                 links_changed += count
+            if UNPINNED_EXAMPLES_LINK.search(rewritten):
+                unpinned_locations.extend(
+                    f"{path.relative_to(mirror_directory)}:{line_number}: unpinned Dex example link"
+                    for line_number, line in enumerate(rewritten.splitlines(), start=1)
+                    if UNPINNED_EXAMPLES_LINK.search(line)
+                )
+    if unpinned_locations:
+        raise SystemExit("\n".join(sorted(unpinned_locations)))
     return files_changed, links_changed
 
 

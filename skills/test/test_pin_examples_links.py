@@ -27,16 +27,18 @@ class PinExamplesLinksTest(unittest.TestCase):
                 "https://docs.superdurable.io/reference/go/\r\n"
                 "https://github.com/superdurable/other/tree/main/examples/go\r\n"
             )
-            document = mirror / "README.md"
+            skill = mirror / "dex-sdk"
+            skill.mkdir()
+            document = skill / "SKILL.md"
             document.write_bytes(f"[Examples]({tree_link})\r\n{other_links}".encode())
-            nested = mirror / "nested"
+            nested = skill / "references"
             nested.mkdir()
             settings = nested / "links.yaml"
             settings.write_text(f"flow: {blob_link}\nfolder: {tree_link}\n", encoding="utf-8")
-            binary = mirror / "fixture.bin"
+            binary = skill / "fixture.bin"
             binary_contents = b"\x00" + tree_link.encode()
             binary.write_bytes(binary_contents)
-            git_metadata = mirror / ".git"
+            git_metadata = skill / ".git"
             git_metadata.mkdir()
             git_config = git_metadata / "config"
             git_config.write_text(tree_link, encoding="utf-8")
@@ -55,18 +57,97 @@ class PinExamplesLinksTest(unittest.TestCase):
             self.assertEqual(repeat.returncode, 0, repeat.stderr)
             self.assertEqual(repeat.stdout.strip(), "Pinned 0 Dex example links across 0 files.")
 
+    def test_pins_example_root_links_at_supported_boundaries(self):
+        source = (
+            "[Examples](https://github.com/superdurable/dex/tree/main/examples)\n"
+            "https://github.com/superdurable/dex/tree/main/examples#readme\n"
+            "https://github.com/superdurable/dex/tree/main/examples?plain=1\n"
+            "https://github.com/superdurable/dex/tree/main/examples links\n"
+            "'https://github.com/superdurable/dex/tree/main/examples'\n"
+            '"https://github.com/superdurable/dex/tree/main/examples"\n'
+            "https://github.com/superdurable/dex/tree/main/examples\n"
+            "https://github.com/superdurable/dex/tree/main/examples"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            mirror = Path(directory)
+            document = self.write_fixture(mirror, "dex-app-builder/SKILL.md", source)
+
+            result = self.run_script(mirror, DEX_COMMIT)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "Pinned 8 Dex example links across 1 files.")
+            self.assertEqual(document.read_text(encoding="utf-8"), source.replace("/main/", f"/{DEX_COMMIT}/"))
+
+    def test_reports_all_unpinned_example_link_locations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mirror = Path(directory)
+            valid_link = "https://github.com/superdurable/dex/tree/main/examples/go"
+            document = self.write_fixture(
+                mirror,
+                "dex-sdk/SKILL.md",
+                f"{valid_link}\n[Examples](http://github.com/superdurable/dex/tree/main/examples)\n"
+                "[Example](ftp://GitHub.com/SUPERDURABLE/DEX/BLOB/MAIN/EXAMPLES/flow.py)\n",
+            )
+            self.write_fixture(
+                mirror,
+                "dex-connector-contributor/SKILL.md",
+                "Examples\n\n//GitHub.com/superdurable/dex/tree/main/examples/\n",
+            )
+
+            result = self.run_script(mirror, DEX_COMMIT)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stderr.splitlines(), [
+                "dex-connector-contributor/SKILL.md:3: unpinned Dex example link",
+                "dex-sdk/SKILL.md:2: unpinned Dex example link",
+                "dex-sdk/SKILL.md:3: unpinned Dex example link",
+            ])
+            self.assertEqual(
+                document.read_text(encoding="utf-8").splitlines()[0],
+                valid_link.replace("/main/", f"/{DEX_COMMIT}/"),
+            )
+
+    def test_walks_only_the_three_skill_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mirror = Path(directory)
+            source = "https://github.com/superdurable/dex/tree/main/examples/go"
+            documents = [
+                self.write_fixture(mirror, f"{skill}/SKILL.md", source)
+                for skill in ("dex-app-builder", "dex-sdk", "dex-connector-contributor")
+            ]
+            other_source = f"{source}\nhttp://GitHub.com/superdurable/dex/tree/main/examples\n"
+            other_files = [
+                self.write_fixture(mirror, path, other_source)
+                for path in ("script/fixture.py", "test/fixture.py", "CHANGELOG.md", "CHANGELOG-0.x.md", "other/SKILL.md")
+            ]
+
+            result = self.run_script(mirror, DEX_COMMIT)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "Pinned 3 Dex example links across 3 files.")
+            for document in documents:
+                self.assertEqual(document.read_text(encoding="utf-8"), source.replace("/main/", f"/{DEX_COMMIT}/"))
+            for path in other_files:
+                self.assertEqual(path.read_text(encoding="utf-8"), other_source)
+
     def test_rejects_invalid_commit_before_rewriting(self):
         with tempfile.TemporaryDirectory() as directory:
             mirror = Path(directory)
-            document = mirror / "README.md"
             source = f"{DEX_REPOSITORY_URL}/tree/main/examples/go"
-            document.write_text(source, encoding="utf-8")
+            document = self.write_fixture(mirror, "dex-sdk/SKILL.md", source)
             for commit in (DEX_COMMIT[:7], DEX_COMMIT.upper(), "z" * 40):
                 with self.subTest(commit=commit):
                     result = self.run_script(mirror, commit)
                     self.assertEqual(result.returncode, 2)
                     self.assertIn("Dex commit must be a 40-character lowercase hexadecimal SHA", result.stderr)
                     self.assertEqual(document.read_text(encoding="utf-8"), source)
+
+    @staticmethod
+    def write_fixture(mirror, relative_path, content):
+        path = mirror / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
 
     @staticmethod
     def run_script(mirror, commit):

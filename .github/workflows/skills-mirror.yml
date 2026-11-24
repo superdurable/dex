@@ -70,7 +70,7 @@ jobs:
               export GIT_WORK_TREE="${scratch}/skills"
               git -C dex read-tree "${expected_tree}"
               git -C dex checkout-index --all
-              python3 dex/skills/script/pin-examples-links.py "${GIT_WORK_TREE}" "${last_dex_commit}"
+              python3 "${GIT_WORK_TREE}/script/pin-examples-links.py" "${GIT_WORK_TREE}" "${last_dex_commit}"
               git -C dex add -u
               expected_tree="$(git -C dex write-tree)"
               unset GIT_INDEX_FILE GIT_WORK_TREE
@@ -96,6 +96,10 @@ jobs:
             echo "Skills mirror copy failed: staged tree ${copied_tree} differs from Dex ${DEX_COMMIT}:skills tree ${target_tree}." >&2
             exit 1
           fi
+          if [[ -n "${last_dex_commit}" && "${target_tree}" == "$(git -C dex rev-parse "${last_dex_commit}:skills")" ]]; then
+            echo "Skills mirror already current"
+            exit 0
+          fi
           python3 dex/skills/script/pin-examples-links.py mirror "${DEX_COMMIT}"
           git -C mirror add -u
           synced_tree="$(git -C mirror write-tree)"
@@ -103,6 +107,13 @@ jobs:
             echo "Skills mirror is already current at ${synced_tree}."
             exit 0
           fi
+
+          python3 mirror/script/check-package.py --allow-pinned-examples
+          (
+            cd mirror
+            python3 -m unittest discover -s test -p 'test_*.py'
+            node --test test/version-check.test.mjs
+          )
 
           pending_fragments="$(git -C dex ls-tree --name-only "${DEX_COMMIT}:changelog.d/skills" 2>/dev/null | grep -vx '.gitkeep' || true)"
           if [[ -n "${pending_fragments}" && "${DRY_RUN}" != "true" ]]; then

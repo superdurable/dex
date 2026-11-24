@@ -42,7 +42,7 @@ FENCED_BLOCK = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 EXPLICIT_ANCHOR = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
-URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+")
+URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+", re.IGNORECASE)
 
 # Dex Skills documents source-available Dex only; reject a downstream product name.
 DOWNSTREAM_PRODUCT_NAME = re.compile(r"super[\s_-]*verse", re.IGNORECASE)
@@ -120,7 +120,7 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
 PLACEHOLDER_HOST_SUFFIXES = (".example.com", ".example", ".invalid", ".test")
 # Patterns match host plus path, without the scheme, query, fragment, or a trailing slash.
 DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/main/examples(?:/[^?#]*)?")
-PINNED_DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/[0-9a-f]{40}/examples/[^?#]*")
+PINNED_DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/[0-9a-f]{40}/examples(?:/[^?#]*)?")
 # Each exception is a destination the Developer reference cannot replace.
 ALLOWED_EXTERNAL_URL_EXCEPTIONS = (
     (
@@ -370,7 +370,8 @@ def external_url_problem(url: str, *, allow_pinned_examples: bool = False) -> st
     """Returns why an external URL is not allowed in skill content, or None when it is allowed.
 
     Skills link to the latest Developer reference, to runnable Dex examples on main, and to
-    the narrow exceptions in ALLOWED_EXTERNAL_URL_EXCEPTIONS.
+    the narrow exceptions in ALLOWED_EXTERNAL_URL_EXCEPTIONS. The mirror passes
+    --allow-pinned-examples to also allow Dex example links pinned to full commit SHAs.
     """
     parts = urlsplit(url)
     host = parts.netloc.lower()
@@ -389,8 +390,10 @@ def external_url_problem(url: str, *, allow_pinned_examples: bool = False) -> st
         return None
     location = f"{host}{parts.path.rstrip('/')}"
     if DEX_EXAMPLES_URL.fullmatch(location):
+        if parts.scheme != "https" or parts.netloc != host:
+            return "Dex example links must use https:// and a lowercase github.com host"
         return None
-    if allow_pinned_examples and parts.scheme == "https" and PINNED_DEX_EXAMPLES_URL.fullmatch(f"{parts.netloc}{parts.path}"):
+    if allow_pinned_examples and parts.scheme == "https" and parts.netloc == host and PINNED_DEX_EXAMPLES_URL.fullmatch(location):
         return None
     if any(pattern.fullmatch(location) for pattern, _reason in ALLOWED_EXTERNAL_URL_EXCEPTIONS):
         return None

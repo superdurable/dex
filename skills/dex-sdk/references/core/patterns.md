@@ -6,7 +6,7 @@ Skeletons below are language-neutral pseudocode. `A.waitFor` and `A.execute` are
 
 ## Runnable examples
 
-Every pattern has a runnable example in each SDK, on the default branch:
+Every pattern has a runnable example in each SDK:
 
 | Language | Pattern root | Folder naming |
 | --- | --- | --- |

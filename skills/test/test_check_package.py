@@ -71,6 +71,7 @@ class ExternalUrlTest(unittest.TestCase):
     def test_allows_full_example_commit_pins_only_with_opt_in(self):
         commit = "3f2a9c1" + "a" * 33
         for url in (
+            f"{DEX_REPOSITORY_URL}/tree/{commit}/examples",
             f"{DEX_REPOSITORY_URL}/tree/{commit}/examples/",
             f"{DEX_REPOSITORY_URL}/tree/{commit}/examples/go",
             f"{DEX_REPOSITORY_URL}/blob/{commit}/examples/python/flow.py#L10",
@@ -78,6 +79,19 @@ class ExternalUrlTest(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertIsNotNone(CHECKER.external_url_problem(url))
                 self.assertIsNone(CHECKER.external_url_problem(url, allow_pinned_examples=True))
+
+    def test_source_example_links_require_https_and_a_lowercase_host(self):
+        for url in (
+            "http://github.com/superdurable/dex/tree/main/examples",
+            "HTTP://github.com/superdurable/dex/tree/main/examples/",
+            "https://GitHub.com/superdurable/dex/blob/main/examples/go/flow.go",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(CHECKER.URL.findall(f"[Example]({url})"), [url])
+                self.assertEqual(
+                    CHECKER.external_url_problem(url),
+                    "Dex example links must use https:// and a lowercase github.com host",
+                )
 
     def test_opt_in_still_rejects_other_commit_and_tag_links(self):
         commit = "a" * 40
