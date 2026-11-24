@@ -14,6 +14,12 @@
 **Dex** is a lightweight durable execution platform for AI agents and workflows. Write normal code as a Flow of Steps, and Dex keeps it running through crashes, deploys, and long waits: every finished Step is saved, so an agent or a workflow picks up exactly where it left off.
 
 <p align="center">
+  <a href="https://youtu.be/fzl88JWt734"><img width="560" alt="Video: Dex vs Temporal, Ep. 1: one idle timer, three production problems" src="https://img.youtube.com/vi/fzl88JWt734/maxresdefault.jpg" /></a>
+  <br />
+  Watch <a href="https://youtu.be/fzl88JWt734">Dex vs Temporal, Ep. 1</a>: the same idle timer built on both, with real runs. Code: <a href="https://github.com/superdurable/dex-vs-temporal-demo">dex-vs-temporal-demo</a>.
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/images/dex-system-dark.gif" />
     <img width="720" alt="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC. Dex Server invokes Steps and RPCs on the Worker and persists Flow instances and their execution. dexcli runs Dex locally and manages Flows; Dex Web inspects and acts on Flows." src=".github/images/dex-system-light.gif" />
