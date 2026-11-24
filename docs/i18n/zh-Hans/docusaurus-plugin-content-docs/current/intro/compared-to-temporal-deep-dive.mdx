@@ -233,7 +233,7 @@ impl Step for Tracker {
 
 对会话 A 的 Query 也会失败。在第 2 版上开始的会话正常运行。Temporal 文档给出两种解决办法：
 
-- **[Patching](https://docs.temporal.io/develop/python/workflows/versioning#versioning-with-patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步。第一步，加上 patch，让新代码和旧代码并存。第二步，删掉旧代码，用 `deprecate_patch()` 把这个 patch 标记为弃用。第三步，等不再有运行上一版代码的打开的 Workflow Execution 时，删掉 `deprecate_patch()`。对第二步和第三步，Temporal 还要求等到用 patch 之前的代码开始的 Workflow 都已超出 retention 期。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。在演示里，会话 B 是在没有保护的第 2 版上开始的。到了第 3 版，它报出镜像的非确定性错误。
+- **[Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步。第一步，加上 patch，让新代码和旧代码并存。第二步，删掉旧代码，用 `deprecate_patch()` 把这个 patch 标记为弃用。第三步，等不再有运行上一版代码的打开的 Workflow Execution 时，删掉 `deprecate_patch()`。对第二步和第三步，Temporal 还要求等到用 patch 之前的代码开始的 Workflow 都已超出 retention 期。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。在演示里，会话 B 是在没有保护的第 2 版上开始的。到了第 3 版，它报出镜像的非确定性错误。
 - **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** Temporal 保证 Pinned 的 Workflow 在同一个 Worker Deployment Version 上运行到结束。其他版本可以继续 poll，让 Pinned 的 Workflow 运行完。Auto-Upgrade 的 Workflow 会移到它的目标版本，也就是它的 Task Queue 的 Current Version 或 Ramping Version。Temporal 要求用 patching 手动让 Auto-Upgrade 的 Workflow 保持与旧 history 兼容。
 
 **Dex。** 第 2 版加了 `AnalyzeSentimentStep`。`WaitForCustomerStep` 和 `WaitAfterNudgeStep` 改为转到它，而不是 `GenerateReplyStep`。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow_v2.py)。
