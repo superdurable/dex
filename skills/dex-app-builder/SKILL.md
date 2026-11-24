@@ -147,7 +147,7 @@ These Dex SDK rules apply even before you load it:
 - **No wall clock in business logic.** Business deadlines, routing, decisions, and retry-stable identities never read the wall clock (`Date.now()`, `datetime.now()`, `time.Now`), and neither do WaitFor or RPC handlers. Use durable Timers for deadlines and the Flow start time from the Context for identities. Local time is only for operational measurement and attempt-local budgets such as an external call's timeout.
 - **Deadlines race in one waiting Step.** When a decision has a deadline, race its decision Channels and Timer in one waiting Step and check the Timer result in Execute. A deadline for the whole Flow uses the Flow timeout. Never use a Timer-only Step that an RPC cancels, or a clock comparison.
 - **Tests keep real durations.** Keep the business duration and skip the Timer through the Client. Never make a business deadline a parameter only so tests or demos can shorten it.
-- **The Flow owns decisions and status.** The caller supplies business facts, chooses IDs, starts Flows, calls RPCs, and reads. Steps and RPC handlers apply the business rules and write the resulting state. When an initial status depends on those rules, the first Step computes it. The caller never computes a decision or an initial status, not even as start input or initial Attributes. See [client.md](../dex-sdk/references/core/client.md#the-flow-owns-decisions-and-status).
+- **The Flow owns decisions and status.** The caller supplies business facts, chooses IDs, starts Flows, calls RPCs, and reads. Steps and RPC handlers apply the business rules and write the resulting state. When an initial status depends on those rules, the first Step computes it. Pass business facts and configuration as start input or initial Attributes, and let the Flow compute its own decisions and rule-dependent initial status. See [client.md](../dex-sdk/references/core/client.md#the-flow-owns-decisions-and-status).
 - **Frequent concurrent appenders go through a Channel.** Route them through an RPC that publishes to a Channel consumed by one writing Step; never have each RPC lock and rewrite a shared list. Synchronous read-modify-write by a few writers uses the same Attribute lock across writers.
 - **One consumer contract per Channel.** Each Channel has one consumer contract: one Step type with one wait shape. For an event every waiter must receive, use one ChannelMap key per waiter and publish to each key.
 - **Bound growing collections.** Keep them in a sequentially chunked AttributeMap, with a retention window when old entries expire, never in one Attribute rewritten on each change. Each append, whether in an RPC or in the Step that consumes a Channel, loads only the current chunk instance.
@@ -172,8 +172,8 @@ defaults, limits, configuration keys, error codes, and version differences.
 Find the version the project pins (the SDK in the project manifest or
 lockfile, `dexcli version`, the Server release), then open that version with
 the version selector in the reference sidebar. To read a docs page as text,
-fetch its Markdown copy: replace the trailing slash of the page URL with
-`.md`, such as `https://docs.superdurable.io/reference/web/flow-visualization.md`.
+follow its **View as Markdown** link when available, then select the Markdown
+variant for the application's language if the page lists one.
 
 - [Developer reference overview and compatibility matrix](https://docs.superdurable.io/reference/)
 - The SDK reference for the application's language:
