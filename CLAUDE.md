@@ -157,8 +157,13 @@ fragment under `changelog.d/<target>/` must change that target's own paths.
 Check Gate CI rejects it otherwise, unless the description contains a line
 `changelog: cross-component: <reason>`. Never use GitHub-generated release
 notes, such as `gh release create --generate-notes`.
-`script/release/component_release_notes.py` builds every release's notes from
-its change log; see `changelog.d/README.md`.
+The body of every component GitHub Release is one line,
+`Change log: <URL>`, linking the version's anchor in the component's docs
+change log, such as
+`https://docs.superdurable.io/reference/cli/changelog/#v1-47-22`. Never paste
+change-log content into a release body: the docs change log is its single
+home, so users can browse one component's versions there. See
+`changelog.d/README.md`.
 
 A release-prep pull request of server-zd, an SDK, dexcli, or the agents
 packages also carries `docs/static/compatibility/server-zd.json`, the
