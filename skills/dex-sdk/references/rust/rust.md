@@ -249,9 +249,10 @@ Rules:
   ordinary Attribute. Keep them behind the application's secret management. A
   short-lived secret the Flow itself must hold belongs in a hard-delete
   Attribute. See [../core/connector.md](../core/connector.md).
-- The FDG 2.0 management metadata (Summary, Display, Action, Indexed
-  Attribute, group, explanation) is read from Go source only. Do not invent
-  Rust attributes for it. Rust Flows still work with Dex Web, the CLI, and the
+- For FDG 2.0 management metadata, use only the `dex:` directives and options
+  that the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+  lists for Rust. Skip a capability it does not list, and never invent Rust
+  attributes or syntax for it. Rust Flows work with Dex Web, the CLI, and the
   Client.
 - The SDK does not propagate application tracing spans. Do not claim it does.
 

@@ -116,7 +116,11 @@ client.invoke_rpc_with_options(
 
 页 token 是 **current**，或者某个 archive chunk 的 20 位名称；校验规则见 [Chunk page tokens](/reference/server/runtime-data#chunk-page-tokens)（英文）。
 
-Archive chunk 不会再改变，所以同一页再读一次（例如重试时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
+Archive chunk 不会再改变，所以只要该 chunk 仍被保留，同一页再读一次（例如重试时）得到的记录就相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
+
+对只追加的历史按有界 chunk 归档，每次只加载请求的页。若历史设有保留窗口，在一次提交中归档已满的 chunk、按 key 删除过期 chunk，并记录最早保留的 token。仍在保留期内的页内容不变。读到最早保留的 chunk 时，省略上一页 token。请求已清理的 token 时，返回页不存在。
+
+并发 append 都会争用 **current**。冲突频繁时，改为通过 RPC 把每条记录发布到 Channel，由一个负责写入的 Step 消费并 append，做法见 [Inbound Event Loop](/design-patterns/inbound-event-loop)。
 
 ## HTTP API
 

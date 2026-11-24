@@ -178,9 +178,10 @@ Details: [Server authentication reference](https://docs.superdurable.io/referenc
 
 ## Dex Web and the FDG analyzer
 
-- `dexcli visualize` reads TypeScript Flow source. Only Go Flows can publish
-  the full Dex Web management metadata (Summary, Display, Actions, and
-  indexed Attribute presentation). Do not invent TypeScript syntax for it.
+- `dexcli visualize` reads TypeScript Flow source. Use only the `dex:`
+  directives and options that the Flow visualization reference lists for
+  TypeScript. Skip a capability it does not list, and never invent syntax
+  for it.
 - Put exactly one `// dex:group group-id:<id> group-label:"<Label>"` line and
   one `// dex:explanation text:"<one sentence>"` line directly above each
   local Step class, with no blank line between them and the class.

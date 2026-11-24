@@ -19,6 +19,10 @@ slug: /concepts/client
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
 - <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 Time Travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
+## 由 Flow 做决定 {#flow-owns-decisions}
+
+调用方提供业务事实。这个流程的决定和状态归 Flow 所有。Flow 的 Step 和 RPC handler 执行业务规则，并写入得出的状态。初始状态依赖这些规则时，在第一个 Step 里计算。Dex Web 和之后的读取使用已提交的状态。
+
 ## 保证
 
 - `StartFlow` 返回时，Dex 已经保存了这个 Flow。即使你的进程退出，它也会继续运行。

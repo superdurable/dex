@@ -1,0 +1,20 @@
+---
+bump: patch
+---
+- **dex-app-builder** builds the backend in Go, Python, TypeScript, Java, or Rust. Stage 0 keeps an existing application's language, uses the language the user names, and otherwise uses TypeScript.
+- **dex-app-builder** FDG authoring is language-neutral: use only the `dex:` directives and options that the Flow visualization reference lists for the application's language, and never invent syntax.
+- **dex-app-builder** uses the Connector packages the catalog lists for the application's language, and ports n8n nodes to pure functions with tests in that language.
+- **dex-sdk** language references apply the same directive rule for Python, TypeScript, Java, and Rust.
+- **dex-app-builder** has a getting-started route for requests to learn, set up, or understand Dex: explain the core model, install `dexcli`, start `dexcli dev`, then start from an example or the user's own process. **dex-sdk** routes these requests to it.
+- **dex-app-builder** links the version check directly and reads the lifecycle hook status before its fallback.
+- **dex-sdk** and **dex-app-builder** add a business-shape-to-pattern table that names the matching design pattern with its one-line rule. **dex-app-builder** loads Dex SDK before any Flow code.
+- **dex-sdk** and **dex-app-builder** list the rules agents most often miss: no wall clock in business logic, WaitFor, or RPC handlers; one waiting Step that races a decision's Channels and Timer; real durations in tests; Flow-owned decisions and status.
+- The same list adds: Channel-routed frequent concurrent appenders, one consumer contract per Channel, and bounded growing collections in a chunked AttributeMap.
+- **dex-sdk** Client guidance states that the caller supplies business facts and the Flow owns the decisions and status of its process, including a rule-dependent initial status.
+- **dex-sdk** Sequentially chunked AttributeMap can keep a retention window: archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. A pruned token returns page not found.
+- **dex-sdk** Sequentially chunked AttributeMap: an append loads only the current chunk instance, in an RPC or in the Step that consumes a Channel. Frequent concurrent appenders go through a Channel.
+- **dex-app-builder** FDG authoring and both self-checks require analyzer-visible decisions from Execute, targets the analyzer can resolve, composed rather than subclassed Steps, and a clean `dexcli visualize` run in every language.
+- **dex-app-builder** view RPC requirements follow the language's FDG profile. **dex-sdk** CLI guidance runs `dexcli visualize` for every language and points to the Flow visualization reference for language support.
+- **dex-app-builder** Managed Dex App guidance says which stacks are managed and offers TypeScript, Go, or a locally run application otherwise.
+- **dex-sdk** and **dex-app-builder** point to the docs site's Markdown exports and their language variants.
+- Skills link examples that show a mechanism, not product examples under `examples/*/products/`. The five product-example links now point to a pattern skeleton or a Connector example, or are removed.

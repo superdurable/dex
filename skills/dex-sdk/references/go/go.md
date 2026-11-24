@@ -199,8 +199,10 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
   provider input. Set `ResultAttribute` only when a path outside the
   transition chain must read the raw result.
 - A Trigger's filter, Flow ID resolver, and input mapper are pure functions.
-- Runnable examples: [connector factory](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go)
-  and the [AI agent Slack wiring](https://github.com/superdurable/dex/blob/main/examples/go/products/ai-agent/slack.go).
+- Runnable example: the Slack Connector's
+  [thread approval](https://github.com/superdurable/dex-connectors-library/tree/main/connectors/slack/go/examples/thread-approval)
+  loads the project configuration, opens a connection, wires operation
+  factory Steps, and binds Triggers to a Flow start and an RPC.
 
 ## Dex Web and FDG metadata
 

@@ -15,7 +15,8 @@ Before the first substantive Dex-related response, follow the [Dex Skills versio
 
 | Request | Skill |
 | --- | --- |
-| A Dex product, application, or business process, end to end | dex-app-builder. It loads this skill's core and Go references for the backend. |
+| A Dex product, application, or business process, end to end | dex-app-builder. It loads this skill's core references and the references for the application's language. |
+| Learn, install, set up, or understand Dex, with no concrete process yet | dex-app-builder, through its getting-started route |
 | Add or change an official Connector, operation, Trigger, or UI unit | dex-connector-contributor |
 | Implement, debug, test, or operate code that uses the Dex SDK | this skill |
 
@@ -60,8 +61,9 @@ Skills hold stable rules only. Exact API names, signatures, options, defaults, l
 
 1. Find the installed SDK version in the project manifest or lockfile: `go.mod` (Go), `pyproject.toml` or the lockfile (Python), `pom.xml` or `build.gradle` (Java), `package.json` or the lockfile (TypeScript), `Cargo.toml` or `Cargo.lock` (Rust). Note its minor version.
 2. Open the Developer reference for that component. `https://docs.superdurable.io/reference/<component>/` is the latest version; components are `go`, `python`, `java`, `typescript`, `rust`, `server`, `cli`, and `web`.
-3. Select the project's version with the version selector in the left sidebar, or open `https://docs.superdurable.io/reference/<component>/<version>/` directly. The [reference overview](https://docs.superdurable.io/reference/) has the compatibility matrix.
+3. Select the project's version with the version selector in the left sidebar, then use the URL it opens. The [reference overview](https://docs.superdurable.io/reference/) has the compatibility matrix.
 4. For the Server, the CLI, and Dex Web, use the version that is deployed or installed (`dexcli version`).
+5. To read a docs page as text, follow its **View as Markdown** link when available, then select the Markdown variant for the application's language if the page lists one.
 
 Rules:
 
@@ -105,8 +107,37 @@ Rules:
 | Server behavior, search backends, deployment | [server.md](references/core/server.md) |
 | dexcli, `dexcli dev`, visualization | [cli.md](references/core/cli.md) |
 | Dex Web | [web.md](references/core/web.md) |
-| Go FDG annotations, Summary and Display, Start forms, Actions | [FDG authoring](../dex-app-builder/references/fdg-authoring.md) in dex-app-builder |
+| FDG annotations, Summary and Display, Start forms, Actions | [FDG authoring](../dex-app-builder/references/fdg-authoring.md) in dex-app-builder |
 | Design review and handoff | [self-check.md](references/core/self-check.md) |
+
+## Match the business shape to a pattern
+
+Before you design a Flow, find its shape below and read the matching section of [patterns.md](references/core/patterns.md). Each gist is the rule; the section adds the skeleton and edge cases.
+
+| Business shape | Pattern | Gist |
+| --- | --- | --- |
+| Wait for a person's or system's decision, with a deadline or escalation | [Deferred choice](references/core/patterns.md#deferred-choice) | One waiting Step races the decision Channels and a Timer with AnyOf. Execute checks the Timer result, then routes. RPCs only publish. |
+| Many callers add entries, replies, or events to the same record at once | [Inbound event loop](references/core/patterns.md#inbound-event-loop) | RPCs validate and publish to a Channel. One waiting Step consumes the batch, writes state, and loops back to itself. |
+| Close or act after a period of inactivity | [Inactivity tracker](references/core/patterns.md#inactivity-tracker) | AnyOf(Timer(window), activity Channel). Activity loops back for a fresh Timer; a fired Timer acts. |
+| A collection that grows without bound | [Sequentially chunked AttributeMap](references/core/patterns.md#sequentially-chunked-attributemap) | Archive bounded chunks. An append loads only the current chunk and a read only the requested page, never the whole map. With a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. |
+| Keyed records with direct lookup | [Hash-partitioned AttributeMap](references/core/patterns.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances; lock and load only that instance. |
+| Wait for an external system to become ready or finish | [Polling](references/core/patterns.md#polling) | Poll inside one long-running Execute with short calls and heartbeats; never a Timer loop, a WaitFor, or retries as the loop. |
+| Recurring work, or reminders until the recipient opts out | [Cron schedule](references/core/patterns.md#cron-schedule), [Reminder](references/core/patterns.md#reminder) | Cron: start the run and the next Timer wait together. Reminder: race the Timer with opt-out, then rearm after sending. |
+| A failure that a person must resolve | [Manual recovery](references/core/patterns.md#manual-recovery) | The Execute failure route goes to a Step that waits on retry and skip Channels. |
+| A deadline for the whole process | [Graceful timeout](references/core/patterns.md#graceful-timeout) | The Flow timeout and its timeout handler, not a competing Step. |
+| Independent branches of one lifecycle, then a join | [Parallel Steps](references/core/patterns.md#parallel-steps) | GoToMany; a Join waits for all, the first, or n branches. |
+| Branches take turns on shared multi-Step work | [Critical section](references/core/patterns.md#critical-section) | A handoff Step consumes the only token. Every application-controlled exit returns it, including failure and early exit. Protected Steps finish through a token-releasing path. |
+
+## Rules agents most often miss
+
+- **No wall clock in business logic.** Business deadlines, routing, decisions, and retry-stable identities never read the wall clock (`Date.now()`, `datetime.now()`, `time.Now`), and neither do WaitFor or RPC handlers. Use durable Timers for deadlines and the Flow start time from the Context for identities. Local time is only for operational measurement and attempt-local budgets such as an external call's timeout.
+- **Deadlines race in one waiting Step.** When a decision has a deadline, race its decision Channels and Timer in one waiting Step and check the Timer result in Execute. A deadline for the whole Flow uses the Flow timeout. Never use a Timer-only Step that an RPC cancels, or a clock comparison.
+- **Tests keep real durations.** Keep the business duration and skip the Timer through the Client. Never make a business deadline a parameter only so tests or demos can shorten it.
+- **The Flow owns decisions and status.** The caller supplies business facts, chooses IDs, starts Flows, calls RPCs, and reads. Steps and RPC handlers apply the business rules and write the resulting state. When an initial status depends on those rules, the first Step computes it. Pass business facts and configuration as start input or initial Attributes, and let the Flow compute its own decisions and rule-dependent initial status. See [client.md](references/core/client.md#the-flow-owns-decisions-and-status).
+- **Frequent concurrent appenders go through a Channel.** Route them through an RPC that publishes to a Channel consumed by one writing Step; never have each RPC lock and rewrite a shared list. Synchronous read-modify-write by a few writers uses the same Attribute lock across writers.
+- **One consumer contract per Channel.** Each Channel has one consumer contract: one Step type with one wait shape. For an event every waiter must receive, use one ChannelMap key per waiter and publish to each key.
+- **Bound growing collections.** Keep them in a sequentially chunked AttributeMap, with a retention window when old entries expire, never in one Attribute rewritten on each change. Each append, whether in an RPC or in the Step that consumes a Channel, loads only the current chunk instance.
+- **The graph reads from source.** Return analyzer-visible decisions from Execute, use targets the analyzer can resolve, compose Steps instead of subclassing them, and fix every `dexcli visualize` error diagnostic before handoff.
 
 ## Model before implementation
 

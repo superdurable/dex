@@ -663,7 +663,7 @@ Neither creates server-side map pagination or a secondary index. The layout is p
 Go folder: `sequentially-chunked-attribute-map`.
 
 ```text
-state: Attribute { nextSequence, newestArchivedToken }
+state: Attribute { nextSequence, newestArchivedToken, oldestRetainedToken }
 chunks: AttributeMap; instance "current" is the only mutable chunk
 
 rpc appendRecord(record)       // locks state and chunks["current"]; loads chunks["current"]
@@ -672,16 +672,24 @@ rpc appendRecord(record)       // locks state and chunks["current"]; loads chunk
         chunks[zeroPadded(firstSequence)] = current     // archive, immutable
         chunks["current"] = empty
         state.newestArchivedToken = zeroPadded(firstSequence)
+        with a retention window:
+            delete chunks[token] for each expired token, by key
+            state.oldestRetainedToken = oldest token still kept
     state.nextSequence += 1                             // all in one commit
 
 rpc getPage(token)             // invocation option loads only chunks[token]
+    if token is older than state.oldestRetainedToken: return page not found
     return records newest first, plus the next older token
+           (no older token at state.oldestRetainedToken)
 ```
 
+- For an append-only history, archive bounded chunks and load only the requested page.
+- If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
-- Retry only the rejected invocation after a lock conflict.
+- Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
 - Updating old records needs another pattern or an index.
+- Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Inbound event loop](#inbound-event-loop), instead of having each RPC lock and rewrite `current`.
 
 ### Hash-partitioned AttributeMap
 

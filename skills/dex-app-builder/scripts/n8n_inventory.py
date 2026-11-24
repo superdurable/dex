@@ -141,32 +141,32 @@ DEX_HINTS = {
     "formTrigger": "Dex Web Start Flow form or a participant Custom UI.",
     "errorTrigger": "Execute-failure recovery routes to an explicit recovery Step.",
     "executeWorkflowTrigger": "Typed start input of the Flow that replaces the sub-workflow.",
-    "set": "Typed Go mapping inside the consuming application Step.",
-    "if": "Go predicate in an application Step that chooses the next movement.",
-    "filter": "Go predicate in an application Step; discarded items end without a movement.",
-    "switch": "Go predicate in an application Step that chooses one movement per output.",
+    "set": "Typed mapping inside the consuming application Step.",
+    "if": "Predicate in an application Step that chooses the next movement.",
+    "filter": "Predicate in an application Step; discarded items end without a movement.",
+    "switch": "Predicate in an application Step that chooses one movement per output.",
     "merge": "Join: await-all parallel Steps joined with a Join; replicate the merge mode exactly.",
     "noOp": "No behavior; drop and record.",
     "stickyNote": "Documentation only; drop from behavior and check its claims against the configuration.",
-    "code": "Go application Step that ports the code, verified against golden output.",
-    "function": "Go application Step that ports the code, verified against golden output.",
-    "functionItem": "Go application Step that ports the code, verified against golden output.",
+    "code": "Application Step that ports the code in the application's language, verified against golden output.",
+    "function": "Application Step that ports the code in the application's language, verified against golden output.",
+    "functionItem": "Application Step that ports the code in the application's language, verified against golden output.",
     "httpRequest": "Dedicated connector operation for that provider; an organization-controlled internal service follows the internal connector library decision.",
     "wait": "Timer Condition, or a Channel/RPC resume for webhook or form resumes.",
     "splitInBatches": "Bounded dynamic parallel Steps or batched Steps.",
     "executeWorkflow": "Steps in the same Flow, or an independent top-level Flow under the Core boundary rules; no SubFlow by default.",
-    "splitOut": "Pure Go transform in an application Step.",
-    "aggregate": "Pure Go transform in an application Step.",
-    "itemLists": "Pure Go transform in an application Step.",
-    "removeDuplicates": "Pure Go transform; cross-execution deduplication needs durable state.",
-    "sort": "Pure Go transform in an application Step.",
-    "limit": "Pure Go transform in an application Step.",
-    "summarize": "Pure Go transform in an application Step.",
-    "dateTime": "Pure Go transform; keep the source timezone.",
-    "html": "Pure Go transform in an application Step.",
-    "markdown": "Pure Go transform in an application Step.",
-    "xml": "Pure Go transform in an application Step.",
-    "crypto": "Pure Go transform; keys belong to configuration, never Flow state.",
+    "splitOut": "Pure transform in an application Step.",
+    "aggregate": "Pure transform in an application Step.",
+    "itemLists": "Pure transform in an application Step.",
+    "removeDuplicates": "Pure transform; cross-execution deduplication needs durable state.",
+    "sort": "Pure transform in an application Step.",
+    "limit": "Pure transform in an application Step.",
+    "summarize": "Pure transform in an application Step.",
+    "dateTime": "Pure transform; keep the source timezone.",
+    "html": "Pure transform in an application Step.",
+    "markdown": "Pure transform in an application Step.",
+    "xml": "Pure transform in an application Step.",
+    "crypto": "Pure transform; keys belong to configuration, never Flow state.",
 }
 APP_HINT = "Released connector operation that matches this resource and operation in the catalog; a missing one is a connector contribution."
 LANGCHAIN_HINT = "llm connector Query or a durable Dex agent; tools become Steps."
@@ -363,7 +363,7 @@ class Inventory:
                            if short_type(self.by_name.get(node, {}).get("type", "")) in ("code", "function", "functionItem") else "the main n8n process locale")
                 self.add_finding("medium", kind, node,
                                  f"Formats with the runtime locale or a locale-dependent macro ({listed}); {runtime} and the timezone decide the text. "
-                                 "Pin both in Go and capture goldens under the same locale.")
+                                 "Pin both in the port and capture goldens under the same locale.")
             elif kind == "community-node":
                 self.add_finding("high", kind, node,
                                  f"Community node(s) {listed}: behavior and defaults come from that package, not n8n core, and the export does not record its version. Ask for the installed version and read it; until then keep the rows `blocked`.")
@@ -777,7 +777,7 @@ class Inventory:
             self.add_finding("medium", "js-coercion", name,
                              f"{len(interpolations)} template-literal interpolation(s), such as "
                              + ", ".join(f"`{item[:60]}`" for item in interpolations[:4])
-                             + "; JavaScript renders null as 'null', undefined as 'undefined', and objects as '[object Object]', and NaN serializes as null in output items. The Go port must match the golden output.")
+                             + "; JavaScript renders null as 'null', undefined as 'undefined', and objects as '[object Object]', and NaN serializes as null in output items. The port must match the golden output.")
         if HTML_TAG.search(code) and interpolations and "escape" not in code.lower():
             self.add_finding("medium", "raw-html-interpolation", name,
                              "The code inserts upstream values into HTML without escaping, so provider markup renders and a stray < or & changes the page. Port it byte for byte first, then decide escaping explicitly.")
@@ -802,7 +802,7 @@ class Inventory:
                 "semantics": ["reads node " + match.group(2)], "references": [match.group(2)],
             })
         self.add_finding("high", "code-port", name,
-                         f"Port this Code node to a Go application Step and prove parity with golden output from `node n8n_code_golden.mjs EXPORT {json.dumps(name)} FIXTURE.json`, including empty and null-valued inputs.")
+                         f"Port this Code node to an application Step in the application's language and prove parity with golden output from `node n8n_code_golden.mjs EXPORT {json.dumps(name)} FIXTURE.json`, including empty and null-valued inputs.")
 
     def collect_schedule(self, node: dict) -> None:
         name = node.get("name", "")
@@ -1986,7 +1986,7 @@ class Inventory:
             groups = len({root(name) for name in glue})
             if groups < len(glue):
                 propose("typed-steps", f"Collapse {len(glue)} transformation nodes into {groups} typed Step(s)", sorted(glue),
-                        "One domain-named application Step in typed Go per real commit boundary, ported against the goldens.",
+                        "One domain-named, typed application Step per real commit boundary, ported against the goldens.",
                         "No behavior change: fewer, typed Steps that are easier to read and test.")
         for kind, fix in DEFECT_FIXES.items():
             if kind == "zero-items-stop" and not any(item["kind"] == kind and item["severity"] == "high" for item in self.findings):

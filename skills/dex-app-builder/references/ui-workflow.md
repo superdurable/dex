@@ -7,8 +7,8 @@ and permission coverage first. Then choose exactly one mode.
 
 | Mode | When | The application ships |
 | --- | --- | --- |
-| No custom UI | Dex Web covers management and no participant UI is requested | the Go Worker, plus a minimal HTTP server only for confirmed integration ingress |
-| Custom UI | the mapping names an interaction Dex Web cannot provide | the Go Worker, an application API from a generated contract, and a frontend for that interaction only |
+| No custom UI | Dex Web covers management and no participant UI is requested | the Worker, plus a minimal HTTP server only for confirmed integration ingress |
+| Custom UI | the mapping names an interaction Dex Web cannot provide | the Worker, an application API from a generated contract, and a frontend for that interaction only |
 
 When Dex Web covers management and nobody asks for a participant UI, select No
 custom UI without asking. A request for an admin portal, dashboard, or
@@ -22,7 +22,7 @@ standalone Dex Web behind the deployment's authenticated proxy. Define indexed
 Attributes, `GetDexSummary`, `GetDexDisplay`, editable fields, human-action
 Steps, and Action RPCs with conditions and permissions, so Run and Work Queue
 modes cover the confirmed process. [Dex Web](dex-web-v2.md) and
-[Go FDG authoring](fdg-authoring.md) describe those contracts.
+[FDG authoring](fdg-authoring.md) describe those contracts.
 
 Do not build any custom management surface or operation:
 
@@ -101,21 +101,22 @@ response and error shapes, retry, and terminal outcomes.
   internals.
 - Write it as an OpenAPI document, or in the project's existing contract
   format.
-- Generate the Go server interfaces and the TypeScript client from it before
-  you implement handlers. The Go backend implements the generated
-  interfaces. The browser later uses the generated client.
+- Generate the server interfaces in the backend's language and the
+  TypeScript client from it before you implement handlers. The backend
+  implements the generated interfaces. The browser later uses the generated
+  client.
 - Never hand-write parallel transport types or hand-edit generated code.
   Follow the project's convention for committing or regenerating generated
   output.
 
-Implement and verify the Go Flows and the required Connectors before you
+Implement and verify the Flows and the required Connectors before you
 return to dynamic frontend work. A missing public Connector capability follows
 the Connector Contributor workflow, with its authorization and release
 requirements.
 
 ### 3. Integration and durable verification
 
-Implement the Go boundary and the UI against the same generated contract.
+Implement the backend boundary and the UI against the same generated contract.
 Replace the wireframe's inert controls with generated client calls. Add the
 confirmed loading, validation, empty, success, failure, retry, recovery, and
 terminal behavior. The browser calls the application API. It never imports a

@@ -29,6 +29,13 @@ Use a Client at the boundary between your application and its Flows:
   Timer, update its configuration, or time travel it. See
   [Stop a Flow](/reference/server/runtime-client#stop-a-flow).
 
+## The Flow owns decisions {#flow-owns-decisions}
+
+The caller supplies business facts. The Flow owns the decisions and status of
+this process. Its Steps and RPC handlers apply its business rules and write the
+resulting state. When an initial status depends on those rules, compute it in
+the first Step. Dex Web and later reads use the committed state.
+
 ## Guarantees
 
 - When `StartFlow` returns, Dex has stored the Flow. It runs even if your

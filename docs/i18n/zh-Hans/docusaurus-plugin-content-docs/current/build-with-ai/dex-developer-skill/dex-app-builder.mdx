@@ -3,12 +3,12 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
-description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill。它覆盖完整的过程：梳理业务流程、选择 UI、构建 Go 后端、在本地测试，最后交付结果。"
+description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。"
 ---
 
 # Dex App Builder
 
-Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、选择 UI、构建 Go 后端、在本地测试，最后交付结果。
+Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。
 
 ## 安装与使用 {#install-and-use}
 
@@ -30,9 +30,20 @@ $dex-app-builder Design and build an event-registration application.
 - 判断 Dex Web 是否够用，还是需要自定义 UI；
 - 基于受支持的模板构建新的 Dex 应用；
 - 使用已发布的 Connector，或找出缺少的 Connector；
-- 从 UI 到后端，构建并测试一个完整功能。
+- 从 UI 到后端，构建并测试一个完整功能；
+- 在还没有具体流程时，先了解并搭建 Dex。
 
 如果只是范围很小的 SDK 调试，或者独立贡献官方 Connector，请直接调用 [Dex SDK](./dex-sdk.mdx) 或 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
+
+## 入门 Dex {#get-started-with-dex}
+
+App Builder 也可以帮你了解并搭建 Dex。例如这样问它：
+
+```text
+$dex-app-builder Help me understand and set up Dex.
+```
+
+它先用几句话讲清核心模型，然后安装 `dexcli`。接着它启动 `dexcli dev`，并告诉你 Dex Web 的地址。最后，它问你是从一个示例开始，还是从你自己的流程开始。
 
 ## 开始实现前 {#before-implementation}
 
@@ -67,10 +78,9 @@ App Builder 在两种管理流程的方式中选一种：
 
 ### 3. 设计并实现 Flow {#3-design-and-implement-the-flow}
 
-后端使用受支持的应用模板和 Dex Go SDK。App Builder 会加载 [Dex SDK](./dex-sdk.mdx) 获取通用的 SDK 规则，再加上自己更严格的规则：
+后端使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 会加载 [Dex SDK](./dex-sdk.mdx) 获取通用的 SDK 规则，再加上自己更严格的规则：
 
-- 应用后端使用 Go；
-- 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写；
+- 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写，只使用 [Flow visualization reference](/reference/web/flow-visualization) 为该语言列出的指令；
 - 只在 `Execute` 中调用外部 provider；
 - `WaitFor` 中不调用 provider，也不修改 Dex 状态；
 - 每个人工操作都建模为带明确权限的 typed Action；
@@ -89,7 +99,7 @@ App Builder 在两种管理流程的方式中选一种：
 
 写集成代码之前，App Builder 会先查看已发布的 Connector 能做什么。如果缺少某个官方 Connector，或者应用需要的 operation、Trigger、配置界面单元缺失或有问题，它会加载 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
 
-贡献还在 review 时，应用可以先用本地的 Connector module 测试。但在这个 Connector 以确切版本发布之前，应用不能进入生产。Skill 绝不会把 branch、commit SHA、pseudo-version 或本地替换作为生产依赖提交。
+贡献还在 review 时，应用可以先用本地的 Connector package 测试。但在这个 Connector 以确切版本发布之前，应用不能进入生产。Skill 绝不会把 branch、commit SHA、pseudo-version 或本地替换作为生产依赖提交。
 
 ## 预期结果 {#expected-result}
 
@@ -97,7 +107,7 @@ App Builder 完成后，你会得到：
 
 - 确认过的流程和权限模型；
 - 在 Dex Web 和自定义 UI 之间的明确选择；
-- 基于受支持模板的 Go Dex 应用；
+- 用所选语言构建的 Dex 应用；
 - 本地运行和真实 Dex Server 的测试证据；
 - 仍然阻碍上线的 Connector 发布清单（如果有）；
 - 可以直接 review 的 repository。

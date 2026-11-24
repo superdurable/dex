@@ -8,21 +8,23 @@ success; report only observed identities and results.
 ## Implementation loop
 
 - Use the project's own commands. Do not invent a target the project lacks.
-- In a fresh checkout, restore locked dependencies first: Go modules and, for
-  a frontend, `npm ci` or the project's equivalent. A missing generator
+- In a fresh checkout, restore locked dependencies first: the backend's
+  packages with its package manager and, for a frontend, `npm ci` or the
+  project's equivalent. A missing generator
   executable needs dependency restoration, not repeated failing builds or a
   package upgrade.
 - For Custom UI, change the API contract source, then regenerate. Never
-  hand-edit generated Go or TypeScript. When generated output is a build
-  output, keep it ignored and never commit it.
-- Generate API packages before you resolve their imports with `go mod tidy`.
+  hand-edit generated code. When generated output is a build output, keep it
+  ignored and never commit it.
+- Generate API packages before you resolve their imports with the package
+  manager, such as `go mod tidy` in Go.
 - Replace starter or sample Flows with the first business feature instead of
   keeping them beside it. Remove unused sample Steps, RPCs, and
   registrations. Preserve unrelated business Flows and tests in imported or
   existing applications.
-- Keep `go.mod`, `go.sum`, the frontend lockfile, the Go toolchain, the
-  `dexcli` expectation, and generators unchanged unless the user asked for
-  that stack or dependency change.
+- Keep the backend's package manifest and lockfile, the frontend lockfile,
+  the language toolchain, the `dexcli` expectation, and generators unchanged
+  unless the user asked for that stack or dependency change.
 - Run focused checks after each edit batch. When the host commit tool owns
   the full source gate, do not repeat that gate immediately before handoff.
 
@@ -31,13 +33,15 @@ success; report only observed identities and results.
 Keep one project command that:
 
 1. regenerates any API contracts;
-2. renders every Flow source file to FDG 2.0 and fails unless each result is
-   `valid: true` (see [Go FDG authoring](fdg-authoring.md#focused-verification));
-3. runs `gofmt`, `go vet`, and `go build`;
+2. renders every Flow source file that the installed `dexcli` analyzes to
+   FDG 2.0 and fails unless each result is `valid: true` (see
+   [FDG authoring](fdg-authoring.md#focused-verification));
+3. runs the project's own recorded format, lint, type check, and build
+   commands for the backend;
 4. builds the production backend and any frontend.
 
-After an API change, check both production artifacts. A Go build does not
-prove that the frontend's generated imports still exist.
+After an API change, check both production artifacts. A backend build does
+not prove that the frontend's generated imports still exist.
 
 ## Tests: real dependencies or none
 
@@ -110,14 +114,14 @@ Cover what applies:
 - retry and exhausted-retry recovery;
 - provider idempotency and unknown-outcome reconciliation;
 - Summary and Display reads before, during, and after completion;
-- entity reads after the Flow closes, through `Client.GetAttributes` or typed
+- entity reads after the Flow closes, through the Client Attribute read or typed
   read RPCs;
 - Connector Trigger routing to Flows and RPCs, with correlation;
 - Connector Steps: the happy path and each branch a requirement wires, with
   the Connector mock package's default answers; do not test unwired branches;
 - RPC-to-Connector-Step routing when an RPC requests provider work;
-- the application against any uncommitted local Connector `replace`, plus that
-  Connector module's own provider and real-Dex tests.
+- the application against any uncommitted local Connector override, plus that
+  Connector package's own provider and real-Dex tests.
 
 For No custom UI, also assert that no approval, display, status, list,
 search, detail, retry, escalation, Action-proxy, or Attribute-proxy route
@@ -132,7 +136,7 @@ Timers, RPCs, retries, provider behavior, or end-to-end behavior.
 
 ## Package Flow definitions
 
-Dex Web reads FDG JSON, not Go source. Produce it with one project command
+Dex Web reads FDG JSON, not application source. Produce it with one project command
 that renders every Flow source file through
 `dexcli visualize SOURCE --schema-version 2.0 --json --out DIRECTORY/<flow-name>`
 and fails when any result is not `valid: true`. Never ship a partial graph
@@ -149,7 +153,8 @@ the Server's definition. Dex Web marks an invalid definition with its error and
 keeps the others working. After deploying, confirm that Designs lists every
 Flow type with its graph. The
 [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#definition-sources)
-has the definition sources, and each SDK's Workers reference, such as the
+has the definition sources, and the Workers page of each SDK's reference,
+such as the
 [Go Workers reference](https://docs.superdurable.io/reference/go/workers#flow-definitions),
 has the Worker setting.
 
@@ -163,8 +168,9 @@ has the Worker setting.
   behind a trusted boundary that authenticates users and maps roles to
   permissions. Keep the FlowService and Web ports unreachable from outside
   that boundary.
-- Dex provides no deployed Connector configuration. A Go application reads it
-  through `sdkgo/projectconfig`, as
+- Dex provides no deployed Connector configuration. The application reads it
+  through the project configuration loader of its language's Connector SDK,
+  as
   [Connector architecture](connector-architecture.md#deployed-configuration-and-credential-boundary)
   describes.
 - For a Server upgrade, read the server-zd release notes and follow the
@@ -177,7 +183,7 @@ has the Worker setting.
 
 Ensure:
 
-- dependencies, the Go toolchain, lockfiles, `dexcli` pairing, and commands
+- dependencies, the language toolchain, lockfiles, `dexcli` pairing, and commands
   match the recorded stack, or a user-approved deviation is recorded;
 - every top-level Flow is justified by its owner, retention, independent
   waits or Timers, and terminal lifecycle;
@@ -194,7 +200,7 @@ Ensure:
   application exposes no business controls or management routes;
 - a Custom UI's API contract was designed with the Flow and Connector
   boundaries, both generated clients and production bundles reproduce, the
-  Go boundary implements the generated interfaces, the dynamic UI uses only
+  backend boundary implements the generated interfaces, the dynamic UI uses only
   the generated client, and polish followed a passing real journey;
 - secrets are absent from files, logs, generated values, and archives;
 - every Connector capability matrix records the catalog, exact capability,
@@ -209,10 +215,24 @@ Ensure:
   filter and Flow ID resolver, and a typed target;
 - the application starts with the local Connector configuration Dex Web
   writes and survives a Dex Web restart, or the gap is a stated blocker;
-- every Flow renders to a `valid: true` FDG 2.0 definition through one
-  project command, and the rendered type names match the Worker;
+- `dexcli visualize` ran on every Flow source file, in every language, and
+  every error diagnostic was fixed before handoff; every Flow renders to a
+  `valid: true` FDG 2.0 definition through one project command, and the
+  rendered type names match the Worker;
+- every Step returns analyzer-visible decisions from Execute, uses targets
+  the analyzer can resolve, and is composed rather than subclassed from
+  another Step;
+- the Flow owns the decisions and status of its process; the caller only
+  supplies facts, starts Flows, calls RPCs, and reads;
+- business deadlines, routing, decisions, retry-stable identities, WaitFor,
+  and RPC handlers never read the wall clock; a decision with a deadline
+  races its Channels and Timer in one waiting Step that checks the Timer
+  result;
+- tests skip business Timers through the Client and keep the real
+  durations;
 - dependencies and Connector versions are pinned to exact releases, with no
-  `go.work`, local `replace`, branch, pseudo-version, or commit SHA in the
+  local path dependency, `go.work`, local `replace`, branch, pseudo-version,
+  or commit SHA in the
   production dependency graph;
 - for a deployment, credentials stay out of code and Flow state, replacement
   Workers register before old ones stop, and readiness combines registration

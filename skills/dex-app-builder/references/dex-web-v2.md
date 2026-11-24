@@ -14,7 +14,7 @@ the flags, defaults, image details, page behavior, and `/api` contracts.
   Server does not serve Dex Web, and `dex-web` never starts a Server. Pin a
   release tag of the image for a deployment.
 - Dex Web reads Flow Definition Graph (FDG) JSON files from a definition
-  directory. It does not read Go source.
+  directory. It does not read application source.
 - Every Dex Web setting is a flag or an environment variable. There is no
   YAML file.
 - With Server authentication on, Dex Web needs its own FlowService
@@ -24,9 +24,11 @@ the flags, defaults, image details, page behavior, and `/api` contracts.
   permissions, and limits which permissions it sends. Never expose Dex Web or
   the FlowService API to the public Internet.
 
-The Summary, Display, and Action metadata exists only for Go. Validate every
-Flow with the FDG 2.0 analyzer. Features that need these definitions appear
-only when a definition applies. Their release status is in the
+Use only the `dex:` directives and options that the
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+lists for the application's language. Skip a capability it does not list, and
+never invent syntax. Validate every Flow with the FDG 2.0 analyzer. Features
+that need these definitions appear only when a definition applies. Their release status is in the
 [Dex Web reference](https://docs.superdurable.io/reference/web/dex-web).
 
 ## How Dex Web derives the management UI
@@ -41,7 +43,7 @@ Model one business record as one Run.
 | Simple field edits | editable scalar fields in `GetDexDisplay` |
 | Buttons and forms | Action RPCs: label, typed input, condition, one permission |
 | Work Queue | Action permission history |
-| Start Flow form | the input type of the Step registered with `DefineStartStep` |
+| Start Flow form | the input type of the Flow's start Step |
 | Timeline and Flow canvas | Step groups and explanations, waits, history |
 
 Dex Web loads a bounded window of recent history for a Run. Show the progress
@@ -49,7 +51,7 @@ of a long-running business process in Display fields, not through the
 execution graph.
 
 Design these contracts before you propose a custom management backend or UI.
-[Go FDG authoring](fdg-authoring.md) has the exact syntax.
+[FDG authoring](fdg-authoring.md) has the exact syntax.
 
 ## Actions, permissions, and Work Queue
 
@@ -60,7 +62,7 @@ Design these contracts before you propose a custom management backend or UI.
   Channel message. Use business locks when that check and the effect must
   commit atomically.
 - When a successful Step method or RPC writes or deletes an Action condition
-  source, the Go Worker sends the Flow's complete Action permission mapping.
+  source, the Worker sends the Flow's complete Action permission mapping.
   The Server evaluates it atomically with the writes and adds newly matching
   permissions to the Flow's Work Queue permission history.
 - Permission history only grows. A matched permission stays for that Flow
@@ -85,8 +87,9 @@ Design these contracts before you propose a custom management backend or UI.
 
 - Dex Web offers **Start Flow** when the
   definition has a supported typed start schema. The operator enters a Flow ID and the typed input.
-- The form comes from the start Step's input type. Use a concrete Go struct
-  with JSON tags. A `map[string]any` field cannot drive the form.
+- The form comes from the start Step's input type. Use a concrete typed
+  input with named JSON fields. An untyped map field, such as
+  `map[string]any` in Go, cannot drive the form.
 - Do not put Worker addresses, actor permissions, or engine run IDs in
   business start input.
 - Dex Web derives whether to skip `WaitFor` from the validated graph. Never
@@ -98,7 +101,7 @@ Design these contracts before you propose a custom management backend or UI.
   the Flow ID with the read-only `dexcli flow summary` before you submit
   again. A different Flow ID is a different business operation.
 - Start Flow sends the FDG's Flow and Step type names. They must match the
-  Worker's registrations. Fix a mismatch by pairing `dexcli` with the Go SDK,
+  Worker's registrations. Fix a mismatch by pairing `dexcli` with the SDK,
   not by adding type-name overrides.
 - Connector Trigger applications still use the real Trigger as their
   acceptance path.
@@ -110,7 +113,7 @@ Dex Web configures Connector connections only in loopback `dexcli dev`, under
 credential storage.
 
 - Automatic setup needs an operation-specific factory from an exact official
-  published module, a static `ConnectionName`, and no local module
+  published package, a static connection name, and no local package
   replacement. A generic factory or unsupported dependency still renders but
   cannot be configured.
 - Connector ID plus connection name is one identity. Two module versions for
@@ -130,9 +133,9 @@ credential storage.
 - For Connector development only, `dexcli dev` accepts a local release
   override for one Connector. It shows as **Local override**. Never treat an
   override as a published release or commit it as a dependency. Never serve a
-  working tree as the declared next version into the default Go module cache,
-  because that copy persists and shadows the real release. Use the override,
-  or a temporary `GOMODCACHE`.
+  working tree as the declared next version into a shared package cache, such
+  as the default Go module cache, because that copy persists and shadows the
+  real release. Use the override, or a temporary cache such as `GOMODCACHE`.
 
 [Connector architecture](connector-architecture.md#local-development-configuration)
 covers how the application reads this configuration.
@@ -161,8 +164,8 @@ condition, validates no business value, and does not bypass the RPC.
 
 ## Source layout and validation
 
-For each Flow, keep in one Go file: the Flow and Step definitions, Attributes
-and other persistence declarations, Action input structs, `GetDexSummary`,
+For each Flow, keep in one source file: the Flow and Step definitions,
+Attributes and other persistence declarations, Action input types, `GetDexSummary`,
 `GetDexDisplay`, Action handlers, every `dex:*` directive, transitions, and
 Dex decisions.
 
