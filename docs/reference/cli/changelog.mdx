@@ -8,6 +8,32 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first. Each section covers one release.
 
+## 1.48 {#v1-48}
+
+| Version | Released | Changes | Release |
+| --- | --- | --- | --- |
+| [1.48.0](#v1-48-0) | 2026-11-23 | 1 breaking, 4 added, 4 changed | [cli-v1.48.0](https://github.com/superdurable/dex/releases/tag/cli-v1.48.0) |
+
+### 1.48.0 (2026-11-23) {#v1-48-0}
+
+**Breaking**
+
+- **dexcli visualize** generates only Flow Definition Graph 2.0. Remove **--schema-version 1.0** from scripts to avoid a usage error. Add one **dex:group** and one **dex:explanation** per Step. In Go, define **GetDexSummary** and **GetDexDisplay** and register both in **GetRPCs**. Missing metadata produces blocking diagnostics. With **--json**, the command still writes partial JSON and exits with status 1.
+
+**Added**
+
+- Use **dexcli visualize --flow** to select a Flow by its registered type when a source file defines multiple Flows.
+- Generate **Indexed Attributes**, **Summary** and **Display** fields, and **Start** input schemas when visualizing Python and TypeScript Flows.
+- Add Java support to **dexcli visualize**, including Flow Definition Graph 2.0 metadata. Requires JDK 17 or newer.
+- Add Rust source support to **dexcli visualize**, including Flow selection, indexed Attributes, Summary and Display RPCs, and Start input schemas.
+
+**Changed**
+
+- **dexcli dev** and **dexcli web** bundle **Dex Web** 1.45.19. See the [Dex Web change log](https://docs.superdurable.io/reference/web/changelog/#v1-45).
+- Python and TypeScript indexed Attributes require **dex:indexed-attribute** and report **v2_indexed_attribute** when it is missing.
+- Python and TypeScript view RPCs report **rpc_lock_unresolved** for unreadable locks, **v2_view_rpc_output** for unreadable output keys, **v2_rpc_signature** for input parameters, and **v2_view_rpc_side_effect** for writes.
+- Python and TypeScript sources report the **start_input_unresolved** warning when the Start input type cannot be resolved in the file.
+
 ## 1.47 {#v1-47}
 
 | Version | Released | Changes | Release |
