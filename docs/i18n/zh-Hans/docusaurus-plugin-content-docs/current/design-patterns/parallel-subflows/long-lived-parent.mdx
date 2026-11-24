@@ -600,6 +600,27 @@ impl Step for LongLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## 关闭接收 {#close-the-intake}
+
+示例在运行中的子 Flow 结束后停止。如果父 Flow 要永久关闭接收，还要结束空闲的 worker，并交还排队中的请求：
+
+- 关闭 RPC 把接收标记为已关闭，并发布一条关闭消息。此后接收 RPC 拒绝新请求，调用方可以把请求重新提交给新的父 Flow run。
+- 一个关闭 Step 等待这条消息。它的 `Execute` 加载请求 Channel，通过幂等的路径交还每个排队的请求，删除这些消息，然后 graceful complete。
+- 每个 worker 等待请求 Channel 或 graceful completion condition。关闭 Step 请求完成时，空闲的 worker 被唤醒并结束自己的分支。有运行中子 Flow 的 worker 先等它结束。
+- 两者同时就绪时，Channel condition 优先于 graceful completion condition，所以关闭 Step 在同一次提交里删除排队的请求并做出决策。
+- 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。
+
+```pseudocode
+HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
+HandleRequest.execute -> if a request was consumed: goTo(HandleChild, request)
+                         else: deadEnd()
+rpc sendRequest(request) -> if intakeClosed or Requests.size >= buffer limit: return false
+                            Requests.publish(request); return true
+rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()
+CloseIntake.waitFor -> Until(CloseRequests.ForOne())
+CloseIntake.execute -> hand back each queued request; delete them from Requests; gracefulComplete()
+```
+
 ## 下一步
 
 - [高可用背压](/design-patterns/parallel-subflows/back-pressure)

@@ -560,6 +560,12 @@ impl Step for ShortLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## 空批次和提前到达的请求 {#early-requests}
+
+Flow 一启动，RPC 就能发布请求，这可能早于第一个 Step 运行。所以即使启动批次为空，第一个 Step 也用 `ForceCompleteIfChannelsEmpty` 结束，并以 worker 作为 fallback。直接完成会丢掉先到的请求。如果业务要求第一批不能为空，在启动前拒绝空批次。
+
+第一个 Step 接收启动批次时不经过接收 RPC 的大小检查。在启动 Flow 的地方对启动批次应用同样的上限。
+
 ## 下一步
 
 - [多父 Flow 分区](/design-patterns/parallel-subflows/partitioning)

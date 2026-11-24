@@ -86,6 +86,12 @@ To load AttributeMap values or pending Channel messages, select them in
 with its decision, the handler can write Attributes, delete Channel messages,
 and publish to Channels.
 
+Active Steps keep running while the handler runs, including Steps that wait
+on a Channel, a Timer, or a SubFlow. To end the Flow at the deadline, the
+handler returns **ForceComplete** or **ForceFail**, which closes the Flow and
+cancels the other Steps. **GracefulComplete**, or a **GoTo** to a Step that
+completes gracefully, closes the Flow only after every active Step ends.
+
 With the **HANDLER** policy, Dex runs this code when the timeout fires. It
 records why the Flow ended, then fails the Flow with an application reason.
 

@@ -599,6 +599,27 @@ impl Step for LongLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## Close the intake {#close-the-intake}
+
+The example stops after the running children finish. A parent that closes its intake for good also ends its idle workers and hands back its queued requests:
+
+- A close RPC marks the intake closed and publishes a close message. From then on, the admission RPC rejects new requests, so callers can resubmit to a new parent run.
+- A close Step waits for that message. Its `Execute` loads the request Channel, hands back each queued request through an idempotent path, deletes those messages, and completes gracefully.
+- Each worker waits on the request Channel or the graceful completion condition. When the close Step requests completion, idle workers wake and end their branch. Workers with a running child finish it first.
+- Channel conditions win over the graceful completion condition when both are ready, so the close Step deletes the queued requests in the same commit as its decision.
+- The admission RPC checks the Channel size for its limit. Every RPC receives Channel sizes, so the parent keeps no separate waiting counter.
+
+```pseudocode
+HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
+HandleRequest.execute -> if a request was consumed: goTo(HandleChild, request)
+                         else: deadEnd()
+rpc sendRequest(request) -> if intakeClosed or Requests.size >= buffer limit: return false
+                            Requests.publish(request); return true
+rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()
+CloseIntake.waitFor -> Until(CloseRequests.ForOne())
+CloseIntake.execute -> hand back each queued request; delete them from Requests; gracefulComplete()
+```
+
 ## Next
 
 - [Back pressure for high availability](/design-patterns/parallel-subflows/back-pressure)

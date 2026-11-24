@@ -24,6 +24,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 - 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后才到达的取消，仍然能关闭这个 case。
 - 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。这样，已经到达的取消总是优先于正常完成。
 - 如果最后一个 Step 已经消费了它的决定消息，或者 Flow 已经关闭，之后到达的取消不能再改变结果。
+- 决定最终确定后，关闭 Flow 时不要消费取消 Channel。如果关闭时排空取消 Channel 并回退到取消路径，晚到的取消就会推翻决定。
 
 ```pseudocode
 rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)

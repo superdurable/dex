@@ -1,0 +1,14 @@
+---
+bump: patch
+---
+- **dex-sdk** and **dex-app-builder** model a child job with its own business identity as a top-level child Flow: a Step starts it with a stable Flow ID and Request ID, and the parent receives its result durably. A routing row points to it.
+- The parent of top-level child Flows reconciles children that StopFlow closed, which never report, and records children that finish after a quorum. **Wait for half** reads the result of a child whose stop is refused.
+- A Step whose provider call can stay silent for minutes sets its heartbeat timeout and an explicit retry total duration that covers every attempt. Both SKILL.md rule lists and each language's StepOptions section say so, with that SDK's option names.
+- **Graceful timeout**: active Steps keep running while the timeout handler runs; a handler that must end the Flow returns ForceComplete or ForceFail.
+- **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
+- **Inbound event loop** skeletons, core, Go, and Python, close with ForceCompleteIfChannelsEmpty on the reply Channel; the other language notes say the same.
+- **Long-lived parent** closes its intake: idle workers end through the graceful completion Condition, queued requests are handed back, and admission checks the Channel size. **Short-lived parent** closes an empty start batch with ForceCompleteIfChannelsEmpty.
+- **Polling** adds a deadline watchdog that shares the lock with the Step that records the result and checks the status before it declares the work overdue.
+- Fixed kinds of work use distinct domain-named Step types, never one Step type with a kind field. Skeletons use domain Step names, and the Go, Java, and Rust checklists require them.
+- Every result or status a user must see has a durable read path: a result Attribute or the Flow's completion output. StopFlow cancel, fail, and terminate close the run at once.
+- **Durable AI agents**: when using the dex-agents packages, check their message retention and paging defaults against the history the product needs.

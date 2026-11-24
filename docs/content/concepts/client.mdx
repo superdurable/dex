@@ -47,6 +47,14 @@ the first Step. Dex Web and later reads use the committed state.
   from the current state.
 - Treat a finished wait as a checkpoint, not a final result. Read the Flow result or the business state to
   decide what happened.
+- Every result or status a user must see has a durable read path: a result
+  Attribute that a Client reads, or the Flow's completion output from a wait
+  for the Flow. Keep a report in an Attribute when it must survive a failure
+  or be readable while the Flow runs.
+- A stop that cancels, fails, or terminates a Flow closes it when the stop is
+  saved. Its Steps get a cancellation signal and run no further decisions, so
+  the stopped Flow sends no report of its own. Read its terminal state
+  instead.
 - An error that says the Flow is closing does not prove that an earlier request
   succeeded. Read the Flow's stored state before you act again.
 

@@ -559,6 +559,12 @@ impl Step for ShortLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## Empty batches and early requests {#early-requests}
+
+RPCs can publish requests as soon as the Flow starts, before its first Step runs. So the first Step closes an empty start batch with `ForceCompleteIfChannelsEmpty` too, with the workers as its fallback. A plain completion would drop a request that arrived first. When the business needs a non-empty first batch, reject an empty one before the start.
+
+The first Step admits the start batch without the admission RPC's size check. Apply the same limit to the start batch where the Flow is started.
+
 ## Next
 
 - [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning)

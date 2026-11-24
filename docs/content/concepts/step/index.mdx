@@ -321,6 +321,14 @@ Each method uses the server defaults until StepOptions set its own. The
 defaults are the same in every SDK; see
 [StepOptions defaults](/reference/python/step-options#defaults).
 
+The defaults fit short calls. A Step whose provider call can stay silent for
+minutes sets two options itself:
+
+- a heartbeat timeout of at least that call's method timeout, unless it
+  heartbeats from a loop of short calls;
+- a retry total duration that covers every attempt it allows: the maximum
+  attempts times the method timeout, plus the backoff between them.
+
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>

@@ -279,6 +279,8 @@ client.start_flow_with_options(
 
 If the timeout handler succeeds, Dex applies its staged writes, best-effort Channel deletions, Channel publications, and decision. If the handler still fails after its retries, Dex fails the Flow.
 
+Active Steps keep running while the handler runs, including Steps that wait on a Channel or a Timer. A handler that must end the Flow at the deadline returns a force-complete or force-fail decision, which closes the Flow and cancels those Steps. A graceful completion, or a move to a Step that completes gracefully, closes the Flow only after every active Step ends.
+
 ## Next
 
 - [Failure Handling](/design-patterns/failure-handling)

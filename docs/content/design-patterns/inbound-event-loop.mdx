@@ -13,13 +13,21 @@ rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> Resolutions.publish(reason)
 
-AwaitInbound.waitFor  -> AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
-AwaitInbound.execute
+AwaitInbound.waitFor(pendingResolution)
+    if pendingResolution: Until(Replies.AtLeast(1))    // drain before closing
+    else: AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
+AwaitInbound.execute(pendingResolution)
     if the Timer fired:   goTo(CloseInactive)
     replies = the messages the reply Channel Condition consumed
     if replies is empty:  goTo(Resolve, the consumed resolution)
     Transcript = Transcript + replies
-    goTo(AwaitInbound)    // a new execution of the same Step starts a fresh Timer
+    if pendingResolution: goTo(Resolve, pendingResolution)
+    goTo(AwaitInbound, none)    // a new execution of the same Step starts a fresh Timer
+
+Resolve.execute(reason)
+    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
+CloseInactive.execute
+    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, none))
 ```
 
 ## Rules
@@ -39,7 +47,7 @@ If the RPC appended to the transcript, the waiting Step would have to lock the t
 
 ## Replies after the resolution
 
-If the Resolve Step completes the Flow at once, a reply accepted after the resolution but before the Flow closes is not recorded. To keep every accepted reply, have Resolve complete with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
+Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). The RPC accepted each reply, so a reply that arrives after the resolution but before the Flow closes is still recorded. If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
 
 ## Examples
 

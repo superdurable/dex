@@ -611,6 +611,12 @@ impl Step for WaitSubFlows {
 </SdkSnippet>
 </SdkTabs>
 
+## Children that finish at the threshold {#late-finishers}
+
+A child can finish at the same moment its stop message arrives. A Channel condition wins over a SubFlow condition when both are ready, so the Step then stops a child that already ended. A refused stop, such as "not found", "not active", or "closing", means the child finished. Read its result through the Client and record it, so the report counts every child that finished.
+
+When each child needs its own business identity, start it as a [top-level Flow](/concepts/flow#child-flows) instead. The quorum Step stops each child that has not reported. A child whose stop is refused already ended, so the parent reads its terminal state and outcome. A child stopped with cancel or terminate never reports, so the parent records it as stopped.
+
 ## Next
 
 - [Basic parent Flow](/design-patterns/parallel-subflows/basic)

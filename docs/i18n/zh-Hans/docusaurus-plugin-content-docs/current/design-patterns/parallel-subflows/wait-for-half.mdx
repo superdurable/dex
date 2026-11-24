@@ -611,6 +611,12 @@ impl Step for WaitSubFlows {
 </SdkSnippet>
 </SdkTabs>
 
+## 在阈值时刻结束的子 Flow {#late-finishers}
+
+子 Flow 可能恰好在停止消息到达时结束。两者同时就绪时，Channel condition 优先于 SubFlow condition，所以 Step 会去停止一个已经结束的子 Flow。停止被拒绝，比如 "not found"、"not active" 或 "closing"，说明子 Flow 已经结束。通过 Client 读取它的结果并记录下来，让报告计入每个已经结束的子 Flow。
+
+如果每个子 Flow 都需要自己的业务身份，就把它作为[顶层 Flow](/concepts/flow#child-flows) 启动。法定数量 Step 停止每个还没报告的子 Flow。停止被拒绝的子 Flow 已经结束，父 Flow 读取它的终态和结果。被 cancel 或 terminate 停止的子 Flow 不会报告，父 Flow 把它记为已停止。
+
 ## 下一步
 
 - [基础父 Flow](/design-patterns/parallel-subflows/basic)

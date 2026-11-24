@@ -24,6 +24,7 @@ A SubFlow keeps running when its parent completes, fails, times out, or is stopp
 - Every later Step that waits also waits for the cancel Channel. A cancel that arrives after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at the same time, the first declared condition wins. A pending cancel then always wins over a normal completion.
 - A cancel that arrives after the last Step consumed its decision message, or after the Flow closed, cannot change the outcome.
+- Once the decision is final, close the Flow without consuming the cancel Channel. A close that drains the cancel Channel and falls back to a cancel path would let a late cancel override the decision.
 
 ```pseudocode
 rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)
