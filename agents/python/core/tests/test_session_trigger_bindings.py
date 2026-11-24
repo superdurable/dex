@@ -87,11 +87,15 @@ def run_command(
     )
 
 
-def install_python_connector(site: Path) -> None:
-    """Install the suite's Connector as the distribution dex-test-messages under site."""
+def install_python_connector(site: Path, module_path: str = "dex_test_messages") -> None:
+    """Install the suite's Connector as the distribution dex-test-messages under site.
+
+    module_path is where the manifest sits: a top-level module, or a module in the
+    dex_connectors namespace package as the official Connector wheels install it.
+    """
     manifest = json.loads((PACKAGE_DIRECTORY / "dex-connector.json").read_text(encoding="utf-8"))
     manifest["package"] = {"ecosystem": "pypi", "name": "dex-test-messages", "version": "2.3.4"}
-    module = site / "dex_test_messages"
+    module = site / module_path
     module.mkdir(parents=True)
     (module / "__init__.py").write_text("", encoding="utf-8")
     (module / "dex-connector.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -101,7 +105,7 @@ def install_python_connector(site: Path) -> None:
         "Metadata-Version: 2.1\nName: dex-test-messages\nVersion: 2.3.4\n", encoding="utf-8"
     )
     (metadata / "RECORD").write_text(
-        "dex_test_messages/__init__.py,,\ndex_test_messages/dex-connector.json,,\n"
+        f"{module_path}/__init__.py,,\n{module_path}/dex-connector.json,,\n"
         "dex_test_messages-2.3.4.dist-info/METADATA,,\n",
         encoding="utf-8",
     )
@@ -228,10 +232,11 @@ def test_two_bindings_with_one_identity_are_refused() -> None:
         )
 
 
+@pytest.mark.parametrize("module_path", ["dex_test_messages", "dex_connectors/test_messages"])
 def test_an_installed_distribution_supplies_its_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module_path: str
 ) -> None:
-    install_python_connector(tmp_path)
+    install_python_connector(tmp_path, module_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     flag = "workspace=dex-test-messages@2.3.4:replyCreated:session-replies"
     binding = resolve_session_trigger_binding(parse_session_trigger_binding_flag(flag))

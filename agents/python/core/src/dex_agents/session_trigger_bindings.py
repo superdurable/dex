@@ -27,6 +27,7 @@ _PACKAGE_VERSION_PATTERN = re.compile(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+.a-zA-Z0-9
 _JSON_POINTER_PATTERN = re.compile(r"(?:/(?:[^~/]|~[01])*)*")
 _MAX_LIST_ITEMS = 256
 _MANIFEST_NAME = "dex-connector.json"
+_CONNECTORS_NAMESPACE = "dex_connectors"
 _FILE_FIELDS = {
     "connectionName": "connection_name",
     "packageName": "package_name",
@@ -360,17 +361,26 @@ def _connector_manifest_path(spec: SessionTriggerBindingSpec, search_directory: 
             f"{label}: package {spec.package_name} is not installed for the Python "
             f"interpreter {sys.executable}"
         ) from error
-    manifests = [
-        file
-        for file in distribution.files or []
-        if file.name == _MANIFEST_NAME and len(file.parts) == 2
-    ]
+    manifests = [file for file in distribution.files or [] if _is_connector_manifest(file.parts)]
     if len(manifests) != 1:
         raise ValueError(
             f"{label}: package {spec.package_name} must install one Connector manifest "
-            f"<module>/{_MANIFEST_NAME}, found {len(manifests)}"
+            f"<module>/{_MANIFEST_NAME} or {_CONNECTORS_NAMESPACE}/<id>/{_MANIFEST_NAME}, "
+            f"found {len(manifests)}"
         )
     return Path(str(distribution.locate_file(manifests[0])))
+
+
+def _is_connector_manifest(parts: Sequence[str]) -> bool:
+    """Report whether an installed file is a Connector package's manifest.
+
+    A package installs it beside its top-level module, ``<module>/dex-connector.json``,
+    or, for the official Connector wheels, in the shared namespace package,
+    ``dex_connectors/<id>/dex-connector.json``.
+    """
+    if not parts or parts[-1] != _MANIFEST_NAME:
+        return False
+    return len(parts) == 2 or (len(parts) == 3 and parts[0] == _CONNECTORS_NAMESPACE)
 
 
 def _connector_manifest_identity(
