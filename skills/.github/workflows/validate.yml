@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: "22"
       - name: Validate package, links, and content boundaries
-        run: python3 script/check-package.py
+        run: python3 script/check-package.py --allow-pinned-examples
       - name: Test validators and tools
         run: python3 -m unittest discover -s test -p 'test_*.py'
       - name: Test lifecycle version hook

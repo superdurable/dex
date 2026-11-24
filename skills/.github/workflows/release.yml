@@ -31,7 +31,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
       - name: Validate release package
-        run: python3 script/check-package.py
+        run: python3 script/check-package.py --allow-pinned-examples
       - name: Check existing tag
         id: existing
         env:

@@ -68,7 +68,7 @@ Skills hold stable rules only. Exact API names, signatures, options, defaults, l
 Rules:
 
 - Preserve the installed SDK version unless the user asks to upgrade.
-- Treat the project's source, lockfile, installed SDK doc comments, and the matching runnable [examples](https://github.com/superdurable/dex/tree/main/examples) as authoritative for exact code. Examples on the default branch track the newest release; check them against the installed version.
+- Treat the project's source, lockfile, installed SDK doc comments, and the matching runnable [examples](https://github.com/superdurable/dex/tree/main/examples/) as authoritative for exact code. Examples on the default branch track the newest release; check them against the installed version.
 - If you cannot verify an exact API for the installed version, stop at the version-independent Flow model and ask to inspect the installed package. Never invent a Dex API.
 - `dex-developer` is this skill's former name. If a direct `dex-developer` install is also present, tell the user to remove it and install the plugin, then start a new session. Do not delete it yourself.
 
@@ -163,5 +163,5 @@ Before handoff, run the [code check](references/core/self-check.md#code-check).
 ## Links
 
 - Developer reference: https://docs.superdurable.io/reference/
-- Runnable examples: https://github.com/superdurable/dex/tree/main/examples
+- Runnable examples: https://github.com/superdurable/dex/tree/main/examples/
 - Connector catalog: https://connectors.superdurable.io/catalog.yaml

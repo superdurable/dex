@@ -142,6 +142,10 @@ current instructions.
 
 ## Version and release
 
+Source skills link to Dex examples on `main`. When Dex syncs the skills mirror,
+it pins those links to the synced Dex commit so readers see examples from the
+same snapshot as their installed skills.
+
 A stable content change adds a change-log fragment in the Dex repository: a
 rule, a Primitive concept or relation, a Component, a design pattern, skill
 routing, or packaging. Create it from the Dex checkout:

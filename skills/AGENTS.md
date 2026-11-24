@@ -91,6 +91,10 @@ rejects these terms.
 
 ## Packaging and release
 
+Source skills link to Dex examples on `main`. When Dex syncs the skills mirror,
+it pins those links to the synced Dex commit so readers see examples from the
+same snapshot as their installed skills.
+
 Keep Codex, Claude Code, and Cursor manifests synchronized on plugin ID,
 version, repository, skill paths, and display metadata. Do not reintroduce a
 `plugins/` wrapper or an unplanned public skill.
