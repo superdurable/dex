@@ -78,13 +78,14 @@ class CustomerDirectoryFlow(Flow[None]):
         partition = self.customer_profiles_by_email_partition.get(
             context, partition_name
         )
-        profile = (
-            None
-            if partition is None
-            else partition.profiles_by_canonical_email.get(canonical_email)
-        )
-        if profile is None:
+        if partition is None:
             raise ValueError(f'customer profile "{canonical_email}" not found')
+        try:
+            profile = partition.profiles_by_canonical_email[canonical_email]
+        except KeyError as error:
+            raise ValueError(
+                f'customer profile "{canonical_email}" not found'
+            ) from error
         return RPCResult(profile)
 
 

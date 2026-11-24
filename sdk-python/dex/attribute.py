@@ -273,16 +273,19 @@ class Attribute(Generic[ValueT]):
 
         Example::
 
-            class ReserveStockStep(Step[str]):
-                def __init__(self, reservation_id: Attribute[str]) -> None:
-                    self.reservation_id = reservation_id
+            class OrderFlow(Flow[None]):
+                review_status = Attribute("review-status", str)
 
-                def execute(self, context: Context, input: str) -> StepDecision:
-                    reservation_id = self.reservation_id.get(context)
-                    if reservation_id is None:
-                        reservation_id = reserve_stock(input)
-                        self.reservation_id.set(context, reservation_id)
-                    return graceful_complete(reservation_id)
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.review_status)
+
+                @rpc
+                def get_review_status(self, context: Context) -> RPCResult[str]:
+                    status = self.review_status.get(context)
+                    return RPCResult("pending" if status is None else status)
 
         Args:
             context: The current handler Context.
@@ -293,7 +296,10 @@ class Attribute(Generic[ValueT]):
             other value type.
 
         Raises:
-            TypeError: If the stored value cannot be decoded as ``value_type``.
+            ValueError: If this definition is not registered in the current
+                Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, None)
 
@@ -498,17 +504,34 @@ class AttributeMap(Generic[ValueT]):
         ``bool``, ``int``, or ``float`` value type, and ``None`` for every other
         value type.
 
+        A read-modify-write also locks the instance, so concurrent handlers do
+        not overwrite each other's changes.
+
         Example::
 
-            notes = AttributeMap("notes", Note)
+            @dataclass
+            class Note:
+                lines: list[str]
 
-            @rpc(load_attribute_map_instances=(notes.load("n1"),))
-            def append_note(self, context: Context, text: str) -> None:
-                note = notes.get(context, "n1")
-                if note is None:
-                    note = Note(lines=[])
-                note.lines.append(text)
-                notes.set(context, "n1", note)
+            class NotebookFlow(Flow[None]):
+                notes = AttributeMap("notes", Note)
+
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.notes)
+
+                @rpc(
+                    lock_attributes=(notes.lock("n1"),),
+                    load_attribute_map_instances=(notes.load("n1"),),
+                )
+                def append_note(self, context: Context, text: str) -> None:
+                    note = self.notes.get(context, "n1")
+                    if note is None:
+                        note = Note(lines=[])
+                    note.lines.append(text)
+                    self.notes.set(context, "n1", note)
 
         Args:
             context: The current handler Context.
@@ -522,8 +545,11 @@ class AttributeMap(Generic[ValueT]):
         Raises:
             AttributeMapNotLoadedError: If the handler did not load this
                 instance or the whole map.
-            TypeError: If the stored value cannot be decoded as ``value_type``.
-            ValueError: If ``instance`` is empty or contains ``/``.
+            ValueError: If ``instance`` is empty, contains only whitespace, or
+                contains ``/``, or if this definition is not registered in the
+                current Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, instance)
 

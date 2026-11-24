@@ -272,25 +272,54 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      * io.superdurable.dex.exceptions.AttributeMapNotLoadedException}, whether or not the instance
      * has a value.
      *
-     * <p>Reading a loaded instance that has no value does not throw. Like {@link
-     * Attribute#get(Context)}, it returns {@code false} or zero for a Boolean or numeric value type,
-     * and {@code null} for every other value type.
+     * <p>Reading a loaded instance that has no value does not throw. It returns the same fallback
+     * as {@link Attribute#get(Context)}: {@code false} or zero for the fourteen primitive and
+     * wrapper types listed there, and {@code null} for every other value type.
+     *
+     * <p>A read-modify-write also locks the instance, so concurrent invocations do not overwrite
+     * each other's changes.
      *
      * <pre>{@code
-     * Note note = notes.get(context, "n1");
-     * if (note == null) {
-     *     note = new Note();
+     * public final class NotebookFlow implements Flow<Void> {
+     *     public final AttributeMap<Note> notes = AttributeMap.define("notes", Note.class);
+     *
+     *     @Override
+     *     public StepList<Void> getSteps() {
+     *         return StepList.empty();
+     *     }
+     *
+     *     @Override
+     *     public PersistenceSchema getPersistenceSchema() {
+     *         return PersistenceSchema.of(notes);
+     *     }
+     *
+     *     @RPC(
+     *             lockAttributeMaps = {@RPCAttributeMapLock(attribute = "notes", instance = "n1")},
+     *             loadAttributeMapInstances = {"notes/n1"})
+     *     public RPCResult<Void> appendNote(final Context context, final String text) {
+     *         Note note = notes.get(context, "n1");
+     *         if (note == null) {
+     *             note = new Note();
+     *         }
+     *         note.lines.add(text);
+     *         notes.set(context, "n1", note);
+     *         return RPCResult.of(null);
+     *     }
      * }
-     * note.addLine(text);
-     * notes.set(context, "n1", note);
      * }</pre>
      *
      * @param context the Step or RPC invocation context
-     * @param instance the instance key within this map
+     * @param instance the non-blank instance key within this map; it must not contain {@code /}
      * @return the current typed value; when the loaded instance has no value, {@code false} or zero
-     *     for a Boolean or numeric value type, and {@code null} for any other value type
+     *     for the fourteen primitive and wrapper types listed on {@link Attribute#get(Context)},
+     *     and {@code null} for any other value type
      * @throws io.superdurable.dex.exceptions.AttributeMapNotLoadedException if the invocation did
      *     not load this instance or the whole map
+     * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains
+     *     {@code /}, or if this definition is not registered in the current Flow's {@link
+     *     PersistenceSchema}
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the stored value cannot be
+     *     decoded as the value type
      */
     public T get(final Context context, final String instance) {
         return context.getAttribute(this, instance);

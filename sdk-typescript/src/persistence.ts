@@ -149,15 +149,29 @@ export class Attribute<T> {
    *
    * @example
    * ```ts
-   * let reservationId: string | undefined = reservationIdAttribute.get(context);
-   * if (reservationId === undefined) {
-   *   reservationId = await reserveStock(input);
-   *   reservationIdAttribute.set(context, reservationId);
+   * const reviewStatus = new Attribute("review-status", stringCodec);
+   *
+   * class OrderFlow implements Flow<void> {
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [reviewStatus] };
+   *   }
+   *
+   *   @rpc({ outputCodec: stringCodec })
+   *   public getReviewStatus(context: Context): RPCResult<string> {
+   *     const status: string | undefined = reviewStatus.get(context);
+   *     return { output: status ?? "pending" };
+   *   }
    * }
    * ```
    * @param context - Current Step or RPC Context.
    * @returns The decoded Attribute value. When no value is stored, `false`, `0n`, or `0` for a
    *   `bool`, `int64`, or `double` codec, and `undefined` for any other codec.
+   * @throws {TypeError} When this definition is not registered in the current Flow's
+   *   PersistenceSchema.
    * @throws {ValueMappingError} When the codec cannot decode the stored value.
    */
   public get(context: Context): T {
@@ -357,18 +371,46 @@ export class AttributeMap<T> {
    * returns `false`, `0n`, or `0` for a `bool`, `int64`, or `double` codec, and `undefined` for
    * every other codec.
    *
+   * A read-modify-write also locks the instance, so concurrent handlers do not overwrite each
+   * other's changes.
+   *
    * @example
    * ```ts
-   * const note: Note = notes.get(context, "n1") ?? { lines: [] };
-   * note.lines.push(text);
-   * notes.set(context, "n1", note);
+   * interface Note {
+   *   readonly lines: readonly string[];
+   * }
+   *
+   * const notes = new AttributeMap("notes", jsonCodec<Note>());
+   *
+   * class NotebookFlow implements Flow<void> {
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [notes] };
+   *   }
+   *
+   *   @rpc({
+   *     inputCodec: stringCodec,
+   *     lockAttributes: [notes.lock("n1")],
+   *     loadAttributeMapInstances: [notes.load("n1")],
+   *   })
+   *   public appendNote(context: Context, text: string): void {
+   *     const note: Note = notes.get(context, "n1") ?? { lines: [] };
+   *     notes.set(context, "n1", { lines: [...note.lines, text] });
+   *   }
+   * }
    * ```
    * @param context - Current Step or RPC Context.
-   * @param instance - The map instance. Slash is prohibited because it is a reserved character.
+   * @param instance - The map instance. It must not be empty or only whitespace, and it must not
+   *   contain `/` because slash is a reserved character.
    * @returns The decoded instance value. When the loaded instance has no value, `false`, `0n`, or
    *   `0` for a `bool`, `int64`, or `double` codec, and `undefined` for any other codec.
    * @throws {AttributeMapNotLoadedError} When the handler did not load this instance or the whole
    *   map.
+   * @throws {TypeError} When `instance` is empty, contains only whitespace, or contains `/`, or
+   *   when this definition is not registered in the current Flow's PersistenceSchema.
    * @throws {ValueMappingError} When the codec cannot decode the stored value.
    */
   public get(context: Context, instance: string): T {
