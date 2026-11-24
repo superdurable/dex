@@ -171,7 +171,9 @@ Volatile details live in the versioned Dex Developer reference: flags,
 defaults, limits, configuration keys, error codes, and version differences.
 Find the version the project pins (the SDK in the project manifest or
 lockfile, `dexcli version`, the Server release), then open that version with
-the version selector in the reference sidebar.
+the version selector in the reference sidebar. To read a docs page as text,
+fetch its Markdown copy: replace the trailing slash of the page URL with
+`.md`, such as `https://docs.superdurable.io/reference/web/flow-visualization.md`.
 
 - [Developer reference overview and compatibility matrix](https://docs.superdurable.io/reference/)
 - The SDK reference for the application's language:

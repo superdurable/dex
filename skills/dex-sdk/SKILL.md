@@ -63,6 +63,7 @@ Skills hold stable rules only. Exact API names, signatures, options, defaults, l
 2. Open the Developer reference for that component. `https://docs.superdurable.io/reference/<component>/` is the latest version; components are `go`, `python`, `java`, `typescript`, `rust`, `server`, `cli`, and `web`.
 3. Select the project's version with the version selector in the left sidebar, or open `https://docs.superdurable.io/reference/<component>/<version>/` directly. The [reference overview](https://docs.superdurable.io/reference/) has the compatibility matrix.
 4. For the Server, the CLI, and Dex Web, use the version that is deployed or installed (`dexcli version`).
+5. To read a docs page as text, fetch its Markdown copy: replace the trailing slash of the page URL with `.md`, such as `https://docs.superdurable.io/reference/web/flow-visualization.md`. It holds the same content as the page without the site layout.
 
 Rules:
 
