@@ -260,15 +260,46 @@ class Attribute(Generic[ValueT]):
     def get(self, context: Context) -> ValueT:
         """Return the current value from a Step or RPC Context.
 
+        The read includes writes staged earlier in the same handler. Reading an
+        Attribute that has no value does not raise. It returns ``False`` for a
+        ``bool`` value type, ``0`` for ``int``, ``0.0`` for ``float``, and
+        ``None`` for every other value type. A value that was deleted, or set to
+        ``None``, reads the same way.
+
+        A numeric or Boolean read therefore cannot tell an unset value from a
+        stored zero or ``False``. When that difference matters, use a ``str`` or
+        dataclass value type, or keep a separate Attribute that records whether
+        the value was set.
+
+        Example::
+
+            class OrderFlow(Flow[None]):
+                review_status = Attribute("review-status", str)
+
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.review_status)
+
+                @rpc
+                def get_review_status(self, context: Context) -> RPCResult[str]:
+                    status = self.review_status.get(context)
+                    return RPCResult("pending" if status is None else status)
+
         Args:
             context: The current handler Context.
 
         Returns:
-            The decoded value.
+            The decoded value. When the Attribute has no value, the zero value
+            of a ``bool``, ``int``, or ``float`` value type, or ``None`` for any
+            other value type.
 
         Raises:
-            KeyError: If the Attribute has no value.
-            TypeError: If the stored value cannot be decoded as ``value_type``.
+            ValueError: If this definition is not registered in the current
+                Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, None)
 
@@ -464,16 +495,61 @@ class AttributeMap(Generic[ValueT]):
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.
 
+        The handler must load the instance, or the whole map, through its load
+        options. Reading an instance outside that scope raises
+        ``AttributeMapNotLoadedError``, whether or not the instance has a value.
+
+        Reading a loaded instance that has no value does not raise. Like
+        :meth:`Attribute.get`, it returns ``False``, ``0``, or ``0.0`` for a
+        ``bool``, ``int``, or ``float`` value type, and ``None`` for every other
+        value type.
+
+        A read-modify-write also locks the instance, so concurrent handlers do
+        not overwrite each other's changes.
+
+        Example::
+
+            @dataclass
+            class Note:
+                lines: list[str]
+
+            class NotebookFlow(Flow[None]):
+                notes = AttributeMap("notes", Note)
+
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.notes)
+
+                @rpc(
+                    lock_attributes=(notes.lock("n1"),),
+                    load_attribute_map_instances=(notes.load("n1"),),
+                )
+                def append_note(self, context: Context, text: str) -> None:
+                    note = self.notes.get(context, "n1")
+                    if note is None:
+                        note = Note(lines=[])
+                    note.lines.append(text)
+                    self.notes.set(context, "n1", note)
+
         Args:
             context: The current handler Context.
             instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
-            The decoded instance value.
+            The decoded instance value. When the loaded instance has no value,
+            the zero value of a ``bool``, ``int``, or ``float`` value type, or
+            ``None`` for any other value type.
 
         Raises:
-            KeyError: If the instance has no value.
-            ValueError: If ``instance`` is empty or contains ``/``.
+            AttributeMapNotLoadedError: If the handler did not load this
+                instance or the whole map.
+            ValueError: If ``instance`` is empty, contains only whitespace, or
+                contains ``/``, or if this definition is not registered in the
+                current Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, instance)
 

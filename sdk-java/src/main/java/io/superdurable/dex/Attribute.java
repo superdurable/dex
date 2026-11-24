@@ -254,8 +254,50 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
     /**
      * Reads this Attribute from the current invocation.
      *
+     * <p>The read includes writes staged earlier in the same invocation. Reading an Attribute that
+     * has no value does not throw. It returns {@code false} when the value type is {@code
+     * boolean} or {@code Boolean}. It returns zero when the value type is {@code byte}, {@code
+     * short}, {@code int}, {@code long}, {@code float}, or {@code double}, or the matching wrapper
+     * class {@code Byte}, {@code Short}, {@code Integer}, {@code Long}, {@code Float}, or {@code
+     * Double}. It returns {@code null} for every other value type, including {@code BigDecimal},
+     * {@code BigInteger}, and {@code String}. A value that was deleted, or set to {@code null},
+     * reads the same way.
+     *
+     * <p>A read of one of those fourteen types therefore cannot tell an unset value from a stored
+     * zero or {@code false}. When that difference matters, use a {@code String} or object value
+     * type, or keep a separate Attribute that records whether the value was set.
+     *
+     * <pre>{@code
+     * public final class OrderFlow implements Flow<Void> {
+     *     public final Attribute<String> reviewStatus =
+     *             Attribute.define("review-status", String.class);
+     *
+     *     @Override
+     *     public StepList<Void> getSteps() {
+     *         return StepList.empty();
+     *     }
+     *
+     *     @Override
+     *     public PersistenceSchema getPersistenceSchema() {
+     *         return PersistenceSchema.of(reviewStatus);
+     *     }
+     *
+     *     @RPC
+     *     public RPCResult<String> getReviewStatus(final Context context) {
+     *         final String status = reviewStatus.get(context);
+     *         return RPCResult.of(status == null ? "pending" : status);
+     *     }
+     * }
+     * }</pre>
+     *
      * @param context the Step or RPC invocation context
-     * @return the current typed value, or {@code null} when no value is stored
+     * @return the current typed value; when no value is stored, {@code false} or zero for the
+     *     fourteen primitive and wrapper types listed above, and {@code null} for any other value
+     *     type
+     * @throws IllegalArgumentException if this definition is not registered in the current Flow's
+     *     {@link PersistenceSchema}
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the stored value cannot be
+     *     decoded as the value type
      */
     public T get(final Context context) {
         return context.getAttribute(this);

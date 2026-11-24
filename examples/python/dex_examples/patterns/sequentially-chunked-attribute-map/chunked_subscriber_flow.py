@@ -110,10 +110,9 @@ class ChunkedSubscriberFlow(Flow[None]):
         input: GetSubscriberPageInput,
     ) -> RPCResult[SubscriberPage]:
         page_token = validate_subscriber_page_token(input.page_token)
-        try:
-            chunk = self.subscriber_chunks.get(context, page_token)
-        except KeyError as error:
-            raise ValueError(f'subscriber page "{page_token}" not found') from error
+        chunk = self.subscriber_chunks.get(context, page_token)
+        if chunk is None:
+            raise ValueError(f'subscriber page "{page_token}" not found')
         page = SubscriberPage(page_token, list(reversed(chunk.subscribers)))
         if not chunk.subscribers:
             return RPCResult(page)
