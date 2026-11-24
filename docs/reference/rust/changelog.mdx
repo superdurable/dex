@@ -12,11 +12,30 @@ This page lists user-visible changes to the Rust SDK, newest first. Each section
 
 | Version | Released | Changes | Release |
 | --- | --- | --- | --- |
+| [1.45.8](#v1-45-8) | 2026-11-23 | 1 added, 5 changed, 1 fixed | [sdk-rust/v1.45.8](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.8) |
 | [1.45.7](#v1-45-7) | 2026-11-18 | 3 added, 1 changed | [sdk-rust/v1.45.7](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.7) |
 | [1.45.3](#v1-45-3) | 2026-11-16 | 3 added | [sdk-rust/v1.45.3](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.3) |
 | [1.45.2](#v1-45-2) | 2026-11-15 | 1 breaking, 4 added | [sdk-rust/v1.45.2](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.2) |
 | [1.45.1](#v1-45-1) | 2026-11-14 | 1 added | [sdk-rust/v1.45.1](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.1) |
 | [1.45.0](#v1-45-0) | 2026-11-11 | 1 breaking, 2 added, 1 fixed | [sdk-rust/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.0) |
+
+### 1.45.8 (2026-11-23) {#v1-45-8}
+
+**Added**
+
+- Set **RpcInvokeOptions::request_id** to reuse a stable request ID across RPC attempts and apply the call's Flow changes at most once while Dex retains the request ID.
+
+**Changed**
+
+- Pull Workers are adaptive by default. **max_concurrent_tasks** now defaults to 100 instead of the CPU count, and **min_open_slots** defaults to min(**max_concurrent_tasks**, max(**reserved_rpc_tasks** + 1, CPU count)).
+- An idle Worker keeps about the CPU count of slot streams open and grows up to the ceiling under load. A Worker that sets only **max_concurrent_tasks** is adaptive too.
+- A ceiling above the Server's **matching.maxConcurrentTasksCap** is clamped with a WARN log; defaults use the clamped value. An adaptive Worker with unset **min_open_slots**, or a fixed Worker with unset **max_concurrent_tasks**, opens one stream to learn the cap.
+- Migration: set **min_open_slots** equal to **max_concurrent_tasks** to keep a fixed Worker. Set **max_concurrent_tasks** to the CPU count to keep the earlier default slot count.
+- The **FlowConfig::history_window_events** documentation states that 0 sets an unlimited window with server-zd 0.1.38 or later, its limits, and the current **history.windowEvents** and **history.maxWindowEvents** defaults. [Reference](/reference/server/configuration#history-window)
+
+**Fixed**
+
+- A Worker serves an RPC bound without input, with **RpcList::function_without_input** or **RpcList::procedure_without_input**, when the request leaves the input unset, as TypeScript Clients before 1.45.8 send it. Before, the Worker failed the call with **Value has no concrete kind**. An RPC bound with an input still needs one; an unset input fails the call with a value mapping error that names the RPC. (#2034)
 
 ### 1.45.7 (2026-11-18) {#v1-45-7}
 
