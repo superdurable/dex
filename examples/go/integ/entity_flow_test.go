@@ -95,9 +95,11 @@ func TestEntityFlowKeepsOneCustomerAccountUntilRetired(t *testing.T) {
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.AdjustCreditBalance,
 		entityflow.CreditAdjustment{Amount: -5 * entityFlowConcurrentDeposits}, nil)
 	require.NoError(t, err)
-	registry.AccountArchive.MakeUnavailable(flowID)
+	archive := registry.AccountArchive
+	archive.MakeUnavailable(flowID)
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.RetireAccount, nil, nil)
 	require.NoError(t, err)
+	requireArchiveAttempts(t, archive, flowID, 1)
 	requireEntityFlowRunning(t, ctx, flowID)
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.AdjustCreditBalance,
 		entityflow.CreditAdjustment{Amount: 10}, nil)
@@ -107,15 +109,24 @@ func TestEntityFlowKeepsOneCustomerAccountUntilRetired(t *testing.T) {
 	require.ErrorContains(t, err, "account is retired")
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.RetireAccount, nil, nil)
 	require.NoError(t, err)
+	requireArchiveAttempts(t, archive, flowID, 2)
 	requireEntityFlowRunning(t, ctx, flowID)
 
-	registry.AccountArchive.MakeAvailable(flowID)
+	archive.LoseNextResponse(flowID)
+	archive.MakeAvailable(flowID)
 	closeCtx, cancelClose := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancelClose()
 	result, err := integClient.WaitForFlow(closeCtx, flowID, dex.WaitForFlowOptions{})
 	require.NoError(t, err)
 	require.Equal(t, dex.FlowCompleted, result.Status)
-	require.Equal(t, 1, registry.AccountArchive.ArchiveCount(flowID))
+	attempts := archive.AttemptStepExecutionIDs(flowID)
+	require.GreaterOrEqual(t, len(attempts), 4)
+	distinctAttempts := map[string]bool{}
+	for _, stepExecutionID := range attempts {
+		distinctAttempts[stepExecutionID] = true
+	}
+	require.Len(t, distinctAttempts, 1)
+	require.Equal(t, 1, archive.ArchiveRecordCount(flowID))
 	var retired bool
 	creditBalance = -1
 	_, err = integClient.GetAttributes(ctx, flowID,
@@ -128,6 +139,18 @@ func TestEntityFlowKeepsOneCustomerAccountUntilRetired(t *testing.T) {
 
 	_, err = integClient.StartFlow(ctx, registry.CustomerAccount, flowID, nil, options)
 	require.ErrorAs(t, err, &alreadyStarted)
+}
+
+func requireArchiveAttempts(
+	t *testing.T,
+	archive *entityflow.FakeAccountArchive,
+	flowID string,
+	count int,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return len(archive.AttemptStepExecutionIDs(flowID)) >= count
+	}, 45*time.Second, 50*time.Millisecond)
 }
 
 func requireEntityFlowRunning(t *testing.T, ctx context.Context, flowID string) {

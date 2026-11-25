@@ -26,26 +26,42 @@ import (
 )
 
 // FakeAccountArchive is an in-memory stand-in for the system that keeps records of closed accounts.
+// Archiving is idempotent per account, as a unique insert keyed by the Flow ID would be.
 type FakeAccountArchive struct {
-	mutex              sync.Mutex
-	unavailableFlowIDs map[string]bool
-	archiveCounts      map[string]int
+	mutex                   sync.Mutex
+	unavailableFlowIDs      map[string]bool
+	lostResponseFlowIDs     map[string]bool
+	archiveRecords          map[string]string
+	attemptStepExecutionIDs map[string][]string
 }
 
 func NewFakeAccountArchive() *FakeAccountArchive {
 	return &FakeAccountArchive{
-		unavailableFlowIDs: map[string]bool{},
-		archiveCounts:      map[string]int{},
+		unavailableFlowIDs:      map[string]bool{},
+		lostResponseFlowIDs:     map[string]bool{},
+		archiveRecords:          map[string]string{},
+		attemptStepExecutionIDs: map[string][]string{},
 	}
 }
 
-func (archive *FakeAccountArchive) ArchiveAccount(flowID string) error {
+func (archive *FakeAccountArchive) ArchiveAccount(flowID, stepExecutionID string) error {
 	archive.mutex.Lock()
 	defer archive.mutex.Unlock()
+	archive.attemptStepExecutionIDs[flowID] = append(
+		archive.attemptStepExecutionIDs[flowID],
+		stepExecutionID,
+	)
+	if _, archived := archive.archiveRecords[flowID]; archived {
+		return nil
+	}
 	if archive.unavailableFlowIDs[flowID] {
 		return errors.New("account archive is unavailable")
 	}
-	archive.archiveCounts[flowID]++
+	archive.archiveRecords[flowID] = stepExecutionID
+	if archive.lostResponseFlowIDs[flowID] {
+		delete(archive.lostResponseFlowIDs, flowID)
+		return errors.New("account archive response was lost")
+	}
 	return nil
 }
 
@@ -61,8 +77,23 @@ func (archive *FakeAccountArchive) MakeAvailable(flowID string) {
 	delete(archive.unavailableFlowIDs, flowID)
 }
 
-func (archive *FakeAccountArchive) ArchiveCount(flowID string) int {
+func (archive *FakeAccountArchive) LoseNextResponse(flowID string) {
 	archive.mutex.Lock()
 	defer archive.mutex.Unlock()
-	return archive.archiveCounts[flowID]
+	archive.lostResponseFlowIDs[flowID] = true
+}
+
+func (archive *FakeAccountArchive) ArchiveRecordCount(flowID string) int {
+	archive.mutex.Lock()
+	defer archive.mutex.Unlock()
+	if _, archived := archive.archiveRecords[flowID]; archived {
+		return 1
+	}
+	return 0
+}
+
+func (archive *FakeAccountArchive) AttemptStepExecutionIDs(flowID string) []string {
+	archive.mutex.Lock()
+	defer archive.mutex.Unlock()
+	return append([]string(nil), archive.attemptStepExecutionIDs[flowID]...)
 }

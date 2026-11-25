@@ -185,7 +185,7 @@ func (CloseAccountStep) GetStepOptions() *dex.StepOptions {
 }
 
 func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := step.archive.ArchiveAccount(ctx.FlowID()); err != nil {
+	if err := step.archive.ArchiveAccount(ctx.FlowID(), ctx.StepExecutionID()); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
