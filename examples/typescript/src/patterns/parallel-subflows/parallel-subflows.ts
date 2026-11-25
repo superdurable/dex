@@ -16,7 +16,11 @@
 
 import {
   Attribute,
+  AttributeMap,
   Channel,
+  FlowClosingError,
+  FlowNotActiveOrNotFoundError,
+  FlowNotFoundError,
   IdReusePolicy,
   StepList,
   StepMovement,
@@ -36,6 +40,7 @@ import {
   type Context,
   type Client,
   type Flow,
+  type FlowStatus,
   type PersistenceSchema,
   type RPCResult,
   type Step,
@@ -146,6 +151,13 @@ export class BasicParentFlow implements Flow<readonly string[]> {
 const subFlowCompletedCh = new Channel("SubFlowCompletedCh", booleanCodec);
 const allDoneCh = new Channel("AllDoneCh", booleanCodec);
 
+interface ChildStopOutcome {
+  readonly status: FlowStatus | "stopped" | "unknown";
+  readonly result?: string;
+}
+
+const childStopOutcomes = new AttributeMap("ChildStopOutcomes", jsonCodec<ChildStopOutcome>());
+
 class WaitForHalfInit implements Step<readonly string[]> {
   public readonly inputCodec = stringArrayCodec;
 
@@ -180,8 +192,37 @@ class SubFlowStep implements Step<string> {
       subFlowCompletedCh.publish(context, true);
       return gracefulComplete();
     }
-    await getClient().stopFlow(SubFlow.getFlowId(context));
+    const client = getClient();
+    const childFlowId = SubFlow.getFlowId(context);
+    let outcome: ChildStopOutcome;
+    try {
+      await client.stopFlow(childFlowId);
+      outcome = { status: "stopped" };
+    } catch (error) {
+      if (!(error instanceof FlowNotFoundError ||
+        error instanceof FlowNotActiveOrNotFoundError ||
+        error instanceof FlowClosingError)) {
+        throw error;
+      }
+      outcome = await this.readChildStopOutcome(client, childFlowId);
+    }
+    childStopOutcomes.set(context, childFlowId, outcome);
     return gracefulComplete();
+  }
+
+  private async readChildStopOutcome(client: Client, childFlowId: string): Promise<ChildStopOutcome> {
+    try {
+      if ((await client.describeFlow(childFlowId)).status === "running") {
+        return { status: "unknown" };
+      }
+    } catch (error) {
+      if (error instanceof FlowNotFoundError) return { status: "unknown" };
+      throw error;
+    }
+    const result = await client.waitForFlow(childFlowId);
+    return result.completions.length === 0
+      ? { status: result.status }
+      : { status: result.status, result: result.singleOutput(stringCodec) };
   }
 }
 
@@ -221,7 +262,7 @@ export class WaitForHalfParentFlow implements Flow<readonly string[]> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [subFlowCompletedCh, allDoneCh] };
+    return { attributes: [childStopOutcomes], channels: [subFlowCompletedCh, allDoneCh] };
   }
 }
 

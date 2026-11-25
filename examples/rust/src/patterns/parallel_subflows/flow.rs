@@ -17,9 +17,10 @@ use std::thread;
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Channel, Client, Context, Flow, FlowStatus, HandlerError, HandlerResult,
-    IdReusePolicy, PersistenceSchema, Rpc, RpcList, RpcResult, SdkError, StartFlowOptions, Step,
-    StepDecision, StepList, StepMovement, StepOptions, StopFlowOptions, SubFlow, Wait,
+    Attribute, AttributeMap, Channel, Client, Context, Flow, FlowStatus, HandlerError,
+    HandlerResult, IdReusePolicy, PersistenceSchema, Rpc, RpcList, RpcResult, SdkError,
+    StartFlowOptions, Step, StepDecision, StepList, StepMovement, StepOptions, StopFlowOptions,
+    SubFlow, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,14 @@ static CURR_SUB_FLOW_NUM: LazyLock<Attribute<usize>> =
 static SUB_FLOW_COMPLETED_CH: LazyLock<Channel<bool>> =
     LazyLock::new(|| Channel::new("SubFlowCompletedCh"));
 static ALL_DONE_CH: LazyLock<Channel<bool>> = LazyLock::new(|| Channel::new("AllDoneCh"));
+static CHILD_STOP_OUTCOMES: LazyLock<AttributeMap<ChildStopOutcome>> =
+    LazyLock::new(|| AttributeMap::new("ChildStopOutcomes"));
+
+#[derive(Deserialize, Serialize)]
+struct ChildStopOutcome {
+    status: String,
+    result: Option<String>,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ParentInput {
@@ -140,6 +149,7 @@ impl Flow for WaitForHalfParentFlow {
         PersistenceSchema::new()
             .channel(&SUB_FLOW_COMPLETED_CH)
             .channel(&ALL_DONE_CH)
+            .attribute_map(&CHILD_STOP_OUTCOMES)
     }
 }
 
@@ -194,13 +204,67 @@ impl Step for SubFlowStep {
         let client = self.client.as_ref().ok_or_else(|| {
             HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
         })?;
-        client
-            .stop_flow(
-                &SubFlow::flow_id(context)?,
-                StopFlowOptions::cancel().reason("enough SubFlows completed"),
-            )
-            .map_err(HandlerError::from_error)?;
+        let child_flow_id = SubFlow::flow_id(context)?;
+        let outcome = match client.stop_flow(
+            &child_flow_id,
+            StopFlowOptions::cancel().reason("enough SubFlows completed"),
+        ) {
+            Ok(()) => ChildStopOutcome {
+                status: "stopped".to_string(),
+                result: None,
+            },
+            Err(
+                SdkError::FlowNotFound { .. }
+                | SdkError::FlowNotActiveOrNotFound { .. }
+                | SdkError::FlowClosing { .. },
+            ) => Self::read_child_stop_outcome(client, &child_flow_id)?,
+            Err(error) => return Err(HandlerError::from_error(error)),
+        };
+        CHILD_STOP_OUTCOMES.set(context, &child_flow_id, outcome)?;
         Ok(StepDecision::graceful_complete(()))
+    }
+}
+
+impl SubFlowStep {
+    fn read_child_stop_outcome(
+        client: &Client,
+        child_flow_id: &str,
+    ) -> HandlerResult<ChildStopOutcome> {
+        match client.describe_flow(child_flow_id) {
+            Ok(dex_sdk::FlowInfo {
+                status: FlowStatus::Running,
+                ..
+            })
+            | Err(SdkError::FlowNotFound { .. }) => {
+                return Ok(ChildStopOutcome {
+                    status: "unknown".to_string(),
+                    result: None,
+                });
+            }
+            Ok(_) => {}
+            Err(error) => return Err(HandlerError::from_error(error)),
+        }
+        let result = client
+            .wait_for_flow(child_flow_id)
+            .map_err(HandlerError::from_error)?;
+        let status = match result.status() {
+            FlowStatus::Running => "unknown",
+            FlowStatus::Completed => "completed",
+            FlowStatus::Failed => "failed",
+            FlowStatus::Canceled => "canceled",
+            FlowStatus::Terminated => "terminated",
+            FlowStatus::ServerSideTimeoutInternalOnly => "server_side_timeout_internal_only",
+        };
+        let output = result
+            .completions()
+            .first()
+            .map(|completion| completion.decode())
+            .transpose()
+            .map_err(HandlerError::from_error)?;
+        Ok(ChildStopOutcome {
+            status: status.to_string(),
+            result: output,
+        })
     }
 }
 

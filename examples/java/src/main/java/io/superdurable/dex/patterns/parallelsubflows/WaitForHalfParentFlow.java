@@ -10,6 +10,7 @@
 
 package io.superdurable.dex.patterns.parallelsubflows;
 
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
@@ -23,6 +24,10 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.SubFlow;
 import io.superdurable.dex.Wait;
+import io.superdurable.dex.exceptions.FlowClosingException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
+import java.util.Locale;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +36,10 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
     public final Channel<Boolean> subFlowCompletedCh =
             Channel.define("SubFlowCompletedCh", Boolean.class);
     public final Channel<Boolean> allDoneCh = Channel.define("AllDoneCh", Boolean.class);
+    public final AttributeMap<ChildStopOutcome> childStopOutcomes =
+            AttributeMap.define("ChildStopOutcomes", ChildStopOutcome.class);
+
+    public record ChildStopOutcome(String status, String result) {}
 
     private final InitStep initStep = new InitStep();
     private final SubFlowStep subFlowStep;
@@ -47,7 +56,7 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(subFlowCompletedCh, allDoneCh);
+        return PersistenceSchema.of(subFlowCompletedCh, allDoneCh, childStopOutcomes);
     }
 
     final class InitStep implements Step<String[]> {
@@ -93,8 +102,33 @@ public final class WaitForHalfParentFlow implements Flow<String[]> {
                 subFlowCompletedCh.publish(context, true);
                 return StepDecision.gracefulComplete(null);
             }
-            clientProvider.getObject().stopFlow(SubFlow.getFlowId(context));
+            final Client client = clientProvider.getObject();
+            final String childFlowId = SubFlow.getFlowId(context);
+            childStopOutcomes.set(context, childFlowId, stopChild(client, childFlowId));
             return StepDecision.gracefulComplete(null);
+        }
+
+        private ChildStopOutcome stopChild(final Client client, final String childFlowId) {
+            try {
+                client.stopFlow(childFlowId);
+                return new ChildStopOutcome("stopped", null);
+            } catch (final FlowNotFoundException | FlowNotActiveOrNotFoundException
+                    | FlowClosingException error) {
+                return readChildStopOutcome(client, childFlowId);
+            }
+        }
+
+        private ChildStopOutcome readChildStopOutcome(final Client client, final String childFlowId) {
+            try {
+                if (client.describeFlow(childFlowId).getStatus() == FlowStatus.RUNNING) {
+                    return new ChildStopOutcome("unknown", null);
+                }
+            } catch (final FlowNotFoundException error) {
+                return new ChildStopOutcome("unknown", null);
+            }
+            final FlowResult result = client.waitForFlow(childFlowId);
+            return new ChildStopOutcome(result.getStatus().name().toLowerCase(Locale.ROOT),
+                    result.getCompletions().isEmpty() ? null : result.getSingleOutput(String.class));
         }
     }
 
