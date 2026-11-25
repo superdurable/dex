@@ -19,12 +19,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPythonUnpacksSubFlowRunComprehensions(t *testing.T) {
-	const source = `from dex import ConditionCombination, Flow, Step, StepList, SubFlow, Timer, Wait, graceful_complete
+const pythonWaitUnpackingFlow = `from dex import Channel, ConditionCombination, Flow, Step, StepList, SubFlow, Timer, Wait, graceful_complete
 from child_flows import ChildFlow, child_flow
 import child_flows as child_flows_module
 from dex.wait import Wait as DexWait
 from typing import Any
+
+REQUEST_QUEUE = Channel("requests", str)
 
 class LocalChildFlow(Flow[str]):
     def get_steps(self):
@@ -51,12 +52,16 @@ class ParentFlow(Flow[list[str]]):
     def get_steps(self):
         return StepList.start_step(self.step)
 `
+
+func TestPythonSubFlowWaitArguments(t *testing.T) {
 	const comprehension = "[SubFlow.run(child_flow, request) for request in requests]"
 	testCases := map[string]struct {
 		body  string
 		label string
 	}{
 		"bound list":                   {"runs = " + comprehension + "\nreturn Wait.all_of(*runs)", "child_flow"},
+		"bound condition":              {"run = SubFlow.run(child_flow, requests[0])\nreturn Wait.until(run)", "child_flow"},
+		"bound keyword condition":      {"run = SubFlow.run(child_flow, requests[0])\nreturn Wait.until(condition=run)", "child_flow"},
 		"annotated list with timer":    {"runs: list = " + comprehension + "\nreturn Wait.any_of(*runs, Timer.by_duration(1000))", "child_flow"},
 		"inline list":                  {"return Wait.all_of(*" + comprehension + ")", "child_flow"},
 		"inline generator":             {"return Wait.all_of(*(SubFlow.run(child_flow, request) for request in requests))", "child_flow"},
@@ -74,6 +79,11 @@ class ParentFlow(Flow[list[str]]):
 		"mutated list":                 {body: "runs = " + comprehension + "\nruns.append(Timer.by_duration(1000))\nreturn Wait.all_of(*runs)"},
 		"list unpacked twice":          {body: "runs = " + comprehension + "\nreturn Wait.all_of(*runs, *runs)"},
 		"list from parameter":          {body: "return Wait.all_of(*requests)"},
+		"plain SubFlow list":           {body: "runs = " + comprehension + "\nreturn Wait.until(runs)"},
+		"unknown keyword unpacking":    {body: "keywords = build_keywords(requests)\nreturn Wait.all_of(**keywords)"},
+		"SubFlow keyword unpacking":    {body: "return Wait.all_of(**{'condition': SubFlow.run(child_flow, requests[0])})"},
+		"opaque star in inline list":   {body: "return Wait.all_of([*requests])"},
+		"list from field":              {body: "return Wait.all_of(*self.conditions)"},
 		"bound generator":              {body: "runs = (SubFlow.run(child_flow, request) for request in requests)\nreturn Wait.all_of(*runs)"},
 		"list read in nested function": {body: "runs = " + comprehension + "\ndef read_runs():\n    return runs\nreturn Wait.all_of(*runs)"},
 		"list passed to a helper":      {body: "runs = " + comprehension + "\nupdate(runs)\nreturn Wait.all_of(*runs)"},
@@ -82,9 +92,12 @@ class ParentFlow(Flow[list[str]]):
 		"conditional binding":          {body: "if requests:\n    runs = " + comprehension + "\nreturn Wait.all_of(*runs)"},
 		"helper returning conditions":  {body: "return Wait.any_of(*build_runs(requests), Timer.by_duration(1000))"},
 		"element built by helper":      {body: "runs = [build_run(request) for request in requests]\nreturn Wait.all_of(*runs)"},
+		"element from unknown channel": {body: "runs = [self.unknown.for_one()]\nreturn Wait.all_of(*runs)"},
+		"list extended by helper":      {body: "runs = [Timer.by_duration(1000)]\nruns.extend(build_runs(requests))\nreturn Wait.all_of(*runs)"},
+		"list mutated by helper":       {body: "runs = [Timer.by_duration(1000)]\nupdate(runs)\nreturn Wait.all_of(*runs)"},
+		"mixed list":                   {body: "runs = [Timer.by_duration(1000)]\nruns.append(SubFlow.run(child_flow, requests[0]))\nreturn Wait.all_of(*runs)"},
 		"timer comprehension":          {"return Wait.all_of(*[Timer.by_duration(request) for request in requests])", "request timer"},
 		"nested timer generator":       {"return Wait.any_combination_of(ConditionCombination.of(*(Timer.by_duration(request) for request in requests if request)))", "request timer"},
-		"empty list":                   {body: "runs = []\nreturn Wait.all_of(*runs)"},
 		"computed child":               {body: "runs = [SubFlow.run(select_child(request), request) for request in requests]\nreturn Wait.all_of(*runs)"},
 		"computed child alias":         {body: "child = select_child(requests)\nruns = [SubFlow.run(child, request) for request in requests]\nreturn Wait.all_of(*runs)"},
 		"reassigned child":             {body: "child = child_flow\nchild = select_child(requests)\nreturn Wait.all_of(*[SubFlow.run(child, request) for request in requests])"},
@@ -105,36 +118,26 @@ class ParentFlow(Flow[list[str]]):
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
-			sourcePath := filepath.Join(t.TempDir(), "workflow.py")
-			body := strings.ReplaceAll(testCase.body, "\n", "\n        ")
-			require.NoError(t, os.WriteFile(sourcePath, []byte(strings.Replace(source, "WAIT_BODY", body, 1)), 0o644))
-			graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ParentFlow"})
-			require.NoError(t, err)
-			var waitNode *Node
-			for index := range graph.Nodes {
-				if graph.Nodes[index].Kind == "wait" {
-					require.Nil(t, waitNode)
-					waitNode = &graph.Nodes[index]
-				}
-			}
-			require.NotNil(t, waitNode)
+			graph, waitNode := analyzePythonWaitUnpacking(t, testCase.body)
 			require.NotEmpty(t, waitNode.Wait.Conditions)
 			condition := waitNode.Wait.Conditions[0]
 			switch {
 			case testCase.label == "":
 				require.False(t, graph.Valid)
-				require.Contains(t, diagnosticCodes(graph), "dynamic_wait_condition")
+				require.Contains(t, dynamicWaitConditionSeverities(graph), "error")
 				require.Equal(t, "unknown", condition.Kind)
 				for _, edge := range graph.Edges {
 					require.NotEqual(t, "subflow", edge.Kind)
 				}
 			case testCase.label == "request timer":
 				require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+				require.Empty(t, dynamicWaitConditionSeverities(graph))
 				require.Equal(t, "timer", condition.Kind)
 				require.Equal(t, testCase.label, condition.Label)
 				require.Equal(t, "request", condition.Expression)
 			default:
 				require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+				require.Empty(t, dynamicWaitConditionSeverities(graph))
 				require.Equal(t, "subflow", condition.Kind)
 				require.Equal(t, testCase.label, condition.Label)
 				require.NotEmpty(t, condition.SubFlowID)
@@ -157,6 +160,80 @@ class ParentFlow(Flow[list[str]]):
 			}
 		})
 	}
+}
+
+func TestPythonWarnsOnUnpackedNonSubFlowConditions(t *testing.T) {
+	testCases := map[string]struct {
+		body           string
+		conditionKinds []string
+	}{
+		"bound channel comprehension with insert": {
+			body: "conditions = [REQUEST_QUEUE.for_one() for request in requests]\nif requests:\n    conditions.insert(0, REQUEST_QUEUE.for_one())\nreturn Wait.any_of(*conditions)",
+		},
+		"bound timers with append and extend": {
+			body: "conditions = []\nconditions.append(Timer.by_duration(1000))\nif len(conditions) < len(requests):\n    conditions.extend(Timer.by_duration(request) for request in requests)\nreturn Wait.all_of(*conditions)",
+		},
+		"bound timers with augmented assignment": {
+			body: "conditions = []\nif requests:\n    conditions += [Timer.by_duration(1000)]\nreturn Wait.all_of(*conditions)",
+		},
+		"empty bound list":                  {body: "conditions = []\nreturn Wait.all_of(*conditions)"},
+		"bound condition without unpacking": {body: "condition = Timer.by_duration(1000)\nreturn Wait.until(condition)"},
+		"bound list without unpacking":      {body: "conditions = [Timer.by_duration(1000)]\nreturn Wait.until(conditions)"},
+		"known keyword unpacking":           {body: "keywords = {'condition': Timer.by_duration(1000)}\nreturn Wait.all_of(**keywords)"},
+		"known element in inline list": {
+			body:           "return Wait.all_of([*[Timer.by_duration(1000)]])",
+			conditionKinds: []string{"timer"},
+		},
+		"inline channel comprehension": {
+			body:           "return Wait.any_of(*[REQUEST_QUEUE.for_one() for request in requests], Timer.by_duration(1000))",
+			conditionKinds: []string{"timer", "channel"},
+		},
+		"inline timer list": {
+			body:           "return Wait.all_of(*[Timer.by_duration(1000)])",
+			conditionKinds: []string{"timer"},
+		},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			graph, waitNode := analyzePythonWaitUnpacking(t, testCase.body)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			require.Equal(t, []string{"warning"}, dynamicWaitConditionSeverities(graph))
+			var conditionKinds []string
+			for _, condition := range waitNode.Wait.Conditions {
+				conditionKinds = append(conditionKinds, condition.Kind)
+			}
+			require.Equal(t, testCase.conditionKinds, conditionKinds)
+		})
+	}
+}
+
+func analyzePythonWaitUnpacking(t *testing.T, waitBody string) (*Graph, *Node) {
+	t.Helper()
+	sourcePath := filepath.Join(t.TempDir(), "workflow.py")
+	body := strings.ReplaceAll(waitBody, "\n", "\n        ")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(strings.Replace(pythonWaitUnpackingFlow, "WAIT_BODY", body, 1)), 0o644))
+	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ParentFlow"})
+	require.NoError(t, err)
+	var waitNode *Node
+	for index := range graph.Nodes {
+		if graph.Nodes[index].Kind == "wait" {
+			require.Nil(t, waitNode)
+			waitNode = &graph.Nodes[index]
+		}
+	}
+	require.NotNil(t, waitNode, "%+v", graph.Diagnostics)
+	return graph, waitNode
+}
+
+func dynamicWaitConditionSeverities(graph *Graph) []string {
+	var severities []string
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "dynamic_wait_condition" {
+			severities = append(severities, diagnostic.Severity)
+		}
+	}
+	return severities
 }
 
 func TestPythonAnalyzerScriptIsPassedAsPrivateFile(t *testing.T) {

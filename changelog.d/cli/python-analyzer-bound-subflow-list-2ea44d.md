@@ -1,4 +1,4 @@
 ---
 section: Fixed
 ---
-- **dexcli visualize** draws a SubFlow condition when a Python Wait unpacks a local list with a fixed child Flow. Other unpacking reports **dynamic_wait_condition** instead of drawing no condition. [Flow visualization](/reference/web/flow-visualization/#python-waits-movements-and-resource-access).
+- **dexcli visualize** draws bound Python SubFlow conditions and lists. Unsupported names, keyword unpacking, and lists warn for known non-SubFlows and error otherwise. [Flow visualization](/reference/web/flow-visualization/#python-waits-movements-and-resource-access).
