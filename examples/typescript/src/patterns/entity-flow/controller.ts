@@ -16,13 +16,19 @@
 
 import { Router, type Request } from "express";
 
-import { FlowAlreadyStartedError, InitialAttribute, type Client } from "@superdurable/dex";
+import {
+  FlowAlreadyStartedError,
+  IdReusePolicy,
+  InitialAttribute,
+  type Client,
+} from "@superdurable/dex";
 
 import { requiredString } from "../shared/http-helpers.js";
 import {
   customerAccountFlow,
   customerAccountFlowId,
   validateContactDetails,
+  validateCreditAmount,
   type ContactDetails,
 } from "./customer-account-flow.js";
 
@@ -35,6 +41,7 @@ export function createEntityFlowRouter(client: Client): Router {
     const flowId = customerAccountFlowId(accountId);
     try {
       const runId = await client.startFlow(customerAccountFlow, flowId, undefined, {
+        idReusePolicy: IdReusePolicy.DISALLOW,
         attributes: [
           InitialAttribute.of(customerAccountFlow.displayName, contact.displayName),
           InitialAttribute.of(customerAccountFlow.email, contact.email),
@@ -64,9 +71,11 @@ export function createEntityFlowRouter(client: Client): Router {
 
   router.post("/account/credits", async (request, response) => {
     const accountId = requiredString(request.body?.accountId, "accountId");
-    const amount: unknown = request.body?.amount;
-    if (typeof amount !== "number" || !Number.isInteger(amount)) {
-      response.status(400).json({ error: "amount must be an integer" });
+    let amount: number;
+    try {
+      amount = validateCreditAmount(request.body?.amount);
+    } catch (error) {
+      response.status(400).json({ error: (error as Error).message });
       return;
     }
     const balance = await client.invokeRPC(

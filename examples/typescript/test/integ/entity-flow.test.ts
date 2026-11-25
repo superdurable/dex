@@ -20,11 +20,15 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   FlowAlreadyStartedError,
+  IdReusePolicy,
   InitialAttribute,
   RpcLockConflictError,
 } from "@superdurable/dex";
 
-import { customerAccountFlowId } from "../../src/patterns/entity-flow/customer-account-flow.js";
+import {
+  accountArchive,
+  customerAccountFlowId,
+} from "../../src/patterns/entity-flow/customer-account-flow.js";
 import {
   acquireIntegEnvironment,
   releaseIntegEnvironment,
@@ -32,87 +36,127 @@ import {
 } from "./environment.js";
 
 const CONCURRENT_DEPOSITS = 8;
+const CLOSE_TIMEOUT_MS = 45_000;
+
+let environment: IntegEnvironment;
 
 test.before(async () => {
-  await acquireIntegEnvironment();
+  environment = await acquireIntegEnvironment();
 });
 
 test.after(async () => {
   await releaseIntegEnvironment();
 });
 
-test("entity Flow keeps one customer account until it is retired", async () => {
-  const environment = await acquireIntegEnvironment();
-  const { client, customerAccountFlow: flow } = environment;
-  const flowId = customerAccountFlowId(environment.newFlowId("entity-flow"));
-  const options = {
-    attributes: [
-      InitialAttribute.of(flow.displayName, "Ada"),
-      InitialAttribute.of(flow.email, "ada@example.com"),
-      InitialAttribute.of(flow.creditBalance, 0n),
-      InitialAttribute.of(flow.retired, false),
-    ],
-  };
-  await client.startFlow(flow, flowId, undefined, options);
-  await assert.rejects(
-    client.startFlow(flow, flowId, undefined, options),
-    FlowAlreadyStartedError,
-  );
+test(
+  "entity Flow keeps one customer account until it is retired",
+  { timeout: CLOSE_TIMEOUT_MS + 15_000 },
+  async () => {
+    const { client, customerAccountFlow: flow } = environment;
+    const flowId = customerAccountFlowId(environment.newFlowId("entity-flow"));
+    const options = {
+      idReusePolicy: IdReusePolicy.DISALLOW,
+      attributes: [
+        InitialAttribute.of(flow.displayName, "Ada"),
+        InitialAttribute.of(flow.email, "ada@example.com"),
+        InitialAttribute.of(flow.creditBalance, 0n),
+        InitialAttribute.of(flow.retired, false),
+      ],
+    };
+    await client.startFlow(flow, flowId, undefined, options);
+    await assert.rejects(
+      client.startFlow(flow, flowId, undefined, options),
+      FlowAlreadyStartedError,
+    );
 
-  await client.invokeRPC(flow.updateContactDetails, flowId, {
-    displayName: "Ada Lovelace",
-    email: "ada@lovelace.example",
-  });
-  await assert.rejects(
-    client.invokeRPC(flow.updateContactDetails, flowId, {
-      displayName: "Ada",
-      email: "not-an-email",
-    }),
-    /email must contain @/,
-  );
+    await client.invokeRPC(flow.updateContactDetails, flowId, {
+      displayName: "Ada Lovelace",
+      email: "ada@lovelace.example",
+    });
+    await assert.rejects(
+      client.invokeRPC(flow.updateContactDetails, flowId, {
+        displayName: "Ada",
+        email: "not-an-email",
+      }),
+      /email must contain @/,
+    );
 
-  await Promise.all(
-    Array.from({ length: CONCURRENT_DEPOSITS }, () =>
-      depositWithRetry(environment, flowId, 5),
-    ),
-  );
-  await assert.rejects(
-    client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: -1000 }),
-    /below zero/,
-  );
+    await Promise.all(
+      Array.from({ length: CONCURRENT_DEPOSITS }, () => depositWithRetry(flowId, 5)),
+    );
+    await assert.rejects(
+      client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: -1000 }),
+      /below zero/,
+    );
+    await assert.rejects(
+      client.invokeRPC(flow.adjustCreditBalance, flowId, {
+        amount: "5" as unknown as number,
+      }),
+      /safe integer/,
+    );
+    await assert.rejects(
+      client.invokeRPC(flow.adjustCreditBalance, flowId, {
+        amount: Number.MAX_SAFE_INTEGER,
+      }),
+      /largest safe integer/,
+    );
 
-  const [displayName, email, creditBalance] = await client.getAttributes(
-    flowId,
-    flow.displayName,
-    flow.email,
-    flow.creditBalance,
-  );
-  assert.equal(displayName, "Ada Lovelace");
-  assert.equal(email, "ada@lovelace.example");
-  assert.equal(creditBalance, BigInt(5 * CONCURRENT_DEPOSITS));
+    const [displayName, email, creditBalance] = await client.getAttributes(
+      flowId,
+      flow.displayName,
+      flow.email,
+      flow.creditBalance,
+    );
+    assert.equal(displayName, "Ada Lovelace");
+    assert.equal(email, "ada@lovelace.example");
+    assert.equal(creditBalance, BigInt(5 * CONCURRENT_DEPOSITS));
 
-  await assert.rejects(
-    client.invokeRPC(flow.retireAccount, flowId),
-    /before retiring/,
-  );
-  assert.equal((await client.describeFlow(flowId)).status, "running");
+    await assert.rejects(
+      client.invokeRPC(flow.retireAccount, flowId),
+      /before retiring/,
+    );
+    assert.equal((await client.describeFlow(flowId)).status, "running");
 
-  await client.invokeRPC(flow.adjustCreditBalance, flowId, {
-    amount: -5 * CONCURRENT_DEPOSITS,
-  });
-  await client.invokeRPC(flow.retireAccount, flowId);
-  await assert.rejects(
-    client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: 10 }),
-  );
-  const result = await client.waitForFlow(flowId);
-  assert.equal(result.status, "completed");
-});
+    await client.invokeRPC(flow.adjustCreditBalance, flowId, {
+      amount: -5 * CONCURRENT_DEPOSITS,
+    });
+    accountArchive.makeUnavailable(flowId);
+    await client.invokeRPC(flow.retireAccount, flowId);
+    assert.equal((await client.describeFlow(flowId)).status, "running");
+    await assert.rejects(
+      client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: 10 }),
+      /account is retired/,
+    );
+    await assert.rejects(
+      client.invokeRPC(flow.updateContactDetails, flowId, {
+        displayName: "Ada Byron",
+        email: "ada@byron.example",
+      }),
+      /account is retired/,
+    );
+    await client.invokeRPC(flow.retireAccount, flowId);
+    assert.equal((await client.describeFlow(flowId)).status, "running");
 
-async function depositWithRetry(
-  environment: IntegEnvironment,
-  flowId: string,
-  amount: number,
-): Promise<void> {
+    accountArchive.makeAvailable(flowId);
+    const result = await client.waitForFlow(flowId, CLOSE_TIMEOUT_MS);
+    assert.equal(result.status, "completed");
+    assert.equal(accountArchive.archiveCount(flowId), 1);
+    const [closedBalance, closedRetired] = await client.getAttributes(
+      flowId,
+      flow.creditBalance,
+      flow.retired,
+    );
+    assert.equal(closedBalance, 0n);
+    assert.equal(closedRetired, true);
+
+    await assert.rejects(
+      client.startFlow(flow, flowId, undefined, options),
+      FlowAlreadyStartedError,
+    );
+  },
+);
+
+async function depositWithRetry(flowId: string, amount: number): Promise<void> {
   for (let attempt = 1; attempt <= 50; attempt += 1) {
     try {
       await environment.client.invokeRPC(

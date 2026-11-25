@@ -31,7 +31,10 @@ import {
   type RPCResult,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
+
+import { FakeAccountArchive } from "./account-archive.js";
 
 export interface ContactDetails {
   readonly displayName: string;
@@ -41,6 +44,8 @@ export interface ContactDetails {
 export interface CreditAdjustment {
   readonly amount: number;
 }
+
+const MAX_CREDIT_BALANCE = BigInt(Number.MAX_SAFE_INTEGER);
 
 export function customerAccountFlowId(accountId: string): string {
   return `customer-account-${accountId}`;
@@ -55,17 +60,36 @@ export function validateContactDetails(contact: ContactDetails): void {
   }
 }
 
+export function validateCreditAmount(amount: unknown): number {
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount)) {
+    throw new Error("amount must be a safe integer");
+  }
+  if (amount === 0) {
+    throw new Error("amount must not be zero");
+  }
+  return amount;
+}
+
 const creditBalance = new Attribute("credit_balance", int64Codec);
 const retired = new Attribute("retired", booleanCodec);
 
 // dex:group group-id:account-retirement group-label:"Account retirement"
-// dex:explanation text:"Complete the account Flow after the retire request passes its checks."
+// dex:explanation text:"Archive the retired account, then complete its Flow."
 export class CloseAccountStep implements Step<void> {
+  public constructor(private readonly archive: FakeAccountArchive) {}
+
   public getStepType(): string {
     return "CloseAccountStep";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumIntervalMs: 1_000 },
+    };
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    this.archive.archiveAccount(context.flowId);
     return gracefulComplete();
   }
 }
@@ -75,7 +99,11 @@ export class CustomerAccountFlow implements Flow<void> {
   public readonly email = new Attribute("email", stringCodec);
   public readonly creditBalance = creditBalance;
   public readonly retired = retired;
-  private readonly closeAccount = new CloseAccountStep();
+  private readonly closeAccount: CloseAccountStep;
+
+  public constructor(archive: FakeAccountArchive) {
+    this.closeAccount = new CloseAccountStep(archive);
+  }
 
   public getFlowType(): string {
     return "CustomerAccountFlow";
@@ -91,8 +119,13 @@ export class CustomerAccountFlow implements Flow<void> {
     };
   }
 
-  @rpc({ name: "UpdateContactDetails", inputCodec: jsonCodec<ContactDetails>() })
+  @rpc({
+    name: "UpdateContactDetails",
+    inputCodec: jsonCodec<ContactDetails>(),
+    lockAttributes: [creditBalance.lock()],
+  })
   public updateContactDetails(context: Context, contact: ContactDetails): void {
+    this.requireOpenAccount(context);
     validateContactDetails(contact);
     this.displayName.set(context, contact.displayName);
     this.email.set(context, contact.email);
@@ -108,15 +141,14 @@ export class CustomerAccountFlow implements Flow<void> {
     context: Context,
     adjustment: CreditAdjustment,
   ): RPCResult<bigint> {
-    if (this.retired.get(context)) {
-      throw new Error("account is retired");
-    }
-    if (adjustment.amount === 0) {
-      throw new Error("amount must not be zero");
-    }
-    const balance = this.creditBalance.get(context) + BigInt(adjustment.amount);
+    this.requireOpenAccount(context);
+    const amount = validateCreditAmount(adjustment.amount);
+    const balance = this.creditBalance.get(context) + BigInt(amount);
     if (balance < 0n) {
       throw new Error("credit balance cannot go below zero");
+    }
+    if (balance > MAX_CREDIT_BALANCE) {
+      throw new Error("credit balance cannot exceed the largest safe integer");
     }
     this.creditBalance.set(context, balance);
     return { output: balance };
@@ -128,6 +160,9 @@ export class CustomerAccountFlow implements Flow<void> {
     lockAttributes: [creditBalance.lock()],
   })
   public retireAccount(context: Context): RPCResult<void> {
+    if (this.retired.get(context)) {
+      return { output: undefined };
+    }
     if (this.creditBalance.get(context) !== 0n) {
       throw new Error("spend or refund the credit balance before retiring");
     }
@@ -137,6 +172,13 @@ export class CustomerAccountFlow implements Flow<void> {
       nextSteps: [StepMovement.of(CloseAccountStep, undefined)],
     };
   }
+
+  private requireOpenAccount(context: Context): void {
+    if (this.retired.get(context)) {
+      throw new Error("account is retired");
+    }
+  }
 }
 
-export const customerAccountFlow = new CustomerAccountFlow();
+export const accountArchive = new FakeAccountArchive();
+export const customerAccountFlow = new CustomerAccountFlow(accountArchive);
