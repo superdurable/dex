@@ -65,7 +65,7 @@ class CustomerAccountFlow(Flow[None]):
     credit_balance = Attribute("credit_balance", int)
 
     def get_steps(self) -> StepList[None]:
-        return StepList.without_start_step(CloseAccountStep())
+        return StepList.empty().other_steps(CloseAccountStep())
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.display_name, self.email, self.credit_balance)
