@@ -350,6 +350,9 @@ class _RegisteredStep:
     input_codec: Codec[Any]
     starting: bool
     skips_wait_for: bool
+    # Registration-time lock keys; declared lock requirements count only these.
+    wait_for_lock_keys: frozenset[str] = frozenset()
+    execute_lock_keys: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -581,6 +584,7 @@ class Registry:
             type[Step[Any]], tuple[_RegisteredStep, ...]
         ] = {}
         start_step: _RegisteredStep | None = None
+        step_options_by_name: dict[str, StepOptions | None] = {}
         for definition in definitions:
             if not isinstance(definition, _StepDef):
                 raise TypeError("Flow StepList contains an invalid definition")
@@ -600,6 +604,8 @@ class Registry:
                 StepDecision,
                 allow_async_handlers=allow_async_handlers,
             )
+            # Read once, so validation and lock enforcement see the same options.
+            step_options = step.get_step_options()
             registered_step = _RegisteredStep(
                 step_name,
                 step,
@@ -611,7 +617,9 @@ class Registry:
                 ),
                 definition.is_start_step,
                 type(step).wait_for is Step.wait_for,
+                *Registry._step_lock_keys(step_options),
             )
+            step_options_by_name[step_name] = step_options
             registered_steps[step_name] = registered_step
             registered_steps_by_class[step_class] = (
                 *registered_steps_by_class.get(step_class, ()),
@@ -688,10 +696,39 @@ class Registry:
             Registry._validate_step_targets(
                 registered_flow,
                 registered_step,
-                registered_step.step.get_step_options(),
+                step_options_by_name[registered_step.name],
                 set(),
             )
         return registered_flow
+
+    @staticmethod
+    def _step_lock_keys(
+        options: StepOptions | None,
+    ) -> tuple[frozenset[str], frozenset[str]]:
+        """Return the ``wait_for`` and ``execute`` lock keys a Step registers."""
+        if not isinstance(options, StepOptions):
+            return frozenset(), frozenset()
+        return (
+            Registry._valid_lock_keys(options.wait_for_lock_attributes),
+            Registry._valid_lock_keys(options.execute_lock_attributes),
+        )
+
+    @staticmethod
+    def _valid_lock_keys(locks: Sequence[AttributeLock]) -> frozenset[str]:
+        # Invalid entries are skipped; mapping the options reports them as before.
+        keys: set[str] = set()
+        try:
+            entries = tuple(locks)
+        except TypeError:
+            return frozenset()
+        for lock in entries:
+            if not isinstance(lock, AttributeLock):
+                continue
+            try:
+                keys.add(Registry._physical_lock(lock))
+            except ValueError:
+                continue
+        return frozenset(keys)
 
     @staticmethod
     def _validate_step_targets(

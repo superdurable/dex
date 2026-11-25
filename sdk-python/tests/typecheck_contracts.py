@@ -27,6 +27,8 @@ from dex import (
     FileCredential,
     Flow,
     FlowConfig,
+    MissingAttributeLockAccess,
+    MissingAttributeLockError,
     PersistenceSchema,
     PullWorkerOptions,
     Registry,
@@ -221,6 +223,22 @@ locked_events: ChannelMap[str] = ChannelMap(
 )
 assert_type(locked_total.writes_require_lock, bool | Attribute[Any])
 assert_type(locked_replies.publishes_require_lock, Attribute[Any] | None)
+missing_lock_error = MissingAttributeLockError(
+    "OrderFlow",
+    "AddItemStep",
+    "execute",
+    None,
+    (
+        MissingAttributeLockAccess(
+            kind="AttributeMap",
+            name="items",
+            instance="a",
+            lock_attribute_name="items",
+            lock_instance="a",
+        ),
+    ),
+)
+assert_type(missing_lock_error.accesses, tuple[MissingAttributeLockAccess, ...])
 pull_start_options: StartFlowOptions = StartFlowOptions(
     config_override=FlowConfig(step_durability=StepDurability.SYNC)
 )
