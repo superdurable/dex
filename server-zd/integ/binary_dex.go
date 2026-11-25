@@ -196,6 +196,9 @@ func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
 	if testConfig.FlowDefinitionMaxBytes > 0 {
 		configuration["flowDefinitions"] = map[string]any{"maxDefinitionBytes": testConfig.FlowDefinitionMaxBytes}
 	}
+	if testConfig.MetricsListen != "" {
+		configuration["metrics"] = map[string]any{"listen": testConfig.MetricsListen}
+	}
 	return configuration, ""
 }
 

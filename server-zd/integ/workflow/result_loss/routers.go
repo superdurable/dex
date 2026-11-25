@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -27,29 +28,37 @@ const (
 	StepHold     = "Hold"
 	RPCCharge    = "charge"
 	HoldChannel  = "never-published"
+	LogChannel   = "result-log"
 	ChargePrefix = "charge-"
 )
 
-type handler struct {
-	mutex sync.Mutex
+type resultLossWorker struct {
+	// onRetry runs before a retried Step method answers; nil skips it.
+	onRetry func(handlerName string, attempt int32)
+	mutex   sync.Mutex
 	// externalCalls counts calls to the fake external service by handler, such as "S1_execute".
 	externalCalls map[string]int64
 	// attemptsSeen records every Step method attempt the Worker ran, in arrival order.
 	attemptsSeen []string
+	// attemptStarts records when each attempt in attemptsSeen arrived.
+	attemptStarts map[string]time.Time
 }
 
-func NewHandler() *handler {
-	return &handler{externalCalls: make(map[string]int64)}
+func NewResultLossWorker(onRetry func(handlerName string, attempt int32)) *resultLossWorker {
+	return &resultLossWorker{
+		onRetry:       onRetry,
+		externalCalls: make(map[string]int64),
+		attemptStarts: make(map[string]time.Time),
+	}
 }
 
-func (h *handler) InvokeWaitForMethod(
+func (worker *resultLossWorker) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
 	if request.GetFlowType() != FlowType {
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
-	h.recordAttempt(request.GetStepType()+"_waitFor", request.GetContext())
 	if request.GetStepType() == StepHold {
 		return &dexpb.InvokeWaitForMethodResponse{
 			WaitingCondition: &dexpb.WaitingCondition{
@@ -58,10 +67,16 @@ func (h *handler) InvokeWaitForMethod(
 			},
 		}, nil
 	}
-	return &dexpb.InvokeWaitForMethodResponse{}, nil
+	handlerName := request.GetStepType() + "_waitFor"
+	attempt := request.GetContext().GetAttempt()
+	worker.startAttempt(handlerName, attempt)
+	return &dexpb.InvokeWaitForMethodResponse{
+		UpsertAttributes: []*dexpb.AttributeWrite{attemptAttribute(handlerName, attempt)},
+		PublishToChannel: []*dexpb.ChannelMessage{attemptMessage(handlerName, attempt)},
+	}, nil
 }
 
-func (h *handler) InvokeExecuteMethod(
+func (worker *resultLossWorker) InvokeExecuteMethod(
 	_ context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
@@ -69,38 +84,41 @@ func (h *handler) InvokeExecuteMethod(
 		return nil, status.Error(codes.InvalidArgument, "invalid flow type")
 	}
 	handlerName := request.GetStepType() + "_execute"
-	h.recordAttempt(handlerName, request.GetContext())
-	h.chargeExternalService(handlerName)
+	attempt := request.GetContext().GetAttempt()
+	worker.startAttempt(handlerName, attempt)
+	worker.chargeExternalService(handlerName)
 	output := &dexpb.Value{Kind: &dexpb.Value_StringValue{
 		StringValue: request.GetStepInput().GetStringValue() + "/" + request.GetStepType(),
 	}}
+	response := &dexpb.InvokeExecuteMethodResponse{
+		UpsertAttributes: []*dexpb.AttributeWrite{attemptAttribute(handlerName, attempt)},
+		PublishToChannel: []*dexpb.ChannelMessage{attemptMessage(handlerName, attempt)},
+	}
 	nextStepTypes := map[string]string{Step1: Step2, Step2: Step3}
 	nextStepType, hasNextStep := nextStepTypes[request.GetStepType()]
 	if !hasNextStep {
-		return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
-			CloseDecision: &dexpb.CloseDecision{
-				CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
-				CloseInput:        output,
-			},
-		}}, nil
+		response.StepDecision = &dexpb.StepDecision{CloseDecision: &dexpb.CloseDecision{
+			CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+			CloseInput:        output,
+		}}
+		return response, nil
 	}
-	return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
-		NextSteps: []*dexpb.StepMovement{{
-			StepType:    nextStepType,
-			StepInput:   output,
-			StepOptions: FastRetryStepOptions(),
-		}},
-	}}, nil
+	response.StepDecision = &dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{{
+		StepType:    nextStepType,
+		StepInput:   output,
+		StepOptions: FastRetryStepOptions(),
+	}}}
+	return response, nil
 }
 
-func (h *handler) InvokeWorkerRPC(
+func (worker *resultLossWorker) InvokeWorkerRPC(
 	_ context.Context,
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 	if request.GetFlowType() != FlowType || request.GetRpcName() != RPCCharge {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid rpc name: %s", request.GetRpcName()))
 	}
-	h.chargeExternalService(RPCCharge + "_rpc")
+	worker.chargeExternalService(RPCCharge + "_rpc")
 	return &dexpb.InvokeWorkerRPCResponse{
 		Output: request.GetInput(),
 		UpsertAttributes: []*dexpb.AttributeWrite{{
@@ -111,34 +129,47 @@ func (h *handler) InvokeWorkerRPC(
 }
 
 // ExternalCalls returns a copy of the fake external service's call counts.
-func (h *handler) ExternalCalls() map[string]int64 {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	calls := make(map[string]int64, len(h.externalCalls))
-	for name, count := range h.externalCalls {
+func (worker *resultLossWorker) ExternalCalls() map[string]int64 {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	calls := make(map[string]int64, len(worker.externalCalls))
+	for name, count := range worker.externalCalls {
 		calls[name] = count
 	}
 	return calls
 }
 
 // AttemptsSeen returns the Step method attempts the Worker ran, such as "S1_execute#2".
-func (h *handler) AttemptsSeen() []string {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	return append([]string(nil), h.attemptsSeen...)
+func (worker *resultLossWorker) AttemptsSeen() []string {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	return append([]string(nil), worker.attemptsSeen...)
 }
 
-func (h *handler) recordAttempt(handlerName string, stepContext *dexpb.Context) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	h.attemptsSeen = append(h.attemptsSeen, fmt.Sprintf("%s#%d", handlerName, stepContext.GetAttempt()))
+// AttemptStart returns when the attempt named like "S1_execute#2" arrived, and whether it arrived.
+func (worker *resultLossWorker) AttemptStart(attemptName string) (time.Time, bool) {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	start, hasStarted := worker.attemptStarts[attemptName]
+	return start, hasStarted
+}
+
+func (worker *resultLossWorker) startAttempt(handlerName string, attempt int32) {
+	worker.mutex.Lock()
+	attemptName := AttemptName(handlerName, attempt)
+	worker.attemptsSeen = append(worker.attemptsSeen, attemptName)
+	worker.attemptStarts[attemptName] = time.Now()
+	worker.mutex.Unlock()
+	if attempt > 1 && worker.onRetry != nil {
+		worker.onRetry(handlerName, attempt)
+	}
 }
 
 // chargeExternalService stands for a non-idempotent external call, such as charging a card.
-func (h *handler) chargeExternalService(handlerName string) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	h.externalCalls[handlerName]++
+func (worker *resultLossWorker) chargeExternalService(handlerName string) {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	worker.externalCalls[handlerName]++
 }
 
 // FastRetryStepOptions retries every method after one second, so dropped results retry quickly.
@@ -150,4 +181,28 @@ func FastRetryStepOptions() *dexpb.StepOptions {
 		MaximumAttempts:        20,
 	}
 	return &dexpb.StepOptions{WaitForRetryPolicy: retryPolicy, ExecuteRetryPolicy: retryPolicy}
+}
+
+// AttemptName names one method attempt, such as "S1_execute#2".
+func AttemptName(handlerName string, attempt int32) string {
+	return fmt.Sprintf("%s#%d", handlerName, attempt)
+}
+
+// AttemptAttributeKey is the Attribute each method attempt writes, such as "S1_execute-a2".
+func AttemptAttributeKey(handlerName string, attempt int32) string {
+	return fmt.Sprintf("%s-a%d", handlerName, attempt)
+}
+
+func attemptAttribute(handlerName string, attempt int32) *dexpb.AttributeWrite {
+	return &dexpb.AttributeWrite{
+		Key:   AttemptAttributeKey(handlerName, attempt),
+		Value: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: AttemptName(handlerName, attempt)}},
+	}
+}
+
+func attemptMessage(handlerName string, attempt int32) *dexpb.ChannelMessage {
+	return &dexpb.ChannelMessage{
+		ChannelName: LogChannel,
+		Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: AttemptName(handlerName, attempt)}},
+	}
 }

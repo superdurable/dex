@@ -45,4 +45,6 @@ type serverZDTestConfig struct {
 	FlowDefinitionMaxBytes int64
 	// Default empty adds nothing; otherwise flags appended to `dex-server-zd dev`, such as result loss injection.
 	DevFlags []string
+	// Default empty disables metrics; otherwise metrics.listen, the plain HTTP address the test scrapes on loopback.
+	MetricsListen string
 }

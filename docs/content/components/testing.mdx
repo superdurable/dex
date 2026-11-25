@@ -451,27 +451,32 @@ dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
 ```
 
 The server now drops about 30% of the Step method results. Each dropped
-result fails its attempt like a Worker crash, and the Step retries under its
-retry policy. The application code stays the same.
+result fails its attempt like a Worker crash. The method retries while its
+retry budget lasts; after that, its failure policy runs. The application code
+stays the same.
 
 Run the usual tests against this server and check three things:
 
-- **The Flow still reaches the same result.** Lost results only add retries.
+- **The Flow still reaches the same result.** Within the retry budget, lost
+  results only add retries.
 - **Each external effect still happens once.** A fake that records every call
   shows the repeats. A fake payment API must still see one charge per order,
   so the Step needs an idempotency key.
 - **A Step that runs again still sees correct state.** The lost run's
   Attribute writes never took effect.
 
-A Step whose retry policy allows one attempt fails here, as it would after a
-real crash.
+A Step whose retry policy allows one attempt runs its failure policy here, as
+it would after a real crash.
 
-The seed and the Flow IDs decide which results are dropped. To reproduce a
-failing run, run the failing test again with the same seed and the Flow ID it
-used.
+The seed decides which results are dropped, together with each result's Flow
+ID, Step execution ID, and attempt. To reproduce a failing run, run the
+failing test again with the same seed and the Flow ID it used. Its Steps then
+get the same Step execution IDs and attempts.
 
 **-inject-rpc-result-loss** drops RPC results the same way. The RPC caller
-gets **UNAVAILABLE** and decides whether to retry.
+gets **UNAVAILABLE** and decides whether to retry. Here the same seed drops
+the same calls when the successful RPC responses arrive in the same order.
+Concurrent calls and Worker errors can change that order.
 
 [Worker result loss injection](/reference/server/configuration#dev-worker-result-loss)
 lists the exact rules.

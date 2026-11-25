@@ -75,13 +75,11 @@ type Config struct {
 	ZDConfigPath string
 	// Durability defaults to strict; dexcli passes it to dex-server-zd dev as --durability only when set.
 	Durability string
-	// StepResultLoss defaults to 0. A fraction from 0 to 1 of Worker WaitFor and Execute results that server-zd drops
-	// for testing, as if the Worker crashed after the method ran; passed as --inject-step-result-loss only when set.
+	// StepResultLoss defaults to 0; the share of Step method results server-zd drops for tests.
 	StepResultLoss float64
-	// RPCResultLoss defaults to 0. A fraction from 0 to 1 of Worker RPC results that server-zd drops for testing; the
-	// caller gets UNAVAILABLE. Passed as --inject-rpc-result-loss only when set.
+	// RPCResultLoss defaults to 0; the share of RPC results server-zd drops for tests.
 	RPCResultLoss float64
-	// ResultLossSeed defaults to 0 and seeds the result loss decisions; passed as --inject-result-loss-seed only when set.
+	// ResultLossSeed defaults to 0; the seed that picks which results server-zd drops.
 	ResultLossSeed uint64
 	// BindAddress defaults to 127.0.0.1 for all owned listeners.
 	BindAddress string

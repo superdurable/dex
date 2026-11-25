@@ -438,31 +438,41 @@ it, and **local** and **serve** reject the flags. At startup, server-zd logs
 one warning with the fractions and the seed.
 
 A dropped Step result fails its attempt the way a Worker disconnect does.
-The attempt's failure detail starts with
-**DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED** and names the fault
-injection. The attempt counts against the Step's retry policy, and the next
-attempt starts after the policy's backoff. Nothing the result carried takes
-effect: its Attribute writes, Channel publications, and Step decision are
-discarded. Stream writes and heartbeat checkpoints that the Worker sent
-before the result still take effect, as in a real crash. When the retry policy runs out, the Step fails as it
-would after a real crash. Only results are dropped. A Worker error, such as
-an exception in the handler, arrives unchanged.
+The Step error text starts with **Worker disconnected during pull
+dispatch**, its dispatch reason is
+**DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED**, and its detail names the
+fault injection. The attempt counts against the method's retry policy. The
+next attempt starts after the policy's backoff, and only while the retry
+budget lasts. When the budget is spent, the method's configured failure
+policy runs, as after a real crash.
 
-A dropped RPC result answers the RPC caller with **UNAVAILABLE**. Nothing
-commits, so a transactional RPC can be retried with the same request ID and
-runs its handler again. The SDK Clients do not retry RPCs by themselves; the
-caller decides whether to retry.
+Nothing the dropped result carried takes effect: its Attribute writes,
+Channel publications, and Step decision are discarded. Stream writes and
+heartbeat checkpoints that the Worker sent before the result still take
+effect, as in a real crash. Only a well-formed WaitFor or Execute result is
+dropped. A Worker error, such as an exception in the handler, and a
+malformed result reach the server unchanged.
+
+A dropped RPC result answers the RPC caller with **UNAVAILABLE**, and
+nothing commits. A transactional RPC retried with the same request ID runs
+its handler again. The SDK Clients do not retry RPCs by themselves; the
+caller decides whether to retry. A real Worker disconnect during an RPC can
+differ: while the Worker has sent no output, matching may give the RPC to
+another Worker within the dispatch wait. The injection always answers
+**UNAVAILABLE**.
 
 The decisions are reproducible. The same seed drops the same results:
 
-- A Step result is identified by its Flow ID, Step execution ID, method,
-  run attempt, and attempt number. The decision does not depend on timing,
-  concurrency, other Flows, or the server-generated run ID.
+- A Step result is identified by its Flow ID, the Step execution ID that
+  Dex assigned, the method, the run attempt, and the attempt number. The
+  same seed with the same assigned Step execution IDs and attempts drops the
+  same results. Timing, concurrency, other Flows, and the server-generated
+  run ID do not change the decision.
 - An RPC result is identified by its Flow ID, RPC name, and its position
-  among the RPC results of that Flow ID and RPC name since the server
-  started. The same seed and the same sequence of RPC calls drop the same
-  calls. Concurrent calls of one RPC on one Flow can arrive in a different
-  order.
+  among the successful Worker responses to that RPC on that Flow ID since
+  the server started. The same seed with the same order of successful
+  responses drops the same calls. Concurrent calls, Worker errors, and a
+  server restart can change that order.
 
 Give the Flows in such a test fixed Flow IDs to reproduce a run. A unique
 Flow ID per run gives each run a different drop pattern. A real crash can

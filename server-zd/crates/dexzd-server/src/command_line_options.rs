@@ -58,11 +58,23 @@ pub struct WorkerResultLossOptions {
     /// Development only: the fraction, from 0 to 1, of Worker WaitFor and Execute results to
     /// drop. A dropped result fails its attempt like a Worker disconnect, and the Step retries
     /// under its retry policy. Defaults to 0, which drops none.
-    #[arg(long, value_name = "FRACTION", default_value = "0", value_parser = ResultLossShare::parse_fraction)]
+    #[arg(
+        long,
+        value_name = "FRACTION",
+        default_value = "0",
+        allow_negative_numbers = true,
+        value_parser = ResultLossShare::parse_fraction
+    )]
     pub inject_step_result_loss: ResultLossShare,
     /// Development only: the fraction, from 0 to 1, of Worker RPC results to drop. The RPC
     /// caller gets `UNAVAILABLE`, and nothing commits. Defaults to 0, which drops none.
-    #[arg(long, value_name = "FRACTION", default_value = "0", value_parser = ResultLossShare::parse_fraction)]
+    #[arg(
+        long,
+        value_name = "FRACTION",
+        default_value = "0",
+        allow_negative_numbers = true,
+        value_parser = ResultLossShare::parse_fraction
+    )]
     pub inject_rpc_result_loss: ResultLossShare,
     /// Development only: the seed of the drop decisions. The same seed drops the same results.
     /// Defaults to 0.
@@ -288,7 +300,32 @@ mod tests {
         assert!((config.step_results.fraction() - 0.25).abs() < f64::EPSILON);
         assert!((config.rpc_results.fraction() - 1.0).abs() < f64::EPSILON);
         assert_eq!(config.seed, 42);
-        for value in ["-0.1", "1.5", "NaN", "half"] {
+        for (value, expected_fraction) in
+            [("0", 0.0), ("-0", 0.0), ("0.000001", 0.000_001), ("1", 1.0)]
+        {
+            let options = CommandLineOptions::try_parse_from([
+                "dex-server-zd",
+                "dev",
+                "--data-dir",
+                "/tmp/zd",
+                "--inject-rpc-result-loss",
+                value,
+            ])
+            .unwrap_or_else(|error| panic!("--inject-rpc-result-loss {value:?}: {error}"));
+            let ServerCommand::Dev(dev) = options.command else {
+                panic!("dev parses as the dev command");
+            };
+            let fraction = dev
+                .worker_result_loss
+                .worker_result_loss_config()
+                .rpc_results
+                .fraction();
+            assert!(
+                (fraction - expected_fraction).abs() < f64::EPSILON,
+                "--inject-rpc-result-loss {value:?} parses as {fraction}"
+            );
+        }
+        for value in ["-0.1", "-1", "1.0000001", "1.5", "NaN", "inf", "half"] {
             assert!(
                 CommandLineOptions::try_parse_from([
                     "dex-server-zd",
