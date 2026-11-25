@@ -13,4 +13,6 @@ bump: minor
 - Pattern renames: **Entity Flow with Attribute Sync** (was Entity store) and **Stop Long-Running Work** (was Interruptible execution), which names the built-in ways to stop work.
 - Prefer calls that can fail in Execute. A permanent provider error routes from Execute to a failure-handling Step or ForceFail, never into Step retry; WaitFor passes one to Execute through a Step execution local value.
 - An Execute-failure recovery Step receives no business input; it reads what it needs from Attributes. The hash-partitioned AttributeMap keeps its partition count in one named constant marked as persisted layout.
+- Never race external calls or branches inside one Execute with in-process concurrency; use GoToMany with a sibling cancel or a Join. A whole-Flow deadline uses the Flow timeout; a ready Timer beats a queued cancel.
+- Java, Python, Go, and Rust references treat not-found, not-active, and closing from StopFlow as already stopped. An agent turn's Stop writes a canceled result for every call without one.
 - Compensation after exhausted retries starts with the failed Step itself, because it may still have taken effect. Testing guidance skips the Flow timeout instead of shortening it.

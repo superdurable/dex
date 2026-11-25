@@ -391,7 +391,7 @@ Keep the deadline in the Flow where the activity happens. A separate Flow that n
 
 ### Idle Timer with Resolution
 
-Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the Idle Timer. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
+Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the Idle Timer. Go folder: `inbound-event-loop`. Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/inbound-event-loop), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/inbound-event-loop), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/inbound-event-loop), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop).
 
 ```text
 rpc sendReply(text)       -> validate text; if invalid: return a rejection

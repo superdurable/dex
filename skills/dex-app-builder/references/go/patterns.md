@@ -16,7 +16,7 @@ idiom matters. Examples live under
 | Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
 | Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
 | Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
-| Idle Timer with Resolution (Inbound event loop) | Closest: the Idle Timer example | Skeleton below |
+| Idle Timer with Resolution (Inbound event loop) | [inbound-event-loop/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inbound-event-loop/workflow.go) | Skeleton below |
 | Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
 | Fail fast on permanent errors | [fail-fast/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/fail-fast/workflow.go) | Execute routes a confirmed permanent provider error instead of retrying |
 | WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
