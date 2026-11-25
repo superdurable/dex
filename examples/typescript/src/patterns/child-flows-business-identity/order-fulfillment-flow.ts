@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
+import { createHash } from "node:crypto";
+
 import {
+  Attribute,
   AttributeMap,
-  ChannelMap,
   FlowAlreadyStartedError,
   FlowNotFoundError,
   IdReusePolicy,
@@ -24,12 +26,13 @@ import {
   StepMovement,
   Timer,
   Wait,
+  booleanCodec,
+  forceFail,
   goTo,
   goToMany,
   gracefulComplete,
   jsonCodec,
   rpc,
-  stringCodec,
   type Client,
   type Context,
   type Flow,
@@ -37,9 +40,10 @@ import {
   type PersistenceSchema,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
-import { shipmentOutcome, type Shipment, type ShipmentFlow } from "./shipment-flow.js";
+import { SHIPMENT_FLOW_TYPE, shipmentOutcome, type Shipment, type ShipmentFlow } from "./shipment-flow.js";
 
 /** Each shipment's own Flow timeout. A closing order never stops its shipments. */
 export const SHIPMENT_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -49,10 +53,12 @@ export const SHIPMENT_REJECTED = "rejected";
 /** A shipment record status that is not a terminal Flow status. */
 export const SHIPMENT_UNAVAILABLE = "unavailable";
 
+const DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: ";
+
 /** The input of OrderFulfillmentFlow. The order number is the Flow ID. */
 export interface Order {
   readonly shipments: readonly Shipment[];
-  /** How long the order waits for a report before it reads the shipment. */
+  /** How often the order reads a shipment that has not ended. */
   readonly reconcileIntervalSeconds: number;
 }
 
@@ -69,8 +75,8 @@ export interface ShipmentReport {
 }
 
 /**
- * The order's record of one shipment. A report fills outcome; a reconcile read
- * fills status and, when the shipment stored one, outcome.
+ * The order's record of one shipment. A report or a reconcile read fills
+ * outcome; a reconcile read fills status.
  */
 export interface ShipmentRecord {
   readonly status?: string;
@@ -79,16 +85,38 @@ export interface ShipmentRecord {
 
 /** Holds one record per shipment, keyed by shipment number. */
 export const shipmentRecords = new AttributeMap("shipmentRecords", jsonCodec<ShipmentRecord>());
-/** Receives each shipment's report, keyed by shipment number. */
-export const shipmentReports = new ChannelMap("shipmentReports", stringCodec);
+/** Serializes the report RPC and AwaitShipment writes; it stores no value. */
+export const shipmentRecordsLock = new Attribute("shipmentRecordsLock", booleanCodec);
 
 /** Returns the lowercase Flow status a shipment record stores, such as "canceled". */
 export function shipmentStatusOf(status: FlowStatus): string {
   return status === "cancelled" ? "canceled" : status;
 }
 
+/**
+ * Derives the start request ID from the complete start request.
+ *
+ * A retried Execute sends the same ID, so it repeats the same start. Any other
+ * request for the same shipment number sends another ID, so Dex rejects it as
+ * already started.
+ *
+ * @returns `start:` followed by the hex SHA-256 of the encoded start request.
+ */
+export function shipmentStartRequestId(orderFlowId: string, shipment: Shipment): string {
+  const request = JSON.stringify([
+    SHIPMENT_FLOW_TYPE,
+    shipment.shipmentNumber,
+    orderFlowId,
+    shipment.destination,
+    shipment.deliveryDelaySeconds,
+    SHIPMENT_TIMEOUT_MS / 1000,
+    "disallow",
+  ]);
+  return `start:${createHash("sha256").update(request).digest("hex")}`;
+}
+
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts one branch per shipment in the order."
+// dex:explanation text:"Starts one branch per shipment, after checking that shipment numbers are unique."
 class StartShipments implements Step<Order> {
   public getStepType(): string {
     return "StartShipments";
@@ -97,6 +125,13 @@ class StartShipments implements Step<Order> {
   public execute(_context: Context, order: Order): StepDecision {
     if (order.shipments.length === 0) {
       return gracefulComplete();
+    }
+    const numbers = new Set<string>();
+    for (const shipment of order.shipments) {
+      if (numbers.has(shipment.shipmentNumber)) {
+        return forceFail(DUPLICATE_SHIPMENT_PREFIX + shipment.shipmentNumber);
+      }
+      numbers.add(shipment.shipmentNumber);
     }
     return goToMany(
       ...order.shipments.map((shipment) =>
@@ -125,8 +160,7 @@ class StartShipment implements Step<TrackedShipment> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
-    // Derived from this order and shipment, so a retried Execute repeats the same start.
-    const requestId = `start:${context.flowId}:${number}`;
+    const requestId = shipmentStartRequestId(context.flowId, tracked.shipment);
     try {
       await getClient().startFlow(
         this.shipmentFlow,
@@ -152,7 +186,7 @@ class StartShipment implements Step<TrackedShipment> {
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 class AwaitShipment implements Step<TrackedShipment> {
   public constructor(private readonly getClient: () => Client) {}
 
@@ -160,34 +194,47 @@ class AwaitShipment implements Step<TrackedShipment> {
     return "AwaitShipment";
   }
 
+  /** Takes the same lock as the report RPC and loads the records. */
+  public getStepOptions(): StepOptions {
+    return {
+      executeLockAttributes: [shipmentRecordsLock.lock()],
+      executeLoadAttributeMaps: [shipmentRecords],
+    };
+  }
+
   public waitFor(_context: Context, tracked: TrackedShipment): Wait {
-    return Wait.anyOf(
-      shipmentReports.forOne(tracked.shipment.shipmentNumber),
-      Timer.byDuration(tracked.reconcileIntervalSeconds * 1000),
-    );
+    return Wait.until(Timer.byDuration(tracked.reconcileIntervalSeconds * 1000));
   }
 
   public async execute(context: Context, tracked: TrackedShipment): Promise<StepDecision> {
+    // Calling a field through this would hide the Step class from the Flow visualizer.
+    const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
-    const outcomes = shipmentReports.results(context, number);
-    let record: ShipmentRecord;
-    if (outcomes.length > 0) {
-      record = { outcome: outcomes[0] };
-    } else {
-      // Calling a field through this would hide the Step class from the Flow visualizer.
-      const getClient = this.getClient;
-      record = await reconcileShipment(getClient(), number);
-      if (record.status === "running") {
-        return goTo(AwaitShipment, tracked);
-      }
+    const reading = await reconcileShipment(getClient(), number);
+    if (reading.status === "running") {
+      return goTo(AwaitShipment, tracked);
     }
-    shipmentRecords.set(context, number, record);
+    // Merge with the record, which may already hold the reported outcome.
+    const record = loadShipmentRecord(context, number);
+    shipmentRecords.set(context, number, {
+      status: reading.status,
+      outcome: record.outcome ?? reading.outcome,
+    });
     return gracefulComplete();
   }
 }
 
 /**
- * Reads a shipment that has not reported: its status first, then its outcome.
+ * Returns the loaded record of a shipment, or an empty record when it has none.
+ *
+ * @returns The stored record, or `{}` when the shipment has no record yet.
+ */
+function loadShipmentRecord(context: Context, number: string): ShipmentRecord {
+  return (shipmentRecords.get(context, number) as ShipmentRecord | undefined) ?? {};
+}
+
+/**
+ * Reads a shipment: its status first, then its outcome.
  *
  * @returns A "running" record while the shipment runs, an "unavailable" record
  * when the shipment does not exist, or the terminal status with the stored
@@ -246,17 +293,20 @@ export class OrderFulfillmentFlow implements Flow<Order> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [shipmentRecords],
-      channels: [shipmentReports],
+      attributes: [shipmentRecords, shipmentRecordsLock],
     };
   }
 
   /**
-   * Receives a shipment's report. The shipment sends it with a stable request
-   * ID, so a retried report is applied once.
+   * Fills the outcome of a shipment's record. The first report wins; a
+   * repeated or late report changes nothing.
    */
-  @rpc()
+  @rpc({ lockAttributes: [shipmentRecordsLock.lock()], loadAttributeMaps: [shipmentRecords] })
   public recordShipmentOutcome(context: Context, report: ShipmentReport): void {
-    shipmentReports.publish(context, report.shipmentNumber, report.outcome);
+    const record = loadShipmentRecord(context, report.shipmentNumber);
+    if (record.outcome !== undefined) {
+      return;
+    }
+    shipmentRecords.set(context, report.shipmentNumber, { ...record, outcome: report.outcome });
   }
 }

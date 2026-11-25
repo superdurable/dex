@@ -763,23 +763,46 @@ async function refundRoute(
 
 // The order's second shipment runs for a day, so its lookup by number reports running.
 async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
-  const lookupUrl = `${context.baseUrl}/patterns/child-flows-business-identity/shipment?${new URLSearchParams({
-    shipmentNumber: `${orderId}-2`,
-  })}`;
+  const shipmentNumber = `${orderId}-2`;
+  await pollUntil(
+    async () => {
+      const { status, body } = await getChildFlowsRoute("/shipment", shipmentNumber);
+      return status === 200 && (JSON.parse(body) as { status?: string }).status === "running";
+    },
+    `shipment lookup for order ${orderId} never reported running`,
+  );
+
+  // The order is not a shipment: both shipment routes answer 404 and leave it running.
+  for (const route of ["/shipment", "/cancel-shipment"]) {
+    const { status } = await getChildFlowsRoute(route, orderId);
+    assert.equal(status, 404, route);
+  }
+  assert.equal((await server.client.describeFlow(orderId)).status, "running");
+
+  const canceled = await getChildFlowsRoute("/cancel-shipment", shipmentNumber);
+  assert.equal(canceled.status, 200, canceled.body);
+  await pollUntil(
+    async () => (await server.client.describeFlow(shipmentNumber)).status === "cancelled",
+    `shipment ${shipmentNumber} never became canceled`,
+  );
+}
+
+async function getChildFlowsRoute(route: string, shipmentNumber: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/child-flows-business-identity${route}?${new URLSearchParams({ shipmentNumber })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+async function pollUntil(check: () => Promise<boolean>, message: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const response = await fetch(lookupUrl);
-    if (response.ok) {
-      const shipment = (await response.json()) as { status?: string };
-      if (shipment.status === "running") {
-        return;
-      }
-    } else {
-      await response.body?.cancel();
+    if (await check()) {
+      return;
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`shipment lookup for order ${orderId} never reported running`);
+  throw new Error(message);
 }
 
 function attributeReadUrl(query: Record<string, string>): string {

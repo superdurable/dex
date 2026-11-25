@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
@@ -21,11 +22,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use dex_sdk::{SdkError, StartFlowOptions, StopFlowOptions};
+use dex_sdk::{Flow, FlowInfo, SdkError, StartFlowOptions, StopFlowOptions};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    OrderFulfillmentFlow, SHIPMENT_OUTCOME, Shipment, flow_status_name,
+    OrderFulfillmentFlow, SHIPMENT_OUTCOME, Shipment, ShipmentFlow, flow_status_name,
     order_fulfillment_flow::Order,
 };
 use crate::server::helpers::{
@@ -111,26 +112,18 @@ async fn get_shipment(
     State(client): State<SharedClient>,
     Query(query): Query<ShipmentQuery>,
 ) -> Response {
-    let number = query.shipment_number;
-    if number.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "shipmentNumber is required");
-    }
+    let (number, info) = match describe_shipment(&client, query).await {
+        Ok(described) => described,
+        Err(response) => return response,
+    };
     let lookup_number = number.clone();
-    let lookup = run_blocking(move || {
-        let info = client.describe_flow(&lookup_number)?;
-        let (outcome,) = client.get_attributes(&lookup_number, (&*SHIPMENT_OUTCOME,))?;
-        Ok((info.status, outcome))
-    });
+    let lookup = run_blocking(move || client.get_attributes(&lookup_number, (&*SHIPMENT_OUTCOME,)));
     match lookup {
-        Ok((status, outcome)) => ok_json(ShipmentView {
+        Ok((outcome,)) => ok_json(ShipmentView {
             shipment_number: number,
-            status: flow_status_name(status).to_string(),
+            status: flow_status_name(info.status).to_string(),
             outcome: outcome.unwrap_or_default(),
         }),
-        Err(SdkError::FlowNotFound { .. }) => error_response(
-            StatusCode::NOT_FOUND,
-            &format!("shipment {number} not found"),
-        ),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -140,10 +133,10 @@ async fn cancel_shipment(
     State(client): State<SharedClient>,
     Query(query): Query<ShipmentQuery>,
 ) -> Response {
-    let number = query.shipment_number;
-    if number.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "shipmentNumber is required");
-    }
+    let (number, _info) = match describe_shipment(&client, query).await {
+        Ok(described) => described,
+        Err(response) => return response,
+    };
     match run_blocking(move || {
         client.stop_flow(
             &number,
@@ -152,6 +145,33 @@ async fn cancel_shipment(
     }) {
         Ok(()) => ok_text("canceled"),
         Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+/// Describes the Flow named by the `shipmentNumber` query.
+///
+/// Returns the shipment number and its Flow info, or the error response to send:
+/// 404 when no `ShipmentFlow` has that Flow ID.
+async fn describe_shipment(
+    client: &SharedClient,
+    query: ShipmentQuery,
+) -> Result<(String, FlowInfo), Response> {
+    let number = query.shipment_number;
+    if number.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "shipmentNumber is required",
+        ));
+    }
+    let lookup_client = Arc::clone(client);
+    let lookup_number = number.clone();
+    match run_blocking(move || lookup_client.describe_flow(&lookup_number)) {
+        Ok(info) if info.flow_type == ShipmentFlow::default().flow_type() => Ok((number, info)),
+        Ok(_) | Err(SdkError::FlowNotFound { .. }) => Err(error_response(
+            StatusCode::NOT_FOUND,
+            &format!("shipment {number} not found"),
+        )),
+        Err(error) => Err(map_sdk_error(error).into_response()),
     }
 }
 

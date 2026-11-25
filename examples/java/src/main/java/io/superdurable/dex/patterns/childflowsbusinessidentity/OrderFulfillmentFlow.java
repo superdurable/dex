@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.childflows;
+package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
-import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -31,17 +34,24 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.patterns.childflows.ShipmentFlow.ShipmentRequest;
+import io.superdurable.dex.patterns.childflowsbusinessidentity.ShipmentFlow.ShipmentRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Ships an order as one {@link ShipmentFlow} per shipment. Each shipment is a top-level Flow whose
@@ -58,12 +68,18 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     /** The record status of a shipment that does not exist. */
     public static final String SHIPMENT_UNAVAILABLE = "unavailable";
 
+    /** The registered Flow type of {@link ShipmentFlow}. */
+    public static final String SHIPMENT_FLOW_TYPE = "ShipmentFlow";
+
+    private static final String DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: ";
+
+    private static final ObjectMapper START_REQUEST_MAPPER = new ObjectMapper();
+
     /**
      * The input of {@link OrderFulfillmentFlow}. The order number is the Flow ID.
      *
      * @param shipments the shipments of the order
-     * @param reconcileIntervalSeconds how long the order waits for a report before it reads the
-     *     shipment
+     * @param reconcileIntervalSeconds how often the order reads a shipment that has not ended
      */
     public record Order(List<Shipment> shipments, int reconcileIntervalSeconds) {
     }
@@ -72,7 +88,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
      * The input of the Steps that start and track one shipment.
      *
      * @param shipment the tracked shipment
-     * @param reconcileIntervalSeconds how long to wait for a report before reading the shipment
+     * @param reconcileIntervalSeconds how often the order reads the shipment while it runs
      */
     public record TrackedShipment(Shipment shipment, int reconcileIntervalSeconds) {
     }
@@ -81,9 +97,9 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     public static final AttributeMap<ShipmentRecord> shipmentRecords =
             AttributeMap.define("shipmentRecords", ShipmentRecord.class);
 
-    /** Receives each shipment's report, keyed by shipment number. */
-    public static final ChannelMap<String> shipmentReports =
-            ChannelMap.define("shipmentReports", String.class);
+    /** Serializes the report RPC and AwaitShipment writes; it stores no value. */
+    public static final Attribute<Boolean> shipmentRecordsLock =
+            Attribute.define("shipmentRecordsLock", Boolean.class);
 
     private final StartShipments startShipments = new StartShipments();
     private final StartShipment startShipment;
@@ -102,18 +118,64 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(shipmentRecords, shipmentReports);
+        return PersistenceSchema.of(shipmentRecords, shipmentRecordsLock);
     }
 
     /**
-     * Receives a shipment's report.
+     * Fills the outcome of a shipment's record. The first report wins; a repeated or late report
+     * changes nothing.
      *
      * @param context the RPC context
      * @param report the shipment's report
      */
-    @RPC
+    @RPC(lockAttributes = {"shipmentRecordsLock"}, loadAttributeMaps = {"shipmentRecords"})
     public void recordShipmentOutcome(final Context context, final ShipmentReport report) {
-        shipmentReports.publish(context, report.shipmentNumber(), report.outcome());
+        final ShipmentRecord record = loadShipmentRecord(context, report.shipmentNumber());
+        if (record.outcome() != null) {
+            return;
+        }
+        shipmentRecords.set(context, report.shipmentNumber(),
+                new ShipmentRecord(record.status(), report.outcome()));
+    }
+
+    /**
+     * Derives the start request ID from the complete start request. A retried Execute sends the
+     * same ID, so it repeats the same start. Any other request for the same shipment number sends
+     * another ID, so Dex rejects it as already started.
+     *
+     * @param orderFlowId the Flow ID of the order that starts the shipment
+     * @param shipment the shipment to start
+     * @return "start:" followed by the lowercase hex SHA-256 of the encoded start request
+     */
+    public static String shipmentStartRequestId(final String orderFlowId, final Shipment shipment) {
+        final List<Object> request = List.of(
+                SHIPMENT_FLOW_TYPE,
+                shipment.shipmentNumber(),
+                orderFlowId,
+                shipment.destination(),
+                shipment.deliveryDelaySeconds(),
+                SHIPMENT_TIMEOUT.toSeconds(),
+                "disallow");
+        try {
+            final byte[] encoded = START_REQUEST_MAPPER.writeValueAsString(request)
+                    .getBytes(StandardCharsets.UTF_8);
+            return "start:" + HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(encoded));
+        } catch (final JsonProcessingException | NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("cannot derive the shipment start request ID", failure);
+        }
+    }
+
+    /**
+     * Returns the loaded record of a shipment, or an empty record when it has none.
+     *
+     * @param context a context that loaded the shipmentRecords AttributeMap
+     * @param number the shipment number
+     * @return the shipment's record, or a record with no status and no outcome
+     */
+    private static ShipmentRecord loadShipmentRecord(final Context context, final String number) {
+        final ShipmentRecord record = shipmentRecords.get(context, number);
+        return record == null ? new ShipmentRecord(null, null) : record;
     }
 
     /**
@@ -134,7 +196,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     }
 
     // dex:group group-id:start group-label:"Start shipments"
-    // dex:explanation text:"Starts one branch per shipment in the order."
+    // dex:explanation text:"Starts one branch per shipment, after checking that shipment numbers are unique."
     static final class StartShipments implements Step<Order> {
         @Override
         public Class<Order> getInputType() {
@@ -146,8 +208,13 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             if (order.shipments() == null || order.shipments().isEmpty()) {
                 return StepDecision.gracefulComplete();
             }
+            final Set<String> numbers = new HashSet<String>();
             final List<StepMovement<?>> movements = new ArrayList<StepMovement<?>>();
             for (final Shipment shipment : order.shipments()) {
+                if (!numbers.add(shipment.shipmentNumber())) {
+                    return StepDecision.forceFail(
+                            DUPLICATE_SHIPMENT_PREFIX + shipment.shipmentNumber());
+                }
                 movements.add(StepMovement.of(StartShipment.class,
                         new TrackedShipment(shipment, order.reconcileIntervalSeconds())));
             }
@@ -175,8 +242,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
         public StepDecision execute(final Context context, final TrackedShipment tracked) {
             final Client client = clientProvider.getObject();
             final String number = tracked.shipment().shipmentNumber();
-            // Derived from this order and shipment, so a retried Execute repeats the same start.
-            final String requestId = "start:" + context.getFlowId() + ":" + number;
+            final String requestId = shipmentStartRequestId(context.getFlowId(), tracked.shipment());
             try {
                 client.startFlow(
                         shipmentFlow,
@@ -198,7 +264,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     }
 
     // dex:group group-id:track group-label:"Track shipment"
-    // dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+    // dex:explanation text:"Reads the shipment at each interval and records how it ended."
     static final class AwaitShipment implements Step<TrackedShipment> {
         private final ObjectProvider<Client> clientProvider;
 
@@ -211,32 +277,37 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             return TrackedShipment.class;
         }
 
+        /** Takes the same lock as the report RPC and loads the records. */
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(shipmentRecordsLock))
+                    .addExecuteLoadAttributeMap(shipmentRecords)
+                    .build();
+        }
+
         @Override
         public Wait waitFor(final Context context, final TrackedShipment tracked) {
-            return Wait.anyOf(
-                    shipmentReports.forOne(tracked.shipment().shipmentNumber()),
+            return Wait.until(
                     Timer.byDuration(Duration.ofSeconds(tracked.reconcileIntervalSeconds())));
         }
 
         @Override
         public StepDecision execute(final Context context, final TrackedShipment tracked) {
             final String number = tracked.shipment().shipmentNumber();
-            final List<String> outcomes = shipmentReports.getConditionResults(context, number);
-            final ShipmentRecord record;
-            if (!outcomes.isEmpty()) {
-                record = new ShipmentRecord(null, outcomes.get(0));
-            } else {
-                record = reconcileShipment(clientProvider.getObject(), number);
-                if (statusName(FlowStatus.RUNNING).equals(record.status())) {
-                    return StepDecision.goTo(AwaitShipment.class, tracked);
-                }
+            final ShipmentRecord reading = reconcileShipment(clientProvider.getObject(), number);
+            if (statusName(FlowStatus.RUNNING).equals(reading.status())) {
+                return StepDecision.goTo(AwaitShipment.class, tracked);
             }
-            shipmentRecords.set(context, number, record);
+            // Merge with the record, which may already hold the reported outcome.
+            final ShipmentRecord stored = loadShipmentRecord(context, number);
+            final String outcome = stored.outcome() != null ? stored.outcome() : reading.outcome();
+            shipmentRecords.set(context, number, new ShipmentRecord(reading.status(), outcome));
             return StepDecision.gracefulComplete();
         }
 
         /**
-         * Reads a shipment that has not reported: its status first, then its outcome.
+         * Reads a shipment: its status first, then its outcome.
          *
          * @return a "running" record while the shipment runs, an "unavailable" record when the
          *     shipment does not exist, or the terminal status with the stored outcome; any other

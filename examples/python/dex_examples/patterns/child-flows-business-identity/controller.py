@@ -16,15 +16,14 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from dex import FlowNotFoundError, StartFlowOptions, StopFlowOptions, StopType
+from dex import FlowInfo, FlowNotFoundError, StartFlowOptions, StopFlowOptions, StopType
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow import (
-    Order,
-)
-from dex_examples.patterns.child_flows_business_identity.shipment_flow import (
+    SHIPMENT_FLOW_TYPE,
     SHIPMENT_OUTCOME,
+    Order,
     Shipment,
 )
 from dex_examples.shared.query import required_query
@@ -39,6 +38,17 @@ def create_child_flows_business_identity_blueprint(app_state: ExampleApp) -> Blu
         __name__,
         url_prefix="/patterns/child-flows-business-identity",
     )
+
+    async def describe_shipment(number: str) -> FlowInfo | None:
+        """Describes the Flow named by a shipment number.
+
+        Returns None when no ShipmentFlow has that Flow ID. Any other failure raises.
+        """
+        try:
+            info = await app_state.client.describe_flow(number)
+        except FlowNotFoundError:
+            return None
+        return info if info.flow_type == SHIPMENT_FLOW_TYPE else None
 
     @blueprint.get("/start")
     async def start_order() -> str:
@@ -61,9 +71,8 @@ def create_child_flows_business_identity_blueprint(app_state: ExampleApp) -> Blu
     async def get_shipment() -> tuple[dict[str, str], int]:
         """Looks a shipment up by its shipment number, which is its Flow ID."""
         number = required_query("shipmentNumber")
-        try:
-            info = await app_state.client.describe_flow(number)
-        except FlowNotFoundError:
+        info = await describe_shipment(number)
+        if info is None:
             return {"error": f"shipment {number} not found"}, 404
         values = await app_state.client.get_attributes(number, SHIPMENT_OUTCOME)
         return {
@@ -73,12 +82,15 @@ def create_child_flows_business_identity_blueprint(app_state: ExampleApp) -> Blu
         }, 200
 
     @blueprint.get("/cancel-shipment")
-    async def cancel_shipment() -> str:
+    async def cancel_shipment() -> tuple[str | dict[str, str], int]:
         """Stops a shipment by its number. Its order records it at the next reconcile read."""
+        number = required_query("shipmentNumber")
+        if await describe_shipment(number) is None:
+            return {"error": f"shipment {number} not found"}, 404
         await app_state.client.stop_flow(
-            required_query("shipmentNumber"),
+            number,
             StopFlowOptions(type=StopType.CANCEL, reason="shipment canceled"),
         )
-        return "canceled"
+        return "canceled", 200
 
     return blueprint

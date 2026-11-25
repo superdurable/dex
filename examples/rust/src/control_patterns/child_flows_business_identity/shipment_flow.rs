@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use dex_sdk::{
     Attribute, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, SdkError,
-    Step, StepDecision, StepList, Timer, Wait,
+    Step, StepDecision, StepDurability, StepList, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -94,13 +94,17 @@ struct DeliverShipment;
 impl Step for DeliverShipment {
     type Input = ShipmentRequest;
 
+    /// Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Sync)
+    }
+
     fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(
             request.shipment.delivery_delay_seconds,
         ))))
     }
 
-    /// Keeps the default SYNC durability, so the outcome is stored before the report Step starts.
     fn execute(&self, context: &mut Context, request: Self::Input) -> HandlerResult<StepDecision> {
         let outcome = format!("delivered to {}", request.shipment.destination);
         SHIPMENT_OUTCOME.set(context, outcome.clone())?;
@@ -127,17 +131,22 @@ struct ReportShipmentOutcome {
 impl Step for ReportShipmentOutcome {
     type Input = PendingReport;
 
+    /// Keeps the report SYNC, like the Step that stores the outcome.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Sync)
+    }
+
     fn execute(&self, _context: &mut Context, pending: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let outcome = pending.report.outcome.clone();
-        // This SDK pin has no RPC request ID. The order consumes one report
-        // per shipment, so a repeat changes nothing.
+        // This SDK pin has no RPC request ID. The locked RPC keeps the first
+        // outcome, so a repeat changes nothing.
         match client.invoke_rpc(
             &pending.order_flow_id,
             RECORD_SHIPMENT_OUTCOME,
             pending.report,
         ) {
-            // A closed order ends the attempts; it reads the shipment's outcome instead.
+            // A closed order ends the attempts; the outcome stays readable through the Client.
             Ok(())
             | Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. }) => {
                 Ok(StepDecision::graceful_complete(outcome))

@@ -16,11 +16,11 @@
 
 import { Router, type Request, type Response } from "express";
 
-import { FlowNotFoundError, StopType, type Client } from "@superdurable/dex";
+import { FlowNotFoundError, StopType, type Client, type FlowInfo } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
 import { shipmentStatusOf, type OrderFulfillmentFlow } from "./order-fulfillment-flow.js";
-import { shipmentOutcome } from "./shipment-flow.js";
+import { SHIPMENT_FLOW_TYPE, shipmentOutcome } from "./shipment-flow.js";
 
 /** Serves the order routes and the shipment routes that find a shipment by its number. */
 export function createChildFlowsBusinessIdentityRouter(
@@ -52,39 +52,59 @@ export function createChildFlowsBusinessIdentityRouter(
 
   // Looks a shipment up by its shipment number, which is its Flow ID.
   router.get("/shipment", async (request, response) => {
-    const number = requiredQuery(request, response, "shipmentNumber");
-    if (number === undefined) {
+    const shipment = await describeShipment(client, request, response);
+    if (shipment === undefined) {
       return;
     }
-    let status;
-    try {
-      status = (await client.describeFlow(number)).status;
-    } catch (error) {
-      if (error instanceof FlowNotFoundError) {
-        response.status(404).json({ error: `shipment ${number} not found` });
-        return;
-      }
-      throw error;
-    }
-    const [outcome] = await client.getAttributes(number, shipmentOutcome);
+    const [outcome] = await client.getAttributes(shipment.flowId, shipmentOutcome);
     response.json({
-      shipmentNumber: number,
-      status: shipmentStatusOf(status),
+      shipmentNumber: shipment.flowId,
+      status: shipmentStatusOf(shipment.status),
       outcome: outcome ?? "",
     });
   });
 
   // Stops a shipment by its number. Its order records it at the next reconcile read.
   router.get("/cancel-shipment", async (request, response) => {
-    const number = requiredQuery(request, response, "shipmentNumber");
-    if (number === undefined) {
+    const shipment = await describeShipment(client, request, response);
+    if (shipment === undefined) {
       return;
     }
-    await client.stopFlow(number, { type: StopType.CANCEL, reason: "shipment canceled" });
+    await client.stopFlow(shipment.flowId, { type: StopType.CANCEL, reason: "shipment canceled" });
     response.send("canceled");
   });
 
   return router;
+}
+
+/**
+ * Describes the Flow named by the shipmentNumber query.
+ *
+ * @returns The shipment's FlowInfo, or undefined after it responded: 404 when
+ * no ShipmentFlow has that Flow ID.
+ */
+async function describeShipment(
+  client: Client,
+  request: Request,
+  response: Response,
+): Promise<FlowInfo | undefined> {
+  const number = requiredQuery(request, response, "shipmentNumber");
+  if (number === undefined) {
+    return undefined;
+  }
+  let info: FlowInfo | undefined;
+  try {
+    info = await client.describeFlow(number);
+  } catch (error) {
+    if (!(error instanceof FlowNotFoundError)) {
+      throw error;
+    }
+  }
+  if (info === undefined || info.flowType !== SHIPMENT_FLOW_TYPE) {
+    response.status(404).json({ error: `shipment ${number} not found` });
+    return undefined;
+  }
+  return info;
 }
 
 function requiredQuery(request: Request, response: Response, name: string): string | undefined {

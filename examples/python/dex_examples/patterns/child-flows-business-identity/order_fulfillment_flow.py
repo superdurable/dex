@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Callable
@@ -21,11 +23,12 @@ from typing import Callable
 from dex import (
     AsyncClient,
     AsyncContext,
+    Attribute,
     AttributeMap,
-    ChannelMap,
     Context,
     Flow,
     FlowAlreadyStartedError,
+    FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     FlowStatus,
     IdReusePolicy,
@@ -33,23 +36,21 @@ from dex import (
     StartFlowOptions,
     Step,
     StepDecision,
+    StepDurability,
     StepList,
     StepMovement,
+    StepOptions,
     Timer,
     Wait,
+    force_fail,
     go_to,
     go_to_many,
     graceful_complete,
     rpc,
 )
 
-from dex_examples.patterns.child_flows_business_identity.shipment_flow import (
-    SHIPMENT_OUTCOME,
-    Shipment,
-    ShipmentFlow,
-    ShipmentReport,
-    ShipmentRequest,
-)
+# The registered Flow type of ShipmentFlow.
+SHIPMENT_FLOW_TYPE = "ShipmentFlow"
 
 # Each shipment's own Flow timeout. A closing order never stops its shipments.
 SHIPMENT_TIMEOUT = timedelta(days=30)
@@ -58,13 +59,49 @@ SHIPMENT_TIMEOUT = timedelta(days=30)
 SHIPMENT_REJECTED = "rejected"
 SHIPMENT_UNAVAILABLE = "unavailable"
 
+DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: "
+
+
+@dataclass(frozen=True)
+class Shipment:
+    """One parcel of an order, identified by its shipment number."""
+
+    shipment_number: str = field(metadata={"dex_json_name": "shipmentNumber"})
+    destination: str
+    # Simulates how long the carrier takes to deliver.
+    delivery_delay_seconds: int = field(metadata={"dex_json_name": "deliveryDelaySeconds"})
+
+
+@dataclass(frozen=True)
+class ShipmentRequest:
+    """The input of ShipmentFlow."""
+
+    order_flow_id: str = field(metadata={"dex_json_name": "orderFlowId"})
+    shipment: Shipment
+
+
+@dataclass(frozen=True)
+class ShipmentReport:
+    """What a shipment sends to its order when it ends."""
+
+    shipment_number: str = field(metadata={"dex_json_name": "shipmentNumber"})
+    outcome: str
+
+
+@dataclass(frozen=True)
+class PendingReport:
+    """The report a shipment still has to send to its order."""
+
+    order_flow_id: str = field(metadata={"dex_json_name": "orderFlowId"})
+    report: ShipmentReport
+
 
 @dataclass(frozen=True)
 class Order:
     """The input of OrderFulfillmentFlow. The order number is the Flow ID."""
 
     shipments: list[Shipment]
-    # How long the order waits for a report before it reads the shipment.
+    # How often the order reads a shipment that has not ended.
     reconcile_interval_seconds: int = field(
         metadata={"dex_json_name": "reconcileIntervalSeconds"}
     )
@@ -84,30 +121,38 @@ class TrackedShipment:
 class ShipmentRecord:
     """The order's record of one shipment.
 
-    A report fills ``outcome``; a reconcile read fills ``status`` and, when the
-    shipment stored one, ``outcome``.
+    A report or a reconcile read fills ``outcome``; a reconcile read fills
+    ``status``.
     """
 
     status: str = field(default="", metadata={"dex_json_omit_default": True})
     outcome: str = field(default="", metadata={"dex_json_omit_default": True})
 
 
+# The shipment's committed outcome. The order reads it when no report arrives.
+SHIPMENT_OUTCOME = Attribute("shipmentOutcome", str)
+
 # One record per shipment, keyed by shipment number.
 SHIPMENT_RECORDS = AttributeMap("shipmentRecords", ShipmentRecord)
-# Each shipment's report, keyed by shipment number.
-SHIPMENT_REPORTS = ChannelMap("shipmentReports", str)
+# Serializes the report RPC and AwaitShipment writes; it stores no value.
+SHIPMENT_RECORDS_LOCK = Attribute("shipmentRecordsLock", bool)
 
 
 # dex:group group-id:start group-label:"Start shipments"
-# dex:explanation text:"Starts one branch per shipment in the order."
+# dex:explanation text:"Starts one branch per shipment, after checking that shipment numbers are unique."
 class StartShipments(Step[Order]):
     """Starts one StartShipment branch per shipment."""
 
     def execute(self, context: Context, order: Order) -> StepDecision:
         if not order.shipments:
             return graceful_complete()
-        return go_to_many(
-            *(
+        numbers: set[str] = set()
+        movements: list[StepMovement] = []
+        for shipment in order.shipments:
+            if shipment.shipment_number in numbers:
+                return force_fail(DUPLICATE_SHIPMENT_PREFIX + shipment.shipment_number)
+            numbers.add(shipment.shipment_number)
+            movements.append(
                 StepMovement.of(
                     StartShipment,
                     TrackedShipment(
@@ -115,9 +160,33 @@ class StartShipments(Step[Order]):
                         reconcile_interval_seconds=order.reconcile_interval_seconds,
                     ),
                 )
-                for shipment in order.shipments
             )
-        )
+        return go_to_many(*movements)
+
+
+def shipment_start_request_id(order_flow_id: str, shipment: Shipment) -> str:
+    """Derives the start request ID from the complete start request.
+
+    A retried Execute sends the same ID, so it repeats the same start. Any
+    other request for the same shipment number sends another ID, so Dex
+    rejects it as already started.
+
+    Returns:
+        ``start:`` followed by the hex SHA-256 digest of the encoded request.
+    """
+    request = json.dumps(
+        [
+            SHIPMENT_FLOW_TYPE,
+            shipment.shipment_number,
+            order_flow_id,
+            shipment.destination,
+            shipment.delivery_delay_seconds,
+            int(SHIPMENT_TIMEOUT.total_seconds()),
+            "disallow",
+        ],
+        separators=(",", ":"),
+    )
+    return "start:" + hashlib.sha256(request.encode("utf-8")).hexdigest()
 
 
 # dex:group group-id:start group-label:"Start shipments"
@@ -145,8 +214,7 @@ class StartShipment(Step[TrackedShipment]):
                 StartFlowOptions(
                     timeout=SHIPMENT_TIMEOUT,
                     id_reuse_policy=IdReusePolicy.DISALLOW,
-                    # Derived from this order and shipment, so a retried Execute repeats the same start.
-                    request_id=f"start:{context.flow_id}:{number}",
+                    request_id=shipment_start_request_id(context.flow_id, tracked.shipment),
                     ignore_already_started=True,
                 ),
             )
@@ -158,36 +226,54 @@ class StartShipment(Step[TrackedShipment]):
 
 
 # dex:group group-id:track group-label:"Track shipment"
-# dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+# dex:explanation text:"Reads the shipment at each interval and records how it ended."
 class AwaitShipment(Step[TrackedShipment]):
-    """Waits for the shipment's report, or reconciles after the interval."""
+    """Reads the shipment at each interval until it ends, then records it."""
 
     def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.client_provider = client_provider
 
+    def get_step_options(self) -> StepOptions:
+        """Takes the same lock as the report RPC and loads the records."""
+        return StepOptions(
+            execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+            execute_load_attribute_maps=(SHIPMENT_RECORDS,),
+        )
+
     def wait_for(self, context: Context, tracked: TrackedShipment) -> Wait:
-        return Wait.any_of(
-            SHIPMENT_REPORTS.for_one(tracked.shipment.shipment_number),
-            Timer.by_duration(timedelta(seconds=tracked.reconcile_interval_seconds)),
+        return Wait.until(
+            Timer.by_duration(timedelta(seconds=tracked.reconcile_interval_seconds))
         )
 
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, tracked: TrackedShipment
     ) -> StepDecision:
         number = tracked.shipment.shipment_number
-        outcomes = SHIPMENT_REPORTS.results(context, number)
-        if outcomes:
-            record = ShipmentRecord(outcome=outcomes[0])
-        else:
-            record = await reconcile_shipment(self.client_provider(), number)
-            if record.status == FlowStatus.RUNNING.value:
-                return go_to(AwaitShipment, tracked)
-        SHIPMENT_RECORDS.set(context, number, record)
+        reading = await reconcile_shipment(self.client_provider(), number)
+        if reading.status == FlowStatus.RUNNING.value:
+            return go_to(AwaitShipment, tracked)
+        # Merge with the record, which may already hold the reported outcome.
+        record = load_shipment_record(context, number)
+        SHIPMENT_RECORDS.set(
+            context,
+            number,
+            ShipmentRecord(
+                status=reading.status,
+                outcome=record.outcome or reading.outcome,
+            ),
+        )
         return graceful_complete()
 
 
+def load_shipment_record(context: Context, number: str) -> ShipmentRecord:
+    """Returns the loaded record of a shipment, or an empty record when it has none."""
+    # A missing instance reads as None.
+    record: ShipmentRecord | None = SHIPMENT_RECORDS.get(context, number)
+    return record if record is not None else ShipmentRecord()
+
+
 async def reconcile_shipment(client: AsyncClient, number: str) -> ShipmentRecord:
-    """Reads a shipment that has not reported: its status first, then its outcome.
+    """Reads a shipment: its status first, then its outcome.
 
     Returns a "running" record while the shipment runs and an "unavailable"
     record when the shipment does not exist. Any other failure raises, so the
@@ -230,9 +316,110 @@ class OrderFulfillmentFlow(Flow[Order]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(SHIPMENT_RECORDS, SHIPMENT_REPORTS)
+        return PersistenceSchema.of(SHIPMENT_RECORDS, SHIPMENT_RECORDS_LOCK)
 
-    @rpc
+    @rpc(
+        lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+        load_attribute_maps=(SHIPMENT_RECORDS,),
+    )
     def record_shipment_outcome(self, context: Context, report: ShipmentReport) -> None:
-        """Receives a shipment's report and publishes its outcome."""
-        SHIPMENT_REPORTS.publish(context, report.shipment_number, report.outcome)
+        """Fills the outcome of a shipment's record.
+
+        The first report wins; a repeated or late report changes nothing.
+        """
+        record = load_shipment_record(context, report.shipment_number)
+        if record.outcome:
+            return
+        SHIPMENT_RECORDS.set(
+            context,
+            report.shipment_number,
+            ShipmentRecord(status=record.status, outcome=report.outcome),
+        )
+
+
+# dex:group group-id:deliver group-label:"Deliver"
+# dex:explanation text:"Waits for the carrier, then commits the delivered outcome."
+class DeliverShipment(Step[ShipmentRequest]):
+    """Waits for the simulated carrier, then stores the outcome."""
+
+    def get_step_options(self) -> StepOptions:
+        """Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC."""
+        return StepOptions(execute_durability=StepDurability.SYNC)
+
+    def wait_for(self, context: Context, request: ShipmentRequest) -> Wait:
+        return Wait.until(
+            Timer.by_duration(timedelta(seconds=request.shipment.delivery_delay_seconds))
+        )
+
+    def execute(self, context: Context, request: ShipmentRequest) -> StepDecision:
+        outcome = "delivered to " + request.shipment.destination
+        SHIPMENT_OUTCOME.set(context, outcome)
+        return go_to(
+            ReportShipmentOutcome,
+            PendingReport(
+                order_flow_id=request.order_flow_id,
+                report=ShipmentReport(
+                    shipment_number=request.shipment.shipment_number, outcome=outcome
+                ),
+            ),
+        )
+
+
+# dex:group group-id:report group-label:"Report"
+# dex:explanation text:"Reports the committed outcome to the order that started this shipment."
+class ReportShipmentOutcome(Step[PendingReport]):
+    """Sends the committed outcome to the order's RPC."""
+
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        order_flow_provider: Callable[[], OrderFulfillmentFlow],
+    ) -> None:
+        self.client_provider = client_provider
+        self.order_flow_provider = order_flow_provider
+
+    def get_step_options(self) -> StepOptions:
+        """Keeps the report SYNC, like the Step that stores the outcome."""
+        return StepOptions(execute_durability=StepDurability.SYNC)
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, pending: PendingReport
+    ) -> StepDecision:
+        # This SDK pin has no RPC request ID. The locked RPC keeps the first
+        # outcome, so a repeat changes nothing.
+        try:
+            await self.client_provider().invoke_rpc(
+                self.order_flow_provider().record_shipment_outcome,
+                pending.order_flow_id,
+                pending.report,
+            )
+        except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
+            # A closed order ends the attempts; the outcome stays readable through the Client.
+            pass
+        return graceful_complete(pending.report.outcome)
+
+
+class ShipmentFlow(Flow[ShipmentRequest]):
+    """Delivers one shipment.
+
+    Its Flow ID is the shipment number, so people and systems can look it up,
+    retry it, or stop it by that number.
+    """
+
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        order_flow_provider: Callable[[], OrderFulfillmentFlow],
+    ) -> None:
+        self.deliver_shipment = DeliverShipment()
+        self.report_shipment_outcome = ReportShipmentOutcome(
+            client_provider, order_flow_provider
+        )
+
+    def get_steps(self) -> StepList[ShipmentRequest]:
+        return StepList.start_step(self.deliver_shipment).other_steps(
+            self.report_shipment_outcome
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(SHIPMENT_OUTCOME)

@@ -30,9 +30,13 @@ import {
   type PersistenceSchema,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
 import { OrderFulfillmentFlow, type ShipmentReport } from "./order-fulfillment-flow.js";
+
+/** The registered Flow type of ShipmentFlow. */
+export const SHIPMENT_FLOW_TYPE = "ShipmentFlow";
 
 /** One parcel of an order, identified by its shipment number. */
 export interface Shipment {
@@ -64,11 +68,15 @@ class DeliverShipment implements Step<ShipmentRequest> {
     return "DeliverShipment";
   }
 
+  /** Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC. */
+  public getStepOptions(): StepOptions {
+    return { executeDurability: "sync" };
+  }
+
   public waitFor(_context: Context, request: ShipmentRequest): Wait {
     return Wait.until(Timer.byDuration(request.shipment.deliveryDelaySeconds * 1000));
   }
 
-  /** Keeps the default sync durability, so the outcome is stored before the report Step starts. */
   public execute(context: Context, request: ShipmentRequest): StepDecision {
     const outcome = `delivered to ${request.shipment.destination}`;
     shipmentOutcome.set(context, outcome);
@@ -89,6 +97,11 @@ class ReportShipmentOutcome implements Step<PendingReport> {
     return "ReportShipmentOutcome";
   }
 
+  /** Keeps the report SYNC, like the Step that stores the outcome. */
+  public getStepOptions(): StepOptions {
+    return { executeDurability: "sync" };
+  }
+
   public async execute(context: Context, pending: PendingReport): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
@@ -102,7 +115,7 @@ class ReportShipmentOutcome implements Step<PendingReport> {
         { requestId },
       );
     } catch (error) {
-      // A closed order ends the attempts; it reads the shipment's outcome instead.
+      // A closed order ends the attempts; the outcome stays readable through the Client.
       if (!(error instanceof FlowNotFoundError) && !(error instanceof FlowNotActiveOrNotFoundError)) {
         throw error;
       }

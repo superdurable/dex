@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.childflows;
+package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
 /**
- * One parcel of an order, identified by its shipment number.
+ * What a shipment sends to its order when it ends.
  *
- * @param shipmentNumber the shipment number, which is also the shipment's Flow ID
- * @param destination where the parcel goes
- * @param deliveryDelaySeconds simulates how long the carrier takes to deliver
+ * @param shipmentNumber the shipment that reports
+ * @param outcome the shipment's committed outcome
  */
-public record Shipment(String shipmentNumber, String destination, int deliveryDelaySeconds) {
+public record ShipmentReport(String shipmentNumber, String outcome) {
 }

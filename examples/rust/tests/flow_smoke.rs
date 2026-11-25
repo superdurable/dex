@@ -559,10 +559,15 @@ fn child_flows_business_identity_finds_a_shipment_by_its_number() {
     let shipment_number = format!("{order_id}-2");
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let (status, body) = get_shipment(&http_client, &shipment_number);
-        if status == 200 && body["status"] == "running" {
-            assert_eq!(body["shipmentNumber"], shipment_number.as_str(), "{body}");
-            assert_eq!(body["outcome"], "", "{body}");
+        let (status, body) = get_child_flows_route(&http_client, "/shipment", &shipment_number);
+        let shipment = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+        if status == 200 && shipment["status"] == "running" {
+            assert_eq!(
+                shipment["shipmentNumber"],
+                shipment_number.as_str(),
+                "{body}"
+            );
+            assert_eq!(shipment["outcome"], "", "{body}");
             break;
         }
         assert!(
@@ -572,21 +577,56 @@ fn child_flows_business_identity_finds_a_shipment_by_its_number() {
         thread::sleep(Duration::from_millis(200));
     }
 
-    let (status, body) = get_shipment(&http_client, &format!("{order_id}-missing"));
+    let (status, body) =
+        get_child_flows_route(&http_client, "/shipment", &format!("{order_id}-missing"));
     assert_eq!(status, 404, "{body}");
+
+    // The order is not a shipment: both shipment routes answer 404 and leave it running.
+    for route in ["/shipment", "/cancel-shipment"] {
+        let (status, body) = get_child_flows_route(&http_client, route, &order_id);
+        assert_eq!(status, 404, "{route}: {body}");
+    }
+    let order_status = environment
+        .client
+        .describe_flow(&order_id)
+        .expect("describe the order")
+        .status;
+    assert_eq!(order_status, FlowStatus::Running);
+
+    let (status, body) = get_child_flows_route(&http_client, "/cancel-shipment", &shipment_number);
+    assert_eq!(status, 200, "{body}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = environment
+            .client
+            .describe_flow(&shipment_number)
+            .map(|info| info.status);
+        if matches!(status, Ok(FlowStatus::Canceled)) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} is {status:?}, expected Canceled"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
 }
 
-fn get_shipment(http_client: &FlowSmokeHttpClient, shipment_number: &str) -> (u16, Value) {
+fn get_child_flows_route(
+    http_client: &FlowSmokeHttpClient,
+    route: &str,
+    shipment_number: &str,
+) -> (u16, String) {
     let response = reqwest::blocking::Client::new()
         .get(format!(
-            "{}/patterns/child-flows-business-identity/shipment",
+            "{}/patterns/child-flows-business-identity{route}",
             http_client.base_url
         ))
         .query(&[("shipmentNumber", shipment_number)])
         .send()
-        .expect("GET a shipment by its number");
+        .unwrap_or_else(|error| panic!("GET {route} for {shipment_number}: {error}"));
     let status = response.status().as_u16();
-    let body = response.json().expect("decode shipment response");
+    let body = response.text().expect("read the shipment route response");
     (status, body)
 }
 

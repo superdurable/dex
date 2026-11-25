@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.childflows;
+package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
- * The order's record of one shipment. A report fills {@code outcome}; a reconcile read fills
- * {@code status} and, when the shipment stored one, {@code outcome}.
+ * The order's record of one shipment. A report or a reconcile read fills {@code outcome}; a
+ * reconcile read fills {@code status}.
  *
  * @param status a terminal Flow status, "rejected", or "unavailable"; {@code null} when unset
  * @param outcome the shipment's outcome; {@code null} when the shipment stored none

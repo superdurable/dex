@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.childflows;
+package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowInfo;
@@ -22,7 +22,7 @@ import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.patterns.childflows.OrderFulfillmentFlow.Order;
+import io.superdurable.dex.patterns.childflowsbusinessidentity.OrderFulfillmentFlow.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Serves the order routes and the shipment routes that find a shipment by its number. */
 @RestController
@@ -66,14 +67,12 @@ public final class ChildFlowsController {
 
     /** Looks a shipment up by its shipment number, which is its Flow ID. */
     @GetMapping("/shipment")
-    ResponseEntity<Map<String, String>> getShipment(@RequestParam final String shipmentNumber) {
-        final FlowInfo info;
-        try {
-            info = client.describeFlow(shipmentNumber);
-        } catch (final FlowNotFoundException notFound) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "shipment " + shipmentNumber + " not found"));
+    ResponseEntity<?> getShipment(@RequestParam final String shipmentNumber) {
+        final Optional<FlowInfo> found = describeShipment(shipmentNumber);
+        if (found.isEmpty()) {
+            return shipmentNotFound(shipmentNumber);
         }
+        final FlowInfo info = found.get();
         final String outcome = client.getAttributes(shipmentNumber, ShipmentFlow.shipmentOutcome)
                 .get(ShipmentFlow.shipmentOutcome)
                 .orElse("");
@@ -86,8 +85,34 @@ public final class ChildFlowsController {
 
     /** Stops a shipment by its number. Its order records it at the next reconcile read. */
     @GetMapping("/cancel-shipment")
-    ResponseEntity<String> cancelShipment(@RequestParam final String shipmentNumber) {
+    ResponseEntity<?> cancelShipment(@RequestParam final String shipmentNumber) {
+        if (describeShipment(shipmentNumber).isEmpty()) {
+            return shipmentNotFound(shipmentNumber);
+        }
         client.stopFlow(shipmentNumber, new StopFlowOptions(StopType.CANCEL, "shipment canceled"));
         return ResponseEntity.ok("canceled");
+    }
+
+    /**
+     * Describes the Flow named by a shipment number.
+     *
+     * @param shipmentNumber the shipment number, which is the shipment's Flow ID
+     * @return the shipment's Flow info, or empty when no ShipmentFlow has that Flow ID
+     */
+    private Optional<FlowInfo> describeShipment(final String shipmentNumber) {
+        try {
+            final FlowInfo info = client.describeFlow(shipmentNumber);
+            if (!OrderFulfillmentFlow.SHIPMENT_FLOW_TYPE.equals(info.getFlowType())) {
+                return Optional.empty();
+            }
+            return Optional.of(info);
+        } catch (final FlowNotFoundException notFound) {
+            return Optional.empty();
+        }
+    }
+
+    private static ResponseEntity<Map<String, String>> shipmentNotFound(final String shipmentNumber) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "shipment " + shipmentNumber + " not found"));
     }
 }

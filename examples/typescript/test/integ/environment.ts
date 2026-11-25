@@ -71,6 +71,7 @@ export interface IntegEnvironment {
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
   readonly loanApplicationFlow: typeof loanApplicationFlow;
+  readonly shipmentFlow: typeof shipmentFlow;
   readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
@@ -152,6 +153,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     loanApplicationFlow,
+    shipmentFlow,
     orderFulfillmentFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;

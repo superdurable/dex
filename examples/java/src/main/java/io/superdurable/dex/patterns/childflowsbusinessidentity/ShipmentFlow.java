@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.childflows;
+package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.Client;
@@ -23,7 +23,9 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepDurability;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
@@ -86,16 +88,20 @@ public class ShipmentFlow implements Flow<ShipmentFlow.ShipmentRequest> {
             return ShipmentRequest.class;
         }
 
+        /**
+         * Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+         */
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder().executeDurability(StepDurability.SYNC).build();
+        }
+
         @Override
         public Wait waitFor(final Context context, final ShipmentRequest request) {
             return Wait.until(Timer.byDuration(
                     Duration.ofSeconds(request.shipment().deliveryDelaySeconds())));
         }
 
-        /**
-         * Keeps the default SYNC durability, so the outcome is stored before the report Step
-         * starts.
-         */
         @Override
         public StepDecision execute(final Context context, final ShipmentRequest request) {
             final String outcome = "delivered to " + request.shipment().destination();
@@ -120,18 +126,24 @@ public class ShipmentFlow implements Flow<ShipmentFlow.ShipmentRequest> {
             return PendingReport.class;
         }
 
+        /** Keeps the report SYNC, like the Step that stores the outcome. */
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder().executeDurability(StepDurability.SYNC).build();
+        }
+
         @Override
         public StepDecision execute(final Context context, final PendingReport pending) {
             final Client client = clientProvider.getObject();
-            // This SDK pin has no RPC request ID. The order consumes one report
-            // per shipment, so a repeat changes nothing.
+            // This SDK pin has no RPC request ID. The locked RPC keeps the first outcome,
+            // so a repeat changes nothing.
             try {
                 client.invokeRPC(
                         client.newRpcStub(OrderFulfillmentFlow.class, pending.orderFlowId())
                                 ::recordShipmentOutcome,
                         pending.report());
             } catch (final FlowNotFoundException | FlowNotActiveOrNotFoundException closed) {
-                // A closed order ends the attempts; it reads the shipment's outcome instead.
+                // A closed order ends the attempts; the outcome stays readable through the Client.
             }
             return StepDecision.gracefulComplete(pending.report().outcome());
         }

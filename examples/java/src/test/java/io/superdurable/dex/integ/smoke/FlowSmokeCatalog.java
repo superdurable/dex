@@ -17,6 +17,7 @@
 package io.superdurable.dex.integ.smoke;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.superdurable.dex.FlowStatus;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -260,27 +261,68 @@ final class FlowSmokeCatalog {
                             "/patterns/child-flows-business-identity/start",
                             Map.of("workflowId", orderId),
                             null);
-                    verifyShipmentLookupByNumber(env, orderId + "-2");
+                    verifyShipmentLookupByNumber(env, orderId);
                     return result;
                 });
     }
 
     private static void verifyShipmentLookupByNumber(
-            final FlowSmokeEnvironment environment, final String shipmentNumber) throws Exception {
+            final FlowSmokeEnvironment environment, final String orderId) throws Exception {
+        final String shipmentNumber = orderId + "-2";
         final long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         String lastBody = "";
-        while (System.nanoTime() < deadline) {
-            final HttpResponse<String> response = environment.get(
-                    "/patterns/child-flows-business-identity/shipment",
-                    Map.of("shipmentNumber", shipmentNumber));
+        boolean running = false;
+        while (!running && System.nanoTime() < deadline) {
+            final HttpResponse<String> response =
+                    getChildFlowsRoute(environment, "/shipment", shipmentNumber);
             lastBody = response.body();
-            if (response.statusCode() == 200
-                    && "running".equals(OBJECT_MAPPER.readTree(lastBody).path("status").asText())) {
+            running = response.statusCode() == 200
+                    && "running".equals(OBJECT_MAPPER.readTree(lastBody).path("status").asText());
+            if (!running) {
+                Thread.sleep(200L);
+            }
+        }
+        if (!running) {
+            throw new AssertionError("shipment lookup for " + shipmentNumber + " last=" + lastBody);
+        }
+
+        // The order is not a shipment: both shipment routes answer 404 and leave it running.
+        for (final String route : List.of("/shipment", "/cancel-shipment")) {
+            final HttpResponse<String> response = getChildFlowsRoute(environment, route, orderId);
+            if (response.statusCode() != 404) {
+                throw new AssertionError(route + " for order " + orderId + " returned "
+                        + response.statusCode() + ": " + response.body());
+            }
+        }
+        final FlowStatus orderStatus = environment.client().describeFlow(orderId).getStatus();
+        if (orderStatus != FlowStatus.RUNNING) {
+            throw new AssertionError("order " + orderId + " is " + orderStatus);
+        }
+
+        final HttpResponse<String> canceled =
+                getChildFlowsRoute(environment, "/cancel-shipment", shipmentNumber);
+        if (canceled.statusCode() != 200) {
+            throw new AssertionError("cancel-shipment returned " + canceled.statusCode() + ": "
+                    + canceled.body());
+        }
+        FlowStatus shipmentStatus = null;
+        final long cancelDeadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (System.nanoTime() < cancelDeadline) {
+            shipmentStatus = environment.client().describeFlow(shipmentNumber).getStatus();
+            if (shipmentStatus == FlowStatus.CANCELED) {
                 return;
             }
             Thread.sleep(200L);
         }
-        throw new AssertionError("shipment lookup for " + shipmentNumber + " last=" + lastBody);
+        throw new AssertionError("shipment " + shipmentNumber + " is " + shipmentStatus);
+    }
+
+    private static HttpResponse<String> getChildFlowsRoute(
+            final FlowSmokeEnvironment environment, final String route, final String shipmentNumber)
+            throws Exception {
+        return environment.get(
+                "/patterns/child-flows-business-identity" + route,
+                Map.of("shipmentNumber", shipmentNumber));
     }
 
     private static Map<String, String> signupQuery(final FlowSmokeEnvironment environment) {

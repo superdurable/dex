@@ -37,8 +37,6 @@ from dex_examples.patterns.cancel_case.loan_application_flow import (
 )
 from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow import (
     OrderFulfillmentFlow,
-)
-from dex_examples.patterns.child_flows_business_identity.shipment_flow import (
     ShipmentFlow,
 )
 from dex_examples.patterns.critical_section.contract_edit_flow import (
