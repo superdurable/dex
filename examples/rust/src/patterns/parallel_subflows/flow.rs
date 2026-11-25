@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, AttributeMap, Channel, Client, Condition, Context, Flow, FlowStatus, HandlerError,
+    Attribute, AttributeMap, Channel, Client, Context, Flow, FlowStatus, HandlerError,
     HandlerResult, IdReusePolicy, PersistenceSchema, Rpc, RpcList, RpcResult, SdkError,
     StartFlowOptions, Step, StepDecision, StepList, StepMovement, StepOptions, StopFlowOptions,
     SubFlow, Wait,
@@ -294,7 +294,6 @@ pub struct AdvancedLongLiveParentFlow {
     init: LongLiveInit,
     handle_request: LongLiveHandleRequest,
     handle_sub_flow: LongLiveHandleSubFlow,
-    request_completion: RequestLongLiveCompletion,
 }
 
 impl AdvancedLongLiveParentFlow {
@@ -312,11 +311,7 @@ impl AdvancedLongLiveParentFlow {
 
     fn stop(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
         STOPPED.set(context, true)?;
-        let result = RpcResult::new(());
-        if context.supports_graceful_completion_condition() {
-            return Ok(result.then(StepMovement::to(&self.request_completion, ())));
-        }
-        Ok(result)
+        Ok(RpcResult::new(()))
     }
 }
 
@@ -327,7 +322,6 @@ impl Flow for AdvancedLongLiveParentFlow {
         StepList::start(&self.init)
             .and(&self.handle_request)
             .and(&self.handle_sub_flow)
-            .and(&self.request_completion)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -379,21 +373,11 @@ impl Step for LongLiveHandleRequest {
         "HandleRequestStep"
     }
 
-    fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        let request = REQUEST_CHANNEL.for_one();
-        if context.supports_graceful_completion_condition() {
-            return Ok(Wait::any_of([
-                request,
-                Condition::graceful_completion_requested(),
-            ]));
-        }
-        Ok(Wait::until(request))
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::until(REQUEST_CHANNEL.for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        if context.is_graceful_completion_condition_completed() {
-            return Ok(StepDecision::dead_end());
-        }
         let request = REQUEST_CHANNEL
             .condition_results(context)?
             .into_iter()
@@ -425,17 +409,6 @@ impl Step for LongLiveHandleSubFlow {
             return Ok(StepDecision::graceful_complete(()));
         }
         Ok(StepDecision::go_to(&LongLiveHandleRequest, ()))
-    }
-}
-
-#[derive(Default)]
-struct RequestLongLiveCompletion;
-
-impl Step for RequestLongLiveCompletion {
-    type Input = ();
-
-    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(()))
     }
 }
 
