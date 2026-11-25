@@ -172,7 +172,7 @@ impl Step for CloseAccountStep {
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         self.archive
-            .archive_account(context.flow_id())
+            .archive_account(context.flow_id(), context.step_execution_id())
             .map_err(|message| account_error(&message))?;
         Ok(StepDecision::graceful_complete(()))
     }

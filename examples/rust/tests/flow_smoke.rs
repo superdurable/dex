@@ -15,7 +15,7 @@
 mod common;
 mod worker_harness;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Barrier, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -642,6 +642,7 @@ fn entity_flow_keeps_one_customer_account_until_retired() {
     client
         .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
         .expect("retire account");
+    wait_for_archive_attempts(&archive, &flow_id, 1);
     assert_entity_flow_running(&client, &flow_id);
     let retired_adjustment = client
         .invoke_rpc(
@@ -669,14 +670,19 @@ fn entity_flow_keeps_one_customer_account_until_retired() {
     client
         .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
         .expect("a repeated retire is a no-op");
+    wait_for_archive_attempts(&archive, &flow_id, 2);
     assert_entity_flow_running(&client, &flow_id);
 
+    archive.lose_next_response(&flow_id);
     archive.make_available(&flow_id);
     let result = client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
         .expect("wait for retired account");
     assert_eq!(result.status(), FlowStatus::Completed);
-    assert_eq!(archive.archive_count(&flow_id), 1);
+    let attempts = archive.attempt_step_execution_ids(&flow_id);
+    assert!(attempts.len() >= 4, "archive attempts: {}", attempts.len());
+    assert_eq!(attempts.iter().collect::<HashSet<_>>().len(), 1);
+    assert_eq!(archive.archive_record_count(&flow_id), 1);
     let (closed_balance, closed_retired) = client
         .get_attributes(&flow_id, (&CREDIT_BALANCE, &RETIRED))
         .expect("read closed account");
@@ -693,6 +699,17 @@ fn entity_flow_keeps_one_customer_account_until_retired() {
         }),
     );
     assert!(matches!(reopen, Err(SdkError::FlowAlreadyStarted { .. })));
+}
+
+fn wait_for_archive_attempts(archive: &FakeAccountArchive, flow_id: &str, count: usize) {
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while archive.attempt_step_execution_ids(flow_id).len() < count {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {count} archive attempts"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn assert_entity_flow_running(client: &Client, flow_id: &str) {
