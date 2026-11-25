@@ -122,6 +122,7 @@ mappings:
       - docs/content/design-patterns/subflows/back-pressure.mdx
       - docs/content/design-patterns/subflows/basic.mdx
       - docs/content/design-patterns/subflows/cancel-case.mdx
+      - docs/content/design-patterns/subflows/child-flows-with-business-identity.mdx
       - docs/content/design-patterns/subflows/long-lived-parent.mdx
       - docs/content/design-patterns/subflows/partitioning.mdx
       - docs/content/design-patterns/subflows/short-lived-parent.mdx
