@@ -209,6 +209,14 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "patterns/inbound-event-loop",
+      trigger: () =>
+        triggerGet(context, "/patterns/inbound-event-loop/start", {
+          workflowId: newFlowId("inbound-event-loop"),
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/parallel/static",
       trigger: () =>
         triggerGet(context, "/patterns/parallel/start/static", {

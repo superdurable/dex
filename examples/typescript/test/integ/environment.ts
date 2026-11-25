@@ -30,6 +30,7 @@ import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flo
 import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
+import { supportTicketFlow } from "../../src/patterns/inbound-event-loop/support-ticket-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -108,6 +109,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     userOnboardingFlow,
     ...workflowPatternFlows,
     offerResponseFlow,
+    supportTicketFlow,
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,

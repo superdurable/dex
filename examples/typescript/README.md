@@ -118,6 +118,7 @@ Under [`src/patterns/`](./src/patterns):
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
+- [Inbound Event Loop](./src/patterns/inbound-event-loop)
 - [Entity Store user profiles](./src/patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

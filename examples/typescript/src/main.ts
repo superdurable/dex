@@ -37,6 +37,7 @@ import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
 import { createSequentiallyChunkedAttributeMapRouter } from "./patterns/sequentially-chunked-attribute-map/controller.js";
 import { createInactivenessTrackerTimerRouter } from "./patterns/inactiveness-tracker-timer/controller.js";
+import { createInboundEventLoopRouter } from "./patterns/inbound-event-loop/controller.js";
 import { createTimeoutRouter } from "./patterns/timeout/controller.js";
 import { createWaitForStepCompletionRouter } from "./patterns/wait-for-step-completion/controller.js";
 import { createAttributeRouter } from "./primitives/attribute/controller.js";
@@ -146,6 +147,7 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
     "/patterns/inactiveness-tracker-timer",
     createInactivenessTrackerTimerRouter(client),
   );
+  app.use("/patterns/inbound-event-loop", createInboundEventLoopRouter(client));
   app.use("/patterns/parallel", createParallelRouter(client));
   app.use("/patterns/parallel-subflows", createParallelSubFlowsRouter(client));
   app.use("/patterns/recovery", createRecoveryRouter(client));

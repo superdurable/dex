@@ -48,6 +48,7 @@ import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.j
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { chunkedSubscriberFlow } from "./patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.js";
 import { inactivenessTrackerFlow } from "./patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.js";
+import { supportTicketFlow } from "./patterns/inbound-event-loop/support-ticket-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
 import { waitForStepCompletionFlow } from "./patterns/wait-for-step-completion/wait-for-step-completion-flow.js";
 import { workflowPatternFlows } from "./patterns/workflow-patterns/workflow-pattern-flows.js";
@@ -161,6 +162,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
+  supportTicketFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,
@@ -233,6 +235,7 @@ export {
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
+  supportTicketFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,
