@@ -15,8 +15,8 @@ idiom matters. Examples live under
 | Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
 | Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
 | Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
-| Inactivity timer | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
-| Inbound event loop | Closest: the inactivity timer example | Skeleton below |
+| Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
+| Idle Timer with Resolution (Inbound event loop) | Closest: the Idle Timer example | Skeleton below |
 | Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
 | WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
@@ -188,11 +188,11 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 - `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
   Never compute a deadline in the loop.
 
-## Inbound event loop
+## Idle Timer with Resolution
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
 
 ```go
 var (

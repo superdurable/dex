@@ -118,10 +118,13 @@ python3 script/check-package.py
 python3 script/check-doc-map.py
 python3 -m unittest discover -s test -p 'test_*.py'
 node --test test/version-check.test.mjs
-python3 /path/to/skill-creator/scripts/quick_validate.py dex-sdk
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-app-builder
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-connector-contributor
 ```
+
+`quick_validate.py` rejects the `disable-model-invocation` key, which the
+transition skill `dex-sdk` needs so Claude Code and Cursor load it only on
+explicit invocation. `check-package.py` validates `dex-sdk` instead.
 
 `check-doc-map.py` needs the Dex checkout because it reads `docs/content/`.
 Without arguments it validates the map. Skills CI runs only the checks that

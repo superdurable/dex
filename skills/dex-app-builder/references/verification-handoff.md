@@ -222,8 +222,8 @@ Ensure:
 - every Step returns analyzer-visible decisions from Execute, uses targets
   the analyzer can resolve, and is composed rather than subclassed from
   another Step;
-- the Flow computes the decisions and status of its process from the facts
-  the caller supplies;
+- who computes each decision and status matches the recorded design, which
+  by default has the Flow compute them from the facts the caller supplies;
 - business deadlines are durable Timers, never clock comparisons, and
   idempotency keys and business IDs never derive from the current time; a
   decision with a deadline races its Channels and Timer in one waiting Step

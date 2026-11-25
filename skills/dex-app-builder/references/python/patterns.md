@@ -15,8 +15,8 @@ This page maps each pattern to its Python API shape and runnable example.
 | Polling | one long async `execute` loop; see below | [polling](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/polling/polling_flow.py) |
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
-| Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
+| Idle Timer (Inactivity tracker) | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
@@ -123,11 +123,11 @@ class AwaitJob(Step[str]):
 - A sync Worker writes the same loop as a generator: `yield heartbeat(state)`,
   `yield JOB_PROGRESS.write(context, status)`, and `time.sleep(...)`.
 
-## Inbound event loop
+## Idle Timer with Resolution
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
 
 ```python
 from datetime import timedelta

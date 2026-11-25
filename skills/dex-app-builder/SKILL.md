@@ -82,8 +82,9 @@ Never report compilation as provider or end-to-end success.
 
 ## Product constraints
 
-These product-route rules are stricter than the general SDK rules below. They
-take precedence.
+These product-route rules add to the general rules in
+[Model before implementation](#model-before-implementation) and are stricter
+than them. They take precedence.
 
 - **One backend language, chosen in Stage 0.** Go, Python, TypeScript, Java,
   and Rust are equal choices. Stage 0 keeps an existing application's
@@ -100,28 +101,22 @@ take precedence.
   binary or image when deployed. Do not recreate management APIs or UI. A
   separate participant interaction is a valid custom UI. A backend
   requirement alone is not.
-- **Dex is the default store.** Use typed Flow Attributes and exactly loaded
-  AttributeMaps. Justify an external store with a concrete access or scale
-  gap and one owner per fact. No speculative database, projection, or cache.
-- **Flow boundaries.** Use parallel Steps for one lifecycle. Use independent
-  top-level Flows for separate owners, and for child jobs with their own
-  business identity. Use no SubFlows unless the
-  [SubFlow gate](references/core/subflow.md#evolution-gate) passes and the
-  user confirms. Never split work whose parts
+- **External stores need a recorded gap.** Justify a store outside Dex with
+  a concrete access or scale gap and one owner per fact. No speculative
+  database, projection, or cache.
+- **Flow boundaries.** A SubFlow also needs the user's confirmation after
+  the gate passes. Never split work whose parts
   would exchange RPCs or messages on frequent events, such as every
   operation, callback, or poll. Each call between Flows adds to both
   histories and costs an engine operation, even a read.
-- **Effects only in Execute.** Put provider effects in `Execute`, with an
-  idempotency identity, a bounded timeout, and recovery. `WaitFor` declares
-  durable conditions. It performs no provider or Dex mutation.
-- **Start identity.** A stable Flow ID, a complete request ID, an explicit
-  ID reuse policy, and typed error recovery govern starts. An accepted start
-  returns its known identity without a preflight or success-path state read.
-  Streams are best-effort observations.
-- **Design before code.** Define each Flow's identity, lifecycle, Steps,
-  typed RPCs, every primitive, selective loads, locks, retention, retries,
-  and uncertain-effect handling in the application before coding. Keep open
-  Flow runs compatible across deploys.
+- **No mutation in WaitFor.** `WaitFor` performs no provider call and no Dex
+  mutation. Each provider effect in `Execute` has an idempotency identity, a
+  bounded timeout, and recovery.
+- **Complete start identity.** Each start has a complete request ID, an
+  explicit ID reuse policy, and typed error recovery.
+- **Record the design.** Record the Flow model in the application's own
+  documentation before coding, including selective loads, locks, retention,
+  retries, and uncertain-effect handling.
 - **Credentials stay outside.** Keep them out of code, Flow state, logs, and
   definitions. Locally, Dex Web configures Connector connections. The
   application reads them through the project configuration loader of its
@@ -228,10 +223,10 @@ Before you design a Flow, find its shape below and read the matching section of 
 
 | Business shape | Pattern | Gist |
 | --- | --- | --- |
-| Wait for a person's or system's decision, with a deadline or escalation | [Deferred choice](references/core/patterns.md#deferred-choice) | One waiting Step races the decision Channels and a Timer with AnyOf. Execute checks which Condition fired, then routes. RPCs only publish. |
-| Many callers add entries, replies, or events to the same record at once | [Inbound event loop](references/core/patterns.md#inbound-event-loop) | RPCs validate and publish to a Channel. One waiting Step consumes the batch, writes state, and loops back to itself. |
+| Wait for a person's or system's decision, with a deadline or escalation | [Decision with Deadline](references/core/patterns.md#decision-with-deadline) (Deferred choice) | One waiting Step races the decision Channels and a Timer with AnyOf. Execute checks which Condition fired, then routes. RPCs only publish. |
+| Many callers add entries, replies, or events to the same record at once | [Idle Timer with Resolution](references/core/patterns.md#idle-timer-with-resolution) (Inbound event loop) | RPCs validate and publish to a Channel. One waiting Step consumes the batch, writes state, and loops back to itself. |
 | Bursts of events per entity, each entity handled in order by one short Flow | [Drain an external Channel](references/core/patterns.md#drain-an-external-channel) | One stable Flow ID per entity, one active run at a time, messages handled in commit order. The RPC validates and publishes to a Channel; on a missing or inactive run the caller starts one, allowing reuse of a closed Flow ID. One Step handles each message and closes with ForceCompleteIfChannelsEmpty. No external queue. |
-| Close or act after a period of inactivity | [Inactivity tracker](references/core/patterns.md#inactivity-tracker) | AnyOf(Timer(window), activity Channel). Activity loops back for a fresh Timer; a fired Timer acts. |
+| Close or act after a period of inactivity | [Idle Timer](references/core/patterns.md#idle-timer) (Inactivity tracker) | AnyOf(Timer(window), activity Channel). Activity loops back for a fresh Timer; a fired Timer acts. |
 | A collection that grows without bound | [Sequentially chunked AttributeMap](references/core/patterns.md#sequentially-chunked-attributemap) | Archive bounded chunks. An append loads only the current chunk and a read only the requested page, never the whole map. Bound the total: delete the oldest chunks by count or age, archiving them first when the business must keep them, and record the oldest retained token in the same commit. |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](references/core/patterns.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances; lock and load only that instance. |
 | Wait for an external system to become ready or finish | [Polling](references/core/patterns.md#polling) | Poll inside one long-running Execute with short calls and heartbeats; never a Timer loop, a WaitFor, or retries as the loop. |
@@ -246,7 +241,7 @@ Before you design a Flow, find its shape below and read the matching section of 
 ## Rules agents most often miss
 
 - **Deadlines use durable Timers, not clock comparisons.** A business deadline is a durable Timer, never `now() > deadline` in a Step or an RPC, so that it is durable, visible in the graph, and skippable in tests. Idempotency keys and business IDs never derive from the current time, which differs per retry; use the Flow ID and the Flow start time from the Context. Reading the time to record a timestamp or compute a schedule is fine: the committed value is the one that counts.
-- **Deadlines race in one waiting Step.** When a decision has a deadline, race its decision Channels and Timer in one waiting Step. In Execute, check which Condition fired; never infer "deadline passed" from "no Channel result". When the Timer and a decision are ready at once, the Timer wins, because AnyOf picks ready Timers before ready Channels; the decision stays queued. Declare decision Channels in business priority order. When a decision ready at the deadline must still count, the deadline branch takes it from its Channel before it acts. A deadline for the whole Flow uses the Flow timeout. Never use a Timer-only Step that an RPC cancels.
+- **Deadlines race in one waiting Step.** When a decision has a deadline, race its decision Channels and Timer in one waiting Step. In Execute, check which Condition fired; never infer "deadline passed" from "no Channel result". When the Timer and a decision are ready at once, the Timer wins, because AnyOf picks ready Timers before ready Channels; the decision stays queued and does not change the chosen branch. Declare decision Channels in business priority order. A deadline for the whole Flow uses the Flow timeout. Never use a Timer-only Step that an RPC cancels.
 - **Tests keep real durations.** Keep the business duration and skip the Timer through the Client. Never make a business deadline a parameter only so tests or demos can shorten it. Execute routes a provider-confirmed permanent rejection to the failure Step itself; provider errors the application treats as retryable use Step retry. A fake rejection under the production configuration verifies that branch and that it does not retry; in product work, requested tests trigger it through the real provider or record the branch as unverified, as in [verification-handoff.md](references/verification-handoff.md#tests-real-dependencies-or-none). A direct test verifies the recovery Step's logic. Dex scheduling the recovery Step after the real retry budget is not re-tested with shortened durations. See [testing.md](references/core/testing.md#required-scenarios).
 - **Frequent concurrent appenders go through a Channel.** Route them through an RPC that publishes to a Channel consumed by one writing Step; never have each RPC lock and rewrite a shared list. Synchronous read-modify-write by a few writers uses the same Attribute lock across writers.
 - **One active consumer per Channel at a time.** At any moment, at most one waiting Step consumes a given Channel, so which Step receives a message never depends on timing. Different Step types may consume the same Channel in different phases of the Flow. For an event every waiter must receive, use one ChannelMap key per waiter and publish to each key.
@@ -283,9 +278,9 @@ Before handoff, run the [code check](references/core/self-check.md#code-check).
 Keep the design proportional to the request. Do not add application-specific
 tests, mocks, or framework dependencies only to satisfy a generic scaffold.
 Existing or requested real acceptance remains required. Generate API packages
-before resolving their imports. The host commit tool may own the final source
-gate. Use focused checks while editing, then act on its actual diagnostics
-instead of running the same full gate twice in a row.
+before resolving their imports. Use focused checks while editing, then
+accept the change with the project's own build and test commands. Do not run
+the same full gate twice in a row; act on its actual diagnostics instead.
 
 ## Links
 

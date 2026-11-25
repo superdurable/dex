@@ -279,15 +279,30 @@ def check_skill_layout() -> list[Path]:
         description = front_matter.get("description", "")
         if not description or len(description) > 1024 or "<" in description or ">" in description:
             fail(f"{skill.name}/SKILL.md needs a description of at most 1024 characters without angle brackets")
-        if front_matter.get("disable-model-invocation") == "true":
-            fail(f"{skill.name}/SKILL.md must allow model invocation")
         agent = skill / "agents" / "openai.yaml"
-        expected_policy = "false" if skill.name in TRANSITION_SKILL_NAMES else "true"
-        if not agent.is_file() or f"allow_implicit_invocation: {expected_policy}" not in agent.read_text():
-            fail(f"{skill.name}/agents/openai.yaml must set allow_implicit_invocation: {expected_policy}")
+        agent_text = agent.read_text() if agent.is_file() else ""
+        if skill.name in TRANSITION_SKILL_NAMES:
+            check_transition_skill_invocation(skill.name, front_matter, agent_text)
+        else:
+            check_public_skill_invocation(skill.name, front_matter, agent_text)
     if (ROOT / "dex-connector-contributor" / "references").exists():
         fail("dex-connector-contributor must defer to the target repository, not ship references")
     return skills
+
+
+def check_public_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    if "disable-model-invocation" in front_matter:
+        fail(f"{name}/SKILL.md must allow model invocation")
+    if "allow_implicit_invocation: true" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: true")
+
+
+def check_transition_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    """A transition skill answers explicit invocation only, in Claude Code and Cursor and in Codex."""
+    if front_matter.get("disable-model-invocation") != "true":
+        fail(f"{name}/SKILL.md must set disable-model-invocation: true")
+    if "allow_implicit_invocation: false" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: false")
 
 
 def check_skill_links(skills: list[Path]) -> None:

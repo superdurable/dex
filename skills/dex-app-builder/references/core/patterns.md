@@ -16,7 +16,7 @@ Every pattern has a runnable example in each SDK:
 | Java | [examples/java/src/main/java/io/superdurable/dex/patterns](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns) | lowercase, no separators |
 | Rust | [examples/rust/src/patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns) | snake_case |
 
-Each section names its Go folder. The other languages use the same folder name in their own style. A few patterns live under `primitives/` or `products/`; the section says so. In Rust, Deferred choice, Critical section, and Cancel with child Flows live under [examples/rust/src/control_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns).
+Each section names its Go folder. The other languages use the same folder name in their own style. A few patterns live under `primitives/` or `products/`; the section says so. In Rust, Decision with Deadline (Deferred choice), Critical section, and Cancel with child Flows live under [examples/rust/src/control_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns).
 
 ## Choose a pattern
 
@@ -33,8 +33,8 @@ Each section names its Go folder. The other languages use the same folder name i
 | Wait for an external system to become ready or finish | [Polling](#polling) |
 | Recurring work at a fixed interval | [Cron schedule](#cron-schedule) |
 | Repeat until the recipient opts out | [Reminder](#reminder) |
-| Act after a period without activity | [Inactivity tracker](#inactivity-tracker) |
-| Take inbound messages or replies until a resolution or inactivity | [Inbound event loop](#inbound-event-loop) |
+| Act after a period without activity | [Idle Timer](#idle-timer) (Inactivity tracker) |
+| Take inbound messages or replies until a resolution or inactivity | [Idle Timer with Resolution](#idle-timer-with-resolution) (Inbound event loop) |
 | Recover when WaitFor fails | [WaitFor failure recovery](#waitfor-failure-recovery) |
 | Compensate after Execute retries are exhausted | [Execute failure recovery](#execute-failure-recovery) |
 | Escalate a failure to a person | [Manual recovery](#manual-recovery) |
@@ -42,12 +42,12 @@ Each section names its Go folder. The other languages use the same folder name i
 | Finish only after internal producers' messages are handled | [Drain internal Channels](#drain-internal-channels) |
 | Process bursty external messages in a short Flow | [Drain an external Channel](#drain-an-external-channel) |
 | Stop long repeating work on request | [Interruptible execution](#interruptible-execution) |
-| Route on whichever of several events happens first | [Deferred choice](#deferred-choice) |
+| Route on whichever of several events happens first, such as a decision or its deadline | [Decision with Deadline](#decision-with-deadline) |
 | Let parallel branches take turns on a sequence of Steps | [Critical section](#critical-section) |
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
 | Map a control structure to its Dex recipe | [Control structures](#control-structures) |
 | Return to the caller at a durable milestone | [Responsive update](#responsive-update) |
-| One Flow per entity, queried with SQL | [Entity store](#entity-store) |
+| One Flow per entity, queried with SQL | [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) (Entity Flow with SQL Projection) |
 | Append-only history that grows | [Sequentially chunked AttributeMap](#sequentially-chunked-attributemap) |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](#hash-partitioned-attributemap) |
 | Durable AI agent | [Durable AI agents](#durable-ai-agents) |
@@ -372,7 +372,7 @@ Remind.execute -> if the Timer did not fire: gracefulComplete()
 rpc optOutReminders -> OptOut.publish()
 ```
 
-### Inactivity tracker
+### Idle Timer
 
 Act only after a period with no activity. Go folder: `inactiveness-tracker-timer`.
 
@@ -385,9 +385,9 @@ rpc recordActivity -> Activity.publish()
 
 Keep the deadline in the Flow where the activity happens. A separate Flow that needs a message on every operation is the wrong boundary.
 
-### Inbound event loop
+### Idle Timer with Resolution
 
-Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the inactivity tracker. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
+Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the Idle Timer. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
 
 ```text
 rpc sendReply(text)       -> validate text; if invalid: return a rejection
@@ -572,7 +572,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
 | Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. When the Flow needs the results, fork a Join with one branch per item. A Join needs the instance count when it forks; instances added while others run need an explicit count and a loop. Use child Flows only for instances with their own lifecycle. |
 
-### Deferred choice
+### Decision with Deadline
 
 Wait for several events and route on whichever happens first, such as accept, reject, or expiry of an offer. Go folder: `deferred-choice`.
 
@@ -591,7 +591,6 @@ AwaitOfferResponse.execute
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
 - When several Conditions are ready at once, AnyOf picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the decision Channels in business priority order.
-- A decision that is ready when the deadline fires loses to the Timer and stays queued. When the business wants such a decision to count, the expiry Step first takes any queued decision with an AtMost wait, which is ready at once even when the Channel is empty, and routes on what it took.
 - A late response cannot change the chosen branch. While the Flow runs, its RPC succeeds and publishes a message that nothing consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -701,9 +700,9 @@ The caller shows incremental progress. Example: `primitives/stream`.
 
 The Flow writes to a Stream. The caller reads forward with a resume token and passes the new token to the next read. Messages are best effort, not a final result. Use a Step-completion or Attribute-match wait for a durable condition.
 
-## Entity store
+## Entity Flow with Attribute Sync
 
-One Flow per entity, with a SQL projection for queries. Go folder: `entity-store`.
+One Flow per entity, whose Attributes the Attribute Store syncs into a SQL table for queries. Go folder: `entity-store`.
 
 - Use when an entity needs durable state and RPC updates, and the application needs database queries over latest state.
 - The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a row key template.
@@ -757,7 +756,7 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
 - Updating old records needs another pattern or an index.
-- Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Inbound event loop](#inbound-event-loop), instead of having each RPC lock and rewrite `current`.
+- Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Idle Timer with Resolution](#idle-timer-with-resolution), instead of having each RPC lock and rewrite `current`.
 
 ### Hash-partitioned AttributeMap
 
