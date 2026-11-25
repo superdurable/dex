@@ -222,12 +222,12 @@ Ensure:
 - every Step returns analyzer-visible decisions from Execute, uses targets
   the analyzer can resolve, and is composed rather than subclassed from
   another Step;
-- the Flow owns the decisions and status of its process; the caller only
-  supplies facts, starts Flows, calls RPCs, and reads;
-- business deadlines, routing, decisions, retry-stable identities, WaitFor,
-  and RPC handlers never read the wall clock; a decision with a deadline
-  races its Channels and Timer in one waiting Step that checks the Timer
-  result;
+- who computes each decision and status matches the recorded design, which
+  by default has the Flow compute them from the facts the caller supplies;
+- business deadlines are durable Timers, never clock comparisons, and
+  idempotency keys and business IDs never derive from the current time; a
+  decision with a deadline races its Channels and Timer in one waiting Step
+  that checks which Condition fired;
 - tests skip business Timers through the Client and keep the real
   durations;
 - dependencies and Connector versions are pinned to exact releases, with no

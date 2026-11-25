@@ -118,7 +118,7 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         major, minor, _ = (int(part) for part in self.base_version.split("."))
         version = f"{major}.{minor + 1}.0"
         self.assertEqual(self.read("skills/VERSION"), f"{version}\n")
-        self.assertEqual(self.read("skills/dex-sdk/VERSION"), f"{version}\n")
+        self.assertEqual(self.read("skills/dex-app-builder/VERSION"), f"{version}\n")
         entry = f"## {version} - 2026-11-12\n\n- Add the A pattern.\n- Correct the B rule.\n\n"
         newest = changelog_before.index("\n## ") + 1
         self.assertEqual(self.read("skills/CHANGELOG.md"), changelog_before[:newest] + entry + changelog_before[newest:])
@@ -415,7 +415,7 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
     def legacy_bump(self, version: str, entry_version: str | None = None) -> None:
         """Bumps every version copy the old way; entry_version overrides the entry heading, and "" omits it."""
         previous = self.read("skills/VERSION").strip()
-        for path in ("skills/VERSION", "skills/dex-sdk/VERSION"):
+        for path in ("skills/VERSION", "skills/dex-app-builder/VERSION"):
             self.write(path, f"{version}\n")
         for path in MANIFESTS:
             self.write(path, self.read(path).replace(f'"version": "{previous}"', f'"version": "{version}"'))

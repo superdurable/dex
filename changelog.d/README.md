@@ -9,7 +9,7 @@ name, so concurrent pull requests do not conflict.
 
 | Directory | Release files |
 | --- | --- |
-| `skills/` | `skills/CHANGELOG.md`, `skills/VERSION`, `skills/dex-sdk/VERSION`, and the plugin and marketplace manifests |
+| `skills/` | `skills/CHANGELOG.md`, `skills/VERSION`, `skills/dex-app-builder/VERSION`, and the plugin and marketplace manifests |
 | `go/`, `java/`, `python/`, `rust/`, `typescript/`, `web/`, `cli/`, `server/`, `agents/` | `docs/reference/<target>/changelog.mdx` |
 | `agents-packages/` | `agents/CHANGELOG.md` |
 

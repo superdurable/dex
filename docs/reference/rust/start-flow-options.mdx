@@ -116,6 +116,10 @@ impl Flow for ExampleFlow {
 
 Example: [examples/rust/src/primitives/flow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/flow.rs)
 
+To test the timeout path with the real timeout, fire it early with
+`dexcli flow skip-timer` as in
+[Skip a Timer](/reference/server/runtime-client#skip-a-timer).
+
 ## Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
 **IDReusePolicy** says what to do when this Flow ID already exists.

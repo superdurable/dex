@@ -239,11 +239,11 @@ rather than the source's run counts.
 
 ## 5. Map the execution model
 
-Model the Flows with the [Dex SDK](../../dex-sdk/SKILL.md) Flow modeling and
-[design pattern](../../dex-sdk/references/core/patterns.md) rules:
+Model the Flows with the [Flow modeling](../SKILL.md#model-before-implementation) and
+[design pattern](core/patterns.md) rules:
 
-- A schedule becomes a scheduler Flow on the durable Timer (cron) pattern in the [Dex SDK
-  patterns](../../dex-sdk/references/core/patterns.md). Persist the
+- A schedule becomes a scheduler Flow on the durable Timer (cron) pattern in the [Dex
+  patterns](core/patterns.md). Persist the
   next occurrence instant and arm a Timer for the remaining duration. An Execute
   Step starts one run Flow per occurrence through a Client injected as a lazy
   provider, because the Client is created after the Registry. Each run has its

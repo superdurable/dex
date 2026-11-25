@@ -3,12 +3,12 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
-description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。"
+description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill，也负责已有应用的 SDK 工作。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。"
 ---
 
 # Dex App Builder
 
-Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。
+Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。它也负责对应用做范围明确的 SDK 工作，例如调试一个 Flow，或添加一个 Step。
 
 ## 安装与使用 {#install-and-use}
 
@@ -33,7 +33,7 @@ $dex-app-builder Design and build an event-registration application.
 - 从 UI 到后端，构建并测试一个完整功能；
 - 在还没有具体流程时，先了解并搭建 Dex。
 
-如果只是范围很小的 SDK 调试，或者独立贡献官方 Connector，请直接调用 [Dex SDK](./dex-sdk.mdx) 或 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
+如果只是范围很小的 SDK 任务，App Builder 会跳过产品流程，见 [SDK 工作](#sdk-work)。独立贡献官方 Connector 时，请改用 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
 
 ## 入门 Dex {#get-started-with-dex}
 
@@ -78,7 +78,7 @@ App Builder 在两种管理流程的方式中选一种：
 
 ### 3. 设计并实现 Flow {#3-design-and-implement-the-flow}
 
-后端使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 会加载 [Dex SDK](./dex-sdk.mdx) 获取通用的 SDK 规则，再加上自己更严格的规则：
+后端使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 遵循 [SDK 工作](#sdk-work) 中说明的通用 SDK 规则，再加上自己更严格的规则：
 
 - 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写，只使用 [Flow visualization reference](/reference/web/flow-visualization) 为该语言列出的指令；
 - 只在 `Execute` 中调用外部 provider；
@@ -101,6 +101,43 @@ App Builder 在两种管理流程的方式中选一种：
 
 贡献还在 review 时，应用可以先用本地的 Connector package 测试。但在这个 Connector 以确切版本发布之前，应用不能进入生产。Skill 绝不会把 branch、commit SHA、pseudo-version 或本地替换作为生产依赖提交。
 
+## SDK 工作 {#sdk-work}
+
+对已有应用做范围明确的技术工作时，App Builder 跳过产品发现和 UI 决策，直接进入 Flow 和 SDK 规则。它支持 Python、Go、Java、TypeScript 和 Rust。例如这样问它：
+
+```text
+$dex-app-builder Add a reminder Step to this approval Flow.
+```
+
+这条路线覆盖：
+
+- Flow、Step、等待、状态转换和失败路由；
+- Attribute、AttributeMap、Channel、ChannelMap 和 Stream；
+- typed RPC、Timer、SubFlow、Worker 和 Client；
+- 重试、超时、heartbeat、durability、lock 和恢复；
+- SDK 版本兼容、测试、排错或运维；
+- Dex Web、`dexcli`、Flow 可视化和应用可观测性。
+
+这个 Skill 处理的是你的应用，不是 Dex 本身。除非你明确要求它开发 Dex，否则它不会为了解决应用问题去修改 Dex Server。
+
+### 版本与来源 {#version-and-source-authority}
+
+写代码之前，Skill 会先弄清应用的语言、包管理器、已安装的 Dex SDK 版本、Worker 和 Client 如何启动，以及 repository 的测试命令。
+
+Skill 以 repository 源码、lockfile、已安装的 SDK 和对应版本的官方示例为准。除非你要求升级，否则它保留当前安装的版本。如果找不到与该版本完全对应的源码，它只做到与版本无关的 Flow 模型设计为止，不会编造 API。
+
+它只加载你所用语言的 handbook 和任务需要的参考资料，不会把五种语言都加载进来。
+
+### 建模、实现与验证 {#model-implement-and-verify}
+
+对于不简单的改动，Skill 会在修改代码前先写出模型：Flow 的标识、typed 启动输入和完成输出、Step 和状态转换、选项、持久状态、消息、RPC、Timer、失败恢复，以及应用如何调用 Flow。模型使用准确的领域名称，并优先采用官方 Dex 模式，而不是手写的协调循环。
+
+完整的改动包括 typed 输入、输出和失败，Flow 和 Step 定义，持久化 schema 条目，注册与配置，以及针对真实 Dex Server 的集成测试。正在运行的 Flow 会限制哪些名称可以修改。除非你有明确的迁移方案，否则 Skill 会保留现有的 Flow、Step、Attribute、Channel、Stream 和 RPC 名称。
+
+### 诊断与运维 {#diagnostics-and-operations}
+
+诊断问题时，Skill 默认只读。它可以查看 Dex Web、`dexcli`、SDK 错误和应用日志。未经你授权，它不会 stop、Time Travel、publish、invoke、删除、编辑或以其他方式修改 Flow。
+
 ## 预期结果 {#expected-result}
 
 App Builder 完成后，你会得到：
@@ -116,4 +153,4 @@ App Builder 完成后，你会得到：
 ## 下一步 {#next}
 
 - [使用 AI 构建](/build-with-ai/dex-developer-skill)：安装 Dex Skills 并选择 Skill。
-- [Dex SDK](/build-with-ai/dex-developer-skill/dex-sdk)：App Builder 加载的 SDK 规则 Skill。
+- [Dex Connector Contributor](/build-with-ai/dex-developer-skill/dex-connector-contributor)：贡献官方 Connector 的 Skill。

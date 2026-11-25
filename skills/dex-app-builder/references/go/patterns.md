@@ -15,19 +15,22 @@ idiom matters. Examples live under
 | Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
 | Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
 | Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
-| Inactivity timer | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
-| Inbound event loop | Closest: the inactivity timer example | Skeleton below |
+| Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
+| Idle Timer with Resolution (Inbound event loop) | [inbound-event-loop/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inbound-event-loop/workflow.go) | Skeleton below |
 | Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
+| Fail fast on permanent errors | [fail-fast/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/fail-fast/workflow.go) | Execute routes a confirmed permanent provider error instead of retrying |
 | WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
 | Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
 | Internal Channel drain | [drain-channels/internal-drain/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/internal-drain/workflow.go) | Finalize after accepted messages drain |
 | External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty`; the controller starts first with `IDReusePolicy: dex.IDReuseAllowIfNotRunning`, a per-message `RequestID`, and `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`; on `FlowAlreadyStartedError` it publishes with `InvokeRPCWithOptions` and a per-message `RequestID` |
-| Interruptible work | [interruptible/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/interruptible/workflow.go) | Bounded slices; check the signal between them |
+| Stop Long-Running Work (formerly Interruptible execution) | [interruptible/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/interruptible/workflow.go) | Bounded slices; check the signal between them |
 | Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
 | Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
 | Responsive Stream | [primitives/stream/controller.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/stream/controller.go) | `ReadStream` with resume tokens |
-| Entity store | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
+| Entity Flow with Attribute Sync (Entity store) | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
+| Entity Flow | [entity-flow/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-flow/workflow.go) | One long-lived Flow per entity; locked RPCs, Client reads |
+| Child Flows with business identity | [child-flows-business-identity/order_fulfillment_flow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go) | Top-level child Flows with stable Flow IDs that report back durably |
 | Sequentially chunked AttributeMap | [sequentially-chunked-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/sequentially-chunked-attribute-map/workflow.go) | Load one chunk per call with `RPCInvokeOptions` |
 | Hash-partitioned AttributeMap | [hash-partitioned-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/hash-partitioned-attribute-map/workflow.go) | Same bucket in the lock and the load |
 
@@ -188,11 +191,11 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 - `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
   Never compute a deadline in the loop.
 
-## Inbound event loop
+## Idle Timer with Resolution
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
 
 ```go
 var (
@@ -269,33 +272,38 @@ func (awaitInbound) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait,
 	), nil
 }
 
+// Execute routes on the Condition that won; only the winner has results.
 func (awaitInbound) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
-	if ctx.HasTimerFired() {
-		return dex.GoTo(closeInactiveConversation{}, nil), nil
-	}
 	replies, err := Replies.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(replies) == 0 {
-		reasons, err := Resolutions.GetConditionResults(ctx)
-		if err != nil {
+	if len(replies) > 0 {
+		transcript, err := Transcript.Get(ctx)
+		var notFound *dex.AttributeNotFoundError
+		if err != nil && !errors.As(err, &notFound) {
 			return nil, err
 		}
+		if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
+			return nil, err
+		}
+		if pendingResolution != "" {
+			return dex.GoTo(resolveConversation{}, pendingResolution), nil
+		}
+		// A new execution registers a new wait, so the Timer restarts.
+		return dex.GoTo(awaitInbound{}, ""), nil
+	}
+	reasons, err := Resolutions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
 		return dex.GoTo(resolveConversation{}, reasons[0]), nil
 	}
-	transcript, err := Transcript.Get(ctx)
-	var notFound *dex.AttributeNotFoundError
-	if err != nil && !errors.As(err, &notFound) {
-		return nil, err
+	if ctx.HasTimerFired() {
+		return dex.GoTo(closeInactiveConversation{}, nil), nil
 	}
-	if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
-		return nil, err
-	}
-	if pendingResolution != "" {
-		return dex.GoTo(resolveConversation{}, pendingResolution), nil
-	}
-	return dex.GoTo(awaitInbound{}, ""), nil
+	return nil, errors.New("no Condition of the conversation wait completed")
 }
 
 type resolveConversation struct {

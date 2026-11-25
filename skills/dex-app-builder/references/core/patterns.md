@@ -16,7 +16,7 @@ Every pattern has a runnable example in each SDK:
 | Java | [examples/java/src/main/java/io/superdurable/dex/patterns](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns) | lowercase, no separators |
 | Rust | [examples/rust/src/patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns) | snake_case |
 
-Each section names its Go folder. The other languages use the same folder name in their own style. A few patterns live under `primitives/` or `products/`; the section says so. In Rust, Deferred choice, Critical section, and Cancel with child Flows live under [examples/rust/src/control_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns).
+Each section names its Go folder. The other languages use the same folder name in their own style. A few patterns live under `primitives/` or `products/`; the section says so. In Rust, Decision with Deadline (Deferred choice), Critical section, and Cancel with child Flows live under [examples/rust/src/control_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns).
 
 ## Choose a pattern
 
@@ -33,21 +33,23 @@ Each section names its Go folder. The other languages use the same folder name i
 | Wait for an external system to become ready or finish | [Polling](#polling) |
 | Recurring work at a fixed interval | [Cron schedule](#cron-schedule) |
 | Repeat until the recipient opts out | [Reminder](#reminder) |
-| Act after a period without activity | [Inactivity tracker](#inactivity-tracker) |
-| Take inbound messages or replies until a resolution or inactivity | [Inbound event loop](#inbound-event-loop) |
+| Act after a period without activity | [Idle Timer](#idle-timer) (Inactivity tracker) |
+| Take inbound messages or replies until a resolution or inactivity | [Idle Timer with Resolution](#idle-timer-with-resolution) (Inbound event loop) |
 | Recover when WaitFor fails | [WaitFor failure recovery](#waitfor-failure-recovery) |
 | Compensate after Execute retries are exhausted | [Execute failure recovery](#execute-failure-recovery) |
+| Stop retrying a provider error confirmed permanent | [Fail fast on permanent errors](#fail-fast-on-permanent-errors) |
 | Escalate a failure to a person | [Manual recovery](#manual-recovery) |
 | Handle an overall Flow deadline | [Graceful timeout](#graceful-timeout) |
 | Finish only after internal producers' messages are handled | [Drain internal Channels](#drain-internal-channels) |
 | Process bursty external messages in a short Flow | [Drain an external Channel](#drain-an-external-channel) |
-| Stop long repeating work on request | [Interruptible execution](#interruptible-execution) |
-| Route on whichever of several events happens first | [Deferred choice](#deferred-choice) |
+| Stop long repeating work on request | [Stop Long-Running Work](#stop-long-running-work) (formerly Interruptible execution) |
+| Route on whichever of several events happens first, such as a decision or its deadline | [Decision with Deadline](#decision-with-deadline) |
 | Let parallel branches take turns on a sequence of Steps | [Critical section](#critical-section) |
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
 | Map a control structure to its Dex recipe | [Control structures](#control-structures) |
 | Return to the caller at a durable milestone | [Responsive update](#responsive-update) |
-| One Flow per entity, queried with SQL | [Entity store](#entity-store) |
+| One Flow per entity, queried with SQL | [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) (formerly Entity store / Entity Flow with SQL Projection) |
+| One long-lived Flow per business entity, without SQL queries | The plain Entity Flow in [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) |
 | Append-only history that grows | [Sequentially chunked AttributeMap](#sequentially-chunked-attributemap) |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](#hash-partitioned-attributemap) |
 | Durable AI agent | [Durable AI agents](#durable-ai-agents) |
@@ -147,6 +149,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
+- Each branch is its own Step execution. Never collect the first k of n results inside one Execute with in-process concurrency; each branch needs its own retries, failure route, and durable result.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
@@ -160,6 +163,7 @@ RequestQuotes.execute -> goToMany(FetchQuote(a), FetchQuote(b), FetchQuote(c))
 FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 ```
 
+- Never race several external calls or business branches inside one Execute with in-process concurrency, such as `Promise.any`, asyncio tasks, or threads. Use GoToMany with a sibling cancel, or a Join, so each branch has its own retries, failure route, and durable result.
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
 - Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
@@ -253,8 +257,8 @@ WaitForQuorum.execute -> publish one AllDone message per unfinished child; grace
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
 - Define what happens to children outside the quorum.
-- After every stop, read the child's terminal status and stored result, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
-- With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
+- When the parent's result or a follow-up action depends on how each child ended, such as counting results, undoing side effects, or showing every outcome, read the child's terminal status and stored result after every stop, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. When the parent needs only the quorum, stop the remaining children and move on without the read. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
+- With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and, when the parent needs its outcome, reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
 
@@ -372,7 +376,7 @@ Remind.execute -> if the Timer did not fire: gracefulComplete()
 rpc optOutReminders -> OptOut.publish()
 ```
 
-### Inactivity tracker
+### Idle Timer
 
 Act only after a period with no activity. Go folder: `inactiveness-tracker-timer`.
 
@@ -385,9 +389,9 @@ rpc recordActivity -> Activity.publish()
 
 Keep the deadline in the Flow where the activity happens. A separate Flow that needs a message on every operation is the wrong boundary.
 
-### Inbound event loop
+### Idle Timer with Resolution
 
-Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the inactivity tracker. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
+Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the Idle Timer. Go folder: `inbound-event-loop`. Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/inbound-event-loop), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/inbound-event-loop), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/inbound-event-loop), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop).
 
 ```text
 rpc sendReply(text)       -> validate text; if invalid: return a rejection
@@ -399,12 +403,13 @@ AwaitInbound.waitFor(pendingResolution)
     if pendingResolution: Until(Replies.AtLeast(1))         // drain before closing
     else: AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
 AwaitInbound.execute(pendingResolution)
-    if the Timer fired:    goTo(CloseInactive)
-    replies = Replies.conditionResults()
-    if replies is empty:   goTo(Resolve, Resolutions.conditionResults()[0])
-    Transcript.set(Transcript.get() + replies)
-    if pendingResolution:  goTo(Resolve, pendingResolution)
-    goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
+    winner = the Condition that fired
+    if winner is Replies:
+        Transcript.set(Transcript.get() + Replies.conditionResults())
+        if pendingResolution: goTo(Resolve, pendingResolution)
+        goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
+    if winner is Resolutions:  goTo(Resolve, Resolutions.conditionResults()[0])
+    if winner is the Timer:    goTo(CloseInactive)
 
 Resolve.execute(reason)
     forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
@@ -414,6 +419,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 - The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
 - The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
+- Execute asks which Condition won; it never infers the winner from an empty result. When several Conditions are ready at once, AnyOf picks in a fixed order: Timers first, then Channels in declaration order. So the Timer wins over a reply or resolution that arrives at the same moment. The closing Step's ForceCompleteIfChannelsEmpty catches those messages and returns to the waiting Step, which handles them. Express business priority between Channels by their declaration order.
 - Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
@@ -453,8 +459,17 @@ VoidPayment.execute    -> compensate; goTo(RestoreQuantity)       // reads conte
 RestoreQuantity.execute -> compensate; forceFail("payment failed")
 ```
 
-- Recovery Steps get the same input, or the input the route passes, and must be idempotent; they can be retried.
+- A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Compensation starts with that Step, as `VoidPayment` does for `ChargePayment`: undo it with its original reference, and make every undo a no-op for an action that never happened.
+- A recovery Step receives the failed Step's input unchanged, and gets the failure through the recovery error on the Context. Recovery Steps must be idempotent; they can be retried.
 - Failing the Flow after compensation is a legitimate outcome.
+
+### Fail fast on permanent errors
+
+Stop retrying when a provider confirms that an error is permanent, such as a rejected input or a closed account.
+
+- Execute classifies the provider error. A permanent error routes to a failure-handling Step or returns ForceFail. Only an error that can succeed on a later attempt goes to Step retry.
+- If WaitFor must call a provider, it records a permanent error in a Step execution local value and returns SkipWaitImmediately; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
+- Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/fail-fast), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/fail-fast), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/fail-fast), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast).
 
 ### Manual recovery
 
@@ -532,9 +547,11 @@ Controller(entityId, message):                   // flowId = entityId; message h
 - Only one Step may consume a Channel that the decision checks.
 - When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
-## Interruptible execution
+## Stop Long-Running Work
 
 Long repeating work that can be stopped by a durable signal. Go folder: `interruptible`.
+
+StopFlow, graceful completion, and the Step cancellation signal are the built-in ways to stop work. Graceful completion wakes only the waits that include its Condition. The Attribute flag below lets each unit of work finish before it stops.
 
 ```text
 Work.waitFor(progress) -> Until(Timer(gap))
@@ -560,7 +577,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
-| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Channel Conditions are ready at once, the first declared wins. Execute checks the Timer explicitly, then the Channel results, and moves to one branch. |
+| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Conditions are ready at once, a ready Timer wins, then the first declared Channel. Execute checks which Condition fired and moves to one branch. |
 | Mutual exclusion inside one Execute | An Execute lock on a shared Attribute | A lock covers one Step method. It never covers a WaitFor or several Steps. |
 | Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
 | Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
@@ -569,7 +586,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
 | Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. When the Flow needs the results, fork a Join with one branch per item. A Join needs the instance count when it forks; instances added while others run need an explicit count and a loop. Use child Flows only for instances with their own lifecycle. |
 
-### Deferred choice
+### Decision with Deadline
 
 Wait for several events and route on whichever happens first, such as accept, reject, or expiry of an offer. Go folder: `deferred-choice`.
 
@@ -579,15 +596,16 @@ rpc rejectCustomerOffer(note) -> OfferRejected.publish(note)
 
 AwaitOfferResponse.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne(), Timer(3 days))
 AwaitOfferResponse.execute
-    if the Timer fired:            goTo(ExpireOffer)
-    if OfferAccepted has a result: goTo(FulfillOffer)
-    otherwise:                     goTo(CloseRejectedOffer)
+    winner = the Condition that fired
+    if winner is OfferAccepted: goTo(FulfillOffer)
+    if winner is OfferRejected: goTo(CloseRejectedOffer)
+    if winner is the Timer:     goTo(ExpireOffer)
 ```
 
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
-- When several Channel Conditions are ready at once, the first one declared wins. Declare them in business priority order.
-- Check the Timer explicitly in Execute. Never treat "no Channel result" as "the deadline passed".
-- A late response cannot change the chosen branch. While the Flow runs, its RPC succeeds and publishes a message that nothing consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
+- In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
+- When several Conditions are ready at once, AnyOf picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the decision Channels in business priority order.
+- A late response cannot change the chosen branch. If its RPC is still accepted, it publishes a message that nothing consumes. Once the Flow starts closing, Dex may reject the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
 
@@ -650,6 +668,7 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 - Set a Flow timeout on every child, so a child that is never stopped still ends. Clients cancel a case through the cancel RPC, not StopFlow.
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
+- Declaration order ranks Channels and SubFlows only. A ready Timer always wins over a ready Channel in AnyOf, so a fallback or deadline Timer can beat a cancel or withdrawal that arrives at the same moment. Declare business priority between the Channels, and make the Timer branch handle a cancel that may still be queued, for example by waiting on the cancel Channel in its next Step.
 - A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
 - Once the decision is final, close without consuming the cancel Channel. Do not close with ForceCompleteIfChannelsEmpty on it and fall back to a cancel path: a late cancel would then override the decision. A cancel accepted after the decision stays pending until the Flow closes.
 - Treat not found, not active, and closing from StopFlow as already stopped. Execute may retry, and the child may finish at the same moment.
@@ -696,9 +715,11 @@ The caller shows incremental progress. Example: `primitives/stream`.
 
 The Flow writes to a Stream. The caller reads forward with a resume token and passes the new token to the next read. Messages are best effort, not a final result. Use a Step-completion or Attribute-match wait for a durable condition.
 
-## Entity store
+## Entity Flow with Attribute Sync
 
-One Flow per entity, with a SQL projection for queries. Go folder: `entity-store`.
+One Flow per entity, whose Attributes the Attribute Store syncs into a SQL table for queries. Go folder: `entity-store`.
+
+The plain Entity Flow is the same shape without the SQL table: one long-lived Flow per entity, with a Flow ID from the entity ID, state in Attributes, changes through locked RPCs, and reads through the Client. Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/entity-flow), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/entity-flow), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/entityflow), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/entity-flow), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/data_storage/entity_flow).
 
 - Use when an entity needs durable state and RPC updates, and the application needs database queries over latest state.
 - The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a row key template.
@@ -734,8 +755,9 @@ rpc appendRecord(record)       // locks state and chunks["current"]; loads chunk
         chunks[zeroPadded(firstSequence)] = current     // archive, immutable
         chunks["current"] = empty
         state.newestArchivedToken = zeroPadded(firstSequence)
-        with a retention window:
-            delete chunks[token] for each expired token, by key
+        bound the total:
+            delete chunks[token] for each token past the count or age limit, by key,
+                after archiving it elsewhere when the business must keep it
             state.oldestRetainedToken = oldest token still kept
     state.nextSequence += 1                             // all in one commit
 
@@ -746,21 +768,24 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 ```
 
 - For an append-only history, archive bounded chunks and load only the requested page.
-- If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+- Bound the total as well, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Size limits per value and per Flow are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
 - Updating old records needs another pattern or an index.
-- Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Inbound event loop](#inbound-event-loop), instead of having each RPC lock and rewrite `current`.
+- Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Idle Timer with Resolution](#idle-timer-with-resolution), instead of having each RPC lock and rewrite `current`.
 
 ### Hash-partitioned AttributeMap
 
 Go folder: `hash-partitioned-attribute-map`.
 
 ```text
+// Persisted layout: changing PARTITION_COUNT moves keys to other partitions.
+const PARTITION_COUNT = 16
+
 partition(key):
     canonical = trim and lowercase key; reject empty or invalid input
-    return "partition-" + format(versionedHash(canonical bytes) % partitionCount)
+    return "partition-" + format(versionedHash(canonical bytes) % PARTITION_COUNT)
 
 rpc upsertProfile(profile)     // invocation options: lock and load chunks[partition(profile.email)]
     bucket = load that instance, or an empty dictionary
@@ -771,6 +796,7 @@ rpc getProfile(email)          // invocation options: load only chunks[partition
     return bucket[canonical email] or not found
 ```
 
+- Define the partition count as one named constant with a code comment that it is persisted layout and that changing it moves keys to other partitions. Changing it needs a complete rehash or a new Flow version.
 - Every SDK and service must use the identical canonicalization and hash.
 - A collision only shares a bucket, because the bucket is a dictionary keyed by the full canonical key.
 - Every writer uses the same instance-lock rule. Locks are cooperative.
@@ -829,7 +855,8 @@ A user's Stop ends the current turn now, so it may cancel running Steps; steerin
 - Cancel only Step types with no external effect or that only wait: model calls, Timer waits, approval or input waits.
 - Never cancel a Step type that runs a non-idempotent tool. That tool runs to the end and commits. Its Step reads the stop request when it finishes and routes to turn resolution.
 - A model Step can commit between the RPC's snapshot and its commit. So every Step of the loop checks the stop request at its boundary and stops starting new work.
-- The resolution Step reloads committed messages and pending calls, keeps every committed message and result, writes a canceled result for each call without one, clears approval and Timer state, and marks the turn stopped. It is idempotent.
+- The resolution Step reloads committed messages and pending calls, keeps every committed message and result, clears approval and Timer state, and marks the turn stopped. It is idempotent.
+- [ ] When a turn stops, the closing Step writes a canceled tool result for every requested call that has no result yet, including calls that never started, so the next model input has no dangling tool call.
 - The Stop RPC and every Step that writes turn state declare the same turn-state lock.
 
 ### Long waits and the browser
@@ -841,6 +868,8 @@ A user's Stop ends the current turn now, so it may cancel running Steps; steerin
 ### Verify
 
 Context rebuild after Worker replacement, compaction before deletion, approval after page reload, retry exhaustion, Stream loss, Timer firing, user interruption, a configuration change that waits for the next turn, and Stop during a model call, a Timer, a non-idempotent tool, and racing a model Step commit.
+
+- [ ] After every Stop, each requested tool call has a result, a canceled one for calls that never started or never finished, so the next model input has no dangling tool call.
 
 ## Self-check
 

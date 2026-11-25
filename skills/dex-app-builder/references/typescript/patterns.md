@@ -17,19 +17,22 @@ application types.
 | Polling | one async `execute` loop with heartbeats | `patterns/polling/polling-flow.ts`; [skeleton](#polling) |
 | Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
 | Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
-| Inactivity tracker | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
+| Idle Timer (Inactivity tracker) | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#idle-timer-with-resolution) | [`patterns/inbound-event-loop/support-ticket-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/inbound-event-loop/support-ticket-flow.ts) |
 | Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of throwing into retry | [`patterns/fail-fast/expense-reimbursement-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/fail-fast/expense-reimbursement-flow.ts) |
 | WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
 | Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
 | Drain internal Channels | side Step loops until a final marker | `patterns/drain-channels/internal/drain-internal-channels-flow.ts` |
 | Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING`, a per-message `requestId`, and `ignoreAlreadyStarted: true`; on `FlowAlreadyStartedError` it publishes with `invokeRPCWithOptions` and a per-message `requestId` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
-| Interruptible execution | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
+| Stop Long-Running Work (formerly Interruptible execution) | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
 | Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
 | Responsive update: Stream | `client.readStream` with a persisted resume token | `primitives/stream/stream-flow.ts` |
-| Entity store | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
+| Entity Flow with Attribute Sync (Entity store) | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`patterns/entity-flow/customer-account-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/entity-flow/customer-account-flow.ts) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`patterns/child-flows-business-identity/order-fulfillment-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/child-flows-business-identity/order-fulfillment-flow.ts) |
 | Sequentially chunked AttributeMap | bounded `current` instance plus immutable archived chunks | `patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.ts` |
 | Hash-partitioned AttributeMap | stable hash of a canonical key selects a bucket instance | `patterns/hash-partitioned-attribute-map/customer-directory-flow.ts`, `patterns/hash-partitioned-attribute-map/controller.ts` |
 

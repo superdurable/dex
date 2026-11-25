@@ -27,7 +27,7 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 
 - Dex 把每条消息和 Flow 一起持久化存储。
 - 消息保持到达顺序。
-- 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。
+- 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。所以同一时刻最多让一个等待中的 Step 消费一个 Channel，这样哪个 Step 收到消息就不取决于时序。Flow 的不同阶段可以由不同的 Step type 消费同一个 Channel。每个等待者都必须收到的事件，给每个等待者一个 ChannelMap key。
 - 消息可以在 Step 开始等待之前到达。Dex 会保留它，直到之后的 wait 消费它。
 - 只有发布消息的 Step 方法或 RPC 成功时，Dex 才会发布这条消息。见 [Step 的保证](/concepts/step#guarantees)。
 - 重复的发布请求会把消息存储两次。在消息里放一个业务 key，已经处理过的 key 就跳过。

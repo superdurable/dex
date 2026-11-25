@@ -1,13 +1,13 @@
 # Stage 3: design the Flow, Connectors, and API contract, then implement the backend
 
-Load the [Dex SDK skill](../../dex-sdk/SKILL.md) and follow its routing for
+Follow the [SDK reference routing](../SKILL.md#load-references) for
 the application's language, chosen in
 [workspace bootstrap](workspace-bootstrap.md#choose-the-language). Load only
-the Core and language references that the approved design needs. Dex SDK
-holds the Primitive rules, design patterns, error handling, testing, and
+the Core and language references that the approved design needs. They
+hold the Primitive rules, design patterns, error handling, testing, and
 Worker lifecycle. Do not restate them in the application.
 
-The App Builder constraints take precedence over Dex SDK: external effects
+The product constraints take precedence over the general SDK rules: external effects
 only in `Execute`, no provider or Dex mutation in `WaitFor`, and strict FDG 2.0
 rendering with the directives the Flow visualization reference lists for the
 language.
@@ -28,7 +28,7 @@ Read [FDG authoring](fdg-authoring.md) before you edit a Flow. New
 applications default to no SubFlows. Use parallel Steps inside one lifecycle.
 Use independently started top-level Flows with typed RPCs or Channels only
 when the confirmed data lifecycle needs another owner. Implement a SubFlow
-only after the Dex SDK SubFlow gate passes and the user confirms it.
+only after the [SubFlow gate](core/subflow.md#evolution-gate) passes and the user confirms it.
 
 ## Dex-first storage
 

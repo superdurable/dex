@@ -27,6 +27,8 @@ import shipmentFlowDefinition from '@site/src/data/flow-definitions/design-patte
 5. `ReportShipmentOutcome` 带着自己的 run ID 调用订单的报告 RPC。这个 RPC 在 Go 里是 `RecordShipmentOutcome`，在 Python 里是 `record_shipment_outcome`，在 Java、TypeScript 和 Rust 里是 `recordShipmentOutcome`。它把结果填进该发货单的记录。
 6. `AwaitShipment` 每隔一段时间读取一次被认领的 run。仍在运行的发货单稍后再读。发货单关闭后，它记录终止状态；如果报告还没有填入结果，它也记录已存储的结果。
 
+自己失败或超时的发货单不会报告，因为它的报告 Step 不会运行。第 6 步的定时读取会处理它。子 Flow 也可以把最终失败转到一个恢复 Step，或把超时交给 timeout handler，由它们向父 Flow 报告。每个发货单的 Flow timeout 要长于它的重试预算。
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',

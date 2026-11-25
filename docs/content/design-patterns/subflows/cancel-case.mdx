@@ -23,6 +23,7 @@ A SubFlow keeps running when its parent completes, fails, times out, or is stopp
 - When the cancel message wins, `Execute` reads the child Flow ID with `SubFlowID`. It stops the child with the Client `StopFlow` and closes the parent with `ForceFail`.
 - Every later Step that waits also waits for the cancel Channel. A cancel that arrives after the child finished still closes the case.
 - A pending cancel wins over a normal completion in every wait. In the wait on the SubFlow, a ready Channel always wins over a ready SubFlow. In a wait on two Channels, the first declared Channel wins, so declare the cancel Channel before the decision Channel.
+- A ready Timer always wins over a ready Channel. A fallback or deadline Timer can therefore beat a withdrawal that arrives at the same moment. Make the Timer branch handle a withdrawal that may still be queued, for example by waiting on the cancel Channel in its next Step.
 - A cancel that arrives after the last Step consumed its decision message, or after the Flow closed, cannot change the outcome.
 - Once the decision is final, close the Flow without consuming the cancel Channel. A close that drains the cancel Channel and falls back to a cancel path would let a late cancel override the decision.
 

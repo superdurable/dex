@@ -222,5 +222,27 @@ class FrontMatterTest(unittest.TestCase):
             )
 
 
+class InvocationPolicyTest(unittest.TestCase):
+    def test_public_skill_allows_model_invocation(self):
+        CHECKER.check_public_skill_invocation("dex-app-builder", {}, "allow_implicit_invocation: true\n")
+        with self.assertRaises(SystemExit):
+            CHECKER.check_public_skill_invocation(
+                "dex-app-builder", {"disable-model-invocation": "true"}, "allow_implicit_invocation: true\n"
+            )
+        with self.assertRaises(SystemExit):
+            CHECKER.check_public_skill_invocation("dex-app-builder", {}, "allow_implicit_invocation: false\n")
+
+    def test_transition_skill_requires_explicit_invocation(self):
+        CHECKER.check_transition_skill_invocation(
+            "dex-sdk", {"disable-model-invocation": "true"}, "allow_implicit_invocation: false\n"
+        )
+        with self.assertRaises(SystemExit):
+            CHECKER.check_transition_skill_invocation("dex-sdk", {}, "allow_implicit_invocation: false\n")
+        with self.assertRaises(SystemExit):
+            CHECKER.check_transition_skill_invocation(
+                "dex-sdk", {"disable-model-invocation": "true"}, "allow_implicit_invocation: true\n"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

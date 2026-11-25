@@ -465,6 +465,11 @@ executor threads.
 | Stop | `client.stop_flow(flow_id, StopFlowOptions::cancel())` |
 | Connectivity | `client.health_check()` |
 
+- `stop_flow` returns `SdkError::FlowNotActiveOrNotFound` when no active run
+  exists and `SdkError::FlowClosing { .. }` while the Flow closes. Treat both
+  as already stopped. When the outcome matters, read the terminal state with
+  `describe_flow` or the outcome Attribute. Return any other error.
+
 - `start_flow` checks that the Flow value's Rust type is the registered one;
   pass any instance of it, such as `&OrderFlow::default()`.
 - Start options also set the timeout, ID reuse policy, initial Attributes,
@@ -512,22 +517,26 @@ building blocks:
 | Static parallel Steps | `go_to_many([StepMovement::to(&A, x.clone()), StepMovement::to(&B, x)])` | `patterns/parallel` |
 | Dynamic parallel Steps | `go_to_many((0..n).map(\|i\| StepMovement::to(&Work, i)))` | `patterns/parallel` |
 | Await all Steps | `JOIN.fork(context, branches, \|round\| StepMovement::to(&Await, round))?`; each branch returns `JOIN.end_branch(context, &round, result)`; the join Step waits `JOIN.for_all_branches(&round)`; register with `PersistenceSchema::join` | `patterns/parallel` |
+| Partial join: first k of n | the join Step waits `JOIN.for_branches(&round, k)`, or `JOIN.for_first_branch(&round)`; `JOIN.for_remaining_branches(&round, received)` waits for the rest | `patterns/parallel` |
 | First win | winner returns `.cancel_sibling_step(&Same)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
-| Cron, reminder, inactivity | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
+| Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | [`control_patterns/inbound_event_loop`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop) |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of returning it into retry | [`control_patterns/fail_fast`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast) |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drain_channels` |
 | Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts first with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)`, a per-message `.request_id(...)`, and `.ignore_already_started(true)`; on `SdkError::FlowAlreadyStarted`, publish with `invoke_rpc_with_options` and `RpcInvokeOptions::request_id` where the installed SDK has it | `patterns/drain_channels` |
-| Interruptible | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
+| Stop Long-Running Work (formerly Interruptible execution) | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
 | Wait for Step completion | `wait_for_step_completion` after start | `patterns/wait_for_step_completion` |
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |
 | Stream progress | `buffered_text` plus `read_stream_with_timeout` | `primitives/stream` |
-| Entity store | long-lived RPC-driven Flow per entity | `patterns/entity_store` |
+| Entity Flow with Attribute Sync (Entity store) | long-lived RPC-driven Flow per entity | `patterns/entity_store` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`data_storage/entity_flow`](https://github.com/superdurable/dex/tree/main/examples/rust/src/data_storage/entity_flow) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`control_patterns/child_flows_business_identity`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/child_flows_business_identity) |
 | Chunked AttributeMap | bounded `current` instance plus immutable archives | `patterns/sequentially_chunked_attribute_map` |
 | Hash-partitioned AttributeMap | stable hash picks a bucket; invocation lock and load | `patterns/hash_partitioned_attribute_map` |
 

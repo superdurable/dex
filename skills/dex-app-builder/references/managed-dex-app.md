@@ -21,8 +21,7 @@ rules.
 Record the answer. A Managed Dex App keeps App Builder discovery, Flow design,
 and the language-neutral product constraints: Dex as the store, effects only
 in `Execute`, start identity, and credentials outside the code. Implement the
-TypeScript shape with the [Dex SDK](../../dex-sdk/SKILL.md) TypeScript
-references, and follow the example's `AGENTS.md` for the Flow shapes its check
+TypeScript shape with the [TypeScript SDK references](typescript/typescript.md), and follow the example's `AGENTS.md` for the Flow shapes its check
 accepts. Connectors work on
 every profile; use the connector packages of the application's language. The
 repository shape and the checks come from this file.

@@ -1,0 +1,18 @@
+---
+bump: minor
+---
+- **dex-app-builder** now holds every Dex rule once, including the Core and language references. It routes each request first: product work takes the stage workflow; SDK-only work skips discovery and goes straight to the Flow and SDK rules.
+- **Migration**: **dex-sdk** is now a transition skill for explicit invocation only. Invoking it by name still works and loads **dex-app-builder** on its SDK-only route. A later release removes it. Update all three skills together as before.
+- **dex-connector-contributor** loads the Core and Go guidance from **dex-app-builder**. The skill-local version file moved to **dex-app-builder/VERSION**.
+- Deadlines use durable Timers, not clock comparisons. Idempotency keys and business IDs never derive from the current time; reading the time to record a timestamp is fine.
+- A waiting Step checks which Condition fired. When a Timer and a Channel are ready at once, the Timer wins and the message stays queued; Channels rank by declaration order.
+- Each Channel has at most one active consumer at a time; different Step types may consume it in different phases. The Flow owning decisions and status is now design guidance, not a hard rule.
+- Growing collections bound their total by chunk count or age, archiving first when the business must keep old records. Size limits are linked in the Server configuration reference.
+- A parent reconciles a stopped or late child only when its result or a follow-up action depends on how that child ended; otherwise it stops the child and moves on.
+- Pattern renames: **Decision with Deadline** (was Deferred choice), **Idle Timer** (was Inactivity tracker), and **Idle Timer with Resolution** (was Inbound event loop). The three Timer patterns route on the winning Condition.
+- Pattern renames: **Entity Flow with Attribute Sync** (was Entity store) and **Stop Long-Running Work** (was Interruptible execution), which names the built-in ways to stop work.
+- Prefer calls that can fail in Execute. A permanent provider error routes from Execute to a failure-handling Step or ForceFail, never into Step retry; WaitFor passes one to Execute through a Step execution local value.
+- The hash-partitioned AttributeMap keeps its partition count in one named constant marked as persisted layout.
+- Never race external calls or branches inside one Execute with in-process concurrency; use GoToMany with a sibling cancel or a Join. A whole-Flow deadline uses the Flow timeout; a ready Timer beats a queued cancel.
+- Java, Python, Go, and Rust references treat not-found, not-active, and closing from StopFlow as already stopped. An agent turn's Stop writes a canceled result for every call without one.
+- Compensation after exhausted retries starts with the failed Step itself, because it may still have taken effect. Testing guidance skips the Flow timeout instead of shortening it.

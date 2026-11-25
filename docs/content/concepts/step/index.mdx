@@ -40,6 +40,14 @@ A Step has one or two methods.
 
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
+Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
+system. If `WaitFor` must call a provider and gets a permanent error, it
+records the error in a Step execution local value and returns a wait that is
+ready at once. `Execute` then routes on that error. When a provider confirms a
+permanent error, `Execute` routes to a failure-handling Step or fails the Flow
+with `ForceFail`. Retrying a permanent error only repeats it. See
+[Step execution local](/reference/python/step#step-execution-local).
+
 <StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait, and Dex evaluates its Timer, Channel, or SubFlow condition. When the condition is satisfied, Execute returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or ForceFail." />
 
 This Step waits for an approval message, then moves to a second Step that
@@ -335,8 +343,8 @@ two options itself:
   start a scheduled attempt late, and a running attempt is never cut short.
   To allow several near-full attempts, size it at about the maximum attempts
   times the method timeout, plus backoff. That is an estimate: retry delays
-  and queue time also use the budget. A business deadline for the Flow uses a
-  durable Timer.
+  and queue time also use the budget. A deadline for the whole Flow uses the
+  Flow timeout. A deadline for one wait uses a durable Timer.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

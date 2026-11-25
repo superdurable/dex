@@ -106,6 +106,9 @@ def handle_timeout(self, context: Context) -> StepDecision:
 
 Example: [examples/python/dex_examples/primitives/flow/example_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/flow/example_flow.py)
 
+To test the timeout path with the real timeout, fire it early as in
+[Skip a Timer](/reference/server/runtime-client#skip-a-timer).
+
 ## Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
 **IDReusePolicy** says what to do when this Flow ID already exists.

@@ -7,7 +7,7 @@ short. Do not start product discovery until the user picks a next step.
 ## 1. Explain the core model
 
 Explain Dex in three to five sentences. Take the content from the
-[Dex SDK mental model](../../dex-sdk/SKILL.md#mental-model), and do not
+[Dex mental model](../SKILL.md#mental-model), and do not
 restate its whole table. Cover these points:
 
 - a Flow is one durable run of a business process, with a stable Flow ID;

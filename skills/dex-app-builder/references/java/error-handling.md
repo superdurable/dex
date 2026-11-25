@@ -41,8 +41,9 @@ public StepDecision execute(Context context, String request) {
 ## Recovery Steps
 
 When Execute retries run out, `onExecuteFailureProceedTo(Recovery.class)` runs
-a registered recovery Step with the same input. Without a route, the Flow
-fails.
+a registered recovery Step with the same input. The recovery Step receives the
+failed Step's input unchanged, and gets the failure through
+`context.getRecoveryError()`. Without a route, the Flow fails.
 
 ```java
 final class RecordChargeFailure implements Step<OrderRequest> {

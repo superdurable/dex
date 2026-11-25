@@ -23,8 +23,9 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 
 Use Execute for work and WaitFor for durable waiting. One rule holds in every SDK:
 
-- WaitFor declares the Wait. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
-- WaitFor never calls an external system. No provider query, no provider mutation, and no irreversible side effect. Put every provider call in Execute, and keep it idempotent or compensatable there.
+- Prefer calls that can fail in Execute. WaitFor returns the Conditions to wait on. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
+- WaitFor never mutates an external system and has no irreversible side effect. Put every provider mutation in Execute, and keep it idempotent or compensatable there.
+- If WaitFor must call a provider and gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
 - WaitFor may run more than once, because a failed WaitFor retries. Keep it cheap, deterministic, and safe to repeat.
 - Never poll a provider from WaitFor or with a Timer loop. Waiting for an external system uses the [Polling pattern](patterns.md#polling): one long-running Execute that loops and heartbeats.
 - Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
@@ -150,7 +151,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 | Attempt deadline | The absolute end of the current attempt, supplied by the Server on the Context. |
 
 - To bound one long attempt, set the method timeout, not the retry total duration.
-- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. After a failure, Dex uses the total duration only to decide whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. A business deadline for the Flow uses a durable Timer, as in the [Polling watchdog](patterns.md#polling); an external call's hard deadline is its own timeout.
+- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. After a failure, Dex uses the total duration only to decide whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. A deadline for the whole Flow uses the Flow timeout. A deadline for one wait uses a durable Timer Condition, as in the [Polling watchdog](patterns.md#polling). An external call's hard deadline is its own timeout.
 - Always set the retry total duration explicitly for a long-running Step, and decide what it bounds. To keep retries inside a wait window, use the rule above. To allow several near-full-length attempts, size it at about maximum attempts times the method timeout, plus the backoff between them. That is an estimate, not a guarantee: RetryAfter delays and queue time after backoff also use the budget. With long attempts, the default budget can stop retries before the attempt count is reached.
 - Use the attempt deadline to size an external call's timeout and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout.
 - When an external call needs a stricter deadline, wrap it in a child context or the SDK's cancellation mechanism.
@@ -168,10 +169,11 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 ### Retry and failure policy
 
-- Retry policy re-runs the same method on the same Step execution, with backoff.
+- Retry policy re-runs the same method on the same Step execution, with backoff. It is for errors that can succeed on a later attempt.
+- When a provider confirms a permanent error, Execute routes to a failure-handling Step or returns ForceFail instead of throwing into Step retry.
 - RetryAfter from a handler overrides the next retry delay. It is for recovery from a failed attempt, never a loop for waiting on an external system.
 - After WaitFor retries are exhausted: fail the Flow (default), or proceed to the same Step's Execute with unchanged input. Execute then sees that WaitFor failed and can read the recovery error.
-- After Execute retries are exhausted: fail the Flow (default), or proceed to a registered recovery Step with the same input. The recovery Step reads the recovery error.
+- After Execute retries are exhausted: fail the Flow (default), or proceed to a registered recovery Step with the same input. The recovery Step receives the failed Step's input unchanged, and it also gets the failure through the recovery error on the Context.
 - While retries are still running, the Context exposes the latest attempt's failure. Failure policy decides only what happens after retries end.
 - Read [error-handling.md](error-handling.md#recovery-error-types) before branching on the recovery error.
 

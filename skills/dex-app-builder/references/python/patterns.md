@@ -15,19 +15,22 @@ This page maps each pattern to its Python API shape and runnable example.
 | Polling | one long async `execute` loop; see below | [polling](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/polling/polling_flow.py) |
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
-| Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
+| Idle Timer (Inactivity tracker) | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | [inbound event loop](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py) |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of raising into retry | [fail fast](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/fail-fast/expense_reimbursement_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
 | Graceful timeout | `FlowTimeoutPolicy.HANDLER` and `handle_timeout` returning a decision | [timeout](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py) |
 | Internal Channel drain | `go_to_many` main and side Steps; the side Step waits on `channel.for_one()` | [internal drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py) |
 | External publishing drain | accept by RPC; close with `force_complete_if_channels_empty(output, fallback, channel)`; the controller starts first with `id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING`, a per-message `request_id`, and `ignore_already_started=True`; on `FlowAlreadyStartedError` it publishes to the run that another start owns | [external drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py) |
-| Interruptible execution | an `@rpc` sets an Attribute; `execute` reads it between slices | [interruptible](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py) |
+| Stop Long-Running Work (formerly Interruptible execution) | an `@rpc` sets an Attribute; `execute` reads it between slices | [interruptible](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py) |
 | Responsive Step completion | `wait_for_step_completion` for one named Step execution | [step completion](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/wait-for-step-completion/wait_for_step_completion_flow.py) |
 | Responsive Attribute match | `wait_for_attribute_match` on a revision Attribute | skeleton in [core patterns](../core/patterns.md#attribute-match) |
 | Responsive Stream | `read_stream` long poll; resume with the token | [stream controller](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/stream/controller.py) |
-| Entity store | `AttributeMap(..., sync_to_attribute_store=True)`; `@rpc` locks `map.lock(key)` | [entity store](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-store/user_profile_flow.py) |
+| Entity Flow with Attribute Sync (Entity store) | `AttributeMap(..., sync_to_attribute_store=True)`; `@rpc` locks `map.lock(key)` | [entity store](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-store/user_profile_flow.py) |
+| Entity Flow | one long-lived Flow per entity; locked `@rpc` methods; Client reads | [entity flow](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [child flows](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py) |
 | Sequentially chunked map | `RPCInvokeOptions(load_attribute_map_instances=(chunks.load(page),))` | [chunked](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/chunked_subscriber_flow.py) |
 | Hash-partitioned map | `RPCInvokeOptions` with `buckets.lock(bucket)` and `buckets.load(bucket)` | [hash partition](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/hash-partitioned-attribute-map/customer_directory_flow.py) |
 
@@ -123,11 +126,11 @@ class AwaitJob(Step[str]):
 - A sync Worker writes the same loop as a generator: `yield heartbeat(state)`,
   `yield JOB_PROGRESS.write(context, status)`, and `time.sleep(...)`.
 
-## Inbound event loop
+## Idle Timer with Resolution
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
 
 ```python
 from datetime import timedelta
@@ -175,17 +178,22 @@ class AwaitInbound(Step[str]):
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
+        # Route on the Condition that won; only the winner has results.
+        replies = REPLIES.results(context)
+        if replies:
+            # An unset list Attribute reads as None.
+            transcript = TRANSCRIPT.get(context) or []
+            TRANSCRIPT.set(context, [*transcript, *replies])
+            if input:
+                return go_to(ResolveConversation, input)
+            # A new execution registers a new wait, so the Timer restarts.
+            return go_to(AwaitInbound, "")
+        resolutions = RESOLUTIONS.results(context)
+        if resolutions:
+            return go_to(ResolveConversation, resolutions[0])
         if context.has_timer_fired():
             return go_to(CloseInactiveConversation, None)
-        replies = REPLIES.results(context)
-        if not replies:
-            return go_to(ResolveConversation, RESOLUTIONS.results(context)[0])
-        # An unset list Attribute reads as None.
-        transcript = TRANSCRIPT.get(context) or []
-        TRANSCRIPT.set(context, [*transcript, *replies])
-        if input:
-            return go_to(ResolveConversation, input)
-        return go_to(AwaitInbound, "")
+        raise RuntimeError("no Condition of the conversation wait completed")
 
 
 class ConversationFlow(Flow[str]):

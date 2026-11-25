@@ -6,14 +6,15 @@ Dex runs the validators in [Skills CI](https://github.com/superdurable/dex/blob/
 
 This repository publishes one plugin with three root-level skills:
 
-- `dex-sdk` owns public Dex SDK implementation guidance and its Core and
-  language references.
-- `dex-app-builder` owns the business-first product workflow and its stricter
-  backend constraints for every SDK language. It links to `dex-sdk` instead
-  of copying SDK references.
+- `dex-app-builder` owns every Dex rule once: the business-first product
+  workflow with its stricter backend constraints, the SDK-only route, and the
+  Core and language references.
 - `dex-connector-contributor` is the thin bootstrap for official
   connector-library work. It resolves the checkout and then follows that
-  repository's rules, while linking to `dex-sdk` Core/Go when needed.
+  repository's rules, while linking to `dex-app-builder` Core/Go when needed.
+- `dex-sdk` is a transition skill for explicit invocation only. It tells the
+  agent to load `dex-app-builder` and holds no rules. A later release removes
+  it.
 
 Keep every retained reference reachable from its skill entrypoint. Connector
 Contributor intentionally has no supporting references because the target
@@ -117,10 +118,13 @@ python3 script/check-package.py
 python3 script/check-doc-map.py
 python3 -m unittest discover -s test -p 'test_*.py'
 node --test test/version-check.test.mjs
-python3 /path/to/skill-creator/scripts/quick_validate.py dex-sdk
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-app-builder
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-connector-contributor
 ```
+
+`quick_validate.py` rejects the `disable-model-invocation` key, which the
+transition skill `dex-sdk` needs so Claude Code and Cursor load it only on
+explicit invocation. `check-package.py` validates `dex-sdk` instead.
 
 `check-doc-map.py` needs the Dex checkout because it reads `docs/content/`.
 Without arguments it validates the map. Skills CI runs only the checks that
@@ -135,8 +139,9 @@ description. To run the description checks locally, pass a base such as
 
 Also validate the Codex, Claude Code, and Cursor manifests with their current
 client tooling and smoke-test that one plugin install exposes exactly the three
-expected skills. Confirm App Builder and Connector Contributor resolve the
-sibling `dex-sdk` Go handbook without copied references, and that Connector
+expected skills. Confirm Connector Contributor resolves the sibling
+`dex-app-builder` Go handbook without copied references, that an explicit
+`dex-sdk` invocation loads `dex-app-builder`, and that Connector
 Contributor routes implementation and acceptance to the target repository's
 current instructions.
 
@@ -176,7 +181,7 @@ the pull request description contains this line:
 skills-release: no bump needed: <reason>
 ```
 
-Never edit `VERSION`, `dex-sdk/VERSION`, the plugin and marketplace
+Never edit `VERSION`, `dex-app-builder/VERSION`, the plugin and marketplace
 manifests, or `CHANGELOG.md` by hand. Check Gate CI rejects such an edit
 outside a release-prep pull request, unless the description contains a line
 `changelog: correction: <reason>`. The 0.x release notes are archived in
@@ -191,7 +196,7 @@ python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
 ```
 
 It bumps `VERSION` by the largest fragment bump and writes that version into
-`dex-sdk/VERSION` and every manifest that supports one. It adds the
+`dex-app-builder/VERSION` and every manifest that supports one. It adds the
 `CHANGELOG.md` entry and deletes the fragments. The workflow pushes a new
 `release-prep/skills-v<version>-<run ID>-<attempt>` branch on every run. Open its pull
 request with the `release-prep` label. Check Gate CI repeats the assembly on the base and

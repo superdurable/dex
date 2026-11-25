@@ -446,6 +446,19 @@ Use the Client at the service boundary only. Every call blocks.
 | Search | `client.searchFlows(query, pageSize)` |
 | Stop | `client.stopFlow(flowId[, StopFlowOptions])` |
 
+- `stopFlow` throws `FlowNotActiveOrNotFoundException` when no active run
+  exists and `FlowClosingException` while the Flow closes. Treat both as
+  already stopped. When the outcome matters, read the terminal state with
+  `describeFlow` or the outcome Attribute. Rethrow any other exception.
+
+```java
+try {
+    client.stopFlow(childFlowId);
+} catch (FlowNotActiveOrNotFoundException | FlowClosingException alreadyStopped) {
+    // Already stopped or closing; read the terminal state when the outcome matters.
+}
+```
+
 - Start options also set the timeout, ID reuse policy, initial Attributes,
   and config override.
 - Never set a positive start delay (`startDelay`). The Server rejects it with
@@ -496,19 +509,22 @@ building blocks:
 | First win | winner returns `.withCancelingSiblingSteps(Same.class)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
-| Cron, reminder, inactivity | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
+| Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | [`patterns/inboundeventloop`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop) |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of throwing into retry | [`patterns/failfast`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast) |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drainchannels` |
 | Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)`, a per-message `.requestId(...)`, and `.ignoreAlreadyStarted(true)`; on `FlowAlreadyStartedException`, publish with `RPCInvokeOptions` and a per-message request ID where the installed SDK has it | `patterns/drainchannels` |
-| Interruptible | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
+| Stop Long-Running Work (formerly Interruptible execution) | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |
 | Stream progress | `BufferedTextStream` plus `client.readStream` | `primitives/stream` |
-| Entity store | long-lived RPC-driven Flow per entity | `patterns/entitystore` |
+| Entity Flow with Attribute Sync (Entity store) | long-lived RPC-driven Flow per entity | `patterns/entitystore` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`patterns/entityflow`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/entityflow) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`patterns/childflowsbusinessidentity`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity) |
 | Chunked AttributeMap | bounded `current` instance plus immutable archives | `patterns/sequentiallychunkedattributemap` |
 | Hash-partitioned AttributeMap | stable hash picks a bucket; invocation lock and load | `patterns/hashpartitionedattributemap` |
 

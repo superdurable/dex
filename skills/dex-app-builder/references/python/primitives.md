@@ -214,7 +214,8 @@ async def get_order_view(client: AsyncClient, flow_id: str) -> tuple[str, OrderN
 - In `execute`, `SubFlow.get_condition_results(context, index)` returns the
   child's `FlowResult`, and `SubFlow.get_flow_id(context, index)` returns its
   Flow ID. The index counts only SubFlow conditions.
-- Stop a losing `any_of` child with `client.stop_flow(SubFlow.get_flow_id(...))`.
+- Stop a losing `any_of` child with `client.stop_flow(SubFlow.get_flow_id(...))`,
+  handling the errors as in the Client section.
 
 ## Client
 
@@ -232,6 +233,20 @@ async def get_order_view(client: AsyncClient, flow_id: str) -> tuple[str, OrderN
 
 `AsyncClient` methods are awaited; `Client` has the same methods, blocking.
 Pass a timeout to every wait.
+
+`stop_flow` raises `FlowNotActiveOrNotFoundError` when no active run exists
+and `FlowClosingError` while the Flow closes. Treat both as already stopped.
+When the outcome matters, read the terminal state with `describe_flow` or the
+outcome Attribute. Re-raise any other error.
+
+```python
+from dex import FlowClosingError, FlowNotActiveOrNotFoundError
+
+try:
+    client.stop_flow(child_flow_id)
+except (FlowNotActiveOrNotFoundError, FlowClosingError):
+    pass  # Already stopped or closing; read the terminal state when the outcome matters.
+```
 
 ## StepOptions, durability, heartbeat, cancellation
 
@@ -271,7 +286,8 @@ class ChargeInBatches(Step[OrderRequest]):
 - `StepOptions` holds per-method timeouts, `RetryPolicy`, heartbeat timeout,
   durability, locks, loads, `wait_for_failure=WaitForFailurePolicy.PROCEED`,
   and the execute failure route. `on_execute_failure_proceed_to` returns a
-  copy; Registry rejects a fallback Step with a different input type.
+  copy; Registry rejects a fallback Step with a different input type. The
+  fallback Step receives the failing Step's input unchanged.
 - The default `heartbeat_timeout` is short. If the attempt reaches its
   heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
   the attempt; raising only `execute_method_timeout` keeps that deadline. A

@@ -117,7 +117,7 @@ client.invoke_rpc_with_options(
 
 Archive chunk 不会再改变，所以只要该 chunk 仍被保留，同一页再读一次（例如重试时）得到的记录就相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
 
-对只追加的历史按有界 chunk 归档，每次只加载请求的页。若历史设有保留窗口，在一次提交中归档已满的 chunk、按 key 删除过期 chunk，并记录最早保留的 token。仍在保留期内的页内容不变。读到最早保留的 chunk 时，省略上一页 token。请求已清理的 token 时，返回页不存在。
+对只追加的历史按有界 chunk 归档，每次只加载请求的页。还要限制总量，否则存储会一直增长。按 chunk 数量或时间选一个上限。在一次提交中归档已满的 chunk、按 key 删除超出上限的 chunk，并记录最早保留的 token。业务必须保留旧记录时，删除前先把这些 chunk 归档到 Flow 之外。单个值和单个 Flow 的大小上限见 [Server 配置参考](/reference/server/configuration#limits)。仍在保留期内的页内容不变。读到最早保留的 chunk 时，省略上一页 token。请求已清理的 token 时，返回页不存在。
 
 并发 append 都会争用 **current**。冲突频繁时，改为通过 RPC 把每条记录发布到 Channel，由一个负责写入的 Step 消费并 append，做法见 [带结论的空闲定时器](/design-patterns/external-interaction/idle-timer-with-resolution)。
 

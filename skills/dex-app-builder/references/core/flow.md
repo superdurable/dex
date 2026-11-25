@@ -83,6 +83,8 @@ A downstream start is a separate acceptance boundary, not part of the Step's com
 
 A SubFlow's Flow ID derives from its parent. Model a child job as a top-level child Flow when it needs its own business identity: people or systems look it up, retry it, or stop it by its own number, or something other than the parent can start it. The parent starts it from a Step through the Client and receives its result durably.
 
+Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/child-flows-business-identity), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/child-flows-business-identity), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/child-flows-business-identity), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/child_flows_business_identity).
+
 ```text
 StartChildJob.execute(job)                    // Client injected through the Flow constructor
     client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,
@@ -109,13 +111,17 @@ ChildJobFlow:
 - Keep the Execute of the outcome Step and the report Step SYNC, the default, even when the Flow defaults to ASYNC. Under ASYNC durability the report Step could start before the outcome commit is stored; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
 - The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
-- Give every child its own Flow timeout. A closing parent never stops its children.
-- Reconcile every child the parent stops or stops waiting for. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive. Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
-  1. Read DescribeFlow first. RUNNING: read again at the next interval.
-  2. Terminal: record its status, then read its outcome Attribute. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races.
-  3. Only a typed missing-run result goes to the business policy, for example record "unavailable".
-  4. Return any other error so the Step retries.
-- A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing. The errors are in the Client reference: [Stop a Flow](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow) and [Describe a Flow](https://docs.superdurable.io/reference/server/runtime-client#describe-a-flow).
+- Give every child its own Flow timeout. A closing parent never stops its children. Keep the child's timeout longer than its retry budget, so retries can finish before the timeout fires.
+- A child that fails or times out on its own does not report either, because its report Step never runs. Route the child's terminal failure to a recovery Step, or its timeout to a timeout handler, that reports the failure to the parent; or keep the parent's reconcile Timer so it reads the child's terminal state.
+- When the parent does not need to know how a stopped child ended, stop the child and move on; a parent that needs only a quorum stops the remaining children this way. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive.
+- When the parent needs to know how a stopped child ended, reconcile it: for example, to count its result, undo or bill its side effects, or show its outcome. In that case:
+  - Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
+    1. Read DescribeFlow first. RUNNING: read again at the next interval.
+    2. Terminal: record its status, then read its outcome Attribute. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races.
+    3. Only a typed missing-run result goes to the business policy, for example record "unavailable".
+    4. Return any other error so the Step retries.
+  - A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing.
+  - The errors are in the Client reference: [Stop a Flow](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow) and [Describe a Flow](https://docs.superdurable.io/reference/server/runtime-client#describe-a-flow).
 - When a stopped child must still send its own report, give it a stop RPC that ends it through its own Steps instead of StopFlow.
 
 ## Flow options
@@ -200,7 +206,7 @@ Treat StepOptions as part of the graph, not tuning added later. See [step.md](st
 - Is every top-level Flow justified by owner, retention, wait, and terminal-lifecycle differences?
 - Does any pair of Flows exchange RPCs or messages on frequent events? Then merge them or move the decision.
 - Does one owning Flow durably start dependent work, including recovery between downstream acceptance and Step commit?
-- Does a parent of top-level child Flows record children that were stopped without reporting, or that finished after a quorum?
+- When the business needs a child's ending, does the parent of top-level child Flows record children that were stopped without reporting, or that finished after a quorum?
 - Is every Flow type named after its domain and unique in the registry?
 - Is every Attribute, Channel, and Stream in the persistence schema?
 - Can an operator identify the current business state from Dex Web or dexcli?

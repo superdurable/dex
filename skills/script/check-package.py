@@ -21,6 +21,8 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_NAMES = ("dex-app-builder", "dex-sdk", "dex-connector-contributor")
+# A former skill name that answers explicit invocation only and defers to dex-app-builder.
+TRANSITION_SKILL_NAMES = ("dex-sdk",)
 MANIFESTS = {
     "codex": Path(".codex-plugin/plugin.json"),
     "claude": Path(".claude-plugin/plugin.json"),
@@ -171,8 +173,8 @@ def main() -> None:
 
 def check_versions(version: str) -> None:
     version_tuple(version)
-    if (ROOT / "dex-sdk" / "VERSION").read_text().strip() != version:
-        fail("dex-sdk/VERSION must match the root VERSION")
+    if (ROOT / "dex-app-builder" / "VERSION").read_text().strip() != version:
+        fail("dex-app-builder/VERSION must match the root VERSION")
     headings = {match.group("version") for match in CHANGELOG_HEADING.finditer((ROOT / "CHANGELOG.md").read_text())}
     if version not in headings:
         fail(f"CHANGELOG.md must have a '## {version} - YYYY-MM-DD' section")
@@ -277,14 +279,30 @@ def check_skill_layout() -> list[Path]:
         description = front_matter.get("description", "")
         if not description or len(description) > 1024 or "<" in description or ">" in description:
             fail(f"{skill.name}/SKILL.md needs a description of at most 1024 characters without angle brackets")
-        if front_matter.get("disable-model-invocation") == "true":
-            fail(f"{skill.name}/SKILL.md must allow model invocation")
         agent = skill / "agents" / "openai.yaml"
-        if not agent.is_file() or "allow_implicit_invocation: true" not in agent.read_text():
-            fail(f"{skill.name}/agents/openai.yaml must allow implicit invocation")
+        agent_text = agent.read_text() if agent.is_file() else ""
+        if skill.name in TRANSITION_SKILL_NAMES:
+            check_transition_skill_invocation(skill.name, front_matter, agent_text)
+        else:
+            check_public_skill_invocation(skill.name, front_matter, agent_text)
     if (ROOT / "dex-connector-contributor" / "references").exists():
         fail("dex-connector-contributor must defer to the target repository, not ship references")
     return skills
+
+
+def check_public_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    if "disable-model-invocation" in front_matter:
+        fail(f"{name}/SKILL.md must allow model invocation")
+    if "allow_implicit_invocation: true" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: true")
+
+
+def check_transition_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    """A transition skill answers explicit invocation only, in Claude Code and Cursor and in Codex."""
+    if front_matter.get("disable-model-invocation") != "true":
+        fail(f"{name}/SKILL.md must set disable-model-invocation: true")
+    if "allow_implicit_invocation: false" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: false")
 
 
 def check_skill_links(skills: list[Path]) -> None:

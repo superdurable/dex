@@ -50,7 +50,8 @@ pub fn call_rate_limited_provider(context: &Context) -> HandlerResult<StepDecisi
 ## Recovery Steps
 
 When Execute retries run out, `on_execute_failure_proceed_to(&Recovery)` runs a
-registered recovery Step with the same input. Without a route, the Flow fails.
+registered recovery Step with the same input. The recovery Step receives the
+failed Step's input unchanged. Without a route, the Flow fails.
 
 ```rust
 #[derive(Default)]

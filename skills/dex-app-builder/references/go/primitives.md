@@ -455,6 +455,10 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
 | Read or list Stream output | `ReadStream` / `ListStreamMessages` |
 | Stop a Flow | `StopFlow(ctx, flowID, dex.StopOptions{...})` |
 
+- `StopFlow` returns `*dex.FlowNotActiveOrNotFoundError` when no active run
+  exists and `*dex.FlowClosingError` while the Flow closes. Treat both as
+  already stopped (`errors.As`). When the outcome matters, read the terminal
+  state with `DescribeFlow` or the outcome Attribute. Return any other error.
 - Pass a bounded `context.Context` to every call.
 - `WaitForFlow` may return `*dex.LongPollTimeoutError` when the Server ends one
   long poll. Call it again. A failed Flow is a `FlowResult.Status`, not a Go

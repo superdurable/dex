@@ -443,6 +443,22 @@ returned page token with the same query. See
 Choose the Step execution, and either the Timer's condition ID or its zero-based
 condition index.
 
+The Flow timeout is a Timer too. To fire it early, for example in a test that
+keeps the real timeout, skip Step type **sys:timeout_handler**, execution 1,
+condition index 0, with no condition ID:
+
+```bash
+dexcli flow skip-timer FLOW_ID --step-type sys:timeout_handler --execution 1 --condition-index 0 --yes
+```
+
+Skipping it starts the timeout policy now, as if the deadline had passed. The
+Go, Python, Java, and TypeScript Clients take the same selector: a Step
+execution ID with Step type **sys:timeout_handler** and execution 1, and Timer
+index 0. In Rust, `StepExecutionId` is built from a Step instance, so use the
+command above. For a running Flow, the call fails with **INVALID_ARGUMENT**
+when the Flow has no pending timeout, such as a Flow started without one or
+one whose timeout already fired.
+
 <a id="更新-flowconfig"></a>
 
 ## Update FlowConfig {#update-flowconfig}

@@ -184,6 +184,7 @@ func (recordChargeFailure) Execute(ctx dex.Context, order Order) (*dex.StepDecis
 }
 ```
 
+- The recovery Step receives the failed Step's input unchanged.
 - `ctx.RecoveryError()` returns the final failure that selected this route, or
   nil outside a recovery path. It has `ErrorType`, `Detail`, and
   `AttemptProgress`.

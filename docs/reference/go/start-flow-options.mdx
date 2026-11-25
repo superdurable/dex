@@ -120,6 +120,9 @@ func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
 
 Example: [examples/go/primitives/flow/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/flow/workflow.go)
 
+To test the timeout path with the real timeout, fire it early as in
+[Skip a Timer](/reference/server/runtime-client#skip-a-timer).
+
 ## Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
 **IDReusePolicy** says what to do when this Flow ID already exists.
