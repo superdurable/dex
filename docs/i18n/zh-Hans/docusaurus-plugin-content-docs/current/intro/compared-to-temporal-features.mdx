@@ -2,25 +2,25 @@
 title: Dex 独有的功能
 sidebar_label: Dex 独有的功能
 slug: /intro/compared-to-temporal/features
-description: 十个 Dex 功能，以及 Temporal 中与每个功能最接近的机制。Dex 从源码画出 Flow design，据此生成 Dex Web 表单，用 Clone fork 分出新的运行，提供 Connector，并由 server 直接回答 Attribute 读取。
+description: 十个 Dex 功能，以及每个功能在 Temporal 里的替代做法。Dex 从源码画出 Flow design，据此生成 Dex Web 表单，用 Clone fork 分出新的运行，提供 Connector，并由 server 直接回答 Attribute 读取。
 ---
 
 # Dex 独有的功能
 
-下面十个功能随 Dex 提供，分布在 Dex Web、dexcli、SDK 和 Dex Server 里。表中逐一说明 Temporal 里最接近的机制有什么不同。
+下面十个功能随 Dex 提供，分布在 Dex Web、dexcli、SDK 和 Dex Server 里。表中逐一给出 Temporal 里的替代做法。
 
-| 功能 | Dex | Temporal 中最接近的机制 |
+| 功能 | Dex | Temporal 里的替代做法 |
 | --- | --- | --- |
 | [Flow design](#flow-design) | `dexcli visualize` 从源码画出 Flow 的 Step 和跳转，Dex Web 显示这张图。 | Web UI 用 Timeline、All、Compact 和 JSON 视图显示每个 Workflow Execution 的 Event History，没有 Workflow Definition 的图（[Web UI](https://docs.temporal.io/web-ui)）。 |
-| [生成的表单](#generated-ui) | Dex Web 根据 Flow 的定义生成启动表单、Actions、Summary 和 Display 字段，以及 Work Queue。 | Web UI 列出并显示 Workflow Execution（[Web UI](https://docs.temporal.io/web-ui)）。 |
+| [生成的表单](#generated-ui) | Dex Web 根据 Flow 的定义生成启动表单、Actions、Summary 和 Display 字段，以及 Work Queue。 | 在 Temporal Client 上自己开发表单和页面。Web UI 列出并显示 Workflow Execution（[Web UI](https://docs.temporal.io/web-ui)）。 |
 | [Clone fork](#clone-fork) | 把一次运行在某个点的状态复制到一个新的 Flow，源运行继续运行。 | Reset："In all cases the current run will be terminated and a new run started."（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)） |
 | [Connector](#connectors) | 已发布的 Connector 为 Flow 提供调用外部服务商的现成 Step 和 Trigger。 | integrations 页面列出 agent 框架、模型服务商、框架和可观测性工具，没有对接第三方服务的现成 Activity 或 trigger（[Integrations](https://docs.temporal.io/integrations)）。 |
 | [跳过 Timer](#skip-timer) | `SkipTimer` 让运行中 Flow 的一个等待中的 Timer 立刻就绪。 | Timer 在设定的时长过去后结束（[Timers](https://docs.temporal.io/workflow-execution/timers-delays)），SDK 的测试 server 在测试中跳过时间（[Testing suite](https://docs.temporal.io/develop/python/testing-suite)）。 |
 | [等待 Step](#wait-for-step) | 一个 Client 调用在某个 Step execution 完成时返回，Flow 继续运行。 | 一个 Update，它的 handler 是等待某个条件的 Workflow 代码，在 Worker 上运行（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 |
 | [等待 Attribute](#wait-for-attribute) | 一个 Client 调用在 Attribute 的值满足类型化比较时返回。 | 同样是一个 handler 等待条件的 Update（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 |
 | [由 server 回答的读取](#read-without-worker) | Dex Server 自己回答 `GetAttributes`，所以没有 Worker 运行时也能读取。 | Query 调用对应的 Query handler，handler 在 Worker 上运行（[Sending messages](https://docs.temporal.io/sending-messages)）。 |
-| [Attribute Store 同步](#attribute-store-sync) | Dex Server 把选定的 Attribute 写入你自己的 PostgreSQL 表。 | Workflow 状态和事件保存在 Temporal Service 的数据库里，Visibility store 提供执行列表（[Persistence](https://docs.temporal.io/temporal-service/persistence)）。 |
-| [Hard-delete Attribute](#hard-delete) | 值只存在对象存储里，删除后永久消失。 | Workflow 状态和事件保存在 Temporal Service 的数据库里（[Persistence](https://docs.temporal.io/temporal-service/persistence)）。 |
+| [Attribute Store 同步](#attribute-store-sync) | Dex Server 把选定的 Attribute 写入你自己的 PostgreSQL 表。 | 在 Activity 里把数据写入你自己的数据库。 |
+| [Hard-delete Attribute](#hard-delete) | 值只存在对象存储里，删除后永久消失。 | 把值放在你自己的存储里，Workflow 里只传引用。 |
 
 ## 从源码得到 Flow design {#flow-design}
 

@@ -26,7 +26,7 @@ Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续
 | [长时间运行的流程](/intro/compared-to-temporal/operations#history-limit) | 一个 Event History 最多 [51,200 个事件或 50 MB](https://docs.temporal.io/workflow-execution/limits)。更长的流程要在代码里做 Continue-As-New。 | Dex 保留每次运行最新的事件，清理更早的事件。运行一直继续，不需要开始新的运行。 |
 | [数据大小](/intro/compared-to-temporal/operations#data-size) | 一个 payload 最多 [2 MB](https://docs.temporal.io/troubleshooting/blob-size-limit-error)。自托管的 server 在 512 KB 时警告。 | [默认](/reference/server/configuration#limits)情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。 |
 | [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) 终止当前运行，开始一次新的运行，Run ID 也是新的。 | Time Travel 让同一次运行回到较早的时间点。Run ID 不变。 |
-| [Dex 独有的功能](/intro/compared-to-temporal/features) | 每个功能在 Temporal 里最接近的机制见该页。 | 从源码画出的 Flow design、Dex Web 生成的表单、Clone fork、Connector、`SkipTimer`、等待某个 Step 或某个 Attribute，以及不需要 Worker 的读取。 |
+| [Dex 独有的功能](/intro/compared-to-temporal/features) | 每个功能在 Temporal 里的替代做法见该页。 | 从源码画出的 Flow design、Dex Web 生成的表单、Clone fork、Connector、`SkipTimer`、等待某个 Step 或某个 Attribute，以及不需要 Worker 的读取。 |
 | [改代码](/intro/compared-to-temporal/programming-model#change-code) | 如果一次部署改变了未结束的运行产生的 command，它的 Workflow Task 会因非确定性错误而失败。[Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching) 或 [Worker Versioning](https://docs.temporal.io/worker-versioning) 让未结束的运行继续正常工作。 | 每个 Step 运行接手它的 Worker 上的代码。演示里的改动不需要任何版本控制代码。 |
 | [写代码](/intro/compared-to-temporal/programming-model#more-code) | workflow 代码必须是[确定性的](#the-main-difference-an-explicit-step-graph-not-replayed-code)。演示里带审批的回复 Workflow 有 26 行。 | Step 是普通代码。同样的 Flow 也是 26 行。 |
 
@@ -65,7 +65,7 @@ Worker 停止之后，两个引擎用不同的方式继续一次运行。
 | Local Activity | 最接近的是 ASYNC Step | 两者都用一部分持久性换取延迟。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。 |
 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) | 两者都是持久化的。 |
 | Signal | [Channel](/concepts/primitives/channel) 消息 | 没有 Worker 在线时，Temporal 也接收 Signal。在 Dex 里，FlowService 请求 `PublishToChannel` 在没有 Worker 在线时保存 Channel 消息。见[一个命令最多处理一次](/concepts/client#inbound-commands)。 |
-| Query | 只读 [RPC](/concepts/primitives/rpc) | |
+| Query | `GetAttributes`，或只读 [RPC](/concepts/primitives/rpc) | Dex Server 自己回答 `GetAttributes`，不需要 Worker 在线。Query 和只读 RPC 都在 Worker 上运行 handler。见[由 server 读取 Attribute](/intro/compared-to-temporal/features#read-without-worker)。 |
 | Update | 写入 Attribute 或发布到 Channel 的 [RPC](/concepts/primitives/rpc) | 两者都需要 Worker。 |
 | Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
