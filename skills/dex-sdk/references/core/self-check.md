@@ -4,7 +4,7 @@ Run the design review before you implement a new Dex application, library, or de
 
 ## Design review
 
-1. **Prior art.** Search the runnable [examples](https://github.com/superdurable/dex/tree/main/examples), [patterns.md](patterns.md), and any Dex-native reference the user has. Name the nearest one and say what the design keeps and changes.
+1. **Prior art.** Search the runnable [examples](https://github.com/superdurable/dex/tree/main/examples/), [patterns.md](patterns.md), and any Dex-native reference the user has. Name the nearest one and say what the design keeps and changes.
 2. **Premises.** Every "Dex can X" or "Dex can't X" claim cites a source file or test in the installed SDK version, or the matching Developer reference. An unverified premise is a question for the owner, not a constraint.
 3. **Primitive check.** Before building a workaround, check whether a Dex primitive covers the need: canceling Steps, chunked or hash-partitioned AttributeMaps, Attribute locks, durable Timers, Channels with atomic complete-if-empty, and SubFlows.
 4. **Persisted layout.** Settle Flow, Step, RPC, Attribute, AttributeMap, Channel, and Stream names, instance keys, chunk size, partition count, hash algorithm, value schemas, and RPC types before the first release. Changing them later means reading both forms while old Flows or values exist.

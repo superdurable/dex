@@ -55,10 +55,11 @@ such as the order of waiters and locks, cancellation and close corner cases,
 retry deduplication details, and naming-restriction corner cases. Skills link
 to that reference instead of restating it.
 
-Skills contain no Dex version numbers and no release-tag pins. A skills change
-does not wait for a Dex release, and a Dex release never requires a skills
-change. A skills release-prep pull request assembles the fragments and bumps
-the version. Merging it syncs `skills/` to the read-only
+Skills contain no Dex version numbers and no release-tag pins.
+Source skills link examples on `main`; the skills mirror sync pins them to the synced Dex commit.
+A skills change does not wait for a Dex release, and a Dex release never
+requires a skills change. A skills release-prep pull request assembles the
+fragments and bumps the version. Merging it syncs `skills/` to the read-only
 `superdurable/dex-skills` mirror, which publishes the skill release.
 
 If the skills mirror is unavailable or contains work that cannot be safely
