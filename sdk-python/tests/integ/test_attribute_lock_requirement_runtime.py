@@ -15,6 +15,7 @@ import os
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
+from dataclasses import replace
 from datetime import timedelta
 from tempfile import TemporaryDirectory
 from typing import Any, cast
@@ -42,6 +43,7 @@ from dex import (
     Registry,
     RetryPolicy,
     RPCInvokeOptions,
+    RPCResult,
     StartFlowOptions,
     Step,
     StepDecision,
@@ -49,9 +51,11 @@ from dex import (
     StepMovement,
     StepOptions,
     Wait,
+    WaitForFailurePolicy,
     Worker,
     WorkerInvocationError,
     WorkerOptions,
+    force_complete,
     go_to,
     go_to_many,
     graceful_complete,
@@ -104,18 +108,50 @@ class PyLockReqUnlockedTotalStep(Step[None]):
         return graceful_complete("written")
 
 
+def _wait_for_options(execute_locks: Any, wait_for_locks: Any) -> StepOptions:
+    """Proceed to execute after a failed wait_for, so execute reports the failure."""
+    return replace(
+        _options(*execute_locks),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+        wait_for_lock_attributes=tuple(wait_for_locks),
+    )
+
+
+def _wait_for_result(context: Context | AsyncContext) -> StepDecision:
+    """Complete with the wait_for failure, or ``"written"`` when wait_for succeeded."""
+    if not context.wait_for_method_failed():
+        return graceful_complete("written")
+    recovery = context.recovery_error
+    assert recovery is not None
+    return graceful_complete(f"{recovery.error_type}: {recovery.detail}")
+
+
 class PyLockReqWaitForTotalStep(Step[None]):
     """Registers the lock for execute only, so its wait_for write fails."""
 
     def get_step_options(self) -> StepOptions | None:
-        return _options(TOTAL.lock())
+        return _wait_for_options((TOTAL.lock(),), ())
 
     def wait_for(self, context: Context, input: None) -> Wait:
         TOTAL.set(context, 1)
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        return graceful_complete("written")
+        return _wait_for_result(context)
+
+
+class PyLockReqLockedWaitForTotalStep(Step[None]):
+    """Registers the lock for wait_for, so its wait_for write commits."""
+
+    def get_step_options(self) -> StepOptions | None:
+        return _wait_for_options((), (TOTAL.lock(),))
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        TOTAL.set(context, 1)
+        return Wait.skip_immediately()
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return _wait_for_result(context)
 
 
 class PyLockReqLockedTotalStep(Step[None]):
@@ -208,6 +244,7 @@ class PyLockReqStepFlow(Flow[str]):
         self.targets: dict[str, Step[None]] = {
             "unlocked-total": PyLockReqUnlockedTotalStep(),
             "wait-for-total": PyLockReqWaitForTotalStep(),
+            "locked-wait-for-total": PyLockReqLockedWaitForTotalStep(),
             "locked-total": PyLockReqLockedTotalStep(),
             "delete-total": PyLockReqDeleteTotalStep(),
             "locked-item": PyLockReqLockedItemStep(),
@@ -258,6 +295,30 @@ class PyLockReqRpcFlow(Flow[None]):
         FREE.set(context, 1)
         FREE_CHANNEL.publish(context, "free")
 
+    @rpc
+    def publish_event_unlocked(self, context: Context, instance: str) -> None:
+        # The rejected publish must also discard this undeclared write.
+        FREE.set(context, 1)
+        EVENTS.publish(context, instance, "event")
+
+    @rpc
+    def count_events(self, context: Context, instance: str) -> RPCResult[int]:
+        return RPCResult(EVENTS.size(context, instance))
+
+
+class PyLockReqTimeoutFlow(Flow[None]):
+    """Writes a declared Attribute from its unchecked timeout handler."""
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.empty()
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return SCHEMA
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        TOTAL.set(context, 5)
+        return force_complete("expired")
+
 
 class PyLockReqAsyncStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
@@ -271,15 +332,48 @@ class PyLockReqAsyncStep(Step[None]):
         return graceful_complete("written")
 
 
-class PyLockReqAsyncStepFlow(Flow[None]):
-    """Runs a real ``async def`` Step on an AsyncWorker."""
+class PyLockReqAsyncWaitForStep(Step[None]):
+    """Runs a real ``async def`` wait_for that writes without its lock."""
+
+    def get_step_options(self) -> StepOptions | None:
+        return _wait_for_options((TOTAL.lock(),), ())
+
+    async def wait_for(  # type: ignore[override]
+        self, context: AsyncContext, input: None
+    ) -> Wait:
+        await asyncio.sleep(0)
+        TOTAL.set(context, 1)
+        return Wait.skip_immediately()
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: None
+    ) -> StepDecision:
+        return _wait_for_result(context)
+
+
+class PyLockReqAsyncDispatchStep(Step[str]):
+    def __init__(self, targets: dict[str, Step[None]]) -> None:
+        self._targets = targets
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return go_to(self._targets[input], None)
+
+
+class PyLockReqAsyncStepFlow(Flow[str]):
+    """Runs real ``async def`` Step methods on an AsyncWorker."""
 
     def __init__(self) -> None:
-        self.step = PyLockReqAsyncStep()
+        self.targets: dict[str, Step[None]] = {
+            "execute": PyLockReqAsyncStep(),
+            "wait-for": PyLockReqAsyncWaitForStep(),
+        }
         self.recovery = PyLockReqRecoveryStep()
+        self.dispatch = PyLockReqAsyncDispatchStep(self.targets)
 
-    def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.step).other_steps(self.recovery)
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.dispatch).other_steps(
+            *self.targets.values(), self.recovery
+        )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return SCHEMA
@@ -309,6 +403,7 @@ STEP_FLOW = PyLockReqStepFlow()
 RPC_FLOW = PyLockReqRpcFlow()
 ASYNC_STEP_FLOW = PyLockReqAsyncStepFlow()
 ASYNC_RPC_FLOW = PyLockReqAsyncRpcFlow()
+TIMEOUT_FLOW = PyLockReqTimeoutFlow()
 
 
 def _server_address() -> str:
@@ -321,7 +416,7 @@ def _registry(is_async: bool) -> Registry:
             (STEP_FLOW, RPC_FLOW, ASYNC_STEP_FLOW, ASYNC_RPC_FLOW),
             allow_async_handlers=True,
         )
-    return Registry((STEP_FLOW, RPC_FLOW))
+    return Registry((STEP_FLOW, RPC_FLOW, TIMEOUT_FLOW))
 
 
 def _worker_options(task_queue: str) -> WorkerOptions:
@@ -522,10 +617,35 @@ def test_declared_lock_requirements_on_steps() -> None:
         assert "wrote Attribute 'py-lock-req-total'" in output, output
 
         flow_id, result = _run_flow(client, STEP_FLOW, task_queue, "wait-for-total")
-        assert result.status is FlowStatus.FAILED
+        output = _single_output(result)
+        assert output.startswith(f"{MISSING_LOCK_ERROR_TYPE}: "), output
+        assert (
+            "Step 'PyLockReqWaitForTotalStep' wait_for wrote Attribute "
+            "'py-lock-req-total'" in output
+        ), output
         assert not _is_set(
             client, flow_id, TOTAL
         ), "the failed wait_for write is discarded"
+
+        flow_id, result = _run_flow(
+            client, STEP_FLOW, task_queue, "locked-wait-for-total"
+        )
+        assert _single_output(result) == "written"
+        assert _is_set(client, flow_id, TOTAL)
+
+
+def test_timeout_handler_is_not_checked() -> None:
+    with _harness(is_async=False) as (client, task_queue):
+        flow_id = unique_id("py-lock-req-timeout")
+        client.start_flow(
+            TIMEOUT_FLOW,
+            flow_id,
+            None,
+            StartFlowOptions(task_queue=task_queue, timeout=timedelta(seconds=1)),
+        )
+        result = client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert _single_output(result) == "expired"
+        assert client.get_attributes(flow_id, TOTAL).get(TOTAL) == 5
 
 
 def _assert_missing_lock(
@@ -578,12 +698,34 @@ def test_declared_lock_requirements_on_rpcs() -> None:
         client.invoke_rpc(RPC_FLOW.set_free, flow_id)
         assert _is_set(client, flow_id, FREE)
 
+        flow_id = _start_rpc_flow(client, task_queue, RPC_FLOW)
+        with pytest.raises(WorkerInvocationError) as raised:
+            client.invoke_rpc(RPC_FLOW.publish_event_unlocked, flow_id, SPACED_INSTANCE)
+        _assert_missing_lock(
+            raised,
+            "published to ChannelMap 'py-lock-req-events' instance 'item a' without "
+            "the required lock of Attribute 'py-lock-req-coordination'",
+        )
+        assert (
+            client.invoke_rpc(RPC_FLOW.count_events, flow_id, SPACED_INSTANCE) == 0
+        ), "the rejected publish is discarded"
+        assert not _is_set(
+            client, flow_id, FREE
+        ), "the other buffered write is discarded"
+
 
 def test_declared_lock_requirements_on_async_worker() -> None:
     with _harness(is_async=True) as (client, task_queue):
-        flow_id, result = _run_flow(client, ASYNC_STEP_FLOW, task_queue, None)
+        flow_id, result = _run_flow(client, ASYNC_STEP_FLOW, task_queue, "execute")
         output = _single_output(result)
         assert output.startswith(f"{MISSING_LOCK_ERROR_TYPE}: "), output
+        assert "Step 'PyLockReqAsyncStep' execute wrote" in output, output
+        assert not _is_set(client, flow_id, TOTAL)
+
+        flow_id, result = _run_flow(client, ASYNC_STEP_FLOW, task_queue, "wait-for")
+        output = _single_output(result)
+        assert output.startswith(f"{MISSING_LOCK_ERROR_TYPE}: "), output
+        assert "Step 'PyLockReqAsyncWaitForStep' wait_for wrote" in output, output
         assert not _is_set(client, flow_id, TOTAL)
 
         # The synchronous Client invokes the async handlers by their registered RPC names.
@@ -646,6 +788,42 @@ def test_registration_rejects_an_unregistered_lock_attribute() -> None:
                 ),
             )
         )
+
+
+class _LateLockStep(Step[None]):
+    """Returns options that use a lock Attribute the Flow builds in its schema callback."""
+
+    def __init__(self, flow: _LateLockFlow) -> None:
+        self._flow = flow
+        self.option_reads = 0
+
+    def get_step_options(self) -> StepOptions | None:
+        self.option_reads += 1
+        lock = self._flow.lock
+        assert lock is not None, "Step options were read before the persistence schema"
+        return StepOptions(execute_lock_attributes=(lock.lock(),))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete()
+
+
+class _LateLockFlow(Flow[None]):
+    def __init__(self) -> None:
+        self.lock: Attribute[bool] | None = None
+        self.step = _LateLockStep(self)
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.step)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        self.lock = Attribute("py-lock-req-late-lock", bool)
+        return PersistenceSchema.of(self.lock)
+
+
+def test_registration_reads_step_options_once_after_the_schema() -> None:
+    flow = _LateLockFlow()
+    Registry((flow,))
+    assert flow.step.option_reads == 1
 
 
 def test_an_attribute_map_cannot_be_a_lock_attribute() -> None:

@@ -350,9 +350,14 @@ class _RegisteredStep:
     input_codec: Codec[Any]
     starting: bool
     skips_wait_for: bool
-    # Registration-time lock keys; declared lock requirements count only these.
-    wait_for_lock_keys: frozenset[str] = frozenset()
-    execute_lock_keys: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class _StepLockKeys:
+    """Registration-time lock keys of one Step; declared lock requirements count only these."""
+
+    wait_for: frozenset[str] = frozenset()
+    execute: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -379,6 +384,7 @@ class _RegisteredFlow:
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
     actions: tuple[_RegisteredAction, ...] = ()
+    step_lock_keys: MappingProxyType[str, _StepLockKeys] = MappingProxyType({})
 
     def action_permission_mappings_for_writes(
         self, writes: Sequence[pb.AttributeWrite]
@@ -584,7 +590,6 @@ class Registry:
             type[Step[Any]], tuple[_RegisteredStep, ...]
         ] = {}
         start_step: _RegisteredStep | None = None
-        step_options_by_name: dict[str, StepOptions | None] = {}
         for definition in definitions:
             if not isinstance(definition, _StepDef):
                 raise TypeError("Flow StepList contains an invalid definition")
@@ -604,8 +609,6 @@ class Registry:
                 StepDecision,
                 allow_async_handlers=allow_async_handlers,
             )
-            # Read once, so validation and lock enforcement see the same options.
-            step_options = step.get_step_options()
             registered_step = _RegisteredStep(
                 step_name,
                 step,
@@ -617,9 +620,7 @@ class Registry:
                 ),
                 definition.is_start_step,
                 type(step).wait_for is Step.wait_for,
-                *Registry._step_lock_keys(step_options),
             )
-            step_options_by_name[step_name] = step_options
             registered_steps[step_name] = registered_step
             registered_steps_by_class[step_class] = (
                 *registered_steps_by_class.get(step_class, ()),
@@ -692,23 +693,27 @@ class Registry:
             attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
+        step_lock_keys: dict[str, _StepLockKeys] = {}
         for registered_step in registered_steps.values():
+            # Read once, so validation and lock enforcement see the same options.
+            step_options = registered_step.step.get_step_options()
             Registry._validate_step_targets(
                 registered_flow,
                 registered_step,
-                step_options_by_name[registered_step.name],
+                step_options,
                 set(),
             )
-        return registered_flow
+            step_lock_keys[registered_step.name] = Registry._step_lock_keys(
+                step_options
+            )
+        return replace(registered_flow, step_lock_keys=MappingProxyType(step_lock_keys))
 
     @staticmethod
-    def _step_lock_keys(
-        options: StepOptions | None,
-    ) -> tuple[frozenset[str], frozenset[str]]:
+    def _step_lock_keys(options: StepOptions | None) -> _StepLockKeys:
         """Return the ``wait_for`` and ``execute`` lock keys a Step registers."""
         if not isinstance(options, StepOptions):
-            return frozenset(), frozenset()
-        return (
+            return _StepLockKeys()
+        return _StepLockKeys(
             Registry._valid_lock_keys(options.wait_for_lock_attributes),
             Registry._valid_lock_keys(options.execute_lock_attributes),
         )

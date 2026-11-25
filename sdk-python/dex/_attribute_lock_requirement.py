@@ -15,7 +15,7 @@ from urllib.parse import unquote
 from dex._invocation_context import InvocationContext
 from dex.attribute import Attribute, AttributeMap, _required_write_lock_key
 from dex.channel import Channel, ChannelMap
-from dex.flow import _RegisteredFlow, _RegisteredRPC, _RegisteredStep
+from dex.flow import _RegisteredFlow, _RegisteredRPC, _RegisteredStep, _StepLockKeys
 from dex.runtime_errors import MissingAttributeLockAccess, MissingAttributeLockError
 
 
@@ -29,9 +29,8 @@ def check_step_required_locks(
 
     Only the Step's registration-time locks count.
     """
-    held_lock_keys = (
-        step.wait_for_lock_keys if method == "wait_for" else step.execute_lock_keys
-    )
+    lock_keys = flow.step_lock_keys.get(step.name, _StepLockKeys())
+    held_lock_keys = lock_keys.wait_for if method == "wait_for" else lock_keys.execute
     missing = _missing_lock_accesses(flow, held_lock_keys, context)
     if missing:
         raise MissingAttributeLockError(flow.name, step.name, method, None, missing)
