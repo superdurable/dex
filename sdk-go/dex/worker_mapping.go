@@ -254,8 +254,7 @@ func mapRegisteredMovement(
 	}, nil
 }
 
-// mapRegisteredStepOptions maps a movement to step of flow with optional per-movement overrides.
-// Lock keys come from the registration copy unless overrides set that lock field.
+// Lock keys come from the registration copy unless overrides set that field.
 func mapRegisteredStepOptions(
 	flow *registeredFlow,
 	step *registeredStep,

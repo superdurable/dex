@@ -184,7 +184,6 @@ func mapAlreadyStartedOptions(
 	}
 }
 
-// mapStepOptions maps options that name failure targets of flow.
 // A nil flow is allowed only for options without failure targets.
 func mapStepOptions(flow *registeredFlow, options *StepOptions) (*dexpb.StepOptions, error) {
 	return mapStepOptionsRecursive(flow, options, make(map[*StepOptions]bool))
