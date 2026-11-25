@@ -25,11 +25,6 @@ from dex_examples.app import ExampleApp
 from dex_examples.shared.query import optional_query, required_int_query, required_query
 from dex_examples.products.job_post.job_info import JobInfo
 
-SEARCH_MESSAGE = (
-    "The Python SDK does not expose SearchFlows yet; Title uses the text1 "
-    "FULL_TEXT AttributeIndex and JobDescription is not searchable."
-)
-
 
 def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("job_post", __name__, url_prefix="/products/job-post")
@@ -91,11 +86,15 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
         return "marked as soft deleted, will be delete later after retention"
 
     @blueprint.get("/search")
-    def search() -> Response:
+    async def search() -> Response:
+        query = unquote(required_query("query"))
+        scope = "FlowType = 'JobPostingFlow'"
+        scoped_query = f"({query}) AND ({scope})" if query.strip() else scope
+        page = await app_state.client.search_flows(scoped_query, page_size=20)
         return jsonify(
             {
-                "message": SEARCH_MESSAGE,
-                "query": unquote(required_query("query")),
+                "flowIDs": [flow.flow_id for flow in page.flows],
+                "nextPageToken": page.next_page_token,
             }
         )
 

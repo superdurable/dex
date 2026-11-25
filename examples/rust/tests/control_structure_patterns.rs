@@ -52,6 +52,7 @@ use dex_examples_rust::control_patterns::inbound_event_loop::{
     SEND_TICKET_REPLY, SupportTicketConversationFlow, TRANSCRIPT_CHUNKS,
 };
 use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
+use dex_examples_rust::patterns::parallel_subflows::{AdvancedLongLiveParentFlow, ParentInput};
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
@@ -279,6 +280,26 @@ enum OfferResponse {
     Accept,
     Reject,
     Expire,
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn stopping_the_long_lived_parent_wakes_idle_workers() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &AdvancedLongLiveParentFlow::default(),
+        "stop-idle-parent",
+        ParentInput {
+            requests: Vec::new(),
+            concurrency: 2,
+        },
+    );
+
+    environment
+        .client
+        .invoke_rpc_without_input(&flow_id, Rpc::<(), ()>::new("StopLongLiveFlow"))
+        .expect("request graceful completion");
+    environment.wait_for_closed_flow(&flow_id, FlowStatus::Completed);
 }
 
 #[test]

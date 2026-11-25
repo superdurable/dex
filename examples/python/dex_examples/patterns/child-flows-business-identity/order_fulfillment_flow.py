@@ -35,6 +35,7 @@ from dex import (
     FlowStatus,
     IdReusePolicy,
     PersistenceSchema,
+    RPCInvokeOptions,
     StartFlowOptions,
     Step,
     StepDecision,
@@ -473,13 +474,14 @@ class ReportShipmentOutcome(Step[PendingReport]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, pending: PendingReport
     ) -> StepDecision:
-        # This SDK pin has no RPC request ID. The locked RPC keeps the first
-        # outcome, so a repeat changes nothing.
         try:
             await self.client_provider().invoke_rpc(
                 self.order_flow_provider().record_shipment_outcome,
                 pending.order_flow_id,
                 pending.report,
+                options=RPCInvokeOptions(
+                    request_id=f"report:{pending.report.shipment_number}:{pending.report.shipment_run_id}",
+                ),
             )
         except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
             # A closed order ends the attempts; the outcome stays readable through the Client.

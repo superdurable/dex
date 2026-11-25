@@ -21,7 +21,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use dex_sdk::{IdReusePolicy, StartFlowOptions};
+use dex_sdk::{IdReusePolicy, RpcInvokeOptions, StartFlowOptions};
 use serde::Deserialize;
 
 use crate::patterns::drain_channels::flow::{
@@ -107,7 +107,12 @@ async fn start_or_publish(
                 Err(error) if is_already_started(&error) => {}
                 Err(error) => return Err(error),
             }
-            match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
+            match client.invoke_rpc_with_options(
+                &flow_id,
+                PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
+                message.clone(),
+                RpcInvokeOptions::new().request_id(format!("publish:{message_id}")),
+            ) {
                 Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
                 // That run closed before the publish: start again.
                 Err(error) if is_missing_or_inactive(&error) => {}

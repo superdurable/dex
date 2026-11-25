@@ -13,6 +13,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 Init Step 将初始请求发布到 `RequestChannel`，把 **Stopped** 设为 false，并启动 N 个 HandleRequest Step。每个 worker 取出最早的一条消息，然后跳转到 HandleSubFlow Step。这个 Step 启动并等待 `ExampleSubFlow`。子 Flow 完成后，它回到 HandleRequest Step；如果 **Stop** RPC 已把 **Stopped** 设为 true，它就 graceful complete。
 
+在 Rust 示例中，如果 Server 支持 graceful completion condition，**Stop** RPC 还会调度一个 Step 来请求 graceful completion。该请求会唤醒空闲的 worker。正在等待子 Flow 的 worker 会等它结束。
+
 `SendRequest` 在发布前检查 Channel size。Channel 达到 buffer threshold 时，它返回 false。调用方可以稍后重试，父 Flow 也不会过载。
 
 ## 核心实现
@@ -478,6 +480,7 @@ pub struct AdvancedLongLiveParentFlow {
     init: LongLiveInit,
     handle_request: LongLiveHandleRequest,
     handle_sub_flow: LongLiveHandleSubFlow,
+    request_completion: RequestLongLiveCompletion,
 }
 
 impl AdvancedLongLiveParentFlow {
@@ -495,7 +498,11 @@ impl AdvancedLongLiveParentFlow {
 
     fn stop(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
         STOPPED.set(context, true)?;
-        Ok(RpcResult::new(()))
+        let result = RpcResult::new(());
+        if context.supports_graceful_completion_condition() {
+            return Ok(result.then(StepMovement::to(&self.request_completion, ())));
+        }
+        Ok(result)
     }
 }
 
@@ -506,6 +513,7 @@ impl Flow for AdvancedLongLiveParentFlow {
         StepList::start(&self.init)
             .and(&self.handle_request)
             .and(&self.handle_sub_flow)
+            .and(&self.request_completion)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -557,11 +565,21 @@ impl Step for LongLiveHandleRequest {
         "HandleRequestStep"
     }
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(REQUEST_CHANNEL.for_one()))
+    fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        let request = REQUEST_CHANNEL.for_one();
+        if context.supports_graceful_completion_condition() {
+            return Ok(Wait::any_of([
+                request,
+                Condition::graceful_completion_requested(),
+            ]));
+        }
+        Ok(Wait::until(request))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if context.is_graceful_completion_condition_completed() {
+            return Ok(StepDecision::dead_end());
+        }
         let request = REQUEST_CHANNEL
             .condition_results(context)?
             .into_iter()
@@ -593,6 +611,17 @@ impl Step for LongLiveHandleSubFlow {
             return Ok(StepDecision::graceful_complete(()));
         }
         Ok(StepDecision::go_to(&LongLiveHandleRequest, ()))
+    }
+}
+
+#[derive(Default)]
+struct RequestLongLiveCompletion;
+
+impl Step for RequestLongLiveCompletion {
+    type Input = ();
+
+    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(()))
     }
 }
 ```
