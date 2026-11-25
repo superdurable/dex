@@ -81,6 +81,12 @@ in a form the analyzer can read. These rules hold in every language:
 
 - **Return analyzer-visible decisions from Execute.** A helper may compute
   the input or record state. The decision itself is returned by Execute.
+- **Return an analyzer-visible Wait from WaitFor.** Every successful Wait
+  return of WaitFor resolves, for the analyzer, to a Wait factory. Prefer it inline,
+  such as `return dex.AnyOf(...)` in Go, `return Wait.anyOf(...)` in Java,
+  or `Ok(Wait::any_of([...]))` in Rust. A local variable the analyzer can
+  trace is fine. Do not hide the factory in a helper the analyzer cannot
+  resolve; a helper may compute a duration or a key.
 - **Resolvable targets.** Use a target the analyzer can resolve to a
   registered Step. For a loop, use the same static target form as for any
   other transition. In Python, name the registered target instead of passing
@@ -223,7 +229,7 @@ you start the Flow, or declare no input and pass none.
 After you change a definition, render every Flow source file:
 
 ```bash
-dexcli visualize path/to/flow-source --schema-version 2.0 --json --out DIRECTORY/<flow-name>
+dexcli visualize path/to/flow-source --json --out DIRECTORY/<flow-name>
 ```
 
 Analysis neither deploys nor calls providers. Require `valid: true` and fix

@@ -23,9 +23,11 @@ package externalpublishing
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
@@ -41,9 +43,20 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingExtern
 	group.GET("/start-or-publish", controller.startOrPublish)
 }
 
-func patternStartOptions() sdk.StartFlowOptions {
+// startOrPublishAttempts bounds how often a message that lost a start race is published again.
+const startOrPublishAttempts = 3
+
+// patternStartOptions restarts a closed Flow ID. A retried start returns the original run
+// while that run is still the latest run for the Flow ID and its start request ID matches.
+func patternStartOptions(messageID string) sdk.StartFlowOptions {
 	timeout := time.Hour
-	return sdk.StartFlowOptions{Timeout: &timeout}
+	requestID := "start:" + messageID
+	return sdk.StartFlowOptions{
+		Timeout:        &timeout,
+		IDReusePolicy:  sdk.IDReuseAllowIfNotRunning,
+		RequestID:      &requestID,
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+	}
 }
 
 func (controller *controller) startOrPublish(request *gin.Context) {
@@ -51,33 +64,56 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	if !found {
 		return
 	}
-	var output string
-	err := controller.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		controller.flow.PublishExternalChannelMessage,
-		"message from start-or-publish endpoint",
-		&output,
-	)
-	if err == nil {
-		httputil.RespondString(request, "Published to the Flow", nil)
-		return
+	messageID := request.Query("messageId")
+	if messageID == "" {
+		messageID = uuid.NewString()
 	}
-	var inactive *sdk.FlowNotActiveOrNotFoundError
-	if !errors.As(err, &inactive) {
-		httputil.RespondString(request, "", err)
-		return
+	message := "message " + messageID
+	publishRequestID := "publish:" + messageID
+	for attempt := 0; attempt < startOrPublishAttempts; attempt++ {
+		runID, startErr := controller.client.StartFlow(
+			request.Request.Context(),
+			controller.flow,
+			flowID,
+			message,
+			patternStartOptions(messageID),
+		)
+		if startErr == nil {
+			httputil.RespondString(
+				request,
+				fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
+				nil,
+			)
+			return
+		}
+		var alreadyStarted *sdk.FlowAlreadyStartedError
+		if !errors.As(startErr, &alreadyStarted) {
+			httputil.RespondString(request, "", startErr)
+			return
+		}
+		// A different start request owns the active run: publish this message to that run.
+		var output string
+		err := controller.client.InvokeRPCWithOptions(
+			request.Request.Context(),
+			flowID,
+			controller.flow.PublishExternalChannelMessage,
+			message,
+			&output,
+			sdk.RPCInvokeOptions{RequestID: &publishRequestID},
+		)
+		if err == nil {
+			httputil.RespondString(request, fmt.Sprintf("Accepted message %s", messageID), nil)
+			return
+		}
+		var inactive *sdk.FlowNotActiveOrNotFoundError
+		if !errors.As(err, &inactive) {
+			httputil.RespondString(request, "", err)
+			return
+		}
+		// That run closed before the publish: start again.
 	}
-	runID, startErr := controller.client.StartFlow(
-		request.Request.Context(),
-		controller.flow,
-		flowID,
-		"first message from start-or-publish",
-		patternStartOptions(),
-	)
-	httputil.RespondString(
-		request,
-		fmt.Sprintf("Started the workflow with runId %s", runID),
-		startErr,
+	request.String(
+		http.StatusConflict,
+		fmt.Sprintf("message %s is unconfirmed; send it again with the same messageId", messageID),
 	)
 }

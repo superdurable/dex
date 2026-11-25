@@ -342,7 +342,7 @@ systems.
 
 Local verification runs on one long-lived `dexcli dev` stack started as soon as
 the first Flow renders. Every Flow is rendered with
-`dexcli visualize --schema-version 2.0 --json` into the stack's
+`dexcli visualize --json` into the stack's
 `--flow-rendering-dir`, and the user receives the Dex Web URL right away. Dex
 Web configures released connectors in its local **Connectors** view; the
 default plaintext development store is `~/.dex/connectors/connections.json`,

@@ -560,6 +560,25 @@ impl Step for ShortLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
+## 空批次和提前到达的请求 {#early-requests}
+
+示例做了简化：Flow 一启动，它的 RPC 就能发布请求，而且即使批次为空也启动 worker。父 Flow 如果要处理空批次，就加一个接收开关：
+
+- 只有第一个 Step 把启动批次排进队列后，接收才开放。RPC 读取这个开关，在那之前拒绝请求。于是空的启动批次可以直接完成，因为不可能有请求在等待。
+- 修改子 Flow 计数的 Step 锁住开关所在的 Attribute。RPC 不加 lock。
+- 缓冲上限是软上限。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。需要硬上限时，用原子的准入，比如加锁的预留。在启动 Flow 的地方用上限检查启动批次。
+- 调用方必须确认每个请求都已处理时，消费的 Step 在同一次提交里记录请求的业务 ID，调用方读取这份记录；见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
+
+```pseudocode
+AdmitBatch.execute(requests)                     // locks admission
+    if requests is empty: gracefulComplete()     // the intake never opened
+    publish each to Requests; admission = { open: true, activeChildren: 0 }
+    goToMany(HandleRequest x N)
+rpc sendRequest(request)                         // reads admission; takes no lock
+    if not admission.open or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+```
+
 ## 下一步
 
 - [多父 Flow 分区](/design-patterns/parallel-subflows/partitioning)

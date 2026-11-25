@@ -30,7 +30,9 @@ Core behavior:
 
 - Start a Flow and verify its typed terminal output.
 - Replace or restart the Worker while the Flow waits, then verify it continues from durable state.
-- Force a retryable Execute failure. Verify the retry count, resume from the heartbeat checkpoint, and the exhausted-retry route.
+- Force a retryable Execute failure. Verify the retry and the resume from the heartbeat checkpoint.
+- Business failure path: when the provider confirms a permanent rejection, such as rejected input or a refused request, Execute catches it and routes to the failure Step itself. Provider errors the application treats as retryable go through Step retry. A fake that returns the rejection, under the production configuration, verifies the application's failure branch and that it does not retry.
+- A direct test of the recovery Step verifies its logic. Dex scheduling the recovery Step after the real retry budget is Dex behavior; do not re-test it by capping attempts or shortening durations.
 - Let a handler exceed its heartbeat timeout and assert the retry.
 - Publish Channel and ChannelMap messages through typed RPCs. Verify order, single consumption, stale message IDs, and rejection after closure.
 - Invoke read-only and mutating RPCs. After closure, verify that query-only reads still work, that a non-transactional RPC's effects are rejected, and that transactional or locked RPCs are rejected before the handler. For transactional RPCs, verify all effects commit or none do.

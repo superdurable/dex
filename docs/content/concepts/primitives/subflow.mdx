@@ -30,6 +30,10 @@ instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
+A child job that needs its own business identity, such as a number people
+look it up or stop it by, is a top-level Flow that a parent Step starts
+through a Client. See [Child Flows with their own identity](/concepts/flow#child-flows).
+
 A Step type that starts SubFlows must not contain a dash, and a later run of
 the same parent Flow ID can reuse the earlier run's children; see
 [Step types that start SubFlows](/reference/server/runtime-data#subflow-step-types)

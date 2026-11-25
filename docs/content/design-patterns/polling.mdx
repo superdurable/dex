@@ -38,7 +38,10 @@ A plain sleep is enough. The loop does not need to watch for cancellation. When 
   tens of seconds for long jobs such as builds.
 - <a id="limits"></a>Use one maximum-wait value for both `ExecuteMethodTimeout`
   and `TotalDuration`. Dex enforces both, so the Step computes no deadline of
-  its own. Give `ExecuteRetry` a few attempts with backoff for transient errors
+  its own. After a failure, `TotalDuration` decides only whether to schedule
+  another attempt. Queueing can start a scheduled attempt late, and a running
+  attempt is never cut short, so the whole wait can end well after it. A
+  business deadline for the Flow uses the watchdog below. Give `ExecuteRetry` a few attempts with backoff for transient errors
   and Worker crashes. See
   [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration).
   The polling Step can use either durability.
@@ -50,6 +53,13 @@ A plain sleep is enough. The loop does not need to watch for cancellation. When 
 - Check any other business condition inside the loop, such as a lease that
   another system owns and that can expire. The timeouts bound only a fixed
   duration.
+- <a id="deadline-watchdog"></a>Use a watchdog for a business deadline that is
+  shorter than the whole wait, or that the Step options cannot hold because the
+  polling Step re-enters itself to commit each status change. The watchdog is a
+  waiting Step that races its Timer. It declares the same Attribute lock as the
+  Step that records the result. When its Timer fires, it reads the status under
+  that lock and declares the work overdue only while the work is still
+  unfinished.
 - <a id="checkpoint-and-progress"></a>Resume from the last checkpoint, which
   `GetLastHeartbeatValue` returns. In the example, the checkpoint is the last
   reported job status, so a retry does not repeat a progress message.

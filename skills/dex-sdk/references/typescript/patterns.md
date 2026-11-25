@@ -18,13 +18,13 @@ application types.
 | Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
 | Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
 | Inactivity tracker | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
 | Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
 | WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
 | Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
 | Drain internal Channels | side Step loops until a final marker | `patterns/drain-channels/internal/drain-internal-channels-flow.ts` |
-| Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
+| Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING`, a per-message `requestId`, and `ignoreAlreadyStarted: true`; on `FlowAlreadyStartedError` it publishes with `invokeRPCWithOptions` and a per-message `requestId` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
 | Interruptible execution | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
 | Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
@@ -104,9 +104,10 @@ class RecordJobWaitFailure implements Step<string> {
 - `executeMethodTimeoutMs`, `executeRetry.totalDurationMs`, and
   `heartbeatTimeoutMs` bound the wait. `ExecuteFailure.proceedTo` routes
   expiry to the recording Step.
-- Keep `poll interval + call timeout <= heartbeatTimeoutMs - 10 s`. With the
-  one-minute default and a 10-second call timeout, the interval is at most 40
-  seconds. Keep the one-minute default unless a healthy call is silent longer.
+- Keep `poll interval + call timeout <= heartbeatTimeoutMs - 10 s`, against
+  the `heartbeatTimeoutMs` the Step sets. Raise it only when a healthy call is
+  silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/typescript/step-options#defaults).
 - `maximumAttempts` stays small, such as 3 to 5. `totalDurationMs` bounds the
   time; never use a large attempt count as a time bound.
 
@@ -148,7 +149,7 @@ class Await implements Step<JoinRound> {
 class AwaitInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
-    return "Init";
+    return "SplitItems";
   }
   public execute(context: Context, count: number): StepDecision {
     return goToMany(
@@ -174,7 +175,8 @@ class AwaitInit implements Step<number> {
 ## TypeScript notes for other patterns
 
 - First win: the winner returns `withCancelingSiblingSteps(decision, Work)`.
-  Losers watch `context.cancellationSignal`.
+  Losers, and branches of a cancelling join, pass `context.cancellationSignal`
+  to calls that accept it, such as `fetch(url, { signal })`.
 - Partitioned AttributeMaps: an upsert passes the same bucket to both
   `lockAttributeMapInstances` and `loadAttributeMapInstances` in
   `client.invokeRPCWithOptions`. A read passes only the load.

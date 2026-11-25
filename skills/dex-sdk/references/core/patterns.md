@@ -29,6 +29,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Proceed after the first branch or n of m branches, optionally in rounds | [Partial join and reset](#partial-join-and-reset) |
 | Keep the first result, cancel the rest | [First-win parallel Steps](#first-win-parallel-steps) |
 | Child Flow runs with their own lifecycle, after the SubFlow gate | [Parallel SubFlows](#parallel-subflows) |
+| Child jobs with their own business identity, looked up, retried, or stopped by their own number | [Top-level child Flows](flow.md#child-jobs-with-their-own-identity) |
 | Wait for an external system to become ready or finish | [Polling](#polling) |
 | Recurring work at a fixed interval | [Cron schedule](#cron-schedule) |
 | Repeat until the recipient opts out | [Reminder](#reminder) |
@@ -73,20 +74,21 @@ Parallel Steps are the default when branches share one Flow identity and lifecyc
 Use when the branches are a fixed set of distinct Step types, each with its own responsibility and input type.
 
 ```text
-Init.execute -> goToMany(ChargePayment(order), ReserveStock(order))
+AcceptOrder.execute -> goToMany(ChargePayment(order), ReserveStock(order))
 ChargePayment.execute -> deadEnd() or gracefulComplete(...)
 ReserveStock.execute  -> deadEnd() or gracefulComplete(...)
 ```
 
-Add a join only when the business outcome needs one.
+- Add a join only when the business outcome needs one.
+- Give each fixed kind of work its own domain-named Step type, even when the branches look alike. Never run fixed kinds of work as one Step type with a kind field: the graph hides them, and they cannot have their own StepOptions or failure routes.
 
 ### Dynamic parallel Steps
 
 Use when the number of branches is known only at runtime and every branch runs the same Step type.
 
 ```text
-Init.execute(items) -> goToMany(for each item: DoWork(item))
-DoWork.execute(item) -> do the work; deadEnd()
+SplitItems.execute(items) -> goToMany(for each item: ProcessItem(item))
+ProcessItem.execute(item) -> do the work; deadEnd()
 ```
 
 - Bound the fan-out. Batch when it can grow large.
@@ -99,12 +101,12 @@ Use when the Flow continues only after every branch finishes. Join the branches 
 ```text
 Completed = Join<Result>("work-completed")        // register it with the Flow's Channels
 
-Init.execute(items) -> goToMany(Completed.fork(
-                           for each item: round -> DoWork(item, round),
-                           round -> AwaitAll(round)))
-DoWork.execute(item, round) -> do the work; return Completed.endBranch(round, result)
-AwaitAll.waitFor(round) -> Until(Completed.forAllBranches(round))
-AwaitAll.execute(round) -> gracefulComplete(combine(Completed.branchResults(round)))
+SplitItems.execute(items) -> goToMany(Completed.fork(
+                           for each item: round -> ProcessItem(item, round),
+                           round -> AwaitAllItems(round)))
+ProcessItem.execute(item, round) -> do the work; return Completed.endBranch(round, result)
+AwaitAllItems.waitFor(round) -> Until(Completed.forAllBranches(round))
+AwaitAllItems.execute(round) -> gracefulComplete(combine(Completed.branchResults(round)))
 ```
 
 - Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The application keeps no counter and no key. Pass the token unchanged in Step inputs.
@@ -145,6 +147,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
+- In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
@@ -153,12 +156,13 @@ A cancelling join's round is never reset. Its canceled branches never report, so
 Use when the first acceptable result is enough.
 
 ```text
-Init.execute -> goToMany(DoWork(a), DoWork(b), DoWork(c))
-DoWork.execute -> gracefulComplete(result).cancelSiblingSteps(DoWork)
+RequestQuotes.execute -> goToMany(FetchQuote(a), FetchQuote(b), FetchQuote(c))
+FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 ```
 
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
+- Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
 
 ## Parallel SubFlows
 
@@ -178,49 +182,79 @@ RunChildren.execute -> gracefulComplete(results)
 Drain an admitted batch, then complete without racing new requests.
 
 ```text
-Init.execute(requests) -> publish each to Requests; activeChildren = 0
-                          goToMany(HandleRequest x N)
+AdmitBatch.execute(requests)                     // locks admission
+    if requests is empty: gracefulComplete()     // the intake never opened
+    publish each to Requests; admission = { open: true, activeChildren: 0 }
+    goToMany(HandleRequest x N)
 HandleRequest.waitFor -> Until(Requests.ForOne())
-HandleRequest.execute -> activeChildren += 1 (lock activeChildren); goTo(HandleChild, request)
+HandleRequest.execute -> admission.activeChildren += 1 (lock admission); goTo(HandleChild, request)
 HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))
-HandleChild.execute -> activeChildren -= 1 (same lock)
+HandleChild.execute -> admission.activeChildren -= 1 (lock admission)
     if activeChildren == 0: forceCompleteIfChannelsEmpty([Requests], else goTo(HandleRequest))
     else: goTo(HandleRequest)
-rpc sendRequest(request) -> if Requests.size >= buffer limit: return false
-                            Requests.publish(request); return true
+rpc sendRequest(request)                         // reads admission; takes no lock
+    if not admission.open or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
 ```
 
 - Use the atomic complete-if-Channels-empty decision. Never check the Channel size in application code before completing.
-- Both Steps that change the counter declare the same lock.
+- The Steps that change the counter declare the same `admission` lock. Keep the RPC free of locks; it only reads the gate.
+- The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once. Check the start batch against the limit at the start boundary.
+- The buffer limit is a soft limit: concurrent RPCs can read the same size, and the Channel size counts only queued requests. A hard limit needs atomic admission, such as a locked reservation.
+- When the caller must confirm each request was handled, the consuming Step records the request's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
+- The runnable example is simplified: it has no intake gate and starts the workers even for an empty batch. Follow the skeleton above.
 
 ### Long-lived parent
 
 The parent stays available to admit and coordinate children over time.
 
 ```text
-HandleRequest.waitFor -> Until(Requests.ForOne())
-HandleRequest.execute -> goTo(HandleChild, request)
+OpenIntake.execute -> goToMany(HandleRequest x N, CloseIntake)
+HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
+HandleRequest.execute                            // locks intakeClosed
+    if no request was consumed: deadEnd()        // queue empty and the Flow is closing
+    if intakeClosed: record the request as returned; goTo(HandleRequest)
+    goTo(HandleChild, request)
 HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))
-HandleChild.execute -> if stopped: gracefulComplete() else goTo(HandleRequest)
-rpc sendRequest(request) -> size check for back pressure; publish
-rpc stop() -> stopped = true
+HandleChild.execute -> record the result; goTo(HandleRequest)
+rpc sendRequest(request)                         // locks intakeClosed
+    if intakeClosed or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()   // locks intakeClosed
+CloseIntake.waitFor -> Until(CloseRequests.ForOne())
+CloseIntake.execute -> gracefulComplete()
 ```
+
+- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter.
+- Each worker owns the request it consumed. Under the `intakeClosed` lock it either commits the move to start the child, which then starts and finishes even after the close, or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never silently dropped or handed back twice.
+- After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
+- An admission RPC that sees the intake closed rejects the request, so the caller can resubmit to a new parent run.
+- The graceful completion Condition needs SDK and Server support; see the [Server reference](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition) and the language's Waits reference, such as [Go](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
 
 ### Wait for half
 
 A quorum of children is enough; the rest are stopped.
 
 ```text
-Init.execute -> goToMany(WaitForQuorum(total), RunChild x N)
+StartChildren.execute -> goToMany(WaitForQuorum(total), RunChild x N)
 RunChild.waitFor(request) -> AnyOf(SubFlow(ChildFlow, request), AllDone.ForOne())
 RunChild.execute -> if child finished: ChildCompleted.publish(); gracefulComplete()
-                    else: stop own child by its SubFlow ID; gracefulComplete()
+                    else: stop own child by its SubFlow ID
+                          stopped, or not found, not active, or closing:
+                              read the child through the Client
+                              closed: record its terminal status and stored result
+                              running or closing: return an error so the Step retries
+                              missing: record "unavailable" (business policy)
+                          other stop or read errors: return them so the Step retries
+                          gracefulComplete()
 WaitForQuorum.waitFor(total) -> Until(ChildCompleted.ForN((total + 1) / 2))
 WaitForQuorum.execute -> publish one AllDone message per unfinished child; gracefulComplete()
 ```
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
 - Define what happens to children outside the quorum.
+- After every stop, read the child's terminal status and stored result, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
+- With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
 
@@ -232,7 +266,7 @@ Submit.execute(request)
     try invokeRPC(parentId, sendRequest, request)
     on missing-or-inactive: startFlow(Parent, parentId, input = request,
                                       reuse = allow if not running)
-Parent.Init publishes its start input to Requests, so nothing is lost.
+The parent's first Step publishes its start input to Requests, so nothing is lost.
 ```
 
 - The same key always reaches the same parent. Each parent bounds its own buffer and concurrency.
@@ -263,7 +297,7 @@ AwaitJob options:
     execute method timeout   = maximum wait
     execute retry            = a few attempts (for example 3-5) with backoff,
                                total duration = maximum wait
-    heartbeat timeout        = the one-minute default
+    heartbeat timeout        = the default, or the longest silent interval plus a margin
     execute failure route    = RecordJobWaitFailure
 
 AwaitJob.execute(context, jobId)
@@ -281,12 +315,13 @@ RecordJobWaitFailure.execute(context)
 ```
 
 - "Not ready yet" is a normal loop branch, never an error.
-- Keep `interval + call timeout <= heartbeat timeout - 10 s`. With the one-minute default heartbeat timeout and a 10-second call timeout, the interval is at most 40 seconds.
-- Keep the one-minute heartbeat timeout default, so a stalled Worker is detected within a minute. Raise it only when a healthy call is silent longer.
+- Keep `interval + call timeout <= heartbeat timeout - 10 s`, against the heartbeat timeout the Step uses. Its default is in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
+- Keep the default heartbeat timeout when the loop fits it, so a stalled Worker is detected quickly. Raise it only when a healthy call is silent longer.
 - Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
+- A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. The total duration bounds the time. Never use a large attempt count as a time bound.
 - Use the language's plain sleep. Do not add cancellation-select machinery around it: the call has its own timeout, and after a canceled attempt the next call fails fast.
-- Every wait limit comes from the Step options, and Dex enforces each one. The Step code never computes a deadline, and neither the checkpoint nor the input carries one.
+- The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and after a failure the total duration decides whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
 - The checkpoint is only resume state, such as the last reported status.
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
 - Write Stream frames only on status changes. Consumers recover from Attributes or a read-only RPC.
@@ -312,7 +347,7 @@ A Timer is a durable Condition, not an in-process timer. Define skip, cancellati
 Fixed-interval recurring work in one durable Flow. It is not calendar cron. Go folder: `cron`.
 
 ```text
-Init.execute(schedule) -> validate positive interval and run count, else forceFail
+ValidateSchedule.execute(schedule) -> validate positive interval and run count, else forceFail
                           goTo(WaitForSchedule, state)
 WaitForSchedule.waitFor -> AnyOf(Timer(interval), TriggerNow.ForOne(), SkipNext.ForOne())
 WaitForSchedule.execute
@@ -357,15 +392,24 @@ Take inbound messages, such as replies in a conversation or ticket, until a reso
 ```text
 rpc sendReply(text)       -> validate text; if invalid: return a rejection
                              Replies.publish(text); return accepted
-rpc resolve(reason)       -> Resolutions.publish(reason)
+rpc resolve(reason)       -> if reason is empty: return a rejection
+                             Resolutions.publish(reason)
 
-AwaitInbound.waitFor      -> AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
-AwaitInbound.execute
+AwaitInbound.waitFor(pendingResolution)
+    if pendingResolution: Until(Replies.AtLeast(1))         // drain before closing
+    else: AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
+AwaitInbound.execute(pendingResolution)
     if the Timer fired:    goTo(CloseInactive)
     replies = Replies.conditionResults()
     if replies is empty:   goTo(Resolve, Resolutions.conditionResults()[0])
     Transcript.set(Transcript.get() + replies)
-    goTo(AwaitInbound)     // a new execution of the same Step: a fresh Timer
+    if pendingResolution:  goTo(Resolve, pendingResolution)
+    goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
+
+Resolve.execute(reason)
+    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
+CloseInactive.execute      // a reply or resolution committed before the empty check reopens the wait
+    forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
 ```
 
 - The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
@@ -374,7 +418,9 @@ AwaitInbound.execute
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- A reply accepted after the resolution but before the Flow closes is not recorded if Resolve completes at once. When every accepted reply must be kept, Resolve completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). Its fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
+- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
+- The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
+- When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
 Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 
@@ -431,6 +477,7 @@ Handle the overall Flow deadline with application logic. Go folder: `timeout`.
 - The deadline belongs to the Flow, not a competing Step. Start the Flow with a positive timeout and the handler policy, and implement the Flow's timeout handler.
 - The handler has Execute semantics and its own options. On success, Dex applies its staged writes, deletions, publications, and decision. If it exhausts its retries, the Flow fails, or it routes to a no-input recovery Step.
 - Record a business outcome and perform bounded cleanup. See [flow.md](flow.md#timeout-handler).
+- Active Steps keep running while the handler runs, including Steps that wait on a Channel or a Timer. When the handler commits ForceComplete or ForceFail, Dex starts closing the Flow and cancels them. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. The handler can commit after the deadline, because it waits for a Worker and may retry; to start closing when the Timer fires, use the fail or cancel timeout policy.
 
 ## Drain Channels
 
@@ -441,35 +488,49 @@ Choose by who publishes. Keep accepted messages durable and define when publicat
 Producers and consumers are branches of one Flow; finish only after every published message is handled. Go folder: `drain-channels/internal-drain`.
 
 ```text
-Init.execute -> goToMany(Consume, Produce)
-Produce.execute -> Commands.publish(command); goTo(Produce) ... then goTo(Finalize)
-Finalize.execute -> Commands.publish(final sentinel); gracefulComplete()
-Consume.waitFor -> Until(Commands.ForOne())
-Consume.execute -> if sentinel: gracefulComplete() else: handle; goTo(Consume)
+StartImport.execute -> goToMany(WriteRecords, ReadPages)
+ReadPages.execute -> Commands.publish(page); goTo(ReadPages) ... then goTo(PublishEndMarker)
+PublishEndMarker.execute -> Commands.publish(end marker); gracefulComplete()
+WriteRecords.waitFor -> Until(Commands.ForOne())
+WriteRecords.execute -> if end marker: gracefulComplete(report) else: write; goTo(WriteRecords)
 ```
 
-- The Channel is FIFO, so the consumer sees the sentinel only after every earlier message.
-- With several producers, Finalize waits for all of them before publishing the sentinel.
+- The Channel is FIFO, so the consumer sees the end marker only after every earlier message.
+- With several producers, the end-marker Step waits for all of them before publishing it.
 
 ### Drain an external Channel
 
 Bursty external messages; the Flow stays short and restarts on the next message. Go folder: `drain-channels/external-publishing`.
 
 ```text
-Process.waitFor(message) -> if message is empty: Until(Queue.ForOne())
-                            else: SkipWaitImmediately
-Process.execute -> handle the message
-                   forceCompleteIfChannelsEmpty([Queue], else goTo(Process, empty))
+HandleMessage.waitFor(message) -> if message is empty: Until(Queue.ForOne())
+                                  else: SkipWaitImmediately
+HandleMessage.execute -> handle the message
+                         forceCompleteIfChannelsEmpty([Queue], else goTo(HandleMessage, empty))
 rpc publishExternalMessage -> Queue.publish(message)
 
-Controller:
-    try invokeRPC(flowId, publishExternalMessage, message)
-    on missing-or-inactive: startFlow(flowId, input = message)
-    other errors: return them
+Controller(entityId, message):                   // flowId = entityId; message has a stable ID
+    repeat a few times:
+        try startFlow(flowId, input = message, reuse = allow if not running,
+                      requestId = "start:" + message.id, ignore already started)
+            return accepted
+        on already started:                     // a different start request owns the active run
+            try invokeRPC(flowId, publishExternalMessage, message,
+                          requestId = "publish:" + message.id)   // where the SDK supports it
+                return accepted
+            on missing-or-inactive: continue    // that run closed; start again
+        other errors: return them
+    return unconfirmed with message.id          // outcome unknown; the caller sends it again
 ```
 
+- A retried start returns the original run while that run is still the latest run for the Flow ID and its start request ID matches.
+
+- "Accepted" means the run accepted the message, not that a Step handled it.
+- One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.
+- The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
 - The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty.
 - Only one Step may consume a Channel that the decision checks.
+- When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
 ## Interruptible execution
 
@@ -535,7 +596,7 @@ AwaitOfferResponse.execute
 Let parallel branches of one Flow take turns on a sequence of Steps, such as several reviewers editing one contract. Go folder: `critical-section`.
 
 ```text
-Start.execute(edits)
+OpenContractEdits.execute(edits)
     Token.publish("contract")                      // exactly one token, before any branch waits on it
     goToMany(for each edit: Enter(edit), Join(count))
 
@@ -590,6 +651,7 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
 - A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
+- Once the decision is final, close without consuming the cancel Channel. Do not close with ForceCompleteIfChannelsEmpty on it and fall back to a cancel path: a late cancel would then override the decision. A cancel accepted after the decision stays pending until the Flow closes.
 - Treat not found, not active, and closing from StopFlow as already stopped. Execute may retry, and the child may finish at the same moment.
 - Inject a Client provider through the Flow constructor. Record the stopped child Flow ID in an Attribute when operators or tests need it.
 - One cancel message satisfies one wait. When several Steps each hold a child, each needs its own message: a ChannelMap key per Step, or one publish per Step.
@@ -718,6 +780,8 @@ rpc getProfile(email)          // invocation options: load only chunks[partition
 ## Durable AI agents
 
 Use when Dex owns an agent's conversation, model calls, tools, approvals, and long waits. Example: `products/ai-agent` in Go, Python, and TypeScript.
+
+The released dex-agents packages implement this shape. When you use them, check their message retention and paging defaults against the history the product must keep and show. See [message retention and paging in the agents reference](https://docs.superdurable.io/reference/agents/session-limits#message-retention).
 
 ### Own the model context in Dex
 

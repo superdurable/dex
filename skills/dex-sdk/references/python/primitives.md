@@ -272,6 +272,15 @@ class ChargeInBatches(Step[OrderRequest]):
   durability, locks, loads, `wait_for_failure=WaitForFailurePolicy.PROCEED`,
   and the execute failure route. `on_execute_failure_proceed_to` returns a
   copy; Registry rejects a fallback Step with a different input type.
+- The default `heartbeat_timeout` is short. If the attempt reaches its
+  heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
+  the attempt; raising only `execute_method_timeout` keeps that deadline. A
+  Step with a call that can stay silent that long sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
+  heartbeats from a loop of short calls. It also sets
+  `execute_retry=RetryPolicy(maximum_attempts=n, total_duration=d)` with `d`
+  sized as in [step.md](../core/step.md#time-bounds), such as about `n` times
+  `execute_method_timeout` plus backoff. The defaults are in
+  the [StepOptions reference](https://docs.superdurable.io/reference/python/step-options#defaults).
 - Durability: `StepDurability.DEFAULT`, `SYNC`, or `ASYNC` per method; a Flow
   default goes in `StartFlowOptions(config_override=FlowConfig(step_durability=...))`.
 - `get_last_heartbeat_value(T)` returns `None` when no checkpoint exists.

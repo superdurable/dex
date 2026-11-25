@@ -144,6 +144,8 @@ impl Step for AwaitApproval {
 - `.cancel_sibling_step(&Step)` cancels executions of that Step type scheduled
   by the same predecessor. `.cancel_step(&Step)` cancels every execution of
   it. Steps created by the same decision are not canceled.
+- First-win losers and branches of a cancelling join give each call a short
+  timeout and check `context.is_cancelled()` after it returns.
 - Clone owned input only where two movements need it.
 
 ## StepOptions
@@ -166,6 +168,15 @@ fn options(&self) -> StepOptions<Self::Input> {
   (`initial_interval`, `backoff_coefficient`, `maximum_interval`,
   `maximum_attempts`, `total_duration`). Bound retries whenever a recovery
   route must eventually run.
+- The default `heartbeat_timeout` is short. If the attempt reaches its
+  heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
+  the attempt; raising only `execute_method_timeout` keeps that deadline. A
+  Step with a call that can stay silent that long sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
+  heartbeats from a loop of short calls. It also sets `maximum_attempts(n)` and
+  `total_duration(d)` on `execute_retry`, with `d` sized as in
+  [step.md](../core/step.md#time-bounds), such as about `n` times
+  `execute_method_timeout` plus backoff. The defaults are in the
+  [StepOptions reference](https://docs.superdurable.io/reference/rust/step-options#defaults).
 - Failure routes: `on_execute_failure_proceed_to(&Recovery)` and
   `wait_for_failure(WaitForFailurePolicy::Proceed)`. See
   [error-handling.md](error-handling.md).
@@ -505,13 +516,13 @@ building blocks:
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drain_channels` |
-| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])` | `patterns/drain_channels` |
+| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts first with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)`, a per-message `.request_id(...)`, and `.ignore_already_started(true)`; on `SdkError::FlowAlreadyStarted`, publish with `invoke_rpc_with_options` and `RpcInvokeOptions::request_id` where the installed SDK has it | `patterns/drain_channels` |
 | Interruptible | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
 | Wait for Step completion | `wait_for_step_completion` after start | `patterns/wait_for_step_completion` |
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |
@@ -586,10 +597,10 @@ fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<S
 - "Not ready" stays inside the loop. Only transient provider failures return
   `Err`, so Step retry runs again.
 - Give each provider call its own timeout, and keep
-  `POLL_INTERVAL + call timeout <= heartbeat timeout - 10 s`. With the
-  one-minute default and a 10-second call timeout, `POLL_INTERVAL` is at most
-  40 seconds. Keep the one-minute default unless a healthy call is silent
-  longer.
+  `POLL_INTERVAL + call timeout <= heartbeat timeout - 10 s`, against the
+  heartbeat timeout the Step sets. Raise it only when a healthy call is silent
+  longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/rust/step-options#defaults).
 - Keep `maximum_attempts` small, such as 3 to 5. `total_duration` bounds the
   time; never use a large attempt count as a time bound.
 - `execute_method_timeout`, `total_duration`, and the failure route bound the

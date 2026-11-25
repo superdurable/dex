@@ -135,6 +135,9 @@ public class OrderFlow implements Flow<OrderRequest> {
   the same predecessor. `.withCancelingSteps(X.class)` cancels every execution
   of `X`. Steps created by the same decision are not canceled. These varargs
   methods produce an unchecked-generics warning; suppress it locally.
+- First-win losers and branches of a cancelling join: Dex interrupts the
+  handler thread, so return after an interrupt and check
+  `context.isCancellationRequested()` between bounded calls.
 
 ## StepOptions
 
@@ -161,6 +164,15 @@ public StepOptions getStepOptions() {
   (`initialInterval`, `backoffCoefficient`, `maximumInterval`,
   `maximumAttempts`, `totalDuration`). Bound retries whenever a recovery route
   must eventually run.
+- The default `heartbeatTimeout` is short. If the attempt reaches its
+  heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
+  the attempt; raising only `executeMethodTimeout` keeps that deadline. A Step
+  with a call that can stay silent that long sets `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
+  heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
+  `totalDuration(d)` on `executeRetry`, with `d` sized as in
+  [step.md](../core/step.md#time-bounds), such as about `n` times
+  `executeMethodTimeout` plus backoff. The defaults are in the
+  [StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults).
 - Failure routes: `onExecuteFailureProceedTo(Recovery.class)` and
   `waitForFailure(WaitForFailurePolicy.PROCEED)`. See
   [error-handling.md](error-handling.md).
@@ -485,13 +497,13 @@ building blocks:
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drainchannels` |
-| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)` | `patterns/drainchannels` |
+| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)`, a per-message `.requestId(...)`, and `.ignoreAlreadyStarted(true)`; on `FlowAlreadyStartedException`, publish with `RPCInvokeOptions` and a per-message request ID where the installed SDK has it | `patterns/drainchannels` |
 | Interruptible | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |
@@ -530,9 +542,10 @@ ready" inside the loop, throws only transient errors, writes a Stream message
 or `recordHeartbeat` each round, then `Thread.sleep(interval)`. Restore the
 interrupt flag on `InterruptedException`. Bound the whole wait with
 `executeMethodTimeout`, `RetryPolicy.totalDuration`, and a failure route. Keep
-`interval + call timeout <= heartbeatTimeout - 10 s`: with the one-minute
-default and a 10-second call timeout, the interval is at most 40 seconds. Keep
-the one-minute default unless a healthy call is silent longer. Keep
+`interval + call timeout <= heartbeatTimeout - 10 s`, against the
+`heartbeatTimeout` the Step sets. Raise it only when a healthy call is silent
+longer; the default is in the
+[StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults). Keep
 `maximumAttempts` small, such as 3 to 5; `totalDuration` bounds the time, never
 a large attempt count. Never loop through a
 WaitFor Timer, `RetryAfterException`, or a hand-written deadline. Copy the

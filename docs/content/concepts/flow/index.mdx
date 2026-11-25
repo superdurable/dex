@@ -199,8 +199,49 @@ A Flow closes in one of these ways:
   [Flow close by a new start](/reference/server/runtime-data#flow-close-by-new-start).
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
-decides the outcome. While the Flow runs, clients read and change it through
+decides the outcome. Active Steps keep running while the handler runs. When
+the handler commits a force-complete or force-fail decision, Dex starts
+closing the Flow. The handler can commit after the deadline. While the Flow runs, clients read and change it through
 its RPCs.
+
+## Child Flows with their own identity {#child-flows}
+
+Some child jobs need their own business identity. People look them up,
+retry them, or stop them by their own number, or other systems start them.
+Model such a job as its own top-level Flow. A Step of the parent starts it
+through a Client, with a stable Flow ID and request ID. A SubFlow does not
+fit here, because Dex derives a SubFlow's ID from its parent.
+
+The parent receives each child's result durably:
+
+- The child commits its outcome to an Attribute in one Step. A next Step
+  reports to the parent through an RPC that publishes to a Channel. The
+  report Step must not run before the outcome commits, so both Steps keep
+  the default SYNC durability; see
+  [Durability](/reference/python/step-options#durability). The report carries
+  a stable request ID. Or a polling Step of the parent waits for the child's
+  terminal state.
+- The parent keeps one record per child, keyed by its Flow ID, with the
+  outcome and the terminal status as separate fields. A report or a read
+  fills in what is missing, and a repeat changes nothing. Give each business
+  attempt its own child Flow ID.
+- When several entry points can start the same child, they derive the same
+  Flow ID and request ID from the same request. Otherwise the start reports
+  that the Flow already started: read that run and track it only when its
+  business identity matches.
+- Each child has its own Flow timeout. A closing parent never stops its
+  children.
+- The parent reconciles every child it stops from the child's stored state.
+  A client stop starts no new handlers in the child, so the child may never
+  report. A running handler can ignore cancellation, so a report already sent
+  can still arrive. After a stop, a refused stop, or a timer for unreported
+  children, the parent describes the child first. It records a closed child's
+  terminal status and stored outcome. It reads a running child again later.
+  A child that does not exist is recorded by business policy, such as
+  "unavailable". It returns any other error, so the Step retries.
+- A report that still arrives after the stop fills the same record. Children
+  that finish after a quorum, or while the parent stops the rest, still count
+  in the parent's result.
 
 ## Identifiers {#identifiers}
 
@@ -217,6 +258,11 @@ identifiers keep them apart.
 
 Most SDKs use the language's type name as the `FlowType` unless you
 override it. Do not change these names while runs are open.
+
+Name every Flow and Step type after its domain. One `StepType` runs the same
+work on many inputs. Different kinds of work, such as calls to different
+services, get their own Step types, so the graph shows them and each has its
+own options.
 
 ## Start options and configuration {#start-options}
 

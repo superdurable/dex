@@ -22,7 +22,7 @@ idiom matters. Examples live under
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
 | Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
 | Internal Channel drain | [drain-channels/internal-drain/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/internal-drain/workflow.go) | Finalize after accepted messages drain |
-| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty` |
+| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty`; the controller starts first with `IDReusePolicy: dex.IDReuseAllowIfNotRunning`, a per-message `RequestID`, and `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`; on `FlowAlreadyStartedError` it publishes with `InvokeRPCWithOptions` and a per-message `RequestID` |
 | Interruptible work | [interruptible/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/interruptible/workflow.go) | Bounded slices; check the signal between them |
 | Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
 | Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
@@ -38,7 +38,7 @@ var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
 
 type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (awaitInit) GetStepType() string { return "Init" }
+func (awaitInit) GetStepType() string { return "SplitItems" }
 
 func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
 	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
@@ -96,6 +96,10 @@ func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecisio
 - A partial join waits `ForBranches(round, n)` or `ForFirstBranch(round)`, and
   the next round's split Step resets with `ForRemainingBranches`; see
   [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go).
+- First-win losers and branches of a cancelling join pass `ctx` to calls that
+  accept it, such as `http.NewRequestWithContext(ctx, ...)`. Withdraw with a
+  fresh bounded context, not the canceled `ctx`; `ctx.Err()` also follows a
+  method or heartbeat timeout.
 
 ## Polling
 
@@ -175,10 +179,10 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 
 - Bound each call with `context.WithTimeout(ctx, ...)`. Do not `select` on
   `ctx.Done()` around `time.Sleep`; Dex cancels `ctx` on expiry.
-- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`. With the
-  one-minute default and a 10-second call timeout, `pollInterval` is at most
-  40 seconds. Keep the one-minute default unless a healthy call is silent
-  longer.
+- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`, against
+  the `HeartbeatTimeout` the Step sets. Raise it only when a healthy call is
+  silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - `MaximumAttempts` stays small, such as 3 to 5. `TotalDuration` bounds the
   time; never use a large attempt count as a time bound.
 - `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
@@ -237,6 +241,10 @@ func (*ConversationFlow) SendReply(ctx dex.Context, text string) (*dex.RPCResult
 }
 
 func (*ConversationFlow) ResolveConversation(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	// An empty pending resolution means "none", so an empty reason is invalid.
+	if strings.TrimSpace(reason) == "" {
+		return nil, errors.New("resolution reason is empty")
+	}
 	if err := Resolutions.Publish(ctx, reason); err != nil {
 		return nil, err
 	}
@@ -247,7 +255,12 @@ type awaitInbound struct {
 	dex.StepDefaults
 }
 
-func (awaitInbound) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+// The input is a pending resolution reason, or "" while the conversation is open.
+func (awaitInbound) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait, error) {
+	if pendingResolution != "" {
+		// Drain replies accepted before the Flow closes.
+		return dex.Until(Replies.AtLeast(1)), nil
+	}
 	// Replies are declared before Resolutions, so queued replies win first.
 	return dex.AnyOf(
 		Replies.AtLeast(1),
@@ -256,7 +269,7 @@ func (awaitInbound) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
 	), nil
 }
 
-func (awaitInbound) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (awaitInbound) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.GoTo(closeInactiveConversation{}, nil), nil
 	}
@@ -279,7 +292,10 @@ func (awaitInbound) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, err
 	if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(awaitInbound{}, nil), nil
+	if pendingResolution != "" {
+		return dex.GoTo(resolveConversation{}, pendingResolution), nil
+	}
+	return dex.GoTo(awaitInbound{}, ""), nil
 }
 
 type resolveConversation struct {
@@ -287,7 +303,11 @@ type resolveConversation struct {
 }
 
 func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("resolved: " + reason), nil
+	return dex.ForceCompleteIfChannelsEmpty(
+		"resolved: "+reason,
+		[]dex.ChannelDef{Replies},
+		dex.MovementOf(awaitInbound{}, reason),
+	), nil
 }
 
 type closeInactiveConversation struct {
@@ -295,14 +315,24 @@ type closeInactiveConversation struct {
 }
 
 func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("inactive"), nil
+	// A reply or resolution committed before the empty check reopens the wait.
+	return dex.ForceCompleteIfChannelsEmpty(
+		"inactive",
+		[]dex.ChannelDef{Replies, Resolutions},
+		dex.MovementOf(awaitInbound{}, ""),
+	), nil
 }
 ```
 
-- The Step locks nothing, because it is the only writer of `Transcript`. If
-  an RPC wrote `Transcript`, both would need its lock, and replies would fail
-  with lock conflicts while the Step runs.
+- The waiting Step locks nothing, because it is the only writer of
+  `Transcript`. If an RPC wrote `Transcript`, both would need its lock, and
+  replies would fail with lock conflicts while the Step runs.
 - `Replies.AtLeast(1)` takes every queued reply in one execution.
+- Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
+  a reply committed before the empty check is still recorded. The fallback
+  returns to `awaitInbound` with the pending resolution. The inactivity close
+  also checks `Resolutions` and reopens the wait.
+- Start the Flow with `""` as its input: no pending resolution.
 
 ## Durable Timer
 

@@ -2,7 +2,7 @@
 
 The Client is the application's boundary to Dex. It starts, stops, inspects, and searches Flows, reads committed Attributes, invokes typed RPCs, waits for state, and reads or writes Streams. It needs only the Dex Server address and the same registry and payload configuration as the Workers. See [application.md](application.md) for wiring.
 
-Inside a Step or RPC handler, read and write through the Context, never through a Client. A Step may hold an injected Client only to start or call another top-level Flow.
+Inside a Step or RPC handler, read and write through the Context, never through a Client. A Step may hold an injected Client only to act on another top-level Flow: start it, call its RPCs, stop it, or read its state and result.
 
 ## The Flow owns decisions and status
 
@@ -109,11 +109,14 @@ Attribute match:
 
 Step completion confirms that one Step execution committed. It returns no Step output and does not wait for the Flow.
 
-WaitForFlow returns the terminal status and output. Use it when the caller needs engine completion, not as a business read.
+WaitForFlow returns the terminal status and output. Use it when the caller needs engine completion.
+
+Every result or status a user must see has a durable read path: a result Attribute that a Client Attribute read returns, or the Flow's completion output from WaitForFlow. Write a report that must survive a failure or stay readable while the Flow runs to an Attribute, not only to the output.
 
 ## Lifecycle APIs
 
-- StopFlow cancel asks the Flow to stop cooperatively. Fail closes it as failed with a reason. Terminate closes it at once. Each records a different terminal status. None proves provider cleanup or projection completion.
+- StopFlow cancel closes the run as canceled. Fail closes it as failed with a reason. Terminate closes it as terminated. Each records a different terminal status. None proves provider cleanup or projection completion.
+- Cancel, fail, and terminate close the run when the stop commits. They start no new application code: no later Step decision, failure route, or cleanup runs, so the stopped Flow runs no report or cleanup path of its own. Running Steps get a cancellation signal. A handler that ignores it can keep running and make more external calls, including calls to another Flow; Dex discards its uncommitted result. Whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
 - A later write to a closed run is rejected. Write what the Flow needs before you stop it.
 - DescribeFlow on a missing ID, or an ID that is not a Flow, returns Flow not found.
 - SearchFlows excludes internal Flow runs. A generic-slot query must constrain FlowType. Keep the query unchanged across pages.

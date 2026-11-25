@@ -12,7 +12,9 @@ Process Channel messages that clients publish, and complete the Flow as soon as 
 
 Use this pattern when messages come from outside the Worker, possibly in bursts. A Client calls an RPC that appends each message to the Channel. The Flow completes as soon as the Channel is empty, so it runs only while there is work. The next message starts it again.
 
-`ProcessMessage` returns a `ForceCompleteIfChannelsEmpty` decision. Dex checks the Channel when it saves that decision, so no message can arrive between the check and the completion. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its `Execute`, Dex takes the fallback movement back to `ProcessMessage` instead.
+The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. `ProcessMessage` owns that state, so concurrent RPCs never hit a lock conflict.
+
+`ProcessMessage` returns a `ForceCompleteIfChannelsEmpty` decision. Dex checks the Channel when it saves that decision and records the close decision in the same commit. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its `Execute`, Dex takes the fallback movement back to `ProcessMessage` instead.
 
 Only one Step may consume a Channel checked by `ForceCompleteIfChannelsEmpty`.
 
@@ -389,69 +391,139 @@ impl Step for DrainChannel {
 
 ## Controller
 
-The controller first calls the publishing RPC on the running Flow. If Dex reports that the Flow is not running, the controller starts a new Flow run with the same Flow ID and the message as its start input. It returns any other error to its caller.
+Each entity has one stable Flow ID and at most one active run. The run handles messages in the order their publications commit.
+
+The controller first starts a Flow run with the entity's Flow ID and the message as its start input. The start allows reuse of a Flow ID whose run closed. Its request ID is fixed per message, and it ignores the already-started error for that request ID. A retried start returns the original run while that run is still the latest run for the Flow ID and its start request ID matches. When a different start request owns the active run, the start reports that the Flow already started. The controller then calls the publishing RPC on that run, with a request ID derived from the message ID where the SDK offers RPC request IDs. If that run closed before the publish, the controller starts again. A success response means the run accepted the message, not that a Step handled it. After a few attempts, the controller returns HTTP 409 with the message ID: the outcome is unknown, and the caller sends the message again with the same ID. It returns any other error to its caller.
+
+When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
+def pattern_start_options(message_id: str) -> StartFlowOptions:
+    """Restarts a closed Flow ID.
+
+    A retried start returns the original run while that run is still the latest
+    run for the Flow ID and its start request ID matches.
+    """
+    return replace(
+        start_options(),
+        id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING,
+        request_id=f"start:{message_id}",
+        ignore_already_started=True,
+    )
+
+
 @blueprint.get("/start-or-publish")
-async def start_or_publish_draining_channel() -> str:
+async def start_or_publish_draining_channel() -> tuple[str, int]:
     flow_id = required_query("workflowId")
-    try:
-        await app_state.client.invoke_rpc(
-            app_state.drain_external.publish_external_channel_message,
-            flow_id,
-            "message from start-or-publish endpoint",
-        )
-    except FlowNotActiveOrNotFoundError:
-        run_id = await app_state.client.start_flow(
-            app_state.drain_external,
-            flow_id,
-            "first message from start-or-publish",
-            start_options(),
-        )
-        return f"Started the workflow with runId {run_id}"
-    return "Published to the Flow"
+    message_id = optional_query("messageId", "") or str(uuid.uuid4())
+    message = f"message {message_id}"
+    for _ in range(START_OR_PUBLISH_ATTEMPTS):
+        try:
+            run_id = await app_state.client.start_flow(
+                app_state.drain_external,
+                flow_id,
+                message,
+                pattern_start_options(message_id),
+            )
+            return (
+                f"Accepted message {message_id} as the start input of runId {run_id}",
+                200,
+            )
+        except FlowAlreadyStartedError:
+            # A different start request owns the active run: publish this message to that run.
+            pass
+        try:
+            await app_state.client.invoke_rpc(
+                app_state.drain_external.publish_external_channel_message,
+                flow_id,
+                message,
+            )
+            return f"Accepted message {message_id}", 200
+        except FlowNotActiveOrNotFoundError:
+            # That run closed before the publish: start again.
+            continue
+    return (
+        f"message {message_id} is unconfirmed; send it again with the same messageId",
+        409,
+    )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+// patternStartOptions restarts a closed Flow ID. A retried start returns the original run
+// while that run is still the latest run for the Flow ID and its start request ID matches.
+func patternStartOptions(messageID string) sdk.StartFlowOptions {
+	timeout := time.Hour
+	requestID := "start:" + messageID
+	return sdk.StartFlowOptions{
+		Timeout:        &timeout,
+		IDReusePolicy:  sdk.IDReuseAllowIfNotRunning,
+		RequestID:      &requestID,
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+	}
+}
+
 func (controller *controller) startOrPublish(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
 	}
-	var output string
-	err := controller.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		controller.flow.PublishExternalChannelMessage,
-		"message from start-or-publish endpoint",
-		&output,
-	)
-	if err == nil {
-		httputil.RespondString(request, "Published to the Flow", nil)
-		return
+	messageID := request.Query("messageId")
+	if messageID == "" {
+		messageID = uuid.NewString()
 	}
-	var inactive *sdk.FlowNotActiveOrNotFoundError
-	if !errors.As(err, &inactive) {
-		httputil.RespondString(request, "", err)
-		return
+	message := "message " + messageID
+	publishRequestID := "publish:" + messageID
+	for attempt := 0; attempt < startOrPublishAttempts; attempt++ {
+		runID, startErr := controller.client.StartFlow(
+			request.Request.Context(),
+			controller.flow,
+			flowID,
+			message,
+			patternStartOptions(messageID),
+		)
+		if startErr == nil {
+			httputil.RespondString(
+				request,
+				fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
+				nil,
+			)
+			return
+		}
+		var alreadyStarted *sdk.FlowAlreadyStartedError
+		if !errors.As(startErr, &alreadyStarted) {
+			httputil.RespondString(request, "", startErr)
+			return
+		}
+		// A different start request owns the active run: publish this message to that run.
+		var output string
+		err := controller.client.InvokeRPCWithOptions(
+			request.Request.Context(),
+			flowID,
+			controller.flow.PublishExternalChannelMessage,
+			message,
+			&output,
+			sdk.RPCInvokeOptions{RequestID: &publishRequestID},
+		)
+		if err == nil {
+			httputil.RespondString(request, fmt.Sprintf("Accepted message %s", messageID), nil)
+			return
+		}
+		var inactive *sdk.FlowNotActiveOrNotFoundError
+		if !errors.As(err, &inactive) {
+			httputil.RespondString(request, "", err)
+			return
+		}
+		// That run closed before the publish: start again.
 	}
-	runID, startErr := controller.client.StartFlow(
-		request.Request.Context(),
-		controller.flow,
-		flowID,
-		"first message from start-or-publish",
-		patternStartOptions(),
-	)
-	httputil.RespondString(
-		request,
-		fmt.Sprintf("Started the workflow with runId %s", runID),
-		startErr,
+	request.String(
+		http.StatusConflict,
+		fmt.Sprintf("message %s is unconfirmed; send it again with the same messageId", messageID),
 	)
 }
 ```
@@ -461,25 +533,49 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 
 ```java
 @GetMapping("/external-publishing/start-or-publish")
-ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
-    String response;
-    try {
-        final DrainingExternalChannelFlow stub = client.newRpcStub(
-                DrainingExternalChannelFlow.class,
-                workflowId);
-        client.invokeRPC(
-                stub::publishExternalChannelMessage,
-                "message from start-or-publish endpoint");
-        response = "Published to the Flow";
-    } catch (final FlowNotActiveOrNotFoundException inactive) {
-        final String runId = client.startFlow(
-                drainingExternalChannelFlow,
-                workflowId,
-                "first message from start-or-publish",
-                ExampleFlows.startOptions());
-        response = "Started the workflow with runId " + runId;
+ResponseEntity<String> startDrainingChannel(
+        @RequestParam final String workflowId,
+        @RequestParam(required = false) final String messageId) {
+    final String stableMessageId =
+            messageId == null || messageId.isEmpty() ? UUID.randomUUID().toString() : messageId;
+    final String message = "message " + stableMessageId;
+    final DrainingExternalChannelFlow stub = client.newRpcStub(
+            DrainingExternalChannelFlow.class,
+            workflowId);
+    for (int attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
+        try {
+            final String runId = client.startFlow(
+                    drainingExternalChannelFlow,
+                    workflowId,
+                    message,
+                    externalPublishingStartOptions(stableMessageId));
+            return ResponseEntity.ok(
+                    "Accepted message " + stableMessageId + " as the start input of runId " + runId);
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            // A different start request owns the active run: publish this message to that run.
+        }
+        try {
+            client.invokeRPC(stub::publishExternalChannelMessage, message);
+            return ResponseEntity.ok("Accepted message " + stableMessageId);
+        } catch (final FlowNotActiveOrNotFoundException inactive) {
+            // That run closed before the publish: start again.
+        }
     }
-    return ResponseEntity.ok(response);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(
+            "message " + stableMessageId + " is unconfirmed; send it again with the same messageId");
+}
+
+/**
+ * Restarts a closed Flow ID. A retried start returns the original run while that run is
+ * still the latest run for the Flow ID and its start request ID matches.
+ */
+private static StartFlowOptions externalPublishingStartOptions(final String messageId) {
+    return StartFlowOptions.newBuilder()
+            .timeout(Duration.ofHours(1))
+            .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+            .requestId("start:" + messageId)
+            .ignoreAlreadyStarted(true)
+            .build();
 }
 ```
 
@@ -487,30 +583,61 @@ ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowI
 <SdkSnippet lang="typescript">
 
 ```typescript
+/**
+ * Restarts a closed Flow ID. A retried start returns the original run while that run is still
+ * the latest run for the Flow ID and its start request ID matches.
+ */
+function externalPublishingStartOptions(messageId: string): StartFlowOptions {
+  return startOptions({
+    idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING,
+    requestId: `start:${messageId}`,
+    ignoreAlreadyStarted: true,
+  });
+}
+
 router.get("/start-or-publish", async (request, response) => {
   const workflowId = String(request.query.workflowId ?? "");
-  let message: string;
-  try {
-    await client.invokeRPC(
-      drainingExternalChannelFlow.publishExternalChannelMessage,
-      workflowId,
-      "message from start-or-publish endpoint",
-    );
-    message = "Published to the Flow";
-  } catch (error) {
-    if (isFlowMissingOrInactive(error)) {
+  const messageId = String(request.query.messageId ?? "") || randomUUID();
+  const message = `message ${messageId}`;
+  for (let attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
+    try {
       const runId = await client.startFlow(
         drainingExternalChannelFlow,
         workflowId,
-        "first message from start-or-publish",
-        startOptions(),
+        message,
+        externalPublishingStartOptions(messageId),
       );
-      message = `Started the workflow with runId ${runId}`;
-    } else {
-      throw error;
+      response.send(
+        `Accepted message ${messageId} as the start input of runId ${runId}`,
+      );
+      return;
+    } catch (error) {
+      // A different start request owns the active run: publish this message to that run.
+      if (!isFlowAlreadyStarted(error)) {
+        throw error;
+      }
+    }
+    try {
+      await client.invokeRPCWithOptions(
+        drainingExternalChannelFlow.publishExternalChannelMessage,
+        workflowId,
+        message,
+        { requestId: `publish:${messageId}` },
+      );
+      response.send(`Accepted message ${messageId}`);
+      return;
+    } catch (error) {
+      // That run closed before the publish: start again.
+      if (!isFlowMissingOrInactive(error)) {
+        throw error;
+      }
     }
   }
-  response.send(message);
+  response
+    .status(409)
+    .send(
+      `message ${messageId} is unconfirmed; send it again with the same messageId`,
+    );
 });
 ```
 
@@ -518,21 +645,48 @@ router.get("/start-or-publish", async (request, response) => {
 <SdkSnippet lang="rust">
 
 ```rust
+/// Restarts a closed Flow ID. A retried start returns the original run while that run is
+/// still the latest run for the Flow ID and its start request ID matches.
+fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(60 * 60))
+        .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
+        .request_id(format!("start:{message_id}"))
+        .ignore_already_started(true)
+}
+
 match run_blocking(move || {
     let flow = DrainingExternalChannelFlow::default();
-    match client.invoke_rpc(
-        &flow_id,
-        PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
-        "message from start-or-publish endpoint".to_string(),
-    ) {
-        Ok(_) => Ok("Published to the Flow".to_string()),
-        Err(error) if is_missing_or_inactive(&error) => client
-            .start_flow(&flow, &flow_id, "first message from start-or-publish".to_string())
-            .map(|run_id| format!("Started the workflow with runId {run_id}")),
-        Err(error) => Err(error),
+    let message = format!("message {message_id}");
+    for _ in 0..START_OR_PUBLISH_ATTEMPTS {
+        match client.start_flow_with_options(
+            &flow,
+            &flow_id,
+            message.clone(),
+            external_publishing_start_options(&message_id),
+        ) {
+            Ok(run_id) => {
+                return Ok(Ok(format!(
+                    "Accepted message {message_id} as the start input of runId {run_id}"
+                )));
+            }
+            // A different start request owns the active run: publish this message to that run.
+            Err(error) if is_already_started(&error) => {}
+            Err(error) => return Err(error),
+        }
+        match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
+            Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
+            // That run closed before the publish: start again.
+            Err(error) if is_missing_or_inactive(&error) => {}
+            Err(error) => return Err(error),
+        }
     }
+    Ok(Err(format!(
+        "message {message_id} is unconfirmed; send it again with the same messageId"
+    )))
 }) {
-    Ok(message) => ok_text(message),
+    Ok(Ok(message)) => ok_text(message),
+    Ok(Err(unconfirmed)) => (StatusCode::CONFLICT, unconfirmed).into_response(),
     Err(error) => map_sdk_error(error).into_response(),
 }
 ```

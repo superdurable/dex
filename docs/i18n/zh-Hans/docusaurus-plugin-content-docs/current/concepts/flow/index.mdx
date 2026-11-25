@@ -179,7 +179,20 @@ Flow 在以下情况下关闭：
 - client 停止它；
 - 用同一个 Flow ID 的新启动终止它；见[新启动关闭 Flow](/reference/server/runtime-data#flow-close-by-new-start)。
 
-timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。handler 运行时，活跃的 Step 继续运行。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow。handler 的提交可能晚于截止时间。Flow 运行期间，client 通过它的 RPC 读取和修改它。
+
+## 有自己身份的子 Flow {#child-flows}
+
+有些子任务需要自己的业务身份。人们按它自己的编号查找、重试或停止它，或者由别的系统启动它。把这样的任务建模为独立的顶层 Flow。父 Flow 的一个 Step 通过 Client 启动它，使用稳定的 Flow ID 和 request ID。SubFlow 不适合这里，因为 Dex 从父 Flow 推导 SubFlow 的 ID。
+
+父 Flow 持久地接收每个子 Flow 的结果：
+
+- 子 Flow 在一个 Step 里把结果提交到 Attribute，下一个 Step 再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。报告 Step 不能在结果提交之前运行，所以这两个 Step 保持默认的 SYNC durability；见 [Durability](/reference/python/step-options#durability)（英文）。报告带一个稳定的 request ID。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
+- 父 Flow 为每个子 Flow 保留一条记录，以子 Flow ID 为键，结果和终态是分开的字段。报告或读取补上缺的字段，重复的报告不改变任何东西。每次业务尝试都用自己的子 Flow ID。
+- 多个入口可能启动同一个子 Flow 时，它们从同一个请求推导出相同的 Flow ID 和 request ID。否则启动会报告 Flow 已经启动：读取那个 run，只有业务身份匹配时才跟踪它。
+- 每个子 Flow 有自己的 Flow timeout。父 Flow 关闭时不会停止它的子 Flow。
+- 父 Flow 根据子 Flow 存储的状态，对它停止的每个子 Flow 对账。client 停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先 describe 子 Flow。已关闭的子 Flow 记录终态和已存储的结果。仍在运行的子 Flow 稍后再读。确实不存在的子 Flow 按业务策略记录，比如 "unavailable"。其他错误直接返回，让 Step 重试。
+- 停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，仍然计入父 Flow 的结果。
 
 ## 标识符 {#identifiers}
 
@@ -194,6 +207,8 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 | `StepExecutionID` | Dex Server | 某个 Step 类型的一次执行，格式为 **StepType-Number**。 |
 
 大多数 SDK 默认用语言里的类型名作为 `FlowType`，你也可以显式覆盖。还有 Flow run 在运行时，不要改这些名称。
+
+每个 Flow 类型和 Step 类型都按业务领域命名。一个 `StepType` 对多个输入做同一种工作。不同种类的工作，比如调用不同的服务，用各自的 Step 类型，这样图上能看出它们，每种也能有自己的选项。
 
 ## Start options 和配置 {#start-options}
 

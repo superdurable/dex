@@ -144,14 +144,14 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 | Bound | Meaning |
 | --- | --- |
-| Method timeout | Bounds one attempt, from hand-out. The only bound on a single attempt. |
-| Heartbeat timeout | Fails an Execute attempt that stays silent longer. Detects a stalled Worker sooner than the method timeout. |
+| Method timeout | Sets the total time limit of one attempt, from hand-out. |
+| Heartbeat timeout | Can end a WaitFor or Execute attempt earlier when it makes no progress: no heartbeat or Dex Stream write for that long. Detects a stalled Worker sooner than the method timeout. |
 | Retry total duration | Starts at the first hand-out. Checked only after an attempt fails, to decide whether to retry. It never ends a running attempt, so the last attempt can end after it. Queue time after backoff counts toward it. |
 | Attempt deadline | The absolute end of the current attempt, supplied by the Server on the Context. |
 
 - To bound one long attempt, set the method timeout, not the retry total duration.
-- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff.
-- Always set the retry total duration explicitly for a long-running Step, because its default is long.
+- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. After a failure, Dex uses the total duration only to decide whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. A business deadline for the Flow uses a durable Timer, as in the [Polling watchdog](patterns.md#polling); an external call's hard deadline is its own timeout.
+- Always set the retry total duration explicitly for a long-running Step, and decide what it bounds. To keep retries inside a wait window, use the rule above. To allow several near-full-length attempts, size it at about maximum attempts times the method timeout, plus the backoff between them. That is an estimate, not a guarantee: RetryAfter delays and queue time after backoff also use the budget. With long attempts, the default budget can stop retries before the attempt count is reached.
 - Use the attempt deadline to size an external call's timeout and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout.
 - When an external call needs a stricter deadline, wrap it in a child context or the SDK's cancellation mechanism.
 - Do not infer durability from a large attempt timeout. The timeout is a safety bound.
@@ -162,7 +162,8 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - A heartbeat value is a retry checkpoint. The next attempt receives the last stored value.
 - An explicit valueless heartbeat clears the checkpoint. A Stream message keeps the current one.
 - Heartbeats are not acknowledged. A returned heartbeat call does not prove Dex stored it, even for SYNC. Checkpoints are batched; the next attempt may get an older value. Never use a checkpoint as the only record of an external effect.
-- The default heartbeat timeout is short. A non-streaming provider call, such as a long LLM generation, is silent for its whole duration and fails a healthy attempt. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
+- The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If the attempt reaches its heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out the attempt; raising only the method timeout keeps that deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
+- A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), sets its call timeout and interval so the longest real silent interval stays below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
 
 ### Retry and failure policy

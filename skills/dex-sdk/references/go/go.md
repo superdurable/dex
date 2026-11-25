@@ -215,7 +215,7 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 - An RPC that Dex Web calls is named by `RPCOptions.Name` when set. That name
   must be a compile-time string. Do not rename the Summary and Display view
   RPCs.
-- Validate with `dexcli visualize <source> --schema-version 2.0`. See the
+- Validate with `dexcli visualize <flow-source> --json`. See the
   [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
 
 ## Go gotchas
@@ -242,6 +242,7 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 
 - [ ] Every Flow, Step, Attribute, Channel, Stream, and map is registered.
 - [ ] Type names follow the default-name rule.
+- [ ] Flow and Step types are domain names, never `Init`, `Start`, or `Process`.
 - [ ] Every error is returned or matched with `errors.As`; none is parsed from text.
 - [ ] Every Client call has a deadline.
 - [ ] External effects use an idempotency key from durable identity.

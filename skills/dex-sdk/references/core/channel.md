@@ -32,6 +32,7 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - Dex drops the consumed messages only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout. Drain a Channel before a graceful close when its messages matter, for example with ForceCompleteIfChannelsEmpty. Do not publish work in the same result that force-closes the Flow (ForceComplete, ForceFail, or a closing ForceCompleteIfChannelsEmpty) if the work must survive. The exact cases, and what a canceling commit does with its own publications, are in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
 - Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).
+- Drain only Channels whose late messages must still be handled. A cancel or withdrawal Channel stays undrained once the decision is final: draining it would let a late cancel override the decision. See [Cancel with child Flows](patterns.md#cancel-with-child-flows).
 
 ## Read pending messages
 

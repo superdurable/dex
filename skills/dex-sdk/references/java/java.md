@@ -217,6 +217,28 @@ there. See
 - Read [../core/application.md](../core/application.md) for routing, retries
   across Worker restarts, heartbeats, and shutdown guarantees.
 
+## Dex Web metadata
+
+The FDG 2.0 analyzer reads Java source. Put exactly one group line and one
+explanation line as `//` comments directly above each local Step class, above
+its annotations. The group ID is kebab-case, and the explanation is one
+sentence:
+
+```java
+// dex:group group-id:lookup group-label:"Lookup"
+// dex:explanation text:"Look up a catalog record."
+class LookupRecord implements Step<String> {
+    public Class<String> getInputType() { return String.class; }
+
+    public StepDecision execute(Context context, String input) {
+        return StepDecision.gracefulComplete(input);
+    }
+}
+```
+
+Then run `dexcli visualize <flow-source> --json` and fix every error.
+See [Flow visualization](https://docs.superdurable.io/reference/web/flow-visualization).
+
 ## What Java does not have
 
 - There is no Java Connector SDK. Do not invent a Java loader for Dex Web
@@ -242,6 +264,8 @@ there. See
 ## Self-check
 
 - [ ] Flow class named after its domain, not `final` if it has RPCs.
+- [ ] Step classes are domain names, never `Init`, `Start`, or `Process`.
+- [ ] Every local Step class has one `// dex:group` and one `// dex:explanation` line above it, as in [Dex Web metadata](#dex-web-metadata).
 - [ ] Every reachable Step in `getSteps()`; every definition in `getPersistenceSchema()`.
 - [ ] Step inputs are concrete classes; DTO wire names are stable.
 - [ ] Client code uses the registered Flow's definition objects.
