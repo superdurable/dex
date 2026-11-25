@@ -17,7 +17,12 @@
 package io.superdurable.dex.patterns.deferredchoice;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.FlowClosingException;
+import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
+import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -59,7 +64,8 @@ public class OfferResponseController {
             @RequestParam final String workflowId,
             @RequestParam final String note) {
         final OfferResponseFlow stub = client.newRpcStub(OfferResponseFlow.class, workflowId);
-        return respond(invokeResponseRpc(() -> client.invokeRPC(stub::acceptCustomerOffer, note)));
+        return respond(invokeResponseRpc(
+                workflowId, () -> client.invokeRPC(stub::acceptCustomerOffer, note)));
     }
 
     @GetMapping("/reject")
@@ -67,7 +73,8 @@ public class OfferResponseController {
             @RequestParam final String workflowId,
             @RequestParam final String note) {
         final OfferResponseFlow stub = client.newRpcStub(OfferResponseFlow.class, workflowId);
-        return respond(invokeResponseRpc(() -> client.invokeRPC(stub::rejectCustomerOffer, note)));
+        return respond(invokeResponseRpc(
+                workflowId, () -> client.invokeRPC(stub::rejectCustomerOffer, note)));
     }
 
     /** Answers 409 when the response window is already closed. */
@@ -82,10 +89,11 @@ public class OfferResponseController {
      * Retries a lock conflict with bounded backoff. Retrying is safe: a conflicting call
      * committed nothing.
      *
-     * @return the RPC outcome
+     * @return the RPC outcome, or OFFER_RESPONSE_WINDOW_CLOSED when the Flow already closed
      * @throws RpcLockConflictException when every attempt conflicts
+     * @throws DexServiceException when the Flow never existed or the call fails otherwise
      */
-    private static String invokeResponseRpc(final Supplier<String> invocation) {
+    private String invokeResponseRpc(final String workflowId, final Supplier<String> invocation) {
         for (int attempt = 1; ; attempt++) {
             try {
                 return invocation.get();
@@ -94,7 +102,22 @@ public class OfferResponseController {
                     throw conflict;
                 }
                 sleepBeforeRetry(attempt * RESPONSE_LOCK_CONFLICT_BACKOFF_MILLIS);
+            } catch (final FlowNotActiveOrNotFoundException | FlowNotFoundException
+                    | FlowClosingException terminal) {
+                if (isClosedFlow(workflowId)) {
+                    return OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED;
+                }
+                throw terminal;
             }
+        }
+    }
+
+    /** Tells a closed Flow, whose window is closed too, from one that never existed. */
+    private boolean isClosedFlow(final String workflowId) {
+        try {
+            return client.describeFlow(workflowId).getStatus() != FlowStatus.RUNNING;
+        } catch (final FlowNotFoundException | FlowNotActiveOrNotFoundException notFound) {
+            return false;
         }
     }
 

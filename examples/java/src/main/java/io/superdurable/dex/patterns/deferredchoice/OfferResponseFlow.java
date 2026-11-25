@@ -24,6 +24,7 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -43,7 +44,15 @@ public class OfferResponseFlow implements Flow<String> {
     /** How long the customer has to respond. */
     public static final Duration OFFER_EXPIRY = Duration.ofDays(3);
 
-    /** The response window is open until AwaitOfferResponse decides. Unset reads as open. */
+    // The locked execute holds the window lock through its retries, so keep the budget short.
+    private static final RetryPolicy WINDOW_EXECUTE_RETRY = RetryPolicy.newBuilder()
+            .initialInterval(Duration.ofSeconds(1))
+            .maximumAttempts(3)
+            .totalDuration(Duration.ofMinutes(1))
+            .build();
+    private static final Duration WINDOW_EXECUTE_TIMEOUT = Duration.ofSeconds(10);
+
+    /** The first response or AwaitOfferResponse closes the window. Unset reads as open. */
     public static final String RESPONSE_WINDOW_OPEN = "open";
     public static final String RESPONSE_WINDOW_CLOSED = "closed";
 
@@ -80,7 +89,7 @@ public class OfferResponseFlow implements Flow<String> {
     /**
      * Records that the customer accepted the offer.
      *
-     * @return {@link #OFFER_RESPONSE_WINDOW_CLOSED} once the offer has decided
+     * @return {@link #OFFER_RESPONSE_WINDOW_CLOSED} after the first response or the decision
      */
     @RPC(lockAttributes = {"offerResponseWindow"})
     public RPCResult<String> acceptCustomerOffer(final Context context, final String note) {
@@ -90,7 +99,7 @@ public class OfferResponseFlow implements Flow<String> {
     /**
      * Records that the customer rejected the offer.
      *
-     * @return {@link #OFFER_RESPONSE_WINDOW_CLOSED} once the offer has decided
+     * @return {@link #OFFER_RESPONSE_WINDOW_CLOSED} after the first response or the decision
      */
     @RPC(lockAttributes = {"offerResponseWindow"})
     public RPCResult<String> rejectCustomerOffer(final Context context, final String note) {
@@ -98,8 +107,8 @@ public class OfferResponseFlow implements Flow<String> {
     }
 
     /**
-     * Publishes the response unless the window is closed. The publish commits together with
-     * this check, because the RPC holds the window lock.
+     * Publishes the first response and closes the window. The check, the publish, and the close
+     * commit together, because the RPC holds the window lock.
      */
     static RPCResult<String> publishWhileWindowOpen(
             final Context context, final Channel<String> response, final String note) {
@@ -107,6 +116,8 @@ public class OfferResponseFlow implements Flow<String> {
             return RPCResult.of(OFFER_RESPONSE_WINDOW_CLOSED);
         }
         response.publish(context, note);
+        // The first response closes the window, so a second one gets OFFER_RESPONSE_WINDOW_CLOSED.
+        offerResponseWindow.set(context, RESPONSE_WINDOW_CLOSED);
         return RPCResult.of(OFFER_RESPONSE_RECORDED);
     }
 
@@ -124,6 +135,8 @@ public class OfferResponseFlow implements Flow<String> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .addExecuteLock(AttributeLock.of(offerResponseWindow))
+                    .executeRetry(WINDOW_EXECUTE_RETRY)
+                    .executeMethodTimeout(WINDOW_EXECUTE_TIMEOUT)
                     .build();
         }
 

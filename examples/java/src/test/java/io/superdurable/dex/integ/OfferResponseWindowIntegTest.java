@@ -35,6 +35,14 @@ import io.superdurable.dex.TimerId;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.DexServiceException;
+import io.superdurable.dex.exceptions.RpcLockConflictException;
+import io.superdurable.gen.ActiveStepExecutionState;
+import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.GetFlowStateRequest;
+import io.superdurable.gen.GetFlowStateResponse;
+import io.superdurable.gen.StepMethodPendingReason;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow.AwaitOfferResponse;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow.CloseRejectedOffer;
@@ -49,6 +57,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ExtendWith(SharedIntegExtension.class)
 public class OfferResponseWindowIntegTest {
     private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(45);
+    private static final int LOCK_CONFLICT_ATTEMPTS = 10;
 
     static final Channel<Void> offerProbeGateOpened =
             Channel.define("offerProbeGateOpened", Void.class);
@@ -96,6 +106,26 @@ public class OfferResponseWindowIntegTest {
     }
 
     @Test
+    void secondResponseGetsWindowClosedEvenBeforeTheDecision() throws InterruptedException {
+        final String flowId = startProbe("pattern-deferred-choice-double", "offer-5");
+        final OfferResponseWindowProbeFlow stub = probeStub(flowId);
+        // Both responses can commit before the wait registers or before execute takes the lock.
+        assertEquals(
+                OfferResponseFlow.OFFER_RESPONSE_RECORDED,
+                invokeRetryingLockConflicts(() -> client().invokeRPC(stub::acceptProbeOffer, "yes")));
+        assertEquals(
+                OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED,
+                invokeRetryingLockConflicts(() -> client().invokeRPC(stub::rejectProbeOffer, "no")));
+
+        waitForStep(flowId, "AwaitOfferResponse");
+        client().invokeRPC(stub::openProbeGate);
+        final List<StepCompletion> completions = waitForCompletedFlow(flowId);
+        assertEquals(List.of("fulfilled offer-5"), outputsOf(completions, "FulfillOffer"));
+        assertTrue(outputsOf(completions, "CloseRejectedOffer").isEmpty());
+        assertTrue(outputsOf(completions, "RouteResponseBeforeExpiry").isEmpty());
+    }
+
+    @Test
     void responseCommittedAfterTheTimerWonIsTaken() throws Exception {
         heldResponseEntered = new CountDownLatch(1);
         heldResponseReleased = new CountDownLatch(1);
@@ -105,12 +135,16 @@ public class OfferResponseWindowIntegTest {
 
         final CompletableFuture<String> held = CompletableFuture.supplyAsync(
                 () -> client().invokeRPC(stub::acceptProbeOfferWhenReleased, "yes, just in time"));
-        assertTrue(
-                heldResponseEntered.await(WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS),
-                flowId + ": the held response RPC never ran");
-        // The Timer wins while the RPC holds the window lock, so execute waits for the RPC.
-        skipOfferExpiry(flowId);
-        heldResponseReleased.countDown();
+        try {
+            assertTrue(
+                    heldResponseEntered.await(WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS),
+                    flowId + ": the held response RPC never ran");
+            // The Timer wins while the RPC holds the window lock, so execute waits for the RPC.
+            skipOfferExpiry(flowId);
+            awaitExecuteWaitingForLocks(flowId);
+        } finally {
+            heldResponseReleased.countDown();
+        }
         assertEquals(
                 OfferResponseFlow.OFFER_RESPONSE_RECORDED,
                 held.get(WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS));
@@ -157,6 +191,54 @@ public class OfferResponseWindowIntegTest {
                 return false;
             }
         }, Boolean::booleanValue, WAIT_TIMEOUT, flowId + " offer expiry Timer was never skipped");
+    }
+
+    // A lock conflict committed nothing, so retrying it is safe.
+    private static String invokeRetryingLockConflicts(final Supplier<String> invocation)
+            throws InterruptedException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return invocation.get();
+            } catch (final RpcLockConflictException conflict) {
+                if (attempt == LOCK_CONFLICT_ATTEMPTS) {
+                    throw conflict;
+                }
+                Thread.sleep(attempt * 200L);
+            }
+        }
+    }
+
+    // Fails unless AwaitOfferResponse execute reports waiting for its locks.
+    private static void awaitExecuteWaitingForLocks(final String flowId)
+            throws InterruptedException {
+        final ManagedChannel channel = ManagedChannelBuilder
+                .forTarget(System.getenv().getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801"))
+                .usePlaintext()
+                .build();
+        try {
+            final FlowServiceGrpc.FlowServiceBlockingStub flowService =
+                    FlowServiceGrpc.newBlockingStub(channel);
+            SharedIntegExtension.environment().awaitCondition(
+                    () -> flowService.getFlowState(
+                            GetFlowStateRequest.newBuilder().setFlowId(flowId).build()),
+                    OfferResponseWindowIntegTest::isAwaitOfferResponseWaitingForLocks,
+                    WAIT_TIMEOUT,
+                    flowId + ": AwaitOfferResponse execute never waited for its locks");
+        } finally {
+            channel.shutdownNow();
+        }
+    }
+
+    private static boolean isAwaitOfferResponseWaitingForLocks(final GetFlowStateResponse state) {
+        for (final ActiveStepExecutionState step : state.getActiveStepExecutionsList()) {
+            if (step.getStepType().equals("AwaitOfferResponse")
+                    && step.hasExecuteInvocation()
+                    && step.getExecuteInvocation().getPendingReason()
+                            == StepMethodPendingReason.STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<StepCompletion> waitForCompletedFlow(final String flowId) {

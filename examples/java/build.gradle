@@ -33,6 +33,9 @@ dependencies {
 
     testImplementation "org.springframework.boot:spring-boot-starter-test"
     testImplementation "org.junit.jupiter:junit-jupiter"
+    // Tests read Step pending reasons through the generated FlowService stub; versions match dex-sdk.
+    testImplementation "io.grpc:grpc-stub:1.69.1"
+    testImplementation "com.google.protobuf:protobuf-java:4.35.1"
 }
 
 // The customer refund command adds a second main class.

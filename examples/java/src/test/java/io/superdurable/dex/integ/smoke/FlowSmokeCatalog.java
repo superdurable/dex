@@ -300,6 +300,20 @@ final class FlowSmokeCatalog {
             throw new AssertionError("offer " + flowId + " is " + result.getStatus()
                     + " with fulfillments " + fulfillments);
         }
+        // A response after the Flow closed is a closed window, not a server error.
+        final HttpResponse<String> late = environment.get(
+                "/patterns/deferred-choice/accept",
+                Map.of("workflowId", flowId, "note", "too late"));
+        if (late.statusCode() != 409 || !"offer response window closed".equals(late.body())) {
+            throw new AssertionError("late accept returned " + late.statusCode() + ": "
+                    + late.body());
+        }
+        final HttpResponse<String> unknown = environment.get(
+                "/patterns/deferred-choice/accept",
+                Map.of("workflowId", environment.newFlowId("deferred-choice-unknown"), "note", "hi"));
+        if (unknown.statusCode() == 409 || unknown.statusCode() == 200) {
+            throw new AssertionError("accept on an unknown offer returned " + unknown.statusCode());
+        }
     }
 
     // Starts an order, then finds its day-long shipment by shipment number.
