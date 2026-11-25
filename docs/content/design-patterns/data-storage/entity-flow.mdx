@@ -172,6 +172,8 @@ func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
 		LockAttributes: []dex.AttributeLock{dex.LockAttribute(CreditBalance)},
 	}
 	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
 		dex.DefineRPC(flow.UpdateContactDetails, accountLock),
 		dex.DefineRPC(flow.AdjustCreditBalance, accountLock),
 		dex.DefineRPC(flow.RetireAccount, accountLock),

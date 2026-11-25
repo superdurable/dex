@@ -76,6 +76,8 @@ func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
 		LockAttributes: []dex.AttributeLock{dex.LockAttribute(CreditBalance)},
 	}
 	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
 		dex.DefineRPC(flow.UpdateContactDetails, accountLock),
 		dex.DefineRPC(flow.AdjustCreditBalance, accountLock),
 		dex.DefineRPC(flow.RetireAccount, accountLock),
@@ -86,6 +88,58 @@ func (*CustomerAccountFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{DisplayName, Email, CreditBalance, Retired},
 	}
+}
+
+// dex:field attribute-key:display_name value-type:string editable:false description:"Display name"
+// dex:field attribute-key:credit_balance value-type:int64 editable:false description:"Credit balance"
+func (*CustomerAccountFlow) GetDexSummary(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[map[string]any], error) {
+	displayName, err := DisplayName.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	creditBalance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{
+		"display_name":   displayName,
+		"credit_balance": creditBalance,
+	}}, nil
+}
+
+// dex:field attribute-key:display_name value-type:string editable:false description:"Display name"
+// dex:field attribute-key:email value-type:string editable:false description:"Email address"
+// dex:field attribute-key:credit_balance value-type:int64 editable:false description:"Credit balance"
+// dex:field attribute-key:retired value-type:bool editable:false description:"Retired"
+func (*CustomerAccountFlow) GetDexDisplay(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[map[string]any], error) {
+	displayName, err := DisplayName.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	email, err := Email.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	creditBalance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{
+		"display_name":   displayName,
+		"email":          email,
+		"credit_balance": creditBalance,
+		"retired":        retired,
+	}}, nil
 }
 
 func (*CustomerAccountFlow) UpdateContactDetails(
@@ -193,6 +247,8 @@ func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDeci
 
 var (
 	_ dex.Flow                          = (*CustomerAccountFlow)(nil)
+	_ dex.RPC[dex.None, map[string]any] = (*CustomerAccountFlow)(nil).GetDexSummary
+	_ dex.RPC[dex.None, map[string]any] = (*CustomerAccountFlow)(nil).GetDexDisplay
 	_ dex.RPC[ContactDetails, dex.None] = (*CustomerAccountFlow)(nil).UpdateContactDetails
 	_ dex.RPC[CreditAdjustment, int64]  = (*CustomerAccountFlow)(nil).AdjustCreditBalance
 	_ dex.RPC[dex.None, dex.None]       = (*CustomerAccountFlow)(nil).RetireAccount
