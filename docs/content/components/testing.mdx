@@ -416,16 +416,16 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 </SdkSnippet>
 </SdkTabs>
 
-## Test the route after retries run out {#retry-exhaustion}
+## Test the failure route {#retry-exhaustion}
 
-Test a Step's failure route with the Step's real options. Make the fake
-provider fail every attempt at once. When the Step bounds its maximum
-attempts, the retries end after the real backoff. With a few attempts and a
-short initial interval, that takes seconds. Keep the method timeout, heartbeat
-timeout, and retry total duration as they are. A Step whose failure route must
-run soon after a persistent failure bounds its maximum attempts in production
-too. With unbounded attempts, the route runs only when the total duration
-ends. See
+Errors that the provider reports as permanent need no retry. Examples are
+rejected input and a refused or invalid request. `Execute` catches such an
+error and routes to the failure Step itself. Only transient errors go through
+Step retry.
+
+A test reaches the failure route with a fake that returns a permanent error.
+Retry exhaustion of transient errors keeps the real retry budget. Keep the
+attempts and durations as they are in production. See
 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy).
 
 ## Next

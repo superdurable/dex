@@ -9,7 +9,7 @@ bump: patch
 - **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
 - **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason.
 - **Drain an external Channel**: the RPC only validates and publishes, and writes no Attribute a Step reads or locks. A routing row sends bursts of events per entity to it.
-- Tests reach the exhausted-retry route with real durations: the fake fails every attempt at once, and the Step's bounded maximum attempts ends the retries.
+- Execute routes a permanent provider error to the failure Step itself; only transient errors use Step retry. Tests reach the failure route with a fake permanent error and keep the real retry budget.
 - Java and Rust references show the **dex:group** and **dex:explanation** directives; WaitFor returns its Wait directly in source, never from a helper.
 - First-win losers and cancelled Partial join branches watch the Step's cancellation signal and abort or withdraw their in-flight call; each language reference names the API.
 - **Long-lived parent** closes its intake: each worker returns the request it took once the intake is closed, and idle workers end through the graceful completion Condition or a wake message.

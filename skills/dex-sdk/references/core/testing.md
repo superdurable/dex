@@ -31,7 +31,8 @@ Core behavior:
 - Start a Flow and verify its typed terminal output.
 - Replace or restart the Worker while the Flow waits, then verify it continues from durable state.
 - Force a retryable Execute failure. Verify the retry count, resume from the heartbeat checkpoint, and the exhausted-retry route.
-- Reach the exhausted-retry route with the Step's real options. The fake provider fails every attempt at once. When the Step's policy bounds its maximum attempts, the attempts run out after the real backoff, within seconds for a few attempts with a short initial interval. Do not shorten the method timeout, heartbeat timeout, or retry total duration for the test. A Step whose failure route must run soon after a persistent failure bounds its maximum attempts in production too; with unbounded attempts the route runs only when the total duration ends. See the language's failure reference, such as [Go](https://docs.superdurable.io/reference/go/failure-and-retries#execute-failure-policy).
+- Errors the provider reports as permanent, such as rejected input or a refused or invalid request, need no retry. Execute catches them and routes to the failure Step itself; only transient errors go through Step retry.
+- Tests reach the failure route by having the fake return such a permanent error. Retry exhaustion of transient errors keeps the real retry budget: do not cap attempts or shorten durations for a test.
 - Let a handler exceed its heartbeat timeout and assert the retry.
 - Publish Channel and ChannelMap messages through typed RPCs. Verify order, single consumption, stale message IDs, and rejection after closure.
 - Invoke read-only and mutating RPCs. After closure, verify that query-only reads still work, that a non-transactional RPC's effects are rejected, and that transactional or locked RPCs are rejected before the handler. For transactional RPCs, verify all effects commit or none do.
