@@ -40,11 +40,11 @@ Temporal 的 Worker [在内存里缓存 Workflow 状态](https://docs.temporal.i
 
 Worker 停止之后，两个引擎用不同的方式继续一次运行。
 
-<RecoveryModelDiagram markdownDescription="Worker 运行中途停止。Temporal：Event History 记录每条命令和结果；新的 Worker 从头重放 workflow 函数，直到最后一个 await，所以 workflow 代码必须是确定的。Dex：Step 结果和 Attribute 与每个决定一起保存；Worker 从保存的进度继续，运行下一个 Step；进行中的工作可能按重试策略重试，所以每个外部效果必须是幂等的。" />
+<RecoveryModelDiagram markdownDescription="Worker 运行中途停止。Temporal：Event History 记录每条命令和结果；新的 Worker 从头重放 workflow 函数，直到最后一个 await，所以 workflow 代码必须是确定的，被重试的 Activity 必须是幂等的。Dex：Step 结果和 Attribute 与每个决定一起保存；Worker 从保存的进度继续，运行下一个 Step；进行中的工作可能按重试策略重试，所以每个 Step 必须是幂等的。" />
 
-**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即 Workflow Execution 生命周期中发生的每件事的完整、持久的日志。运行不在 Worker 缓存中时，Worker 从头再运行这个函数。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对，不一致就是非确定性错误。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。
+**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即 Workflow Execution 生命周期中发生的每件事的完整、持久的日志。运行不在 Worker 缓存中时，Worker 从头再运行这个函数。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对，不一致就是非确定性错误。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。Activity 可能运行不止一次，Temporal 建议把 Activity 写成幂等的（[Activity Definition](https://docs.temporal.io/activity-definition#idempotency)）。
 
-**Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把每个完成的 Step 的结果、它写入的 Attribute 和这个决定一起保存。Worker 从保存的状态继续，运行下一个 Step。进行中的工作可能按它的重试策略重试。[故障转移和部署](/concepts/failover-and-deploys)列出了每种情况下哪些工作会再次运行。
+**Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把每个完成的 Step 的结果、它写入的 Attribute 和这个决定一起保存。Worker 从保存的状态继续，运行下一个 Step。进行中的工作可能按它的重试策略重试，所以每个 Step 必须是幂等的。[故障转移和部署](/concepts/failover-and-deploys)列出了每种情况下哪些工作会再次运行。
 
 ## 共同点 {#what-they-share}
 

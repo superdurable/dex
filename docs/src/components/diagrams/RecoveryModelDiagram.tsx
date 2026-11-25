@@ -33,7 +33,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       recordDetail: 'every command and result',
       resume: 'Replay the function',
       resumeDetail: 'from the top, to the last await',
-      rule: 'Workflow code is deterministic',
+      rule: 'Deterministic Workflow code, idempotent Activities',
     },
     dex: {
       name: 'DEX',
@@ -41,7 +41,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       recordDetail: 'saved with each decision',
       resume: 'Run the next Step',
       resumeDetail: 'in-progress work may retry',
-      rule: 'Each effect is idempotent',
+      rule: 'Each Step is idempotent',
     },
   },
   'zh-Hans': {
@@ -52,7 +52,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       recordDetail: '每条命令和结果',
       resume: '重放函数',
       resumeDetail: '从头执行到最后一个 await',
-      rule: 'Workflow 代码必须确定',
+      rule: 'Workflow 代码必须确定，Activity 必须幂等',
     },
     dex: {
       name: 'DEX',
@@ -60,7 +60,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       recordDetail: '和每个决定一起保存',
       resume: '运行下一个 Step',
       resumeDetail: '进行中的工作可能重试',
-      rule: '每个外部效果必须幂等',
+      rule: '每个 Step 必须幂等',
     },
   },
 };
