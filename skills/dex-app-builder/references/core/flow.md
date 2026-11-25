@@ -83,6 +83,8 @@ A downstream start is a separate acceptance boundary, not part of the Step's com
 
 A SubFlow's Flow ID derives from its parent. Model a child job as a top-level child Flow when it needs its own business identity: people or systems look it up, retry it, or stop it by its own number, or something other than the parent can start it. The parent starts it from a Step through the Client and receives its result durably.
 
+Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/child-flows-business-identity), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/child-flows-business-identity), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/child-flows-business-identity), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/child_flows_business_identity).
+
 ```text
 StartChildJob.execute(job)                    // Client injected through the Flow constructor
     client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,

@@ -18,6 +18,7 @@ idiom matters. Examples live under
 | Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
 | Idle Timer with Resolution (Inbound event loop) | Closest: the Idle Timer example | Skeleton below |
 | Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
+| Fail fast on permanent errors | [fail-fast/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/fail-fast/workflow.go) | Execute routes a confirmed permanent provider error instead of retrying |
 | WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
 | Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
@@ -28,6 +29,8 @@ idiom matters. Examples live under
 | Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
 | Responsive Stream | [primitives/stream/controller.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/stream/controller.go) | `ReadStream` with resume tokens |
 | Entity Flow with Attribute Sync (Entity store) | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
+| Entity Flow | [entity-flow/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-flow/workflow.go) | One long-lived Flow per entity; locked RPCs, Client reads |
+| Child Flows with business identity | [child-flows-business-identity/order_fulfillment_flow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go) | Top-level child Flows with stable Flow IDs that report back durably |
 | Sequentially chunked AttributeMap | [sequentially-chunked-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/sequentially-chunked-attribute-map/workflow.go) | Load one chunk per call with `RPCInvokeOptions` |
 | Hash-partitioned AttributeMap | [hash-partitioned-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/hash-partitioned-attribute-map/workflow.go) | Same bucket in the lock and the load |
 

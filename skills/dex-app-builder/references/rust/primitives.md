@@ -518,6 +518,7 @@ building blocks:
 | Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
 | Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | closest: `patterns/inactiveness_tracker` |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of returning it into retry | [`control_patterns/fail_fast`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast) |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
@@ -528,6 +529,8 @@ building blocks:
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |
 | Stream progress | `buffered_text` plus `read_stream_with_timeout` | `primitives/stream` |
 | Entity Flow with Attribute Sync (Entity store) | long-lived RPC-driven Flow per entity | `patterns/entity_store` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`data_storage/entity_flow`](https://github.com/superdurable/dex/tree/main/examples/rust/src/data_storage/entity_flow) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`control_patterns/child_flows_business_identity`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/child_flows_business_identity) |
 | Chunked AttributeMap | bounded `current` instance plus immutable archives | `patterns/sequentially_chunked_attribute_map` |
 | Hash-partitioned AttributeMap | stable hash picks a bucket; invocation lock and load | `patterns/hash_partitioned_attribute_map` |
 

@@ -37,6 +37,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Take inbound messages or replies until a resolution or inactivity | [Idle Timer with Resolution](#idle-timer-with-resolution) (Inbound event loop) |
 | Recover when WaitFor fails | [WaitFor failure recovery](#waitfor-failure-recovery) |
 | Compensate after Execute retries are exhausted | [Execute failure recovery](#execute-failure-recovery) |
+| Stop retrying a provider error confirmed permanent | [Fail fast on permanent errors](#fail-fast-on-permanent-errors) |
 | Escalate a failure to a person | [Manual recovery](#manual-recovery) |
 | Handle an overall Flow deadline | [Graceful timeout](#graceful-timeout) |
 | Finish only after internal producers' messages are handled | [Drain internal Channels](#drain-internal-channels) |
@@ -48,6 +49,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Map a control structure to its Dex recipe | [Control structures](#control-structures) |
 | Return to the caller at a durable milestone | [Responsive update](#responsive-update) |
 | One Flow per entity, queried with SQL | [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) (formerly Entity store / Entity Flow with SQL Projection) |
+| One long-lived Flow per business entity, without SQL queries | The plain Entity Flow in [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) |
 | Append-only history that grows | [Sequentially chunked AttributeMap](#sequentially-chunked-attributemap) |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](#hash-partitioned-attributemap) |
 | Durable AI agent | [Durable AI agents](#durable-ai-agents) |
@@ -459,6 +461,14 @@ RestoreQuantity.execute -> compensate; forceFail("payment failed")
 - Recovery Steps get the same input, or the input the route passes, and must be idempotent; they can be retried.
 - Failing the Flow after compensation is a legitimate outcome.
 
+### Fail fast on permanent errors
+
+Stop retrying when a provider confirms that an error is permanent, such as a rejected input or a closed account.
+
+- Execute classifies the provider error. A permanent error routes to a failure-handling Step or returns ForceFail. Only an error that can succeed on a later attempt goes to Step retry.
+- If WaitFor must call a provider, it records a permanent error in a Step execution local value and returns SkipWaitImmediately; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
+- Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/fail-fast), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/fail-fast), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/fail-fast), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast).
+
 ### Manual recovery
 
 Escalate an exhausted failure to a person. Go folder: `intervention`.
@@ -705,6 +715,8 @@ The Flow writes to a Stream. The caller reads forward with a resume token and pa
 ## Entity Flow with Attribute Sync
 
 One Flow per entity, whose Attributes the Attribute Store syncs into a SQL table for queries. Go folder: `entity-store`.
+
+The plain Entity Flow is the same shape without the SQL table: one long-lived Flow per entity, with a Flow ID from the entity ID, state in Attributes, changes through locked RPCs, and reads through the Client. Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/entity-flow), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/entity-flow), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/entityflow), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/entity-flow), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/data_storage/entity_flow).
 
 - Use when an entity needs durable state and RPC updates, and the application needs database queries over latest state.
 - The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a row key template.

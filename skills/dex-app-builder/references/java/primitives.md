@@ -499,6 +499,7 @@ building blocks:
 | Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
 | Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | closest: `patterns/inactivenesstracker` |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of throwing into retry | [`patterns/failfast`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast) |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
@@ -509,6 +510,8 @@ building blocks:
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |
 | Stream progress | `BufferedTextStream` plus `client.readStream` | `primitives/stream` |
 | Entity Flow with Attribute Sync (Entity store) | long-lived RPC-driven Flow per entity | `patterns/entitystore` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`patterns/entityflow`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/entityflow) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`patterns/childflowsbusinessidentity`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity) |
 | Chunked AttributeMap | bounded `current` instance plus immutable archives | `patterns/sequentiallychunkedattributemap` |
 | Hash-partitioned AttributeMap | stable hash picks a bucket; invocation lock and load | `patterns/hashpartitionedattributemap` |
 

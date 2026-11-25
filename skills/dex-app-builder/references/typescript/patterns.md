@@ -20,6 +20,7 @@ application types.
 | Idle Timer (Inactivity tracker) | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
 | Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#idle-timer-with-resolution) | closest: the Idle Timer |
 | Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
+| Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of throwing into retry | [`patterns/fail-fast/expense-reimbursement-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/fail-fast/expense-reimbursement-flow.ts) |
 | WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
 | Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
@@ -30,6 +31,8 @@ application types.
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
 | Responsive update: Stream | `client.readStream` with a persisted resume token | `primitives/stream/stream-flow.ts` |
 | Entity Flow with Attribute Sync (Entity store) | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
+| Entity Flow | one long-lived Flow per entity, locked RPCs, Client reads | [`patterns/entity-flow/customer-account-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/entity-flow/customer-account-flow.ts) |
+| Child Flows with business identity | a Step starts top-level child Flows with stable Flow IDs; children report back durably | [`patterns/child-flows-business-identity/order-fulfillment-flow.ts`](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/child-flows-business-identity/order-fulfillment-flow.ts) |
 | Sequentially chunked AttributeMap | bounded `current` instance plus immutable archived chunks | `patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.ts` |
 | Hash-partitioned AttributeMap | stable hash of a canonical key selects a bucket instance | `patterns/hash-partitioned-attribute-map/customer-directory-flow.ts`, `patterns/hash-partitioned-attribute-map/controller.ts` |
 
