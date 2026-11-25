@@ -524,7 +524,7 @@ test("flow smoke all registered flows via controller", async (t) => {
   }
 });
 
-test("deferred choice route answers 409 after the Flow ended, not for a missing Flow", async () => {
+test("deferred choice route answers 409 after the Flow ended and 404 for a missing Flow", async () => {
   const flowId = newFlowId("deferred-choice-ended");
   const start = await fetch(
     `${context.baseUrl}/patterns/deferred-choice/start?${new URLSearchParams({ workflowId: flowId, offerId: "offer-ended" })}`,
@@ -540,7 +540,8 @@ test("deferred choice route answers 409 after the Flow ended, not for a missing 
   assert.equal(late.body, "offer response window closed");
 
   const missing = await acceptOfferRoute(newFlowId("deferred-choice-missing"));
-  assert.notEqual(missing.status, 409, missing.body);
+  assert.equal(missing.status, 404, missing.body);
+  assert.equal(missing.body, "offer response flow not found");
 });
 
 test("attribute read returns committed values of a closed run", async () => {

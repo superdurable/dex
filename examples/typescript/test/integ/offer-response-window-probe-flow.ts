@@ -20,6 +20,7 @@ import {
   StepMovement,
   Wait,
   deadEnd,
+  goTo,
   goToMany,
   rpc,
   stringCodec,
@@ -136,19 +137,34 @@ export class OfferResponseWindowProbeFlow implements Flow<string> {
     };
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
   public acceptProbeOffer(context: Context, note: string): RPCResult<string> {
     return publishWhileWindowOpen(context, offerAccepted, note);
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
   public rejectProbeOffer(context: Context, note: string): RPCResult<string> {
     return publishWhileWindowOpen(context, offerRejected, note);
   }
 
   /** Holds the window lock until the test releases it. */
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
-  public async acceptProbeOfferWhenReleased(context: Context, note: string): Promise<RPCResult<string>> {
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
+  public async acceptProbeOfferWhenReleased(
+    context: Context,
+    note: string,
+  ): Promise<RPCResult<string>> {
     const held = heldOfferResponse;
     if (held === undefined) {
       throw new Error("no held response is set");
@@ -165,3 +181,74 @@ export class OfferResponseWindowProbeFlow implements Flow<string> {
 }
 
 export const offerResponseWindowProbeFlow = new OfferResponseWindowProbeFlow();
+
+const decisionGateOpened = new Channel("decisionGateOpened", voidCodec);
+
+/** Holds the offer before AwaitOfferResponse starts, until the test opens the decision gate. */
+class HoldOfferDecision implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "HoldOfferDecision";
+  }
+
+  public waitFor(_context: Context, _offerId: string): Wait {
+    return Wait.until(decisionGateOpened.forOne());
+  }
+
+  public execute(_context: Context, offerId: string): StepDecision {
+    return goTo(AwaitOfferResponse, offerId);
+  }
+}
+
+/**
+ * Starts AwaitOfferResponse only after the test opens a gate, so two replies
+ * reach the window before any wait or Execute runs.
+ */
+export class OfferDecisionGateProbeFlow implements Flow<string> {
+  public getFlowType(): string {
+    return "OfferDecisionGateProbeFlow";
+  }
+
+  public getSteps(): StepList<string> {
+    return StepList.startStep(new HoldOfferDecision()).otherSteps(
+      new AwaitOfferResponse(),
+      new FulfillOffer(),
+      new CloseRejectedOffer(),
+      new RouteResponseBeforeExpiry(),
+      new ExpireOffer(),
+    );
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [offerResponseWindow],
+      channels: [decisionGateOpened, offerAccepted, offerRejected],
+    };
+  }
+
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
+  public acceptGatedOffer(context: Context, note: string): RPCResult<string> {
+    return publishWhileWindowOpen(context, offerAccepted, note);
+  }
+
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
+  public rejectGatedOffer(context: Context, note: string): RPCResult<string> {
+    return publishWhileWindowOpen(context, offerRejected, note);
+  }
+
+  @rpc()
+  public openDecisionGate(context: Context): void {
+    decisionGateOpened.publish(context, undefined);
+  }
+}
+
+export const offerDecisionGateProbeFlow = new OfferDecisionGateProbeFlow();

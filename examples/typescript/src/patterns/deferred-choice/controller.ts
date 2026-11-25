@@ -19,6 +19,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Router, type Request, type Response } from "express";
 
 import {
+  FlowClosingError,
   FlowNotActiveOrNotFoundError,
   FlowNotFoundError,
   RpcLockConflictError,
@@ -95,7 +96,12 @@ async function sendCustomerResponse(
   try {
     outcome = await invokeResponseRPC(client, rpc, workflowId, note);
   } catch (error) {
-    if (!(await isClosedFlow(client, error, workflowId))) {
+    const state = await classifyInactiveFlow(client, error, workflowId);
+    if (state === "missing") {
+      response.status(404).send("offer response flow not found");
+      return;
+    }
+    if (state !== "closed") {
       throw error;
     }
     outcome = OFFER_RESPONSE_WINDOW_CLOSED;
@@ -108,30 +114,35 @@ async function sendCustomerResponse(
 }
 
 /**
- * Tells a Flow that already closed from one that never existed.
+ * Tells a Flow that is closing or closed from one that never existed.
  *
- * @returns Whether the RPC failed because the Flow exists and has closed.
+ * @returns "closed" when the Flow is closing or closed, "missing" when it never
+ *   existed, and "other" when the error is not about an inactive Flow.
  */
-async function isClosedFlow(
+async function classifyInactiveFlow(
   client: Client,
   error: unknown,
   workflowId: string,
-): Promise<boolean> {
+): Promise<"closed" | "missing" | "other"> {
+  // DescribeFlow may still report running while the Flow closes.
+  if (error instanceof FlowClosingError) {
+    return "closed";
+  }
   if (!(
     error instanceof FlowNotActiveOrNotFoundError ||
     error instanceof FlowNotFoundError
   )) {
-    return false;
+    return "other";
   }
   try {
     const flow = await client.describeFlow(workflowId);
-    return flow.status !== "running";
+    return flow.status === "running" ? "other" : "closed";
   } catch (describeError) {
     if (
       describeError instanceof FlowNotFoundError ||
       describeError instanceof FlowNotActiveOrNotFoundError
     ) {
-      return false;
+      return "missing";
     }
     throw describeError;
   }

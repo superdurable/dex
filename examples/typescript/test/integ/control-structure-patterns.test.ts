@@ -19,7 +19,6 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
-  RpcLockConflictError,
   StepExecutionId,
   TimerId,
   stringCodec,
@@ -46,6 +45,7 @@ import {
 } from "./environment.js";
 import {
   holdNextOfferResponse,
+  offerDecisionGateProbeFlow,
   offerResponseWindowProbeFlow,
 } from "./offer-response-window-probe-flow.js";
 
@@ -136,22 +136,6 @@ for (const testCase of deferredChoiceCases) {
   });
 }
 
-type ProbeResponseRPC = typeof offerResponseWindowProbeFlow.acceptProbeOffer;
-
-// Execute holds the window lock briefly, so a response may get a lock conflict.
-async function invokeRetryingLockConflict(rpc: ProbeResponseRPC, flowId: string, note: string): Promise<string> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await environment.client.invokeRPC(rpc, flowId, note);
-    } catch (error) {
-      if (!(error instanceof RpcLockConflictError) || attempt === 5) {
-        throw error;
-      }
-      await delay(attempt * 200);
-    }
-  }
-}
-
 async function waitForExecuteWaitingForLocks(flowId: string, stepType: string): Promise<void> {
   await awaitCondition(
     () => environment.client.getFlowState(flowId),
@@ -193,20 +177,24 @@ test("deferred choice answers window closed to a response after the decision", a
   assert.deepEqual(completionOutputs(result, "CloseRejectedOffer"), []);
 });
 
-test("deferred choice records only the first of two back-to-back responses", async () => {
-  const flow = offerResponseWindowProbeFlow;
+test("deferred choice records only the first of two responses sent before the wait starts", async () => {
+  const flow = offerDecisionGateProbeFlow;
   const flowId = await startPatternFlow(flow, "pattern-deferred-choice-double", "offer-5");
-  assert.equal(await invokeRetryingLockConflict(flow.acceptProbeOffer, flowId, "yes"), OFFER_RESPONSE_RECORDED);
+  // AwaitOfferResponse starts only after the gate opens, so only the reply RPCs touch the window.
   assert.equal(
-    await invokeRetryingLockConflict(flow.rejectProbeOffer, flowId, "no"),
+    await environment.client.invokeRPC(flow.acceptGatedOffer, flowId, "yes"),
+    OFFER_RESPONSE_RECORDED,
+  );
+  assert.equal(
+    await environment.client.invokeRPC(flow.rejectGatedOffer, flowId, "no"),
     OFFER_RESPONSE_WINDOW_CLOSED,
   );
 
-  await waitForStep(flowId, "AwaitOfferResponse");
-  await environment.client.invokeRPC(flow.openProbeGate, flowId);
+  await environment.client.invokeRPC(flow.openDecisionGate, flowId);
   const result = await waitForCompletedFlow(flowId);
   assert.deepEqual(completionOutputs(result, "FulfillOffer"), ["fulfilled offer-5"]);
   assert.deepEqual(completionOutputs(result, "CloseRejectedOffer"), []);
+  assert.deepEqual(completionOutputs(result, "ExpireOffer"), []);
 });
 
 test("deferred choice takes a response committed after the Timer won", async () => {
