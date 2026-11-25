@@ -35,7 +35,6 @@ import io.superdurable.dex.TimerId;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.DexServiceException;
-import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.gen.ActiveStepExecutionState;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.GetFlowStateRequest;
@@ -57,7 +56,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,7 +67,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ExtendWith(SharedIntegExtension.class)
 public class OfferResponseWindowIntegTest {
     private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(45);
-    private static final int LOCK_CONFLICT_ATTEMPTS = 10;
 
     static final Channel<Void> offerProbeGateOpened =
             Channel.define("offerProbeGateOpened", Void.class);
@@ -82,8 +79,14 @@ public class OfferResponseWindowIntegTest {
     private static final OfferResponseWindowProbeFlow offerResponseWindowProbeFlow =
             new OfferResponseWindowProbeFlow();
 
+    private static final OfferResponseDecisionGateProbeFlow offerResponseDecisionGateProbeFlow =
+            new OfferResponseDecisionGateProbeFlow();
+
+    static final Channel<Void> offerDecisionGateOpened =
+            Channel.define("offerDecisionGateOpened", Void.class);
+
     static List<Flow<?>> offerResponseWindowProbeFlows() {
-        return List.of(offerResponseWindowProbeFlow);
+        return List.of(offerResponseWindowProbeFlow, offerResponseDecisionGateProbeFlow);
     }
 
     @Test
@@ -106,22 +109,26 @@ public class OfferResponseWindowIntegTest {
     }
 
     @Test
-    void secondResponseGetsWindowClosedEvenBeforeTheDecision() throws InterruptedException {
-        final String flowId = startProbe("pattern-deferred-choice-double", "offer-5");
-        final OfferResponseWindowProbeFlow stub = probeStub(flowId);
-        // Both responses can commit before the wait registers or before execute takes the lock.
+    void secondResponseGetsWindowClosedBeforeTheDecisionStarts() {
+        final IntegEnvironment environment = SharedIntegExtension.environment();
+        final String flowId = environment.newFlowId("pattern-deferred-choice-double");
+        client().startFlow(
+                offerResponseDecisionGateProbeFlow, flowId, "offer-5", environment.startOptions());
+        final OfferResponseDecisionGateProbeFlow stub =
+                client().newRpcStub(OfferResponseDecisionGateProbeFlow.class, flowId);
+        // The decision gate is closed, so AwaitOfferResponse has not started for either response.
         assertEquals(
                 OfferResponseFlow.OFFER_RESPONSE_RECORDED,
-                invokeRetryingLockConflicts(() -> client().invokeRPC(stub::acceptProbeOffer, "yes")));
+                client().invokeRPC(stub::acceptGatedOffer, "yes"));
         assertEquals(
                 OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED,
-                invokeRetryingLockConflicts(() -> client().invokeRPC(stub::rejectProbeOffer, "no")));
+                client().invokeRPC(stub::rejectGatedOffer, "no"));
 
-        waitForStep(flowId, "AwaitOfferResponse");
-        client().invokeRPC(stub::openProbeGate);
+        client().invokeRPC(stub::openDecisionGate);
         final List<StepCompletion> completions = waitForCompletedFlow(flowId);
         assertEquals(List.of("fulfilled offer-5"), outputsOf(completions, "FulfillOffer"));
         assertTrue(outputsOf(completions, "CloseRejectedOffer").isEmpty());
+        assertTrue(outputsOf(completions, "ExpireOffer").isEmpty());
         assertTrue(outputsOf(completions, "RouteResponseBeforeExpiry").isEmpty());
     }
 
@@ -191,21 +198,6 @@ public class OfferResponseWindowIntegTest {
                 return false;
             }
         }, Boolean::booleanValue, WAIT_TIMEOUT, flowId + " offer expiry Timer was never skipped");
-    }
-
-    // A lock conflict committed nothing, so retrying it is safe.
-    private static String invokeRetryingLockConflicts(final Supplier<String> invocation)
-            throws InterruptedException {
-        for (int attempt = 1; ; attempt++) {
-            try {
-                return invocation.get();
-            } catch (final RpcLockConflictException conflict) {
-                if (attempt == LOCK_CONFLICT_ATTEMPTS) {
-                    throw conflict;
-                }
-                Thread.sleep(attempt * 200L);
-            }
-        }
     }
 
     // Fails unless AwaitOfferResponse execute reports waiting for its locks.
@@ -308,6 +300,63 @@ public class OfferResponseWindowIntegTest {
         @RPC
         public void openProbeGate(final Context context) {
             offerProbeGateOpened.publish(context, null);
+        }
+    }
+
+    /** Starts AwaitOfferResponse only after the test opens the decision gate. */
+    public static class OfferResponseDecisionGateProbeFlow implements Flow<String> {
+        private final OfferResponseFlow offerResponseFlow = new OfferResponseFlow();
+
+        @Override
+        public StepList<String> getSteps() {
+            return StepList.startStep(new AwaitOfferDecisionGate()).otherSteps(
+                    new AwaitOfferResponse(),
+                    new FulfillOffer(),
+                    new CloseRejectedOffer(),
+                    new RouteResponseBeforeExpiry(),
+                    new ExpireOffer());
+        }
+
+        @Override
+        public PersistenceSchema getPersistenceSchema() {
+            return PersistenceSchema.of(
+                    offerDecisionGateOpened,
+                    OfferResponseFlow.offerAccepted,
+                    OfferResponseFlow.offerRejected,
+                    OfferResponseFlow.offerResponseWindow);
+        }
+
+        @RPC(lockAttributes = {"offerResponseWindow"})
+        public RPCResult<String> acceptGatedOffer(final Context context, final String note) {
+            return offerResponseFlow.acceptCustomerOffer(context, note);
+        }
+
+        @RPC(lockAttributes = {"offerResponseWindow"})
+        public RPCResult<String> rejectGatedOffer(final Context context, final String note) {
+            return offerResponseFlow.rejectCustomerOffer(context, note);
+        }
+
+        @RPC
+        public void openDecisionGate(final Context context) {
+            offerDecisionGateOpened.publish(context, null);
+        }
+    }
+
+    /** Waits for the decision gate, then moves to AwaitOfferResponse. */
+    static final class AwaitOfferDecisionGate implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String offerId) {
+            return Wait.until(offerDecisionGateOpened.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String offerId) {
+            return StepDecision.goTo(AwaitOfferResponse.class, offerId);
         }
     }
 

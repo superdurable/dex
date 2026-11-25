@@ -311,8 +311,9 @@ final class FlowSmokeCatalog {
         final HttpResponse<String> unknown = environment.get(
                 "/patterns/deferred-choice/accept",
                 Map.of("workflowId", environment.newFlowId("deferred-choice-unknown"), "note", "hi"));
-        if (unknown.statusCode() == 409 || unknown.statusCode() == 200) {
-            throw new AssertionError("accept on an unknown offer returned " + unknown.statusCode());
+        if (unknown.statusCode() != 404 || !"offer response flow not found".equals(unknown.body())) {
+            throw new AssertionError("accept on an unknown offer returned " + unknown.statusCode()
+                    + ": " + unknown.body());
         }
     }
 

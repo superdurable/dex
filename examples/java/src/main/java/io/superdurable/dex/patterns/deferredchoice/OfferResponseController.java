@@ -38,6 +38,8 @@ import java.util.function.Supplier;
 public class OfferResponseController {
     private static final int RESPONSE_LOCK_CONFLICT_ATTEMPTS = 5;
     private static final long RESPONSE_LOCK_CONFLICT_BACKOFF_MILLIS = 200;
+    // A route-only outcome; the RPC never returns it.
+    private static final String OFFER_RESPONSE_FLOW_NOT_FOUND = "flow not found";
 
     private final Client client;
     private final OfferResponseFlow offerResponseFlow;
@@ -77,10 +79,13 @@ public class OfferResponseController {
                 workflowId, () -> client.invokeRPC(stub::rejectCustomerOffer, note)));
     }
 
-    /** Answers 409 when the response window is already closed. */
+    /** Answers 409 when the response window is closed and 404 when the offer never existed. */
     private static ResponseEntity<String> respond(final String outcome) {
         if (OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED.equals(outcome)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body("offer response window closed");
+        }
+        if (OFFER_RESPONSE_FLOW_NOT_FOUND.equals(outcome)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("offer response flow not found");
         }
         return ResponseEntity.ok("offer response recorded");
     }
@@ -89,9 +94,10 @@ public class OfferResponseController {
      * Retries a lock conflict with bounded backoff. Retrying is safe: a conflicting call
      * committed nothing.
      *
-     * @return the RPC outcome, or OFFER_RESPONSE_WINDOW_CLOSED when the Flow already closed
+     * @return the RPC outcome; OFFER_RESPONSE_WINDOW_CLOSED when the Flow is closing or closed;
+     *     OFFER_RESPONSE_FLOW_NOT_FOUND when the Flow never existed
      * @throws RpcLockConflictException when every attempt conflicts
-     * @throws DexServiceException when the Flow never existed or the call fails otherwise
+     * @throws DexServiceException when the call fails otherwise
      */
     private String invokeResponseRpc(final String workflowId, final Supplier<String> invocation) {
         for (int attempt = 1; ; attempt++) {
@@ -102,23 +108,32 @@ public class OfferResponseController {
                     throw conflict;
                 }
                 sleepBeforeRetry(attempt * RESPONSE_LOCK_CONFLICT_BACKOFF_MILLIS);
-            } catch (final FlowNotActiveOrNotFoundException | FlowNotFoundException
-                    | FlowClosingException terminal) {
-                if (isClosedFlow(workflowId)) {
-                    return OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED;
-                }
-                throw terminal;
+            } catch (final FlowClosingException closing) {
+                // DescribeFlow may still report RUNNING while the Flow closes.
+                return OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED;
+            } catch (final FlowNotActiveOrNotFoundException | FlowNotFoundException terminal) {
+                return describeTerminalFlow(workflowId, terminal);
             }
         }
     }
 
-    /** Tells a closed Flow, whose window is closed too, from one that never existed. */
-    private boolean isClosedFlow(final String workflowId) {
+    /**
+     * Tells a closed Flow, whose window is closed too, from one that never existed.
+     *
+     * @return OFFER_RESPONSE_WINDOW_CLOSED for a closed Flow, or OFFER_RESPONSE_FLOW_NOT_FOUND
+     * @throws DexServiceException the original error when the Flow is still running
+     */
+    private String describeTerminalFlow(final String workflowId, final DexServiceException terminal) {
+        final FlowStatus status;
         try {
-            return client.describeFlow(workflowId).getStatus() != FlowStatus.RUNNING;
+            status = client.describeFlow(workflowId).getStatus();
         } catch (final FlowNotFoundException | FlowNotActiveOrNotFoundException notFound) {
-            return false;
+            return OFFER_RESPONSE_FLOW_NOT_FOUND;
         }
+        if (status != FlowStatus.RUNNING) {
+            return OfferResponseFlow.OFFER_RESPONSE_WINDOW_CLOSED;
+        }
+        throw terminal;
     }
 
     private static void sleepBeforeRetry(final long millis) {
