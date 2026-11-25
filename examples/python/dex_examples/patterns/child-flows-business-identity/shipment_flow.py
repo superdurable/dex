@@ -121,8 +121,8 @@ class ReportShipmentOutcome(Step[PendingReport]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, pending: PendingReport
     ) -> StepDecision:
-        # Python SDK 1.45.17 adds an RPC request ID; this pin predates it,
-        # so a retried report can publish twice.
+        # This SDK pin has no RPC request ID. The order consumes one report
+        # per shipment, so a repeat changes nothing.
         try:
             await self.client_provider().invoke_rpc(
                 self.order_flow_provider().record_shipment_outcome,

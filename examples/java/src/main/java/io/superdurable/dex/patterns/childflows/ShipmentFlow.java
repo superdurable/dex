@@ -123,8 +123,8 @@ public class ShipmentFlow implements Flow<ShipmentFlow.ShipmentRequest> {
         @Override
         public StepDecision execute(final Context context, final PendingReport pending) {
             final Client client = clientProvider.getObject();
-            // Java SDK 1.45.x adds an RPC request ID; this pin predates it, so a retried report
-            // can publish twice.
+            // This SDK pin has no RPC request ID. The order consumes one report
+            // per shipment, so a repeat changes nothing.
             try {
                 client.invokeRPC(
                         client.newRpcStub(OrderFulfillmentFlow.class, pending.orderFlowId())

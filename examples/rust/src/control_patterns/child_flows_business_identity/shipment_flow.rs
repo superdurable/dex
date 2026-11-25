@@ -130,7 +130,8 @@ impl Step for ReportShipmentOutcome {
     fn execute(&self, _context: &mut Context, pending: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let outcome = pending.report.outcome.clone();
-        // Rust SDK 1.45.x adds an RPC request ID; this pin predates it, so a retried report can publish twice.
+        // This SDK pin has no RPC request ID. The order consumes one report
+        // per shipment, so a repeat changes nothing.
         match client.invoke_rpc(
             &pending.order_flow_id,
             RECORD_SHIPMENT_OUTCOME,
