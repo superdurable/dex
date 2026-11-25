@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::control_patterns;
 use crate::patterns;
 use crate::patterns::polling::FakeJobService;
 use crate::primitives;
@@ -59,6 +60,9 @@ pub fn build_router(
         ))
         .merge(patterns::intervention::controller::mount(client.clone()))
         .merge(patterns::inactiveness_tracker::controller::mount(
+            client.clone(),
+        ))
+        .merge(control_patterns::inbound_event_loop::controller::mount(
             client.clone(),
         ))
         .merge(patterns::parallel::controller::mount(client.clone()))

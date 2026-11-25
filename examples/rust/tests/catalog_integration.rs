@@ -19,6 +19,7 @@ use dex_examples_rust::control_patterns::{
     cancel_case::{CreditCheckFlow, LoanApplicationFlow},
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
+    inbound_event_loop::SupportTicketFlow,
 };
 use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
@@ -216,6 +217,7 @@ fn control_pattern_catalog_matches_every_flow() {
         ContractEditFlow::default().flow_type(),
         CreditCheckFlow::default().flow_type(),
         LoanApplicationFlow::default().flow_type(),
+        SupportTicketFlow::default().flow_type(),
     ];
 
     assert_eq!(control_pattern_flows, CONTROL_PATTERN_FLOW_TYPES);

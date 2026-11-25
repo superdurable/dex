@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Control-structure patterns: Deferred Choice, Critical Section, and Cancel
-//! Case, each as one single-Flow example.
+//! Control-structure patterns: Deferred Choice, Critical Section, Cancel
+//! Case, and Inbound Event Loop, each as one single-Flow example.
 
 pub mod cancel_case;
 pub mod critical_section;
 pub mod deferred_choice;
+pub mod inbound_event_loop;
 
 use std::sync::Arc;
 
@@ -41,5 +42,6 @@ fn register_with_loan_application(
         .register(deferred_choice::OfferResponseFlow::default())?
         .register(critical_section::ContractEditFlow::default())?
         .register(cancel_case::CreditCheckFlow::default())?
-        .register(loan_application)
+        .register(loan_application)?
+        .register(inbound_event_loop::SupportTicketFlow::default())
 }

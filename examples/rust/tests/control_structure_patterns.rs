@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the Deferred Choice, Critical Section, and Cancel
-//! Case control-structure pattern Flows.
+//! Integration tests for the Deferred Choice, Critical Section, Cancel
+//! Case, and Inbound Event Loop control-structure pattern Flows.
 
 mod condition_order_probes;
 mod worker_harness;
@@ -37,6 +37,9 @@ use dex_examples_rust::control_patterns::critical_section::{
 };
 use dex_examples_rust::control_patterns::deferred_choice::{
     ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
+};
+use dex_examples_rust::control_patterns::inbound_event_loop::{
+    AwaitTicketMessage, GET_TICKET_TRANSCRIPT, RESOLVE_TICKET, SEND_TICKET_REPLY, SupportTicketFlow,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
@@ -313,6 +316,127 @@ fn deferred_choice_consumes_only_the_winning_response() {
         ["FulfillOffer", "CloseRejectedOffer"].contains(&step_types[0].as_str()),
         "{step_types:?}"
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_records_replies_before_the_resolution() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketFlow::default(),
+        "inbound-event-loop",
+        String::new(),
+    );
+    let blank_reply = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, "  ".to_string())
+        .expect_err("a blank reply is rejected");
+    assert!(
+        blank_reply.to_string().contains("reply text is required"),
+        "{blank_reply}"
+    );
+    let blank_reason = environment
+        .client
+        .invoke_rpc(&flow_id, RESOLVE_TICKET, " ".to_string())
+        .expect_err("a blank resolution is rejected");
+    assert!(
+        blank_reason
+            .to_string()
+            .contains("resolution reason is required"),
+        "{blank_reason}"
+    );
+
+    let replies = ["printer is offline", "restarted it, still offline"];
+    for reply in replies {
+        environment.invoke(&flow_id, SEND_TICKET_REPLY, reply.to_string());
+    }
+    wait_for_ticket_transcript(&environment, &flow_id, &replies);
+    environment.invoke(
+        &flow_id,
+        RESOLVE_TICKET,
+        "replaced the network cable".to_string(),
+    );
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        single_output(&result),
+        "resolved: replaced the network cable"
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_closes_a_quiet_ticket() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketFlow::default(),
+        "inbound-event-loop-inactive",
+        String::new(),
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, "is anyone there?".to_string());
+    wait_for_ticket_transcript(&environment, &flow_id, &["is anyone there?"]);
+
+    // The reply ended execution 1, so execution 2 holds the inactivity Timer.
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        match environment.client.skip_timer(
+            &flow_id,
+            StepExecutionId::of(&AwaitTicketMessage).execution_number(2),
+            TimerId::by_condition_index(0),
+        ) {
+            Ok(()) => break,
+            Err(error) => assert!(
+                Instant::now() < deadline,
+                "skip the inactivity Timer of {flow_id}: {error}"
+            ),
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "closed after inactivity");
+}
+
+/// Polls the transcript RPC until it holds exactly `expected`.
+fn wait_for_ticket_transcript(
+    environment: &ControlPatternsEnvironment,
+    flow_id: &str,
+    expected: &[&str],
+) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let transcript = environment
+            .client
+            .invoke_rpc_without_input(flow_id, GET_TICKET_TRANSCRIPT)
+            .unwrap_or_else(|error| panic!("read the transcript of {flow_id}: {error}"));
+        let texts = transcript
+            .replies
+            .iter()
+            .map(|reply| reply.text.as_str())
+            .collect::<Vec<_>>();
+        if texts == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{flow_id} transcript is {texts:?}, expected {expected:?}"
+        );
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn single_output(result: &FlowResult) -> String {
+    let outputs = result
+        .completions()
+        .iter()
+        .map(|completion| {
+            completion
+                .decode::<String>()
+                .unwrap_or_else(|error| panic!("decode the ticket outcome: {error}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 1, "{outputs:?}");
+    outputs[0].clone()
 }
 
 #[test]

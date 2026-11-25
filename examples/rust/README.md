@@ -117,6 +117,7 @@ remain split so their orchestration boundaries are visible.
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |
+| Inbound Event Loop | [`SupportTicketFlow`](src/control_patterns/inbound_event_loop/flow.rs) | Replies loop back and restart the inactivity Timer; resolution or inactivity closes after the reply Channel drains |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
