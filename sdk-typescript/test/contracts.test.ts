@@ -28,6 +28,7 @@ import {
   FlowDefinitionError,
   InvalidStepResultError,
   Join,
+  MissingAttributeLockError,
   Registry,
   Stream,
   StepList,
@@ -36,6 +37,7 @@ import {
   Timer,
   ValueMappingError,
   Wait,
+  booleanCodec,
   bytesCodec,
   declareRPCMethod,
   gracefulComplete,
@@ -47,6 +49,7 @@ import {
   stringCodec,
   voidCodec,
   type AttributeMapLoad,
+  type MissingAttributeLockAccess,
   type AttributeRead,
   type AttributeReadValues,
   type BlobCache,
@@ -227,6 +230,28 @@ test("attribute store synchronization is opt-in and immutable", () => {
   assert.equal(mapAttributeStoreNames(absent), undefined);
   assert.deepEqual(mapAttributeStoreNames(named)?.names, ["profiles", "audit"]);
   assert.deepEqual(mapAttributeStoreNames(disabled)?.names, []);
+});
+
+test("lock requirement declarations keep definition types", () => {
+  const lock = new Attribute("contract-lock", booleanCodec);
+  const total: Attribute<bigint> = new Attribute("contract-total", int64Codec).writesRequireLock();
+  const items: AttributeMap<string> = new AttributeMap("contract-items", stringCodec).writesRequireAttributeLock(lock);
+  const replies: Channel<string> = new Channel("contract-replies", stringCodec).publishesRequireAttributeLock(lock);
+  const events: ChannelMap<string> = new ChannelMap("contract-events", stringCodec).publishesRequireAttributeLock(lock);
+  assert.deepEqual([total.name, items.name, replies.name, events.name],
+    ["contract-total", "contract-items", "contract-replies", "contract-events"]);
+
+  const access: MissingAttributeLockAccess = {
+    kind: "AttributeMap", name: "items", instance: "a", lockAttributeName: "items", lockInstance: "a",
+  };
+  const error = new MissingAttributeLockError("Orders", "Approve", "execute", undefined, [access]);
+  assert.equal(error.name, "MissingAttributeLockError");
+  assert.deepEqual(error.accesses, [access]);
+  assert.equal(
+    error.message,
+    'Flow "Orders" Step "Approve" execute wrote AttributeMap "items" instance "a" without the required lock of '
+      + `AttributeMap "items" instance "a"; register the lock in the handler's StepOptions or RPCOptions`,
+  );
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {

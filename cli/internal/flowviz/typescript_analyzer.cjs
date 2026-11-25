@@ -24,6 +24,7 @@ const resourceEdgeKinds = new Map([
 const maximumHelperDepth = 6;
 const resourceMethodNames = new Set([...resourceEdgeKinds.keys(),"bufferedText","fork","forkWithRoundKey"]);
 const resourceClassNames = new Set(["Attribute","AttributeMap","Channel","ChannelMap","Join","Stream"]);
+const definitionOptionMethods = new Set(["syncToAttributeStore","hardDeleteOnNull","plaintext","writesRequireLock","writesRequireAttributeLock","publishesRequireAttributeLock"]);
 const contextTypeNames = new Set(["Context","AsyncContext"]);
 const reflectiveWriteNames = new Set(["Object.assign","Object.defineProperty","Object.defineProperties","Object.setPrototypeOf","Reflect.set","Reflect.defineProperty","Reflect.setPrototypeOf","Reflect.deleteProperty"]);
 const builtinClassNames = new Set(["Map","WeakMap","Set","WeakSet","Array","Date","RegExp","Error","Promise","URL"]);
@@ -248,8 +249,9 @@ class TypeScriptAnalyzer {
     expression = this.unwrap(expression);
     // syncToAttributeStore and hardDeleteOnNull return the Attribute they configure.
     // plaintext returns a copy with the same name, codec, and index.
+    // Lock requirement options also return a copy with the same name and codec.
     const configuredBy = [];
-    while (expression && this.ts.isCallExpression(expression) && this.ts.isPropertyAccessExpression(expression.expression) && ["syncToAttributeStore","hardDeleteOnNull","plaintext"].includes(expression.expression.name.text)) {
+    while (expression && this.ts.isCallExpression(expression) && this.ts.isPropertyAccessExpression(expression.expression) && definitionOptionMethods.has(expression.expression.name.text)) {
       configuredBy.push(expression);
       expression = this.unwrap(expression.expression.expression);
     }

@@ -9,7 +9,10 @@
 import {
   booleanCodec, bytesCodec, doubleCodec, int64Codec, stringCodec, voidCodec, type Codec,
 } from "./codec.js";
-import { Attribute, AttributeMap, IndexType, type PersistenceSchema } from "./persistence.js";
+import {
+  Attribute, AttributeMap, IndexType, type AttributeLock, type PersistenceSchema,
+} from "./persistence.js";
+import { lockRequirementOf } from "./attribute-lock-requirement.js";
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { compileAction, WORK_QUEUE_PERMISSIONS_INDEX_KEY, type RegisteredAction } from "./action.js";
@@ -139,6 +142,15 @@ export interface RegisteredFlow {
     Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown> | Stream<unknown>
   >;
   readonly streams: ReadonlySet<Stream<unknown>>;
+  /** Registration-time lock keys by Step type; declared lock requirements count only these. */
+  readonly stepLockKeys: ReadonlyMap<string, RegisteredStepLockKeys>;
+  /** Registration-time lock keys by RPC name; call-time locks never reach the Worker. */
+  readonly rpcLockKeys: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export interface RegisteredStepLockKeys {
+  readonly waitFor: ReadonlySet<string>;
+  readonly execute: ReadonlySet<string>;
 }
 
 interface RegistryMetadata {
@@ -385,12 +397,23 @@ function doRegisterFlow(
       attributeIndexes.set(key, type);
     }
   }
+  validateRequiredLockAttributes(name, persistence);
+  // Read once, so validation and lock enforcement see the same options.
+  const stepOptions = new Map<RegisteredStep, StepOptions | undefined>();
+  const stepLockKeys = new Map<string, RegisteredStepLockKeys>();
   for (const registeredStep of steps) {
-    validateStepStateLoads(name, registeredStep, schema);
+    const options = registeredStep.step.getStepOptions?.();
+    stepOptions.set(registeredStep, options);
+    stepLockKeys.set(registeredStep.name, {
+      waitFor: registeredLockKeys(options?.waitForLockAttributes),
+      execute: registeredLockKeys(options?.executeLockAttributes),
+    });
+    validateStepStateLoads(name, registeredStep, options, schema);
   }
   const rpcNames = new Set<string>();
   const attributes = new Set(schema.attributes ?? []);
   const rpcs = registeredRPCs(flow);
+  const rpcLockKeys = new Map<string, ReadonlySet<string>>();
   const actions: RegisteredAction[] = [];
   for (const registeredRPC of rpcs) {
     if (rpcNames.has(registeredRPC.name)) {
@@ -402,6 +425,7 @@ function doRegisterFlow(
     ) {
       throw new FlowDefinitionError(`Flow ${name} RPC ${registeredRPC.name} locks an unregistered attribute`);
     }
+    rpcLockKeys.set(registeredRPC.name, registeredLockKeys(registeredRPC.options.lockAttributes));
     validateRPCStateLoads(name, registeredRPC, schema);
     if (registeredRPC.options.action !== undefined) {
       actions.push(compileAction(registeredRPC.name, registeredRPC.options.action, persistence, name));
@@ -429,16 +453,70 @@ function doRegisterFlow(
     actions: Object.freeze(actions),
     persistence,
     streams: new Set(schema.streams ?? []),
+    stepLockKeys,
+    rpcLockKeys,
   });
   for (const registeredStep of steps) {
     validateStepTargets(
       registeredFlow,
       registeredStep,
-      registeredStep.step.getStepOptions?.(),
+      stepOptions.get(registeredStep),
       new Set(),
     );
   }
   return registeredFlow;
+}
+
+/** Checks that every declared coordination lock names a singleton Attribute registered by this Flow. */
+function validateRequiredLockAttributes(
+  flowName: string,
+  persistence: RegisteredFlow["persistence"],
+): void {
+  for (const definition of persistence.values()) {
+    const requirement = lockRequirementOf(definition);
+    if (requirement?.kind !== "attribute") {
+      continue;
+    }
+    const isChannel = definition instanceof Channel || definition instanceof ChannelMap;
+    const kind = definition instanceof AttributeMap
+      ? "AttributeMap"
+      : definition instanceof ChannelMap ? "ChannelMap" : isChannel ? "Channel" : "Attribute";
+    const prefix = `Flow ${flowName} ${kind} ${definition.name} ${isChannel ? "publish" : "write"} lock:`;
+    const lockName: unknown = requirement.lockAttribute.name;
+    if (typeof lockName !== "string" || lockName.length === 0) {
+      throw new FlowDefinitionError(
+        `${prefix} lock Attribute has an empty name; pass an Attribute created with new Attribute`,
+      );
+    }
+    const registered = persistence.get(lockName);
+    if (registered instanceof AttributeMap) {
+      throw new FlowDefinitionError(
+        `${prefix} lock Attribute ${lockName} is an AttributeMap; use a singleton Attribute`,
+      );
+    }
+    if (!(registered instanceof Attribute)) {
+      throw new FlowDefinitionError(`${prefix} lock Attribute ${lockName} is not in the PersistenceSchema`);
+    }
+    if (registered !== requirement.lockAttribute) {
+      throw new FlowDefinitionError(
+        `${prefix} lock Attribute ${lockName} differs from the definition in the PersistenceSchema; ` +
+          "pass the registered definition object",
+      );
+    }
+  }
+}
+
+/** Returns the physical lock keys of registered locks, skipping entries that fail to map. */
+function registeredLockKeys(locks: readonly AttributeLock[] | undefined): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const lock of locks ?? []) {
+    try {
+      keys.add(lock.instance === undefined ? lock.attribute.name : physicalMapName(lock.attribute.name, lock.instance));
+    } catch {
+      // Mapping the Step options reports an invalid lock, as before lock requirements existed.
+    }
+  }
+  return keys;
 }
 
 function validateStepTargets(
@@ -548,9 +626,9 @@ function validateRPCStateLoads(
 function validateStepStateLoads(
   flowName: string,
   registeredStep: RegisteredStep,
+  options: StepOptions | undefined,
   schema: PersistenceSchema,
 ): void {
-  const options = registeredStep.step.getStepOptions?.();
   if (options === undefined) {
     return;
   }

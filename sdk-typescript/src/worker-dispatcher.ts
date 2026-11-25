@@ -46,6 +46,7 @@ import {
   type Value,
 } from "./gen/dex.js";
 import { actionPermissionMappingsForWrites, appendInitialWorkQueuePermissions } from "./action.js";
+import { requireRegisteredRPCLocks, requireRegisteredStepLocks } from "./attribute-lock-enforcement.js";
 import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
@@ -154,6 +155,7 @@ export class WorkerDispatcher {
     }
     try {
       const wait = await step.step.waitFor(context, input);
+      requireRegisteredStepLocks(flow, step.name, "waitFor", context);
       let response: InvokeWaitForMethodResponse;
       try {
         response = InvokeWaitForMethodResponse.create({
@@ -228,6 +230,7 @@ export class WorkerDispatcher {
     );
     try {
       const decision = await step.step.execute(context, input);
+      requireRegisteredStepLocks(flow, step.name, "execute", context);
       let response: InvokeExecuteMethodResponse;
       try {
         response = InvokeExecuteMethodResponse.create({
@@ -331,6 +334,7 @@ export class WorkerDispatcher {
       this.payloadEncryption,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
+    requireRegisteredRPCLocks(flow, rpc.name, context);
     let response: InvokeWorkerRPCResponse;
     try {
       const result = rpcResult(rpc, returned);

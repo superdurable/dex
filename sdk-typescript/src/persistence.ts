@@ -14,6 +14,11 @@ import {
   requireHardDeleteOnNullCompatible,
   requireNotHardDeleteOnNull,
 } from "./attribute-hard-delete.js";
+import {
+  carryLockRequirement,
+  markLockRequirement,
+  ownKeyLockRequirement,
+} from "./attribute-lock-requirement.js";
 import { carryPlaintextAttribute, markPlaintextAttribute } from "./attribute-plaintext.js";
 import { isAttributeStoreSynced, markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
@@ -205,7 +210,10 @@ export class Attribute<T> {
    */
   public syncToAttributeStore(): Attribute<T> {
     requireNotHardDeleteOnNull(this, "syncToAttributeStore");
-    return markAttributeStoreSynced(carryPlaintextAttribute(this, new Attribute(this.name, this.codec, this.index)));
+    return markAttributeStoreSynced(copyAttributeDefinitionOptions(
+      this,
+      new Attribute(this.name, this.codec, this.index),
+    ));
   }
 
   /**
@@ -325,7 +333,138 @@ export class Attribute<T> {
    */
   public hardDeleteOnNull(): Attribute<T> {
     requireHardDeleteOnNullCompatible(this as Attribute<unknown>);
-    return markHardDeleteOnNull(carryPlaintextAttribute(this, new Attribute(this.name, this.codec, this.index)));
+    return markHardDeleteOnNull(copyAttributeDefinitionOptions(
+      this,
+      new Attribute(this.name, this.codec, this.index),
+    ));
+  }
+
+  /**
+   * Returns an immutable Attribute definition whose every write must hold this Attribute's own lock.
+   *
+   * Use it for a value that handlers read and then write, such as a counter or a total, so that a
+   * handler that forgets the lock fails instead of losing a concurrent update. The declaration is
+   * opt-in. Without it, any handler can write the Attribute without a lock.
+   *
+   * The Worker enforces the requirement. After a Step's `waitFor` or `execute`, or an RPC, returns,
+   * the Worker compares each {@link Attribute.set} and {@link Attribute.delete} of this Attribute
+   * with the locks that the handler registered. When the lock is missing, the invocation fails with
+   * {@link MissingAttributeLockError}, and Dex discards every change buffered for its result.
+   *
+   * Only registered locks count: `waitForLockAttributes` or `executeLockAttributes` of the Step's
+   * own {@link StepOptions}, and `lockAttributes` of the RPC's {@link RPCOptions}. Locks chosen for
+   * one call do not count. These are `lockAttributeMapInstances` of {@link RPCInvokeOptions} and the
+   * options of one {@link StepMovement}. A Flow timeout handler is not checked, because its locks
+   * come from the Flow start options. Attribute values set when a Flow starts are not checked
+   * either.
+   *
+   * The declaration is local to the SDK and is never sent to the Server. Register the returned
+   * definition in the Flow's PersistenceSchema, and build every Worker from the same definition.
+   * The returned definition keeps the index, Attribute Store synchronization, hard-delete, and
+   * Plaintext options of this definition. It replaces an earlier lock requirement.
+   *
+   * The Worker compares writes with the registered locks, while Dex acquires the locks each call
+   * sends. A movement's {@link StepOptions} replace the target Step's options, including its lock
+   * fields, so keep the required lock in such options.
+   *
+   * @example
+   * ```ts
+   * const orderTotal = new Attribute("order-total", doubleCodec).writesRequireLock();
+   *
+   * class AddItemStep implements Step<number> {
+   *   public readonly inputCodec = doubleCodec;
+   *
+   *   public getStepType(): string {
+   *     return "AddItemStep";
+   *   }
+   *
+   *   public getStepOptions(): StepOptions {
+   *     return { executeLockAttributes: [orderTotal.lock()] };
+   *   }
+   *
+   *   public execute(context: Context, price: number): StepDecision {
+   *     orderTotal.set(context, orderTotal.get(context) + price);
+   *     return gracefulComplete(orderTotal.get(context));
+   *   }
+   * }
+   *
+   * class OrderFlow implements Flow<number> {
+   *   private readonly addItem = new AddItemStep();
+   *
+   *   public getFlowType(): string {
+   *     return "OrderFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.startStep(this.addItem);
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [orderTotal] };
+   *   }
+   * }
+   * ```
+   * @returns A new definition that requires its own lock for every write; this definition remains
+   *   unchanged.
+   * @since 1.45.17
+   */
+  public writesRequireLock(): Attribute<T> {
+    return markLockRequirement(copyAttributeDefinitionOptions(
+      this,
+      new Attribute(this.name, this.codec, this.index),
+    ), ownKeyLockRequirement);
+  }
+
+  /**
+   * Returns an immutable Attribute definition whose every write must hold another Attribute's lock.
+   *
+   * Use it when one coordination Attribute protects an invariant across several values. Every
+   * handler that writes any of them then registers the same coordination lock and runs one at a
+   * time within the Flow run. The lock Attribute only names the lock; its value is not used.
+   *
+   * Enforcement is the same as for {@link Attribute.writesRequireLock}: a `waitFor`, `execute`,
+   * or RPC handler that writes this Attribute without registering `lockAttribute.lock()` fails
+   * with {@link MissingAttributeLockError}, and Dex discards every change buffered for its result.
+   * Only locks registered in the handler's {@link StepOptions} or {@link RPCOptions} count.
+   *
+   * Register `lockAttribute` in the same Flow's PersistenceSchema, as the same definition object.
+   * Registry construction throws {@link FlowDefinitionError} when it is missing, when it is a
+   * different object with the same name, or when that name belongs to an AttributeMap. The
+   * returned definition keeps the other options of this definition. It replaces an earlier lock
+   * requirement.
+   *
+   * @example
+   * ```ts
+   * const cartLock = new Attribute("cart-lock", booleanCodec);
+   * const cartTotal = new Attribute("cart-total", doubleCodec).writesRequireAttributeLock(cartLock);
+   *
+   * class CartFlow implements Flow<void> {
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [cartLock, cartTotal] };
+   *   }
+   *
+   *   @rpc({ inputCodec: doubleCodec, lockAttributes: [cartLock.lock()] })
+   *   public addToTotal(context: Context, price: number): void {
+   *     cartTotal.set(context, cartTotal.get(context) + price);
+   *   }
+   * }
+   * ```
+   * @param lockAttribute - Singleton Attribute whose lock every write requires.
+   * @returns A new definition that requires `lockAttribute`'s lock for every write; this definition
+   *   remains unchanged.
+   * @throws {TypeError} When `lockAttribute` is not a singleton {@link Attribute}.
+   * @since 1.45.17
+   */
+  public writesRequireAttributeLock(lockAttribute: Attribute<unknown>): Attribute<T> {
+    const requiredLockAttribute = requireSingletonLockAttribute(lockAttribute);
+    return markLockRequirement(copyAttributeDefinitionOptions(
+      this,
+      new Attribute(this.name, this.codec, this.index),
+    ), { kind: "attribute", lockAttribute: requiredLockAttribute });
   }
 
   /**
@@ -499,7 +638,10 @@ export class AttributeMap<T> {
    */
   public syncToAttributeStore(): AttributeMap<T> {
     requireNotHardDeleteOnNull(this, "syncToAttributeStore");
-    return markAttributeStoreSynced(carryPlaintextAttribute(this, new AttributeMap(this.name, this.codec, this.index)));
+    return markAttributeStoreSynced(copyAttributeDefinitionOptions(
+      this,
+      new AttributeMap(this.name, this.codec, this.index),
+    ));
   }
 
   /**
@@ -621,7 +763,115 @@ export class AttributeMap<T> {
    */
   public hardDeleteOnNull(): AttributeMap<T> {
     requireHardDeleteOnNullCompatible(this as AttributeMap<unknown>);
-    return markHardDeleteOnNull(carryPlaintextAttribute(this, new AttributeMap(this.name, this.codec, this.index)));
+    return markHardDeleteOnNull(copyAttributeDefinitionOptions(
+      this,
+      new AttributeMap(this.name, this.codec, this.index),
+    ));
+  }
+
+  /**
+   * Returns an immutable AttributeMap definition whose instance writes hold their own locks.
+   *
+   * Use it when handlers read and then write single instances, such as per-item quantities. A write
+   * of instance `"a"` then requires `lock("a")` among the handler's registered locks. Registered
+   * locks are fixed, so this suits a map with a known set of instances. For instances chosen at run
+   * time, use {@link AttributeMap.writesRequireAttributeLock} with a coordination Attribute instead.
+   *
+   * The Worker enforces the requirement. After a Step's `waitFor` or `execute`, or an RPC, returns,
+   * the Worker compares each {@link AttributeMap.set} and {@link AttributeMap.delete} with the locks
+   * that the handler registered. When an instance's lock is missing, the invocation fails with
+   * {@link MissingAttributeLockError}, and Dex discards every change buffered for its result.
+   *
+   * Only locks registered in the Step's own {@link StepOptions} or the RPC's {@link RPCOptions}
+   * count. `lockAttributeMapInstances` of {@link RPCInvokeOptions} and the options of one
+   * {@link StepMovement} do not count. Flow timeout handlers and Attribute values set when a Flow
+   * starts are not checked. The declaration is local to the SDK and is never sent to the Server.
+   * The returned definition keeps the other options of this definition. It replaces an earlier
+   * lock requirement.
+   *
+   * @example
+   * ```ts
+   * const quantities = new AttributeMap("quantities", doubleCodec).writesRequireLock();
+   *
+   * class InventoryFlow implements Flow<void> {
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [quantities] };
+   *   }
+   *
+   *   @rpc({
+   *     lockAttributes: [quantities.lock("apples")],
+   *     loadAttributeMapInstances: [quantities.load("apples")],
+   *   })
+   *   public addApple(context: Context): void {
+   *     quantities.set(context, "apples", quantities.get(context, "apples") + 1);
+   *   }
+   * }
+   * ```
+   * @returns A new definition that requires each written instance's own lock; this definition
+   *   remains unchanged.
+   * @since 1.45.17
+   */
+  public writesRequireLock(): AttributeMap<T> {
+    return markLockRequirement(copyAttributeDefinitionOptions(
+      this,
+      new AttributeMap(this.name, this.codec, this.index),
+    ), ownKeyLockRequirement);
+  }
+
+  /**
+   * Returns an immutable AttributeMap definition whose instance writes hold one Attribute's lock.
+   *
+   * Use it to protect an invariant across the whole map, or when handlers write instances chosen
+   * at run time. Every writer registers the same coordination lock, so all writers of the map run
+   * one at a time within the Flow run. The lock Attribute only names the lock; its value is not
+   * used.
+   *
+   * Enforcement is the same as for {@link AttributeMap.writesRequireLock}, except that every
+   * instance requires `lockAttribute.lock()`. An instance's own lock does not satisfy the
+   * requirement.
+   *
+   * Register `lockAttribute` in the same Flow's PersistenceSchema, as the same definition object.
+   * Registry construction throws {@link FlowDefinitionError} when it is missing, when it is a
+   * different object with the same name, or when that name belongs to an AttributeMap. The
+   * returned definition keeps the other options of this definition. It replaces an earlier lock
+   * requirement.
+   *
+   * @example
+   * ```ts
+   * const cartLock = new Attribute("cart-lock", booleanCodec);
+   * const cartItems = new AttributeMap("cart-items", doubleCodec).writesRequireAttributeLock(cartLock);
+   *
+   * class CartFlow implements Flow<void> {
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [cartLock, cartItems] };
+   *   }
+   *
+   *   @rpc({ inputCodec: stringCodec, lockAttributes: [cartLock.lock()] })
+   *   public addItem(context: Context, sku: string): void {
+   *     cartItems.set(context, sku, 1);
+   *   }
+   * }
+   * ```
+   * @param lockAttribute - Singleton Attribute whose lock every instance write requires.
+   * @returns A new definition that requires `lockAttribute`'s lock for every instance write; this
+   *   definition remains unchanged.
+   * @throws {TypeError} When `lockAttribute` is not a singleton {@link Attribute}.
+   * @since 1.45.17
+   */
+  public writesRequireAttributeLock(lockAttribute: Attribute<unknown>): AttributeMap<T> {
+    const requiredLockAttribute = requireSingletonLockAttribute(lockAttribute);
+    return markLockRequirement(copyAttributeDefinitionOptions(
+      this,
+      new AttributeMap(this.name, this.codec, this.index),
+    ), { kind: "attribute", lockAttribute: requiredLockAttribute });
   }
 
   /**
@@ -727,6 +977,7 @@ export interface PersistenceSchema {
   readonly streams?: readonly Stream<unknown>[];
 }
 
+/** Copies every definition option, so chained option methods keep each other's declarations. */
 function copyAttributeDefinitionOptions<Definition extends object>(source: object, copy: Definition): Definition {
   if (isAttributeStoreSynced(source)) {
     markAttributeStoreSynced(copy);
@@ -734,5 +985,12 @@ function copyAttributeDefinitionOptions<Definition extends object>(source: objec
   if (isHardDeleteOnNullDefinition(source)) {
     markHardDeleteOnNull(copy);
   }
-  return copy;
+  return carryLockRequirement(source, carryPlaintextAttribute(source, copy));
+}
+
+function requireSingletonLockAttribute(lockAttribute: unknown): Attribute<unknown> {
+  if (!(lockAttribute instanceof Attribute)) {
+    throw new TypeError("writesRequireAttributeLock requires a singleton Attribute");
+  }
+  return lockAttribute as Attribute<unknown>;
 }
