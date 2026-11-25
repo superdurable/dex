@@ -246,8 +246,8 @@ The parent receives each child's result durably:
   that does not exist is recorded by business policy, such as "unavailable".
   It returns any other error, so the Step retries. A report that still
   arrives after the stop fills the same record. Children that finish after a
-  quorum, or while the parent stops the rest, still count in the parent's
-  result.
+  quorum, or while the parent stops the rest, count in the parent's result as
+  the business rule states.
 
 ## Identifiers {#identifiers}
 

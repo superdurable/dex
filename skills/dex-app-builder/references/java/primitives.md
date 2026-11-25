@@ -508,7 +508,7 @@ building blocks:
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |
 | Stream progress | `BufferedTextStream` plus `client.readStream` | `primitives/stream` |
-| Entity store | long-lived RPC-driven Flow per entity | `patterns/entitystore` |
+| Entity Flow with Attribute Sync (Entity store) | long-lived RPC-driven Flow per entity | `patterns/entitystore` |
 | Chunked AttributeMap | bounded `current` instance plus immutable archives | `patterns/sequentiallychunkedattributemap` |
 | Hash-partitioned AttributeMap | stable hash picks a bucket; invocation lock and load | `patterns/hashpartitionedattributemap` |
 

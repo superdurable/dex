@@ -9,5 +9,5 @@ bump: minor
 - Each Channel has at most one active consumer at a time; different Step types may consume it in different phases. The Flow owning decisions and status is now design guidance, not a hard rule.
 - Growing collections bound their total by chunk count or age, archiving first when the business must keep old records. Size limits are linked in the Server configuration reference.
 - A parent reconciles a stopped or late child only when its result or a follow-up action depends on how that child ended; otherwise it stops the child and moves on.
-- Pattern renames: **Decision with Deadline** (was Deferred choice), **Idle Timer** (was Inactivity tracker), **Idle Timer with Resolution** (was Inbound event loop), and **Entity Flow with Attribute Sync** (was Entity store). Their skeletons route on the winning Condition.
+- Pattern renames: **Decision with Deadline** (was Deferred choice), **Idle Timer** (was Inactivity tracker), **Idle Timer with Resolution** (was Inbound event loop), and **Entity Flow with Attribute Sync** (was Entity store). The three Timer patterns route on the winning Condition.
 - Compensation after exhausted retries starts with the failed Step itself, because it may still have taken effect. Testing guidance skips the Flow timeout instead of shortening it.

@@ -35,8 +35,9 @@ Only one Condition wins, so only one branch ever starts.
 
 - `AnyOf` consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
 - In `Execute`, check which Condition fired: `HasTimerFired` for the Timer, and the Channel results for the responses. A Channel that lost returns no results. Do not treat a missing response as expiry.
-- When several Conditions are ready at the same time, `AnyOf` picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the response Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.- The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
-- A response that arrives after the choice cannot change the chosen branch. While the Flow still runs, the RPC succeeds and publishes a message that no Step consumes. After the Flow closes, Dex rejects the RPC. So a successful RPC call does not mean the response won. A caller that needs to know the outcome reads the Flow result.
+- When several Conditions are ready at the same time, `AnyOf` picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the response Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
+- The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
+- A response that arrives after the choice cannot change the chosen branch. If its RPC is still accepted, it publishes a message that no Step consumes. Once the Flow starts closing, Dex may reject the RPC. So a successful RPC call does not mean the response won. A caller that needs to know the outcome reads the Flow result.
 - To test the expiry branch, skip the Timer with the Client `SkipTimer`. Do not shorten the business deadline for tests.
 
 ## Related shapes

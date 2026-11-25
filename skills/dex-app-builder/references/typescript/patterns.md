@@ -29,7 +29,7 @@ application types.
 | Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
 | Responsive update: Stream | `client.readStream` with a persisted resume token | `primitives/stream/stream-flow.ts` |
-| Entity store | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
+| Entity Flow with Attribute Sync (Entity store) | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
 | Sequentially chunked AttributeMap | bounded `current` instance plus immutable archived chunks | `patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.ts` |
 | Hash-partitioned AttributeMap | stable hash of a canonical key selects a bucket instance | `patterns/hash-partitioned-attribute-map/customer-directory-flow.ts`, `patterns/hash-partitioned-attribute-map/controller.ts` |
 

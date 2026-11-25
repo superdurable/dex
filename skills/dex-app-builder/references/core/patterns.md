@@ -47,7 +47,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
 | Map a control structure to its Dex recipe | [Control structures](#control-structures) |
 | Return to the caller at a durable milestone | [Responsive update](#responsive-update) |
-| One Flow per entity, queried with SQL | [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) (Entity Flow with SQL Projection) |
+| One Flow per entity, queried with SQL | [Entity Flow with Attribute Sync](#entity-flow-with-attribute-sync) (formerly Entity store / Entity Flow with SQL Projection) |
 | Append-only history that grows | [Sequentially chunked AttributeMap](#sequentially-chunked-attributemap) |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](#hash-partitioned-attributemap) |
 | Durable AI agent | [Durable AI agents](#durable-ai-agents) |
@@ -591,7 +591,7 @@ AwaitOfferResponse.execute
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
 - When several Conditions are ready at once, AnyOf picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the decision Channels in business priority order.
-- A late response cannot change the chosen branch. While the Flow runs, its RPC succeeds and publishes a message that nothing consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
+- A late response cannot change the chosen branch. If its RPC is still accepted, it publishes a message that nothing consumes. Once the Flow starts closing, Dex may reject the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
 

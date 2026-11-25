@@ -36,8 +36,9 @@ AwaitOfferResponse.execute
 
 - `AnyOf` 只消费胜出 Condition 的消息。落败的回应仍留在它的 Channel 中等待。
 - 在 `Execute` 中，判断是哪个 Condition 触发了：用 `HasTimerFired` 判断 Timer，用 Channel 结果判断客户回应。落败的 Channel 没有结果。不要把“没有回应”当作已过期。
-- 多个 Condition 同时就绪时，`AnyOf` 按固定顺序选择：先选就绪的 Timer，再按声明顺序选 Channel。按业务优先级声明回应 Channel。在示例中，如果接受和拒绝都已在等待，选中的是接受。- Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
-- 选择完成后才到达的回应不会改变已选的分支。Flow 仍在运行时，RPC 会成功，并发布一条没有 Step 消费的消息。Flow 关闭后，Dex 会拒绝这个 RPC。所以 RPC 调用成功并不代表这个回应胜出。调用方要知道最终结果，应读取 Flow 结果。
+- 多个 Condition 同时就绪时，`AnyOf` 按固定顺序选择：先选就绪的 Timer，再按声明顺序选 Channel。按业务优先级声明回应 Channel。在示例中，如果接受和拒绝都已在等待，选中的是接受。
+- Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
+- 选择完成后才到达的回应不会改变已选的分支。如果它的 RPC 仍被接受，就会发布一条没有 Step 消费的消息。Flow 开始关闭后，Dex 可能拒绝这个 RPC。所以 RPC 调用成功并不代表这个回应胜出。调用方要知道最终结果，应读取 Flow 结果。
 - 测试过期分支时，用 Client 的 `SkipTimer` 跳过 Timer。不要为了测试缩短业务截止时间。
 
 ## 相关形状

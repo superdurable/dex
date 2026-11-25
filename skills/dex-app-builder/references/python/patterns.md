@@ -27,7 +27,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Responsive Step completion | `wait_for_step_completion` for one named Step execution | [step completion](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/wait-for-step-completion/wait_for_step_completion_flow.py) |
 | Responsive Attribute match | `wait_for_attribute_match` on a revision Attribute | skeleton in [core patterns](../core/patterns.md#attribute-match) |
 | Responsive Stream | `read_stream` long poll; resume with the token | [stream controller](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/stream/controller.py) |
-| Entity store | `AttributeMap(..., sync_to_attribute_store=True)`; `@rpc` locks `map.lock(key)` | [entity store](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-store/user_profile_flow.py) |
+| Entity Flow with Attribute Sync (Entity store) | `AttributeMap(..., sync_to_attribute_store=True)`; `@rpc` locks `map.lock(key)` | [entity store](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-store/user_profile_flow.py) |
 | Sequentially chunked map | `RPCInvokeOptions(load_attribute_map_instances=(chunks.load(page),))` | [chunked](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/chunked_subscriber_flow.py) |
 | Hash-partitioned map | `RPCInvokeOptions` with `buckets.lock(bucket)` and `buckets.load(bucket)` | [hash partition](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/hash-partitioned-attribute-map/customer_directory_flow.py) |
 

@@ -203,7 +203,7 @@ Treat StepOptions as part of the graph, not tuning added later. See [step.md](st
 - Is every top-level Flow justified by owner, retention, wait, and terminal-lifecycle differences?
 - Does any pair of Flows exchange RPCs or messages on frequent events? Then merge them or move the decision.
 - Does one owning Flow durably start dependent work, including recovery between downstream acceptance and Step commit?
-- Does a parent of top-level child Flows record children that were stopped without reporting, or that finished after a quorum?
+- When the business needs a child's ending, does the parent of top-level child Flows record children that were stopped without reporting, or that finished after a quorum?
 - Is every Flow type named after its domain and unique in the registry?
 - Is every Attribute, Channel, and Stream in the persistence schema?
 - Can an operator identify the current business state from Dex Web or dexcli?
