@@ -637,7 +637,9 @@ wrote without a registered lock. The Worker logs one warning per Flow type,
 handler, and Attribute and counts each detection. With
 `WorkerOptions.FailOnUnlockedAttributeReadModifyWrite`, the invocation returns
 `*UnlockedAttributeReadModifyWriteError` instead. `Attribute.DeclareSingleWriter`
-and `AttributeMap.DeclareSingleWriter` exempt one invocation. The doc comment of
+and `AttributeMap.DeclareSingleWriter` exempt one invocation when no other
+invocation, including another one of the same handler, can write the key at the
+same time. The doc comment of
 `FailOnUnlockedAttributeReadModifyWrite` states the exact rule.
 
 `NewWorker` requires the already validated Registry and BlobCache. Passing nil

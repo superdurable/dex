@@ -362,12 +362,13 @@ its lock. An RPC that cannot get a lock fails, and you retry it.
 Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
 then write. Workers of the SDKs that support the check report a Step method or
 RPC that reads an Attribute and then writes it without a lock. By default a
-Worker logs a warning. A Worker option
-makes the method fail instead; turn it on in tests and local development. When
-only one method ever writes the Attribute, that method declares itself its
-single writer, and the Worker accepts it without a lock. The Worker sees only
-the locks a method registers, so also test by running both writers
-concurrently and checking the final value. See
+Worker logs a warning. A Worker option makes the method fail instead; turn it
+on in tests and local development. A method may declare itself the single
+writer of the Attribute, and the Worker then accepts it without a lock. That
+declaration holds only when no other invocation can write the Attribute at the
+same time, including another run of the same Step or another call of the same
+RPC. The Worker sees only the locks a method registers, so also test by
+running both writers concurrently and checking the final value. See
 [Unlocked read-modify-write check](/reference/server/runtime-data#unlocked-read-modify-write-check).
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does

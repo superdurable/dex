@@ -332,7 +332,7 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，两个先读后写这个 Attribute 的 Step 或 RPC 可能互相覆盖对方的更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
 
-两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Step method 或 RPC 没加锁就先读后写一个 Attribute 时，支持这项检查的 SDK 的 Worker 会报告它。默认只打一条 warning 日志。打开一个 Worker 选项后，这个 method 会直接失败；测试和本地开发时建议打开。如果一个 Attribute 始终只有一个 method 写，这个 method 可以声明自己是它唯一的写入方，Worker 就不要求它加锁。Worker 只看得到 method 注册时声明的 lock，所以仍要同时运行两个写入方，再检查最终的值。见 [Unlocked read-modify-write check](/reference/server/runtime-data#unlocked-read-modify-write-check)（英文）。
+两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Step method 或 RPC 没加锁就先读后写一个 Attribute 时，支持这项检查的 SDK 的 Worker 会报告它。默认只打一条 warning 日志。打开一个 Worker 选项后，这个 method 会直接失败；测试和本地开发时建议打开。method 可以声明自己是这个 Attribute 唯一的写入方，Worker 就不要求它加锁。只有在同一时间没有任何其他调用能写这个 Attribute 时，这个声明才成立，同一个 Step 的另一次执行、同一个 RPC 的另一次调用也算在内。Worker 只看得到 method 注册时声明的 lock，所以仍要同时运行两个写入方，再检查最终的值。见 [Unlocked read-modify-write check](/reference/server/runtime-data#unlocked-read-modify-write-check)（英文）。
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。
 
