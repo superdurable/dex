@@ -306,16 +306,20 @@ impl Display for NonRetryableMarker {
 
 impl Error for NonRetryableMarker {}
 
-/// Bounds the source walk; a hand-written `source` can form a cycle.
-const MAX_SOURCE_DEPTH: usize = 64;
-
 /// Returns whether `error` is a non-retryable [`HandlerError`] or has one in its source chain.
+///
+/// Walks any finite chain. A hand-written `source` can form a cycle, so the walk stops at the
+/// first source object it has already seen.
 fn has_non_retryable_source(error: &dyn Error) -> bool {
+    let mut visited: Vec<*const dyn Error> = Vec::new();
     let mut source = error.source();
-    for _ in 0..MAX_SOURCE_DEPTH {
-        let Some(current) = source else {
+    while let Some(current) = source {
+        // Address and vtable: a field at offset 0 of the same size is a different source.
+        let identity: *const dyn Error = current;
+        if visited.iter().any(|&seen| std::ptr::eq(seen, identity)) {
             return false;
-        };
+        }
+        visited.push(identity);
         if current.is::<NonRetryableMarker>()
             || current
                 .downcast_ref::<HandlerError>()
@@ -345,6 +349,52 @@ mod tests {
         fn source(&self) -> Option<&(dyn Error + 'static)> {
             Some(&self.0)
         }
+    }
+
+    #[derive(Debug)]
+    enum ChainLink {
+        Next(Box<ChainLink>),
+        End(HandlerError),
+    }
+
+    impl Display for ChainLink {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("link")
+        }
+    }
+
+    impl Error for ChainLink {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            match self {
+                Self::Next(next) => Some(next.as_ref()),
+                Self::End(error) => Some(error),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct SelfSourcedError;
+
+    impl Display for SelfSourcedError {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("cycle")
+        }
+    }
+
+    impl Error for SelfSourcedError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(self)
+        }
+    }
+
+    #[test]
+    fn from_error_walks_any_finite_source_chain_and_stops_on_cycles() {
+        let mut chain = ChainLink::End(HandlerError::non_retryable("CardRejected", "rejected"));
+        for _ in 0..200 {
+            chain = ChainLink::Next(Box::new(chain));
+        }
+        assert!(HandlerError::from_error(chain).is_non_retryable());
+        assert!(!HandlerError::from_error(SelfSourcedError).is_non_retryable());
     }
 
     #[test]
