@@ -13,9 +13,10 @@
 // limitations under the License.
 
 //! Control-structure patterns: Deferred Choice, Critical Section, and Cancel
-//! Case, each as one single-Flow example.
+//! Case, each as one single-Flow example, and Child Flows with Business Identity.
 
 pub mod cancel_case;
+pub mod child_flows_business_identity;
 pub mod critical_section;
 pub mod deferred_choice;
 
@@ -24,22 +25,29 @@ use std::sync::Arc;
 use dex_sdk::{Client, Registry, SdkResult};
 
 pub fn register(registry: Registry) -> SdkResult<Registry> {
-    register_with_loan_application(registry, cancel_case::LoanApplicationFlow::default())
+    register_with_client(registry, None)
 }
 
 /// Registers the Flows for a Worker, whose loan application stops its credit
 /// check child Flow through `client`.
 pub fn register_worker(registry: Registry, client: Arc<Client>) -> SdkResult<Registry> {
-    register_with_loan_application(registry, cancel_case::LoanApplicationFlow::new(client))
+    register_with_client(registry, Some(client))
 }
 
-fn register_with_loan_application(
-    registry: Registry,
-    loan_application: cancel_case::LoanApplicationFlow,
-) -> SdkResult<Registry> {
+fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkResult<Registry> {
+    let (loan_application, order_fulfillment, shipment) = match client {
+        Some(client) => (
+            cancel_case::LoanApplicationFlow::new(Arc::clone(&client)),
+            child_flows_business_identity::OrderFulfillmentFlow::new(Arc::clone(&client)),
+            child_flows_business_identity::ShipmentFlow::new(client),
+        ),
+        None => Default::default(),
+    };
     registry
         .register(deferred_choice::OfferResponseFlow::default())?
         .register(critical_section::ContractEditFlow::default())?
         .register(cancel_case::CreditCheckFlow::default())?
-        .register(loan_application)
+        .register(loan_application)?
+        .register(order_fulfillment)?
+        .register(shipment)
 }

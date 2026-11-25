@@ -194,6 +194,8 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 - 父 Flow 根据子 Flow 存储的状态，对它停止的每个子 Flow 对账。client 停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先 describe 子 Flow。已关闭的子 Flow 记录终态和已存储的结果。仍在运行的子 Flow 稍后再读。确实不存在的子 Flow 按业务策略记录，比如 "unavailable"。其他错误直接返回，让 Step 重试。
 - 停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，仍然计入父 Flow 的结果。
 
+[有业务标识的子 Flow](/design-patterns/subflows/child-flows-with-business-identity) 模式用可运行的代码展示这些规则的一种变体。它的报告 RPC 在锁内直接写父 Flow 的记录，而不是发布到 Channel。启动时发现单号已经被启动，它记录为 `rejected`，而不是读取那个 run 再比对身份。
+
 ## 标识符 {#identifiers}
 
 "Flow" 这个词可以指 Flow 定义，也可以指一次 Flow run。下面这些标识符把它们区分开。

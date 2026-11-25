@@ -21,6 +21,7 @@ sidebar_label: 子 Flow
 - [高级：多父 Flow 分区](/design-patterns/subflows/partitioning)：把请求分散到多个父 Flow，SubFlow 总并发量随父 Flow 数量增长。
 - [高级：高可用背压](/design-patterns/subflows/back-pressure)：父 Flow 过载并拒绝请求时，通过一个会重试的 Flow 提交请求，直到父 Flow 接受。
 - [连同子 Flow 一起取消](/design-patterns/subflows/cancel-case)：Flow 被取消时，停止它启动的子 Flow。
+- [有业务标识的子 Flow](/design-patterns/subflows/child-flows-with-business-identity)：把子任务作为以自己业务编号命名的顶层 Flow 启动，并记录每个子任务的结果。
 
 前四页是父 Flow 的几种形状。分区和背压建立在它们之上。
 

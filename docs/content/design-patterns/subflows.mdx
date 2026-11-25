@@ -18,6 +18,7 @@ Use SubFlows when:
 - [Advanced: multiple parents with partitioning](/design-patterns/subflows/partitioning) — Spread requests across several parent Flows, so total SubFlow concurrency grows with the number of parents.
 - [Advanced: back pressure for high availability](/design-patterns/subflows/back-pressure) — When an overloaded parent rejects a request, submit it through a Flow that retries until a parent accepts it.
 - [Cancel with Child Flows](/design-patterns/subflows/cancel-case) — Stop the child Flows a Flow started when the Flow is canceled.
+- [Child Flows with Business Identity](/design-patterns/subflows/child-flows-with-business-identity) — Start child jobs as top-level Flows named by their own business number, and record how each one ended.
 
 The first four pages are parent Flow shapes. Partitioning and back pressure build on them.
 

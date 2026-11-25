@@ -22,6 +22,7 @@ package registry
 
 import (
 	cancelcase "github.com/superdurable/dex/examples/go/patterns/cancel-case"
+	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
 	criticalsection "github.com/superdurable/dex/examples/go/patterns/critical-section"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
@@ -126,6 +127,8 @@ var (
 	ContractEdit          *criticalsection.ContractEditFlow
 	CreditCheck           *cancelcase.CreditCheckFlow
 	LoanApplication       *cancelcase.LoanApplicationFlow
+	Shipment              *childflows.ShipmentFlow
+	OrderFulfillment      *childflows.OrderFulfillmentFlow
 	WorkflowPatterns      *workflowpatterns.WorkflowPatternFlows
 
 	Step                 *step.StepFlow
@@ -213,6 +216,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	ContractEdit = criticalsection.NewContractEditFlow()
 	CreditCheck = cancelcase.NewCreditCheckFlow()
 	LoanApplication = cancelcase.NewLoanApplicationFlow(getClient, CreditCheck)
+	Shipment = childflows.NewShipmentFlow(getClient)
+	OrderFulfillment = childflows.NewOrderFulfillmentFlow(getClient, Shipment)
 	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows(getClient)
 
 	Step = step.NewStepFlow()
@@ -281,6 +286,8 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ContractEdit,
 		CreditCheck,
 		LoanApplication,
+		Shipment,
+		OrderFulfillment,
 		Step,
 		ExampleFlow,
 		StepRetry,
