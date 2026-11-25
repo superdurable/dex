@@ -1246,3 +1246,55 @@ fn rpc_commit_finalizes_an_existing_pending_close_exactly_once() {
             ))
     );
 }
+
+#[test]
+fn rpc_that_publishes_during_a_pending_close_is_rejected_whole_and_the_check_still_closes() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    harness.request_graceful_completion_with_waiting_step();
+    let mut held = harness.command(Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(request("rpc-1")),
+        response: Some(cancel_waiting_step_response(vec![])),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: vec![1],
+        ..RpcCommittedCommand::default()
+    }));
+    held.is_transactional_rpc_in_flight = true;
+    harness.apply(held);
+    assert!(harness.run_record().pending_close.is_some());
+
+    let publishing_response = InvokeWorkerRpcResponse {
+        output: Some(string_value("accepted")),
+        upsert_attributes: vec![AttributeWrite {
+            key: "status".to_owned(),
+            value: Some(string_value("published")),
+            ..AttributeWrite::default()
+        }],
+        publish_to_channel: vec![ChannelMessage {
+            channel_name: "updates".to_owned(),
+            message_id: "message-1".to_owned(),
+            value: Some(string_value("dropped")),
+        }],
+        ..InvokeWorkerRpcResponse::default()
+    };
+    let mut transactional = request("rpc-2");
+    transactional.is_transactional = true;
+    let mut locking = request("rpc-3");
+    locking.lock_attribute_keys = vec!["status".to_owned()];
+    for (rpc_request, fingerprint) in [(transactional, 2), (locking, 3), (request("rpc-4"), 4)] {
+        let rejected = harness.rpc(rpc_request, publishing_response.clone(), &[fingerprint]);
+        assert_error(&rejected.reply, 9, ErrorSubStatus::FlowClosing);
+        assert!(
+            rejected.writes.is_empty(),
+            "the whole RPC commit is rejected"
+        );
+    }
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.pending_close.is_some());
+
+    let check = harness.command(Command::PendingCloseCheck(PendingCloseCheckCommand {}));
+    let checked = harness.apply(check);
+    assert_not_rejected(&checked, "the pending close check applies");
+    assert_completed_with_graceful_output(&harness.run_record());
+    assert_eq!(harness.flow_closed_event_count(), 1);
+}

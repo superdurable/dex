@@ -60,7 +60,9 @@ Attribute to that store's tables.
 - A natural close also waits for every transactional or locking RPC that Dex
   accepted before the close, even without an Attribute Store. Such an RPC still
   commits, and its synced writes join the wait. Dex records the close once
-  those RPCs commit, fail, or time out.
+  those RPCs commit, fail, or time out. An RPC whose result publishes to a
+  Channel fails with FLOW_CLOSING instead and commits nothing. Changed in
+  0.1.38: before, it committed the publication.
 - **syncRetryPolicy.totalDuration** limits how long Dex retries each pending
   write, not the whole close. During a PostgreSQL outage, a close waits until
   its pending writes are dropped. Every synced write accepted while the close

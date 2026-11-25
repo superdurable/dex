@@ -34,6 +34,11 @@ const (
 	pendingClosePublishFinishStep = "finish"
 	pendingClosePublishHoldRPC    = "holdClose"
 	pendingClosePublishChannel    = "orders"
+
+	pendingCloseRPCPublishFlowType  = "pending-close-rpc-publish"
+	pendingCloseRPCPublishDrainStep = "drain"
+	pendingCloseRPCPublishRPC       = "addOrder"
+	pendingCloseRPCPublishLockKey   = "orderCount"
 )
 
 // closeResultsHandler runs fan-out into ship and pack; ship completes gracefully with an output.
@@ -239,21 +244,7 @@ func TestPublicationDuringPendingCloseIsRejectedTemporal(t *testing.T) {
 	require.NoError(t, err, "a running Flow accepts publications")
 
 	close(handler.releaseFinish)
-	require.Eventually(t, func() bool {
-		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
-			FlowId: flowID,
-			Match: &dexpb.AttributeMatch{
-				Key:      "status",
-				Operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
-				Operand:  &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "never"}},
-			},
-			RequestId:             newRequestID(),
-			RequestTimeoutSeconds: 1,
-		})
-		return status.Code(waitErr) == codes.FailedPrecondition &&
-			grpcServiceErrorResponse(t, waitErr).GetSubStatus() ==
-				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
-	}, 10*time.Second, 50*time.Millisecond, "the admitted RPC holds the close")
+	waitForPendingClose(ctx, t, flowClient, flowID)
 
 	_, err = flowClient.PublishToChannel(ctx, publishOrder(flowID, "during-close"))
 	require.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
@@ -326,5 +317,216 @@ func (h *pendingClosePublishHandler) InvokeExecuteMethod(
 	}
 	return &dexpb.InvokeExecuteMethodResponse{
 		StepDecision: &dexpb.StepDecision{CloseDecision: common.ForceCompleteDecision(nil)},
+	}, nil
+}
+
+// pendingCloseRPCPublishHandler admits an RPC, then closes with ForceCompleteIfChannelsEmpty.
+type pendingCloseRPCPublishHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	rpcResponse      *dexpb.InvokeWorkerRPCResponse
+	drainStartedOnce sync.Once
+	drainStarted     chan struct{}
+	releaseDrain     chan struct{}
+	rpcStartedOnce   sync.Once
+	rpcStarted       chan struct{}
+	releaseRPC       chan struct{}
+}
+
+func newPendingCloseRPCPublishHandler(
+	rpcResponse *dexpb.InvokeWorkerRPCResponse,
+) *pendingCloseRPCPublishHandler {
+	return &pendingCloseRPCPublishHandler{
+		rpcResponse:  rpcResponse,
+		drainStarted: make(chan struct{}),
+		releaseDrain: make(chan struct{}),
+		rpcStarted:   make(chan struct{}),
+		releaseRPC:   make(chan struct{}),
+	}
+}
+
+// An RPC admitted before a ForceCompleteIfChannelsEmpty close must not publish after the
+// emptiness check: no Step would consume the message.
+func TestRPCPublicationDuringPendingCloseIsRejectedTemporal(t *testing.T) {
+	publishingResponse := &dexpb.InvokeWorkerRPCResponse{
+		PublishToChannel: []*dexpb.ChannelMessage{{
+			ChannelName: pendingClosePublishChannel,
+			Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "late-order"}},
+		}},
+	}
+	t.Run("transactional RPC", func(t *testing.T) {
+		testRPCCommitDuringPendingClose(t, &dexpb.InvokeRPCRequest{IsTransactional: true}, publishingResponse, true)
+	})
+	t.Run("locking RPC", func(t *testing.T) {
+		testRPCCommitDuringPendingClose(
+			t,
+			&dexpb.InvokeRPCRequest{LockAttributeKeys: []string{pendingCloseRPCPublishLockKey}},
+			publishingResponse,
+			true,
+		)
+	})
+	t.Run("transactional RPC that publishes nothing", func(t *testing.T) {
+		testRPCCommitDuringPendingClose(
+			t,
+			&dexpb.InvokeRPCRequest{IsTransactional: true},
+			&dexpb.InvokeWorkerRPCResponse{
+				Output: &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "read"}},
+			},
+			false,
+		)
+	})
+}
+
+func testRPCCommitDuringPendingClose(
+	t *testing.T,
+	rpcRequest *dexpb.InvokeRPCRequest,
+	rpcResponse *dexpb.InvokeWorkerRPCResponse,
+	shouldReject bool,
+) {
+	handler := newPendingCloseRPCPublishHandler(rpcResponse)
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := pendingCloseRPCPublishFlowType + "-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           pendingCloseRPCPublishFlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      pendingCloseRPCPublishDrainStep,
+		StepOptions:        &dexpb.StepOptions{SkipWaitFor: true},
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.drainStarted:
+	case <-ctx.Done():
+		require.FailNow(t, "drain did not start", ctx.Err())
+	}
+
+	rpcRequest.RequestId = newRequestID()
+	rpcRequest.FlowId = flowID
+	rpcRequest.RpcName = pendingCloseRPCPublishRPC
+	type rpcOutcome struct {
+		response *dexpb.InvokeRPCResponse
+		err      error
+	}
+	rpcOutcomes := make(chan rpcOutcome, 1)
+	go func() {
+		response, rpcErr := flowClient.InvokeRPC(ctx, rpcRequest)
+		rpcOutcomes <- rpcOutcome{response: response, err: rpcErr}
+	}()
+	select {
+	case <-handler.rpcStarted:
+	case <-ctx.Done():
+		require.FailNow(t, "the RPC did not start", ctx.Err())
+	}
+
+	// The Channel is empty, so drain closes; the admitted RPC holds that close.
+	close(handler.releaseDrain)
+	waitForPendingClose(ctx, t, flowClient, flowID)
+	close(handler.releaseRPC)
+	outcome := <-rpcOutcomes
+	if shouldReject {
+		require.Equal(t, codes.FailedPrecondition, status.Code(outcome.err), "%v", outcome.err)
+		require.Equal(
+			t,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING,
+			grpcServiceErrorResponse(t, outcome.err).GetSubStatus(),
+		)
+	} else {
+		require.NoError(t, outcome.err)
+		require.Equal(t, "read", outcome.response.GetOutput().GetStringValue())
+	}
+
+	result, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	state, err := flowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Empty(
+		t,
+		state.GetPendingChannelMessages()[pendingClosePublishChannel].GetMessages(),
+		"the completed Flow holds no message that no Step consumed",
+	)
+}
+
+// waitForPendingClose polls until update-class requests fail with FLOW_CLOSING.
+func waitForPendingClose(
+	ctx context.Context,
+	t *testing.T,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		_, waitErr := flowClient.WaitForAttribute(ctx, &dexpb.WaitForAttributeRequest{
+			FlowId: flowID,
+			Match: &dexpb.AttributeMatch{
+				Key:      "status",
+				Operator: dexpb.AttributeMatchOperator_ATTRIBUTE_MATCH_OPERATOR_EQUAL,
+				Operand:  &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "never"}},
+			},
+			RequestId:             newRequestID(),
+			RequestTimeoutSeconds: 1,
+		})
+		return status.Code(waitErr) == codes.FailedPrecondition &&
+			grpcServiceErrorResponse(t, waitErr).GetSubStatus() ==
+				dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_CLOSING
+	}, 10*time.Second, 50*time.Millisecond, "the admitted RPC holds the close")
+}
+
+func (h *pendingCloseRPCPublishHandler) InvokeWorkerRPC(
+	ctx context.Context,
+	request *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
+	if request.GetRpcName() != pendingCloseRPCPublishRPC {
+		return nil, status.Error(codes.InvalidArgument, "unknown pending-close RPC")
+	}
+	h.rpcStartedOnce.Do(func() { close(h.rpcStarted) })
+	select {
+	case <-h.releaseRPC:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return h.rpcResponse, nil
+}
+
+func (h *pendingCloseRPCPublishHandler) InvokeWaitForMethod(
+	context.Context,
+	*dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	return nil, status.Error(codes.InvalidArgument, "the drain Step skips WaitFor")
+}
+
+func (h *pendingCloseRPCPublishHandler) InvokeExecuteMethod(
+	ctx context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetStepType() != pendingCloseRPCPublishDrainStep {
+		return nil, status.Error(codes.InvalidArgument, "unknown pending-close Step")
+	}
+	h.drainStartedOnce.Do(func() { close(h.drainStarted) })
+	select {
+	case <-h.releaseDrain:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			NextSteps: []*dexpb.StepMovement{{
+				StepType:    pendingCloseRPCPublishDrainStep,
+				StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
+			}},
+			CloseDecision: &dexpb.CloseDecision{
+				CloseDecisionType:       dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
+				ConditionalChannelNames: []string{pendingClosePublishChannel},
+			},
+		},
 	}, nil
 }

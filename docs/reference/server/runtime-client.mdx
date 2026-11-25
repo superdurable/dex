@@ -81,7 +81,15 @@ the publication and stored the message.
 While a Flow closes, the server still accepts **SetAttributes** and RPCs that
 are neither transactional nor locking. An RPC that commits during the close,
 including one the server accepted before the close began, keeps its Attribute
-writes and Channel publications. It starts and cancels no Steps.
+writes. It starts and cancels no Steps.
+
+An RPC whose result publishes to a Channel fails during the close with
+**FAILED_PRECONDITION** and **FLOW_CLOSING**. This applies to every RPC,
+including a transactional or locking RPC that the server accepted before the
+close began. The server rejects the whole result: it keeps no Attribute write
+and no publication. No Step could consume the message. Changed in 0.1.38:
+before, the server committed the publication, and the closed Flow dropped the
+message.
 
 ### Pending close {#pending-close}
 

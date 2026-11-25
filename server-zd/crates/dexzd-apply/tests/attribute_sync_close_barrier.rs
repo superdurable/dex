@@ -859,7 +859,7 @@ fn attribute_and_rpc_writes_during_cleanup_are_accepted_and_extend_the_wait() {
 }
 
 #[test]
-fn client_publications_fail_during_cleanup_and_store_nothing() {
+fn client_and_rpc_publications_fail_during_cleanup_and_store_nothing() {
     let mut harness = Harness::new();
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
     assert!(
@@ -878,33 +878,18 @@ fn client_publications_fail_during_cleanup_and_store_nothing() {
     assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
 
-    let rpc = harness.apply(Command::RpcCommitted(RpcCommittedCommand {
-        request: Some(InvokeRpcRequest {
-            flow_id: FLOW_ID.to_owned(),
-            rpc_name: "notifyOrder".to_owned(),
-            request_id: "publishing-rpc".to_owned(),
-            ..InvokeRpcRequest::default()
-        }),
-        response: Some(InvokeWorkerRpcResponse {
-            publish_to_channel: vec![ChannelMessage {
-                channel_name: "orders".to_owned(),
-                value: Some(string_value("from-rpc")),
-                message_id: "from-rpc".to_owned(),
-            }],
-            ..InvokeWorkerRpcResponse::default()
-        }),
-        app_worker_id: "worker-rpc".to_owned(),
-        request_fingerprint: b"publishing-rpc".to_vec(),
-        ..RpcCommittedCommand::default()
-    }));
-    assert!(
-        matches!(rpc.reply.reply, Some(command_reply::Reply::Rpc(_))),
-        "an RPC commit during cleanup keeps its publications: {:?}",
-        rpc.reply
-    );
+    for (request_id, is_transactional) in [("late-rpc", false), ("admitted-locked-rpc", true)] {
+        let rejected = harness.apply(publishing_rpc(request_id, is_transactional));
+        assert_flow_closing(&rejected.reply);
+        assert!(
+            rejected.writes.is_empty(),
+            "the whole RPC commit is rejected"
+        );
+    }
+    assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
     assert_eq!(
         harness.channel_message_ids("orders"),
-        vec!["before-close".to_owned(), "from-rpc".to_owned()]
+        vec!["before-close".to_owned()]
     );
 
     harness.ack(PRIMARY, deferred_seq);
@@ -1015,6 +1000,81 @@ fn time_travel_skips_a_recorded_publication_that_meets_a_restored_pending_close(
     );
     harness.ack(PRIMARY, harness.last_seq());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+/// Older servers committed an RPC publication during a pending close; rebuilds keep it, time travel skips it.
+#[test]
+fn time_travel_skips_a_recorded_rpc_publication_that_meets_a_restored_pending_close() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.force_complete(Vec::new());
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    let pending_close = harness.run_record().pending_close.expect("the close waits");
+
+    // Record the RPC as an older server did: hide the pending close while it applies.
+    harness.edit_stored_run_record(|record| record.pending_close = None);
+    let legacy = harness.apply(publishing_rpc("legacy-rpc", true));
+    assert!(matches!(
+        legacy.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    let rpc_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    harness.edit_stored_run_record(|record| record.pending_close = Some(pending_close));
+    assert_eq!(
+        harness.channel_message_ids("orders"),
+        vec!["legacy".to_owned()]
+    );
+
+    let rebuild_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
+        should_restore_running_as_pending: false,
+        request: Some(reset_to_time(rpc_time)),
+    }));
+    time_travel_target_hash(&harness.context, &harness.state, &rebuild_command)
+        .expect("a rebuild replays the recorded RPC")
+        .expect("the point exists");
+
+    harness.travel_to(ResetFlowRequest {
+        skip_writes_reapply: false,
+        ..reset_to_time(close_time)
+    });
+    let restored = harness.run_record();
+    assert_eq!(restored.status, FlowStatus::Running as i32);
+    assert!(restored.pending_close.is_some(), "the restored close waits");
+    assert!(
+        harness.channel_message_ids("orders").is_empty(),
+        "the skipped RPC stores nothing"
+    );
+    harness.ack(PRIMARY, harness.last_seq());
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+/// An RPC commit that publishes one message, `legacy`, to `orders`.
+fn publishing_rpc(request_id: &str, is_transactional: bool) -> Command {
+    Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(InvokeRpcRequest {
+            flow_id: FLOW_ID.to_owned(),
+            rpc_name: "updateOrder".to_owned(),
+            request_id: request_id.to_owned(),
+            is_transactional,
+            ..InvokeRpcRequest::default()
+        }),
+        response: Some(InvokeWorkerRpcResponse {
+            publish_to_channel: vec![ChannelMessage {
+                channel_name: "orders".to_owned(),
+                value: Some(string_value("legacy")),
+                message_id: "legacy".to_owned(),
+            }],
+            ..InvokeWorkerRpcResponse::default()
+        }),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: request_id.as_bytes().to_vec(),
+        is_transactional,
+        ..RpcCommittedCommand::default()
+    })
 }
 
 #[test]
