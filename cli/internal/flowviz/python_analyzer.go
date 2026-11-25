@@ -36,7 +36,12 @@ func analyzePython(ctx context.Context, sourcePath string, source []byte, python
 	if strings.TrimSpace(pythonPath) == "" {
 		pythonPath = "python3"
 	}
-	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source), "flowType": flowType})
+	request, err := json.Marshal(map[string]string{
+		"path":                        sourcePath,
+		"source":                      string(source),
+		"flowType":                    flowType,
+		"declaredLockMissingSeverity": declaredLockMissingSeverity,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("encode Python analyzer input: %w", err)
 	}

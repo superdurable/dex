@@ -57,6 +57,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.node_ids = set()
         self.actions = []
         self.rpc_lock_errors = []
+        self.lock_handlers = []
+        self.declared_lock_missing_severity = "warning"
         self.view_rpcs = []
         self.start_input = None
         self.initialize_connectors()
@@ -91,6 +93,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        self.check_declared_locks()
         if len(self.flow_classes) > 1:
             self.persistence_resource_ids = self.persistence_resources(flow_class)
         return self.graph
@@ -555,9 +558,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             return
         self.analyze_decisions(node_id, execute, rpc=False)
         self.analyze_resources(node_id, execute, "execute")
+        step_locks = self.registration_step_locks(step_class, node_id)
+        self.record_lock_handler(node_id, execute, "execute", f"Step {step_name} execute", step_locks["execute_lock_attributes"])
         wait_for = self.method(step_class, "wait_for")
         if wait_for is not None:
             self.analyze_wait(node_id, step_name, wait_for)
+            self.record_lock_handler(node_id, wait_for, "wait_for", f"Step {step_name} wait_for", step_locks["wait_for_lock_attributes"])
         options = self.method(step_class, "get_step_options")
         if options is not None:
             self.analyze_step_options(node_id, options, self.current_frame)
@@ -606,6 +612,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 self.add_node({"id": node_id, "kind": "timeout_handler", "name": "handleTimeout", "span": self.span(statement)})
                 self.analyze_decisions(node_id, statement, rpc=False)
                 self.analyze_resources(node_id, statement, "timeout")
+                self.record_lock_handler(node_id, statement, "timeout", "handle_timeout", None)
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
                 node_id = f"rpc:{statement.name}"
                 protocol_name = self.rpc_protocol_name(statement)
@@ -621,6 +628,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
                 self.analyze_rpc_state_loads(node_id, statement.decorator_list)
+                self.record_lock_handler(node_id, statement, "rpc", f"RPC {rpc_name}", self.registration_rpc_locks(statement))
 
     # Dex Web invokes an Action RPC, so its Action fields and lock list must be read statically.
     PYTHON_ACTION_VALUE_TYPES = {"str": "string", "int": "int64", "float": "double", "bool": "bool", "datetime": "datetime", "datetime.datetime": "datetime"}
@@ -891,6 +899,381 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             span=self.span(selection),
             metadata={"phase": "rpc"},
         )
+
+    # Registration locks of a Step: get_step_options must return StepOptions(...) calls whose lock lists dexcli can read.
+    def registration_step_locks(self, step_class, owner_id):
+        fields = ("execute_lock_attributes", "wait_for_lock_attributes")
+        locks = {field: {"locks": [], "unresolved": None} for field in fields}
+        method = self.method(step_class, "get_step_options")
+        if method is None:
+            return locks
+        returns = self.function_returns(method)
+        for statement in returns or [None]:
+            value = statement.value if statement is not None else None
+            if not isinstance(value, ast.Call) or not self.is_dex_reference(value.func, "StepOptions") or value.args:
+                for field in fields:
+                    locks[field]["unresolved"] = locks[field]["unresolved"] or "get_step_options"
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in value.keywords}
+            for field in fields:
+                if None in keywords:
+                    locks[field]["unresolved"] = locks[field]["unresolved"] or "**options"
+                elif field in keywords:
+                    self.merge_lock_list(locks[field], keywords[field], owner_id, scope_method=method)
+        return locks
+
+    # The outermost @rpc registers the method; an unknown decorator outside it may replace the registration.
+    def registration_rpc_locks(self, method):
+        locks = {"locks": [], "unresolved": None}
+        for decorator in method.decorator_list:
+            function = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if not self.is_dex_reference(function, "rpc"):
+                locks["unresolved"] = locks["unresolved"] or self.unparse(decorator)
+                continue
+            if not isinstance(decorator, ast.Call):
+                return locks
+            for keyword in decorator.keywords:
+                if keyword.arg is None:
+                    locks["unresolved"] = locks["unresolved"] or "**options"
+                elif keyword.arg == "lock_attributes":
+                    self.merge_lock_list(locks, keyword.value, f"rpc:{method.name}", class_call=decorator)
+            return locks
+        return locks
+
+    def merge_lock_list(self, locks, expression, owner_id, scope_method=None, class_call=None):
+        is_named = isinstance(expression, ast.Name)
+        if is_named:
+            # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
+            locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
+            expression = self.module_assignment(expression.id) or expression
+        if not isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
+            locks["unresolved"] = locks["unresolved"] or self.unparse(expression)
+            return
+        for lock in expression.elts:
+            is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
+            resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
+            keywords = {keyword.arg: keyword.value for keyword in lock.keywords} if is_lock_call else {}
+            if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
+                locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
+                continue
+            proven_id = None if is_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
+            if proven_id is not None:
+                resource_id = proven_id
+            elif not is_named:
+                locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(lock)} is not proven in its registration scope"
+            instance = lock.args[0] if lock.args else keywords.get("instance")
+            locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
+
+    # Resolves a registration lock in its own scope: a method body sees module names, a class body sees earlier class bindings.
+    def registration_lock_resource(self, expression, owner_id, scope_method, class_call):
+        if class_call is not None and isinstance(expression, ast.Name) and self.flow_class is not None:
+            module_id = self.proven_resource_reference(expression, owner_id, set())
+            return self.class_body_binding(self.flow_class.name, expression.id, class_call, module_id)
+        local_names = self.locally_bound_names(scope_method) if scope_method is not None else set()
+        return self.proven_resource_reference(expression, owner_id, local_names)
+
+    def constant_instance(self, expression):
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return expression.value
+        return None
+
+    # Records one handler's resolved resource accesses; the frame that resolves self fields is current here.
+    def record_lock_handler(self, owner_id, method, phase, label, locks):
+        accesses = []
+        local_resources = self.local_resource_aliases(owner_id, method)
+        executed = self.surely_reached_nodes(method)
+        local_names = self.locally_bound_names(method)
+        for call in ast.walk(method):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                continue
+            resource_id = local_resources.get(call.func.value.id) if isinstance(call.func.value, ast.Name) else None
+            resource_id = resource_id or self.resource_for(call.func.value, owner_id)
+            if not resource_id:
+                continue
+            instance = None
+            if resource_id in self.resource_declarations and self.resource_details(self.resource_declarations[resource_id][0])["map"]:
+                instance = call.args[1] if len(call.args) > 1 else next((keyword.value for keyword in call.keywords if keyword.arg == "instance"), None)
+            unproven = None
+            if call not in executed:
+                unproven = "the write is in a nested function or a branch that may not run"
+            elif self.proven_resource_reference(call.func.value, owner_id, local_names) != resource_id:
+                unproven = "the receiver is not a module or Flow class resource"
+            accesses.append({
+                "resourceId": resource_id,
+                "method": call.func.attr,
+                "instance": self.constant_instance(instance),
+                "span": self.span(call),
+                "unproven": unproven,
+            })
+        self.lock_handlers.append({"ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses})
+
+    # Nodes that run whenever the function body runs past them: no nested scopes and no constant-false branches.
+    def surely_reached_nodes(self, function):
+        reached = set()
+        pending = list(function.body)
+        while pending:
+            node = pending.pop()
+            reached.add(node)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(node, (ast.If, ast.While)) and isinstance(node.test, ast.Constant):
+                pending.append(node.test)
+                pending.extend(node.body if node.test.value else node.orelse)
+                continue
+            # Short-circuit and conditional expressions may skip every operand after the first.
+            if isinstance(node, ast.BoolOp):
+                pending.append(node.values[0])
+                continue
+            if isinstance(node, ast.IfExp):
+                pending.append(node.test)
+                continue
+            pending.extend(ast.iter_child_nodes(node))
+        return reached
+
+    def locally_bound_names(self, function):
+        names = {argument.arg for argument in [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]}
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                names.update((alias.asname or alias.name).split(".", 1)[0] for alias in node.names)
+        return names
+
+    # Resolves a resource reference only through module names, Flow class attributes, and self of a Flow method or wired Step.
+    def proven_resource_reference(self, expression, owner_id, local_names):
+        rebound = self.rebound_references()
+        if isinstance(expression, ast.Name):
+            if expression.id in local_names or expression.id in rebound:
+                return None
+            return next((f"resource:{kind}:{expression.id}" for kind in ("attribute", "channel", "stream") if f"resource:{kind}:{expression.id}" in self.resource_declarations), None)
+        if not isinstance(expression, ast.Attribute) or not isinstance(expression.value, ast.Name):
+            return None
+        owner = expression.value.id
+        if owner in self.flow_classes and owner not in local_names:
+            key = f"{owner}.{expression.attr}"
+            return None if key in rebound else self.resources.get(key)
+        if owner != "self":
+            return None
+        if owner_id.startswith("step:"):
+            return self.step_resources.get(owner_id.split(":", 1)[1], {}).get(expression.attr)
+        flow_class = self.flow_class
+        key = f"{flow_class.name}.{expression.attr}" if flow_class is not None else ""
+        if flow_class is None or key in rebound or self.assigns_self_attribute(flow_class, expression.attr):
+            return None
+        return self.resources.get(key)
+
+    # In a class body, a bare name refers to the class binding executed before the call, else to the module binding.
+    def class_body_binding(self, owner, name, call, module_resource_id):
+        class_node = next((statement for statement in self.tree.body if isinstance(statement, ast.ClassDef) and statement.name == owner), None)
+        if class_node is None:
+            return None
+        binding = None
+        for member in class_node.body:
+            if member.lineno >= call.lineno:
+                break
+            targets = member.targets if isinstance(member, ast.Assign) else [member.target] if isinstance(member, (ast.AnnAssign, ast.AugAssign)) else []
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets) or (isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and member.name == name):
+                binding = member
+        if binding is None:
+            return module_resource_id
+        class_resource_id = self.resources.get(f"{owner}.{name}")
+        declaration = self.resource_declarations.get(class_resource_id, (None, None))[1] if class_resource_id else None
+        if declaration is binding and f"{owner}.{name}" not in self.rebound_references():
+            return class_resource_id
+        return None
+
+    # Module names and Flow class attributes that the module binds more than once, so they may not hold their resource.
+    def rebound_references(self):
+        if getattr(self, "_rebound_references", None) is not None:
+            return self._rebound_references
+        counts = {}
+        rebound = set()
+
+        def count(key):
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] > 1:
+                rebound.add(key)
+
+        def targets_of(node):
+            if isinstance(node, ast.Assign):
+                return node.targets
+            if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                return [node.target]
+            if isinstance(node, ast.Delete):
+                return node.targets
+            return []
+
+        for statement in self.tree.body:
+            for target in targets_of(statement):
+                if isinstance(target, ast.Name):
+                    count(target.id)
+            if isinstance(statement, ast.ClassDef) and statement.name in self.flow_classes:
+                for member in statement.body:
+                    for target in targets_of(member):
+                        if isinstance(target, ast.Name):
+                            count(f"{statement.name}.{target.id}")
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Global):
+                rebound.update(node.names)
+            for target in targets_of(node):
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in self.flow_classes:
+                    rebound.add(f"{target.value.id}.{target.attr}")
+        self._rebound_references = rebound
+        return rebound
+
+    def assigns_self_attribute(self, class_node, attribute):
+        for node in ast.walk(class_node):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign)) else []
+            for target in targets:
+                if isinstance(target, ast.Attribute) and target.attr == attribute and isinstance(target.value, ast.Name) and target.value.id == "self":
+                    return True
+        return False
+
+    # Binds a constructor argument by keyword or by its position in the SDK signature.
+    def resource_argument(self, call, keyword_name, position):
+        for keyword in call.keywords:
+            if keyword.arg == keyword_name:
+                return keyword.value
+        return call.args[position] if len(call.args) > position else None
+
+    # Reads writes_require_lock and publishes_require_lock; returns (requirement, readable) for one resource.
+    # Unpacked arguments may or may not declare a lock, so the resource is neither checked nor nudged.
+    def declared_lock_requirement(self, resource_id):
+        call, _ = self.resource_declarations[resource_id]
+        is_map = self.resource_details(call)["map"]
+        if any(keyword.arg is None for keyword in call.keywords) or any(isinstance(argument, ast.Starred) for argument in call.args):
+            return None, False
+        short = self.symbol(call.func).rsplit(".", 1)[-1]
+        if short in {"Attribute", "AttributeMap"}:
+            value = self.resource_argument(call, "writes_require_lock", 6)
+        elif short in {"Channel", "ChannelMap"}:
+            value = self.resource_argument(call, "publishes_require_lock", 2)
+        else:
+            return None, True
+        if value is None or (isinstance(value, ast.Constant) and value.value in (None, False)):
+            return None, True
+        if short.startswith("Attribute") and isinstance(value, ast.Constant) and value.value is True:
+            return {"lock": resource_id, "sameInstance": is_map}, True
+        lock_id = self.proven_resource_reference(value, "", set())
+        owner = resource_id.split(":", 2)[-1].rpartition(".")[0]
+        if isinstance(value, ast.Name) and owner:
+            lock_id = self.class_body_binding(owner, value.id, call, lock_id)
+        lock_call = self.resource_declarations.get(lock_id, (None, None))[0] if lock_id else None
+        if not lock_id or not lock_id.startswith("resource:attribute:") or lock_call is None or self.resource_details(lock_call)["map"]:
+            return {"unresolved": self.unparse(value)}, False
+        return {"lock": lock_id, "sameInstance": False}, True
+
+    def check_declared_locks(self):
+        requirements = {}
+        readable = {}
+        for resource_id in self.resource_declarations:
+            requirement, readable[resource_id] = self.declared_lock_requirement(resource_id)
+            if requirement is not None:
+                requirements[resource_id] = requirement
+        writers = {}
+        rpc_writers = set()
+        unlocked_writers = {}
+        unlocked_read_writers = {}
+        for handler in self.lock_handlers:
+            reads = set()
+            writes = set()
+            for access in handler["accesses"]:
+                resource_id = access["resourceId"]
+                edge_kind = self.resource_edge_kind(access["method"], handler["phase"])
+                is_attribute = resource_id.startswith("resource:attribute:")
+                if is_attribute and edge_kind == "resource_read":
+                    reads.add(resource_id)
+                if is_attribute and edge_kind == "resource_write":
+                    writes.add(resource_id)
+                is_guarded = (is_attribute and access["method"] in {"set", "delete"}) or (resource_id.startswith("resource:channel:") and access["method"] == "publish")
+                if is_guarded and resource_id in requirements and handler["phase"] != "timeout":
+                    self.check_declared_lock(handler, access, requirements[resource_id])
+            # A writer that registers the Attribute's own lock cannot lose an update; unreadable locks count as held.
+            locks = handler["locks"]
+            is_lock_unknown = locks is None or locks["unresolved"] is not None
+            held = set() if is_lock_unknown else {lock[0] for lock in locks["locks"]}
+            # Only writes that can overlap count: an RPC can run beside any handler, while Steps alone may run in sequence.
+            is_rpc = handler["phase"] == "rpc"
+            for resource_id in writes:
+                writers.setdefault(resource_id, set()).add(handler["label"])
+                if is_rpc:
+                    rpc_writers.add(resource_id)
+                if is_lock_unknown or resource_id in held:
+                    continue
+                unlocked_writers.setdefault(resource_id, set()).add(handler["label"])
+                if resource_id in reads and is_rpc:
+                    unlocked_read_writers.setdefault(resource_id, set()).add(handler["label"])
+        for resource_id in sorted(writers):
+            if resource_id in requirements or not readable.get(resource_id, False):
+                continue
+            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in unlocked_writers:
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and " + ", ".join(sorted(unlocked_writers[resource_id])) + " registers no lock of it"
+            elif resource_id in unlocked_read_writers:
+                reason = "is both read and written without its lock by " +", ".join(sorted(unlocked_read_writers[resource_id]))
+            else:
+                continue
+            call, _ = self.resource_declarations[resource_id]
+            name = self.node_name(resource_id)
+            self.warning("lock_requirement_not_declared", f"attribute {name} {reason}; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock", self.span(call))
+
+    def node_name(self, node_id):
+        for node in self.graph["nodes"]:
+            if node["id"] == node_id:
+                return node.get("name") or node_id
+        return node_id.rsplit(":", 1)[-1]
+
+    # Writes the lock as code that the registration scope can evaluate, or describes it when no binding is visible there.
+    def registration_lock_text(self, lock_id, phase, same_instance, instance):
+        key = lock_id.split(":", 2)[-1]
+        owner, _, attribute = key.rpartition(".")
+        if not owner:
+            reference = key
+        elif phase == "rpc" and self.flow_class is not None and owner == self.flow_class.name:
+            reference = attribute
+        else:
+            reference = key
+        if not reference.isidentifier() and not all(part.isidentifier() for part in reference.split(".")):
+            return f"the lock of {self.node_name(lock_id)}"
+        if not same_instance:
+            return f"{reference}.lock()"
+        return f"{reference}.lock({instance!r})" if instance is not None else f"{reference}.lock(<written instance>)"
+
+    def check_declared_lock(self, handler, access, requirement):
+        resource_id = access["resourceId"]
+        name = self.node_name(resource_id)
+        action = "publishes to channel" if resource_id.startswith("resource:channel:") else "writes attribute"
+        subject = f"{handler['label']} {action} {name}"
+        if "unresolved" in requirement:
+            self.warning("declared_lock_unresolved", f"{subject}, but dexcli cannot read the lock requirement of its declaration ({requirement['unresolved']})", access["span"])
+            return
+        lock_id = requirement["lock"]
+        is_write_key_known = not requirement["sameInstance"] or access["instance"] is not None
+        lock_text = self.registration_lock_text(lock_id, handler["phase"], requirement["sameInstance"], access["instance"] if is_write_key_known else None)
+        locks = handler["locks"]
+        reason = locks["unresolved"] or locks.get("notLiteral")
+        is_uncertain = reason is not None
+        for held_id, held_instance, has_instance in locks["locks"]:
+            if held_id != lock_id:
+                continue
+            if not requirement["sameInstance"]:
+                return
+            if (held_instance is None and has_instance) or not is_write_key_known:
+                is_uncertain = True
+                if reason is None and not is_write_key_known:
+                    reason = "the written instance key is dynamic"
+                continue
+            if held_instance == access["instance"]:
+                return
+        if is_uncertain:
+            reason = reason or "a lock with a dynamic instance key"
+            self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove that the registration locks include it ({reason})", access["span"])
+            return
+        field = {"execute": "execute_lock_attributes", "wait_for": "wait_for_lock_attributes"}.get(handler["phase"], "the rpc lock_attributes")
+        if access["unproven"]:
+            self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove the write ({access['unproven']})", access["span"])
+            return
+        report = self.error if self.declared_lock_missing_severity == "error" else self.warning
+        report("declared_lock_missing", f"{subject} without the lock its declaration requires; add {lock_text} to {field}", access["span"])
 
     def analyze_locks(self, owner_id, expressions, phases, extra_metadata=None):
         seen = set()
@@ -2053,6 +2436,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 def main():
     request = json.load(sys.stdin)
     analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
+    analyzer.declared_lock_missing_severity = request.get("declaredLockMissingSeverity", "warning")
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.metadata_analysis_result())

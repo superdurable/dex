@@ -180,6 +180,17 @@
   "diagnostics": [
     {
       "severity": "warning",
+      "code": "lock_requirement_not_declared",
+      "message": "attribute case-status is written by RPC cancel_review, RPC reject_refund, and RPC cancel_review registers no lock of it; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock",
+      "span": {
+        "startLine": 14,
+        "startColumn": 15,
+        "endLine": 14,
+        "endColumn": 44
+      }
+    },
+    {
+      "severity": "warning",
       "code": "start_input_unresolved",
       "message": "Start Step FinishStep input cannot drive a form: execute must declare an input annotation in this file",
       "span": {
