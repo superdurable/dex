@@ -271,7 +271,9 @@ class ChargeInBatches(Step[OrderRequest]):
 - `StepOptions` holds per-method timeouts, `RetryPolicy`, heartbeat timeout,
   durability, locks, loads, `wait_for_failure=WaitForFailurePolicy.PROCEED`,
   and the execute failure route. `on_execute_failure_proceed_to` returns a
-  copy; Registry rejects a fallback Step with a different input type.
+  copy; Registry rejects a fallback Step with a different input type. The
+  fallback Step still receives no business input, not the failing Step's
+  input; it reads what it needs from Attributes that an earlier Step saved.
 - The default `heartbeat_timeout` is short. If the attempt reaches its
   heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
   the attempt; raising only `execute_method_timeout` keeps that deadline. A

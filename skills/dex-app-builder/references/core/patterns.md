@@ -458,7 +458,7 @@ RestoreQuantity.execute -> compensate; forceFail("payment failed")
 ```
 
 - A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Compensation starts with that Step, as `VoidPayment` does for `ChargePayment`: undo it with its original reference, and make every undo a no-op for an action that never happened.
-- Recovery Steps get the same input, or the input the route passes, and must be idempotent; they can be retried.
+- A recovery Step receives no business input. It reads what it needs, such as the order and the payment reference, from Attributes that earlier Steps saved. Recovery Steps must be idempotent; they can be retried.
 - Failing the Flow after compensation is a legitimate outcome.
 
 ### Fail fast on permanent errors
@@ -777,9 +777,12 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 Go folder: `hash-partitioned-attribute-map`.
 
 ```text
+// Persisted layout: changing PARTITION_COUNT moves keys to other partitions.
+const PARTITION_COUNT = 16
+
 partition(key):
     canonical = trim and lowercase key; reject empty or invalid input
-    return "partition-" + format(versionedHash(canonical bytes) % partitionCount)
+    return "partition-" + format(versionedHash(canonical bytes) % PARTITION_COUNT)
 
 rpc upsertProfile(profile)     // invocation options: lock and load chunks[partition(profile.email)]
     bucket = load that instance, or an empty dictionary
@@ -790,6 +793,7 @@ rpc getProfile(email)          // invocation options: load only chunks[partition
     return bucket[canonical email] or not found
 ```
 
+- Define the partition count as one named constant with a code comment that it is persisted layout and that changing it moves keys to other partitions. Changing it needs a complete rehash or a new Flow version.
 - Every SDK and service must use the identical canonicalization and hash.
 - A collision only shares a bucket, because the bucket is a dictionary keyed by the full canonical key.
 - Every writer uses the same instance-lock rule. Locks are cooperative.

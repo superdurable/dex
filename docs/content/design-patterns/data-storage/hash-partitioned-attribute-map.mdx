@@ -135,7 +135,7 @@ PUT  /patterns/hash-partitioned-attribute-map/customer-profile
 GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alice@example.com
 ```
 
-The partition count is part of the persisted data. Changing it moves most keys to other partitions, so it requires a complete rehash or a new Flow version. The sample does not implement deletion, full-directory enumeration, cross-field search, or partition resizing.
+The partition count is part of the persisted data. Changing it moves most keys to other partitions, so it requires a complete rehash or a new Flow version. Define it as one named constant with a code comment that says so. The sample does not implement deletion, full-directory enumeration, cross-field search, or partition resizing.
 
 ## Next
 

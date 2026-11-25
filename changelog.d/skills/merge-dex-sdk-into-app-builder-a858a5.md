@@ -12,4 +12,5 @@ bump: minor
 - Pattern renames: **Decision with Deadline** (was Deferred choice), **Idle Timer** (was Inactivity tracker), and **Idle Timer with Resolution** (was Inbound event loop). The three Timer patterns route on the winning Condition.
 - Pattern renames: **Entity Flow with Attribute Sync** (was Entity store) and **Stop Long-Running Work** (was Interruptible execution), which names the built-in ways to stop work.
 - Prefer calls that can fail in Execute. A permanent provider error routes from Execute to a failure-handling Step or ForceFail, never into Step retry; WaitFor passes one to Execute through a Step execution local value.
+- An Execute-failure recovery Step receives no business input; it reads what it needs from Attributes. The hash-partitioned AttributeMap keeps its partition count in one named constant marked as persisted layout.
 - Compensation after exhausted retries starts with the failed Step itself, because it may still have taken effect. Testing guidance skips the Flow timeout instead of shortening it.

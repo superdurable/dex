@@ -161,7 +161,9 @@ class RecoverInvoice implements Step<string> {
     return "RecoverInvoice";
   }
 
-  public async execute(context: Context, invoiceId: string): Promise<StepDecision> {
+  // A recovery Step receives no business input; read the saved invoice ID.
+  public async execute(context: Context, _input: string): Promise<StepDecision> {
+    const invoiceId = currentInvoiceId.get(context) ?? "";
     const failure = context.recoveryError;
     const progress = failure?.attemptProgress ?? StepAttemptProgress.UNSPECIFIED;
     if (progress === StepAttemptProgress.NOT_STARTED) {
