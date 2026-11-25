@@ -665,6 +665,19 @@ var _ = dex.DefineAttributeMap[int]("contract-locked-items", dex.WritesRequireAt
 var _ = dex.DefineChannel[string]("contract-locked-replies", dex.PublishesRequireAttributeLock(contractLock))
 var _ = dex.DefineChannelMap[string]("contract-locked-events", dex.PublishesRequireAttributeLock(contractLock))
 var _ dex.ChannelOption = dex.PublishesRequireAttributeLock(contractLock)
+var _ error = &dex.MissingAttributeLockError{
+	FlowType: "flow",
+	StepType: "step",
+	Method:   "Execute",
+	RPCName:  "",
+	Accesses: []dex.MissingAttributeLockAccess{{
+		Kind:              "AttributeMap",
+		Name:              "items",
+		Instance:          "a",
+		LockAttributeName: "items",
+		LockInstance:      "a",
+	}},
+}
 var _ dex.PayloadCodec = (*dex.AESGCMPayloadCodec)(nil)
 var _ dex.PayloadEncryptionKeyProvider = (*dex.FilePayloadEncryptionKeyProvider)(nil)
 var _ func(dex.PayloadEncryptionKeyProvider, dex.AESGCMPayloadCodecOptions) (*dex.AESGCMPayloadCodec, error) = dex.NewAESGCMPayloadCodec

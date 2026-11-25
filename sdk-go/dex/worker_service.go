@@ -212,6 +212,12 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return err
 	}
+	if err := checkRequiredAttributeLocks(
+		stepRequiredLockHandler(flow, step, requiredLockMethodWaitFor),
+		invocation,
+	); err != nil {
+		return err
+	}
 	waiting, err := mapRegisteredWait(service.registry, flow, wait)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
@@ -333,6 +339,12 @@ func (service *workerService) invokeExecuteMethod(
 	}
 	decision, err := callExecuteHandler(step, invocation, input)
 	if err != nil {
+		return err
+	}
+	if err := checkRequiredAttributeLocks(
+		stepRequiredLockHandler(flow, step, requiredLockMethodExecute),
+		invocation,
+	); err != nil {
 		return err
 	}
 	mapped, err := mapRegisteredDecision(flow, decision)
@@ -537,6 +549,9 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	result, err := callRPCHandler(rpc, invocation, input)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkRequiredAttributeLocks(rpcRequiredLockHandler(flow, rpc), invocation); err != nil {
 		return nil, err
 	}
 	response, err := mapRegisteredRPCResult(flow, result)
