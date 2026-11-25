@@ -109,6 +109,23 @@ impl FlowSmokeHttpClient {
         assert!(status.is_success(), "POST {path} returned {status}: {body}");
         parse_flow_trigger_response(&body, "")
     }
+
+    pub(crate) fn trigger_post_json(&self, path: &str, body: &Value) -> FlowSmokeTriggerResult {
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base_url))
+            .header("content-type", "application/json")
+            .body(body.to_string())
+            .send()
+            .expect("flow smoke HTTP POST");
+        let status = response.status();
+        let response_body = response.text().expect("read flow smoke response");
+        assert!(
+            status.is_success(),
+            "POST {path} returned {status}: {response_body}"
+        );
+        parse_flow_trigger_response(&response_body, "")
+    }
 }
 
 pub(crate) fn parse_flow_trigger_response(

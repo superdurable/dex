@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::data_storage;
 use crate::patterns;
 use crate::patterns::polling::FakeJobService;
 use crate::primitives;
@@ -52,6 +53,7 @@ pub fn build_router(
         ))
         .merge(patterns::interruptible::controller::mount(client.clone()))
         .merge(patterns::reminders::controller::mount(client.clone()))
+        .merge(data_storage::entity_flow::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))
         .merge(patterns::sequentially_chunked_attribute_map::controller::mount(client.clone()))
         .merge(patterns::hash_partitioned_attribute_map::controller::mount(
