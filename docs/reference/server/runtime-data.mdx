@@ -729,7 +729,7 @@ writes; the declaration states the rule.
 | Attribute | Every write holds the Attribute's own lock | **WritesRequireLock** | **writes_require_lock=True** |
 | AttributeMap | A write of an instance holds that instance's lock | **WritesRequireLock** | **writes_require_lock=True** |
 | Attribute or AttributeMap | Every write holds the lock of one singleton coordination Attribute | **WritesRequireAttributeLock** | **writes_require_lock=**&lt;Attribute&gt; |
-| Channel or ChannelMap | Every publish holds the lock of one singleton Attribute | **PublishesRequireAttributeLock** | **publishes_require_lock=**&lt;Attribute&gt; |
+| Channel or ChannelMap | Every publish holds the lock of one singleton Attribute | **PublishesRequireAttributeLock** with **DefineChannelWithOptions** or **DefineChannelMapWithOptions** | **publishes_require_lock=**&lt;Attribute&gt; |
 
 Only the Go and Python SDKs support the declaration so far.
 
@@ -771,22 +771,28 @@ the map then run one at a time within the Flow run, as in
 The lock Attribute of a requirement must be a singleton Attribute in the same
 Flow's **PersistenceSchema**. Registry construction fails otherwise: Go
 **NewRegistry** returns an error, and Python **Registry** raises
-**FlowDefinitionError**. In Python, the lock Attribute must be the same object
-that the schema registers.
+**FlowDefinitionError**. Go also rejects a zero Attribute with an empty name.
+In Python, the lock Attribute must be the same object that the schema
+registers.
 
 The Worker enforces the requirement; the server does not. The Worker compares
 writes with the registered locks, while Dex acquires the locks that each call
-sends. These can differ in three cases, and the check cannot see any of them:
+sends. The check cannot see these cases:
 
-- Options of one Step movement replace the Step's registered lock fields. A
-  movement that leaves out the lock runs the Step without it.
+- In Go, **StepOptions** passed with **WithStepOptions** replace a registered
+  lock field only when that field is non-nil. A nil field keeps the registered
+  locks; an empty slice runs the Step without them.
+- In Python, the **StepOptions** of a **StepMovement** replace the Step's whole
+  options, including its lock fields. Options that leave out the lock run the
+  Step without it.
 - Dex takes an RPC's locks from the Client's definition. A Client built
   without the lock runs the RPC without it.
 - A Worker built without the declaration does not check it.
+- Writes that run no handler skip the Worker. These include Attribute values
+  set when a Flow starts and Attribute edits from Dex Web.
 
 Build every Worker and Client from the same definitions, and keep required
-locks in movement options. Attribute values set when a Flow starts are not
-checked.
+locks in movement options.
 
 The API names are in the [Go Attribute](/reference/go/attribute#api-names),
 [Go Channel](/reference/go/channel#api-names),

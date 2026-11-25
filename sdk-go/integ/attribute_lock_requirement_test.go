@@ -32,15 +32,17 @@ var (
 	lockReqShared       = dex.DefineAttributeMap[int](
 		"lock-req-shared", dex.WritesRequireAttributeLock(lockReqCoordination))
 	lockReqFree    = dex.DefineAttribute[int]("lock-req-free")
-	lockReqReplies = dex.DefineChannel[string](
+	lockReqReplies = dex.DefineChannelWithOptions[string](
 		"lock-req-replies", dex.PublishesRequireAttributeLock(lockReqCoordination))
+	lockReqEvents = dex.DefineChannelMapWithOptions[string](
+		"lock-req-events", dex.PublishesRequireAttributeLock(lockReqCoordination))
 	lockReqFreeChannel = dex.DefineChannel[string]("lock-req-free-channel")
 )
 
 func lockReqSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{lockReqTotal, lockReqCoordination, lockReqItems, lockReqShared, lockReqFree},
-		Channels:   []dex.ChannelDef{lockReqReplies, lockReqFreeChannel},
+		Channels:   []dex.ChannelDef{lockReqReplies, lockReqEvents, lockReqFreeChannel},
 	}
 }
 
@@ -64,6 +66,7 @@ func (attributeLockRequirementStepFlow) GetSteps() []dex.StepDef {
 		dex.DefineStartStep(lockReqDispatchStep{}),
 		dex.DefineStep(lockReqUnlockedTotalStep{}),
 		dex.DefineStep(lockReqWaitForTotalStep{}),
+		dex.DefineStep(lockReqLockedWaitForTotalStep{}),
 		dex.DefineStep(lockReqLockedTotalStep{}),
 		dex.DefineStep(lockReqLockedItemStep{}),
 		dex.DefineStep(lockReqOtherItemStep{}),
@@ -92,6 +95,8 @@ func (lockReqDispatchStep) Execute(_ dex.Context, stepCase string) (*dex.StepDec
 			lockReqStepOptions(dex.LockAttribute(lockReqTotal)))), nil
 	case "wait-for-total":
 		return dex.GoTo[dex.None](lockReqWaitForTotalStep{}, nil), nil
+	case "locked-wait-for-total":
+		return dex.GoTo[dex.None](lockReqLockedWaitForTotalStep{}, nil), nil
 	case "locked-total":
 		return dex.GoTo[dex.None](lockReqLockedTotalStep{}, nil), nil
 	case "locked-item":
@@ -130,7 +135,9 @@ type lockReqWaitForTotalStep struct {
 }
 
 func (lockReqWaitForTotalStep) GetStepOptions() *dex.StepOptions {
-	return lockReqStepOptions(dex.LockAttribute(lockReqTotal))
+	options := lockReqStepOptions(dex.LockAttribute(lockReqTotal))
+	options.WaitForFailure = dex.ProceedOnWaitForFailure
+	return options
 }
 
 func (lockReqWaitForTotalStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
@@ -140,8 +147,43 @@ func (lockReqWaitForTotalStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, 
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (lockReqWaitForTotalStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("written"), nil
+func (lockReqWaitForTotalStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return lockReqWaitForResult(ctx), nil
+}
+
+// lockReqLockedWaitForTotalStep registers the lock for WaitFor, so its WaitFor write commits.
+type lockReqLockedWaitForTotalStep struct {
+	dex.StepDefaults
+}
+
+func (lockReqLockedWaitForTotalStep) GetStepOptions() *dex.StepOptions {
+	options := lockReqStepOptions()
+	options.WaitForLockAttributes = []dex.AttributeLock{dex.LockAttribute(lockReqTotal)}
+	options.WaitForFailure = dex.ProceedOnWaitForFailure
+	return options
+}
+
+func (lockReqLockedWaitForTotalStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	if err := lockReqTotal.Set(ctx, 1); err != nil {
+		return nil, err
+	}
+	return dex.SkipWaitImmediately(), nil
+}
+
+func (lockReqLockedWaitForTotalStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return lockReqWaitForResult(ctx), nil
+}
+
+// lockReqWaitForResult completes with the WaitFor failure, or "written" when WaitFor succeeded.
+func lockReqWaitForResult(ctx dex.Context) *dex.StepDecision {
+	if !ctx.WaitForMethodFailed() {
+		return dex.GracefulComplete("written")
+	}
+	recovery := ctx.RecoveryError()
+	if recovery == nil {
+		return dex.GracefulComplete("WaitFor failed without a recovery error")
+	}
+	return dex.GracefulComplete(recovery.ErrorType + ": " + recovery.Detail)
 }
 
 type lockReqLockedTotalStep struct {
@@ -278,7 +320,56 @@ func (flow attributeLockRequirementRPCFlow) GetRPCs() []dex.RPCDef {
 		dex.DefineRPC(flow.SetItemLocked, &dex.RPCOptions{
 			LockAttributes: []dex.AttributeLock{dex.LockAttributeMap(lockReqItems, lockReqSpacedInstance)},
 		}),
+		dex.DefineRPC(flow.PublishEventUnlocked, nil),
+		dex.DefineRPC(flow.CountEvents, nil),
+		dex.DefineRPC(flow.SetTotalLocked, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(lockReqTotal)},
+		}),
+		dex.DefineRPC(flow.DeleteTotalUnlocked, nil),
 	}
+}
+
+// PublishEventUnlocked also writes an undeclared Attribute, which the failure must discard too.
+func (attributeLockRequirementRPCFlow) PublishEventUnlocked(
+	ctx dex.Context,
+	instance string,
+) (*dex.RPCResult[dex.None], error) {
+	if err := lockReqFree.Set(ctx, 1); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, lockReqEvents.Publish(ctx, instance, "event")
+}
+
+func (attributeLockRequirementRPCFlow) CountEvents(ctx dex.Context, instance string) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: lockReqEvents.Size(ctx, instance)}, nil
+}
+
+func (attributeLockRequirementRPCFlow) SetTotalLocked(ctx dex.Context, value int) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Set(ctx, value)
+}
+
+func (attributeLockRequirementRPCFlow) DeleteTotalUnlocked(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Delete(ctx)
+}
+
+// attributeLockRequirementTimeoutFlow writes a declared Attribute from its unchecked timeout handler.
+type attributeLockRequirementTimeoutFlow struct {
+	dex.FlowDefaults
+}
+
+func (attributeLockRequirementTimeoutFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
+func (attributeLockRequirementTimeoutFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+func (attributeLockRequirementTimeoutFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := lockReqTotal.Set(ctx, 5); err != nil {
+		return nil, err
+	}
+	return dex.ForceComplete("expired"), nil
 }
 
 func (attributeLockRequirementRPCFlow) PublishReplyUnlocked(
@@ -311,6 +402,7 @@ func lockReqRegistry(t *testing.T) *dex.Registry {
 	registry, err := dex.NewRegistry([]dex.Flow{
 		attributeLockRequirementStepFlow{},
 		attributeLockRequirementRPCFlow{},
+		attributeLockRequirementTimeoutFlow{},
 	})
 	require.NoError(t, err)
 	return registry
@@ -457,9 +549,42 @@ func TestAttributeLockRequirementSteps(t *testing.T) {
 	t.Run("wait-for-total", func(t *testing.T) {
 		flowID := harness.startFlow(t, flow, "wait-for-total")
 		result := harness.waitForFlow(t, flowID)
-		require.Equal(t, dex.FlowFailed, result.Status)
+		require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+		var output string
+		require.NoError(t, result.DecodeSingleOutput(&output))
+		require.Contains(t, output, missingLockErrorType+": ")
+		require.Contains(t, output, `step "lockReqWaitForTotalStep" WaitFor wrote Attribute "lock-req-total"`)
 		require.False(t, harness.isSet(t, flowID, lockReqTotal, ""), "the failed WaitFor write is discarded")
 	})
+	t.Run("locked-wait-for-total", func(t *testing.T) {
+		flowID := harness.startFlow(t, flow, "locked-wait-for-total")
+		result := harness.waitForFlow(t, flowID)
+		require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+		var output string
+		require.NoError(t, result.DecodeSingleOutput(&output))
+		require.Equal(t, "written", output)
+		require.True(t, harness.isSet(t, flowID, lockReqTotal, ""))
+	})
+}
+
+// TestAttributeLockRequirementTimeoutHandler shows a Flow timeout handler is not checked.
+func TestAttributeLockRequirementTimeoutHandler(t *testing.T) {
+	harness := startLockReqHarness(t)
+	flowID := newFlowID(t, "lock-req-timeout")
+	timeout := time.Second
+	_, err := harness.client.StartFlow(integrationContext(t), attributeLockRequirementTimeoutFlow{}, flowID, nil,
+		dex.StartFlowOptions{TaskQueue: harness.taskQueue, Timeout: &timeout})
+	require.NoError(t, err)
+	result := harness.waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+	var output string
+	require.NoError(t, result.DecodeSingleOutput(&output))
+	require.Equal(t, "expired", output)
+	total := -1
+	values, err := harness.client.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(lockReqTotal, &total))
+	require.NoError(t, err)
+	require.True(t, values.IsSet(lockReqTotal))
+	require.Equal(t, 5, total)
 }
 
 // TestAttributeLockRequirementRPCs covers declared publishes and writes from RPCs.
@@ -508,6 +633,30 @@ func TestAttributeLockRequirementRPCs(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, harness.isSet(t, flowID, lockReqItems, lockReqSpacedInstance))
 	})
+	t.Run("channel-map-publish-unlocked", func(t *testing.T) {
+		flowID := harness.startFlow(t, flow, nil)
+		err := harness.client.InvokeRPC(integrationContext(t), flowID, flow.PublishEventUnlocked,
+			lockReqSpacedInstance, new(dex.None))
+		requireMissingLock(t, err, `published to ChannelMap "lock-req-events" instance "item a" `+
+			`without the required lock of Attribute "lock-req-coordination"`)
+		var size int
+		require.NoError(t, harness.client.InvokeRPC(integrationContext(t), flowID, flow.CountEvents,
+			lockReqSpacedInstance, &size))
+		require.Zero(t, size, "the rejected publish is discarded")
+		require.False(t, harness.isSet(t, flowID, lockReqFree, ""), "the other buffered write is discarded")
+	})
+	t.Run("delete-unlocked", func(t *testing.T) {
+		flowID := harness.startFlow(t, flow, nil)
+		require.NoError(t, harness.client.InvokeRPC(integrationContext(t), flowID, flow.SetTotalLocked, 7, new(dex.None)))
+		err := harness.client.InvokeRPC(integrationContext(t), flowID, flow.DeleteTotalUnlocked, nil, new(dex.None))
+		requireMissingLock(t, err, `RPC "DeleteTotalUnlocked" wrote Attribute "lock-req-total" `+
+			`without the required lock of Attribute "lock-req-total"`)
+		total := -1
+		values, err := harness.client.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(lockReqTotal, &total))
+		require.NoError(t, err)
+		require.True(t, values.IsSet(lockReqTotal), "the rejected delete is discarded")
+		require.Equal(t, 7, total)
+	})
 }
 
 type lockReqInvalidFlow struct {
@@ -544,7 +693,7 @@ func TestAttributeLockRequirementRegistration(t *testing.T) {
 		{
 			name: "channel-missing-lock",
 			schema: dex.PersistenceSchema{Channels: []dex.ChannelDef{
-				dex.DefineChannelMap[string]("lock-req-c", dex.PublishesRequireAttributeLock(missingLock)),
+				dex.DefineChannelMapWithOptions[string]("lock-req-c", dex.PublishesRequireAttributeLock(missingLock)),
 			}},
 			want: `channel "lock-req-c" publish lock: lock attribute "lock-req-missing" is not in the PersistenceSchema`,
 		},
@@ -553,10 +702,27 @@ func TestAttributeLockRequirementRegistration(t *testing.T) {
 			schema: dex.PersistenceSchema{
 				Attributes: []dex.AttributeDef{mapLockCollision},
 				Channels: []dex.ChannelDef{
-					dex.DefineChannel[string]("lock-req-c", dex.PublishesRequireAttributeLock(mapLock)),
+					dex.DefineChannelWithOptions[string]("lock-req-c", dex.PublishesRequireAttributeLock(mapLock)),
 				},
 			},
 			want: `lock attribute "lock-req-map-lock" is an AttributeMap; use a singleton Attribute`,
+		},
+		{
+			// A zero Attribute must not turn into the written key's own lock.
+			name: "attribute-zero-lock",
+			schema: dex.PersistenceSchema{Attributes: []dex.AttributeDef{
+				dex.DefineAttributeMap[int]("lock-req-a", dex.WritesRequireAttributeLock(dex.Attribute[bool]{})),
+			}},
+			want: `attribute "lock-req-a" write lock: lock attribute has an empty name`,
+		},
+		{
+			// An empty lock name must not turn the publish requirement off.
+			name: "channel-empty-lock",
+			schema: dex.PersistenceSchema{Channels: []dex.ChannelDef{
+				dex.DefineChannelWithOptions[string]("lock-req-c",
+					dex.PublishesRequireAttributeLock(dex.DefineAttribute[bool](""))),
+			}},
+			want: `channel "lock-req-c" publish lock: lock attribute has an empty name`,
 		},
 	}
 	for _, testCase := range cases {

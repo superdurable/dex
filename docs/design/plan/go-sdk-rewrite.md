@@ -2057,7 +2057,7 @@ type AttributeDef interface {
 type ChannelDef interface {
 	channelName() string
 	channelIsMap() bool
-	channelPublishLockAttributeName() string
+	channelPublishLock() lockRequirement
 }
 
 type PersistenceSchema struct {
@@ -2194,14 +2194,17 @@ type ChannelMap[T any] struct {
 	// unexported
 }
 
-func DefineChannel[T any](name string, options ...ChannelOption) Channel[T]
-func DefineChannelMap[T any](name string, options ...ChannelOption) ChannelMap[T]
+func DefineChannel[T any](name string) Channel[T]
+func DefineChannelMap[T any](name string) ChannelMap[T]
+func DefineChannelWithOptions[T any](name string, options ...ChannelOption) Channel[T]
+func DefineChannelMapWithOptions[T any](name string, options ...ChannelOption) ChannelMap[T]
 func PublishesRequireAttributeLock[T any](lockAttribute Attribute[T]) ChannelOption
 ```
 
 `PublishesRequireAttributeLock` (Go SDK 1.45.17) requires every publish to hold
 the lock of one singleton Attribute, with the same enforcement as
-`WritesRequireAttributeLock`.
+`WritesRequireAttributeLock`. The `WithOptions` constructors take it, so the
+published `DefineChannel` and `DefineChannelMap` function types stay unchanged.
 
 Publishing uses invocation state, while wait construction does not:
 

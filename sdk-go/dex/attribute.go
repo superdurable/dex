@@ -37,7 +37,7 @@ type Attribute[T any] struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
-	writeLock            attributeWriteLockRequirement
+	writeLock            lockRequirement
 }
 
 // DefineAttribute creates a typed Attribute with a stable name and definition options.
@@ -68,7 +68,7 @@ type AttributeDef interface {
 	attributeSyncToAttributeStore() bool
 	attributeIsHardDeleteOnNull() bool
 	attributeIsPlaintext() bool
-	attributeWriteLock() attributeWriteLockRequirement
+	attributeWriteLock() lockRequirement
 }
 
 // Get returns the current value. Missing values return AttributeNotFoundError.
@@ -141,7 +141,7 @@ func (a Attribute[T]) attributeIsPlaintext() bool {
 	return a.isPlaintext
 }
 
-func (a Attribute[T]) attributeWriteLock() attributeWriteLockRequirement {
+func (a Attribute[T]) attributeWriteLock() lockRequirement {
 	return a.writeLock
 }
 
@@ -156,7 +156,7 @@ type AttributeMap[T any] struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
-	writeLock            attributeWriteLockRequirement
+	writeLock            lockRequirement
 }
 
 // AttributeMapLoad selects one AttributeMap instance for a handler invocation.
@@ -277,7 +277,7 @@ func (a AttributeMap[T]) attributeIsPlaintext() bool {
 	return a.isPlaintext
 }
 
-func (a AttributeMap[T]) attributeWriteLock() attributeWriteLockRequirement {
+func (a AttributeMap[T]) attributeWriteLock() lockRequirement {
 	return a.writeLock
 }
 
@@ -474,7 +474,7 @@ func Plaintext() AttributeOption {
 //
 // Since 1.45.17.
 func WritesRequireLock() AttributeOption {
-	return writeLockAttributeOption{}
+	return writeLockAttributeOption{requirement: lockRequirement{mode: lockRequirementOwnKey}}
 }
 
 // WritesRequireAttributeLock declares that every write of an Attribute or AttributeMap instance
@@ -486,7 +486,8 @@ func WritesRequireLock() AttributeOption {
 // MissingAttributeLockError. The handler must register LockAttribute(lockAttribute).
 //
 // lockAttribute must be in the same Flow's PersistenceSchema. NewRegistry returns an error when it
-// is missing there. The coordination Attribute needs no stored value.
+// is missing there, or when lockAttribute is a zero Attribute with an empty name. The coordination
+// Attribute needs no stored value.
 //
 // Example:
 //
@@ -501,7 +502,10 @@ func WritesRequireLock() AttributeOption {
 //
 // Since 1.45.17.
 func WritesRequireAttributeLock[T any](lockAttribute Attribute[T]) AttributeOption {
-	return writeLockAttributeOption{lockAttributeName: lockAttribute.name}
+	return writeLockAttributeOption{requirement: lockRequirement{
+		mode:              lockRequirementAttribute,
+		lockAttributeName: lockAttribute.name,
+	}}
 }
 
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
@@ -601,13 +605,7 @@ type attributeConfig struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
-	writeLock            attributeWriteLockRequirement
-}
-
-// attributeWriteLockRequirement is a declared write lock; an empty lockAttributeName means the written key's own lock.
-type attributeWriteLockRequirement struct {
-	isRequired        bool
-	lockAttributeName string
+	writeLock            lockRequirement
 }
 
 func applyAttributeOptions(options []AttributeOption) attributeConfig {
@@ -646,14 +644,11 @@ func (plaintextAttributeOption) applyAttribute(config *attributeConfig) {
 }
 
 type writeLockAttributeOption struct {
-	lockAttributeName string
+	requirement lockRequirement
 }
 
 func (option writeLockAttributeOption) applyAttribute(config *attributeConfig) {
-	config.writeLock = attributeWriteLockRequirement{
-		isRequired:        true,
-		lockAttributeName: option.lockAttributeName,
-	}
+	config.writeLock = option.requirement
 }
 
 type attributeLock struct {

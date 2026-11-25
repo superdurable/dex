@@ -31,11 +31,12 @@ import (
 //	var approvals = dex.DefineChannel[Approval]("approvals")
 //	return dex.AnyOf(approvals.ForOne(), dex.Timer(5*time.Minute)), nil
 type Channel[T any] struct {
-	name                     string
-	publishLockAttributeName string
+	name        string
+	publishLock lockRequirement
 }
 
-// ChannelOption configures a Channel or ChannelMap definition.
+// ChannelOption configures a Channel or ChannelMap definition created with
+// DefineChannelWithOptions or DefineChannelMapWithOptions.
 // Use PublishesRequireAttributeLock to create a value; custom implementations are not supported.
 //
 // Since 1.45.17.
@@ -44,7 +45,7 @@ type ChannelOption interface {
 }
 
 type channelConfig struct {
-	publishLockAttributeName string
+	publishLock lockRequirement
 }
 
 func applyChannelOptions(options []ChannelOption) channelConfig {
@@ -68,12 +69,14 @@ func applyChannelOptions(options []ChannelOption) channelConfig {
 // StepOptions.ExecuteLockAttributes for a Step method, and RPCOptions.LockAttributes for an RPC.
 // Locks added for one call, such as RPCInvokeOptions.LockAttributeMapInstances and StepOptions
 // passed with WithStepOptions, do not count. A Flow timeout handler is not checked. lockAttribute
-// must be in the same Flow's PersistenceSchema; NewRegistry returns an error otherwise.
+// must be a named Attribute in the same Flow's PersistenceSchema; NewRegistry returns an error
+// otherwise. Pass the option to DefineChannelWithOptions or DefineChannelMapWithOptions.
 //
 // Example:
 //
 //	var conversationLock = dex.DefineAttribute[bool]("conversation-lock")
-//	var replies = dex.DefineChannel[string]("replies", dex.PublishesRequireAttributeLock(conversationLock))
+//	var replies = dex.DefineChannelWithOptions[string]("replies",
+//		dex.PublishesRequireAttributeLock(conversationLock))
 //
 //	func (flow ChatFlow) GetRPCs() []dex.RPCDef {
 //		return []dex.RPCDef{dex.DefineRPC(flow.Reply, &dex.RPCOptions{
@@ -83,15 +86,18 @@ func applyChannelOptions(options []ChannelOption) channelConfig {
 //
 // Since 1.45.17.
 func PublishesRequireAttributeLock[T any](lockAttribute Attribute[T]) ChannelOption {
-	return publishLockChannelOption{lockAttributeName: lockAttribute.name}
+	return publishLockChannelOption{requirement: lockRequirement{
+		mode:              lockRequirementAttribute,
+		lockAttributeName: lockAttribute.name,
+	}}
 }
 
 type publishLockChannelOption struct {
-	lockAttributeName string
+	requirement lockRequirement
 }
 
 func (option publishLockChannelOption) applyChannel(config *channelConfig) {
-	config.publishLockAttributeName = option.lockAttributeName
+	config.publishLock = option.requirement
 }
 
 // ChannelMapLoad selects one ChannelMap instance for a handler invocation.
@@ -113,10 +119,29 @@ type ChannelMessage[T any] struct {
 
 // DefineChannel creates a typed Channel with a stable name without performing I/O.
 // "/" is reserved as the ChannelMap separator and is prohibited in Channel names.
-// Changed in 1.45.17: options such as PublishesRequireAttributeLock configure the definition.
-func DefineChannel[T any](name string, options ...ChannelOption) Channel[T] {
+// Use DefineChannelWithOptions to configure the definition, for example with a publish lock.
+func DefineChannel[T any](name string) Channel[T] {
+	return Channel[T]{name: name}
+}
+
+// DefineChannelWithOptions creates a typed Channel with a stable name and definition options,
+// without performing I/O.
+//
+// Use it instead of DefineChannel when the definition needs a ChannelOption, such as
+// PublishesRequireAttributeLock. Without options it returns the same definition as DefineChannel.
+// "/" is reserved as the ChannelMap separator and is prohibited in Channel names. Register the
+// result in PersistenceSchema.Channels like any other Channel.
+//
+// Example:
+//
+//	var conversationLock = dex.DefineAttribute[bool]("conversation-lock")
+//	var replies = dex.DefineChannelWithOptions[string]("replies",
+//		dex.PublishesRequireAttributeLock(conversationLock))
+//
+// Since 1.45.17.
+func DefineChannelWithOptions[T any](name string, options ...ChannelOption) Channel[T] {
 	config := applyChannelOptions(options)
-	return Channel[T]{name: name, publishLockAttributeName: config.publishLockAttributeName}
+	return Channel[T]{name: name, publishLock: config.publishLock}
 }
 
 // ChannelDef is the interface of Channel, without Go's generic
@@ -126,7 +151,7 @@ func DefineChannel[T any](name string, options ...ChannelOption) Channel[T] {
 type ChannelDef interface {
 	channelName() string
 	channelIsMap() bool
-	channelPublishLockAttributeName() string
+	channelPublishLock() lockRequirement
 }
 
 // Publish stages one message from the current Step or RPC invocation.
@@ -257,8 +282,8 @@ func (Channel[T]) channelIsMap() bool {
 	return false
 }
 
-func (c Channel[T]) channelPublishLockAttributeName() string {
-	return c.publishLockAttributeName
+func (c Channel[T]) channelPublishLock() lockRequirement {
+	return c.publishLock
 }
 
 // ChannelMap defines independently queued Channel instances under one shared name.
@@ -266,16 +291,35 @@ func (c Channel[T]) channelPublishLockAttributeName() string {
 // Slash is prohibited in instance keys because it is a reserved character.
 // To wait for parallel branches of the same Flow, use a Join, which keys a ChannelMap by round.
 type ChannelMap[T any] struct {
-	name                     string
-	publishLockAttributeName string
+	name        string
+	publishLock lockRequirement
 }
 
 // DefineChannelMap creates a typed Channel map with a stable name.
 // "/" is reserved as the ChannelMap separator and is prohibited in ChannelMap names.
-// Changed in 1.45.17: options such as PublishesRequireAttributeLock configure the definition.
-func DefineChannelMap[T any](name string, options ...ChannelOption) ChannelMap[T] {
+// Use DefineChannelMapWithOptions to configure the definition, for example with a publish lock.
+func DefineChannelMap[T any](name string) ChannelMap[T] {
+	return ChannelMap[T]{name: name}
+}
+
+// DefineChannelMapWithOptions creates a typed Channel map with a stable name and definition
+// options.
+//
+// Use it instead of DefineChannelMap when the definition needs a ChannelOption, such as
+// PublishesRequireAttributeLock, which then applies to every instance of the map. Without options
+// it returns the same definition as DefineChannelMap. "/" is reserved as the ChannelMap separator
+// and is prohibited in ChannelMap names.
+//
+// Example:
+//
+//	var sessionLock = dex.DefineAttribute[bool]("session-lock")
+//	var sessionEvents = dex.DefineChannelMapWithOptions[string]("session-events",
+//		dex.PublishesRequireAttributeLock(sessionLock))
+//
+// Since 1.45.17.
+func DefineChannelMapWithOptions[T any](name string, options ...ChannelOption) ChannelMap[T] {
 	config := applyChannelOptions(options)
-	return ChannelMap[T]{name: name, publishLockAttributeName: config.publishLockAttributeName}
+	return ChannelMap[T]{name: name, publishLock: config.publishLock}
 }
 
 // Publish stages one typed message for instance from the current invocation.
@@ -456,8 +500,8 @@ func (ChannelMap[T]) channelIsMap() bool {
 	return true
 }
 
-func (c ChannelMap[T]) channelPublishLockAttributeName() string {
-	return c.publishLockAttributeName
+func (c ChannelMap[T]) channelPublishLock() lockRequirement {
+	return c.publishLock
 }
 
 type channelInvocation interface {

@@ -662,8 +662,15 @@ var _ = dex.DefineAttributeMap[string]("contract-plaintext", dex.Plaintext())
 var contractLock = dex.DefineAttribute[bool]("contract-lock")
 var _ = dex.DefineAttribute[int]("contract-locked-total", dex.WritesRequireLock())
 var _ = dex.DefineAttributeMap[int]("contract-locked-items", dex.WritesRequireAttributeLock(contractLock))
-var _ = dex.DefineChannel[string]("contract-locked-replies", dex.PublishesRequireAttributeLock(contractLock))
-var _ = dex.DefineChannelMap[string]("contract-locked-events", dex.PublishesRequireAttributeLock(contractLock))
+var _ = dex.DefineChannelWithOptions[string]("contract-locked-replies", dex.PublishesRequireAttributeLock(contractLock))
+var _ = dex.DefineChannelMapWithOptions[string]("contract-locked-events", dex.PublishesRequireAttributeLock(contractLock))
+var _ = dex.DefineChannelWithOptions[string]("contract-plain-replies")
+
+// The published constructors keep their function types.
+var _ func(string) dex.Channel[int] = dex.DefineChannel[int]
+var _ func(string) dex.ChannelMap[int] = dex.DefineChannelMap[int]
+var _ func(string, ...dex.ChannelOption) dex.Channel[int] = dex.DefineChannelWithOptions[int]
+var _ func(string, ...dex.ChannelOption) dex.ChannelMap[int] = dex.DefineChannelMapWithOptions[int]
 var _ dex.ChannelOption = dex.PublishesRequireAttributeLock(contractLock)
 var _ error = &dex.MissingAttributeLockError{
 	FlowType: "flow",

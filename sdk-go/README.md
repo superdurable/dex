@@ -707,7 +707,7 @@ Dex discards its buffered changes:
 var cartLock = dex.DefineAttribute[bool]("cart-lock")
 var cartTotal = dex.DefineAttribute[int]("cart-total", dex.WritesRequireLock())
 var cartItems = dex.DefineAttributeMap[int]("cart-items", dex.WritesRequireAttributeLock(cartLock))
-var cartEvents = dex.DefineChannel[string]("cart-events", dex.PublishesRequireAttributeLock(cartLock))
+var cartEvents = dex.DefineChannelWithOptions[string]("cart-events", dex.PublishesRequireAttributeLock(cartLock))
 ```
 
 Only locks in `StepOptions` and `RPCOptions` count; locks chosen for one call

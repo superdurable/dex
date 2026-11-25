@@ -20,6 +20,23 @@ const (
 	requiredLockMethodRPC     = "RPC"
 )
 
+type lockRequirementMode uint8
+
+const (
+	// lockRequirementNone declares no requirement.
+	lockRequirementNone lockRequirementMode = iota
+	// lockRequirementOwnKey requires the lock of the written Attribute or AttributeMap instance.
+	lockRequirementOwnKey
+	// lockRequirementAttribute requires the lock of the singleton Attribute lockAttributeName.
+	lockRequirementAttribute
+)
+
+// lockRequirement is a declared write or publish lock; lockAttributeName applies only to lockRequirementAttribute.
+type lockRequirement struct {
+	mode              lockRequirementMode
+	lockAttributeName string
+}
+
 // requiredLockHandler describes one handler invocation and the locks its registration declares.
 type requiredLockHandler struct {
 	flowType string
@@ -92,20 +109,16 @@ func (invocation *invocationContext) requiredLockAccesses() []requiredLockAccess
 	for _, physical := range invocation.attributeWriteOrder {
 		name, instance := splitPhysicalName(physical)
 		attribute, found := invocation.flow.attributes[name]
-		if !found || !attribute.writeLock.isRequired {
+		if !found || attribute.writeLock.mode == lockRequirementNone {
 			continue
 		}
-		access := MissingAttributeLockAccess{
-			Kind:              "Attribute",
-			Name:              name,
-			Instance:          instance,
-			LockAttributeName: attribute.writeLock.lockAttributeName,
-		}
-		lockKey := attribute.writeLock.lockAttributeName
+		access := MissingAttributeLockAccess{Kind: "Attribute", Name: name, Instance: instance}
 		if attribute.isMap {
 			access.Kind = "AttributeMap"
 		}
-		if lockKey == "" {
+		lockKey := attribute.writeLock.lockAttributeName
+		access.LockAttributeName = attribute.writeLock.lockAttributeName
+		if attribute.writeLock.mode == lockRequirementOwnKey {
 			lockKey = physical
 			access.LockAttributeName = name
 			access.LockInstance = instance
@@ -121,7 +134,7 @@ func (invocation *invocationContext) requiredLockAccesses() []requiredLockAccess
 		published[physical] = struct{}{}
 		name, instance := splitPhysicalName(physical)
 		channel, found := invocation.flow.channels[name]
-		if !found || channel.publishLockAttributeName == "" {
+		if !found || channel.publishLock.mode == lockRequirementNone {
 			continue
 		}
 		kind := "Channel"
@@ -133,9 +146,9 @@ func (invocation *invocationContext) requiredLockAccesses() []requiredLockAccess
 				Kind:              kind,
 				Name:              name,
 				Instance:          instance,
-				LockAttributeName: channel.publishLockAttributeName,
+				LockAttributeName: channel.publishLock.lockAttributeName,
 			},
-			lockKey: channel.publishLockAttributeName,
+			lockKey: channel.publishLock.lockAttributeName,
 		})
 	}
 	return accesses
