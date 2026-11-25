@@ -99,7 +99,7 @@ import {
   type ValueHydrator,
 } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
-import { registeredFlowByName, registeredRPCLockAttributes } from "../src/flow.js";
+import { registeredFlowByName, registeredRPCLockAttributes, registeredStepLockSnapshot } from "../src/flow.js";
 import { InvocationContext } from "../src/invocation-context.js";
 
 interface OrderInput {
@@ -459,6 +459,61 @@ test("a declaring Flow validates, sends, and checks the same RPC lock copy", () 
   assert.ok(rpcDeclaration !== undefined);
   assert.equal(registeredRPCLockAttributes(registered, rpcDeclaration)?.[0]?.attribute, total);
   assert.deepEqual([...(registered.rpcLockKeys.get("setTotal") ?? [])], ["contract-rpc-total"]);
+});
+
+test("a declaring Flow copies an Array subclass of locks into a plain array", () => {
+  const total = new Attribute("contract-species-total", int64Codec).writesRequireLock();
+  const other = new Attribute("contract-species-other", int64Codec);
+  // Iteration shows a different lock than indexing; map would keep this class through Symbol.species.
+  class ShiftingLocks extends Array<AttributeLock> {
+    public override *[Symbol.iterator](): ArrayIterator<AttributeLock> {
+      yield other.lock();
+    }
+  }
+  const stepLocks = new ShiftingLocks();
+  stepLocks.push(total.lock());
+  const rpcLocks = new ShiftingLocks();
+  rpcLocks.push(total.lock());
+  const step = new (class SpeciesStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "SpeciesStep";
+    }
+    public getStepOptions(): StepOptions {
+      return { executeLockAttributes: stepLocks };
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  class SpeciesFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "ContractSpeciesFlow";
+    }
+    public getSteps() {
+      return StepList.startStep(step);
+    }
+    public getPersistenceSchema() {
+      return { attributes: [total, other] };
+    }
+    @rpc({ lockAttributes: rpcLocks })
+    public setTotal(context: Context): void {
+      total.set(context, 1n);
+    }
+  }
+  const registered = registeredFlowByName(new Registry([new SpeciesFlow()]), "ContractSpeciesFlow");
+  const registeredStep = registered.steps[0];
+  const rpcDeclaration = registered.rpcs[0];
+  assert.ok(registeredStep !== undefined && rpcDeclaration !== undefined);
+  const sentStepLocks = registeredStepLockSnapshot(registered, registeredStep)?.execute ?? [];
+  const sentRPCLocks = registeredRPCLockAttributes(registered, rpcDeclaration) ?? [];
+  for (const sent of [sentStepLocks, sentRPCLocks]) {
+    assert.equal(Object.getPrototypeOf(sent), Array.prototype);
+    assert.deepEqual(sent.map((lock) => lock.attribute.name), ["contract-species-total"]);
+  }
+  // The Worker checks the same keys that are sent.
+  assert.deepEqual([...(registered.stepLockKeys.get("SpeciesStep")?.execute ?? [])], ["contract-species-total"]);
+  assert.deepEqual([...(registered.rpcLockKeys.get("setTotal") ?? [])], ["contract-species-total"]);
 });
 
 /** Builds a Flow whose start Step moves to `target`, and returns the options the Worker sends for it. */

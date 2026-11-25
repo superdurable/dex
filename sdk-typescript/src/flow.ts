@@ -561,16 +561,26 @@ function copiedLocks(locks: readonly AttributeLock[] | undefined): readonly Attr
   if (!Array.isArray(locks)) {
     return locks;
   }
-  return Object.freeze(locks.map((lock: AttributeLock) => {
-    // A callable object can implement AttributeLock structurally, so copy it too.
-    if ((typeof lock !== "object" && typeof lock !== "function") || lock === null) {
-      return lock;
+  // Copy by index into a plain Array: a subclass's map or iterator could show the check other locks.
+  const copied = new Array<AttributeLock>(locks.length);
+  for (let index = 0; index < copied.length; index += 1) {
+    // Skip holes, as map does, so the copy keeps the sparse list's meaning.
+    if (index in locks) {
+      copied[index] = copiedLock(locks[index] as AttributeLock);
     }
-    // Read each field once, so accessor locks and the Attribute definition's identity both survive.
-    const attribute = lock.attribute;
-    const instance = lock.instance;
-    return Object.freeze(instance === undefined ? { attribute } : { attribute, instance });
-  }));
+  }
+  return Object.freeze(copied);
+}
+
+function copiedLock(lock: AttributeLock): AttributeLock {
+  // A callable object can implement AttributeLock structurally, so copy it too.
+  if ((typeof lock !== "object" && typeof lock !== "function") || lock === null) {
+    return lock;
+  }
+  // Read each field once, so accessor locks and the Attribute definition's identity both survive.
+  const attribute = lock.attribute;
+  const instance = lock.instance;
+  return Object.freeze(instance === undefined ? { attribute } : { attribute, instance });
 }
 
 /** Returns the physical lock keys of registered locks, skipping entries that fail to map. */
