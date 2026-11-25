@@ -465,6 +465,11 @@ executor threads.
 | Stop | `client.stop_flow(flow_id, StopFlowOptions::cancel())` |
 | Connectivity | `client.health_check()` |
 
+- `stop_flow` returns `SdkError::FlowNotActiveOrNotFound` when no active run
+  exists and `SdkError::FlowClosing { .. }` while the Flow closes. Treat both
+  as already stopped. When the outcome matters, read the terminal state with
+  `describe_flow` or the outcome Attribute. Return any other error.
+
 - `start_flow` checks that the Flow value's Rust type is the registered one;
   pass any instance of it, such as `&OrderFlow::default()`.
 - Start options also set the timeout, ID reuse policy, initial Attributes,
@@ -512,6 +517,7 @@ building blocks:
 | Static parallel Steps | `go_to_many([StepMovement::to(&A, x.clone()), StepMovement::to(&B, x)])` | `patterns/parallel` |
 | Dynamic parallel Steps | `go_to_many((0..n).map(\|i\| StepMovement::to(&Work, i)))` | `patterns/parallel` |
 | Await all Steps | `JOIN.fork(context, branches, \|round\| StepMovement::to(&Await, round))?`; each branch returns `JOIN.end_branch(context, &round, result)`; the join Step waits `JOIN.for_all_branches(&round)`; register with `PersistenceSchema::join` | `patterns/parallel` |
+| Partial join: first k of n | the join Step waits `JOIN.for_branches(&round, k)`, or `JOIN.for_first_branch(&round)`; `JOIN.for_remaining_branches(&round, received)` waits for the rest | `patterns/parallel` |
 | First win | winner returns `.cancel_sibling_step(&Same)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |

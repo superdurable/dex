@@ -446,6 +446,19 @@ Use the Client at the service boundary only. Every call blocks.
 | Search | `client.searchFlows(query, pageSize)` |
 | Stop | `client.stopFlow(flowId[, StopFlowOptions])` |
 
+- `stopFlow` throws `FlowNotActiveOrNotFoundException` when no active run
+  exists and `FlowClosingException` while the Flow closes. Treat both as
+  already stopped. When the outcome matters, read the terminal state with
+  `describeFlow` or the outcome Attribute. Rethrow any other exception.
+
+```java
+try {
+    client.stopFlow(childFlowId);
+} catch (FlowNotActiveOrNotFoundException | FlowClosingException alreadyStopped) {
+    // Already stopped or closing; read the terminal state when the outcome matters.
+}
+```
+
 - Start options also set the timeout, ID reuse policy, initial Attributes,
   and config override.
 - Never set a positive start delay (`startDelay`). The Server rejects it with

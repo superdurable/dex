@@ -12,6 +12,8 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 **Init** starts several `DoWork` executions. Each one sleeps for a random short time, so any of them can finish first. The first execution to return a decision cancels its sibling `DoWork` executions. The Flow keeps the first result and stops work that can no longer change it.
 
+Each branch is its own Step execution, with its own retries, failure route, and durable result. Racing several external calls inside one `Execute` with in-process concurrency, such as `Promise.any`, asyncio tasks, or threads, gives up all three.
+
 ## Core implementation
 
 The cancellation selector cancels only sibling executions of the same Step type. Other branches keep running.

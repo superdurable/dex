@@ -343,8 +343,8 @@ two options itself:
   start a scheduled attempt late, and a running attempt is never cut short.
   To allow several near-full attempts, size it at about the maximum attempts
   times the method timeout, plus backoff. That is an estimate: retry delays
-  and queue time also use the budget. A business deadline for the Flow uses a
-  durable Timer.
+  and queue time also use the budget. A deadline for the whole Flow uses the
+  Flow timeout. A deadline for one wait uses a durable Timer.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

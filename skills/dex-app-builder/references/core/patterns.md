@@ -149,6 +149,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
+- Each branch is its own Step execution. Never collect the first k of n results inside one Execute with in-process concurrency; each branch needs its own retries, failure route, and durable result.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
@@ -162,6 +163,7 @@ RequestQuotes.execute -> goToMany(FetchQuote(a), FetchQuote(b), FetchQuote(c))
 FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 ```
 
+- Never race several external calls or business branches inside one Execute with in-process concurrency, such as `Promise.any`, asyncio tasks, or threads. Use GoToMany with a sibling cancel, or a Join, so each branch has its own retries, failure route, and durable result.
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
 - Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
@@ -666,6 +668,7 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 - Set a Flow timeout on every child, so a child that is never stopped still ends. Clients cancel a case through the cancel RPC, not StopFlow.
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
+- Declaration order ranks Channels and SubFlows only. A ready Timer always wins over a ready Channel in AnyOf, so a fallback or deadline Timer can beat a cancel or withdrawal that arrives at the same moment. Declare business priority between the Channels, and make the Timer branch handle a cancel that may still be queued, for example by waiting on the cancel Channel in its next Step.
 - A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
 - Once the decision is final, close without consuming the cancel Channel. Do not close with ForceCompleteIfChannelsEmpty on it and fall back to a cancel path: a late cancel would then override the decision. A cancel accepted after the decision stays pending until the Flow closes.
 - Treat not found, not active, and closing from StopFlow as already stopped. Execute may retry, and the child may finish at the same moment.
@@ -852,7 +855,8 @@ A user's Stop ends the current turn now, so it may cancel running Steps; steerin
 - Cancel only Step types with no external effect or that only wait: model calls, Timer waits, approval or input waits.
 - Never cancel a Step type that runs a non-idempotent tool. That tool runs to the end and commits. Its Step reads the stop request when it finishes and routes to turn resolution.
 - A model Step can commit between the RPC's snapshot and its commit. So every Step of the loop checks the stop request at its boundary and stops starting new work.
-- The resolution Step reloads committed messages and pending calls, keeps every committed message and result, writes a canceled result for each call without one, clears approval and Timer state, and marks the turn stopped. It is idempotent.
+- The resolution Step reloads committed messages and pending calls, keeps every committed message and result, clears approval and Timer state, and marks the turn stopped. It is idempotent.
+- [ ] When a turn stops, the closing Step writes a canceled tool result for every requested call that has no result yet, including calls that never started, so the next model input has no dangling tool call.
 - The Stop RPC and every Step that writes turn state declare the same turn-state lock.
 
 ### Long waits and the browser
@@ -864,6 +868,8 @@ A user's Stop ends the current turn now, so it may cancel running Steps; steerin
 ### Verify
 
 Context rebuild after Worker replacement, compaction before deletion, approval after page reload, retry exhaustion, Stream loss, Timer firing, user interruption, a configuration change that waits for the next turn, and Stop during a model call, a Timer, a non-idempotent tool, and racing a model Step commit.
+
+- [ ] After every Stop, each requested tool call has a result, a canceled one for calls that never started or never finished, so the next model input has no dangling tool call.
 
 ## Self-check
 
