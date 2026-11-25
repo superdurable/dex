@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cont
 
 # 控制长时间运行的工作
 
-控制长时间运行的工作（Control Long-Running Work，原名“停止长时间运行的工作”（Stop Long-Running Work）和“可中断执行”（Interruptible execution））在循环运行期间调整或停止它。
+控制长时间运行的工作（Control Long-Running Work，原名“停止长时间运行的工作”（Stop Long-Running Work）和“可中断执行”（Interruptible execution））用来调整或停止正在运行的循环。
 
 这个模式适合长时间循环运行的工作，例如数据回填或批处理。调用方可以调整循环的工作方式，例如每一轮加载多少条数据。调用方也可以要求循环停止。如果要等待外部系统，请改用 [轮询](/design-patterns/durable-timer/polling)。
 
@@ -47,7 +47,7 @@ Dex 内置三种停止工作的方式。按哪些工作必须停、哪些工作�
 | Graceful completion | 等待 graceful completion Condition 的 Step；没有活跃的 Step 时 Flow 完成 | Flow 应先做完当前的工作，然后完成。 |
 | Step 取消 | 选定的正在运行的 Step | 一个分支必须停止，Flow 的其余部分继续运行。 |
 
-像下面的示例那样，把停止请求写在控制 Attribute 里，是第四种做法。循环和其他控制值一起读取它，并在下一个单元开始前停止。
+下面的示例把停止请求和其他控制值一起放在控制 Attribute 里。循环读取它，并在下一个单元开始前停止。如果循环的等待包含 graceful completion Condition，graceful completion 也能停止这样的循环，这时不需要停止 Attribute。
 
 ### 用 StopFlow 停止整个运行 {#stopflow}
 

@@ -46,7 +46,7 @@ Dex has three built-in ways to stop work. Choose by what must stop and what must
 | Graceful completion | Steps that wait on the graceful completion Condition; the Flow completes once no Step is active | The Flow should finish its current work and then complete. |
 | Step cancellation | Chosen running Steps | One branch must stop while the rest of the Flow keeps running. |
 
-A stop request in a control Attribute, as in the example below, is a fourth option. The loop reads it with its other controls and stops before its next unit.
+The example below keeps its stop request in a control Attribute, next to its other controls. The loop reads it and stops before its next unit. Graceful completion also stops such a loop when its wait includes the graceful completion Condition, and then no stop Attribute is needed.
 
 ### Stop the whole run with StopFlow {#stopflow}
 
