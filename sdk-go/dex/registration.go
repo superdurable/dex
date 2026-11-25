@@ -64,7 +64,7 @@ type registeredStep struct {
 
 // stepLockSnapshot holds registration-time options; the lock check and every default send use it.
 type stepLockSnapshot struct {
-	// options is a shallow copy without lock fields, or nil when the Step returned nil options.
+	// options copies the non-lock fields, or is nil when the Step returned nil options.
 	options         *StepOptions
 	waitForLockKeys []string
 	executeLockKeys []string
@@ -78,10 +78,7 @@ func newStepLockSnapshot(options *StepOptions) *stepLockSnapshot {
 	// Invalid locks fail the options validation that follows registration, so errors are dropped here.
 	snapshot.waitForLockKeys, _ = mapAttributeLocks(options.WaitForLockAttributes)
 	snapshot.executeLockKeys, _ = mapAttributeLocks(options.ExecuteLockAttributes)
-	copied := *options
-	copied.WaitForLockAttributes = nil
-	copied.ExecuteLockAttributes = nil
-	snapshot.options = &copied
+	snapshot.options = stepOptionsWithoutLocks(options)
 	return snapshot
 }
 

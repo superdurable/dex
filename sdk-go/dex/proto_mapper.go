@@ -190,25 +190,15 @@ func mapStepOptions(flow *registeredFlow, options *StepOptions) (*dexpb.StepOpti
 }
 
 // stepOptionsMapper maps StepOptions and the options of their failure targets.
-// A Flow that declares a lock requirement maps targets from registration snapshots.
+// A Flow that declares a lock requirement sends registered lock keys.
 type stepOptionsMapper struct {
-	flow          *registeredFlow
+	flow *registeredFlow
+	// activeOptions detects cycles by the identity of the options a Step value returned.
 	activeOptions map[*StepOptions]bool
-	activeTargets map[stepTargetIdentity]bool
-}
-
-// stepTargetIdentity is a snapshot target with its override; it stays stable across recursion.
-type stepTargetIdentity struct {
-	step      *registeredStep
-	overrides *StepOptions
 }
 
 func newStepOptionsMapper(flow *registeredFlow) *stepOptionsMapper {
-	return &stepOptionsMapper{
-		flow:          flow,
-		activeOptions: make(map[*StepOptions]bool),
-		activeTargets: make(map[stepTargetIdentity]bool),
-	}
+	return &stepOptionsMapper{flow: flow, activeOptions: make(map[*StepOptions]bool)}
 }
 
 func (mapper *stepOptionsMapper) usesLockSnapshots() bool {
@@ -216,14 +206,22 @@ func (mapper *stepOptionsMapper) usesLockSnapshots() bool {
 }
 
 func (mapper *stepOptionsMapper) mapStepOptions(options *StepOptions) (*dexpb.StepOptions, error) {
+	return mapper.doMapStepOptions(options, options)
+}
+
+// doMapStepOptions maps options; identity is the value that cycle detection tracks for them.
+func (mapper *stepOptionsMapper) doMapStepOptions(
+	identity *StepOptions,
+	options *StepOptions,
+) (*dexpb.StepOptions, error) {
 	if options == nil {
 		return nil, nil
 	}
-	if mapper.activeOptions[options] {
+	if mapper.activeOptions[identity] {
 		return nil, fmt.Errorf("dex: step options contain a cycle")
 	}
-	mapper.activeOptions[options] = true
-	defer delete(mapper.activeOptions, options)
+	mapper.activeOptions[identity] = true
+	defer delete(mapper.activeOptions, identity)
 
 	waitForMethodTimeout, err := durationSeconds32(options.WaitForMethodTimeout)
 	if err != nil {
@@ -437,7 +435,7 @@ func (mapper *stepOptionsMapper) mapExecuteFailure(
 }
 
 // mapFailureTarget returns the Step type and options a failure route sends to step.
-// Without lock snapshots it reads the target's options again, as before declarations existed.
+// The non-lock options come from the step value of the route, as before declarations existed.
 func (mapper *stepOptionsMapper) mapFailureTarget(
 	step StepDef,
 	overrides *StepOptions,
@@ -453,11 +451,32 @@ func (mapper *stepOptionsMapper) mapFailureTarget(
 	if err != nil {
 		return "", nil, fmt.Errorf("dex: failure target: %w", err)
 	}
-	options, err := mapper.mapRegisteredStepOptions(target, overrides)
+	if target.lockSnapshot == nil {
+		return "", nil, fmt.Errorf("dex: step %q has no registration snapshot", target.stepType)
+	}
+	routeOptions := step.stepOptions()
+	options, err := mapper.doMapStepOptions(
+		mergedStepOptionsIdentity(routeOptions, overrides),
+		mergeStepOptions(stepOptionsWithoutLocks(routeOptions), overrides),
+	)
 	if err != nil {
 		return "", nil, err
 	}
-	return target.stepType, options, nil
+	options = withRegisteredLockKeys(options, target.lockSnapshot, overrides)
+	return step.stepType(), withSkipWaitFor(options, step.skipWaitFor()), nil
+}
+
+// mergedStepOptionsIdentity returns the value that mergeStepOptions(defaults, overrides) would return
+// when it returns an input, so cycle detection matches Flows without declarations.
+func mergedStepOptionsIdentity(defaults *StepOptions, overrides *StepOptions) *StepOptions {
+	if defaults == nil {
+		return overrides
+	}
+	if overrides == nil {
+		return defaults
+	}
+	// mergeStepOptions returns a new value here, which never repeats.
+	return &StepOptions{}
 }
 
 // mapRegisteredStepOptions maps a move to a registered step with optional per-move overrides.
@@ -476,25 +495,66 @@ func (mapper *stepOptionsMapper) mapRegisteredStepOptions(
 	if snapshot == nil {
 		return nil, fmt.Errorf("dex: step %q has no registration snapshot", step.stepType)
 	}
-	identity := stepTargetIdentity{step: step, overrides: overrides}
-	if mapper.activeTargets[identity] {
-		return nil, fmt.Errorf("dex: step options contain a cycle")
-	}
-	mapper.activeTargets[identity] = true
-	defer delete(mapper.activeTargets, identity)
-
 	// The snapshot has no lock fields, so only an explicit override maps locks here.
 	options, err := mapper.mapStepOptions(mergeStepOptions(snapshot.options, overrides))
 	if err != nil {
 		return nil, err
 	}
-	if options != nil && (overrides == nil || overrides.WaitForLockAttributes == nil) {
+	options = withRegisteredLockKeys(options, snapshot, overrides)
+	return withSkipWaitFor(options, step.skipWaitFor), nil
+}
+
+// withRegisteredLockKeys sets each lock field that overrides leave nil to the registered keys.
+func withRegisteredLockKeys(
+	options *dexpb.StepOptions,
+	snapshot *stepLockSnapshot,
+	overrides *StepOptions,
+) *dexpb.StepOptions {
+	useWaitForKeys := overrides == nil || overrides.WaitForLockAttributes == nil
+	useExecuteKeys := overrides == nil || overrides.ExecuteLockAttributes == nil
+	if options == nil {
+		hasWaitForKeys := useWaitForKeys && len(snapshot.waitForLockKeys) > 0
+		hasExecuteKeys := useExecuteKeys && len(snapshot.executeLockKeys) > 0
+		if !hasWaitForKeys && !hasExecuteKeys {
+			return nil
+		}
+		options = &dexpb.StepOptions{}
+	}
+	if useWaitForKeys {
 		options.WaitForLockAttributeKeys = slices.Clone(snapshot.waitForLockKeys)
 	}
-	if options != nil && (overrides == nil || overrides.ExecuteLockAttributes == nil) {
+	if useExecuteKeys {
 		options.ExecuteLockAttributeKeys = slices.Clone(snapshot.executeLockKeys)
 	}
-	return withSkipWaitFor(options, step.skipWaitFor), nil
+	return options
+}
+
+// stepOptionsWithoutLocks copies every field except the lock fields, which it never reads.
+func stepOptionsWithoutLocks(options *StepOptions) *StepOptions {
+	if options == nil {
+		return nil
+	}
+	return &StepOptions{
+		WaitForMethodTimeout:             options.WaitForMethodTimeout,
+		ExecuteMethodTimeout:             options.ExecuteMethodTimeout,
+		HeartbeatTimeout:                 options.HeartbeatTimeout,
+		WaitForRetry:                     options.WaitForRetry,
+		ExecuteRetry:                     options.ExecuteRetry,
+		WaitForFailure:                   options.WaitForFailure,
+		ExecuteFailure:                   options.ExecuteFailure,
+		WaitForDurability:                options.WaitForDurability,
+		ExecuteDurability:                options.ExecuteDurability,
+		WaitForLoadAttributeMaps:         options.WaitForLoadAttributeMaps,
+		WaitForLoadAttributeMapInstances: options.WaitForLoadAttributeMapInstances,
+		WaitForLoadChannels:              options.WaitForLoadChannels,
+		WaitForLoadChannelMaps:           options.WaitForLoadChannelMaps,
+		WaitForLoadChannelMapInstances:   options.WaitForLoadChannelMapInstances,
+		ExecuteLoadAttributeMaps:         options.ExecuteLoadAttributeMaps,
+		ExecuteLoadAttributeMapInstances: options.ExecuteLoadAttributeMapInstances,
+		ExecuteLoadChannels:              options.ExecuteLoadChannels,
+		ExecuteLoadChannelMaps:           options.ExecuteLoadChannelMaps,
+		ExecuteLoadChannelMapInstances:   options.ExecuteLoadChannelMapInstances,
+	}
 }
 
 func withSkipWaitFor(options *dexpb.StepOptions, skipWaitFor bool) *dexpb.StepOptions {

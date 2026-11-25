@@ -93,11 +93,10 @@ type ExecuteFailure struct {
 // ProceedToOnExecuteFailure routes an Execute failure to step with the same typed input.
 // options override the recovery Step configuration for this movement; nil uses registered options.
 //
-// In a Flow that declares a lock requirement, the movement sends the options and locks that the
-// registered Step returned when the Registry was built, not the options of this step value. Such a
-// Flow rejects a failure route that leads back to a Step and override already on the route. A non-nil
-// lock field in options replaces the registered locks for this movement. A declared lock requirement
-// still checks only the registered locks, so keep each required lock in such options.
+// In a Flow that declares a lock requirement, the movement sends the lock keys that the registered
+// Step of this type returned when the Registry was built. The other options come from this step value.
+// A non-nil lock field in options replaces the registered locks for this movement. A declared lock
+// requirement still checks only the registered locks, so keep each required lock in such options.
 func ProceedToOnExecuteFailure[IN any](
 	step Step[IN],
 	options *StepOptions,
@@ -120,9 +119,9 @@ type FlowTimeoutHandlerFailure struct {
 // options override the recovery Step configuration for this movement; nil uses registered options.
 // The recovery Step receives None and reads the final handler error from Context.
 //
-// In a Flow that declares a lock requirement, the movement sends the options and locks that the
-// registered Step returned when the Registry was built, not the options of this step value. A
-// non-nil lock field in options replaces the registered locks for this movement. A declared lock
+// In a Flow that declares a lock requirement, the movement sends the lock keys that the registered
+// Step of this type returned when the Registry was built. The other options come from this step value.
+// A non-nil lock field in options replaces the registered locks for this movement. A declared lock
 // requirement still checks only the registered locks, so keep each required lock in such options.
 func ProceedToOnFlowTimeoutHandlerFailure(
 	step Step[None],

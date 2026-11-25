@@ -434,12 +434,8 @@ class WorkerDispatcher:
         if snapshot is None:
             return self.map_step_options(flow, target.step.get_step_options())
         mapped = self.map_step_options(flow, snapshot.options)
-        if (
-            mapped is None
-            or snapshot.wait_for_lock_keys is None
-            or snapshot.execute_lock_keys is None
-        ):
-            return mapped
+        if mapped is None:
+            return None
         mapped.wait_for_lock_attribute_keys.extend(snapshot.wait_for_lock_keys)
         mapped.execute_lock_attribute_keys.extend(snapshot.execute_lock_keys)
         return mapped

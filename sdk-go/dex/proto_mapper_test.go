@@ -11,6 +11,7 @@
 package dex
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -336,6 +337,36 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	_, _, empty, err := mapStartFlowOptions(nil, StartFlowOptions{})
 	require.NoError(t, err)
 	require.Equal(t, &dexpb.WorkerTarget{IsPullMode: true}, empty.FlowConfigOverride.WorkerTarget)
+}
+
+// TestStepOptionsWithoutLocksCopiesEveryOtherField fails when a new StepOptions field is not copied.
+func TestStepOptionsWithoutLocksCopiesEveryOtherField(t *testing.T) {
+	source := &StepOptions{}
+	value := reflect.ValueOf(source).Elem()
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		switch field.Kind() {
+		case reflect.Int64:
+			field.SetInt(1)
+		case reflect.Uint8:
+			field.SetUint(1)
+		case reflect.Pointer:
+			field.Set(reflect.New(field.Type().Elem()))
+		case reflect.Slice:
+			field.Set(reflect.MakeSlice(field.Type(), 1, 1))
+		default:
+			t.Fatalf("StepOptions.%s has unhandled kind %s", value.Type().Field(index).Name, field.Kind())
+		}
+	}
+	copied := reflect.ValueOf(stepOptionsWithoutLocks(source)).Elem()
+	for index := 0; index < value.NumField(); index++ {
+		name := value.Type().Field(index).Name
+		if name == "WaitForLockAttributes" || name == "ExecuteLockAttributes" {
+			require.True(t, copied.Field(index).IsZero(), "StepOptions.%s must not be copied", name)
+			continue
+		}
+		require.Equal(t, value.Field(index).Interface(), copied.Field(index).Interface(), "StepOptions.%s", name)
+	}
 }
 
 func TestClientOptionMapping(t *testing.T) {

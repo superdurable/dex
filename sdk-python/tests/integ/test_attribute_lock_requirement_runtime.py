@@ -1128,6 +1128,35 @@ def test_registration_rejects_an_unregistered_lock_attribute() -> None:
         )
 
 
+class _InvalidLockEntryStep(Step[None]):
+    """Registers a valid lock followed by ``None`` in a list it could clear later."""
+
+    def get_step_options(self) -> StepOptions | None:
+        return StepOptions(execute_lock_attributes=cast(Any, [TOTAL.lock(), None]))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete()
+
+
+class _InvalidLockEntryFlow(Flow[None]):
+    def __init__(self, schema: PersistenceSchema) -> None:
+        self._schema = schema
+        self.step = _InvalidLockEntryStep()
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.step)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return self._schema
+
+
+def test_registration_rejects_an_invalid_step_lock_only_with_declarations() -> None:
+    with pytest.raises(FlowDefinitionError, match=r"execute_lock_attributes\[1\]"):
+        Registry((_InvalidLockEntryFlow(SCHEMA),))
+    # Without a declaration, registration does not map the locks, as before.
+    Registry((_InvalidLockEntryFlow(PersistenceSchema.of(FREE)),))
+
+
 class _LateLockStep(Step[None]):
     """Returns options that use a lock Attribute the Flow builds in its schema callback."""
 
