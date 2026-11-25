@@ -44,7 +44,7 @@ Use Step cancellation to stop one branch, such as one job that the user no longe
 
 ## Finish the current unit, then stop {#finish-the-current-unit-then-stop}
 
-This example stops looping work after the current unit finishes. It records the stop request in an Attribute, and each branch checks it between units. Graceful completion is the preferred signal where the SDK supports it: each branch waits on its Timer and the graceful completion Condition together. The Attribute flag works the same way with any SDK.
+This example stops looping work after the current unit finishes. It records the stop request in an Attribute, and each branch checks it between units. The Attribute flag works the same way with any SDK. Where the SDK supports it, graceful completion is a better signal: each branch would wait on its Timer and the graceful completion Condition together, and no Attribute is needed.
 
 `InterruptibleFlow` starts `WorkA` and `WorkB` in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the `interruptSignal` Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns `GracefulComplete`. The Flow completes when both branches have stopped.
 

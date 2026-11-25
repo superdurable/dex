@@ -45,7 +45,7 @@ Step 决定或 RPC 可以取消选定的活跃 Step，例如按 Step 类型取�
 
 ## 做完当前单元再停止 {#finish-the-current-unit-then-stop}
 
-这个示例在当前单元做完后停止循环工作。它把停止请求记录在一个 Attribute 里，每个分支在两个单元之间检查它。在 SDK 支持时，优先用 graceful completion 作为停止信号：每个分支同时等待它的 Timer 和 graceful completion Condition。Attribute 标志在任何 SDK 上都以同样方式工作。
+这个示例在当前单元做完后停止循环工作。它把停止请求记录在一个 Attribute 里，每个分支在两个单元之间检查它。Attribute 标志在任何 SDK 上都以同样方式工作。在 SDK 支持时，graceful completion 是更好的停止信号：每个分支可以同时等待它的 Timer 和 graceful completion Condition，不再需要 Attribute。
 
 `InterruptibleFlow` 并行启动 `WorkA` 和 `WorkB`。要中断它们，客户端调用 **interrupt** RPC，由它写入 `interruptSignal` Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 `GracefulComplete`。两个分支都停下后，Flow 才完成。
 
