@@ -161,6 +161,7 @@ const sidebars: SidebarsConfig = {
           label: 'Data Storage',
           link: {type: 'doc', id: 'design-patterns/data-storage'},
           items: [
+            'design-patterns/data-storage/entity-flow',
             'design-patterns/data-storage/entity-flow-attribute-sync',
             'design-patterns/data-storage/sequentially-chunked-attribute-map',
             'design-patterns/data-storage/hash-partitioned-attribute-map',

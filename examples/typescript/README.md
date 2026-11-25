@@ -118,6 +118,7 @@ Under [`src/patterns/`](./src/patterns):
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
+- [Entity Flow customer accounts](./src/patterns/entity-flow)
 - [Entity Store user profiles](./src/patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

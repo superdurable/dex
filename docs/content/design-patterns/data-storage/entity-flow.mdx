@@ -1,0 +1,583 @@
+---
+title: Entity Flow
+sidebar_label: Entity Flow
+description: "Keep one long-lived Flow for each business entity, such as a customer account. The Flow ID comes from the entity ID, Attributes hold the state, RPCs change it, and the Client reads it."
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/entity-flow.json';
+
+# Entity Flow
+
+Keep one long-lived Flow for each business entity, such as a customer, an order, or an account. The Flow holds the entity's state for as long as the entity exists. Every change goes through the Flow, so Dex saves it durably.
+
+The runnable example keeps one `CustomerAccountFlow` per customer account. It stores a display name, an email address, a credit balance, and whether the account is retired. Try its routes in the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## When to use this pattern
+
+Use an Entity Flow when one business entity needs durable state that several callers change over time. Each change must be validated against the current state. Typical examples are a customer account, a shopping cart, a device, or a subscription record.
+
+To also query the latest state of many entities with SQL, extend this pattern with [Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync).
+
+## How it works
+
+1. **Open the account.** The application starts a Flow whose ID comes from the account ID, such as `customer-account-42`. The start request sets the initial Attributes and an ID reuse policy that rejects every reused ID. A second start with the same account ID fails while Dex keeps the account's Flow, so each account has exactly one Flow.
+2. **Change the contact details.** `UpdateContactDetails` checks that the account is open, validates the new name and email address, then writes both Attributes.
+3. **Adjust the credit balance.** `AdjustCreditBalance` checks that the account is open, reads the balance, adds the amount, and rejects a result below zero. All three RPCs that change the account declare the same lock. Calls that get the lock run one at a time. A call that finds the lock held fails with a lock conflict, and the caller retries only that error, with backoff.
+4. **Read the account.** The application reads the Attributes with the Client. No Worker runs for the read.
+5. **Retire the account.** `RetireAccount` checks that the balance is zero, marks the account retired, and starts `CloseAccountStep`. While the Flow still accepts RPCs, a repeated retire changes nothing. `CloseAccountStep` archives the account once and completes the Flow gracefully.
+
+Between these calls the Flow has no active Step. It keeps running and holds no Worker, so it can live for months or years.
+
+## Core implementation
+
+### Open one Flow per entity
+
+Derive the Flow ID from the entity ID. Start the Flow with no Flow timeout, and set the initial state as Attributes in the start request. Treat an already-started error as "this account exists".
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/controller.py', go: 'examples/go/patterns/entity-flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/EntityFlowController.java', typescript: 'examples/typescript/src/patterns/entity-flow/controller.ts', rust: 'examples/rust/src/data_storage/entity_flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+flow_id = customer_account_flow_id(account_id)
+options = (
+    StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
+    .with_attribute(flow.display_name, contact.display_name)
+    .with_attribute(flow.email, contact.email)
+    .with_attribute(flow.credit_balance, 0)
+    .with_attribute(flow.retired, False)
+)
+run_id = await app_state.client.start_flow(flow, flow_id, None, options)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+flowID := CustomerAccountFlowID(accountRequest.AccountID)
+runID, err := controller.client.StartFlow(
+	request.Request.Context(),
+	controller.flow,
+	flowID,
+	nil,
+	options,
+)
+var alreadyStarted *dex.FlowAlreadyStartedError
+if errors.As(err, &alreadyStarted) {
+	request.JSON(http.StatusConflict, gin.H{"error": "account already exists"})
+	return
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final String flowId = CustomerAccountFlow.customerAccountFlowId(request.requireAccountId());
+final CustomerAccountFlow.ContactDetails contact = request.contactDetails();
+final StartFlowOptions options = StartFlowOptions.newBuilder()
+        .idReusePolicy(IdReusePolicy.DISALLOW)
+        .addAttribute(flow.displayName, contact.displayName)
+        .addAttribute(flow.email, contact.email)
+        .addAttribute(flow.creditBalance, 0L)
+        .addAttribute(flow.retired, false)
+        .build();
+try {
+    final String runId = client.startFlow(flow, flowId, null, options);
+    return ResponseEntity.ok(Map.of("flowID", flowId, "runID", runId));
+} catch (final FlowAlreadyStartedException alreadyStarted) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(Map.of("error", "account already exists"));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const flowId = customerAccountFlowId(accountId);
+try {
+  const runId = await client.startFlow(customerAccountFlow, flowId, undefined, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    attributes: [
+      InitialAttribute.of(customerAccountFlow.displayName, contact.displayName),
+      InitialAttribute.of(customerAccountFlow.email, contact.email),
+      InitialAttribute.of(customerAccountFlow.creditBalance, 0n),
+      InitialAttribute.of(customerAccountFlow.retired, false),
+    ],
+  });
+  response.json({ flowID: flowId, runID: runId });
+} catch (error) {
+  if (error instanceof FlowAlreadyStartedError) {
+    response.status(409).json({ error: "account already exists" });
+    return;
+  }
+  throw error;
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub fn open_account_options(contact: ContactDetails) -> StartFlowOptions {
+    StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .initial_attribute(&DISPLAY_NAME, contact.display_name)
+        .initial_attribute(&EMAIL, contact.email)
+        .initial_attribute(&CREDIT_BALANCE, 0_i64)
+        .initial_attribute(&RETIRED, false)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Change state through RPCs
+
+Each RPC checks that the account is open, validates its input against the current state, then writes the Attributes. `UpdateContactDetails`, `AdjustCreditBalance`, and `RetireAccount` declare a lock on the balance Attribute. The lock makes each check and its write one step, so no change slips in after the account is retired and no adjustment overwrites another.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(name="UpdateContactDetails", lock_attributes=(credit_balance.lock(),))
+def update_contact_details(self, context: Context, input: ContactDetails) -> None:
+    self.require_open_account(context)
+    input.validate()
+    self.display_name.set(context, input.display_name)
+    self.email.set(context, input.email)
+
+@rpc(name="AdjustCreditBalance", lock_attributes=(credit_balance.lock(),))
+def adjust_credit_balance(
+    self, context: Context, input: CreditAdjustment
+) -> RPCResult[int]:
+    self.require_open_account(context)
+    if input.amount == 0:
+        raise ValueError("amount must not be zero")
+    balance = self.credit_balance.get(context) + input.amount
+    if balance < 0:
+        raise ValueError("credit balance cannot go below zero")
+    self.credit_balance.set(context, balance)
+    return RPCResult(balance)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
+	accountLock := &dex.RPCOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(CreditBalance)},
+	}
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+		dex.DefineRPC(flow.UpdateContactDetails, accountLock),
+		dex.DefineRPC(flow.AdjustCreditBalance, accountLock),
+		dex.DefineRPC(flow.RetireAccount, accountLock),
+	}
+}
+
+func (*CustomerAccountFlow) AdjustCreditBalance(
+	ctx dex.Context,
+	adjustment CreditAdjustment,
+) (*dex.RPCResult[int64], error) {
+	if err := requireOpenAccount(ctx); err != nil {
+		return nil, err
+	}
+	if adjustment.Amount == 0 {
+		return nil, errors.New("amount must not be zero")
+	}
+	balance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	balance += adjustment.Amount
+	if balance < 0 {
+		return nil, errors.New("credit balance cannot go below zero")
+	}
+	if err := CreditBalance.Set(ctx, balance); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int64]{Output: balance}, nil
+}
+
+func requireOpenAccount(ctx dex.Context) error {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return errors.New("account is retired")
+	}
+	return nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(name = "UpdateContactDetails", lockAttributes = {"credit_balance"})
+public void updateContactDetails(final Context context, final ContactDetails contact) {
+    requireOpenAccount(context);
+    contact.validate();
+    displayName.set(context, contact.displayName);
+    email.set(context, contact.email);
+}
+
+@RPC(name = "AdjustCreditBalance", lockAttributes = {"credit_balance"})
+public RPCResult<Long> adjustCreditBalance(
+        final Context context,
+        final CreditAdjustment adjustment) {
+    requireOpenAccount(context);
+    if (adjustment.amount == 0) {
+        throw new IllegalArgumentException("amount must not be zero");
+    }
+    final long balance = creditBalance.get(context) + adjustment.amount;
+    if (balance < 0) {
+        throw new IllegalArgumentException("credit balance cannot go below zero");
+    }
+    creditBalance.set(context, balance);
+    return RPCResult.of(balance);
+}
+
+private void requireOpenAccount(final Context context) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        throw new IllegalStateException("account is retired");
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  name: "UpdateContactDetails",
+  inputCodec: jsonCodec<ContactDetails>(),
+  lockAttributes: [creditBalance.lock()],
+})
+public updateContactDetails(context: Context, contact: ContactDetails): void {
+  this.requireOpenAccount(context);
+  validateContactDetails(contact);
+  this.displayName.set(context, contact.displayName);
+  this.email.set(context, contact.email);
+}
+
+@rpc({
+  name: "AdjustCreditBalance",
+  inputCodec: jsonCodec<CreditAdjustment>(),
+  outputCodec: int64Codec,
+  lockAttributes: [creditBalance.lock()],
+})
+public adjustCreditBalance(
+  context: Context,
+  adjustment: CreditAdjustment,
+): RPCResult<bigint> {
+  this.requireOpenAccount(context);
+  const amount = validateCreditAmount(adjustment.amount);
+  const balance = this.creditBalance.get(context) + BigInt(amount);
+  if (balance < 0n) {
+    throw new Error("credit balance cannot go below zero");
+  }
+  if (balance > MAX_CREDIT_BALANCE) {
+    throw new Error("credit balance cannot exceed the largest safe integer");
+  }
+  this.creditBalance.set(context, balance);
+  return { output: balance };
+}
+
+private requireOpenAccount(context: Context): void {
+  if (this.retired.get(context)) {
+    throw new Error("account is retired");
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn adjust_credit_balance(
+    &self,
+    context: &mut Context,
+    adjustment: CreditAdjustment,
+) -> HandlerResult<RpcResult<i64>> {
+    require_open_account(context)?;
+    if adjustment.amount == 0 {
+        return Err(account_error("amount must not be zero"));
+    }
+    let balance = CREDIT_BALANCE
+        .get_required(context)?
+        .checked_add(adjustment.amount)
+        .ok_or_else(|| account_error("credit balance is out of range"))?;
+    if balance < 0 {
+        return Err(account_error("credit balance cannot go below zero"));
+    }
+    CREDIT_BALANCE.set(context, balance)?;
+    Ok(RpcResult::new(balance))
+}
+
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new()
+        .procedure(
+            UPDATE_CONTACT_DETAILS.lock(CREDIT_BALANCE.lock()),
+            Self::update_contact_details,
+        )
+        .function(
+            ADJUST_CREDIT_BALANCE.lock(CREDIT_BALANCE.lock()),
+            Self::adjust_credit_balance,
+        )
+        .function_without_input(
+            RETIRE_ACCOUNT.lock(CREDIT_BALANCE.lock()),
+            Self::retire_account,
+        )
+}
+
+fn require_open_account(context: &Context) -> HandlerResult<()> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Err(account_error("account is retired"));
+    }
+    Ok(())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Only calls that get the lock run, and they run one at a time. A locked RPC fails at once with a lock-conflict error when another call holds the lock. Retry only that error, with backoff, and pass any other error to the caller. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
+
+### Read state with the Client
+
+Read stored Attributes with the Client's Attribute read. It returns committed values and runs no Worker. Use a read-only RPC instead when the read needs Flow code, such as authorization or a derived view; see [Read-only RPCs](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/controller.py', go: 'examples/go/patterns/entity-flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/EntityFlowController.java', typescript: 'examples/typescript/src/patterns/entity-flow/controller.ts', rust: 'examples/rust/src/data_storage/entity_flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+values = await app_state.client.get_attributes(
+    customer_account_flow_id(account_id),
+    flow.display_name,
+    flow.email,
+    flow.credit_balance,
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+account := AccountView{AccountID: accountID}
+_, err := controller.client.GetAttributes(
+	request.Request.Context(),
+	CustomerAccountFlowID(accountID),
+	dex.ReadAttribute(DisplayName, &account.DisplayName),
+	dex.ReadAttribute(Email, &account.Email),
+	dex.ReadAttribute(CreditBalance, &account.CreditBalance),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final AttributeValues values = client.getAttributes(
+        CustomerAccountFlow.customerAccountFlowId(requireAccountId(accountId)),
+        flow.displayName,
+        flow.email,
+        flow.creditBalance);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const [displayName, email, creditBalance] = await client.getAttributes(
+  customerAccountFlowId(accountId),
+  customerAccountFlow.displayName,
+  customerAccountFlow.email,
+  customerAccountFlow.creditBalance,
+);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Retire the entity
+
+`RetireAccount` holds the same lock as the other RPCs. It checks the balance, sets the `retired` Attribute, and starts `CloseAccountStep`. While the Flow still accepts RPCs, a repeated retire finds the account retired and returns without starting another Step.
+
+`CloseAccountStep` archives the account and returns `GracefulComplete`, and the Flow completes. Until the Flow closes, `UpdateContactDetails` and `AdjustCreditBalance` see `retired` under the lock and return the "account is retired" error. When the archive is unavailable, the Step fails and Dex retries it. During those retries the Flow stays running and the account stays retired.
+
+Dex can run the same Step execution more than once, for example when an attempt archives the account but its result is lost. The archive uses the account's Flow ID as a unique key, so a retried attempt finds the record and succeeds without archiving twice. A real archive service does the same with a unique insert or an idempotent upsert.
+
+After the Flow completes, read the retained Attributes with the Client until Dex purges the Flow. Dex rejects locked RPCs to a closing or closed Flow, so a caller that repeats a request then handles that error and reads the retained state.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    self.archive.archive_account(context.flow_id, context.step_execution_id)
+    return graceful_complete()
+
+@rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
+def retire_account(self, context: Context) -> RPCResult[None]:
+    if self.retired.get(context):
+        return RPCResult(None)
+    if self.credit_balance.get(context) != 0:
+        raise ValueError("spend or refund the credit balance before retiring")
+    self.retired.set(context, True)
+    return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))
+
+def require_open_account(self, context: Context) -> None:
+    if self.retired.get(context):
+        raise ValueError("account is retired")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (*CustomerAccountFlow) RetireAccount(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if retired {
+		return &dex.RPCResult[dex.None]{}, nil
+	}
+	balance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if balance != 0 {
+		return nil, errors.New("spend or refund the credit balance before retiring")
+	}
+	if err := Retired.Set(ctx, true); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{
+		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},
+	}, nil
+}
+
+func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if err := step.archive.ArchiveAccount(ctx.FlowID(), ctx.StepExecutionID()); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(name = "RetireAccount", lockAttributes = {"credit_balance"})
+public RPCResult<Void> retireAccount(final Context context) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        return RPCResult.of((Void) null);
+    }
+    if (creditBalance.get(context) != 0) {
+        throw new IllegalArgumentException(
+                "spend or refund the credit balance before retiring");
+    }
+    retired.set(context, true);
+    return RPCResult.of((Void) null, StepMovement.of(CloseAccountStep.class, null));
+}
+
+@Override
+public StepDecision execute(final Context context, final Void input) {
+    archive.archiveAccount(context.getFlowId(), context.getStepExecutionId());
+    return StepDecision.gracefulComplete();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public retireAccount(context: Context): RPCResult<void> {
+  if (this.retired.get(context)) {
+    return { output: undefined };
+  }
+  if (this.creditBalance.get(context) !== 0n) {
+    throw new Error("spend or refund the credit balance before retiring");
+  }
+  this.retired.set(context, true);
+  return {
+    output: undefined,
+    nextSteps: [StepMovement.of(CloseAccountStep, undefined)],
+  };
+}
+
+public execute(context: Context, _input: void): StepDecision {
+  this.archive.archiveAccount(context.flowId, context.stepExecutionId);
+  return gracefulComplete();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Ok(RpcResult::new(()));
+    }
+    if CREDIT_BALANCE.get_required(context)? != 0 {
+        return Err(account_error(
+            "spend or refund the credit balance before retiring",
+        ));
+    }
+    RETIRED.set(context, true)?;
+    Ok(RpcResult::new(()).then(StepMovement::to(&self.close_account, ())))
+}
+
+fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    self.archive
+        .archive_account(context.flow_id(), context.step_execution_id())
+        .map_err(|message| account_error(&message))?;
+    Ok(StepDecision::graceful_complete(()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+An entity Flow can also have a Step that waits on something long, such as a Channel of incoming commands. Add the graceful completion condition to that wait where your SDK and Server provide it; a completion request then wakes the Step. Where they do not, have the retire RPC publish an explicit close message to that Channel, and let the Step end when it reads the message. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition) for the Server support, and the Waits reference of your SDK for its support: [Python](/reference/python/waits#graceful-completion-requests), [Go](/reference/go/waits#graceful-completion-requests), [Java](/reference/java/waits#graceful-completion-requests), [TypeScript](/reference/typescript/waits#graceful-completion-requests), or [Rust](/reference/rust/waits#graceful-completion-requests).
+
+## Keep the state bounded
+
+Each Attribute holds one value that the Flow rewrites on every change. Keep the entity's current state in plain Attributes. When the entity collects a growing history, such as its orders or audit events, store that history in a [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map).
+
+## API endpoints
+
+- **POST /patterns/entity-flow/account**: open an account
+- **POST /patterns/entity-flow/account/contact**: update its contact details
+- **POST /patterns/entity-flow/account/credits**: adjust its credit balance
+- **GET /patterns/entity-flow/account?accountId=...**: read the account with the Client
+- **POST /patterns/entity-flow/account/retire?accountId=...**: retire the account
+
+The [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) lists these routes with sample request bodies.
+
+## Next
+
+- [Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync)
+- [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
+- [Attribute](/concepts/primitives/attribute)
+- [RPC](/concepts/primitives/rpc)

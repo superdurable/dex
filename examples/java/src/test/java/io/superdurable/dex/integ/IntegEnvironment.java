@@ -34,6 +34,8 @@ import io.superdurable.dex.products.jobpost.JobPostingFlow;
 import io.superdurable.dex.products.microservices.OrchestrationFlow;
 import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
 import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
+import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow;
+import io.superdurable.dex.patterns.entityflow.FakeAccountArchive;
 import io.superdurable.dex.patterns.polling.FakeJobService;
 import io.superdurable.dex.patterns.polling.PollingFlow;
 import io.superdurable.dex.primitives.channel.ChannelFlow;
@@ -88,6 +90,8 @@ final class IntegEnvironment implements AutoCloseable {
     private final CustomerRefundFlow customerRefundFlow;
     private final Path customerRefundLedgerDirectory;
     private final WorkflowPatternFlows workflowPatternFlows;
+    private final FakeAccountArchive accountArchive;
+    private final CustomerAccountFlow customerAccountFlow;
 
     private IntegEnvironment(
             final Path cacheDirectory,
@@ -112,7 +116,9 @@ final class IntegEnvironment implements AutoCloseable {
             final ReportGenerationFlow reportGenerationFlow,
             final CustomerRefundFlow customerRefundFlow,
             final Path customerRefundLedgerDirectory,
-            final WorkflowPatternFlows workflowPatternFlows) {
+            final WorkflowPatternFlows workflowPatternFlows,
+            final FakeAccountArchive accountArchive,
+            final CustomerAccountFlow customerAccountFlow) {
         this.cacheDirectory = cacheDirectory;
         this.blobCache = blobCache;
         this.worker = worker;
@@ -136,6 +142,8 @@ final class IntegEnvironment implements AutoCloseable {
         this.customerRefundFlow = customerRefundFlow;
         this.customerRefundLedgerDirectory = customerRefundLedgerDirectory;
         this.workflowPatternFlows = workflowPatternFlows;
+        this.accountArchive = accountArchive;
+        this.customerAccountFlow = customerAccountFlow;
     }
 
     static IntegEnvironment start() throws IOException {
@@ -157,6 +165,8 @@ final class IntegEnvironment implements AutoCloseable {
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
         final ReportGenerationFlow reportGenerationFlow = new ReportGenerationFlow();
+        final FakeAccountArchive accountArchive = new FakeAccountArchive();
+        final CustomerAccountFlow customerAccountFlow = new CustomerAccountFlow(accountArchive);
         final Path customerRefundLedgerDirectory =
                 Files.createTempDirectory("dex-java-examples-customer-refund-");
         final CustomerRefundFlow customerRefundFlow =
@@ -188,7 +198,8 @@ final class IntegEnvironment implements AutoCloseable {
                 userOnboardingFlow,
                 pollingFlow,
                 reportGenerationFlow,
-                customerRefundFlow));
+                customerRefundFlow,
+                customerAccountFlow));
         flows.addAll(workflowPatternFlows.all());
         flows.addAll(ConditionOrderIntegTest.conditionOrderProbeFlows());
 
@@ -243,7 +254,9 @@ final class IntegEnvironment implements AutoCloseable {
                 reportGenerationFlow,
                 customerRefundFlow,
                 customerRefundLedgerDirectory,
-                workflowPatternFlows);
+                workflowPatternFlows,
+                accountArchive,
+                customerAccountFlow);
     }
 
     Client client() {
@@ -300,6 +313,14 @@ final class IntegEnvironment implements AutoCloseable {
 
     PollingFlow pollingFlow() {
         return pollingFlow;
+    }
+
+    CustomerAccountFlow customerAccountFlow() {
+        return customerAccountFlow;
+    }
+
+    FakeAccountArchive accountArchive() {
+        return accountArchive;
     }
 
     ReportGenerationFlow reportGenerationFlow() {
