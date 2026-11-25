@@ -10,8 +10,12 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from dex import (
     Attribute,
+    AttributeMap,
+    AttributeMapLoad,
     Context,
     Flow,
     PersistenceSchema,
@@ -105,3 +109,45 @@ def test_registration_reads_step_options_once_and_check_uses_the_snapshot() -> N
     ]
     assert check.detection_count == 0
     assert flow.step.option_reads == 1
+
+
+ENTRIES = AttributeMap("lock-check-entries", int)
+
+
+class InvalidLoadStep(Step[None]):
+    def get_step_options(self) -> StepOptions | None:
+        return StepOptions(
+            execute_load_attribute_map_instances=(AttributeMapLoad(ENTRIES, "e/1"),)
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete()
+
+
+class InvalidLoadFlow(Flow[None]):
+    def __init__(self) -> None:
+        self.step = InvalidLoadStep()
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.step)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(ENTRIES)
+
+
+def test_invalid_map_load_still_fails_when_options_are_mapped() -> None:
+    flow = InvalidLoadFlow()
+    registry = Registry((flow,))
+    registered = registry._flow_by_type("InvalidLoadFlow")
+    assert registered.start_step is not None
+    assert registered.start_step.execute_lock_scope.map_load_keys == frozenset()
+
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+        NegotiatedServerProtocol(),
+    )
+    with pytest.raises(ValueError, match="must not contain '/'"):
+        dispatcher.map_step_options(registered, flow.step.get_step_options())

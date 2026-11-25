@@ -754,26 +754,28 @@ class Registry:
         map_loads: Sequence[AttributeMap[Any]],
         instance_loads: Sequence[AttributeMapLoad],
     ) -> _AttributeLockScope:
-        # Invalid entries are skipped here; mapping the options rejects them.
-        return _AttributeLockScope(
-            frozenset(
-                Registry._physical_lock(lock)
-                for lock in locks
-                if isinstance(lock, AttributeLock)
-            ),
-            frozenset(
-                [
-                    f"{attribute_map.name}/"
-                    for attribute_map in map_loads
-                    if isinstance(attribute_map, AttributeMap)
-                ]
-                + [
-                    load.physical_name
-                    for load in instance_loads
-                    if isinstance(load, AttributeMapLoad)
-                ]
-            ),
-        )
+        # Invalid entries are skipped here, so mapping the options reports them as before.
+        lock_keys: set[str] = set()
+        for lock in locks:
+            if not isinstance(lock, AttributeLock):
+                continue
+            try:
+                lock_keys.add(Registry._physical_lock(lock))
+            except ValueError:
+                continue
+        map_load_keys: set[str] = {
+            f"{attribute_map.name}/"
+            for attribute_map in map_loads
+            if isinstance(attribute_map, AttributeMap)
+        }
+        for load in instance_loads:
+            if not isinstance(load, AttributeMapLoad):
+                continue
+            try:
+                map_load_keys.add(load.physical_name)
+            except ValueError:
+                continue
+        return _AttributeLockScope(frozenset(lock_keys), frozenset(map_load_keys))
 
     @staticmethod
     def _validate_step_targets(

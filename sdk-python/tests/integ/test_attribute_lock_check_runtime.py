@@ -384,19 +384,22 @@ def _sync_worker(task_queue: str, is_strict: bool) -> Iterator[Worker]:
                 except BaseException as error:
                     failures.append(error)
 
-            thread = threading.Thread(
-                target=run_worker, name=f"lock-check-{task_queue}", daemon=True
-            )
-            thread.start()
+            thread: threading.Thread | None = None
             try:
+                started_thread = threading.Thread(
+                    target=run_worker, name=f"lock-check-{task_queue}", daemon=True
+                )
+                started_thread.start()
+                thread = started_thread
                 worker.wait_pull_registered(timeout=30)
                 yield worker
             finally:
                 try:
                     worker.close()
                 finally:
-                    thread.join(timeout=10)
-                    assert not thread.is_alive(), "lock check Worker did not stop"
+                    if thread is not None:
+                        thread.join(timeout=10)
+                        assert not thread.is_alive(), "lock check Worker did not stop"
             if failures:
                 raise RuntimeError("lock check Worker failed") from failures[0]
         finally:
@@ -409,13 +412,15 @@ def _async_worker(task_queue: str, is_strict: bool) -> Iterator[AsyncWorker]:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
         try:
             loop = asyncio.new_event_loop()
-            loop_thread = threading.Thread(
-                target=loop.run_forever,
-                name=f"lock-check-async-{task_queue}",
-                daemon=True,
-            )
-            loop_thread.start()
+            loop_thread: threading.Thread | None = None
             try:
+                started_thread = threading.Thread(
+                    target=loop.run_forever,
+                    name=f"lock-check-async-{task_queue}",
+                    daemon=True,
+                )
+                started_thread.start()
+                loop_thread = started_thread
 
                 async def create_worker() -> AsyncWorker:
                     return AsyncWorker(
@@ -439,12 +444,16 @@ def _async_worker(task_queue: str, is_strict: bool) -> Iterator[AsyncWorker]:
                     finally:
                         serving.result(timeout=20)
             finally:
-                loop.call_soon_threadsafe(loop.stop)
-                loop_thread.join(timeout=10)
-                is_loop_stopped = not loop_thread.is_alive()
-                if is_loop_stopped:
-                    loop.close()
-                assert is_loop_stopped, "lock check event loop did not stop"
+                try:
+                    if loop_thread is not None:
+                        loop.call_soon_threadsafe(loop.stop)
+                finally:
+                    if loop_thread is not None:
+                        loop_thread.join(timeout=10)
+                    is_loop_stopped = loop_thread is None or not loop_thread.is_alive()
+                    if is_loop_stopped:
+                        loop.close()
+                    assert is_loop_stopped, "lock check event loop did not stop"
         finally:
             cache.close()
 

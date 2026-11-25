@@ -765,8 +765,9 @@ This limits the check:
 - A singleton Attribute that only a Step movement locks, and a registered map
   load combined with a per-call instance lock, are reported. Move a fixed lock
   into the registered options. Otherwise keep the warning mode for that Worker.
-  A single-writer declaration would also accept a later call that leaves out
-  the lock.
+  Do not add a single-writer declaration instead: if the later invocation also
+  declares itself the single writer of that key, the check skips that key even
+  when the invocation omits its lock.
 - The Worker assumes that the Client sent the RPC's registered locks. A Client
   built from an older definition without the lock is not reported, and
   neither is a Step movement that drops a registered lock.
