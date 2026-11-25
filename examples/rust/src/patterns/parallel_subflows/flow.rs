@@ -351,7 +351,6 @@ impl Step for LongLiveInit {
         for request in input.requests {
             REQUEST_CHANNEL.publish(context, request)?;
         }
-        STOPPED.set(context, false)?;
         let concurrency = if input.concurrency == 0 {
             DEFAULT_CONCURRENCY
         } else {

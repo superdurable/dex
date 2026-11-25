@@ -10,7 +10,7 @@ Keep a fixed pool of worker Steps running while the Flow accepts more requests.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Init Step publishes the initial requests to `RequestChannel`, sets **Stopped** to false, and starts N HandleRequest Step executions. Each worker takes the oldest message and moves to the HandleSubFlow Step. That Step starts `ExampleSubFlow` and waits for it. When the child completes, the Step loops back to the HandleRequest Step. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead.
+The Init Step publishes the initial requests to `RequestChannel` and starts N HandleRequest Step executions. Each worker takes the oldest message and moves to the HandleSubFlow Step. That Step starts `ExampleSubFlow` and waits for it. When the child completes, the Step loops back to the HandleRequest Step. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead. **Stopped** has no value until the **Stop** RPC sets it, and only that RPC writes it. A Stop that arrives before Init finishes is therefore kept.
 
 `SendRequest` checks the Channel size before it publishes. When the Channel reaches the buffer threshold, it returns false. The caller can then back off and retry, and the parent is not overloaded.
 
@@ -32,13 +32,8 @@ MAX_BUFFERED_REQUESTS = 100
 
 
 class LongLiveInit(Step[ParentInput]):
-    def __init__(
-        self,
-        request_channel: Channel[str],
-        stopped: Attribute[bool],
-    ) -> None:
+    def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
-        self.stopped = stopped
 
     def get_step_type(self) -> str:
         return "Init"
@@ -46,7 +41,6 @@ class LongLiveInit(Step[ParentInput]):
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
             self.request_channel.publish(context, request)
-        self.stopped.set(context, False)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
             *(StepMovement.of(LongLiveHandleRequest, None) for _ in range(concurrency))
@@ -93,7 +87,7 @@ class AdvancedLongLiveParentFlow(Flow[ParentInput]):
     stopped = Attribute("Stopped", bool)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = LongLiveInit(self.request_channel, self.stopped)
+        self.init = LongLiveInit(self.request_channel)
         self.handle_request = LongLiveHandleRequest(self.request_channel)
         self.handle_subflow = LongLiveHandleSubFlow(example_subflow, self.stopped)
 
@@ -191,9 +185,6 @@ func (longLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecisi
 			return nil, err
 		}
 	}
-	if err := Stopped.Set(ctx, false); err != nil {
-		return nil, err
-	}
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
@@ -230,8 +221,10 @@ func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.W
 }
 
 func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	// Stopped has no value until the Stop RPC sets it.
 	stopped, err := Stopped.Get(ctx)
-	if err != nil {
+	var notFound *dex.AttributeNotFoundError
+	if err != nil && !errors.As(err, &notFound) {
 		return nil, err
 	}
 	if stopped {
@@ -296,7 +289,6 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             for (final String request : input.requests) {
                 requestChannel.publish(context, request);
             }
-            stopped.set(context, false);
             final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
             final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
             for (int index = 0; index < concurrency; index++) {
@@ -363,15 +355,12 @@ const requestChannel = new Channel("RequestChannel", stringCodec);
 class LongLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
-  public constructor(private readonly flow: AdvancedLongLiveParentFlow) {}
-
   public getStepType(): string {
     return "Init";
   }
 
   public execute(context: Context, input: ParentInput): StepDecision {
     for (const request of input.requests) requestChannel.publish(context, request);
-    this.flow.stopped.set(context, false);
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
@@ -424,7 +413,7 @@ class LongLiveHandleSubFlow implements Step<string> {
 
 export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   public readonly stopped = new Attribute("Stopped", booleanCodec);
-  private readonly init = new LongLiveInit(this);
+  private readonly init = new LongLiveInit();
   private readonly handleRequest = new LongLiveHandleRequest();
   private readonly handleSubFlow: LongLiveHandleSubFlow;
 
@@ -534,7 +523,6 @@ impl Step for LongLiveInit {
         for request in input.requests {
             REQUEST_CHANNEL.publish(context, request)?;
         }
-        STOPPED.set(context, false)?;
         let concurrency = if input.concurrency == 0 {
             DEFAULT_CONCURRENCY
         } else {

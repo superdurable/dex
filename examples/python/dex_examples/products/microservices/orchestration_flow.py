@@ -136,9 +136,12 @@ class OrchestrationFlow(Flow[str]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.data, self.ready)
 
-    @rpc
+    @rpc(lock_attributes=(data.lock(),))
     def swap(self, context: Context, new_data: str) -> RPCResult[str]:
         old_data = self.data.get(context)
+        # CallAPI1 would overwrite a value written before it stores data.
+        if old_data is None:
+            raise RuntimeError("data is not ready yet")
         self.data.set(context, new_data)
         return RPCResult(old_data)
 

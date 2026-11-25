@@ -48,8 +48,8 @@ use dex_examples_rust::products::engagement::{
     ACCEPT_ENGAGEMENT, DESCRIBE_ENGAGEMENT, EngagementFlow, EngagementRequest, EngagementStatus,
 };
 use dex_examples_rust::products::job_post::{
-    GET_JOB_POST, Init, JobPost, JobPostingFlow, UPDATE_JOB_POST, UpdateIndeedPosting,
-    UpdateLinkedInPosting,
+    DELETE_JOB_POST, GET_JOB_POST, Init, JOB_POST_DELETED, JobPost, JobPostingFlow,
+    UPDATE_JOB_POST, UpdateIndeedPosting, UpdateLinkedInPosting,
 };
 use dex_examples_rust::products::microservices::{
     DATA, OrchestrationFlow, SIGNAL_ORCHESTRATION_READY, SWAP_ORCHESTRATION_DATA,
@@ -67,6 +67,7 @@ use dex_examples_rust::products::subscription::{
     CANCEL_SUBSCRIPTION, DESCRIBE_SUBSCRIPTION, SubscriptionFlow, SubscriptionRequest,
     SubscriptionState, UPDATE_SUBSCRIPTION_CHARGE,
 };
+use dex_examples_rust::server::helpers::invoke_retrying_lock_conflict;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_sdk::{
     AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
@@ -492,6 +493,90 @@ fn job_posting_update_reaches_both_job_boards() {
             .invoke_rpc_without_input(&flow_id, GET_JOB_POST)
             .expect("read updated Rust Job Posting"),
         newest
+    );
+    environment
+        .client
+        .stop_flow(&flow_id, StopFlowOptions::cancel())
+        .expect("stop Rust Job Posting Flow");
+}
+
+fn worker_error_type(error: &SdkError) -> Option<&str> {
+    match error {
+        SdkError::WorkerInvocation { worker, .. } => Some(worker.error_type()),
+        _ => None,
+    }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn job_posting_delete_and_update_do_not_overwrite_each_other() {
+    let environment = DexEnvironment::start();
+    let flow = JobPostingFlow::default();
+    let flow_id = unique_flow_id("job-posting-delete");
+    let initial = JobPost {
+        title: "Software Engineer".to_string(),
+        description: "Build reliable systems".to_string(),
+        ..JobPost::default()
+    };
+    environment
+        .client
+        .start_flow(&flow, &flow_id, initial.clone())
+        .expect("start Rust Job Posting Flow");
+    environment
+        .client
+        .wait_for_step_completion(&flow_id, StepExecutionId::of(&Init), step_wait_options(30))
+        .expect("wait for Rust Job Posting Create Step");
+    let updated = JobPost {
+        title: "Senior Software Engineer".to_string(),
+        description: "Build durable systems".to_string(),
+        notes: "expanded scope".to_string(),
+        deleted: false,
+    };
+
+    let (update_result, delete_result) = thread::scope(|scope| {
+        let update = scope.spawn(|| {
+            invoke_retrying_lock_conflict(|| {
+                environment
+                    .client
+                    .invoke_rpc(&flow_id, UPDATE_JOB_POST, updated.clone())
+            })
+        });
+        let delete = scope.spawn(|| {
+            invoke_retrying_lock_conflict(|| {
+                environment
+                    .client
+                    .invoke_rpc(&flow_id, DELETE_JOB_POST, "closed".to_string())
+            })
+        });
+        (
+            update.join().expect("update thread"),
+            delete.join().expect("delete thread"),
+        )
+    });
+    delete_result.expect("delete Rust Job Posting");
+    let current: JobPost = environment
+        .client
+        .invoke_rpc_without_input(&flow_id, GET_JOB_POST)
+        .expect("read deleted Rust Job Posting");
+    assert!(current.deleted, "delete was overwritten: {current:?}");
+    match update_result {
+        Ok(version) => {
+            assert_eq!(version, 1);
+            assert_eq!(current.title, updated.title, "update was overwritten");
+        }
+        Err(error) => {
+            assert_eq!(worker_error_type(&error), Some(JOB_POST_DELETED), "{error}");
+            assert_eq!(current.title, initial.title);
+        }
+    }
+    let late_update = environment
+        .client
+        .invoke_rpc(&flow_id, UPDATE_JOB_POST, updated)
+        .expect_err("an update after delete must be rejected");
+    assert_eq!(
+        worker_error_type(&late_update),
+        Some(JOB_POST_DELETED),
+        "{late_update}"
     );
     environment
         .client

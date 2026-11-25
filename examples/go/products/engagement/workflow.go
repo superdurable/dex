@@ -60,16 +60,20 @@ func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 		dex.DefineStartStep(initializeStep{}),
 		dex.DefineStep(processTimeout{service: flow.service}),
 		dex.DefineStep(reminderStep{service: flow.service}),
+		dex.DefineStep(recordReminderOptOut{}),
 		dex.DefineStep(notifyExternalSystem{service: flow.service}),
 	}
 }
 
 func (flow *EngagementFlow) GetRPCs() []dex.RPCDef {
+	statusLock := &dex.RPCOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(EngagementStatus)},
+	}
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.Describe, nil),
 		dex.DefineRPC(flow.OptOut, nil),
-		dex.DefineRPC(flow.Decline, nil),
-		dex.DefineRPC(flow.Accept, nil),
+		dex.DefineRPC(flow.Decline, statusLock),
+		dex.DefineRPC(flow.Accept, statusLock),
 	}
 }
 
@@ -299,10 +303,7 @@ func (step reminderStep) Execute(
 		return nil, err
 	}
 	if len(optOuts) > 0 {
-		if err := updateStatus(ctx, status, "user opted out of reminders"); err != nil {
-			return nil, err
-		}
-		return dex.DeadEnd(), nil
+		return dex.GoTo(recordReminderOptOut{}, nil), nil
 	}
 	jobSeekerID, err := JobSeekerID.Get(ctx)
 	if err != nil {
@@ -310,6 +311,34 @@ func (step reminderStep) Execute(
 	}
 	step.service.SendEmail(jobSeekerID, "Reminder: please respond", "Please respond to the engagement.")
 	return dex.GoTo(reminderStep{}, nil), nil
+}
+
+// recordReminderOptOut shares the Accept and Decline lock, so neither update is lost.
+type recordReminderOptOut struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (recordReminderOptOut) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(EngagementStatus)},
+	}
+}
+
+func (recordReminderOptOut) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	status, err := EngagementStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status != StatusInitiated {
+		return dex.DeadEnd(), nil
+	}
+	if err := updateStatus(ctx, status, "user opted out of reminders"); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
 }
 
 type notifyExternalSystem struct {

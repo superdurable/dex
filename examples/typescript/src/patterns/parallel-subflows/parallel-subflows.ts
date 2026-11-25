@@ -269,15 +269,12 @@ export class WaitForHalfParentFlow implements Flow<readonly string[]> {
 class LongLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
-  public constructor(private readonly flow: AdvancedLongLiveParentFlow) {}
-
   public getStepType(): string {
     return "Init";
   }
 
   public execute(context: Context, input: ParentInput): StepDecision {
     for (const request of input.requests) requestChannel.publish(context, request);
-    this.flow.stopped.set(context, false);
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
@@ -330,7 +327,7 @@ class LongLiveHandleSubFlow implements Step<string> {
 
 export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   public readonly stopped = new Attribute("Stopped", booleanCodec);
-  private readonly init = new LongLiveInit(this);
+  private readonly init = new LongLiveInit();
   private readonly handleRequest = new LongLiveHandleRequest();
   private readonly handleSubFlow: LongLiveHandleSubFlow;
 

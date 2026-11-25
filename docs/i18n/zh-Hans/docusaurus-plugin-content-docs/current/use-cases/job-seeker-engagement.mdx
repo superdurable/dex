@@ -49,8 +49,9 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 - [**响应式更新**](/design-patterns/responsive-update)让 **Accept** 和 **Decline** RPC 在 Flow 等待时校验并更新持久状态。
 - [**Attribute 匹配**](/design-patterns/responsive-update/attribute-match)让调用方等待某个 Attribute 达到期望的值。
 - **由一个分支完成 Flow**：`ProcessTimeout` 以 **done** 或 **timeout** 完成 Flow。其他分支各自结束，或进入 dead end。
+- [**临界区**](/design-patterns/parallel/critical-section)：**Accept**、**Decline** 和 `RecordReminderOptOut` Step 注册同一个 `EngagementStatus` 锁。它们都会读取状态和备注再写回，这个锁让一次更新不会覆盖另一次更新。
 
-提醒分支和截止时间分支使用不同的 Channel，因此退订提醒不会接受、拒绝或结束这个机会。状态、备注和时间戳保存在 Attribute 中，所以每个分支和 RPC 读到的都是同一份值。
+提醒分支和截止时间分支使用不同的 Channel，因此退订提醒不会接受、拒绝或结束这个机会。状态、备注和时间戳保存在 Attribute 中，所以每个分支和 RPC 读到的都是同一份值。**Reminder** 发送邮件时不持有这个锁。求职者退订后，它跳转到 `RecordReminderOptOut`，由这个 Step 在锁内追加备注。这个锁和 `RecordReminderOptOut` 适用于 Go、Python、Java 和 TypeScript 示例。Rust 示例不需要共享锁：它的 RPC 只发布决定，由之后的一个 Step 写入状态。
 
 给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
@@ -87,12 +88,14 @@ class EngagementFlow(Flow[EngagementInput]):
         self.initialize = Initialize(self)
         self.process_timeout = ProcessTimeout(self)
         self.reminder = Reminder(self)
+        self.record_reminder_opt_out = RecordReminderOptOut(self)
         self.notify_external_system = NotifyExternalSystem(self)
 
     def get_steps(self) -> StepList[EngagementInput]:
         return StepList.start_step(self.initialize).other_steps(
             self.process_timeout,
             self.reminder,
+            self.record_reminder_opt_out,
             self.notify_external_system,
         )
 
@@ -147,14 +150,28 @@ class Reminder(Step[None]):
         if status is not Status.INITIATED:
             return dead_end()
         if self.flow.opt_out_reminder.results(context):
-            self.flow.update_status(context, status, "user opted out of reminders")
-            return dead_end()
+            return go_to(RecordReminderOptOut, None)
         self.flow.service.send_email(
             self.flow.job_seeker_id.get(context),
             "Reminder: please respond",
             "Please respond to the engagement.",
         )
         return go_to(Reminder, None)
+
+
+class RecordReminderOptOut(Step[None]):
+    def __init__(self, flow: "EngagementFlow") -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.flow.engagement_status.lock(),))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        status = self.flow.engagement_status.get(context)
+        if status is not Status.INITIATED:
+            return dead_end()
+        self.flow.update_status(context, status, "user opted out of reminders")
+        return dead_end()
 ```
 
 </SdkSnippet>
@@ -173,9 +190,10 @@ func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
 func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{}),
-		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(processTimeout{service: flow.service}),
 		dex.DefineStep(reminderStep{service: flow.service}),
-		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+		dex.DefineStep(recordReminderOptOut{}),
+		dex.DefineStep(notifyExternalSystem{service: flow.service}),
 	}
 }
 
@@ -194,7 +212,7 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 ```
 
 ```go
-func (processTimeoutStep) WaitFor(
+func (processTimeout) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
@@ -239,6 +257,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     private final Initialize initialize = new Initialize();
     private final ProcessTimeout processTimeout = new ProcessTimeout();
     private final Reminder reminder = new Reminder();
+    private final RecordReminderOptOut recordReminderOptOut = new RecordReminderOptOut();
     private final NotifyExternalSystem notifyExternalSystem = new NotifyExternalSystem();
 
     public EngagementFlow(final MyDependencyService service) {
@@ -248,7 +267,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     @Override
     public StepList<EngagementInput> getSteps() {
         return StepList.startStep(initialize)
-                .otherSteps(processTimeout, reminder, notifyExternalSystem);
+                .otherSteps(processTimeout, reminder, recordReminderOptOut, notifyExternalSystem);
     }
 
     @Override
@@ -289,19 +308,22 @@ final class Reminder implements Step<Void> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+const engagementStatus = new Attribute("EngagementStatus", statusCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: STATUS_SEARCH_KEY,
+});
+
 export class EngagementFlow implements Flow<EngagementInput> {
   public readonly employerId = new Attribute("EmployerId", stringCodec);
   public readonly jobSeekerId = new Attribute("JobSeekerId", stringCodec);
-  public readonly engagementStatus = new Attribute("EngagementStatus", statusCodec, {
-    type: IndexType.KEYWORD,
-    indexKey: STATUS_SEARCH_KEY,
-  });
+  public readonly engagementStatus = engagementStatus;
   public readonly lastUpdateTimestamp = new Attribute("LastUpdateTimeMillis", int64Codec);
   public readonly notes = new Attribute("notes", optionalCodec(stringCodec));
 
   public readonly initialize = new Initialize(this);
   public readonly processTimeout = new ProcessTimeout(this);
   public readonly reminder = new Reminder(this);
+  public readonly recordReminderOptOut = new RecordReminderOptOut(this);
   public readonly notifyExternalSystem = new NotifyExternalSystem(this);
 
   public constructor(public readonly service: MyDependencyService = myDependencyService) {}
@@ -314,6 +336,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     return StepList.startStep(this.initialize).otherSteps(
       this.processTimeout,
       this.reminder,
+      this.recordReminderOptOut,
       this.notifyExternalSystem,
     );
   }

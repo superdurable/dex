@@ -19,6 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
+import { invokeRPCRetryingLockConflict, respondLockConflict } from "../../service-errors.js";
 import { orchestrationFlow } from "./orchestration-flow.js";
 
 export function createMicroserviceRouter(client: Client): Router {
@@ -38,8 +39,14 @@ export function createMicroserviceRouter(client: Client): Router {
   router.get("/swap", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const data = String(request.query.data ?? "");
-    const swapped = await client.invokeRPC(orchestrationFlow.swap, workflowId, data);
-    response.send(swapped);
+    try {
+      const swapped = await invokeRPCRetryingLockConflict(() =>
+        client.invokeRPC(orchestrationFlow.swap, workflowId, data),
+      );
+      response.send(swapped);
+    } catch (error) {
+      if (!respondLockConflict(response, error)) throw error;
+    }
   });
 
   router.get("/signal", async (request, response) => {

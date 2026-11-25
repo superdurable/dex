@@ -42,13 +42,8 @@ from dex_examples.patterns.parallel_subflows.models import (
 # dex:group group-id:setup group-label:"Setup"
 # dex:explanation text:"Queue the requests and start the request handlers."
 class LongLiveInit(Step[ParentInput]):
-    def __init__(
-        self,
-        request_channel: Channel[str],
-        stopped: Attribute[bool],
-    ) -> None:
+    def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
-        self.stopped = stopped
 
     def get_step_type(self) -> str:
         return "Init"
@@ -56,7 +51,6 @@ class LongLiveInit(Step[ParentInput]):
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
             self.request_channel.publish(context, request)
-        self.stopped.set(context, False)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
             *(StepMovement.of(LongLiveHandleRequest, None) for _ in range(concurrency))
@@ -107,7 +101,7 @@ class AdvancedLongLiveParentFlow(Flow[ParentInput]):
     stopped = Attribute("Stopped", bool)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = LongLiveInit(self.request_channel, self.stopped)
+        self.init = LongLiveInit(self.request_channel)
         self.handle_request = LongLiveHandleRequest(self.request_channel)
         self.handle_subflow = LongLiveHandleSubFlow(example_subflow, self.stopped)
 

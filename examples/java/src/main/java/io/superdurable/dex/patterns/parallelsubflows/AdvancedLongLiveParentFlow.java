@@ -78,7 +78,6 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             for (final String request : input.requests) {
                 requestChannel.publish(context, request);
             }
-            stopped.set(context, false);
             final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
             final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
             for (int index = 0; index < concurrency; index++) {

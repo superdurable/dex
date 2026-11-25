@@ -22,6 +22,7 @@ from dex import (
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
+    RpcLockConflictError,
 )
 from quart import Quart
 from werkzeug.exceptions import HTTPException
@@ -124,6 +125,7 @@ ERROR_HTTP_CODES = {
     FlowNotFoundError: 404,
     FlowNotActiveOrNotFoundError: 409,
     LongPollTimeoutError: 504,
+    RpcLockConflictError: 409,
 }
 
 

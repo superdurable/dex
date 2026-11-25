@@ -54,6 +54,40 @@ pub fn map_sdk_error(error: SdkError) -> (StatusCode, Json<ErrorBody>) {
     )
 }
 
+const LOCK_CONFLICT_ATTEMPTS: u32 = 5;
+const LOCK_CONFLICT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Invokes an RPC and retries a lock conflict with bounded backoff. Retrying is safe: a
+/// conflicting call committed nothing.
+/// Returns the RPC result, or the last error.
+pub fn invoke_retrying_lock_conflict<T>(mut invoke: impl FnMut() -> SdkResult<T>) -> SdkResult<T> {
+    let mut attempt = 1;
+    loop {
+        match invoke() {
+            Err(SdkError::RpcLockConflict { .. }) if attempt < LOCK_CONFLICT_ATTEMPTS => {
+                // Jitter spreads out callers that conflicted at the same time.
+                let jitter = LOCK_CONFLICT_BACKOFF.mul_f64(fastrand::f64());
+                std::thread::sleep(LOCK_CONFLICT_BACKOFF * attempt + jitter);
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Maps an RPC error to 409 when the RPC still lost its lock race, otherwise like map_sdk_error.
+pub fn map_rpc_error(error: SdkError) -> (StatusCode, Json<ErrorBody>) {
+    if matches!(error, SdkError::RpcLockConflict { .. }) {
+        return (
+            StatusCode::CONFLICT,
+            Json(ErrorBody {
+                error: "the Flow is busy with another update; retry the request".to_string(),
+            }),
+        );
+    }
+    map_sdk_error(error)
+}
+
 pub fn is_already_started(error: &SdkError) -> bool {
     matches!(error, SdkError::FlowAlreadyStarted { .. })
 }

@@ -70,6 +70,7 @@ type FakeService struct {
 	refundCalls   map[string]int
 	creditCalls   map[string]int
 	subscriptions map[string]int
+	messageHolds  map[string]chan struct{}
 }
 
 func NewFakeService() *FakeService {
@@ -79,6 +80,7 @@ func NewFakeService() *FakeService {
 		refundCalls:   make(map[string]int),
 		creditCalls:   make(map[string]int),
 		subscriptions: make(map[string]int),
+		messageHolds:  make(map[string]chan struct{}),
 	}
 }
 
@@ -166,7 +168,24 @@ func (service *FakeService) ApplySubscriptionState(refundCase RefundCase) error 
 	return nil
 }
 
+// HoldCustomerMessages makes SendCustomerMessage for caseID wait until release is called.
+// Tests use it to keep a run at its send Step. Release is safe to call more than once.
+func (service *FakeService) HoldCustomerMessages(caseID string) (release func()) {
+	hold := make(chan struct{})
+	service.mutex.Lock()
+	service.messageHolds[caseID] = hold
+	service.mutex.Unlock()
+	var once sync.Once
+	return func() { once.Do(func() { close(hold) }) }
+}
+
 func (service *FakeService) SendCustomerMessage(refundCase RefundCase, message string) error {
+	service.mutex.Lock()
+	hold := service.messageHolds[refundCase.CaseID]
+	service.mutex.Unlock()
+	if hold != nil {
+		<-hold
+	}
 	service.mutex.Lock()
 	defer service.mutex.Unlock()
 	if refundCase.CaseID == "email-failure" {

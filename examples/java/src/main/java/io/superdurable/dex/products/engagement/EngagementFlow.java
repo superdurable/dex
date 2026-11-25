@@ -18,6 +18,7 @@ package io.superdurable.dex.products.engagement;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -28,6 +29,7 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.shared.MyDependencyService;
@@ -55,6 +57,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     private final Initialize initialize = new Initialize();
     private final ProcessTimeout processTimeout = new ProcessTimeout();
     private final Reminder reminder = new Reminder();
+    private final RecordReminderOptOut recordReminderOptOut = new RecordReminderOptOut();
     private final NotifyExternalSystem notifyExternalSystem = new NotifyExternalSystem();
 
     public EngagementFlow(final MyDependencyService service) {
@@ -64,7 +67,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     @Override
     public StepList<EngagementInput> getSteps() {
         return StepList.startStep(initialize)
-                .otherSteps(processTimeout, reminder, notifyExternalSystem);
+                .otherSteps(processTimeout, reminder, recordReminderOptOut, notifyExternalSystem);
     }
 
     @Override
@@ -89,7 +92,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
         optOutReminder.publish(context, null);
     }
 
-    @RPC
+    @RPC(lockAttributes = {"EngagementStatus"})
     public RPCResult<Status> decline(final Context context, final String note) {
         final Status status = engagementStatus.get(context);
         if (status != Status.INITIATED) {
@@ -103,7 +106,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
                 StepMovement.of(NotifyExternalSystem.class, Status.DECLINED));
     }
 
-    @RPC
+    @RPC(lockAttributes = {"EngagementStatus"})
     public RPCResult<Status> accept(final Context context, final String note) {
         final Status status = engagementStatus.get(context);
         if (status != Status.INITIATED && status != Status.DECLINED) {
@@ -208,8 +211,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
                 return StepDecision.deadEnd();
             }
             if (!optOutReminder.getConditionResults(context).isEmpty()) {
-                updateStatus(context, status, "user opted out of reminders");
-                return StepDecision.deadEnd();
+                return StepDecision.goTo(RecordReminderOptOut.class, null);
             }
             final String seekerId = jobSeekerId.get(context);
             service.sendEmail(
@@ -217,6 +219,31 @@ public class EngagementFlow implements Flow<EngagementInput> {
                     "Reminder: please respond",
                     "Please respond to the engagement.");
             return StepDecision.goTo(Reminder.class, null);
+        }
+    }
+
+    /** Shares the accept and decline lock, so neither update is lost. */
+    final class RecordReminderOptOut implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(engagementStatus))
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            final Status status = engagementStatus.get(context);
+            if (status != Status.INITIATED) {
+                return StepDecision.deadEnd();
+            }
+            updateStatus(context, status, "user opted out of reminders");
+            return StepDecision.deadEnd();
         }
     }
 
