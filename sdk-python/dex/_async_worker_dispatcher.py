@@ -16,6 +16,7 @@ from inspect import isawaitable, isgenerator
 from typing import Any, Callable
 
 from dex._async_value_hydrator import AsyncValueHydrator
+from dex._attribute_lock_check import UnlockedAttributeReadModifyWriteCheck
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._server_protocol import NegotiatedServerProtocol
 from dex._value_mapper import ValueMapper
@@ -67,6 +68,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         values: ValueMapper,
         hydrator: AsyncValueHydrator,
         server_protocol: NegotiatedServerProtocol,
+        attribute_lock_check: UnlockedAttributeReadModifyWriteCheck | None = None,
     ) -> None:
         if server_protocol is None:
             raise ValueError(
@@ -76,6 +78,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         self._values = values
         self._async_hydrator = hydrator
         self._server_protocol = server_protocol
+        self._attribute_lock_check = attribute_lock_check
 
     async def invoke_wait_for(  # type: ignore[override]
         self,
@@ -138,6 +141,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 wait = await wait
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
+            self._check_step_attribute_locks(flow, step, "wait_for", context)
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
                 action_permission_mappings=self._result_action_permission_mappings(
@@ -248,6 +252,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 decision = await decision
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
+            self._check_step_attribute_locks(flow, step, "execute", context)
             response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=self._result_attribute_writes(context),
@@ -390,6 +395,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         returned: Any = rpc.method(*arguments)
         if isawaitable(returned):
             returned = await returned
+        self._check_rpc_attribute_locks(flow, rpc, context)
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),

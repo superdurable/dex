@@ -411,6 +411,55 @@ class WorkerOptions:
             a codec also runs plaintext Flows.
 
             .. versionadded:: 1.45.16
+        fail_on_unlocked_attribute_read_modify_write: Fail a handler
+            invocation that reads and then writes an Attribute without locking
+            it. Defaults to ``False``, which logs a warning instead. See
+            "Unlocked read-modify-write check" below. Turn it on in tests and
+            in local development with ``dexcli dev``.
+
+            .. versionadded:: 1.45.18
+
+    Unlocked read-modify-write check:
+        Two Steps or RPCs that read an Attribute and then write it can
+        overwrite each other's update unless both lock it. The Worker checks
+        every ``wait_for``, ``execute``, and RPC invocation that returns
+        without an error. It reports an Attribute, or an AttributeMap instance,
+        when all of these hold:
+
+        - The invocation read it with ``get`` before the invocation wrote it.
+          A read that finds no value counts. A read after the invocation's own
+          ``set`` or ``delete`` does not count, and neither do
+          ``get_all_instance_keys`` and ``get_map_size``.
+        - The invocation then wrote it with ``set`` or ``delete``.
+        - The handler's registered options do not lock it:
+          ``StepOptions.wait_for_lock_attributes`` or
+          ``StepOptions.execute_lock_attributes`` for a Step method, and
+          ``@rpc(lock_attributes=...)`` for an RPC.
+        - The handler did not call ``declare_single_writer`` for it in this
+          invocation.
+        - For an AttributeMap instance, the handler's registered options load
+          it, either the whole map or that instance.
+
+        A Step that only reads, a Step that only writes, and a read of one
+        Attribute that computes a write of another are not reported. The
+        Worker cannot see locks chosen for one call:
+        ``RPCInvokeOptions.lock_attribute_map_instances`` and the options of a
+        ``StepMovement``. The last condition skips an AttributeMap instance
+        that only such a call loads, so the common runtime-selected lock
+        pattern is not reported. A singleton Attribute locked only by a
+        movement's options, or a registered map load combined with a per-call
+        instance lock, is reported; call ``declare_single_writer`` in that
+        handler. Flow timeout handlers are not checked, because their locks
+        come from the start options.
+
+        With the default ``False``, the Worker logs one WARNING per Flow type,
+        handler, and Attribute name on the ``dex._attribute_lock_check``
+        logger, and the invocation succeeds unchanged. With ``True``, the
+        invocation raises ``UnlockedAttributeReadModifyWriteError`` and saves
+        none of its changes. Dex retries a failed Step method under its retry
+        policy and returns the error to an RPC caller. Either way,
+        ``Worker.unlocked_attribute_read_modify_write_count`` counts each
+        detection.
 
     Flow definitions:
         Dex Web draws a run's graph from the Flow definition that the Server
@@ -457,6 +506,7 @@ class WorkerOptions:
     flow_definition_paths: Sequence[str | os.PathLike[str]] = ()
     flow_definitions: Sequence[FlowDefinitionDocument] = ()
     payload_encryption: PayloadEncryptionOptions | None = None
+    fail_on_unlocked_attribute_read_modify_write: bool = False
 
     def __post_init__(self) -> None:
         validate_grpc_max_message_bytes(self.grpc_max_message_bytes)

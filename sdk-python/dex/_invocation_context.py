@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
@@ -51,6 +52,15 @@ class InvocationMethod(Enum):
     EXECUTE = "execute"
     RPC = "rpc"
     TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class AttributeAccessKey:
+    """Identify one Attribute or AttributeMap instance read by an invocation."""
+
+    physical_name: str
+    attribute_name: str
+    instance: str | None
 
 
 class _StepOutputEmitter(Protocol):
@@ -109,6 +119,9 @@ class InvocationContext:
         self._is_active = is_active or _always_active
         self._output_emitter = output_emitter
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
+        # Keys read before this invocation wrote them.
+        self._attribute_snapshot_reads: dict[str, AttributeAccessKey] = {}
+        self._attribute_single_writer_declarations: set[str] = set()
         self.local_writes: dict[str, pb.KV] = {}
         self.events: list[pb.KV] = []
         self.channel_deletions: list[pb.ChannelMessageDeletion] = []
@@ -369,6 +382,9 @@ class InvocationContext:
                 return cast(ValueT, self._default_value(definition.value_type))
             value: pb.Value | None = write.value
         else:
+            self._attribute_snapshot_reads[key] = AttributeAccessKey(
+                key, definition.name, instance
+            )
             value = self._attributes.get(key)
         if value is None:
             return cast(ValueT, self._default_value(definition.value_type))
@@ -414,6 +430,31 @@ class InvocationContext:
         _apply_attribute_store_sync(write, definition)
         _apply_hard_delete_on_null(write, definition)
         self.attribute_writes[key] = write
+
+    def _declare_single_writer(
+        self,
+        definition: Attribute[object] | AttributeMap[object],
+        instance: str | None,
+    ) -> None:
+        self._require_registered(definition)
+        self._attribute_single_writer_declarations.add(
+            self._physical_name(definition, instance)
+        )
+
+    def _attribute_read_modify_write_candidates(self) -> list[AttributeAccessKey]:
+        """Return keys read from the snapshot and then written, sorted by key.
+
+        Keys declared with ``declare_single_writer`` are excluded.
+        """
+        return sorted(
+            (
+                read
+                for key, read in self._attribute_snapshot_reads.items()
+                if key in self.attribute_writes
+                and key not in self._attribute_single_writer_declarations
+            ),
+            key=lambda read: read.physical_name,
+        )
 
     def _publish_channel(
         self,
