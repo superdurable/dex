@@ -131,26 +131,27 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/customretry
 
 ## NonRetryableException {#non-retryable}
 
-Throw **NonRetryableException** from **waitFor** or **execute** when a later
+Throw `NonRetryableException` from `waitFor` or `execute` when a later
 attempt cannot succeed, such as rejected input or a request that a provider
 reports as permanent. Dex skips the remaining attempts of the retry policy.
-The failure policy then runs at once: the default fails the Flow, **waitFor**
-can run **execute**, and **execute** can go to a recovery Step.
+The failure policy then runs at once: the default fails the Flow, `waitFor`
+can run `execute`, and `execute` can go to a recovery Step.
 
 - Create it with the original exception, as in
   `new NonRetryableException(rejected)`, to report that exception as the
-  Worker error. The recovery Step's **getRecoveryError** then shows its class
-  and message. Create it with a message to report **NonRetryableException**
+  Worker error. The recovery Step's `getRecoveryError` then shows its class
+  and message. Create it with a message to report `NonRetryableException`
   itself. Subclasses are non-retryable too.
-- **NonRetryableException** wins over **RetryAfterException** in either
-  nesting order.
-- An RPC handler never retries, so **NonRetryableException** changes nothing
+- `NonRetryableException` wins over `RetryAfterException` in either nesting
+  order. It also counts anywhere in the `getCause()` chain of the thrown
+  exception; Dex then reports the outer exception.
+- An RPC handler never retries, so `NonRetryableException` changes nothing
   there.
 - Tests can reach the failure route at once while the retry policy keeps its
   real business intervals.
 
 Since 1.45.4. It needs server-zd 0.1.38 or later. An older server ignores it
-and retries under the retry policy. See **NonRetryableException** in the
+and retries under the retry policy. See `NonRetryableException` in the
 [API reference](./index.mdx#api-reference) for an example.
 
 ## Failure and redelivery {#failure-and-redelivery}

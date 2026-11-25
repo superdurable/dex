@@ -18,6 +18,9 @@ import io.superdurable.gen.WorkerErrorResponse;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 final class WorkerErrorMapper {
     static final int MAX_WORKER_ERROR_DETAIL_BYTES = 1024;
@@ -48,22 +51,21 @@ final class WorkerErrorMapper {
                     .build();
         }
         RetryAfterException retryAfter = null;
-        boolean isNonRetryable = false;
         Throwable reportedFailure = failure;
-        while (true) {
-            if (reportedFailure instanceof RetryAfterException && retryAfter == null) {
-                retryAfter = (RetryAfterException) reportedFailure;
-                reportedFailure = retryAfter.getCause();
-            } else if (reportedFailure instanceof NonRetryableException
-                    && !isNonRetryable
-                    && reportedFailure.getCause() != null) {
-                isNonRetryable = true;
-                reportedFailure = reportedFailure.getCause();
-            } else {
-                isNonRetryable |= reportedFailure instanceof NonRetryableException;
+        final Set<Throwable> unwrapped = Collections.newSetFromMap(new IdentityHashMap<>());
+        while (unwrapped.add(reportedFailure)) {
+            final boolean isControlWrapper = reportedFailure instanceof RetryAfterException
+                    || (reportedFailure instanceof NonRetryableException
+                            && reportedFailure.getCause() != null);
+            if (!isControlWrapper) {
                 break;
             }
+            if (reportedFailure instanceof RetryAfterException && retryAfter == null) {
+                retryAfter = (RetryAfterException) reportedFailure;
+            }
+            reportedFailure = reportedFailure.getCause();
         }
+        final boolean isNonRetryable = hasNonRetryableCause(failure);
         final String message = truncateUtf8(reportedFailure.getMessage() == null
                 ? reportedFailure.toString()
                 : reportedFailure.getMessage(),
@@ -82,6 +84,17 @@ final class WorkerErrorMapper {
             details.setRetryAfterSeconds((int) retryAfter.getRetryAfter().getSeconds());
         }
         return details.build();
+    }
+
+    /** Returns whether {@code failure} or any exception in its cause chain is a NonRetryableException. */
+    private static boolean hasNonRetryableCause(final Throwable failure) {
+        final Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = failure; current != null && visited.add(current); current = current.getCause()) {
+            if (current instanceof NonRetryableException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String stackTrace(final Throwable failure) {

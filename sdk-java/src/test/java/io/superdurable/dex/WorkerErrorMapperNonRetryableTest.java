@@ -50,6 +50,27 @@ final class WorkerErrorMapperNonRetryableTest {
     }
 
     @Test
+    void markerInTheCauseChainIsNonRetryableAndReportsTheOuterException() {
+        final WorkerErrorResponse response = mapper.mapFailure(
+                new IllegalStateException("charge failed", new NonRetryableException("bad input")), null);
+        assertTrue(response.getNonRetryable());
+        assertEquals(IllegalStateException.class.getName(), response.getErrorType());
+        assertEquals("charge failed", response.getDetail());
+    }
+
+    @Test
+    void repeatedRetryAfterKeepsTheOuterDelayAndReportsTheInnerCause() {
+        final IllegalStateException cause = new IllegalStateException("card rejected");
+        final WorkerErrorResponse response = mapper.mapFailure(
+                RetryAfterException.after(Duration.ofSeconds(7), new NonRetryableException(
+                        RetryAfterException.after(Duration.ofSeconds(8), cause))),
+                null);
+        assertTrue(response.getNonRetryable());
+        assertEquals(7, response.getRetryAfterSeconds());
+        assertEquals(IllegalStateException.class.getName(), response.getErrorType());
+    }
+
+    @Test
     void plainFailureStaysRetryable() {
         assertFalse(mapper.mapFailure(new IllegalStateException("boom"), null).getNonRetryable());
     }

@@ -24,8 +24,9 @@ package io.superdurable.dex.exceptions;
  * report this exception itself. Subclasses are also non-retryable.
  *
  * <p>It may wrap or be wrapped by a {@link RetryAfterException}; the non-retryable request wins
- * and no retry runs. Thrown from an RPC handler, it has no effect, because RPC handlers never
- * retry.
+ * and no retry runs. It also counts anywhere in the cause chain of the thrown exception, such as
+ * {@code new IllegalStateException("charge failed", marked)}; Dex then reports the outer
+ * exception. Thrown from an RPC handler, it has no effect, because RPC handlers never retry.
  *
  * <p>It needs server-zd 0.1.38 or later. An older server ignores the request and retries the
  * attempt under the retry policy.
