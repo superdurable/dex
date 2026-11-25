@@ -66,6 +66,7 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 			fmt.Sprintf("%T", recovered),
 			stackTraceFromPanic(recovered),
 			nil,
+			false,
 			panicErr.Error(),
 		)
 	}
@@ -73,7 +74,7 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 		return nil
 	}
 
-	reported, retryAfter := reportedWorkerFailure(err)
+	reported, retryAfter, isNonRetryable := reportedWorkerFailure(err)
 	code, classified := classifyWorkerError(reported)
 	detail := classified.Error()
 	if rpcStatus, ok := status.FromError(classified); ok {
@@ -86,6 +87,7 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 		workerErrorType(reported),
 		stackTraceFromError(classified),
 		retryAfter,
+		isNonRetryable,
 		detail,
 	)
 }
@@ -172,12 +174,19 @@ func workerErrorType(reported error) string {
 	}
 }
 
-func reportedWorkerFailure(err error) (error, *RetryAfterError) {
+// reportedWorkerFailure returns the failure to report without the RetryAfter and NonRetryable
+// wrappers, the RetryAfter request or nil, and whether any wrapper in err marks it non-retryable.
+func reportedWorkerFailure(err error) (error, *RetryAfterError, bool) {
+	reported := err
 	var retryAfter *RetryAfterError
 	if errors.As(err, &retryAfter) {
-		return retryAfter.Cause, retryAfter
+		reported = retryAfter.Cause
 	}
-	return err, nil
+	var nonRetryable *NonRetryableError
+	if errors.As(reported, &nonRetryable) {
+		return nonRetryable.Cause, retryAfter, true
+	}
+	return reported, retryAfter, errors.As(err, &nonRetryable)
 }
 
 func classifyWorkerError(err error) (codes.Code, error) {
@@ -204,13 +213,15 @@ func workerStatusError(
 	errorType string,
 	stackTrace string,
 	retryAfter *RetryAfterError,
+	isNonRetryable bool,
 	detail string,
 ) error {
 	workerError := &dexpb.WorkerErrorResponse{
-		Detail:     truncateWorkerFailureField(detail, maxWorkerErrorDetailBytes, errorDetailTruncationMarker),
-		ErrorType:  truncateWorkerFailureField(errorType, maxWorkerErrorTypeBytes, errorTypeTruncationMarker),
-		StackTrace: truncateWorkerFailureField(stackTrace, maxWorkerStackTraceBytes, stackTraceTruncationMarker),
-		GrpcStatus: int32(code),
+		Detail:       truncateWorkerFailureField(detail, maxWorkerErrorDetailBytes, errorDetailTruncationMarker),
+		ErrorType:    truncateWorkerFailureField(errorType, maxWorkerErrorTypeBytes, errorTypeTruncationMarker),
+		StackTrace:   truncateWorkerFailureField(stackTrace, maxWorkerStackTraceBytes, stackTraceTruncationMarker),
+		GrpcStatus:   int32(code),
+		NonRetryable: isNonRetryable,
 	}
 	if retryAfter != nil {
 		workerError.RetryAfterSeconds = int32(retryAfter.After / time.Second)

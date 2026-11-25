@@ -11,6 +11,7 @@ package dex
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,34 @@ func TestFinishWorkerCallAttachesStackTraceAndRetryAfter(t *testing.T) {
 		t.Fatalf("retry after = %d, want 7", workerError.GetRetryAfterSeconds())
 	}
 	assertMissingApplicationStack(t, workerError.GetStackTrace())
+}
+
+func TestFinishWorkerCallMarksNonRetryableAndReportsCause(t *testing.T) {
+	cause := &os.PathError{Op: "open", Path: "input", Err: os.ErrNotExist}
+	for name, failure := range map[string]error{
+		"plain":               NonRetryable(cause),
+		"wrapped":             fmt.Errorf("charge: %w", NonRetryable(cause)),
+		"inside retry after":  RetryAfter(7*time.Second, NonRetryable(cause)),
+		"outside retry after": NonRetryable(RetryAfter(7*time.Second, cause)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rpcStatus, ok := status.FromError(finishWorkerCall(testLogger{}, nil, failure))
+			if !ok {
+				t.Fatal("expected gRPC status")
+			}
+			workerError := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+			if !workerError.GetNonRetryable() {
+				t.Fatal("non_retryable = false, want true")
+			}
+			if workerError.GetErrorType() != "*fs.PathError" || workerError.GetDetail() != cause.Error() {
+				t.Fatalf("reported %q %q, want the cause", workerError.GetErrorType(), workerError.GetDetail())
+			}
+		})
+	}
+	rpcStatus, _ := status.FromError(finishWorkerCall(testLogger{}, nil, cause))
+	if rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse).GetNonRetryable() {
+		t.Fatal("plain failure is marked non-retryable")
+	}
 }
 
 func TestFinishWorkerCallPlainErrorSkipsWrapSiteStack(t *testing.T) {
@@ -251,6 +280,7 @@ func TestWorkerStatusErrorBoundsLargeErrorTypeAtUTF8Boundary(t *testing.T) {
 		largeType,
 		"stack",
 		nil,
+		false,
 		"boom",
 	)
 	rpcStatus, ok := status.FromError(err)

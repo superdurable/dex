@@ -126,6 +126,25 @@ if ctx.Attempt() < int32(readyAfterAttempt) {
 
 Example: [examples/go/primitives/custom-retry/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/custom-retry/workflow.go)
 
+## NonRetryable {#non-retryable}
+
+Return **dex.NonRetryable(err)** from **WaitFor** or **Execute** when a later
+attempt cannot succeed, such as rejected input or a request that a provider
+reports as permanent. Dex skips the remaining attempts of the retry policy.
+The failure policy then runs at once: the default fails the Flow, **WaitFor**
+can run **Execute**, and **Execute** can go to a recovery Step.
+
+- The recovery Step's **RecoveryError** shows the wrapped error, not
+  **NonRetryableError**.
+- **NonRetryable** wins over **RetryAfter** in either nesting order.
+- An RPC handler never retries, so **NonRetryable** changes nothing there.
+- Tests can reach the failure route at once while the retry policy keeps its
+  real business intervals.
+
+Since 1.45.17. It needs server-zd 0.1.38 or later. An older server ignores it
+and retries under the retry policy. See **NonRetryable** in the
+[API reference](./index.mdx#api-reference) for an example.
+
 ## Failure and redelivery {#failure-and-redelivery}
 
 Some failures leave Dex unable to tell whether the work ran. A Step with an

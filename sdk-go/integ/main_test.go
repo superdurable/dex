@@ -177,6 +177,8 @@ func integrationFlows() []dex.Flow {
 		stepCancellationFlow{},
 		workerRetryAfterWaitForFlow{},
 		workerRetryAfterExecuteFlow{},
+		nonRetryableExecuteFlow{},
+		nonRetryableWaitForFlow{},
 		workerOriginStackWaitForFlow{},
 		messageSizeFlow{},
 		webDebugChannelFlow{},
