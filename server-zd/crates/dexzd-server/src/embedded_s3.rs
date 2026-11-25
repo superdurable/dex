@@ -374,7 +374,9 @@ mod tests {
         lock_data_directory, store_open_failure_detail,
     };
     use crate::ServerError;
-    use crate::config::{ApplicationS3Config, DevConfig, DevDurabilityMode};
+    use crate::config::{
+        ApplicationS3Config, DevConfig, DevDurabilityMode, WorkerResultLossConfig,
+    };
 
     const SERVER_BUCKET: &str = "dex-dev";
     const APPLICATION_BUCKET: &str = "dex-dev-media";
@@ -385,6 +387,7 @@ mod tests {
             s3_data_directory: data_directory.join("s3"),
             durability_mode: DevDurabilityMode::ProcessCrashSafe,
             log_directory: None,
+            worker_result_loss: WorkerResultLossConfig::default(),
             application_s3: Some(ApplicationS3Config {
                 listen: SocketAddr::from(([127, 0, 0, 1], 0)),
                 bucket: APPLICATION_BUCKET.to_owned(),

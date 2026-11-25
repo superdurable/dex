@@ -437,6 +437,51 @@ recovery Step after the real retry budget is spent. That is Dex behavior, so
 a test does not re-test it by shortening attempts or durations. See
 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy).
 
+## Test with lost Worker results {#lost-worker-results}
+
+A Worker can crash after a Step method ran and before the server received its
+result. Dex then runs the method again. Its external calls happen a second
+time, and it reads the state from before the lost run. **dexcli dev** can cause
+this on purpose, so a test finds the problem before production does:
+
+```bash
+dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
+  -zd-data-dir "$(mktemp -d)" -zd-config zd-overrides.yaml \
+  -inject-step-result-loss 0.3 -inject-result-loss-seed 7 &
+```
+
+The server now drops about 30% of the Step method results. Each dropped
+result fails its attempt like a Worker crash. The method retries while its
+retry budget lasts; after that, its failure policy runs. The application code
+stays the same.
+
+Run the usual tests against this server and check three things:
+
+- **The Flow still reaches the same result.** Within the retry budget, lost
+  results only add retries.
+- **Each external effect still happens once.** A fake that records every call
+  shows the repeats. A fake payment API must still see one charge per order,
+  so the Step needs an idempotency key.
+- **A Step that runs again still sees correct state.** The lost run's
+  Attribute writes never took effect.
+
+A Step whose retry policy allows one attempt runs its failure policy here, as
+it would after a real crash.
+
+The same drop fraction, seed, and result identity give the same drop
+decision. A Step result's identity is its Flow ID, Step execution ID, method,
+run attempt, and attempt. To get the same decisions again, keep the fraction,
+the seed, and the failing test's Flow ID. The Step execution IDs match when
+the Flow schedules the same Steps in the same order.
+
+**-inject-rpc-result-loss** drops RPC results the same way. The RPC caller
+gets **UNAVAILABLE** and decides whether to retry. An RPC result's identity
+is its Flow ID, RPC name, and the order of the successful RPC responses.
+Concurrent calls and Worker errors can change that order.
+
+[Worker result loss injection](/reference/server/configuration#dev-worker-result-loss)
+lists the exact rules.
+
 ## Next
 
 - [Build with AI](/build-with-ai/dex-developer-skill): install Dex Skills and let a coding agent write and test the code.

@@ -409,10 +409,78 @@ needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 | Default partition count | 32 | 32 | 1024 |
 | Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
+| Worker result loss injection | Flags. Since 0.1.38. | None. | None. |
 
 **dev** and **local** use the same data directory layout. Either command can
 serve a data directory that the other one wrote. Stop one before you start the
 other.
+
+### Worker result loss injection {#dev-worker-result-loss}
+
+Since 0.1.38. **dev** can drop a share of Worker results on purpose, for
+tests. A dropped result looks like a Worker that crashed after its handler
+ran and before the server received the result. The handler's external calls
+happened, but its result is lost. Tests use it to find external calls that
+are not idempotent, and Steps that read stale state when they run again.
+
+~~~bash
+dex-server-zd dev --data-dir <dir> --inject-step-result-loss 0.3 --inject-result-loss-seed 7
+~~~
+
+| Flag | Default and behavior |
+| --- | --- |
+| **--inject-step-result-loss** | **0**; the fraction, from 0 to 1, of WaitFor and Execute results to drop. |
+| **--inject-rpc-result-loss** | **0**; the fraction, from 0 to 1, of RPC results to drop. |
+| **--inject-result-loss-seed** | **0**; the seed of the drop decisions. |
+
+Only these **dev** flags turn it on. The **--config** file has no keys for
+it, and **local** and **serve** reject the flags. At startup, server-zd logs
+one warning with the fractions and the seed.
+
+A dropped Step result fails its attempt the way a Worker disconnect does.
+The Step error text starts with **Worker disconnected during pull
+dispatch**, its dispatch reason is
+**DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED**, and its detail names the
+fault injection. The attempt counts against the method's retry policy. The
+next attempt starts after the policy's backoff, and only while the retry
+budget lasts. When the budget is spent, the method's configured failure
+policy runs, as after a real crash.
+
+Nothing the dropped result carried takes effect: its Attribute writes,
+Channel publications, and Step decision are discarded. Stream writes and
+heartbeat checkpoints that the Worker sent before the result still take
+effect, as in a real crash. Step results are eligible for loss after the
+server checks their response fields and value sizes, before it tries to save
+their effects. A Worker error, such as an exception in the handler, and a
+result that fails those checks, such as an Execute result without a Step
+decision or with a value over the size limit, keep their own failure. A
+dropped result can hide a rejection that would occur while saving its
+effects, such as a rejected SubFlow start.
+
+A dropped RPC result answers the RPC caller with **UNAVAILABLE**, and
+nothing commits. A transactional RPC retried with the same request ID runs
+its handler again. The SDK Clients do not retry RPCs by themselves; the
+caller decides whether to retry. A real Worker disconnect during an RPC can
+differ: while the Worker has sent no output, matching may give the RPC to
+another Worker within the dispatch wait. The injection always answers
+**UNAVAILABLE**.
+
+The decisions are reproducible. The same drop fraction, seed, and result
+identity give the same drop decision:
+
+- A Step result is identified by its Flow ID, the Step execution ID that
+  Dex assigned, the method, the run attempt, and the attempt number.
+  Timing, concurrency, other Flows, and the server-generated run ID do not
+  change the decision.
+- An RPC result is identified by its Flow ID, RPC name, and its position
+  among the successful Worker responses to that RPC on that Flow ID since
+  the server started. Concurrent calls, Worker errors, and a server restart
+  can change that position.
+
+Give the Flows in such a test fixed Flow IDs to reproduce the decisions. A
+unique Flow ID per run changes the input to each drop decision. A real crash can
+lose more than one result, and it also closes the Worker's connection; this
+injection drops one result at a time and keeps the Worker connected.
 
 ## Retention
 

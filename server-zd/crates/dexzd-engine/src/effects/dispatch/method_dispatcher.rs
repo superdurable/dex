@@ -108,6 +108,15 @@ pub trait MethodDispatchSession: Send {
     fn next_event(&mut self) -> BoxFuture<'_, Option<StepTaskEvent>>;
     /// Asks the Worker to stop the task.
     fn cancel(&self);
+
+    /// Returns the disconnect detail when development fault injection drops this task's result.
+    ///
+    /// Returns `None`, the default, to record a valid result; `Some` fails a result that passed
+    /// the Worker result checks as a Worker disconnect with that detail. Results those checks
+    /// reject fail as usual either way.
+    fn injected_result_loss(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Hands method attempts to Workers, in memory or through the durable task queue's refs.

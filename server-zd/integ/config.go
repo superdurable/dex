@@ -43,4 +43,8 @@ type serverZDTestConfig struct {
 	ServerZDMaxChildFlowResultBytes int64
 	// Default zero keeps the server's 8 MiB limit; positive values set flowDefinitions.maxDefinitionBytes.
 	FlowDefinitionMaxBytes int64
+	// Default empty adds nothing; otherwise flags appended to `dex-server-zd dev`, such as result loss injection.
+	DevFlags []string
+	// Default false disables metrics; true serves them on a free loopback port, returned as integRuntime.MetricsAddress.
+	IsMetricsEnabled bool
 }

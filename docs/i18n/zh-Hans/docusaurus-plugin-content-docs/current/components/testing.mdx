@@ -403,6 +403,32 @@ Flow timeout 也是一个 Timer。测试 timeout 路径时，用同样的方式�
 
 直接测试 recovery Step，验证的是它的逻辑。Dex 在真实的重试预算用完后调度 recovery Step。这是 Dex 的行为，所以测试不通过缩短 attempt 次数或时长来重新测试它。见 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy)（英文）。
 
+## 在 Worker 结果丢失时测试 {#lost-worker-results}
+
+Worker 可能在 Step 方法运行之后、server 收到结果之前崩溃。这时 Dex 会再运行一次这个方法。它的外部调用会再发生一次，它读到的也是丢失那次运行之前的状态。**dexcli dev** 可以有意制造这种情况，让测试在上生产之前发现问题：
+
+```bash
+dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
+  -zd-data-dir "$(mktemp -d)" -zd-config zd-overrides.yaml \
+  -inject-step-result-loss 0.3 -inject-result-loss-seed 7 &
+```
+
+这样 server 会丢弃大约 30% 的 Step 方法结果。每个被丢弃的结果都像 Worker 崩溃一样让这次 attempt 失败。方法在重试预算之内重试；预算用完后，运行它的 failure policy。应用代码不需要改动。
+
+对这个 server 运行平常的测试，检查三件事：
+
+- **Flow 仍然得到同样的结果。** 在重试预算之内，丢失的结果只会增加重试。
+- **每个外部效果仍然只发生一次。** 记录每次调用的 fake 能看到重复调用。fake 支付 API 仍然必须对每个订单只看到一次扣款，所以 Step 需要幂等键。
+- **再次运行的 Step 仍然看到正确的状态。** 丢失那次运行写的 Attribute 从未生效。
+
+重试策略只允许一次 attempt 的 Step 在这里会运行它的 failure policy，就像真实崩溃之后一样。
+
+相同的丢弃比例、seed 和结果标识会产生相同的丢弃决定。Step 结果的标识是它的 Flow ID、Step execution ID、方法、run attempt 和 attempt。要再次得到相同的决定，保持丢弃比例、seed 和失败测试用过的 Flow ID 不变。Flow 按同样的顺序调度同样的 Step 时，Step execution ID 才会相同。
+
+**-inject-rpc-result-loss** 用同样的方式丢弃 RPC 结果。RPC 的调用方会收到 **UNAVAILABLE**，由调用方决定是否重试。RPC 结果的标识是它的 Flow ID、RPC 名称，以及成功 RPC 响应的顺序。并发调用和 Worker 错误会改变这个顺序。
+
+[Worker result loss injection](/reference/server/configuration#dev-worker-result-loss)（英文）列出了确切的规则。
+
 ## 下一步 {#next}
 
 - [使用 AI 构建](/build-with-ai/dex-developer-skill)：安装 Dex Skills，让 coding agent 编写和测试代码。
