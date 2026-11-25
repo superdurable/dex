@@ -23,7 +23,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 - 如果取消消息胜出，`Execute` 用 `SubFlowID` 读取子 Flow ID，用 Client 的 `StopFlow` 停止子 Flow，再用 `ForceFail` 关闭父 Flow。
 - 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后才到达的取消，仍然能关闭这个 case。
 - 在每个等待中，已经到达的取消都优先于正常完成。等待 SubFlow 时，已就绪的 Channel 总是优先于已就绪的 SubFlow。等待两个 Channel 时，先声明的 Channel 胜出，所以把取消 Channel 声明在决定 Channel 之前。
-- 已就绪的 Timer 总是优先于已就绪的 Channel。所以兜底或截止 Timer 可能胜过同一时刻到达的撤回。Timer 分支要处理可能仍在排队的撤回，例如在下一个 Step 里继续等待取消 Channel。
+- 兜底或截止 Timer 可能胜出，而撤回仍可能在它之后、Timer 分支运行之前提交。Timer 分支要处理可能仍在排队的撤回，例如在下一个 Step 里继续等待取消 Channel。也可以用 Attribute 锁关闭回复窗口，见[带截止时间的决定](/design-patterns/external-interaction/decision-with-deadline#close-the-response-window)。
 - 如果最后一个 Step 已经消费了它的决定消息，或者 Flow 已经关闭，之后到达的取消不能再改变结果。
 - 决定最终确定后，关闭 Flow 时不要消费取消 Channel。如果关闭时排空取消 Channel 并回退到取消路径，晚到的取消就会推翻决定。
 

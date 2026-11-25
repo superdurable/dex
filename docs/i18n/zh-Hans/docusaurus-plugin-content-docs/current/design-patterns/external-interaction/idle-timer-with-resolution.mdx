@@ -41,7 +41,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inbo
 每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow，做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。它的 fallback 回到等待中的 Step。
 
 - 只有原子检查时回复 Channel 为空，结论才会关闭 Flow。在这次检查之前已提交、仍在排队或已被领取但 Step 还没完成的回复会触发 fallback，fallback 带着结论回到等待中的 Step。这个 Step 只等待回复，把它们写入 transcript，然后再次进入结论关闭。
-- 因不活跃而关闭时，还要检查结论 Channel。回复或结论可能和截止时间同时提交。这时 Timer 胜出，所以先运行不活跃关闭。它的检查发现这条消息，fallback 重新开始等待。之后回复会写入 transcript，结论会进入结论关闭。
+- 因不活跃而关闭时，还要检查结论 Channel。回复或结论可能在 Timer 胜出之后、不活跃关闭运行之前提交。它的检查发现这条消息，fallback 重新开始等待。之后回复会写入 transcript，结论会进入结论关闭。
 - 回复 Channel 只能由等待中的 Step 消费。
 
 结论 RPC 拒绝空的原因，因为空的待定结论表示“没有结论”。
