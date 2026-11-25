@@ -1,0 +1,17 @@
+---
+title: 外部交互
+sidebar_label: 外部交互
+---
+
+# 外部交互
+
+这些模式讲 Flow 如何与外部的人或系统交互：等待一个决定、发现长时间没有活动、持续接收消息，或按请求停止工作。各页按从简单到复杂的顺序排列。
+
+## 选择模式 {#choose-a-pattern}
+
+- [带截止时间的决定](/design-patterns/external-interaction/decision-with-deadline)：等待几个外部决定之一或一个截止时间，由最先发生的那个决定下一步。
+- [空闲定时器](/design-patterns/external-interaction/idle-timer)：每次有新活动时，重新开始计算不活跃时长。
+- [带结论的空闲定时器](/design-patterns/external-interaction/idle-timer-with-resolution)：记录每一条到达的消息，直到有人给出结论或对话长时间没有动静。
+- [可中断执行](/design-patterns/interruptible)：用户要求时，干净地停止长时间运行的工作。
+
+如果是调用方等待 Flow，请参见[响应式更新](/design-patterns/responsive-update)。

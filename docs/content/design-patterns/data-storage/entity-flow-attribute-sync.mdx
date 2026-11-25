@@ -1,0 +1,367 @@
+---
+title: Entity Flow with Attribute Sync
+sidebar_label: Entity Flow with Attribute Sync
+description: "Keep one Flow per entity and let Attribute Store sync copy selected Attributes into a SQL table you can query."
+---
+
+# Entity Flow with Attribute Sync
+
+Keep one Flow per entity and let Attribute Store sync copy selected Attributes into a SQL table you can query (formerly Entity Flow with SQL Projection).
+
+An entity is a business object, such as a user. Your application owns the SQL
+table. The Flow holds the authoritative state, and every write goes through it. Dex updates the
+SQL table asynchronously, and the table holds only the latest values. Use it for
+reads and queries.
+
+The runnable example keeps one `UserProfileFlow` per user. Its Flow ID becomes
+the `user_id` primary key in `public.user_profiles`. The Server configuration
+names the target Attribute Store `entityStore`.
+
+## When to use this pattern
+
+Use this pattern when an entity needs durable state or updates through RPCs, and
+your application also needs to query its latest state in a database. Do not make
+Flow decisions from the SQL table. Read the Flow state instead.
+
+## How it works
+
+Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection) for the setup.
+
+The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects `NULL` to its column. The [Attribute Store sync reference](/reference/server/attribute-store-sync) gives the column types, delivery timing, and retries.
+
+## Core implementation
+
+### Define synced Attributes
+
+Each SDK marks the same profile fields for projection. The Flow's persistence
+schema includes these Attributes, so Dex stores each value durably before it
+syncs the value to SQL.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+class UserProfileFlow(Flow[None]):
+    display_name = Attribute("display_name", str, sync_to_attribute_store=True)
+    email = Attribute("email", str, sync_to_attribute_store=True)
+    marketing_opt_in = Attribute(
+        "marketing_opt_in", bool, sync_to_attribute_store=True
+    )
+    credits = Attribute("credits", int, sync_to_attribute_store=True)
+    weight = Attribute("weight", float, sync_to_attribute_store=True)
+    last_logged_in_time = Attribute(
+        "last_logged_in_time", datetime, sync_to_attribute_store=True
+    )
+    metadata = Attribute(
+        "metadata", UserProfileMetadata, sync_to_attribute_store=True
+    )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(
+            self.display_name,
+            self.email,
+            self.marketing_opt_in,
+            self.credits,
+            self.weight,
+            self.last_logged_in_time,
+            self.metadata,
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	DisplayName = dex.DefineAttribute[string](
+		"display_name",
+		dex.SyncToAttributeStore(),
+	)
+	Email = dex.DefineAttribute[string]("email", dex.SyncToAttributeStore())
+	MarketingOptIn = dex.DefineAttribute[bool](
+		"marketing_opt_in",
+		dex.SyncToAttributeStore(),
+	)
+	Credits = dex.DefineAttribute[int64]("credits", dex.SyncToAttributeStore())
+	Weight = dex.DefineAttribute[float64]("weight", dex.SyncToAttributeStore())
+	LastLoggedIn = dex.DefineAttribute[time.Time](
+		"last_logged_in_time",
+		dex.SyncToAttributeStore(),
+	)
+	Metadata = dex.DefineAttribute[UserProfileMetadata](
+		"metadata",
+		dex.SyncToAttributeStore(),
+	)
+)
+
+func (*UserProfileFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{
+		DisplayName, Email, MarketingOptIn, Credits, Weight, LastLoggedIn, Metadata,
+	}}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public final Attribute<String> displayName =
+        Attribute.define("display_name", String.class).syncToAttributeStore();
+public final Attribute<String> email =
+        Attribute.define("email", String.class).syncToAttributeStore();
+public final Attribute<Boolean> marketingOptIn =
+        Attribute.define("marketing_opt_in", Boolean.class).syncToAttributeStore();
+public final Attribute<Long> credits =
+        Attribute.define("credits", Long.class).syncToAttributeStore();
+public final Attribute<Double> weight =
+        Attribute.define("weight", Double.class).syncToAttributeStore();
+public final Attribute<Instant> lastLoggedInTime =
+        Attribute.define("last_logged_in_time", Instant.class).syncToAttributeStore();
+public final Attribute<UserProfileMetadata> metadata =
+        Attribute.define("metadata", UserProfileMetadata.class).syncToAttributeStore();
+
+@Override
+public PersistenceSchema getPersistenceSchema() {
+    return PersistenceSchema.of(
+            displayName,
+            email,
+            marketingOptIn,
+            credits,
+            weight,
+            lastLoggedInTime,
+            metadata);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly displayName = new Attribute("display_name", stringCodec)
+  .syncToAttributeStore();
+public readonly email = new Attribute("email", stringCodec).syncToAttributeStore();
+public readonly marketingOptIn = new Attribute("marketing_opt_in", booleanCodec)
+  .syncToAttributeStore();
+public readonly credits = new Attribute("credits", int64Codec)
+  .syncToAttributeStore();
+public readonly weight = new Attribute("weight", doubleCodec)
+  .syncToAttributeStore();
+public readonly lastLoggedInTime = new Attribute("last_logged_in_time", dateCodec)
+  .syncToAttributeStore();
+public readonly metadata = new Attribute("metadata", metadataCodec).syncToAttributeStore();
+
+public getPersistenceSchema(): PersistenceSchema {
+  return { attributes: [
+    this.displayName, this.email, this.marketingOptIn, this.credits,
+    this.weight, this.lastLoggedInTime, this.metadata,
+  ] };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn persistence(&self) -> PersistenceSchema {
+    PersistenceSchema::new()
+        .attribute(&DISPLAY_NAME)
+        .attribute(&EMAIL)
+        .attribute(&MARKETING_OPT_IN)
+        .attribute(&CREDITS)
+        .attribute(&WEIGHT)
+        .attribute(&LAST_LOGGED_IN_TIME)
+        .attribute(&METADATA)
+}
+
+static DISPLAY_NAME: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("display_name").sync_to_attribute_store()
+});
+static METADATA: LazyLock<Attribute<UserProfileMetadata>> = LazyLock::new(|| {
+    Attribute::new("metadata").sync_to_attribute_store()
+});
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Update through a Flow RPC
+
+Clients update a profile by calling this RPC. It validates the profile, then
+updates every projected Attribute.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@rpc
+def update_profile(self, context: Context, input: UserProfile) -> None:
+    input.validate()
+    self.display_name.set(context, input.display_name)
+    self.email.set(context, input.email)
+    self.marketing_opt_in.set(context, input.marketing_opt_in)
+    self.credits.set(context, input.credits)
+    self.weight.set(context, input.weight)
+    self.last_logged_in_time.set(context, input.last_logged_in_time)
+    self.metadata.set(context, input.metadata)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *UserProfileFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateProfile, nil),
+		dex.DefineRPC(flow.GetProfile, nil),
+		dex.DefineRPC(flow.ClearProfile, nil),
+	}
+}
+
+func (*UserProfileFlow) UpdateProfile(
+	ctx dex.Context,
+	profile UserProfile,
+) (*dex.RPCResult[dex.None], error) {
+	if err := validateProfile(profile); err != nil {
+		return nil, err
+	}
+	if err := DisplayName.Set(ctx, profile.DisplayName); err != nil {
+		return nil, err
+	}
+	if err := Email.Set(ctx, profile.Email); err != nil {
+		return nil, err
+	}
+	if err := MarketingOptIn.Set(ctx, profile.MarketingOptIn); err != nil {
+		return nil, err
+	}
+	if err := Credits.Set(ctx, profile.Credits); err != nil {
+		return nil, err
+	}
+	if err := Weight.Set(ctx, profile.Weight); err != nil {
+		return nil, err
+	}
+	if err := LastLoggedIn.Set(ctx, profile.LastLoggedIn); err != nil {
+		return nil, err
+	}
+	if err := Metadata.Set(ctx, profile.Metadata); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC
+public void updateProfile(final Context context, final UserProfile profile) {
+    profile.validate();
+    displayName.set(context, profile.displayName);
+    email.set(context, profile.email);
+    marketingOptIn.set(context, profile.marketingOptIn);
+    credits.set(context, profile.credits);
+    weight.set(context, profile.weight);
+    lastLoggedInTime.set(context, profile.lastLoggedInTime);
+    metadata.set(context, profile.metadata);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: userProfileCodec })
+public updateProfile(context: Context, profile: UserProfile): void {
+  this.displayName.set(context, profile.displayName);
+  this.email.set(context, profile.email);
+  this.marketingOptIn.set(context, profile.marketingOptIn);
+  this.credits.set(context, BigInt(profile.credits));
+  this.weight.set(context, profile.weight);
+  this.lastLoggedInTime.set(context, profile.lastLoggedInTime);
+  this.metadata.set(context, profile.metadata);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResult<()> {
+    validate_profile(&replacement)?;
+    DISPLAY_NAME.set(context, replacement.display_name)?;
+    EMAIL.set(context, replacement.email)?;
+    MARKETING_OPT_IN.set(context, replacement.marketing_opt_in)?;
+    CREDITS.set(context, replacement.credits)?;
+    WEIGHT.set(context, replacement.weight)?;
+    LAST_LOGGED_IN_TIME.set(context, replacement.last_logged_in_time)?;
+    METADATA.set(context, replacement.metadata)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Select the storage target at Flow start
+
+The Attribute Store is configured on the Server. Select it in `FlowConfig`
+when you start the Flow. The initial Attribute values in that start request are
+projected to SQL too.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+config_override=FlowConfig(attribute_store_names=[STORE_NAME]),
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+options.ConfigOverride = &sdk.FlowConfig{
+	AttributeStoreNames: []string{StoreName},
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+.configOverride(FlowConfig.newBuilder()
+        .attributeStoreNames(UserProfileFlow.STORE_NAME)
+        .build())
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+configOverride: { attributeStoreNames: [ENTITY_STORE_NAME] },
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## API endpoints
+
+- **POST /patterns/entity-store/profile** — create a profile Flow
+- **POST /patterns/entity-store/profile/update** — update its synced fields
+- **GET /patterns/entity-store/profile?userId=...** — read the profile from the Flow
+- **POST /patterns/entity-store/profile/clear?userId=...** — delete the synced values
+
+## Run with PostgreSQL
+
+The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store) creates `public.user_profiles` and starts **dexcli dev** with the `entityStore` configuration. It includes curl commands for every language example.
+
+## Next
+
+- [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
+- [Attribute](/concepts/primitives/attribute)
+- [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection)

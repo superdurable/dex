@@ -1,0 +1,16 @@
+---
+title: Data Storage
+sidebar_label: Data Storage
+---
+
+# Data Storage
+
+These patterns keep business data in Flows. Choose by how the data is read and how it grows.
+
+## Choose a pattern {#comparison}
+
+| When you need to | Use |
+|---|---|
+| Query the latest state of many entities, such as users or orders, with SQL | [Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync) |
+| Append ordered history and read it page by page | [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map) |
+| Look up or update a record by a stable key | [Hash-Partitioned AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map) |

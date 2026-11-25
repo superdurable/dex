@@ -453,13 +453,13 @@ its stored objects. Other writes to a closed Flow run return NOT_FOUND.
 
 ### AttributeMap partitioning examples {#attributemap-partitioning-examples}
 
-The [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+The [AttributeMap Partitioning](/design-patterns/data-storage)
 examples fix these layout rules in every SDK. They are part of the stored
 layout, so changing them requires a migration.
 
 #### Hash partition algorithm {#hash-partition-algorithm}
 
-The [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+The [Hash-Partitioned AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map)
 example selects a partition in the same way in every SDK:
 
 1. Require a non-empty ASCII email address.
@@ -471,7 +471,7 @@ example selects a partition in the same way in every SDK:
 
 #### Chunk page tokens {#chunk-page-tokens}
 
-In the [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+In the [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
 example, the **current** token is always valid after the Flow starts. An empty
 **current** returns an empty page. Archive tokens must contain exactly 20
 decimal digits and identify a chunk boundary. A malformed token or a
@@ -1223,9 +1223,9 @@ RpcInvokeOptions::new()
 </SdkSnippet>
 </SdkTabs>
 
-See [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+See [Hash-Partitioned AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map)
 for the complete lookup and upsert example, and
-[Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+[Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
 for dynamic pagination loads.
 
 ### Transactional RPCs {#transactional-reads-and-writes}
@@ -1584,7 +1584,7 @@ A direct Step write has these semantics:
 - A later Step failure does not roll the message back.
 - One method invocation can write any number of messages to the same or
   different Streams. Each write also counts as a heartbeat, and keeps the last
-  explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses
+  explicit heartbeat value. The [Polling](/design-patterns/durable-timer/polling) pattern uses
   these writes to report progress.
 - The SDK confirms only that it encoded the message and handed it to the Worker
   output stream. If the Stream Store is disabled, unavailable, full, or rejects

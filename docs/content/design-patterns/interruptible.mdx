@@ -8,7 +8,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inte
 
 Stop long-running work safely when a durable interrupt arrives.
 
-Use this pattern for work that loops for a long time, such as batch processing. To wait for an external system, use [Polling](/design-patterns/polling) instead.
+Use this pattern for work that loops for a long time, such as batch processing. To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
 
 `InterruptibleFlow` starts `WorkA` and `WorkB` in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the `interruptSignal` Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns `GracefulComplete`. The Flow completes when both branches have stopped.
 
@@ -227,4 +227,5 @@ impl Step for WorkA {
 
 ## Next
 
-[Durable Timer](/design-patterns/durable-timer)
+- [Responsive Update](/design-patterns/responsive-update)
+- [Durable Timer](/design-patterns/durable-timer)

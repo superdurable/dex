@@ -1,0 +1,136 @@
+---
+title: Sequentially Chunked AttributeMap
+---
+
+# Sequentially Chunked AttributeMap
+
+Use this pattern for append-only data that must retain insertion order, such as agent messages, subscriber history, or audit events.
+
+If you keep this data in a single Attribute, the value keeps growing. Every append then reads and rewrites the whole value. A sequentially chunked **AttributeMap** splits the data into chunks, so an append rewrites only one chunk of bounded size. The sample stores at most 100 subscribers in one instance.
+
+## Data layout
+
+`ChunkedSubscriberFlow` is an RPC-only Flow. Start it once with no Flow timeout.
+
+- `SubscriberArchiveState` stores the next sequence and the newest archived chunk token.
+- `SubscriberChunks[current]` is the only mutable chunk.
+- A full chunk moves to an immutable instance named by its zero-padded first sequence, such as **00000000000000000101**.
+
+`RegisterSubscriber` locks the state and the **current** instance. Most calls rewrite only **current**. When **current** already holds 100 records, the same RPC call writes the archived chunk, starts a new **current** chunk, and advances the state. These writes take effect together.
+
+Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
+
+`GetSubscriberPage` starts at **current** unless the caller supplies a page token. The HTTP controller uses **RPCInvokeOptions** to load only that instance. Each page returns its records newest first, plus the token of the next older page.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/sequentially-chunked-attribute-map/controller.py',
+    go: 'examples/go/patterns/sequentially-chunked-attribute-map/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/sequentiallychunkedattributemap/SequentiallyChunkedAttributeMapController.java',
+    typescript: 'examples/typescript/src/patterns/sequentially-chunked-attribute-map/controller.ts',
+    rust: 'examples/rust/src/patterns/sequentially_chunked_attribute_map/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+page = await app_state.client.invoke_rpc(
+    flow.get_subscriber_page,
+    FLOW_ID,
+    GetSubscriberPageInput(page_token),
+    options=RPCInvokeOptions(
+        load_attribute_map_instances=(flow.subscriber_chunks.load(page_token),)
+    ),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err = controller.client.InvokeRPCWithOptions(
+	request.Request.Context(),
+	FlowID,
+	controller.flow.GetSubscriberPage,
+	GetSubscriberPageInput{PageToken: pageToken},
+	&page,
+	dex.RPCInvokeOptions{
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{
+			SubscriberChunks.Load(pageToken),
+		},
+	},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
+        .addLoadAttributeMapInstance(flow.subscriberChunks, validatedToken)
+        .build();
+final ChunkedSubscriberFlow stub = client.newRpcStub(
+        ChunkedSubscriberFlow.class,
+        ChunkedSubscriberFlow.FLOW_ID);
+return ResponseEntity.ok(client.invokeRPC(
+        stub::getSubscriberPage,
+        new ChunkedSubscriberFlow.GetSubscriberPageInput(validatedToken),
+        options));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.invokeRPCWithOptions(
+  chunkedSubscriberFlow.getSubscriberPage,
+  CHUNKED_SUBSCRIBER_FLOW_ID,
+  { pageToken },
+  {
+    loadAttributeMapInstances: [
+      chunkedSubscriberFlow.subscriberChunks.load(pageToken),
+    ],
+  },
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.invoke_rpc_with_options(
+    FLOW_ID,
+    GET_SUBSCRIBER_PAGE,
+    GetSubscriberPageInput {
+        page_token: page_token.clone(),
+    },
+    RpcInvokeOptions::new()
+        .load_attribute_map_instance(SUBSCRIBER_CHUNKS.load(page_token)),
+)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Pagination rules
+
+A page token is **current** or the 20-digit name of an archived chunk; see [Chunk page tokens](/reference/server/runtime-data#chunk-page-tokens) for the validation rules.
+
+Archived chunks are immutable, so a page read again, such as on a retry, returns the same records while its chunk is retained. To update older records, use a different pattern or a separate index.
+
+For an append-only history, archive bounded chunks and load only the requested page. If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+
+Many concurrent appends contend on **current**. When they would conflict often, route them through an RPC that publishes each record to a Channel. One writing Step consumes it and appends, as in the [Idle Timer with Resolution](/design-patterns/external-interaction/idle-timer-with-resolution).
+
+## HTTP API
+
+```text
+POST /patterns/sequentially-chunked-attribute-map/start
+POST /patterns/sequentially-chunked-attribute-map/register
+GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
+```
+
+The chunk size is part of the stored layout. A later version of the application can use a new chunk size for new archives. Its page-token logic must then read both layouts.
+
+## Next
+
+[Hash-Partitioned AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map)
