@@ -249,11 +249,13 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
      * <p>Only the locks a handler registers count: {@link StepOptions.Builder#addWaitForLock} or
      * {@link StepOptions.Builder#addExecuteLock} in the options that {@link Step#getStepOptions()}
      * returns, and {@link RPC#lockAttributes} for an RPC. In a Flow whose schema declares any lock
-     * requirement, the {@link Registry} calls each Step's {@code getStepOptions()} once, after the
-     * schema is assembled. Both the check and every request that uses the Step's default options
-     * use that one value, so the Step holds exactly the locks the check counts. In other Flows the
-     * SDK keeps calling {@code getStepOptions()} each time it builds a request, as before. Locks
-     * added for one call do not count:
+     * requirement, each {@link Registry} calls each Step's {@code getStepOptions()} once, after the
+     * schema is assembled. A request that uses the Step's default options sends the locks that the
+     * sending side's Registry captured. The Worker checks writes against the locks its own Registry
+     * captured. When the Client and the Worker build separate Registries, both must capture the
+     * same locks, so {@code getStepOptions()} must return the same locks each time. In other Flows
+     * the SDK keeps calling {@code getStepOptions()} each time it builds a request, as before.
+     * Locks added for one call do not count:
      * {@link RPCInvokeOptions.Builder#addLockAttributeMapInstance} and the options passed to
      * {@link StepMovement#of(Class, Object, StepOptions)} cannot satisfy the requirement. Register
      * the lock instead. A Flow timeout handler is not checked, because its locks come from

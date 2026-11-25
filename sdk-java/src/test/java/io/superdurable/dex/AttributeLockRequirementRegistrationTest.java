@@ -255,17 +255,20 @@ final class AttributeLockRequirementRegistrationTest {
                 null,
                 Collections.<String, ChannelInfo>emptyMap());
         final int threads = 4;
-        final int operations = 250;
-        final CountDownLatch start = new CountDownLatch(1);
+        final int operations = 2_000;
+        // Writers start only after the reader has taken its first snapshot.
+        final CountDownLatch readerSampling = new CountDownLatch(1);
         final AtomicBoolean writing = new AtomicBoolean(true);
+        final AtomicInteger activeSamples = new AtomicInteger();
         final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
         final List<Thread> writers = new ArrayList<Thread>();
         for (int thread = 0; thread < threads; thread++) {
             final int writer = thread;
-            writers.add(new Thread(() -> {
+            final Thread writerThread = new Thread(() -> {
                 try {
-                    start.await();
-                    for (int index = 0; index < operations; index++) {
+                    readerSampling.await();
+                    // Each writer runs the three operations in a fixed order.
+                    for (int index = 0; index < operations && failure.get() == null; index++) {
                         items.set(context, "w" + writer + "-" + index, index);
                         replies.publish(context, "reply");
                         replies.delete(context, "message-" + writer + "-" + index);
@@ -273,34 +276,57 @@ final class AttributeLockRequirementRegistrationTest {
                 } catch (Throwable error) {
                     failure.compareAndSet(null, error);
                 }
-            }));
+            });
+            writerThread.setDaemon(true);
+            writers.add(writerThread);
         }
         final Thread reader = new Thread(() -> {
             try {
-                start.await();
-                while (writing.get()) {
+                boolean first = true;
+                while (writing.get() && failure.get() == null) {
                     final InvocationContext.BufferedChanges changes =
                             context.snapshotBufferedChanges();
-                    assertTrue(changes.attributeWrites.size() <= threads * operations);
-                    context.channelSize(replies);
+                    if (first) {
+                        readerSampling.countDown();
+                        first = false;
+                    }
+                    final int writes = changes.attributeWrites.size();
+                    final int publications = changes.publications.size();
+                    final int deletions = changes.channelDeletions.size();
+                    // An atomic snapshot sees at most one unfinished operation group per writer.
+                    assertTrue(writes >= publications && publications >= deletions
+                                    && writes - publications <= threads
+                                    && publications - deletions <= threads,
+                            "non-atomic snapshot: writes=" + writes + " publications="
+                                    + publications + " deletions=" + deletions);
+                    if (deletions > 0 && deletions < threads * operations) {
+                        activeSamples.incrementAndGet();
+                    }
                 }
             } catch (Throwable error) {
                 failure.compareAndSet(null, error);
+            } finally {
+                readerSampling.countDown();
             }
         });
+        reader.setDaemon(true);
         reader.start();
         for (Thread writer : writers) {
             writer.start();
         }
-        start.countDown();
         for (Thread writer : writers) {
-            writer.join(30_000L);
+            writer.join(60_000L);
         }
         writing.set(false);
-        reader.join(30_000L);
+        reader.join(60_000L);
+        for (Thread writer : writers) {
+            assertFalse(writer.isAlive(), "writer thread did not finish");
+        }
+        assertFalse(reader.isAlive(), "reader thread did not finish");
         if (failure.get() != null) {
             throw new AssertionError(failure.get());
         }
+        assertTrue(activeSamples.get() > 0, "the reader took no snapshot while writers ran");
         final InvocationContext.BufferedChanges changes = context.snapshotBufferedChanges();
         assertEquals(threads * operations, changes.attributeWrites.size());
         assertEquals(threads * operations, changes.publications.size());

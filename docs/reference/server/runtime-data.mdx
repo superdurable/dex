@@ -792,9 +792,12 @@ sends. The check cannot see these cases:
   **StepOptions.Builder.onExecuteFailureProceedTo**, or
   **FlowTimeoutHandlerOptions.Builder.onFailureProceedTo** replace the target
   Step's whole options, as in Python. Options that leave out the lock run the
-  Step without it. Without such options, a Flow that declares a requirement uses
-  one read of each Step's **getStepOptions**, taken when the **Registry** is
-  built, for both the check and the locks the request sends.
+  Step without it. Without such options, in a Flow that declares a requirement,
+  each **Registry** reads each Step's **getStepOptions** once, when it is
+  built. A request sends the locks that the sender's **Registry** captured, and
+  the Worker checks against the locks that its own **Registry** captured. A
+  Client and a Worker with separate Registries must capture the same locks, so
+  **getStepOptions** must return the same locks every time.
 - Dex takes an RPC's locks from the Client's definition. A Client built
   without the lock runs the RPC without it.
 - A Worker built without the declaration does not check it.

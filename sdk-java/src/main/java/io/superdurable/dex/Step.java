@@ -99,6 +99,16 @@ public interface Step<I> {
     /**
      * Returns retry, timeout, durability, locking, and failure behavior for this Step.
      *
+     * <p>When the SDK calls this method depends on the Flow. In a Flow whose schema declares a lock
+     * requirement, such as {@link Attribute#writesRequireLock()}, each {@link Registry} calls it
+     * once, after the schema is assembled. The Registry then reuses that value for every request
+     * that uses this Step's default options, and for the Worker's lock check. In other Flows, the
+     * SDK calls it each time it builds a request that uses this Step's default options. Return the
+     * same locks every time, so separately built Clients and Workers agree.
+     *
+     * <p>Changed in 1.45.4: the SDK reads it once per Registry in a Flow that declares a lock
+     * requirement.
+     *
      * @return Step-specific options, or {@code null} to use all defaults
      */
     default StepOptions getStepOptions() {
