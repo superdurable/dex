@@ -14,12 +14,23 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 
 import pytest
-from dex_examples.app import ExampleApp
-from dex_examples.config import start_options
+from dex import (
+    AsyncClient,
+    AttributeMatch,
+    Context,
+    FlowConfig,
+    FlowStatus,
+    StartFlowOptions,
+    StepDecision,
+    StepExecutionId,
+    WaitForAttributeOptions,
+    WaitForStepCompletionOptions,
+)
 from dex_examples.patterns.entity_store.user_profile import (
     UserProfile,
     UserProfileMetadata,
@@ -29,36 +40,27 @@ from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow impo
     AdvancedLongLiveParentFlow,
 )
 from dex_examples.patterns.parallel_subflows.models import ParentInput
-from dex_examples.patterns.polling.job_service import JobState
-from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
-from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
-    FailureRecoveryWorkflowInput,
+from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
+    JobSeekerData,
 )
+
+from dex_examples.app import ExampleApp
+from dex_examples.config import start_options
 from dex_examples.patterns.cron.cron_schedule_flow import (
     CronScheduleInput,
     Interval,
     IntervalUnit,
 )
-from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
-    JobSeekerData,
+from dex_examples.patterns.polling.job_service import JobState
+from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
+from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
+    FailureRecoveryWorkflowInput,
 )
 from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
     flow_status_or_none,
     wait_until,
-)
-
-from dex import (
-    AsyncClient,
-    AttributeMatch,
-    FlowConfig,
-    FlowStatus,
-    IdReusePolicy,
-    StartFlowOptions,
-    StepExecutionId,
-    WaitForAttributeOptions,
-    WaitForStepCompletionOptions,
 )
 
 pytestmark = pytest.mark.integ
@@ -100,20 +102,48 @@ async def test_draining_channel_for_external_publishing(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("drain-external")
+    first_message = f"first message for {flow_id}"
+    barrier = _FirstMessageExecutionBarrier(
+        first_message, app.drain_external.process_message.execute
+    )
+    monkeypatch.setattr(app.drain_external.process_message, "execute", barrier.execute)
     run_id = await client.start_flow(
         app.drain_external,
         flow_id,
-        "first message from start",
+        first_message,
         start_options(),
     )
-    assert run_id
-    await client.invoke_rpc(
-        app.drain_external.publish_external_channel_message,
-        flow_id,
-        "message from test",
-    )
+    try:
+        assert run_id
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        await client.invoke_rpc(
+            app.drain_external.publish_external_channel_message,
+            flow_id,
+            "message from test",
+        )
+    finally:
+        barrier.release.set()
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+
+
+class _FirstMessageExecutionBarrier:
+    def __init__(
+        self, first_message: str, execute: Callable[[Context, str], StepDecision]
+    ) -> None:
+        self.first_message = first_message
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(self, context: Context, input: str) -> StepDecision:
+        if input == self.first_message:
+            self.started.set()
+            await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_interruptible_start_and_cancel(

@@ -51,7 +51,7 @@ class ProcessMessage implements Step<string | undefined> {
     return Wait.skipImmediately();
   }
 
-  public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
+  public execute(context: Context, input: string | undefined): StepDecision {
     if (input !== undefined) {
       console.log(`DrainingExternalChannelFlow process message: ${input}`);
     } else {
@@ -65,11 +65,6 @@ class ProcessMessage implements Step<string | undefined> {
       }
       console.log(`DrainingExternalChannelFlow process message: ${value}`);
     }
-
-    // busy wait mirrors Java Thread.sleep inside the workflow step
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 200);
-    });
 
     return forceCompleteIfChannelsEmpty(
       null,
@@ -95,7 +90,10 @@ export class DrainingExternalChannelFlow implements Flow<string | undefined> {
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
-  public publishExternalChannelMessage(context: Context, input: string): RPCResult<string> {
+  public publishExternalChannelMessage(
+    context: Context,
+    input: string,
+  ): RPCResult<string> {
     queueChannel.publish(context, input);
     return { output: input };
   }

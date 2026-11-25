@@ -132,6 +132,9 @@ impl Step for Finalize {
     }
 }
 
+pub(crate) static EXTERNAL_QUEUE: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("drain-channel-queue"));
+
 pub const PUBLISH_EXTERNAL_CHANNEL_MESSAGE: Rpc<String, String> =
     Rpc::new("PublishExternalChannelMessage");
 
@@ -204,6 +207,3 @@ impl Step for DrainChannel {
 
 static SIDE_STEP_DATA: LazyLock<Channel<SideStepData>> =
     LazyLock::new(|| Channel::new("SideStepData"));
-
-pub(crate) static EXTERNAL_QUEUE: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("drain-channel-queue"));
