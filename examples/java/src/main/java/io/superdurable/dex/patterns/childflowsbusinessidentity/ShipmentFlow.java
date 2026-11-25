@@ -108,7 +108,8 @@ public class ShipmentFlow implements Flow<ShipmentFlow.ShipmentRequest> {
             shipmentOutcome.set(context, outcome);
             return StepDecision.goTo(ReportShipmentOutcome.class, new PendingReport(
                     request.orderFlowId(),
-                    new ShipmentReport(request.shipment().shipmentNumber(), outcome)));
+                    new ShipmentReport(
+                            request.shipment().shipmentNumber(), context.getRunId(), outcome)));
         }
     }
 

@@ -28,11 +28,14 @@ import {
 
 import {
   SHIPMENT_REJECTED,
+  SHIPMENT_STARTED,
   SHIPMENT_TIMEOUT_MS,
+  SHIPMENT_UNAVAILABLE,
   shipmentRecords,
   shipmentStartRequestId,
   type Order,
   type ShipmentRecord,
+  type ShipmentReport,
 } from "../../src/patterns/child-flows-business-identity/order-fulfillment-flow.js";
 import {
   shipmentOutcome,
@@ -65,13 +68,18 @@ test("child Flows with business identity record the report before the shipment c
     shipments: [{ shipmentNumber: delivered, destination: "Seattle", deliveryDelaySeconds: 1 }],
     reconcileIntervalSeconds: 3600,
   });
+  const runId = await waitForClaimedRun(orderId, delivered);
   // The reconcile Timer waits an hour, so only the report can fill the outcome.
-  await waitForShipmentRecord(orderId, delivered, { outcome: "delivered to Seattle" });
+  await waitForShipmentRecord(orderId, delivered, {
+    status: SHIPMENT_STARTED,
+    runId,
+    outcome: "delivered to Seattle",
+  });
   assert.equal((await environment.client.describeFlow(orderId)).status, "running");
   await terminateFlows(orderId);
 });
 
-test("child Flows with business identity merge reports and reconcile reads", async () => {
+test("child Flows with business identity accept reports only from the claimed run", async () => {
   const orderId = environment.newFlowId("order");
   const delivered = `${orderId}-1`;
   const canceled = `${orderId}-2`;
@@ -82,30 +90,39 @@ test("child Flows with business identity merge reports and reconcile reads", asy
     ],
     reconcileIntervalSeconds: 2,
   });
-  await waitForShipmentRecord(orderId, delivered, { status: "completed", outcome: "delivered to Seattle" });
-
-  // A repeated or different report for a recorded shipment changes nothing.
-  for (const outcome of ["delivered to Seattle", "delivered to Boise"]) {
-    await retryOnLockConflict(() =>
-      environment.client.invokeRPC(environment.orderFulfillmentFlow.recordShipmentOutcome, orderId, {
-        shipmentNumber: delivered,
-        outcome,
-      }),
-    );
-  }
-  assert.deepEqual(await readShipmentRecord(orderId, delivered), {
+  const deliveredRunId = await waitForClaimedRun(orderId, delivered);
+  const canceledRunId = await waitForClaimedRun(orderId, canceled);
+  const expectedDelivered: ShipmentRecord = {
     status: "completed",
+    runId: deliveredRunId,
     outcome: "delivered to Seattle",
-  });
+  };
+  await waitForShipmentRecord(orderId, delivered, expectedDelivered);
 
-  await waitForShipmentStatus(canceled, "running");
+  // A repeated report, a report from another run, and an unknown number change nothing.
+  const reports: ShipmentReport[] = [
+    { shipmentNumber: delivered, shipmentRunId: deliveredRunId, outcome: "delivered to Boise" },
+    { shipmentNumber: canceled, shipmentRunId: "another-run", outcome: "delivered to Boise" },
+    { shipmentNumber: `${orderId}-9`, shipmentRunId: "another-run", outcome: "delivered to Boise" },
+  ];
+  for (const report of reports) {
+    await recordShipmentOutcome(orderId, report);
+  }
+  assert.deepEqual(await readShipmentRecord(orderId, delivered), expectedDelivered);
+  assert.deepEqual(await readShipmentRecord(orderId, canceled), {
+    status: SHIPMENT_STARTED,
+    runId: canceledRunId,
+  });
+  const [unknown] = await environment.client.getAttributes(orderId, shipmentRecords.instance(`${orderId}-9`));
+  assert.equal(unknown, undefined, `record of ${orderId}-9`);
+
   await environment.client.stopFlow(canceled, {
     type: StopType.CANCEL,
     reason: "customer canceled the parcel",
   });
   const result = await environment.client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "completed", result.errorMessage);
-  assert.deepEqual(await readShipmentRecord(orderId, canceled), { status: "canceled" });
+  assert.deepEqual(await readShipmentRecord(orderId, canceled), { status: "canceled", runId: canceledRunId });
 });
 
 test("child Flows with business identity reject a shipment number owned by another request", async () => {
@@ -113,10 +130,10 @@ test("child Flows with business identity reject a shipment number owned by anoth
   const shipment: Shipment = { shipmentNumber: `${firstOrderId}-1`, destination: "Boise", deliveryDelaySeconds: 3600 };
   const order: Order = { shipments: [shipment], reconcileIntervalSeconds: 3600 };
   await startOrder(firstOrderId, order);
-  await waitForShipmentStatus(shipment.shipmentNumber, "running");
+  const runId = await waitForClaimedRun(firstOrderId, shipment.shipmentNumber);
 
-  // Replaying the same start request returns the running shipment.
-  const runId = await environment.client.startFlow(
+  // Replaying the same start request returns the claimed run.
+  const replayedRunId = await environment.client.startFlow(
     environment.shipmentFlow,
     shipment.shipmentNumber,
     { orderFlowId: firstOrderId, shipment },
@@ -127,15 +144,61 @@ test("child Flows with business identity reject a shipment number owned by anoth
       ignoreAlreadyStarted: true,
     },
   );
-  assert.equal(runId, (await environment.client.describeFlow(shipment.shipmentNumber)).runId);
+  assert.equal(replayedRunId, runId);
 
   // Another order with the same shipment number sends a different request.
   const secondOrderId = environment.newFlowId("order");
-  await startOrder(secondOrderId, order);
-  const result = await environment.client.waitForFlow(secondOrderId, WAIT_TIMEOUT_MS);
+  await startOrder(secondOrderId, {
+    shipments: [
+      shipment,
+      { shipmentNumber: `${secondOrderId}-2`, destination: "Austin", deliveryDelaySeconds: 3600 },
+    ],
+    reconcileIntervalSeconds: 3600,
+  });
+  const rejected: ShipmentRecord = { status: SHIPMENT_REJECTED };
+  await waitForShipmentRecord(secondOrderId, shipment.shipmentNumber, rejected);
+  // The run that owns the number reports to the second order: the rejected record stays as it is.
+  await recordShipmentOutcome(secondOrderId, {
+    shipmentNumber: shipment.shipmentNumber,
+    shipmentRunId: runId,
+    outcome: "delivered to Boise",
+  });
+  assert.deepEqual(await readShipmentRecord(secondOrderId, shipment.shipmentNumber), rejected);
+  await terminateFlows(shipment.shipmentNumber, firstOrderId, `${secondOrderId}-2`, secondOrderId);
+});
+
+test("child Flows with business identity ignore a reopened shipment number", async () => {
+  const orderId = environment.newFlowId("order");
+  const number = `${orderId}-1`;
+  await startOrder(orderId, {
+    shipments: [{ shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: 3600 }],
+    reconcileIntervalSeconds: 3,
+  });
+  const claimedRunId = await waitForClaimedRun(orderId, number);
+  await environment.client.stopFlow(number, { type: StopType.CANCEL });
+  await waitForShipmentStatus(number, "cancelled");
+
+  // Another caller reopens the number; its run reports to the same order.
+  await environment.client.startFlow(
+    environment.shipmentFlow,
+    number,
+    {
+      orderFlowId: orderId,
+      shipment: { shipmentNumber: number, destination: "Portland", deliveryDelaySeconds: 1 },
+    },
+    { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+  );
+  await waitForShipmentStatus(number, "completed");
+
+  const result = await environment.client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "completed", result.errorMessage);
-  assert.deepEqual(await readShipmentRecord(secondOrderId, shipment.shipmentNumber), { status: SHIPMENT_REJECTED });
-  await terminateFlows(shipment.shipmentNumber, firstOrderId);
+  const record = await readShipmentRecord(orderId, number);
+  assert.equal(record.runId, claimedRunId);
+  assert.equal(record.outcome, undefined, "the reopened run's outcome must not reach the order");
+  assert.ok(
+    record.status === "canceled" || record.status === SHIPMENT_UNAVAILABLE,
+    `unexpected status: ${record.status}`,
+  );
 });
 
 test("child Flows with business identity fail an order with a duplicate shipment number", async () => {
@@ -159,24 +222,21 @@ test("child Flows with business identity fail an order with a duplicate shipment
 
 test("child Flows with business identity store the outcome before reporting under async defaults", async () => {
   const orderId = environment.newFlowId("order");
+  const number = `${orderId}-1`;
   await startOrder(orderId, {
-    shipments: [{ shipmentNumber: `${orderId}-1`, destination: "Boise", deliveryDelaySeconds: 3600 }],
+    shipments: [{ shipmentNumber: number, destination: "Austin", deliveryDelaySeconds: 3 }],
     reconcileIntervalSeconds: 3600,
   });
-  const number = `${orderId}-async`;
-  await environment.client.startFlow(
-    environment.shipmentFlow,
-    number,
-    {
-      orderFlowId: orderId,
-      shipment: { shipmentNumber: number, destination: "Austin", deliveryDelaySeconds: 1 },
-    },
-    { configOverride: { stepDurability: "async" } },
-  );
-  await waitForShipmentRecord(orderId, number, { outcome: "delivered to Austin" });
+  const runId = await waitForClaimedRun(orderId, number);
+  await environment.client.updateFlowConfig(number, { stepDurability: "async" });
+  await waitForShipmentRecord(orderId, number, {
+    status: SHIPMENT_STARTED,
+    runId,
+    outcome: "delivered to Austin",
+  });
   const [outcome] = await environment.client.getAttributes(number, shipmentOutcome);
   assert.equal(outcome, "delivered to Austin");
-  await terminateFlows(`${orderId}-1`, orderId);
+  await terminateFlows(orderId);
 });
 
 async function startOrder(orderId: string, order: Order): Promise<void> {
@@ -195,6 +255,29 @@ async function waitForShipmentStatus(shipmentNumber: string, status: FlowStatus)
     (current) => current === status,
     WAIT_TIMEOUT_MS,
     `shipment ${shipmentNumber} did not reach ${status}`,
+  );
+}
+
+// Waits until the order claimed a run of the shipment and returns its run ID.
+async function waitForClaimedRun(orderId: string, shipmentNumber: string): Promise<string> {
+  const record = await awaitCondition(
+    async () => {
+      try {
+        return (await environment.client.getAttributes(orderId, shipmentRecords.instance(shipmentNumber)))[0];
+      } catch {
+        return undefined;
+      }
+    },
+    (current) => (current?.runId ?? "") !== "",
+    WAIT_TIMEOUT_MS,
+    `claimed run of ${shipmentNumber}`,
+  );
+  return record?.runId ?? "";
+}
+
+async function recordShipmentOutcome(orderId: string, report: ShipmentReport): Promise<void> {
+  await retryOnLockConflict(() =>
+    environment.client.invokeRPC(environment.orderFulfillmentFlow.recordShipmentOutcome, orderId, report),
   );
 }
 

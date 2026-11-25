@@ -33,7 +33,7 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-import { OrderFulfillmentFlow, type ShipmentReport } from "./order-fulfillment-flow.js";
+import type { OrderFulfillmentFlow, ShipmentReport } from "./order-fulfillment-flow.js";
 
 /** The registered Flow type of ShipmentFlow. */
 export const SHIPMENT_FLOW_TYPE = "ShipmentFlow";
@@ -82,7 +82,7 @@ class DeliverShipment implements Step<ShipmentRequest> {
     shipmentOutcome.set(context, outcome);
     const pending: PendingReport = {
       orderFlowId: request.orderFlowId,
-      report: { shipmentNumber: request.shipment.shipmentNumber, outcome },
+      report: { shipmentNumber: request.shipment.shipmentNumber, shipmentRunId: context.runId, outcome },
     };
     return goTo(ReportShipmentOutcome, pending);
   }
@@ -91,7 +91,10 @@ class DeliverShipment implements Step<ShipmentRequest> {
 // dex:group group-id:report group-label:"Report"
 // dex:explanation text:"Reports the committed outcome to the order that started this shipment."
 class ReportShipmentOutcome implements Step<PendingReport> {
-  public constructor(private readonly getClient: () => Client) {}
+  public constructor(
+    private readonly getClient: () => Client,
+    private readonly getOrderFlow: () => OrderFulfillmentFlow,
+  ) {}
 
   public getStepType(): string {
     return "ReportShipmentOutcome";
@@ -105,11 +108,12 @@ class ReportShipmentOutcome implements Step<PendingReport> {
   public async execute(context: Context, pending: PendingReport): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
+    const getOrderFlow = this.getOrderFlow;
     // Stable per shipment, so a retried report changes the order once.
     const requestId = `report:${context.flowId}`;
     try {
       await getClient().invokeRPCWithOptions(
-        OrderFulfillmentFlow.prototype.recordShipmentOutcome,
+        getOrderFlow().recordShipmentOutcome,
         pending.orderFlowId,
         pending.report,
         { requestId },
@@ -133,9 +137,10 @@ export class ShipmentFlow implements Flow<ShipmentRequest> {
 
   /**
    * @param getClient - Returns the Client that reports to the order; it is called only during execute.
+   * @param getOrderFlow - Returns the order Flow whose RPC receives the report; it is called only during execute.
    */
-  public constructor(getClient: () => Client) {
-    this.reportShipmentOutcome = new ReportShipmentOutcome(getClient);
+  public constructor(getClient: () => Client, getOrderFlow: () => OrderFulfillmentFlow) {
+    this.reportShipmentOutcome = new ReportShipmentOutcome(getClient, getOrderFlow);
   }
 
   public getFlowType(): string {

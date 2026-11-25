@@ -116,10 +116,24 @@ func (flow *OrderFulfillmentFlow) GetSteps() []dex.StepDef {
 }
 
 func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
-		LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
-		LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
-	})}
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
+			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+		}),
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
+// GetDexSummary returns no summary fields for Dex Web.
+func (*OrderFulfillmentFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+// GetDexDisplay returns no display fields for Dex Web.
+func (*OrderFulfillmentFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
 func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
@@ -140,7 +154,7 @@ func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report Shipm
 		return nil, ErrShipmentNotClaimed
 	}
 	// Ignore an unknown or rejected shipment, another run, and a repeated report.
-	if !found || record.RunID != report.ShipmentRunID || record.Outcome != "" {
+	if !found || record.RunID == "" || record.RunID != report.ShipmentRunID || record.Outcome != "" {
 		return &dex.RPCResult[dex.None]{}, nil
 	}
 	record.Outcome = report.Outcome
@@ -362,3 +376,129 @@ func describeClaimedRun(ctx context.Context, client *dex.Client, number string, 
 }
 
 var _ dex.Flow = (*OrderFulfillmentFlow)(nil)
+
+// Shipment is one parcel of an order, identified by its shipment number.
+type Shipment struct {
+	ShipmentNumber string `json:"shipmentNumber"`
+	Destination    string `json:"destination"`
+	// DeliveryDelaySeconds simulates how long the carrier takes to deliver.
+	DeliveryDelaySeconds int `json:"deliveryDelaySeconds"`
+}
+
+// ShipmentRequest is the input of ShipmentFlow.
+type ShipmentRequest struct {
+	OrderFlowID string   `json:"orderFlowId"`
+	Shipment    Shipment `json:"shipment"`
+}
+
+// ShipmentOutcome is the shipment's committed outcome. The order reads it when no report arrives.
+var ShipmentOutcome = dex.DefineAttribute[string]("shipmentOutcome")
+
+// ShipmentFlow delivers one shipment. Its Flow ID is the shipment number, so people
+// and systems can look it up, retry it, or stop it by that number.
+type ShipmentFlow struct {
+	dex.FlowDefaults
+	getClient func() *dex.Client
+}
+
+// NewShipmentFlow creates the shipment Flow; getClient may return nil until bootstrap completes.
+func NewShipmentFlow(getClient func() *dex.Client) *ShipmentFlow {
+	if getClient == nil {
+		panic("childflows: Client provider is required")
+	}
+	return &ShipmentFlow{getClient: getClient}
+}
+
+func (flow *ShipmentFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(DeliverShipment{}),
+		dex.DefineStep(ReportShipmentOutcome{getClient: flow.getClient}),
+	}
+}
+
+func (flow *ShipmentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
+func (*ShipmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{ShipmentOutcome}}
+}
+
+// GetDexSummary returns no summary fields for Dex Web.
+func (*ShipmentFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+// GetDexDisplay returns no display fields for Dex Web.
+func (*ShipmentFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+// dex:group group-id:deliver group-label:"Deliver"
+// dex:explanation text:"Waits for the carrier, then commits the delivered outcome."
+type DeliverShipment struct{ dex.StepDefaults }
+
+// GetStepOptions stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+func (DeliverShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
+func (DeliverShipment) WaitFor(_ dex.Context, request ShipmentRequest) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(time.Duration(request.Shipment.DeliveryDelaySeconds) * time.Second)), nil
+}
+
+func (DeliverShipment) Execute(ctx dex.Context, request ShipmentRequest) (*dex.StepDecision, error) {
+	outcome := "delivered to " + request.Shipment.Destination
+	if err := ShipmentOutcome.Set(ctx, outcome); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(ReportShipmentOutcome{}, PendingReport{
+		OrderFlowID: request.OrderFlowID,
+		Report: ShipmentReport{
+			ShipmentNumber: request.Shipment.ShipmentNumber,
+			ShipmentRunID:  ctx.RunID(),
+			Outcome:        outcome,
+		},
+	}), nil
+}
+
+// PendingReport is the report a shipment still has to send to its order.
+type PendingReport struct {
+	OrderFlowID string         `json:"orderFlowId"`
+	Report      ShipmentReport `json:"report"`
+}
+
+// dex:group group-id:report group-label:"Report"
+// dex:explanation text:"Reports the committed outcome to the order that started this shipment."
+type ReportShipmentOutcome struct {
+	dex.StepDefaultsNoWaitFor[PendingReport]
+	getClient func() *dex.Client
+}
+
+// GetStepOptions keeps the report SYNC, like the Step that stores the outcome.
+func (ReportShipmentOutcome) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
+func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport) (*dex.StepDecision, error) {
+	client := step.getClient()
+	if client == nil {
+		return nil, errClientUnavailable
+	}
+	// Stable per shipment, so a retried report changes the order once.
+	requestID := "report:" + ctx.FlowID()
+	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
+		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
+	// A closed order ends the attempts; the outcome stays readable through the Client.
+	var notFound *dex.FlowNotFoundError
+	var notActive *dex.FlowNotActiveOrNotFoundError
+	if err != nil && !errors.As(err, &notFound) && !errors.As(err, &notActive) {
+		return nil, err
+	}
+	return dex.GracefulComplete(pending.Report.Outcome), nil
+}
+
+var _ dex.Flow = (*ShipmentFlow)(nil)

@@ -111,8 +111,8 @@ const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
-const shipmentFlow = new ShipmentFlow(getClient);
-const orderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
+const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
+const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();

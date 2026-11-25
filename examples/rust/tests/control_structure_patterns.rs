@@ -34,8 +34,8 @@ use dex_examples_rust::control_patterns::cancel_case::{
 };
 use dex_examples_rust::control_patterns::child_flows_business_identity::{
     Order, OrderFulfillmentFlow, RECORD_SHIPMENT_OUTCOME, SHIPMENT_OUTCOME, SHIPMENT_RECORDS,
-    SHIPMENT_REJECTED, SHIPMENT_TIMEOUT, Shipment, ShipmentFlow, ShipmentRecord, ShipmentReport,
-    ShipmentRequest, shipment_start_request_id,
+    SHIPMENT_REJECTED, SHIPMENT_STARTED, SHIPMENT_TIMEOUT, SHIPMENT_UNAVAILABLE, Shipment,
+    ShipmentFlow, ShipmentRecord, ShipmentReport, ShipmentRequest, shipment_start_request_id,
 };
 use dex_examples_rust::control_patterns::critical_section::{
     ContractEdit, ContractEditFlow, ContractEditRecord,
@@ -519,12 +519,14 @@ fn child_flows_business_identity_records_the_report_before_the_shipment_closes()
             reconcile_interval_seconds: 3600,
         },
     );
+    let run_id = environment.wait_for_claimed_run(&order_id, &delivered);
     // The reconcile Timer waits an hour, so only the report can fill the outcome.
     environment.wait_for_shipment_record(
         &order_id,
         &delivered,
         &ShipmentRecord {
-            status: None,
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(run_id),
             outcome: Some("delivered to Seattle".to_string()),
         },
     );
@@ -534,7 +536,7 @@ fn child_flows_business_identity_records_the_report_before_the_shipment_closes()
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn child_flows_business_identity_merges_reports_and_reconcile_reads() {
+fn child_flows_business_identity_accepts_reports_only_from_the_claimed_run() {
     let environment = ControlPatternsEnvironment::start();
     let order_id = unique_flow_id("order");
     let delivered = format!("{order_id}-1");
@@ -549,20 +551,29 @@ fn child_flows_business_identity_merges_reports_and_reconcile_reads() {
             reconcile_interval_seconds: 2,
         },
     );
+    let delivered_run_id = environment.wait_for_claimed_run(&order_id, &delivered);
+    let canceled_run_id = environment.wait_for_claimed_run(&order_id, &canceled);
     let delivered_record = ShipmentRecord {
         status: Some("completed".to_string()),
+        run_id: Some(delivered_run_id.clone()),
         outcome: Some("delivered to Seattle".to_string()),
     };
     environment.wait_for_shipment_record(&order_id, &delivered, &delivered_record);
 
-    // A repeated or different report for a recorded shipment changes nothing.
-    for outcome in ["delivered to Seattle", "delivered to Boise"] {
+    // A repeated report, a report from another run, and an unknown number change nothing.
+    let unknown = format!("{order_id}-9");
+    for (shipment_number, shipment_run_id) in [
+        (&delivered, delivered_run_id.as_str()),
+        (&canceled, "another-run"),
+        (&unknown, "another-run"),
+    ] {
         environment.invoke_retrying_lock_conflicts(
             &order_id,
             RECORD_SHIPMENT_OUTCOME,
             ShipmentReport {
-                shipment_number: delivered.clone(),
-                outcome: outcome.to_string(),
+                shipment_number: shipment_number.clone(),
+                shipment_run_id: shipment_run_id.to_string(),
+                outcome: "delivered to Boise".to_string(),
             },
         );
     }
@@ -570,8 +581,16 @@ fn child_flows_business_identity_merges_reports_and_reconcile_reads() {
         environment.shipment_record(&order_id, &delivered),
         delivered_record
     );
+    assert_eq!(
+        environment.shipment_record(&order_id, &canceled),
+        ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(canceled_run_id.clone()),
+            outcome: None,
+        }
+    );
+    environment.assert_no_shipment_record(&order_id, &unknown);
 
-    environment.wait_for_shipment_status(&canceled, FlowStatus::Running);
     environment
         .client
         .stop_flow(
@@ -584,6 +603,7 @@ fn child_flows_business_identity_merges_reports_and_reconcile_reads() {
         environment.shipment_record(&order_id, &canceled),
         ShipmentRecord {
             status: Some("canceled".to_string()),
+            run_id: Some(canceled_run_id),
             outcome: None,
         }
     );
@@ -600,45 +620,110 @@ fn child_flows_business_identity_rejects_a_shipment_number_owned_by_another_requ
         shipments: vec![shared.clone()],
         reconcile_interval_seconds: 3600,
     };
-    environment.start_order(&first_order_id, order.clone());
-    environment.wait_for_shipment_status(&number, FlowStatus::Running);
+    environment.start_order(&first_order_id, order);
+    let run_id = environment.wait_for_claimed_run(&first_order_id, &number);
 
-    // Replaying the same start request returns the running shipment.
+    // Replaying the same start request returns the claimed run.
     let options = StartFlowOptions::new()
         .timeout(SHIPMENT_TIMEOUT)
         .id_reuse_policy(IdReusePolicy::Disallow)
         .request_id(shipment_start_request_id(&first_order_id, &shared))
         .ignore_already_started(true);
-    let run_id = environment
+    let replayed_run_id = environment
         .client
         .start_flow_with_options(
             &ShipmentFlow::default(),
             &number,
             ShipmentRequest {
                 order_flow_id: first_order_id.clone(),
-                shipment: shared,
+                shipment: shared.clone(),
             },
             options,
         )
         .expect("replay the start request");
-    let info = environment
-        .client
-        .describe_flow(&number)
-        .expect("describe the shipment");
-    assert_eq!(info.run_id, run_id);
+    assert_eq!(replayed_run_id, run_id);
 
     // Another order with the same shipment number sends a different request.
     let second_order_id = unique_flow_id("order");
-    environment.start_order(&second_order_id, order);
-    environment.wait_for_completed_flow(&second_order_id);
+    let second_shipment = format!("{second_order_id}-2");
+    environment.start_order(
+        &second_order_id,
+        Order {
+            shipments: vec![shared, shipment(&second_shipment, "Austin", 3600)],
+            reconcile_interval_seconds: 3600,
+        },
+    );
+    let rejected = ShipmentRecord {
+        status: Some(SHIPMENT_REJECTED.to_string()),
+        ..ShipmentRecord::default()
+    };
+    environment.wait_for_shipment_record(&second_order_id, &number, &rejected);
+    // The run that owns the number reports to the second order: the rejected record stays as it is.
+    environment.invoke_retrying_lock_conflicts(
+        &second_order_id,
+        RECORD_SHIPMENT_OUTCOME,
+        ShipmentReport {
+            shipment_number: number.clone(),
+            shipment_run_id: run_id,
+            outcome: "delivered to Boise".to_string(),
+        },
+    );
     assert_eq!(
         environment.shipment_record(&second_order_id, &number),
-        ShipmentRecord {
-            status: Some(SHIPMENT_REJECTED.to_string()),
-            outcome: None,
-        }
+        rejected
     );
-    environment.terminate_flows(&[&number, &first_order_id]);
+    environment.terminate_flows(&[&number, &first_order_id, &second_shipment, &second_order_id]);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_ignores_a_reopened_shipment_number() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let number = format!("{order_id}-1");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![shipment(&number, "Seattle", 3600)],
+            reconcile_interval_seconds: 3,
+        },
+    );
+    let claimed_run_id = environment.wait_for_claimed_run(&order_id, &number);
+    environment
+        .client
+        .stop_flow(&number, StopFlowOptions::cancel())
+        .expect("cancel the claimed run");
+    environment.wait_for_shipment_status(&number, FlowStatus::Canceled);
+
+    // Another caller reopens the number; its run reports to the same order.
+    environment
+        .client
+        .start_flow_with_options(
+            &ShipmentFlow::default(),
+            &number,
+            ShipmentRequest {
+                order_flow_id: order_id.clone(),
+                shipment: shipment(&number, "Portland", 1),
+            },
+            StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning),
+        )
+        .expect("reopen the shipment number");
+    environment.wait_for_shipment_status(&number, FlowStatus::Completed);
+
+    environment.wait_for_completed_flow(&order_id);
+    let record = environment.shipment_record(&order_id, &number);
+    assert_eq!(record.run_id, Some(claimed_run_id));
+    assert_eq!(
+        record.outcome, None,
+        "the reopened run's outcome must not reach the order"
+    );
+    assert!(
+        matches!(
+            record.status.as_deref(),
+            Some("canceled" | SHIPMENT_UNAVAILABLE)
+        ),
+        "{record:?}"
+    );
 }
 
 #[test]
@@ -677,33 +762,28 @@ fn child_flows_business_identity_fails_an_order_with_a_duplicate_shipment_number
 fn child_flows_business_identity_stores_the_outcome_before_reporting_under_async_defaults() {
     let environment = ControlPatternsEnvironment::start();
     let order_id = unique_flow_id("order");
-    let tracked = format!("{order_id}-1");
+    let number = format!("{order_id}-1");
     environment.start_order(
         &order_id,
         Order {
-            shipments: vec![shipment(&tracked, "Boise", 3600)],
+            shipments: vec![shipment(&number, "Austin", 3)],
             reconcile_interval_seconds: 3600,
         },
     );
-    let number = format!("{order_id}-async");
+    let run_id = environment.wait_for_claimed_run(&order_id, &number);
     environment
         .client
-        .start_flow_with_options(
-            &ShipmentFlow::default(),
+        .update_flow_config(
             &number,
-            ShipmentRequest {
-                order_flow_id: order_id.clone(),
-                shipment: shipment(&number, "Austin", 1),
-            },
-            StartFlowOptions::new()
-                .config_override(FlowConfig::new().step_durability(StepDurability::Async)),
+            FlowConfig::new().step_durability(StepDurability::Async),
         )
-        .expect("start the shipment with ASYNC defaults");
+        .expect("switch the shipment to ASYNC defaults");
     environment.wait_for_shipment_record(
         &order_id,
         &number,
         &ShipmentRecord {
-            status: None,
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(run_id),
             outcome: Some("delivered to Austin".to_string()),
         },
     );
@@ -712,7 +792,7 @@ fn child_flows_business_identity_stores_the_outcome_before_reporting_under_async
         .get_attributes(&number, (&*SHIPMENT_OUTCOME,))
         .expect("read the shipment outcome");
     assert_eq!(outcome, Some("delivered to Austin".to_string()));
-    environment.terminate_flows(&[&tracked, &order_id]);
+    environment.terminate_flows(&[&order_id]);
 }
 
 impl ControlPatternsEnvironment {
@@ -799,6 +879,37 @@ impl ControlPatternsEnvironment {
             );
             thread::sleep(POLL_INTERVAL);
         }
+    }
+
+    /// Polls until the order claimed a run of the shipment and returns its run ID.
+    fn wait_for_claimed_run(&self, order_id: &str, shipment_number: &str) -> String {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            let record = self
+                .client
+                .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+                .map(|(record,)| record);
+            if let Ok(Some(ShipmentRecord {
+                run_id: Some(run_id),
+                ..
+            })) = &record
+            {
+                return run_id.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "record of {shipment_number} is {record:?}, expected a claimed run"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    fn assert_no_shipment_record(&self, order_id: &str, shipment_number: &str) {
+        let (record,) = self
+            .client
+            .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+            .unwrap_or_else(|error| panic!("read the record of {shipment_number}: {error}"));
+        assert_eq!(record, None, "{order_id} has a record of {shipment_number}");
     }
 
     fn shipment_record(&self, order_id: &str, shipment_number: &str) -> ShipmentRecord {

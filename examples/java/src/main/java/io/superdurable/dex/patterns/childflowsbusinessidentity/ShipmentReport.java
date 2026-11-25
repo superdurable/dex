@@ -17,10 +17,11 @@
 package io.superdurable.dex.patterns.childflowsbusinessidentity;
 
 /**
- * What a shipment sends to its order when it ends.
+ * What a shipment run sends to its order when it ends.
  *
  * @param shipmentNumber the shipment that reports
+ * @param shipmentRunId the run that reports
  * @param outcome the shipment's committed outcome
  */
-public record ShipmentReport(String shipmentNumber, String outcome) {
+public record ShipmentReport(String shipmentNumber, String shipmentRunId, String outcome) {
 }

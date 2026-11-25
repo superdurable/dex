@@ -19,12 +19,14 @@ package io.superdurable.dex.patterns.childflowsbusinessidentity;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
- * The order's record of one shipment. A report or a reconcile read fills {@code outcome}; a
- * reconcile read fills {@code status}.
+ * The order's record of one shipment. {@code runId} is the claimed run. A report or a reconcile
+ * read fills {@code outcome}; a reconcile read fills the terminal {@code status}.
  *
- * @param status a terminal Flow status, "rejected", or "unavailable"; {@code null} when unset
+ * @param status "starting", "started", a terminal Flow status, "rejected", or "unavailable";
+ *     {@code null} when unset
+ * @param runId the shipment run this order started and claimed; {@code null} before the claim
  * @param outcome the shipment's outcome; {@code null} when the shipment stored none
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ShipmentRecord(String status, String outcome) {
+public record ShipmentRecord(String status, String runId, String outcome) {
 }

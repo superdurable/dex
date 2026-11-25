@@ -114,6 +114,7 @@ impl Step for DeliverShipment {
                 order_flow_id: request.order_flow_id,
                 report: ShipmentReport {
                     shipment_number: request.shipment.shipment_number,
+                    shipment_run_id: context.run_id().to_string(),
                     outcome,
                 },
             },

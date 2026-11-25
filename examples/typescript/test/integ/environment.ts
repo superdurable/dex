@@ -53,8 +53,8 @@ import {
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
-const shipmentFlow = new ShipmentFlow(getClient);
-const orderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
+const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
+const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 
 export interface IntegEnvironment {
   readonly client: Client;
