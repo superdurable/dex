@@ -495,6 +495,26 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "deferred-choice",
+    title: "Decision with Deadline",
+    flowIdPrefix: "deferred-choice",
+    endpoints: [
+      endpoint("GET", "/patterns/deferred-choice/start", "Start", [
+        flowId(),
+        query("offerId", { default: "offer-1" }),
+      ]),
+      endpoint("GET", "/patterns/deferred-choice/accept", "Accept offer", [
+        flowId(),
+        query("note", { default: "looks good" }),
+      ]),
+      endpoint("GET", "/patterns/deferred-choice/reject", "Reject offer", [
+        flowId(),
+        query("note", { default: "too expensive" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "inbound-event-loop",
     title: "Idle Timer with Resolution",
     flowIdPrefix: "inbound-event-loop",

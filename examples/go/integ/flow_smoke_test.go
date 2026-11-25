@@ -315,6 +315,20 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			verifyAfterTrigger: requireInboundEventLoopSmokeTimers,
 		},
 		{
+			name: "patterns/deferred-choice",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "deferred-choice")}, "offerId": {"offer-smoke"}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/deferred-choice/start",
+					query,
+					nil,
+				)
+			},
+			verifyAfterTrigger: requireDeferredChoiceSmokeAcceptance,
+		},
+		{
 			name: "patterns/parallel/static",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-static")}}

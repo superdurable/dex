@@ -73,6 +73,7 @@ func newIntegrationEnvironment() (_ *integrationEnvironment, constructionErr err
 	}()
 	flows := registry.NewWithRefundLedgerDirectory(service.NewMyService(), func() *dex.Client { return client }, refundLedgerDir)
 	flows = append(flows, conditionOrderProbeFlows()...)
+	flows = append(flows, &OfferResponseWindowProbeFlow{})
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, err

@@ -44,6 +44,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Process bursty external messages in a short Flow | [Drain an external Channel](#drain-an-external-channel) |
 | Change or stop long repeating work on request, such as its batch size | [Control Long-Running Work](#control-long-running-work) (formerly Stop Long-Running Work and Interruptible execution) |
 | Route on whichever of several events happens first, such as a decision or its deadline | [Decision with Deadline](#decision-with-deadline) |
+| Decide "no reply before the deadline" without silently ignoring a reply that an RPC accepted | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock) |
 | Let parallel branches take turns on a sequence of Steps | [Critical section](#critical-section) |
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
 | Map a control structure to its Dex recipe | [Control structures](#control-structures) |
@@ -419,12 +420,12 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 - The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
 - The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
-- Execute asks which Condition won; it never infers the winner from an empty result. When several Conditions are ready at once, AnyOf picks in a fixed order: Timers first, then Channels in declaration order. So the Timer wins over a reply or resolution that arrives at the same moment. The closing Step's ForceCompleteIfChannelsEmpty catches those messages and returns to the waiting Step, which handles them. Express business priority between Channels by their declaration order.
+- Execute asks which Condition won; it never infers the winner from an empty result. A message queued when the wait starts wins at once; otherwise the event that commits first wins. A reply or resolution can still commit after the Timer won. The closing Step's ForceCompleteIfChannelsEmpty catches those messages and returns to the waiting Step, which handles them. Express business priority between Channels by their declaration order.
 - Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
+- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because a resolution can commit after the Timer won; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 - The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
 - When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
@@ -584,7 +585,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
-| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Conditions are ready at once, a ready Timer wins, then the first declared Channel. Execute checks which Condition fired and moves to one branch. |
+| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. A queued message wins at once; otherwise the first event to commit wins. Execute checks which Condition fired and moves to one branch. When "no reply before the deadline" must hold, close the reply window with an Attribute lock. |
 | Mutual exclusion inside one Execute | An Execute lock on a shared Attribute | A lock covers one Step method. It never covers a WaitFor or several Steps. |
 | Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
 | Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
@@ -598,23 +599,68 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 Wait for several events and route on whichever happens first, such as accept, reject, or expiry of an offer. Go folder: `deferred-choice`.
 
 ```text
-rpc acceptCustomerOffer(note) -> OfferAccepted.publish(note)
-rpc rejectCustomerOffer(note) -> OfferRejected.publish(note)
+rpc acceptCustomerOffer(note), locks OfferResponseWindowClosed
+    -> if OfferResponseWindowClosed: return windowClosed
+       OfferAccepted.publish(note); return recorded
+rpc rejectCustomerOffer(note): the same, publishing to OfferRejected
 
 AwaitOfferResponse.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne(), Timer(3 days))
-AwaitOfferResponse.execute
+AwaitOfferResponse.execute, locks OfferResponseWindowClosed
+    OfferResponseWindowClosed.set(true)
     winner = the Condition that fired
     if winner is OfferAccepted: goTo(FulfillOffer)
     if winner is OfferRejected: goTo(CloseRejectedOffer)
-    if winner is the Timer:     goTo(ExpireOffer)
+    if winner is the Timer:
+        if OfferAccepted.size() + OfferRejected.size() > 0: goTo(RouteResponseBeforeExpiry)
+        goTo(ExpireOffer)
+RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne())  // wins at once
 ```
 
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
-- When several Conditions are ready at once, AnyOf picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the decision Channels in business priority order.
-- A late response cannot change the chosen branch. If its RPC is still accepted, it publishes a message that nothing consumes. Once the Flow starts closing, Dex may reject the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
+- A response already queued when the wait starts wins at once. Otherwise the event that commits first wins. Declare the decision Channels in business priority order; it decides between responses that are both queued.
+- A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. The lock gives every response one of two answers: it is recorded and decides, or the caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
+
+### Close a reply window with an Attribute lock
+
+Use this when the business must decide "no reply came before the deadline" and a caller must never be told a late reply was accepted. The race: the Timer wins, Execute is about to run, and a reply RPC publishes and returns success. Execute then escalates as if no reply came, and the reply is silently ignored. A Channel size read in Execute is a snapshot, and a closing check such as ForceCompleteIfChannelsEmpty guards only the Flow close, so neither closes this gap. Runnable examples: [Decision with Deadline](#decision-with-deadline).
+
+```text
+Attribute replyWindow: open | closed            // unset reads as open
+
+rpc sendReply(reply), transactional, locks replyWindow
+    if replyWindow is closed: return windowClosed   // a business result, not an error
+    Reply.publish(reply); return recorded           // the publish commits with the handler
+
+AwaitReply.waitFor -> AnyOf(Reply.ForOne(), Timer(deadline))     // no lock on WaitFor
+AwaitReply.execute, locks replyWindow
+    replyWindow.set(closed)
+    if Reply won: goTo(HandleReply, the consumed reply)
+    // the Timer won
+    if Reply.size() > 0: goTo(TakeLateReply)      // committed before this Execute took the lock
+    goTo(Escalate)
+TakeLateReply.waitFor -> Until(Reply.ForOne())    // wins at once
+TakeLateReply.execute -> goTo(HandleReply, the consumed reply)
+```
+
+Why it holds:
+
+- Execute takes its Attribute locks before Dex hands out its first attempt, and its state snapshot is taken after that. So a reply RPC that committed earlier is in the snapshot's Channel size.
+- While the Execute holds the lock, a reply RPC that declares the lock gets a lock conflict. It is rejected, not queued.
+- While a reply RPC holds the lock, the Execute waits for it, and then sees its message. An Execute that is still waiting for the lock does not block the RPC; that window is why Execute checks the size.
+- A transactional RPC commits its handler and its publish together. Once the window is closed, every later reply sees it and gets "window closed".
+
+Rules:
+
+- Every RPC that writes the reply Channel declares the same lock. Locks are cooperative; an RPC without it bypasses the window. Prefer one entry RPC per reply Channel.
+- Lock only Execute. WaitFor and Execute have separate lock sets, and the wait itself holds no lock.
+- Keep the locked Execute short: set the window, check the winner and the size, and route. Put side effects, such as escalation notices or provider calls, in the next Step, with bounded retries. A locked Execute holds the lock through its retry backoff, and every reply meanwhile gets a lock conflict.
+- Callers retry a lock conflict with bounded backoff. Keep the reply idempotent, for example with a business reply ID.
+- Close the window on every branch, not only the Timer branch, so a reply after the decision also gets "window closed".
+- To wait again, such as a new reply round, reopen the window under the same lock, in the Execute that starts the next wait.
+- Test it: a reply before the deadline decides; a reply after the window closed gets "window closed"; a reply that commits after the Timer won but before the locked Execute runs is taken through the size check.
 
 ### Critical section
 
@@ -675,7 +721,7 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 - Set a Flow timeout on every child, so a child that is never stopped still ends. Clients cancel a case through the cancel RPC, not StopFlow.
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
-- Declaration order ranks Channels and SubFlows only. A ready Timer always wins over a ready Channel in AnyOf, so a fallback or deadline Timer can beat a cancel or withdrawal that arrives at the same moment. Declare business priority between the Channels, and make the Timer branch handle a cancel that may still be queued, for example by waiting on the cancel Channel in its next Step.
+- Declaration order ranks Channels that are both queued. A fallback or deadline Timer can win, and a cancel or withdrawal can still commit after it before the Timer branch runs. Make the Timer branch handle a cancel that may still be queued, for example by waiting on the cancel Channel in its next Step, or close the window as in [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
 - Once the decision is final, close without consuming the cancel Channel. Do not close with ForceCompleteIfChannelsEmpty on it and fall back to a cancel path: a late cancel would then override the decision. A cancel accepted after the decision stays pending until the Flow closes.
 - Treat not found, not active, and closing from StopFlow as already stopped. Execute may retry, and the child may finish at the same moment.
