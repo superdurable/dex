@@ -70,13 +70,13 @@ The two engines continue a run in different ways after a Worker stops.
 | Workflow variables | [Attributes](/concepts/primitives/attribute) | Dex saves them. Temporal rebuilds them by replay. |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
 | Task Queue | Task queue | A Flow names its task queue at start and keeps it. Inside a task queue, Dex routes by Flow type. |
-| Sticky execution | Best-effort sticky routing | Dex first offers a task to the Worker that served the Flow before. Recovery needs no history cache in the Worker. |
+| Sticky execution | Sticky routing | Both are best effort: each first offers the task to the previous Worker for a few seconds, then to any Worker. A Temporal Worker that misses its cache replays the Event History. A Dex Worker needs no history cache. |
 | Search Attributes | Indexed Attributes | |
 | Workflow ID Conflict Policy, for an open Workflow ID. Workflow ID Reuse Policy, for a closed one. | ID reuse policy, for open and closed Flow IDs. Start request ID. | The start request ID lets Dex recognize a retried start request. See [StartFlowOptions](/reference/python/start-flow-options). |
 | Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | In both, your Worker code stops its external work cooperatively. Dex discards anything a canceled attempt returns later. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
 | Reset | [Time Travel](/components/operate-and-debug#time-travel) | See [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel). |
-| Continue-As-New, to keep the history small | No new run needed for history size | See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
-| Patching, Worker Versioning | Keep old Step types and change data additively | See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
+| Continue-As-New, to keep the history small | Not needed | See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
+| Patching, Worker Versioning | Not needed | See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
 | Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
 | Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
 | Temporal Web UI | [Dex Web](/components/web) | |

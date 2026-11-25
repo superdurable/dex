@@ -70,13 +70,13 @@ Worker 停止之后，两个引擎用不同的方式继续一次运行。
 | Workflow 变量 | [Attribute](/concepts/primitives/attribute) | Dex 保存它们。Temporal 通过重放重建它们。 |
 | Child Workflow | [SubFlow](/concepts/primitives/subflow) | |
 | Task Queue | Task queue | Flow 在启动时指定自己的 task queue，之后保持不变。在一个 task queue 内，Dex 按 Flow 类型路由。 |
-| Sticky execution | 尽力而为的 sticky 路由 | Dex 先把任务交给上次服务这个 Flow 的 Worker。恢复时 Worker 不需要 history 缓存。 |
+| Sticky execution | sticky 路由 | 两者都是尽力而为：先在几秒内把任务交给上一个 Worker，之后交给任意 Worker。Temporal 的 Worker 缓存未命中时要重放 Event History。Dex 的 Worker 不需要 history 缓存。 |
 | Search Attributes | 带索引的 Attribute | |
 | Workflow ID 冲突策略，用于仍打开的 Workflow ID。Workflow ID 复用策略，用于已关闭的 Workflow ID。 | ID 复用策略，同时用于打开和已关闭的 Flow ID。启动 request ID。 | 启动 request ID 让 Dex 识别重试的启动请求。见 [StartFlowOptions](/reference/python/start-flow-options)（英文）。 |
 | 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都由 Worker 代码以协作的方式停止外部工作。被取消的 attempt 之后返回的任何结果，Dex 都会丢弃。见[取消运行中的 Step](/reference/server/runtime-data#cancel-running-steps)。 |
 | Reset | [Time Travel](/components/operate-and-debug#time-travel) | 见[回到较早的时间点](/intro/compared-to-temporal/experience#time-travel)。 |
-| Continue-As-New，用于控制 history 大小 | 不需要为 history 大小开始新的运行 | 见 [history 上限](/intro/compared-to-temporal/operations#history-limit)。 |
-| Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
+| Continue-As-New，用于控制 history 大小 | 不需要 | 见 [history 上限](/intro/compared-to-temporal/operations#history-limit)。 |
+| Patching、Worker Versioning | 不需要 | 见[改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
 | Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |
 | Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
 | Temporal Web UI | [Dex Web](/components/web) | |
