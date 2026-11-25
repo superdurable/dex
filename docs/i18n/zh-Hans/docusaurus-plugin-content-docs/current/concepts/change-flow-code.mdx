@@ -73,13 +73,13 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
    dexcli flow search --query 'FlowType = "OrderFlow" AND ActiveStepTypes = "Ship"'
    ~~~
 
-2. **把新的 Flow 定义和已部署的定义做比较。** `dexcli flow-definition diff` 读取 `dexcli visualize` 从源码生成的定义。它报告两份定义都记录了的变化，例如被删除或改名的 Step 类型、RPC、Attribute 或 Channel，或者变化的等待条件。它把每个变化标为 breaking、risky 或 compatible。遇到 breaking 变化时它以错误退出，所以可以放进 CI 任务。它比较哪些内容，见[比较 Flow 定义](/reference/cli#flow-definition-diff)。
+2. **把新的 Flow 定义和已部署的定义做比较。** `dexcli flow-definition diff` 读取 `dexcli visualize` 从源码生成的定义。它报告能静态检查的兼容性变化，例如被删除或改名的 Step 类型、RPC、Attribute 或 Channel，或者变化的等待条件。它把每个变化标为 breaking、risky 或 compatible。遇到 breaking 变化时它以错误退出，所以可以放进 CI 任务。它比较哪些内容，见[比较 Flow 定义](/reference/cli#flow-definition-diff)。
 
    ~~~bash
    dexcli flow-definition diff build/flow-definitions --server dex.example.com:8801
    ~~~
 
-   使用 `--server` 时，它把你传入的每个 Flow 类型和服务器上存储的定义做比较。要发现整个被删除的 Flow 类型，用 `--old` 把两个发布版本的定义文件做比较。
+   使用 `--server` 时，它只比较你传入的、服务器上已经存有定义的 Flow 类型。要发现整个被删除的 Flow 类型，用 `--old` 把两个发布版本的定义文件做比较。
 
 3. **确认新构建注册了这些 Flow 可能到达的每个 Step 类型和 RPC。** 缺少某一个的 Worker 会把调用交给另一个 Worker。如果所有 Worker 都没有，Step 会在队列中等待，RPC 会失败。
 4. **用旧构建启动的 Flow 运行新构建的集成测试。** [测试你的 Flow](/components/testing) 介绍测试环境的搭建。快速开始的重启测试是可以照搬的模板：它在 Flow 中途停止一个 Worker，再用另一个 Worker 完成这个 Flow。做版本检查时：

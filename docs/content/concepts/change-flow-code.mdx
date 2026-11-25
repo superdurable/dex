@@ -129,9 +129,9 @@ To test a new Worker build against open Flows, run these checks:
 
 2. **Compare the new Flow definitions with the deployed ones.**
    `dexcli flow-definition diff` reads the definitions that `dexcli visualize`
-   generates from source. It reports the changes that both definitions record,
-   such as a removed or renamed Step type, RPC, Attribute, or Channel, or a
-   changed wait condition. It marks each change breaking, risky, or compatible.
+   generates from source. It reports the compatibility changes it can check
+   statically, such as a removed or renamed Step type, RPC, Attribute, or
+   Channel, or a changed wait condition. It marks each change breaking, risky, or compatible.
    It exits with an error on a breaking change, so a CI job can run it. See
    [Compare Flow definitions](/reference/cli#flow-definition-diff) for what it
    compares.
@@ -140,9 +140,9 @@ To test a new Worker build against open Flows, run these checks:
    dexcli flow-definition diff build/flow-definitions --server dex.example.com:8801
    ~~~
 
-   With `--server`, it compares each Flow type you pass with the definition
-   stored on the server. To find a whole Flow type you removed, compare the
-   definitions of the two releases as files with `--old`.
+   With `--server`, it compares only the Flow types you pass that already have
+   a definition stored on the server. To find a whole Flow type you removed,
+   compare the definitions of the two releases as files with `--old`.
 
 3. **Confirm the new build registers every Step type and RPC those Flows can
    reach.** A Worker that lacks one hands the call to another Worker. If none has

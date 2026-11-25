@@ -219,13 +219,12 @@ func owningStep(node flowviz.Node, nodesByID map[string]flowviz.Node) (flowviz.N
 }
 
 // describeWaitConditions ignores timer expressions and source positions.
-// A Channel label holds its registered name, ChannelMap instance, and wait method.
 func describeWaitConditions(wait flowviz.WaitDetails, nodesByID map[string]flowviz.Node) string {
 	conditions := make([]string, 0, len(wait.Conditions))
 	for _, condition := range wait.Conditions {
 		switch {
-		case condition.ResourceID != "" && condition.Label != "":
-			conditions = append(conditions, fmt.Sprintf("%s %s", condition.Kind, condition.Label))
+		case condition.Kind == "channel" && condition.ResourceID != "":
+			conditions = append(conditions, describeChannelWait(condition, nodesByID[condition.ResourceID]))
 		case condition.ResourceID != "":
 			resource := nodesByID[condition.ResourceID]
 			conditions = append(conditions, fmt.Sprintf("%s %s", condition.Kind, resource.Name))
@@ -617,11 +616,16 @@ func describeActionCondition(condition *flowviz.ActionCondition) string {
 	if condition == nil {
 		return "the run is active"
 	}
-	values := make([]string, 0, len(condition.Values))
+	// Dex Web tests membership, so order and duplicates do not matter; JSON keeps "1" apart from 1.
+	values := make(map[string]bool, len(condition.Values))
 	for _, value := range condition.Values {
-		values = append(values, fmt.Sprint(value))
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			encoded = []byte(fmt.Sprintf("%q", fmt.Sprint(value)))
+		}
+		values[string(encoded)] = true
 	}
-	return fmt.Sprintf("%s %s [%s]", condition.AttributeKey, condition.Operator, strings.Join(values, ", "))
+	return fmt.Sprintf("%s %s [%s]", condition.AttributeKey, condition.Operator, strings.Join(sortedStrings(values), ", "))
 }
 
 func describeFieldSource(field flowviz.ActionInputField) string {

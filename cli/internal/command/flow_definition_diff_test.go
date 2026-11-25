@@ -249,6 +249,8 @@ type flowDefinitionDiffCase struct {
 	expectedCode string
 	expectedName string
 	severity     flowdefinitiondiff.Severity
+	// alsoExpected lists the other changes the edit must report; the report must hold nothing else.
+	alsoExpected map[string]flowdefinitiondiff.Severity
 }
 
 func runFlowDefinitionDiffCases(t *testing.T, fixture string, cases []flowDefinitionDiffCase) {
@@ -264,15 +266,37 @@ func runFlowDefinitionDiffCases(t *testing.T, fixture string, cases []flowDefini
 
 			report, err := diffGraphs(t, oldGraph, newGraph)
 
-			codes := changeCodes(report)
-			require.Equal(t, testCase.severity, codes[testCase.expectedCode+" "+testCase.expectedName], "changes: %v", codes)
-			if report.Summary.Breaking > 0 {
+			expected := map[string]flowdefinitiondiff.Severity{testCase.expectedCode + " " + testCase.expectedName: testCase.severity}
+			expectedBreaking := 0
+			for key, severity := range testCase.alsoExpected {
+				expected[key] = severity
+			}
+			for _, severity := range expected {
+				if severity == flowdefinitiondiff.SeverityBreaking {
+					expectedBreaking++
+				}
+			}
+			require.Equal(t, expected, changeCodes(report))
+			require.Equal(t, expectedBreaking, report.Summary.Breaking)
+			if expectedBreaking > 0 {
 				require.Equal(t, 3, ExitCode(err))
 			} else {
 				require.NoError(t, err)
 			}
 		})
 	}
+}
+
+// setManagerDecisionWait replaces the one RequestManagerApproval wait condition with a Channel condition.
+func setManagerDecisionWait(label string, expression string) func(*testing.T, *flowviz.Graph) {
+	return func(t *testing.T, graph *flowviz.Graph) {
+		condition := &findManagerDecisionWait(t, graph).Conditions[0]
+		condition.Label, condition.Expression = label, expression
+	}
+}
+
+func makeManagerDecisionsChannelMap(t *testing.T, graph *flowviz.Graph) {
+	findNode(t, graph, "channel", "manager-decisions").Resource.Map = true
 }
 
 func TestFlowDefinitionDiffClassifiesBreakingChanges(t *testing.T) {
@@ -288,8 +312,12 @@ func TestFlowDefinitionDiffClassifiesBreakingChanges(t *testing.T) {
 			expectedCode: "rpc_removed", expectedName: "RejectRefund", severity: flowdefinitiondiff.SeverityBreaking},
 		{name: "Attribute removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "attribute", "customer-email") },
 			expectedCode: "resource_removed", expectedName: "customer-email", severity: flowdefinitiondiff.SeverityBreaking},
-		{name: "Channel removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "channel", "manager-decisions") },
-			expectedCode: "resource_removed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Channel removed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			removeNode(t, graph, "channel", "manager-decisions")
+			wait := findManagerDecisionWait(t, graph)
+			wait.Conditions = []flowviz.WaitCondition{{Kind: "timer", Label: "48h timer", Expression: "48 * time.Hour"}}
+		}, expectedCode: "resource_removed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityBreaking,
+			alsoExpected: map[string]flowdefinitiondiff.Severity{"step_wait_conditions_changed RequestManagerApproval": flowdefinitiondiff.SeverityRisky}},
 		{name: "Stream removed", prepare: addStream, mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "stream", "refund-progress") },
 			expectedCode: "resource_removed", expectedName: "refund-progress", severity: flowdefinitiondiff.SeverityBreaking},
 		{name: "Attribute becomes AttributeMap", mutate: func(t *testing.T, graph *flowviz.Graph) {
@@ -331,9 +359,18 @@ func TestFlowDefinitionDiffClassifiesRiskyChanges(t *testing.T) {
 		}
 	}
 	runFlowDefinitionDiffCases(t, managerApprovalFixture, []flowDefinitionDiffCase{
-		{name: "value type import alias changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
-			findNode(t, graph, "channel", "manager-decisions").Resource.ValueType = "refundtypes.ManagerDecision"
+		{name: "value type import alias changed", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.ValueType = "pkg.ManagerDecision"
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.ValueType = "alias.ManagerDecision"
 		}, expectedCode: "resource_type_changed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Stream value type changed", prepare: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.Nodes = append(graph.Nodes, flowviz.Node{
+				ID: "resource:stream:progress", Kind: "stream", Name: "refund-progress", Resource: &flowviz.ResourceDetails{ValueType: "string"},
+			})
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "stream", "refund-progress").Resource.ValueType = "ProgressUpdate"
+		}, expectedCode: "resource_type_changed", expectedName: "refund-progress", severity: flowdefinitiondiff.SeverityRisky},
 		{name: "value type equivalent spelling", mutate: func(t *testing.T, graph *flowviz.Graph) {
 			findNode(t, graph, "attribute", "refund-id").Resource.ValueType = "[]uint8"
 		}, prepare: func(t *testing.T, graph *flowviz.Graph) {
@@ -350,9 +387,41 @@ func TestFlowDefinitionDiffClassifiesRiskyChanges(t *testing.T) {
 			wait.Type = "anyOf"
 			wait.Conditions = append(wait.Conditions, flowviz.WaitCondition{Kind: "timer", Label: "48h timer", Expression: "48 * time.Hour"})
 		}, expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
-		{name: "Channel wait count changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
-			findManagerDecisionWait(t, graph).Conditions[0].Label = "manager-decisions.for 2"
-		}, expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Channel wait literal count changed", prepare: setManagerDecisionWait("manager-decisions.for 2", "2"),
+			mutate:       setManagerDecisionWait("manager-decisions.for 3", "3"),
+			expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Channel wait keyword count changed", prepare: setManagerDecisionWait("manager-decisions.for N", "count=1"),
+			mutate:       setManagerDecisionWait("manager-decisions.for N", "count=2"),
+			expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "ChannelMap wait instance keyword changed", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			makeManagerDecisionsChannelMap(t, graph)
+			setManagerDecisionWait("manager-decisions.for 1", "instance='blue'")(t, graph)
+		}, mutate: setManagerDecisionWait("manager-decisions.for 1", "instance='green'"),
+			expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "ChannelMap wait positional instance changed", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			makeManagerDecisionsChannelMap(t, graph)
+			setManagerDecisionWait(`manager-decisions["blue"].for 1`, `"blue"`)(t, graph)
+		}, mutate: setManagerDecisionWait(`manager-decisions["green"].for 1`, `"green"`),
+			expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action condition value changed to one string with a comma", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"a", "b"}
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"a, b"}
+		}, expectedCode: "action_condition_changed", expectedName: "ApproveRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action condition value changed JSON type", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{float64(1)}
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"1"}
+		}, expectedCode: "action_condition_changed", expectedName: "ApproveRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action condition removed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition = nil
+		}, expectedCode: "action_condition_changed", expectedName: "ApproveRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action input field Attribute key changed", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			field := &findAction(t, graph, "ApproveRefund").Input.Fields[0]
+			field.Source, field.AttributeKey = "attribute", "customer-message"
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Input.Fields[0].AttributeKey = "case-status"
+		}, expectedCode: "action_input_field_source_changed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky},
 		{name: "start input required field added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
 			graph.V2.Start.Input.Fields = append(graph.V2.Start.Input.Fields,
 				flowviz.StartInputField{Name: "region", Required: true, Schema: flowviz.StartInputSchema{Kind: "string"}})
@@ -395,7 +464,8 @@ func TestFlowDefinitionDiffClassifiesRiskyChanges(t *testing.T) {
 			findAction(t, graph, "ApproveRefund").Input.Fields = []flowviz.ActionInputField{
 				{FieldName: "comment", ValueType: "string", Source: "user", Description: "Comment"},
 			}
-		}, expectedCode: "action_input_field_removed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky},
+		}, expectedCode: "action_input_field_removed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky,
+			alsoExpected: map[string]flowdefinitiondiff.Severity{"action_input_field_added ApproveRefund.comment": flowdefinitiondiff.SeverityCompatible}},
 		{name: "Action input field now required", prepare: func(t *testing.T, graph *flowviz.Graph) {
 			findAction(t, graph, "ApproveRefund").Input.Fields[0].Required = false
 		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
@@ -478,8 +548,52 @@ func TestFlowDefinitionDiffReportsPythonWaitConditionChange(t *testing.T) {
 	change := report.Changes[0]
 	require.Equal(t, "step_wait_conditions_changed", change.Code)
 	require.Equal(t, "Cancel", change.Name)
-	require.Contains(t, change.Message, "channel cancel-subscription.for 1")
-	require.Contains(t, change.Message, "channel update-charge-amount.for 1")
+	require.Contains(t, change.Message, "channel cancel-subscription for n count=1")
+	require.Contains(t, change.Message, "channel update-charge-amount for n count=1")
+}
+
+func TestFlowDefinitionDiffIgnoresEquivalentWaitAndActionConditionSpellings(t *testing.T) {
+	cases := []struct {
+		name    string
+		prepare func(*testing.T, *flowviz.Graph)
+		mutate  func(*testing.T, *flowviz.Graph)
+	}{
+		{"positional and keyword count", setManagerDecisionWait("manager-decisions.for 2", "2"),
+			setManagerDecisionWait("manager-decisions.for N", "count=2")},
+		{"ForOne and ForN(1)", setManagerDecisionWait("manager-decisions.for 1", ""),
+			setManagerDecisionWait("manager-decisions.for 1", "1")},
+		{"dynamic count variable renamed", setManagerDecisionWait("manager-decisions.for requestedCount", "requestedCount"),
+			setManagerDecisionWait("manager-decisions.for count", "count")},
+		{"ChannelMap positional and keyword instance", func(t *testing.T, graph *flowviz.Graph) {
+			makeManagerDecisionsChannelMap(t, graph)
+			setManagerDecisionWait(`manager-decisions["blue"].for 1`, `"blue"`)(t, graph)
+		}, setManagerDecisionWait("manager-decisions.for 1", "instance='blue'")},
+		{"timer expression changed", func(t *testing.T, graph *flowviz.Graph) {
+			wait := findManagerDecisionWait(t, graph)
+			wait.Conditions = append(wait.Conditions, flowviz.WaitCondition{Kind: "timer", Label: "48h timer", Expression: "48 * time.Hour"})
+		}, func(t *testing.T, graph *flowviz.Graph) {
+			findManagerDecisionWait(t, graph).Conditions[1] = flowviz.WaitCondition{Kind: "timer", Label: "deadline timer", Expression: "deadline"}
+		}},
+		{"Action condition values reordered and repeated", func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"a", "b"}
+		}, func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"b", "a", "b"}
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
+			newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
+			testCase.prepare(t, oldGraph)
+			testCase.prepare(t, newGraph)
+			testCase.mutate(t, newGraph)
+
+			report, err := diffGraphs(t, oldGraph, newGraph)
+
+			require.NoError(t, err)
+			require.Empty(t, report.Changes)
+		})
+	}
 }
 
 func TestFlowDefinitionDiffKeepsTheBreakingReportWithAllowBreaking(t *testing.T) {
@@ -510,21 +624,71 @@ func TestFlowDefinitionDiffRejectsUnusableGraphs(t *testing.T) {
 		oldDirectory  string
 		expectedError string
 	}{
-		{"malformed new graph without a baseline", malformedDirectory, writeFlowDefinitionFiles(t, other), `new definition of Flow type "BrokenFlow"`},
-		{"partial new graph", writeFlowDefinitionFiles(t, partial), writeFlowDefinitionFiles(t, valid), `new definition of Flow type "ManagerApprovalRefundFlow"`},
-		{"partial old graph", writeFlowDefinitionFiles(t, valid), writeFlowDefinitionFiles(t, partial), `old definition of Flow type "ManagerApprovalRefundFlow"`},
-		{"old graph only on the old side", writeFlowDefinitionFiles(t, other), writeFlowDefinitionFiles(t, partial), `old definition of Flow type "ManagerApprovalRefundFlow"`},
+		{"malformed new graph without a baseline", malformedDirectory, writeFlowDefinitionFiles(t, other), `new definition file ` + malformedDirectory},
+		{"partial new graph", writeFlowDefinitionFiles(t, partial), writeFlowDefinitionFiles(t, valid), `(Flow type "ManagerApprovalRefundFlow")`},
+		{"partial old graph", writeFlowDefinitionFiles(t, valid), writeFlowDefinitionFiles(t, partial), `old definition file `},
+		{"old graph only on the old side", writeFlowDefinitionFiles(t, other), writeFlowDefinitionFiles(t, partial), `old definition file `},
 		{"old paths without definitions", writeFlowDefinitionFiles(t, valid), t.TempDir(), "no old Flow definitions found"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, stderr, err := executeFlowDefinitionDiff("flow-definition", "diff", testCase.newDirectory,
+			stdout, stderr, err := executeFlowDefinitionDiff("flow-definition", "diff", testCase.newDirectory,
 				"--old", testCase.oldDirectory, "--allow-breaking")
 			require.Error(t, err, stderr)
 			require.Equal(t, 1, ExitCode(err))
 			require.Contains(t, err.Error(), testCase.expectedError)
+			require.Empty(t, stdout)
 		})
 	}
+}
+
+// TestFlowDefinitionDiffRejectsEveryUnreadableFile covers files that upload would skip in a directory.
+func TestFlowDefinitionDiffRejectsEveryUnreadableFile(t *testing.T) {
+	defects := map[string]string{
+		"invalid JSON":            `{"schemaVersion":"2.0",`,
+		"schemaVersion 1.0":       `{"schemaVersion":"1.0","valid":true,"flow":{"name":"LegacyFlow"}}`,
+		"missing schemaVersion":   `{"name":"package","version":"1.0.0"}`,
+		"empty flow.name":         `{"schemaVersion":"2.0","valid":true,"flow":{"name":""}}`,
+		"flow.name of wrong type": `{"schemaVersion":"2.0","valid":true,"flow":{"name":7}}`,
+	}
+	subscription := loadFlowDefinitionFixture(t, subscriptionFixture)
+	for defectName, content := range defects {
+		for _, side := range []string{"new", "old"} {
+			for _, form := range []string{"directory", "file"} {
+				t.Run(fmt.Sprintf("%s %s %s", defectName, side, form), func(t *testing.T) {
+					directory := writeFlowDefinitionFiles(t, subscription)
+					badPath := filepath.Join(directory, "defect.json")
+					require.NoError(t, os.WriteFile(badPath, []byte(content), 0o600))
+					badArgument := directory
+					if form == "file" {
+						badArgument = badPath
+					}
+					goodDirectory := writeFlowDefinitionFiles(t, subscription)
+					args := []string{"flow-definition", "diff", goodDirectory, "--old", badArgument, "--allow-breaking"}
+					if side == "new" {
+						args = []string{"flow-definition", "diff", badArgument, "--old", goodDirectory, "--allow-breaking"}
+					}
+
+					stdout, _, err := executeFlowDefinitionDiff(args...)
+
+					require.Equal(t, 1, ExitCode(err), "error: %v", err)
+					require.Contains(t, err.Error(), side+" definition file "+badPath)
+					require.Empty(t, stdout)
+				})
+			}
+		}
+	}
+
+	t.Run("new side is checked before the server", func(t *testing.T) {
+		directory := t.TempDir()
+		badPath := filepath.Join(directory, "defect.json")
+		require.NoError(t, os.WriteFile(badPath, []byte(defects["invalid JSON"]), 0o600))
+		service := &storedFlowDefinitionService{}
+		_, _, err := executeFlowDefinitionDiff("flow-definition", "diff", directory, "--server", startStoredFlowDefinitionService(t, service))
+		require.Equal(t, 1, ExitCode(err))
+		require.Contains(t, err.Error(), "new definition file "+badPath)
+		require.Empty(t, service.batches())
+	})
 }
 
 func TestFlowDefinitionDiffReportsAddedAndRemovedFlowTypesFromFiles(t *testing.T) {
@@ -621,6 +785,18 @@ func TestFlowDefinitionDiffReadsOldDefinitionsFromServer(t *testing.T) {
 	}, changeCodes(report))
 }
 
+func TestFlowDefinitionDiffPassesWithAPartialServerBaseline(t *testing.T) {
+	storedContent, err := os.ReadFile(managerApprovalFixture)
+	require.NoError(t, err)
+	service := &storedFlowDefinitionService{contents: map[string][]byte{"ManagerApprovalRefundFlow": storedContent}}
+	newDirectory := writeFlowDefinitionFiles(t, loadFlowDefinitionFixture(t, managerApprovalFixture), loadFlowDefinitionFixture(t, subscriptionFixture))
+
+	report, err := runFlowDefinitionDiff(t, newDirectory, "--server", startStoredFlowDefinitionService(t, service))
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]flowdefinitiondiff.Severity{"baseline_missing SubscriptionFlow": flowdefinitiondiff.SeverityRisky}, changeCodes(report))
+}
+
 func TestFlowDefinitionDiffFailsWhenTheServerHasNoBaseline(t *testing.T) {
 	address := startStoredFlowDefinitionService(t, &storedFlowDefinitionService{})
 	newDirectory := writeFlowDefinitionFiles(t, loadFlowDefinitionFixture(t, managerApprovalFixture))
@@ -701,9 +877,18 @@ func TestFlowDefinitionDiffOutputFormats(t *testing.T) {
 		require.Equal(t, 3, ExitCode(err))
 		require.True(t, strings.HasPrefix(stdout, "SEVERITY"), stdout)
 	})
-	t.Run("json conflicts with table", func(t *testing.T) {
+	t.Run("json conflicts with root table", func(t *testing.T) {
 		_, _, err := executeFlowDefinitionDiff("--output", "table", "flow-definition", "diff", newDirectory, "--old", oldDirectory, "--json")
 		require.Equal(t, 2, ExitCode(err))
+	})
+	t.Run("json conflicts with command table", func(t *testing.T) {
+		_, _, err := executeFlowDefinitionDiff("flow-definition", "diff", newDirectory, "--old", oldDirectory, "--json", "--output", "table")
+		require.Equal(t, 2, ExitCode(err))
+	})
+	t.Run("help shows the table default", func(t *testing.T) {
+		stdout, _, err := executeFlowDefinitionDiff("flow-definition", "diff", "--help")
+		require.NoError(t, err)
+		require.Contains(t, stdout, `json or table (default "table")`)
 	})
 }
 

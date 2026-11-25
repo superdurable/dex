@@ -369,10 +369,12 @@ from the last release. It accepts a file or a directory and may be repeated.
 dexcli flow-definition diff build/flow-definitions --old release/flow-definitions
 ```
 
-Both sides are read with the same rules as **flow-definition upload**. Without
-**--old**, the command fetches the stored definition of each new Flow type. It
-compares only the Flow types you pass, so it cannot report a Flow type you
-removed. To see removed Flow types, compare two sets of files, such as the
+Each path names a file or a directory. A directory is read recursively, and
+every file whose extension is **.json**, in any letter case, must be a Flow
+Definition Graph 2.x document. Unlike **flow-definition upload**, the command
+skips no file. Without **--old**, the command fetches the stored definition of
+each new Flow type. It compares only the Flow types you pass that already have a
+stored definition, so it cannot report a Flow type you removed. To see removed Flow types, compare two sets of files, such as the
 definitions of two releases. In that mode, an empty new directory reports every
 old Flow type as removed.
 
@@ -383,10 +385,13 @@ old Flow type as removed.
 | **--output** | **table** for this command; **json** or **table**. An explicit value applies, whether it comes before or after the subcommand. **--json** with **--output table** is a usage error. |
 | **--allow-breaking** | **false**; exits 0 even when breaking changes are found. The report still lists them. |
 
-The command checks every graph it reads before it compares. It stops with
-status 1 and names the side and the Flow type when a graph is malformed or has
-**valid** set to **false**. Such a graph comes from source with blocking
-diagnostics and may lack parts of the Flow. It also stops with status 1 when
+The command checks every graph it reads before it compares, and it checks the
+new side before it calls the server. It stops with status 1 and names the side,
+the file, and the Flow type when it can read one. That happens when a file is
+not valid JSON, its **schemaVersion** is not 2.x, its **flow.name** is empty,
+two files describe the same Flow type, or a graph has **valid** set to
+**false**. Such a graph comes from source with blocking diagnostics and may lack
+parts of the Flow. A missing path is a usage error with status 2. It also stops with status 1 when
 **--old** paths hold no Flow definition, or when the server has no stored
 definition for any of the Flow types you pass. When the server lacks only some
 of them, each one is reported as **baseline_missing**, a risky change.
@@ -397,14 +402,27 @@ name, so source positions and analyzer node IDs do not matter.
 | Severity | Changes |
 | --- | --- |
 | **breaking** | A Flow type (file mode only), Step type, RPC, Attribute, AttributeMap, Channel, ChannelMap, or Stream is removed or renamed. An Attribute becomes an AttributeMap, a Channel becomes a ChannelMap, or the reverse. A start input field changes its kind, including the items of an array or the values of a map. An Action input field changes its value type, or the Action input kind changes. |
-| **risky** | The start Step changes. A value type is spelled differently. A Step gains or loses its **WaitFor** phase, or its wait conditions change: a Channel or ChannelMap, its instance, its wait method or count, a Timer, or a SubFlow. The start input gains a required field, a field becomes required or is removed, a value range narrows, an enum value is removed, an enum restriction is added, **null** is no longer accepted, or the format or fixed array length changes. An Action is removed, or its required permission or condition changes. An Action input field becomes required, is added as required, is removed, or is filled from a different source. An indexed Attribute is removed or its index changes. The Summary or Display RPC changes or is removed. The server has no stored definition of a Flow type. The source language changed. |
+| **risky** | The start Step changes. The **valueType** of an Attribute, AttributeMap, Channel, ChannelMap, or Stream is spelled differently. A Step gains or loses its **WaitFor** phase, or its wait conditions change: a Channel or ChannelMap, a literal ChannelMap instance, the wait method, a literal count, a Timer, or a SubFlow. The start input gains a required field, a field becomes required or is removed, a value range narrows, an enum value is removed, an enum restriction is added, **null** is no longer accepted, or the format or fixed array length changes. An Action is removed, or its required permission or condition changes. An Action input field becomes required, is added as required, is removed, or is filled from a different source. An indexed Attribute is removed or its index changes. The Summary or Display RPC changes or is removed. The server has no stored definition of a Flow type. The source language changed. |
 | **compatible** | A Flow type (file mode only), Step type, RPC, Attribute, AttributeMap, Channel, ChannelMap, Stream, Action, optional input field, enum value, or indexed Attribute is added. |
 
-A rename is reported as a removal and an addition. A value type is the type
-name as written in the source, so an import alias or an equivalent spelling also
-differs. That is why a value type change is risky and not breaking. When the
-source language differs, value types are not compared. Timer durations are not
+A rename is reported as a removal and an addition. A resource **valueType** is
+the type name as written in the source, so an import alias or an equivalent
+spelling also differs. That is why such a change is risky and not breaking. An
+Action input field **valueType** is a fixed Dex Web type, so its change stays
+breaking. When the source language differs, resource value types are not
 compared.
+
+A wait condition matches by the registered Channel name, the wait method, and
+its arguments. Positional and keyword arguments match the same parameter, and
+**ForOne** matches a count of 1. A literal count or ChannelMap instance is
+compared by value. An argument computed at run time is not compared, so
+renaming its variable reports nothing. Timer durations are not compared. The
+graph records a Join with the same representation as a ChannelMap, so a Join
+appears as a ChannelMap.
+
+An Action condition matches by its Attribute, its operator, and its set of
+values. The order and repetition of values do not matter. A string value and a
+number value are different.
 
 The definitions record only part of each contract. They do not record the
 input of Step types other than the start Step, or the input or output of RPCs
