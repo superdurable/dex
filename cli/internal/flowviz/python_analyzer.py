@@ -1138,7 +1138,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if isinstance(call, ast.Starred):
                 span = self.span(call)
                 expression = self.unparse(call)
-                self.error("dynamic_wait_condition", "Unpacked Wait conditions must come from a comprehension of SubFlow.run calls with a fixed child Flow", span)
+                self.error("dynamic_wait_condition", "Unpack an inline Timer.by_duration comprehension or a comprehension of SubFlow.run calls with a fixed child Flow", span)
                 conditions.append({"kind": "unknown", "label": expression, "expression": expression, "span": span})
                 continue
             if self.is_dex_method_call(call, "Timer", "by_duration"):
@@ -1176,9 +1176,16 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             node = pending.popleft()
             if isinstance(node, ast.Starred):
                 parent = self.parents[node]
+                inline_comprehension = isinstance(node.value, (ast.ListComp, ast.GeneratorExp))
+                if inline_comprehension and self.is_dex_method_call(node.value.elt, "Timer", "by_duration"):
+                    pending.append(node.value)
+                    continue
                 if parent is wait_call:
                     subflow_run = self.comprehension_subflow_run(node.value) if accepts_subflow_unpacking else None
-                    yield subflow_run if subflow_run is not None else node
+                    if inline_comprehension and subflow_run is not None:
+                        pending.append(node.value)
+                    else:
+                        yield subflow_run if subflow_run is not None else node
                     continue
                 if self.is_dex_method_call(parent, "ConditionCombination", "of"):
                     yield node
@@ -1190,23 +1197,24 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def comprehension_subflow_run(self, expression):
         if isinstance(expression, ast.Name):
             expression = self.local_wait_list_comprehension(expression)
-        if not isinstance(expression, (ast.ListComp, ast.GeneratorExp)) or len(expression.generators) != 1:
-            return None
-        generator = expression.generators[0]
-        if generator.is_async or generator.ifs or not isinstance(generator.target, ast.Name):
+        if not isinstance(expression, (ast.ListComp, ast.GeneratorExp)) or any(generator.is_async for generator in expression.generators):
             return None
         subflow_run = expression.elt
-        if not self.is_dex_method_call(subflow_run, "SubFlow", "run") or not subflow_run.args:
+        if not self.is_dex_method_call(subflow_run, "SubFlow", "run"):
             return None
         if any(isinstance(argument, ast.Starred) for argument in subflow_run.args) or any(keyword.arg is None for keyword in subflow_run.keywords):
             return None
         if any(isinstance(node, ast.NamedExpr) for node in ast.walk(expression)):
             return None
-        flow_reference = subflow_run.args[0]
+        flow_reference = self.argument_value(subflow_run, "flow", 0)
+        generator_names = {
+            target.id for generator in expression.generators for target in ast.walk(generator.target)
+            if isinstance(target, ast.Name) and isinstance(target.ctx, ast.Store)
+        }
         for reference in (flow_reference, subflow_run.func.value):
             while isinstance(reference, ast.Attribute):
                 reference = reference.value
-            if not isinstance(reference, ast.Name) or reference.id == generator.target.id:
+            if not isinstance(reference, ast.Name) or reference.id in generator_names:
                 return None
         return subflow_run if self.is_fixed_subflow_reference(flow_reference) else None
 
@@ -1228,7 +1236,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 
     def is_fixed_subflow_reference(self, reference):
         value, frame = self.resolved_value(reference, self.current_frame)
-        if self.is_external_flow_import(value):
+        if self.is_external_flow_import(value, frame):
             return True
         if isinstance(value, ast.Call):
             declaration = self.constructed_class(value, frame)
@@ -1241,15 +1249,27 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         parameter = self.static_binding(constructor, value.id)
         if not isinstance(parameter, ast.arg) or parameter in (constructor.args.vararg, constructor.args.kwarg):
             return False
-        declared_type, _ = self.resolved_value(parameter.annotation, EvaluationFrame())
-        return self.is_local_flow_declaration(declared_type) or self.is_external_flow_import(declared_type)
+        declared_type, annotation_frame = self.resolved_value(parameter.annotation, EvaluationFrame())
+        return self.is_local_flow_declaration(declared_type) or self.is_external_flow_import(declared_type, annotation_frame)
 
     def is_local_flow_declaration(self, declaration):
         return isinstance(declaration, ast.ClassDef) and self.flow_classes.get(declaration.name) is declaration
 
-    def is_external_flow_import(self, declaration):
-        statement = self.parents.get(declaration)
-        return isinstance(declaration, ast.alias) and isinstance(statement, ast.ImportFrom) and statement.module != "dex"
+    def is_external_flow_import(self, reference, frame):
+        if isinstance(reference, ast.Attribute):
+            root = reference.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            declaration, _ = self.resolved_value(root, frame)
+            if not isinstance(self.parents.get(declaration), ast.Import):
+                return False
+            module = declaration.name
+        else:
+            statement = self.parents.get(reference)
+            if not isinstance(reference, ast.alias) or not isinstance(statement, ast.ImportFrom):
+                return False
+            module = statement.module or ""
+        return module not in {"dex", "typing"} and not module.startswith("dex.")
 
     def is_dex_method_call(self, call, owner, method):
         return (

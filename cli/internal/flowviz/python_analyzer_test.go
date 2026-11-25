@@ -22,6 +22,9 @@ import (
 func TestPythonUnpacksSubFlowRunComprehensions(t *testing.T) {
 	const source = `from dex import ConditionCombination, Flow, Step, StepList, SubFlow, Timer, Wait, graceful_complete
 from child_flows import ChildFlow, child_flow
+import child_flows as child_flows_module
+from dex.wait import Wait as DexWait
+from typing import Any
 
 class LocalChildFlow(Flow[str]):
     def get_steps(self):
@@ -53,35 +56,51 @@ class ParentFlow(Flow[list[str]]):
 		body  string
 		label string
 	}{
-		"bound list":                  {"runs = " + comprehension + "\nreturn Wait.all_of(*runs)", "child_flow"},
-		"annotated list with timer":   {"runs: list = " + comprehension + "\nreturn Wait.any_of(*runs, Timer.by_duration(1000))", "child_flow"},
-		"inline list":                 {"return Wait.all_of(*" + comprehension + ")", "child_flow"},
-		"inline generator":            {"return Wait.all_of(*(SubFlow.run(child_flow, request) for request in requests))", "child_flow"},
-		"field with injected Flow":    {"runs = [SubFlow.run(self.child, request) for request in requests]\nreturn Wait.all_of(*runs)", "self.child"},
-		"inline generator with field": {"return Wait.all_of(*(SubFlow.run(self.child, request) for request in requests))", "self.child"},
-		"stable child alias":          {"child = child_flow\nruns = [SubFlow.run(child, request) for request in requests]\nreturn Wait.all_of(*runs)", "child"},
-		"local child Flow instance":   {"return Wait.all_of(*(SubFlow.run(local_child_flow, request) for request in requests))", "local_child_flow"},
-		"reassigned list":             {body: "runs = " + comprehension + "\nruns = []\nreturn Wait.all_of(*runs)"},
-		"mutated list":                {body: "runs = " + comprehension + "\nruns.append(Timer.by_duration(1000))\nreturn Wait.all_of(*runs)"},
-		"list passed to a helper":     {body: "runs = " + comprehension + "\nupdate(runs)\nreturn Wait.all_of(*runs)"},
-		"list aliased":                {body: "runs = " + comprehension + "\nalias = runs\nreturn Wait.all_of(*alias)"},
-		"list read before binding":    {body: "return Wait.all_of(*runs)\nruns = " + comprehension},
-		"conditional binding":         {body: "if requests:\n    runs = " + comprehension + "\nreturn Wait.all_of(*runs)"},
-		"helper returning conditions": {body: "return Wait.any_of(*build_runs(requests), Timer.by_duration(1000))"},
-		"element built by helper":     {body: "runs = [build_run(request) for request in requests]\nreturn Wait.all_of(*runs)"},
-		"timer comprehension":         {body: "return Wait.all_of(*[Timer.by_duration(request) for request in requests])"},
-		"filtered comprehension":      {body: "return Wait.all_of(*[SubFlow.run(child_flow, request) for request in requests if request])"},
-		"empty list":                  {body: "runs = []\nreturn Wait.all_of(*runs)"},
-		"computed child":              {body: "runs = [SubFlow.run(select_child(request), request) for request in requests]\nreturn Wait.all_of(*runs)"},
-		"computed child alias":        {body: "child = select_child(requests)\nruns = [SubFlow.run(child, request) for request in requests]\nreturn Wait.all_of(*runs)"},
-		"reassigned child":            {body: "child = child_flow\nchild = select_child(requests)\nreturn Wait.all_of(*[SubFlow.run(child, request) for request in requests])"},
-		"reassigned child field":      {body: "self.child = select_child(requests)\nreturn Wait.all_of(*[SubFlow.run(self.child, request) for request in requests])"},
-		"child is the item":           {body: "return Wait.any_of(*(SubFlow.run(child_flow, '') for child_flow in requests))"},
-		"child is an item property":   {body: "return Wait.any_of(*(SubFlow.run(request.child, request) for request in requests))"},
-		"unpacked run arguments":      {body: "return Wait.all_of(*(SubFlow.run(*(child_flow, request)) for request in requests))"},
-		"unpacked collection copy":    {body: "runs = " + comprehension + "\nreturn Wait.all_of(*runs[:])"},
-		"unpacked nested condition":   {body: "return Wait.any_combination_of(ConditionCombination.of(*" + comprehension + "))"},
-		"unpacked Wait.until":         {body: "return Wait.until(*" + comprehension + ")"},
+		"bound list":                   {"runs = " + comprehension + "\nreturn Wait.all_of(*runs)", "child_flow"},
+		"annotated list with timer":    {"runs: list = " + comprehension + "\nreturn Wait.any_of(*runs, Timer.by_duration(1000))", "child_flow"},
+		"inline list":                  {"return Wait.all_of(*" + comprehension + ")", "child_flow"},
+		"inline generator":             {"return Wait.all_of(*(SubFlow.run(child_flow, request) for request in requests))", "child_flow"},
+		"filtered comprehension":       {"return Wait.all_of(*[SubFlow.run(child_flow, request) for request in requests if request])", "child_flow"},
+		"multiple for clauses":         {"return Wait.all_of(*[SubFlow.run(child_flow, request) for group in requests for request in group])", "child_flow"},
+		"keyword child":                {"return Wait.all_of(*[SubFlow.run(flow=child_flow, input=request) for request in requests])", "SubFlow"},
+		"imported module member":       {"return Wait.all_of(*[SubFlow.run(child_flows_module.child_flow, request) for request in requests])", "child_flows_module.child_flow"},
+		"nested module member":         {"return Wait.all_of(*[SubFlow.run(child_flows_module.flows.child_flow, request) for request in requests])", "child_flows_module.flows.child_flow"},
+		"field with injected Flow":     {"runs = [SubFlow.run(self.child, request) for request in requests]\nreturn Wait.all_of(*runs)", "self.child"},
+		"inline generator with field":  {"return Wait.all_of(*(SubFlow.run(self.child, request) for request in requests))", "self.child"},
+		"stable child alias":           {"child = child_flow\nruns = [SubFlow.run(child, request) for request in requests]\nreturn Wait.all_of(*runs)", "child"},
+		"local child Flow instance":    {"return Wait.all_of(*(SubFlow.run(local_child_flow, request) for request in requests))", "local_child_flow"},
+		"reassigned list":              {body: "runs = " + comprehension + "\nruns = []\nreturn Wait.all_of(*runs)"},
+		"augmented list assignment":    {body: "runs = " + comprehension + "\nruns += []\nreturn Wait.all_of(*runs)"},
+		"mutated list":                 {body: "runs = " + comprehension + "\nruns.append(Timer.by_duration(1000))\nreturn Wait.all_of(*runs)"},
+		"list unpacked twice":          {body: "runs = " + comprehension + "\nreturn Wait.all_of(*runs, *runs)"},
+		"list from parameter":          {body: "return Wait.all_of(*requests)"},
+		"bound generator":              {body: "runs = (SubFlow.run(child_flow, request) for request in requests)\nreturn Wait.all_of(*runs)"},
+		"list read in nested function": {body: "runs = " + comprehension + "\ndef read_runs():\n    return runs\nreturn Wait.all_of(*runs)"},
+		"list passed to a helper":      {body: "runs = " + comprehension + "\nupdate(runs)\nreturn Wait.all_of(*runs)"},
+		"list aliased":                 {body: "runs = " + comprehension + "\nalias = runs\nreturn Wait.all_of(*alias)"},
+		"list read before binding":     {body: "return Wait.all_of(*runs)\nruns = " + comprehension},
+		"conditional binding":          {body: "if requests:\n    runs = " + comprehension + "\nreturn Wait.all_of(*runs)"},
+		"helper returning conditions":  {body: "return Wait.any_of(*build_runs(requests), Timer.by_duration(1000))"},
+		"element built by helper":      {body: "runs = [build_run(request) for request in requests]\nreturn Wait.all_of(*runs)"},
+		"timer comprehension":          {"return Wait.all_of(*[Timer.by_duration(request) for request in requests])", "request timer"},
+		"nested timer generator":       {"return Wait.any_combination_of(ConditionCombination.of(*(Timer.by_duration(request) for request in requests if request)))", "request timer"},
+		"empty list":                   {body: "runs = []\nreturn Wait.all_of(*runs)"},
+		"computed child":               {body: "runs = [SubFlow.run(select_child(request), request) for request in requests]\nreturn Wait.all_of(*runs)"},
+		"computed child alias":         {body: "child = select_child(requests)\nruns = [SubFlow.run(child, request) for request in requests]\nreturn Wait.all_of(*runs)"},
+		"reassigned child":             {body: "child = child_flow\nchild = select_child(requests)\nreturn Wait.all_of(*[SubFlow.run(child, request) for request in requests])"},
+		"reassigned child field":       {body: "self.child = select_child(requests)\nreturn Wait.all_of(*[SubFlow.run(self.child, request) for request in requests])"},
+		"child is the item":            {body: "return Wait.any_of(*(SubFlow.run(child_flow, '') for child_flow in requests))"},
+		"child bound by second for":    {body: "return Wait.all_of(*[SubFlow.run(child_flow, request) for request in requests for child_flow in request])"},
+		"child unpacked by for":        {body: "return Wait.all_of(*[SubFlow.run(child_flow, request) for child_flow, request in requests])"},
+		"child is an item property":    {body: "return Wait.any_of(*(SubFlow.run(request.child, request) for request in requests))"},
+		"typing import":                {body: "return Wait.all_of(*[SubFlow.run(Any, request) for request in requests])"},
+		"dex submodule import":         {body: "return Wait.all_of(*[SubFlow.run(DexWait, request) for request in requests])"},
+		"bare module import":           {body: "return Wait.all_of(*[SubFlow.run(child_flows_module, request) for request in requests])"},
+		"assignment expression":        {body: "return Wait.all_of(*[SubFlow.run(child_flow, request) for request in requests if (allowed := request)])"},
+		"unpacked run arguments":       {body: "return Wait.all_of(*(SubFlow.run(*(child_flow, request)) for request in requests))"},
+		"unpacked collection copy":     {body: "runs = " + comprehension + "\nreturn Wait.all_of(*runs[:])"},
+		"unpacked nested condition":    {body: "return Wait.any_combination_of(ConditionCombination.of(*" + comprehension + "))"},
+		"unpacked Wait.until":          {body: "return Wait.until(*" + comprehension + ")"},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
 		testCase := testCases[name]
@@ -101,14 +120,20 @@ class ParentFlow(Flow[list[str]]):
 			require.NotNil(t, waitNode)
 			require.NotEmpty(t, waitNode.Wait.Conditions)
 			condition := waitNode.Wait.Conditions[0]
-			if testCase.label == "" {
+			switch {
+			case testCase.label == "":
 				require.False(t, graph.Valid)
 				require.Contains(t, diagnosticCodes(graph), "dynamic_wait_condition")
 				require.Equal(t, "unknown", condition.Kind)
 				for _, edge := range graph.Edges {
 					require.NotEqual(t, "subflow", edge.Kind)
 				}
-			} else {
+			case testCase.label == "request timer":
+				require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+				require.Equal(t, "timer", condition.Kind)
+				require.Equal(t, testCase.label, condition.Label)
+				require.Equal(t, "request", condition.Expression)
+			default:
 				require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 				require.Equal(t, "subflow", condition.Kind)
 				require.Equal(t, testCase.label, condition.Label)
@@ -120,10 +145,14 @@ class ParentFlow(Flow[list[str]]):
 					}
 				}
 			}
-			if strings.Contains(testCase.body, ", Timer.by_duration") {
+			switch {
+			case strings.Contains(testCase.body, ", Timer.by_duration"):
 				require.Len(t, waitNode.Wait.Conditions, 2)
 				require.Equal(t, "timer", waitNode.Wait.Conditions[1].Kind)
-			} else {
+			case name == "list unpacked twice":
+				require.Len(t, waitNode.Wait.Conditions, 2)
+				require.Equal(t, "unknown", waitNode.Wait.Conditions[1].Kind)
+			default:
 				require.Len(t, waitNode.Wait.Conditions, 1)
 			}
 		})
