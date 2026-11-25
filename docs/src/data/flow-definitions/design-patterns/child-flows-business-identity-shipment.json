@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T07:24:59Z",
+  "generatedAt": "2026-11-25T07:55:31Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -10,23 +10,23 @@
     "name": "ShipmentFlow",
     "startStepId": "step:DeliverShipment",
     "span": {
-      "startLine": 484,
+      "startLine": 490,
       "startColumn": 1,
-      "endLine": 507,
+      "endLine": 513,
       "endColumn": 54
     }
   },
   "nodes": [
     {
-      "id": "decision:step:DeliverShipment:437:16",
+      "id": "decision:step:DeliverShipment:443:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DeliverShipment",
       "phase": "execute",
       "span": {
-        "startLine": 437,
+        "startLine": 443,
         "startColumn": 16,
-        "endLine": 447,
+        "endLine": 453,
         "endColumn": 10
       },
       "decision": {
@@ -34,15 +34,15 @@
       }
     },
     {
-      "id": "decision:step:ReportShipmentOutcome:481:16",
+      "id": "decision:step:ReportShipmentOutcome:487:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ReportShipmentOutcome",
       "phase": "execute",
       "span": {
-        "startLine": 481,
+        "startLine": 487,
         "startColumn": 16,
-        "endLine": 481,
+        "endLine": 487,
         "endColumn": 57
       },
       "decision": {
@@ -54,9 +54,9 @@
       "kind": "attribute",
       "name": "shipmentOutcome",
       "span": {
-        "startLine": 157,
+        "startLine": 159,
         "startColumn": 1,
-        "endLine": 157,
+        "endLine": 159,
         "endColumn": 53
       },
       "resource": {
@@ -70,9 +70,9 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 502,
+        "startLine": 508,
         "startColumn": 36,
-        "endLine": 502,
+        "endLine": 508,
         "endColumn": 57
       },
       "metadata": {
@@ -85,9 +85,9 @@
       "name": "ReportShipmentOutcome",
       "phase": "execute",
       "span": {
-        "startLine": 503,
+        "startLine": 509,
         "startColumn": 13,
-        "endLine": 503,
+        "endLine": 509,
         "endColumn": 41
       },
       "metadata": {
@@ -95,15 +95,15 @@
       }
     },
     {
-      "id": "wait:DeliverShipment:430:16:0",
+      "id": "wait:DeliverShipment:436:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:DeliverShipment",
       "phase": "wait_for",
       "span": {
-        "startLine": 430,
+        "startLine": 436,
         "startColumn": 16,
-        "endLine": 432,
+        "endLine": 438,
         "endColumn": 10
       },
       "wait": {
@@ -114,9 +114,9 @@
             "label": "timedelta(seconds=request.shipment.delivery_delay_seconds) timer",
             "expression": "timedelta(seconds=request.shipment.delivery_delay_seconds)",
             "span": {
-              "startLine": 431,
+              "startLine": 437,
               "startColumn": 13,
-              "endLine": 431,
+              "endLine": 437,
               "endColumn": 90
             }
           }
@@ -128,13 +128,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:DeliverShipment:437:16",
+      "from": "decision:step:DeliverShipment:443:16",
       "to": "step:ReportShipmentOutcome",
       "label": "go_to",
       "span": {
-        "startLine": 437,
+        "startLine": 443,
         "startColumn": 16,
-        "endLine": 447,
+        "endLine": 453,
         "endColumn": 10
       }
     },
@@ -145,9 +145,9 @@
       "to": "resource:attribute:SHIPMENT_OUTCOME",
       "label": "set",
       "span": {
-        "startLine": 436,
+        "startLine": 442,
         "startColumn": 9,
-        "endLine": 436,
+        "endLine": 442,
         "endColumn": 47
       },
       "metadata": {

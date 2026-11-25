@@ -20,11 +20,11 @@ import shipmentFlowDefinition from '@site/src/data/flow-definitions/design-patte
 
 ## 工作方式 {#how-it-works}
 
-1. `StartShipments` 先检查订单里的每个发货单号都不重复。它在订单的记录里把每个单号登记为 `starting`，再为每个发货单启动一个分支。订单里出现重复单号时，订单在启动任何发货单之前失败。
+1. `StartShipments` 先检查订单：对账间隔为正数，送达延迟不是负数，发货单号都不重复。无效的订单在启动任何发货单之前失败。然后这个 Step 在订单的记录里把每个单号登记为 `starting`，再为每个发货单启动一个分支。
 2. `StartShipment` 通过 Client 启动一个 `ShipmentFlow`。它的 Flow ID 是发货单号。它的 request ID 是完整启动请求的摘要，所以重试的 Step 重复的是同一次启动。发货单有自己的 Flow timeout。
 3. 接着 `StartShipment` 认领这个 run：它记录启动返回的 run ID。从这以后，订单只接受这个 run 的报告和读取。
 4. 发货单送达。`DeliverShipment` 把结果存进 `shipmentOutcome` Attribute。
-5. `ReportShipmentOutcome` 带着自己的 run ID 调用订单的 `recordShipmentOutcome` RPC。这个 RPC 把结果填进该发货单的记录。
+5. `ReportShipmentOutcome` 带着自己的 run ID 调用订单的报告 RPC。这个 RPC 在 Go 里是 `RecordShipmentOutcome`，在 Python 里是 `record_shipment_outcome`，在 Java、TypeScript 和 Rust 里是 `recordShipmentOutcome`。它把结果填进该发货单的记录。
 6. `AwaitShipment` 每隔一段时间读取一次被认领的 run。仍在运行的发货单稍后再读。发货单关闭后，它记录终止状态；如果报告还没有填入结果，它也记录已存储的结果。
 
 <SdkTabs
@@ -655,7 +655,7 @@ impl Step for AwaitShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, tracked: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             tracked.reconcile_interval_seconds,
         ))))
     }
@@ -727,7 +727,7 @@ fn reconcile_shipment(
 
 发货单在一个 Step 里提交结果，在下一个 Step 里报告。两个 Step 都为 `Execute` 显式声明 SYNC durability。这样即使 Flow 默认是 ASYNC，报告 Step 也只会在结果存好之后开始。
 
-报告带上发货单自己的 run ID。Client 支持 RPC request ID 时，报告还带有稳定的 request ID：`report:` 加上发货单号。
+报告带上发货单自己的 run ID。Client 支持 RPC request ID 时，报告还带有稳定的 request ID：`report:`、发货单号、`:` 和 run ID。
 
 订单已经关闭时，报告会返回带类型的错误。发货单到此结束尝试。它的结果仍然可以通过 Client 读取。
 
@@ -861,8 +861,8 @@ func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport
 	if client == nil {
 		return nil, errClientUnavailable
 	}
-	// Stable per shipment, so a retried report changes the order once.
-	requestID := "report:" + ctx.FlowID()
+	// Stable per shipment run, so a retried report changes the order once.
+	requestID := "report:" + ctx.FlowID() + ":" + ctx.RunID()
 	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
 		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
 	// A closed order ends the attempts; the outcome stays readable through the Client.
@@ -1002,8 +1002,8 @@ class ReportShipmentOutcome implements Step<PendingReport> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const getOrderFlow = this.getOrderFlow;
-    // Stable per shipment, so a retried report changes the order once.
-    const requestId = `report:${context.flowId}`;
+    // Stable per shipment run, so a retried report changes the order once.
+    const requestId = `report:${context.flowId}:${context.runId}`;
     try {
       await getClient().invokeRPCWithOptions(
         getOrderFlow().recordShipmentOutcome,
@@ -1040,7 +1040,7 @@ impl Step for DeliverShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             request.shipment.delivery_delay_seconds,
         ))))
     }
@@ -1165,8 +1165,8 @@ func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
 			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
 			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
 		}),
-		dex.DefineRPC(flow.GetDexSummary, nil),
-		dex.DefineRPC(flow.GetDexDisplay, nil),
+		dex.DefineRPC(flow.GetDexSummary, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
+		dex.DefineRPC(flow.GetDexDisplay, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
 	}
 }
 

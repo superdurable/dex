@@ -20,11 +20,11 @@ The order starts each shipment as its own top-level Flow. The shipment number is
 
 ## How it works
 
-1. `StartShipments` checks that every shipment number in the order is unique. It registers each number as `starting` in the order's records, then starts one branch per shipment. An order that repeats a number fails before it starts any shipment.
+1. `StartShipments` checks the order: the reconcile interval is positive, no delivery delay is negative, and every shipment number is unique. An invalid order fails before it starts any shipment. The Step registers each number as `starting` in the order's records, then starts one branch per shipment.
 2. `StartShipment` starts a `ShipmentFlow` through the Client. Its Flow ID is the shipment number. Its request ID is a digest of the complete start request, so a retried Step repeats the same start. The shipment gets its own Flow timeout.
 3. `StartShipment` then claims the run: it records the run ID that the start returned. From then on, the order accepts reports and reads of that run only.
 4. The shipment delivers. `DeliverShipment` stores its outcome in the `shipmentOutcome` Attribute.
-5. `ReportShipmentOutcome` calls the order's `recordShipmentOutcome` RPC with its own run ID. The RPC fills the outcome in the shipment's record.
+5. `ReportShipmentOutcome` calls the order's report RPC with its own run ID. The RPC is `RecordShipmentOutcome` in Go, `record_shipment_outcome` in Python, and `recordShipmentOutcome` in Java, TypeScript, and Rust. It fills the outcome in the shipment's record.
 6. `AwaitShipment` reads the claimed run at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
 
 <SdkTabs
@@ -655,7 +655,7 @@ impl Step for AwaitShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, tracked: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             tracked.reconcile_interval_seconds,
         ))))
     }
@@ -727,7 +727,7 @@ fn reconcile_shipment(
 
 The shipment commits its outcome in one Step and reports in the next. Both Steps declare SYNC durability for `Execute`. The report Step then starts only after the outcome is stored, even when the Flow defaults to ASYNC.
 
-The report carries the shipment's own run ID. When the Client accepts an RPC request ID, the report also carries a stable one: `report:` followed by the shipment number.
+The report carries the shipment's own run ID. When the Client accepts an RPC request ID, the report also carries a stable one: `report:`, the shipment number, `:`, and the run ID.
 
 When the order has already closed, the report fails with a typed error. The shipment ends its attempts there. Its outcome stays readable through the Client.
 
@@ -861,8 +861,8 @@ func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport
 	if client == nil {
 		return nil, errClientUnavailable
 	}
-	// Stable per shipment, so a retried report changes the order once.
-	requestID := "report:" + ctx.FlowID()
+	// Stable per shipment run, so a retried report changes the order once.
+	requestID := "report:" + ctx.FlowID() + ":" + ctx.RunID()
 	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
 		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
 	// A closed order ends the attempts; the outcome stays readable through the Client.
@@ -1002,8 +1002,8 @@ class ReportShipmentOutcome implements Step<PendingReport> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const getOrderFlow = this.getOrderFlow;
-    // Stable per shipment, so a retried report changes the order once.
-    const requestId = `report:${context.flowId}`;
+    // Stable per shipment run, so a retried report changes the order once.
+    const requestId = `report:${context.flowId}:${context.runId}`;
     try {
       await getClient().invokeRPCWithOptions(
         getOrderFlow().recordShipmentOutcome,
@@ -1040,7 +1040,7 @@ impl Step for DeliverShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             request.shipment.delivery_delay_seconds,
         ))))
     }
@@ -1165,8 +1165,8 @@ func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
 			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
 			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
 		}),
-		dex.DefineRPC(flow.GetDexSummary, nil),
-		dex.DefineRPC(flow.GetDexDisplay, nil),
+		dex.DefineRPC(flow.GetDexSummary, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
+		dex.DefineRPC(flow.GetDexDisplay, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
 	}
 }
 
