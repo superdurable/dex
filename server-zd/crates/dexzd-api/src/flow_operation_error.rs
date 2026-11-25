@@ -298,6 +298,7 @@ mod tests {
                 stack_trace: "at charge".to_owned(),
                 retry_after_seconds: 0,
                 grpc_status: Code::FailedPrecondition as i32,
+                non_retryable: false,
             },
         });
         assert_eq!(code, Code::FailedPrecondition);

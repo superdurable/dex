@@ -202,8 +202,8 @@ pub(super) fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -
             AttemptEnd::Failure(AttemptFailure {
                 kind: StepAttemptFailureKind::WorkerError,
                 server_detail: String::new(),
+                is_non_retryable: worker_error.non_retryable,
                 worker_error: Some(worker_error),
-                is_non_retryable: false,
                 served_by_app_worker_id: app_worker_id,
                 omitted_value_slots: None,
                 is_not_run: false,
