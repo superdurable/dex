@@ -58,33 +58,18 @@ for them there. [FDG authoring](fdg-authoring.md) has the exact syntax.
 
 ## Actions, permissions, and Work Queue
 
-- An Action is a typed RPC with Action metadata. It declares exactly one
-  permission. Use lowercase domain keys, such as `refund.manage`.
-- The Action condition controls presentation only. Every Action RPC rechecks
-  current business state before it changes durable state or publishes a
-  Channel message. Use business locks when that check and the effect must
-  commit atomically.
-- When a successful Step method or RPC writes or deletes an Action condition
-  source, the Worker sends the Flow's complete Action permission mapping.
-  The Server evaluates it atomically with the writes and adds newly matching
-  permissions to the Flow's Work Queue permission history.
-- Permission history only grows. A matched permission stays for that Flow
-  run, stays searchable after completion, and is not removed by later
-  state changes. Removing or renaming a permission does not clear old
-  history.
-- Application Steps need no projection-only locks to maintain that history.
-- A changed Action definition is evaluated on the next condition-source write
-  or in a new Flow. Treat an Action definition as a stable contract for open
-  Flows.
+An Action is a typed RPC with Action metadata and exactly one permission.
+[Backend implementation](backend-implementation.md#human-operations) has the
+Action and permission-history rules every application follows. Dex Web adds:
+
+- Dex Web renders each Action as a button and a typed form, shown while its
+  condition holds.
 - Work Queue matches a Run when its history contains any requested
   permission. A match means an Action is or was available. Opening the Run
   rechecks current eligibility.
 - **Working as** selects one permission to filter work. It authenticates no
   one and grants nothing. Dex Web's own permission check reads the list from
   the request, so it is a consistency check, not authorization.
-- Permission history is discovery data. It is never authorization evidence
-  and never proof that an Action is still eligible. The trusted application
-  boundary decides who may invoke the RPC.
 
 ## Start Flow
 
@@ -113,35 +98,9 @@ for them there. [FDG authoring](fdg-authoring.md) has the exact syntax.
 
 Dex Web configures Connector connections only in loopback `dexcli dev`, under
 **Connectors**. A deployed Dex Web exposes no Connector setup, OAuth, or
-credential storage.
-
-- Automatic setup needs an operation-specific factory from an exact official
-  published package, a static connection name, and no local package
-  replacement. A generic factory or unsupported dependency still renders but
-  cannot be configured.
-- Connector ID plus connection name is one identity. Two module versions for
-  one identity are a blocking conflict.
-- Connection credentials and Trigger binding configuration are separate
-  records. Changing one binding does not change another Flow that reuses the
-  connection.
-- The local connection file holds plaintext development credentials. Never
-  commit, upload, log, or copy it into Flow state. Use
-  `dexcli dev --connector-config-dir DIRECTORY` to isolate a stack.
-- The application reads settings, bindings, and operation configuration at
-  startup, so a change needs an application restart. A credential
-  replacement takes effect on the next provider call.
-- Fields the release derives from verified claims or read-only provider
-  pickers are not free-text inputs. Do not add duplicate configuration for
-  them in the application.
-- For Connector development only, `dexcli dev` accepts a local release
-  override for one Connector. It shows as **Local override**. Never treat an
-  override as a published release or commit it as a dependency. Never serve a
-  working tree as the declared next version into a shared package cache, such
-  as the default Go module cache, because that copy persists and shadows the
-  real release. Use the override, or a temporary cache such as `GOMODCACHE`.
-
-[Connector architecture](connector-architecture.md#local-development-configuration)
-covers how the application reads this configuration.
+credential storage. [Connector
+architecture](connector-architecture.md#local-development-configuration) has
+the setup rules and how the application reads this configuration.
 
 ## QR capture
 

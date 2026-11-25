@@ -67,6 +67,8 @@ App Builder 会先确认 coding-agent host 能让它写入 repository 或项目�
 
 这一步的产出是：一张角色、操作与权限的对照表，一份生命周期方案，你对 UI 和 Connector 的选择，以及你的 UI 或调用方需要的应用 API 操作。所有重要的疑问都会在写代码之前和你确认清楚。
 
+<a id="3-design-and-implement-the-flow"></a>
+
 ### 2. 设计并实现后端 {#2-design-and-implement-the-backend}
 
 后端是应用的核心。它使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 遵循 [SDK 工作](#sdk-work) 中说明的通用 SDK 规则，再加上自己更严格的规则：
@@ -78,13 +80,17 @@ App Builder 会先确认 coding-agent host 能让它写入 repository 或项目�
 - 凭据放在运行环境或 Connector 配置中，不放在应用代码里；
 - 对你选择用 Connector 的系统，使用它已发布的能力，不在应用里新增 provider client。
 
-写代码之前，Skill 会先说明 Flow 的标识、typed 输入和输出、Step、状态转换、Attribute、Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。它和 Flow 一起设计应用的 HTTP API 契约，并从契约生成服务端代码。
+写代码之前，Skill 会先说明 Flow 的标识、typed 输入和输出、Step、状态转换、Attribute、Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。你的 UI 或其他调用方需要 API 时，它和 Flow 一起设计应用的 HTTP API 契约，并从契约生成服务端代码。没有 UI 也没有调用方时，应用可以只交付 Worker。
+
+<a id="4-verify-and-hand-off"></a>
 
 ### 3. 验证并交付 {#3-verify-and-hand-off}
 
-开发过程中，Skill 会运行与每次改动相关的测试。最后运行模板的完整检查，覆盖应用 API、你选择的 UI、生成的代码、生产构建、在真实 Dex Server 上的行为、恢复路径和 FDG 2.0 分析。
+开发过程中，Skill 会运行与每次改动相关的测试。最后运行模板的完整检查，覆盖应用 API 和你选择的 UI（如果有）、生成的代码、生产构建、在真实 Dex Server 上的行为、恢复路径和 FDG 2.0 分析。
 
 交付内容包括：你确认过的产品决定、已实现的功能、确切的测试结果、Connector 发布或贡献的状态，以及已知的限制。工作以一个干净的 Git commit 结束。
+
+<a id="2-choose-the-application-surface"></a>
 
 ## UI 和 Connector 都是可选的 {#ui-and-connectors-are-optional}
 
@@ -94,9 +100,9 @@ App Builder 在确认业务流程时，对下面每一项只问你一次，并�
 | --- | --- | --- |
 | **你自己的 UI** | 大多数产品：给你的用户用的页面、参与者门户，或带品牌的应用。 | Skill 基于应用 API 构建 React 和 TypeScript 前端。页面方案还有待定的地方时，它先做出静态线框页面给你确认。 |
 | **Dex Web** | 你想要一个现成的运维和管理界面：Run、Work Queue、Action、字段编辑、历史和诊断。 | Skill 加上 Dex Web 读取的 Summary、Display、Action 和权限契约。只有你提出时，你自己的 UI 才会重复这些功能。 |
-| **已发布的 Connector** | 流程用到外部系统，例如 Slack 或 Gmail，并且你想用现成的集成。 | Skill 使用已发布 Connector 的 operation 和 Trigger。不用 Connector 时，应用在自己的 Step 代码里调用这个系统。 |
+| **已发布的 Connector** | 流程用到外部系统，例如 Slack 或 Gmail，并且你想用现成的集成。 | Skill 使用已发布 Connector 的 operation 和 Trigger。你不用 Connector 时，应用在自己的 Step 代码里调用这个系统。你选了 Connector 但它缺失时，按[如何处理 Connector 缺口](#how-connector-gaps-are-handled)处理。 |
 
-你可以选择自己的 UI、Dex Web，或者两者都要。你自己的 UI 不需要额外的理由。在本地，Skill 工作时 `dexcli dev` 始终会在 Dex Web 中展示你的 Flow。
+你可以选择自己的 UI、Dex Web、两者都要，或者在调用方只用应用 API 时都不要。你自己的 UI 不需要额外的理由。在本地，Skill 工作时 `dexcli dev` 始终会在 Dex Web 中展示你的 Flow。
 
 ## 如何处理 Connector 缺口 {#how-connector-gaps-are-handled}
 

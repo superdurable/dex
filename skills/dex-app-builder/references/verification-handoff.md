@@ -32,16 +32,18 @@ success; report only observed identities and results.
 
 Keep one project command that:
 
-1. regenerates any API contracts;
+1. regenerates the application API code when the application has an API;
 2. renders every Flow source file that the installed `dexcli` analyzes to
    FDG 2.0 and fails unless each result is `valid: true` (see
    [FDG authoring](fdg-authoring.md#focused-verification));
 3. runs the project's own recorded format, lint, type check, and build
    commands for the backend;
-4. builds the production backend and any frontend.
+4. builds the production backend and, when one exists, the frontend.
 
-After an API change, check both production artifacts. A backend build does
-not prove that the frontend's generated imports still exist.
+After an API change in an application with a frontend, check both production
+artifacts. A backend build does not prove that the frontend's generated
+imports still exist. A Managed Dex App keeps its required API contract and
+checks.
 
 ## Tests: real dependencies or none
 
@@ -126,7 +128,9 @@ Cover what applies:
   Connector package's own provider and real-Dex tests.
 
 Test each application API operation and each retained webhook through the
-real Worker.
+real Worker. For each provider webhook the application receives itself,
+also test that an event with an invalid signature or proof writes nothing,
+and that a repeated delivery of one provider event ID takes effect once.
 
 For external storage, test its authority boundary, synchronization lag, retry,
 outage handling, and reconciliation. For an Attribute Store row-key template,
@@ -198,9 +202,14 @@ Ensure:
 - authorization starts with `admin`, Action permissions are granular, and
   every extra role is justified;
 - the user's UI answer is recorded: their own UI, Dex Web, both, or neither;
-- the application API contract was designed with the Flow and Connector
-  boundaries, its generated code reproduces, and the backend boundary
-  implements the generated interfaces;
+- when the application has an API, its contract was designed with the Flow
+  and Connector boundaries, its generated code reproduces, and the backend
+  boundary implements the generated interfaces; an application with no UI
+  and no caller may ship only its Worker, except a Managed Dex App, which
+  keeps its required API contract;
+- every webhook the application receives itself verifies the provider
+  signature or equivalent proof, deduplicates by the stable provider event
+  ID, and correlates the event to its Flow;
 - with the user's own UI, its generated client and production bundle
   reproduce, the dynamic UI uses only the generated client, and polish
   followed a passing real journey;

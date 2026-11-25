@@ -271,13 +271,15 @@ is never permission to install the provider SDK or write local integration
 code without asking the user again.
 
 Mark a service internal only when the organization owns and controls it.
-Then follow the
+When the user chose a Connector for an internal service, follow the
 [internal connector library decision](connector-architecture.md#internal-connector-library-decision).
 
 If the process begins from Slack, email, a webhook, or another external
 source the user chose a Connector for, model it as a Connector Trigger.
-Otherwise the application API receives the event. Either way, the application
-decides whether the event starts a Flow or invokes a typed RPC.
+Otherwise the application API receives the event: verify the provider
+signature or an equivalent proof at that boundary, deduplicate by the stable
+provider event ID, and correlate the event to its Flow. Either way, the
+application decides whether the event starts a Flow or invokes a typed RPC.
 
 ## Confirmation artifact
 

@@ -303,7 +303,8 @@ requirements. It models Flows, their primitives, and their Flow Definition
 Graph (FDG) before code. The backend is the main line: Flow design, Dex-first
 state, Workers, and the application's own HTTP API contract for its UI or
 callers. Discovery asks once which UI the user wants: their own UI, which most
-products need, Dex Web for operations and management, or both. There is no
+products need, Dex Web for operations and management, both, or neither when
+callers only use the application API. There is no
 Dex Web-only default, and the user's own UI needs no recorded Dex Web gap.
 When the user chooses Dex Web, Runs and Indexed Attributes cover list and
 search, Summary RPCs provide list fields, Display RPCs provide details and

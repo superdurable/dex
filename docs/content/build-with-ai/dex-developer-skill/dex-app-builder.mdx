@@ -86,6 +86,8 @@ lifecycle, your UI and Connector choices, and the application API operations
 your UI or callers need. The skill settles every open question that matters
 with you before any code is written.
 
+<a id="3-design-and-implement-the-flow"></a>
+
 ### 2. Design and implement the backend
 
 The backend is the core of the application. It uses the Dex SDK for the application's language: Go, Python,
@@ -108,19 +110,25 @@ adds stricter rules of its own:
 
 Before it writes code, the skill states the Flow's identity, typed input and
 output, Steps, transitions, Attributes, Channels, RPCs, Timers, retries,
-recovery, and Connector boundaries. It designs the application's HTTP API
-contract with the Flow and generates the server code from it.
+recovery, and Connector boundaries. When your UI or other callers need an
+API, it designs the application's HTTP API contract with the Flow and
+generates the server code from it. With no UI and no caller, the application
+can ship only its Worker.
+
+<a id="4-verify-and-hand-off"></a>
 
 ### 3. Verify and hand off
 
 While it works, the skill runs the tests related to each change. At the end,
-it runs the template's full check. This covers the application API, any UI you
-chose, generated code, the production build, behavior against a real Dex
-Server, recovery paths, and the FDG 2.0 analysis.
+it runs the template's full check. This covers the application API and any UI
+you chose, when they exist, generated code, the production build, behavior
+against a real Dex Server, recovery paths, and the FDG 2.0 analysis.
 
 The handoff lists the product decisions you confirmed, what was built, the
 exact test results, the status of any Connector release or contribution, and
 known limitations. The work ends in a clean Git commit.
+
+<a id="2-choose-the-application-surface"></a>
 
 ## Your UI and Connectors are optional {#ui-and-connectors-are-optional}
 
@@ -131,10 +139,10 @@ process. It adds only the ones you choose.
 | --- | --- | --- |
 | **Your own UI** | Most products: screens for your users, a participant portal, or a branded application. | The skill builds a React and TypeScript frontend on the application API. When a page choice is still open, it first shows static wireframe pages for you to review. |
 | **Dex Web** | You want a ready-made UI for operations and management: Runs, Work Queue, Actions, edits, history, and diagnostics. | The skill adds the Summary, Display, Action, and permission contracts that Dex Web reads. Your own UI repeats these features only when you ask. |
-| **Released Connectors** | The process uses an external system, such as Slack or Gmail, and you want a ready-made integration. | The skill uses the released Connector's operations and Triggers. Without one, the application calls the system from its own Step code. |
+| **Released Connectors** | The process uses an external system, such as Slack or Gmail, and you want a ready-made integration. | The skill uses the released Connector's operations and Triggers. When you decline a Connector, the application calls the system from its own Step code. A Connector you chose but that is missing follows [How Connector gaps are handled](#how-connector-gaps-are-handled). |
 
-You can choose your own UI, Dex Web, or both. Your own UI needs no other
-justification. Locally, `dexcli dev` always shows your Flows in Dex Web while
+You can choose your own UI, Dex Web, both, or neither when callers only use
+the application API. Your own UI needs no other justification. Locally, `dexcli dev` always shows your Flows in Dex Web while
 the skill works.
 
 ## How Connector gaps are handled
