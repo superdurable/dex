@@ -24,7 +24,11 @@ const resourceEdgeKinds = new Map([
 const maximumHelperDepth = 6;
 const resourceMethodNames = new Set([...resourceEdgeKinds.keys(),"bufferedText","fork","forkWithRoundKey"]);
 const resourceClassNames = new Set(["Attribute","AttributeMap","Channel","ChannelMap","Join","Stream"]);
-const definitionOptionMethods = new Set(["syncToAttributeStore","hardDeleteOnNull","plaintext","writesRequireLock","writesRequireAttributeLock","publishesRequireAttributeLock"]);
+const attributeOptionMethods = new Set(["syncToAttributeStore","hardDeleteOnNull","plaintext","writesRequireLock","writesRequireAttributeLock"]);
+const channelOptionMethods = new Set(["publishesRequireAttributeLock"]);
+const definitionOptionMethods = new Set([...attributeOptionMethods,...channelOptionMethods]);
+// A chained option counts only on the constructors that define it.
+const definitionOptionMethodsByConstructor = {Attribute:attributeOptionMethods,AttributeMap:attributeOptionMethods,Channel:channelOptionMethods,ChannelMap:channelOptionMethods};
 const contextTypeNames = new Set(["Context","AsyncContext"]);
 const reflectiveWriteNames = new Set(["Object.assign","Object.defineProperty","Object.defineProperties","Object.setPrototypeOf","Reflect.set","Reflect.defineProperty","Reflect.setPrototypeOf","Reflect.deleteProperty"]);
 const builtinClassNames = new Set(["Map","WeakMap","Set","WeakSet","Array","Date","RegExp","Error","Promise","URL"]);
@@ -259,6 +263,8 @@ class TypeScriptAnalyzer {
     const constructor = this.dexName(expression.expression);
     const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Join:"channel",Stream:"stream"}[constructor];
     if (!kind) return;
+    const optionMethods = definitionOptionMethodsByConstructor[constructor];
+    if (configuredBy.some(call => !optionMethods?.has(call.expression.name.text))) return;
     let resourceName = this.staticLiteral(expression.arguments?.[0]);
     const nodeID = `resource:${kind}:${name}`;
     if (typeof resourceName !== "string") {

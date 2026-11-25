@@ -334,6 +334,7 @@ edge resource_publish rpc:reply -> resource:channel:replies publish
 edge resource_write step:AddItem -> resource:attribute:cartItems set
 edge resource_write step:AddItem -> resource:attribute:cartTotal set
 edge resource_publish step:AddItem -> resource:channel:events publish
+== lockRequirementMismatch valid=false
 == moduleReassigned valid=false
 == moduleReusedWait valid=false
 == nestedHelper valid=true
