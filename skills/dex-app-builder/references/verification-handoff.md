@@ -1,4 +1,4 @@
-# Stage 4: build, verify, and hand off
+# Stage 3: build, verify, and hand off
 
 Source readiness and real business acceptance are separate milestones. Report
 them separately. A source gate never proves business execution. A missing test
@@ -13,7 +13,7 @@ success; report only observed identities and results.
   project's equivalent. A missing generator
   executable needs dependency restoration, not repeated failing builds or a
   package upgrade.
-- For Custom UI, change the API contract source, then regenerate. Never
+- For the application API, change the contract source, then regenerate. Never
   hand-edit generated code. When generated output is a build output, keep it
   ignored and never commit it.
 - Generate API packages before you resolve their imports with the package
@@ -32,16 +32,18 @@ success; report only observed identities and results.
 
 Keep one project command that:
 
-1. regenerates any API contracts;
+1. regenerates the application API code when the application has an API;
 2. renders every Flow source file that the installed `dexcli` analyzes to
    FDG 2.0 and fails unless each result is `valid: true` (see
    [FDG authoring](fdg-authoring.md#focused-verification));
 3. runs the project's own recorded format, lint, type check, and build
    commands for the backend;
-4. builds the production backend and any frontend.
+4. builds the production backend and, when one exists, the frontend.
 
-After an API change, check both production artifacts. A backend build does
-not prove that the frontend's generated imports still exist.
+After an API change in an application with a frontend, check both production
+artifacts. A backend build does not prove that the frontend's generated
+imports still exist. A Managed Dex App keeps its required API contract and
+checks.
 
 ## Tests: real dependencies or none
 
@@ -68,12 +70,14 @@ its Dex Web URL again at handoff.
    type appears in Dex Web with its graph.
 2. Run the Worker against the Server address that `dexcli dev` printed, so
    the FDG Flow and Step type names match the Worker's registrations.
-3. Configure each Connector connection in Dex Web **Connectors**. Start the
-   application with the launch command Dex Web displays.
-4. Start Runs through the real entry point: a Connector Trigger, the
-   application API, Dex Web **Start Flow**, or `dexcli flow start`.
-5. Exercise Work Queue discovery with **Working as**, each Action and
-   editable field, waits, Timers, retries, and terminal outcomes.
+3. When the application uses released Connectors, configure each Connector
+   connection in Dex Web **Connectors**. Start the application with the
+   launch command Dex Web displays.
+4. Start Runs through the real entry point: the application API, a Connector
+   Trigger, Dex Web **Start Flow**, or `dexcli flow start`.
+5. Exercise each application API operation, waits, Timers, retries, and
+   terminal outcomes. When the user chose Dex Web, also exercise Work Queue
+   discovery with **Working as**, each Action, and each editable field.
 6. Diagnose with Dex Web and the read-only `dexcli flow` inspection commands.
    Record the exact Flow IDs and Run IDs you observed, and the run attempt
    after any time travel.
@@ -123,9 +127,10 @@ Cover what applies:
 - the application against any uncommitted local Connector override, plus that
   Connector package's own provider and real-Dex tests.
 
-For No custom UI, also assert that no approval, display, status, list,
-search, detail, retry, escalation, Action-proxy, or Attribute-proxy route
-remains. Test each retained webhook on its own.
+Test each application API operation and each retained webhook through the
+real Worker. For each provider webhook the application receives itself,
+also test that an event with an invalid signature or proof writes nothing,
+and that a repeated delivery of one provider event ID takes effect once.
 
 For external storage, test its authority boundary, synchronization lag, retry,
 outage handling, and reconciliation. For an Attribute Store row-key template,
@@ -160,15 +165,17 @@ has the Worker setting.
 
 ## Deployment, only when requested
 
-- Run the Dex Server (server-zd) and the standalone `dex-web` binary or image
-  as separate processes. Point Dex Web at the Server's FlowService address.
+- Run the Dex Server (server-zd). When the user chose Dex Web, run the
+  standalone `dex-web` binary or image as a separate process and point it at
+  the Server's FlowService address.
 - Before you deploy a Worker, run `dexcli version check --server ADDRESS`
   against the target Server. Workers only open outbound connections to it.
 - Dex Web neither authenticates users nor enforces authorization. Run it
   behind a trusted boundary that authenticates users and maps roles to
   permissions. Keep the FlowService and Web ports unreachable from outside
   that boundary.
-- Dex provides no deployed Connector configuration. The application reads it
+- Dex provides no deployed Connector configuration. An application with
+  released Connectors reads it
   through the project configuration loader of its language's Connector SDK,
   as
   [Connector architecture](connector-architecture.md#deployed-configuration-and-credential-boundary)
@@ -194,27 +201,38 @@ Ensure:
   long-lived authoritative owner;
 - authorization starts with `admin`, Action permissions are granular, and
   every extra role is justified;
-- the management UI mapping preceded the UI-mode decision, and the mode is
-  recorded;
-- every Custom UI surface names a remaining Dex Web gap; a No custom UI
-  application exposes no business controls or management routes;
-- a Custom UI's API contract was designed with the Flow and Connector
-  boundaries, both generated clients and production bundles reproduce, the
-  backend boundary implements the generated interfaces, the dynamic UI uses only
-  the generated client, and polish followed a passing real journey;
+- the user's UI answer is recorded: their own UI, Dex Web, both, or neither;
+- when the application has an API, its contract was designed with the Flow
+  and Connector boundaries, its generated code reproduces, and the backend
+  boundary implements the generated interfaces; an application with no UI
+  and no caller may ship only its Worker, except a Managed Dex App, which
+  keeps its required API contract;
+- every webhook the application receives itself verifies the provider
+  signature or equivalent proof, deduplicates by the stable provider event
+  ID, and correlates the event to its Flow;
+- with the user's own UI, its generated client and production bundle
+  reproduce, the dynamic UI uses only the generated client, and polish
+  followed a passing real journey;
+- with Dex Web, the management mapping is recorded, and the user's own UI
+  repeats a Dex Web management feature only when the user asked;
 - secrets are absent from files, logs, generated values, and archives;
+- the user's Connector answer is recorded for each external system;
 - every Connector capability matrix records the catalog, exact capability,
   component tag, and immutable manifest URL;
-- every public-provider boundary reuses a released capability or records the
-  contribution and its release blocker;
-- every internal-service boundary records the internal-library decision or
-  why a generic HTTP Connector remains appropriate;
+- every public-provider boundary with a chosen Connector reuses a released
+  capability or records the contribution and its release blocker;
+- every internal-service boundary with a chosen Connector records the
+  internal-library decision or why a generic HTTP Connector remains
+  appropriate;
+- every provider call without a Connector runs in `Execute` with an
+  idempotency identity, a bounded timeout, and recovery;
 - each Connector Step has a static connection name, receives only its
   current result, and uses a pure `MapToOperationInput`;
 - each Trigger binding has a static binding name, an application-owned
   filter and Flow ID resolver, and a typed target;
-- the application starts with the local Connector configuration Dex Web
-  writes and survives a Dex Web restart, or the gap is a stated blocker;
+- an application with released Connectors starts with the local Connector
+  configuration Dex Web writes and survives a Dex Web restart, or the gap is
+  a stated blocker;
 - `dexcli visualize` ran on every Flow source file, in every language, and
   every error diagnostic was fixed before handoff; every Flow renders to a
   `valid: true` FDG 2.0 definition through one project command, and the
@@ -241,7 +259,7 @@ Ensure:
 
 Finish with:
 
-- the confirmed business, UI-mode, permission-boundary, and Connector
+- the confirmed business, UI, permission-boundary, and Connector
   decisions;
 - implemented and verified behavior, with the local Dex Web URL;
 - Connector release or contribution status;

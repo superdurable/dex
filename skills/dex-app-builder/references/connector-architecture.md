@@ -7,6 +7,11 @@ Connectors are released separately from Dex, in the
 A Connector is not a generic API wrapper, a node-based automation library, or
 a second workflow engine.
 
+Connectors are optional. Load this reference when the user wants a released
+Connector for an external system, as asked in
+[product discovery](product-discovery.md#connector-question). The rules here
+apply to the systems the user chose a Connector for.
+
 App Builder integrates Connectors from the application's own language. Use
 the Connector packages that the catalog lists for that language, through the
 Dex SDK and the Connector SDK of that language. The SDK reference for
@@ -241,10 +246,32 @@ release. Use a provider's own Connector only for a provider-native operation.
 
 ## Local development configuration
 
-Dex Web configures exact official Connector releases only in loopback
-`dexcli dev`. The [local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup)
-says which connections it can configure. [Dex Web](dex-web-v2.md#local-connector-setup)
-has the setup rules.
+Locally, the Dex Web that `dexcli dev` serves configures Connector
+connections under **Connectors**, only on loopback. This is local tooling.
+It does not mean the user chose Dex Web for operations, and a deployed Dex
+Web exposes no Connector setup, OAuth, or credential storage. The
+[local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup)
+says which connections it can configure.
+
+- Automatic setup needs an operation-specific factory from an exact official
+  published package, a static connection name, and no local package
+  replacement. A generic factory or unsupported dependency still renders but
+  cannot be configured.
+- Connector ID plus connection name is one identity. Two module versions for
+  one identity are a blocking conflict.
+- Connection credentials and Trigger binding configuration are separate
+  records. Changing one binding does not change another Flow that reuses the
+  connection.
+- Use `dexcli dev --connector-config-dir DIRECTORY` to isolate a stack.
+- Fields the release derives from verified claims or read-only provider
+  pickers are not free-text inputs. Do not add duplicate configuration for
+  them in the application.
+- For Connector development only, `dexcli dev` accepts a local release
+  override for one Connector. It shows as **Local override**. Never treat an
+  override as a published release or commit it as a dependency. Never serve a
+  working tree as the declared next version into a shared package cache, such
+  as the default Go module cache, because that copy persists and shadows the
+  real release. Use the override, or a temporary cache such as `GOMODCACHE`.
 
 The application opens each connection with the generated
 `NewProjectConnection(project, connectionName)` over
@@ -260,7 +287,8 @@ DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-com
   configuration is needed. Setting both this variable and the deployed
   project variables is an error.
 - Settings, Trigger bindings, and operation settings are read at startup. A
-  change needs an application restart. Reauthorizing in Dex Web does not.
+  change needs an application restart. Reauthorizing in Dex Web does not; a
+  credential replacement takes effect on the next provider call.
 - A refreshed credential is written back to the file, and Trigger inboxes live
   beside it. Run one application per configuration directory.
 - If the project pins a Connector or Connector SDK release that cannot read
@@ -314,8 +342,9 @@ lists the environment variables and storage layout.
 
 ## Provider classification
 
-Every interaction with an external provider uses a dedicated Connector: its
-Triggers, Queries, Mutations, and reusable UI. A generic HTTP Connector is
+Every interaction with an external provider the user chose a Connector for
+uses a dedicated Connector: its Triggers, Queries, Mutations, and reusable
+UI. A generic HTTP Connector is
 allowed only for an organization-controlled internal system, after the
 internal-library decision below. Never use it as an escape hatch for an
 external SaaS API. Check the catalog for whether a generic HTTP Connector is
@@ -334,8 +363,10 @@ integration code.
 
 For a public external product with a documented API or official SDK, a
 missing Connector, operation, or Trigger is a Connector contribution, never
-permission to call the provider directly. Explain the exact gap. Ask for
-authorization, then load
+permission to call the provider directly. Explain the exact gap. The user may
+instead decline the Connector for that system, as in
+[product discovery](product-discovery.md#connector-question). Otherwise ask
+for authorization, then load
 [Connector Contributor](../../dex-connector-contributor/SKILL.md) completely.
 The Connector repository then owns manifest authoring, generated surfaces,
 provider tests, examples, release order, and its pull-request workflow.
@@ -358,7 +389,8 @@ While the contribution is in review:
 
 ## Internal connector library decision
 
-For every organization-controlled internal service, ask the user:
+For every organization-controlled internal service the user chose a
+Connector for, ask the user:
 
 1. whether an internal Connector library already exists, and where;
 2. whether this application should reuse or contribute to it;

@@ -3,12 +3,12 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
-description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill，也负责已有应用的 SDK 工作。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。"
+description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 Skill，也负责已有应用的 SDK 工作。它覆盖完整的过程：梳理业务流程、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。你自己的 UI、Dex Web 和已发布的 Connector 都是可选的。"
 ---
 
 # Dex App Builder
 
-Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、选择 UI、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。它也负责对应用做范围明确的 SDK 工作，例如调试一个 Flow，或添加一个 Step。
+Dex App Builder 是创建 Dex 应用或流程产品的**主要 Skill**。它覆盖完整的过程：梳理业务流程、用 Go、Python、TypeScript、Java 或 Rust 构建后端、在本地测试，最后交付结果。它会问你是否需要自己的 UI、Dex Web 或已发布的 Connector，只加入你选择的部分。它也负责对应用做范围明确的 SDK 工作，例如调试一个 Flow，或添加一个 Step。
 
 ## 安装与使用 {#install-and-use}
 
@@ -27,10 +27,11 @@ $dex-app-builder Design and build an event-registration application.
 
 - 梳理或完善业务流程；
 - 定义角色、权限、审批、等待、重试和恢复；
-- 判断 Dex Web 是否够用，还是需要自定义 UI；
+- 构建后端，以及你的 UI 或其他调用方使用的应用 API；
+- 构建你自己的 UI，或者用 Dex Web 做运维和管理；
 - 基于受支持的模板构建新的 Dex 应用；
 - 使用已发布的 Connector，或找出缺少的 Connector；
-- 从 UI 到后端，构建并测试一个完整功能；
+- 从后端到 UI，构建并测试一个完整功能；
 - 在还没有具体流程时，先了解并搭建 Dex。
 
 如果只是范围很小的 SDK 任务，App Builder 会跳过产品流程，见 [SDK 工作](#sdk-work)。独立贡献官方 Connector 时，请改用 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
@@ -60,50 +61,58 @@ App Builder 会先确认 coding-agent host 能让它写入 repository 或项目�
 - 谁维护、管理、操作、审批和参与这个流程；
 - 每个角色能做哪些操作，每个人工操作需要哪个固定的权限；
 - 触发条件、输入、输出、截止时间、等待、重试、恢复、审计，以及哪些数据是敏感的；
-- 涉及哪些外部系统，需要哪些已发布 Connector 的能力；
+- 涉及哪些外部系统，以及每个系统是否要用已发布的 Connector；
+- 你需要哪种 UI：你自己的 UI、Dex Web、两者都要，或者都不要；
 - 是否已有宿主应用负责用户登录，并把用户角色映射为它信任的权限。
 
-这一步的产出是：一张角色、操作与权限的对照表，一份生命周期方案，一个 UI 决定，以及一张所需 Connector 能力的清单。所有重要的疑问都会在写代码之前和你确认清楚。
+这一步的产出是：一张角色、操作与权限的对照表，一份生命周期方案，你对 UI 和 Connector 的选择，以及你的 UI 或调用方需要的应用 API 操作。所有重要的疑问都会在写代码之前和你确认清楚。
 
-### 2. 选择应用界面 {#2-choose-the-application-surface}
+<a id="3-design-and-implement-the-flow"></a>
 
-App Builder 在两种管理流程的方式中选一种：
+### 2. 设计并实现后端 {#2-design-and-implement-the-backend}
 
-| 模式 | 适用情况 | 构建内容 |
-| --- | --- | --- |
-| **Dex Web** | Run、Work Queue、搜索、字段和 Action 已经能满足用户需要。 | Dex Web 就是流程界面。应用只额外提供一个不含业务页面的小外壳，以及供外部系统调用的接口。 |
-| **Custom UI** | 产品需要 Dex Web 没有的业务页面或交互。 | Skill 先用模拟数据做出 React 和 TypeScript 原型。你试用并确认后，才接入真实后端。 |
-
-默认使用 Dex Web。模板里留下的 Hello World 页面或生成的 API client，本身不能成为构建自定义 UI 的理由。
-
-### 3. 设计并实现 Flow {#3-design-and-implement-the-flow}
-
-后端使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 遵循 [SDK 工作](#sdk-work) 中说明的通用 SDK 规则，再加上自己更严格的规则：
+后端是应用的核心。它使用应用所用语言的 Dex SDK：Go、Python、TypeScript、Java 或 Rust。已有的应用沿用它的语言。新应用使用你指定的语言；你没有指定时使用 TypeScript。App Builder 遵循 [SDK 工作](#sdk-work) 中说明的通用 SDK 规则，再加上自己更严格的规则：
 
 - 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写，只使用 [Flow visualization reference](/reference/web/flow-visualization) 为该语言列出的指令；
 - 只在 `Execute` 中调用外部 provider；
 - `WaitFor` 中不调用 provider，也不修改 Dex 状态；
 - 每个人工操作都建模为带明确权限的 typed Action；
-- 凭据放在 Connector 或运行环境中，不放在应用代码里；
-- 使用已发布 Connector 的能力，不在应用里新增 provider client。
+- 凭据放在运行环境或 Connector 配置中，不放在应用代码里；
+- 对你选择用 Connector 的系统，使用它已发布的能力，不在应用里新增 provider client。
 
-写代码之前，Skill 会先说明 Flow 的标识、typed 输入和输出、Step、状态转换、Attribute、Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。
+写代码之前，Skill 会先说明 Flow 的标识、typed 输入和输出、Step、状态转换、Attribute、Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。你的 UI 或其他调用方需要 API 时，它和 Flow 一起设计应用的 HTTP API 契约，并从契约生成服务端代码。没有 UI 也没有调用方时，应用可以只交付 Worker。
 
-### 4. 验证并交付 {#4-verify-and-hand-off}
+<a id="4-verify-and-hand-off"></a>
 
-开发过程中，Skill 会运行与每次改动相关的测试。最后运行模板的完整检查，覆盖所选的 UI 模式、生成的代码、生产构建、在真实 Dex Server 上的行为、恢复路径和 FDG 2.0 分析。
+### 3. 验证并交付 {#3-verify-and-hand-off}
+
+开发过程中，Skill 会运行与每次改动相关的测试。最后运行模板的完整检查，覆盖应用 API 和你选择的 UI（如果有）、生成的代码、生产构建、在真实 Dex Server 上的行为、恢复路径和 FDG 2.0 分析。
 
 交付内容包括：你确认过的产品决定、已实现的功能、确切的测试结果、Connector 发布或贡献的状态，以及已知的限制。工作以一个干净的 Git commit 结束。
 
+<a id="2-choose-the-application-surface"></a>
+
+## UI 和 Connector 都是可选的 {#ui-and-connectors-are-optional}
+
+App Builder 在确认业务流程时，对下面每一项只问你一次，并且只加入你选择的部分。
+
+| 选项 | 适用情况 | 构建内容 |
+| --- | --- | --- |
+| **你自己的 UI** | 大多数产品：给你的用户用的页面、参与者门户，或带品牌的应用。 | Skill 基于应用 API 构建 React 和 TypeScript 前端。页面方案还有待定的地方时，它先做出静态线框页面给你确认。 |
+| **Dex Web** | 你想要一个现成的运维和管理界面：Run、Work Queue、Action、字段编辑、历史和诊断。 | Skill 加上 Dex Web 读取的 Summary、Display、Action 和权限契约。只有你提出时，你自己的 UI 才会重复这些功能。 |
+| **已发布的 Connector** | 流程用到外部系统，例如 Slack 或 Gmail，并且你想用现成的集成。 | Skill 使用已发布 Connector 的 operation 和 Trigger。你不用 Connector 时，应用在自己的 Step 代码里调用这个系统。你选了 Connector 但它缺失时，按[如何处理 Connector 缺口](#how-connector-gaps-are-handled)处理。 |
+
+你可以选择自己的 UI、Dex Web、两者都要，或者在调用方只用应用 API 时都不要。你自己的 UI 不需要额外的理由。在本地，Skill 工作时 `dexcli dev` 始终会在 Dex Web 中展示你的 Flow。
+
 ## 如何处理 Connector 缺口 {#how-connector-gaps-are-handled}
 
-写集成代码之前，App Builder 会先查看已发布的 Connector 能做什么。如果缺少某个官方 Connector，或者应用需要的 operation、Trigger、配置界面单元缺失或有问题，它会加载 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
+为你选择的 Connector 写集成代码之前，App Builder 会先查看已发布的 Connector 能做什么。如果缺少某个官方 Connector，或者应用需要的 operation、Trigger、配置界面单元缺失或有问题，它会加载 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
 
 贡献还在 review 时，应用可以先用本地的 Connector package 测试。但在这个 Connector 以确切版本发布之前，应用不能进入生产。Skill 绝不会把 branch、commit SHA、pseudo-version 或本地替换作为生产依赖提交。
 
 ## SDK 工作 {#sdk-work}
 
-对已有应用做范围明确的技术工作时，App Builder 跳过产品发现和 UI 决策，直接进入 Flow 和 SDK 规则。它支持 Python、Go、Java、TypeScript 和 Rust。例如这样问它：
+对已有应用做范围明确的技术工作时，App Builder 跳过产品发现以及 UI 和 Connector 的问题，直接进入 Flow 和 SDK 规则。它支持 Python、Go、Java、TypeScript 和 Rust。例如这样问它：
 
 ```text
 $dex-app-builder Add a reminder Step to this approval Flow.
@@ -143,8 +152,8 @@ Skill 以 repository 源码、lockfile、已安装的 SDK 和对应版本的官�
 App Builder 完成后，你会得到：
 
 - 确认过的流程和权限模型；
-- 在 Dex Web 和自定义 UI 之间的明确选择；
-- 用所选语言构建的 Dex 应用；
+- 用所选语言构建的 Dex 应用，以及它的应用 API；
+- 你选择的 UI：你自己的 UI、Dex Web、两者都要，或者都不要；
 - 本地运行和真实 Dex Server 的测试证据；
 - 仍然阻碍上线的 Connector 发布清单（如果有）；
 - 可以直接 review 的 repository。

@@ -1,4 +1,4 @@
-# Stage 3: design the Flow, Connectors, and API contract, then implement the backend
+# Stage 2: design the Flow and the API contract, then implement the backend
 
 Follow the [SDK reference routing](../SKILL.md#load-references) for
 the application's language, chosen in
@@ -91,9 +91,12 @@ cost little now and are expensive to retrofit.
   choices, and Timer durations come from plain functions of recorded facts
   and configuration. The Step calls the function and records its inputs. The
   same function can then replay past runs under a changed rule.
-- **Model calls are their own Steps.** Each model call is an `llm` Connector
-  Step, so its result and token usage are in the Run's history. See
-  [text generation](connector-architecture.md#text-generation).
+- **Model calls are their own Steps.** Each model call is its own Step, so
+  its result and token usage are in the Run's history. When the user chose
+  the `llm` Connector, use an `llm` Connector Step, as
+  [text generation](connector-architecture.md#text-generation) describes.
+  Otherwise the Step's `Execute` calls the model and records a safe result,
+  the token usage, and the information recovery needs.
 - **Fields keep their meaning across releases.** A release adds a new
   Attribute for new data instead of changing what an existing one means, so
   runs from different releases stay comparable.
@@ -106,16 +109,30 @@ Keep personal data in these Attributes to what the process needs.
   (`dex.ActionRequiresPermission` in Go), where the Flow visualization
   reference lists Actions for the language. Use lowercase domain keys such as
   `refund.manage` or `refund.message`.
-- An Action RPC rechecks current state. It takes business locks when its
-  state check and effect must commit atomically.
-- Do not add projection-only locks. The Server maintains Work Queue
-  permission history atomically. A historical match supports discovery. It
-  never proves current eligibility or caller authorization.
+- The Action condition controls presentation only. Every Action RPC rechecks
+  current business state before it changes durable state or publishes a
+  Channel message. It takes business locks when that check and the effect
+  must commit atomically.
+- When a successful Step method or RPC writes or deletes an Action condition
+  source, the Worker sends the Flow's complete Action permission mapping.
+  The Server evaluates it atomically with the writes and adds newly matching
+  permissions to the Flow's permission history.
+- Permission history only grows. A matched permission stays for that Flow
+  run, stays searchable after completion, and is not removed by later state
+  changes. Removing or renaming a permission does not clear old history.
+- Do not add projection-only locks to maintain that history.
+- A changed Action definition is evaluated on the next condition-source
+  write or in a new Flow. Treat an Action definition as a stable contract for
+  open Flows.
+- Permission history is discovery data. It never proves current
+  eligibility or caller authorization. The trusted application boundary
+  decides who may invoke the RPC.
 - An RPC that requests provider work validates and commits application state,
-  then returns a movement to a Connector Step. It never calls the provider.
+  then returns a movement to the Step that does that work, such as a
+  Connector Step. It never calls the provider.
 
-[Dex Web](dex-web-v2.md#actions-permissions-and-work-queue) has the full
-permission model.
+When the user chose Dex Web, [Dex Web](dex-web-v2.md#actions-permissions-and-work-queue)
+has how its Work Queue uses this history.
 
 ## Effects and waits
 
@@ -160,23 +177,47 @@ has the options, defaults, and capacity rules.
 
 ## Connectors
 
-Fetch the published catalog and match exact released capabilities before you
-write any provider integration code. [Connector
+Use this section for each external system the user chose to reach through a
+released Connector in discovery. Fetch the published catalog and match exact
+released capabilities before you write its integration code. [Connector
 architecture](connector-architecture.md) has the procedure, the composition
-rules, Trigger bindings, credentials, and the contribution path. Never add an
-application-local provider client, webhook adapter, or direct provider SDK
-call when a released capability exists. A missing capability for a public
-product is a Connector contribution and a release blocker.
+rules, Trigger bindings, credentials, and the contribution path. For such a
+system, never add an application-local provider client, webhook adapter, or
+direct provider SDK call when a released capability exists. A missing
+capability for a chosen public product is a Connector contribution and a
+release blocker.
 
-## Custom UI API contract
+When the user declines a Connector for a system, the application calls it
+from its own Step code in `Execute`. Each call keeps an idempotency identity,
+a bounded timeout, and recovery. Its credentials stay out of code and Flow
+state.
 
-For Custom UI, design the application HTTP API contract in the same pass as
-the Flow and Connector boundaries. Follow
-[UI workflow](ui-workflow.md#2-contract-and-backend-design): an OpenAPI or
-existing contract source, generated server interfaces in the backend's
-language and a TypeScript client, no hand-written transport types, and no Dex
-internals in the contract. Do not resume dynamic frontend work while the
-Flow, Connector, and application boundary are being implemented.
+## Application API contract
+
+The application's own UI and its other callers reach the Flows through the
+application's HTTP API. Design that contract in the same pass as the Flow and
+any Connector boundaries. Map each operation to a Flow start, a typed RPC, a
+query, or confirmed ingress. Define authentication and permission
+enforcement, idempotency, asynchronous status, validation, response and error
+shapes, retry, and terminal outcomes.
+
+- The API contract describes the business boundary. It never exposes Dex
+  Steps, Channels, Attributes, connection credentials, or other execution
+  internals.
+- Write it as an OpenAPI document, or in the project's existing contract
+  format.
+- Generate the server interfaces in the backend's language from it before you
+  implement handlers, and a TypeScript client when the application has a
+  frontend. The backend implements the generated interfaces.
+- Never hand-write parallel transport types or hand-edit generated code.
+  Follow the project's convention for committing or regenerating generated
+  output.
+
+Add only the operations the user's UI or a confirmed caller needs. When the
+application has no UI of its own and no caller needs an API, it ships the
+Worker alone. With the user's own UI, follow [UI workflow](ui-workflow.md) and
+do not resume dynamic frontend work while the Flow, Connector, and
+application boundary are being implemented.
 
 ## Local Dex stack
 
