@@ -101,6 +101,7 @@ var (
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
 	PollingJobs           *patternspolling.FakeJobService
+	RefundService         *refundmodel.FakeService
 	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
 	PaymentProvider       *failfast.FakePaymentProvider
 	RecordBackfill        *controllongrunningwork.RecordBackfillFlow
@@ -182,9 +183,9 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	UserOnboarding = signup.NewUserOnboardingFlow(applicationService)
 	JobPosting = jobpost.NewJobPostingFlow(applicationService)
-	refundService := refundmodel.NewFakeService()
-	CustomerRefund = deterministic.NewCustomerRefundFlow(refundService)
-	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService, newDemoOpenAIConnection())
+	RefundService = refundmodel.NewFakeService()
+	CustomerRefund = deterministic.NewCustomerRefundFlow(RefundService)
+	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(RefundService, newDemoOpenAIConnection())
 	refundServices := managerapproval.NewRefundServices(refundLedgerDirectory)
 	ManagerApprovalRefund = managerapproval.NewManagerApprovalRefundFlow(
 		refundServices.Billing, refundServices.Email, &managerapproval.MockMessageModel{},

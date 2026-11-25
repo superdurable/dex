@@ -41,7 +41,11 @@ use crate::shared::MyDependencyService;
 
 pub const GET_JOB_POST: Rpc<(), JobPost> = Rpc::new("GetJobPost");
 pub const UPDATE_JOB_POST: Rpc<JobPost, i32> = Rpc::new("UpdateJobPost");
+/// Soft-deletes the post and keeps the Flow running; later UpdateJobPost calls fail with
+/// JOB_POST_DELETED. The HTTP delete route instead cancels the whole Flow.
 pub const DELETE_JOB_POST: Rpc<String, ()> = Rpc::new("DeleteJobPost");
+/// Error type of UpdateJobPost after DeleteJobPost.
+pub const JOB_POST_DELETED: &str = "JobPostDeleted";
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JobPost {
@@ -77,7 +81,7 @@ impl JobPostingFlow {
     ) -> HandlerResult<RpcResult<i32>> {
         if POST.get_required(context)?.deleted {
             return Err(HandlerError::new(
-                "JobPostDeleted",
+                JOB_POST_DELETED,
                 "the job post is deleted and cannot be updated",
             ));
         }

@@ -48,8 +48,8 @@ use dex_examples_rust::products::engagement::{
     ACCEPT_ENGAGEMENT, DESCRIBE_ENGAGEMENT, EngagementFlow, EngagementRequest, EngagementStatus,
 };
 use dex_examples_rust::products::job_post::{
-    DELETE_JOB_POST, GET_JOB_POST, Init, JobPost, JobPostingFlow, UPDATE_JOB_POST,
-    UpdateIndeedPosting, UpdateLinkedInPosting,
+    DELETE_JOB_POST, GET_JOB_POST, Init, JOB_POST_DELETED, JobPost, JobPostingFlow,
+    UPDATE_JOB_POST, UpdateIndeedPosting, UpdateLinkedInPosting,
 };
 use dex_examples_rust::products::microservices::{
     DATA, OrchestrationFlow, SIGNAL_ORCHESTRATION_READY, SWAP_ORCHESTRATION_DATA,
@@ -500,6 +500,13 @@ fn job_posting_update_reaches_both_job_boards() {
         .expect("stop Rust Job Posting Flow");
 }
 
+fn worker_error_type(error: &SdkError) -> Option<&str> {
+    match error {
+        SdkError::WorkerInvocation { worker, .. } => Some(worker.error_type()),
+        _ => None,
+    }
+}
+
 #[test]
 #[ignore = "requires dexcli dev"]
 fn job_posting_delete_and_update_do_not_overwrite_each_other() {
@@ -557,14 +564,19 @@ fn job_posting_delete_and_update_do_not_overwrite_each_other() {
             assert_eq!(version, 1);
             assert_eq!(current.title, updated.title, "update was overwritten");
         }
-        Err(_) => assert_eq!(current.title, initial.title),
+        Err(error) => {
+            assert_eq!(worker_error_type(&error), Some(JOB_POST_DELETED), "{error}");
+            assert_eq!(current.title, initial.title);
+        }
     }
-    assert!(
-        environment
-            .client
-            .invoke_rpc(&flow_id, UPDATE_JOB_POST, updated)
-            .is_err(),
-        "an update after delete must be rejected"
+    let late_update = environment
+        .client
+        .invoke_rpc(&flow_id, UPDATE_JOB_POST, updated)
+        .expect_err("an update after delete must be rejected");
+    assert_eq!(
+        worker_error_type(&late_update),
+        Some(JOB_POST_DELETED),
+        "{late_update}"
     );
     environment
         .client

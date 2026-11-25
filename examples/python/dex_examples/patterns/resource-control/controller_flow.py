@@ -237,7 +237,10 @@ class ControllerFlow(Flow[Request]):
     def enqueue(self, context: Context, input: Request) -> RPCResult[bool]:
         if self.shutdown_requested.get(context):
             return RPCResult(False)
-        if self.request_queue.size(context) + 1 > MAX_BUFFERED_REQUESTS:
+        # Until Init commits, its start request is not in the queue yet; count it.
+        pending_start_request = 1 if self.current_wait_child_wfs.get(context) is None else 0
+        buffered = self.request_queue.size(context) + pending_start_request
+        if buffered + 1 > MAX_BUFFERED_REQUESTS:
             return RPCResult(False)
         self.request_queue.publish(context, input)
         return RPCResult(True)

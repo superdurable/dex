@@ -231,11 +231,60 @@ func confirmAgenticMessage(t *testing.T, ctx context.Context, flowID string, ans
 		ctx, flowID, registry.AgenticRefund.ConfirmCustomerMessage,
 		agentic.ConfirmCustomerMessageInput{GateRequestKey: gateRequestKey}, nil,
 	))
-	// Confirming closes the gate, so the confirmed text can no longer be rewritten.
-	require.Error(t, integClient.InvokeRPC(
-		ctx, flowID, registry.AgenticRefund.EditCustomerMessage,
-		agentic.EditCustomerMessageInput{GateRequestKey: gateRequestKey, Message: "rewritten"}, nil,
-	))
+}
+
+// A second message decision must hit the closed gate while the run is still at its send Step.
+func TestAgenticCustomerRefundMessageGateClosesOnDecision(t *testing.T) {
+	tests := []struct {
+		name        string
+		decide      func(ctx context.Context, flowID string, gateRequestKey string) error
+		wantMessage string
+	}{
+		{
+			name: "confirm",
+			decide: func(ctx context.Context, flowID string, gateRequestKey string) error {
+				return integClient.InvokeRPC(ctx, flowID, registry.AgenticRefund.ConfirmCustomerMessage,
+					agentic.ConfirmCustomerMessageInput{GateRequestKey: gateRequestKey}, nil)
+			},
+		},
+		{
+			name: "edit",
+			decide: func(ctx context.Context, flowID string, gateRequestKey string) error {
+				return integClient.InvokeRPC(ctx, flowID, registry.AgenticRefund.EditCustomerMessage,
+					agentic.EditCustomerMessageInput{GateRequestKey: gateRequestKey, Message: "first rewrite"}, nil)
+			},
+			wantMessage: "first rewrite",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := integrationContext(t)
+			flowID := newFlowID(t, "agentic-message-gate")
+			release := registry.RefundService.HoldCustomerMessages(flowID)
+			defer release()
+			_, err := integClient.StartFlow(ctx, registry.AgenticRefund, flowID, refundmodel.RefundCase{
+				CaseID: flowID, Customer: "customer", CustomerNote: "refund", AmountCents: 4200,
+				OrderAgeDays: 8,
+			}, dex.StartFlowOptions{})
+			require.NoError(t, err)
+			gateRequestKey := waitForAgenticGate(t, ctx, flowID)
+			var draft map[string]any
+			require.NoError(t, integClient.InvokeRPC(ctx, flowID, registry.AgenticRefund.GetDexDisplay, nil, &draft))
+			require.NoError(t, test.decide(ctx, flowID, gateRequestKey))
+
+			lateEdit := integClient.InvokeRPC(ctx, flowID, registry.AgenticRefund.EditCustomerMessage,
+				agentic.EditCustomerMessageInput{GateRequestKey: gateRequestKey, Message: "late rewrite"}, nil)
+			require.ErrorContains(t, lateEdit, "case is not awaiting a customer message decision")
+
+			release()
+			require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
+			wantMessage := test.wantMessage
+			if wantMessage == "" {
+				wantMessage, _ = draft["customer-message-draft"].(string)
+			}
+			require.Equal(t, []string{wantMessage}, registry.RefundService.Messages(flowID))
+		})
+	}
 }
 
 func waitForAgenticGate(t *testing.T, ctx context.Context, flowID string) string {

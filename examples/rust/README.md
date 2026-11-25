@@ -72,7 +72,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
-| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
+| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers; the `DeleteJobPost` RPC soft-deletes under the same lock, after which updates fail (HTTP 409), while the HTTP delete route cancels the Flow |
 | Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
 | Customer refund | [`CustomerRefundFlow`](src/products/customer_refund/refund_flow.rs) | Manager approval through a Channel, a retried refund, and Time Travel; also its own Worker and commands |
 
