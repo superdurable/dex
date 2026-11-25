@@ -201,6 +201,110 @@ stored after them. A simple rule is to copy after each **turn_completed**
 event, starting after the last sequence you copied. When a turn can store more
 messages than the limit, raise the limit or set it to **None**.
 
+## Page through a long history {#paging}
+
+Each call of **list_agent_messages** loads the **AgentMessages** window and
+every kept chunk, then returns one page of them. **get_agent_snapshot** loads
+the same data. The page size does not change what a call loads. So the cost of
+reading one page grows with the stored history: with the default retention, up
+to about 1,000 messages plus the messages after the summary. With
+**retained_message_limit** set to **None**, and in the Go core, which has no
+retention, it grows with the whole session.
+
+To read an older part of a long history cheaply, read **AgentMessageIndex**
+first, then the one chunk that holds the messages. The index lists the first
+and last sequence of every kept chunk, and **first_sequence**
+(**firstSequence**) is the oldest stored message. A chunk holds at most
+**message_chunk_size** messages, 32 by default, and is never rewritten. It is
+the **AgentMessageChunks** instance whose key is **message_sequence_key** of
+its first sequence. A sequence from **window_first_sequence**
+(**windowFirstSequence**) on is not in a chunk. It is the **AgentMessages**
+instance with the key of its own sequence.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/core',
+    typescript: 'agents/typescript/core',
+    go: 'agents/go/core',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+from dex_agents import AGENT_MESSAGE_CHUNKS, AGENT_MESSAGE_INDEX, message_sequence_key
+
+# client is the dex AsyncClient whose Registry holds the session Flow.
+values = await client.get_attributes(session_id, AGENT_MESSAGE_INDEX)
+index = values.get(AGENT_MESSAGE_INDEX)
+chunks = index.chunks if index is not None else []
+chunk_range = next((r for r in chunks if r.first_sequence <= sequence <= r.last_sequence), None)
+if chunk_range is not None:
+    read = AGENT_MESSAGE_CHUNKS.instance(message_sequence_key(chunk_range.first_sequence))
+    chunk = (await client.get_attributes(session_id, read)).get(read)
+    # chunk.messages holds sequences chunk_range.first_sequence through chunk_range.last_sequence.
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+import { messageSequenceKey } from "@superdurable/dex-agents";
+
+// client is the dex Client, and flow comes from createAgentSessionFlow.
+const [index] = await client.getAttributes(sessionId, flow.agentMessageIndex);
+const range = index?.chunks.find((chunk) => chunk.firstSequence <= sequence && sequence <= chunk.lastSequence);
+if (range !== undefined) {
+  const [chunk] = await client.getAttributes(
+    sessionId,
+    flow.agentMessageChunks.instance(messageSequenceKey(range.firstSequence)),
+  );
+  // chunk?.messages holds sequences range.firstSequence through range.lastSequence.
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// client is the *dex.Client whose Registry holds the session Flow.
+var index dexagents.AgentMessageIndex
+result, err := client.GetAttributes(ctx, sessionID, dex.ReadAttribute(dexagents.AgentMessageIndexAttribute, &index))
+if err != nil {
+	return err
+}
+if result.IsSet(dexagents.AgentMessageIndexAttribute) {
+	for _, chunkRange := range index.Chunks {
+		if chunkRange.FirstSequence <= sequence && sequence <= chunkRange.LastSequence {
+			key, err := dexagents.MessageSequenceKey(chunkRange.FirstSequence)
+			if err != nil {
+				return err
+			}
+			var chunk dexagents.AgentMessageChunk
+			_, err = client.GetAttributes(ctx, sessionID,
+				dex.ReadAttributeMapInstance(dexagents.AgentMessageChunksAttributeMap, key, &chunk))
+			if err != nil {
+				return err
+			}
+			// chunk.Messages holds sequences chunkRange.FirstSequence through chunkRange.LastSequence.
+		}
+	}
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+To walk a long history backward, read the index once and read one chunk for
+each page, newest chunk first. A session with no index, such as one that has
+not yet stored a chunk, keeps every message in **AgentMessages**.
+
+- **A read can miss.** Two reads are two calls, so a commit between them can
+  move a message from the window into a chunk, or retention can delete the
+  chunk. When the chunk is unset, read the index again. Or page with
+  **list_agent_messages**, which reads one committed state.
+- **No public API reads one page by chunk.** **list_agent_messages** has no
+  option to skip the chunks it loads. Read the stored values as above when its
+  cost matters.
+
 ## Estimate the run budget {#estimate}
 
 Estimate the run budget from the retained messages. With the default limit of
