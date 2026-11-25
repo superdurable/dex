@@ -43,6 +43,7 @@ from tests.integ.flow_smoke_helper import (
     assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step,
     assert_inbound_event_loop_timers,
+    assert_step_execute_completed,
     dexcli_path,
     flow_service_address,
     parse_flow_trigger_response,
@@ -155,6 +156,14 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                     "bankAccount": "12345678",
                 },
             ),
+        ),
+        FlowSmokeEntry(
+            "patterns/deferred-choice",
+            lambda c: trigger_get(
+                "/patterns/deferred-choice/start",
+                {"workflowId": new_id("deferred-choice"), "offerId": "offer-smoke"},
+            ),
+            verify_after_trigger=lambda flow_id: _accept_offer_over_http(client, flow_id),
         ),
         FlowSmokeEntry(
             "patterns/control-long-running-work",
@@ -665,6 +674,15 @@ async def test_ai_agent_http_history_events_and_closed_sessions(
     )
     assert closed.status_code == 409
     assert "session is closed" in await closed.get_data(as_text=True)
+
+
+async def _accept_offer_over_http(client: FlowSmokeHttpClient, flow_id: str) -> None:
+    """Accepts the offer over HTTP and waits for the fulfillment."""
+    _, _, body = await client.get(
+        "/patterns/deferred-choice/accept", {"workflowId": flow_id, "note": "looks good"}
+    )
+    assert body == "offer response recorded"
+    await assert_step_execute_completed(flow_id, "FulfillOffer")
 
 
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:

@@ -187,6 +187,7 @@ Under [`patterns/`](./patterns):
 - [Reminders](./patterns/reminders)
 - [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)
 - [Idle Timer with Resolution](./patterns/inbound-event-loop)
+- [Decision with Deadline](./patterns/deferred-choice)
 - [Entity Flow customer accounts](./patterns/entity-flow)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)

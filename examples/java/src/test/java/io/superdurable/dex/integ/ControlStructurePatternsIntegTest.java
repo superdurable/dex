@@ -74,19 +74,6 @@ public class ControlStructurePatternsIntegTest {
     }
 
     @Test
-    void deferredChoiceConsumesOnlyTheWinningResponse() {
-        final String flowId =
-                startPatternFlow(OfferResponseFlow.class, "deferred-choice-race", "offer-2");
-        final OfferResponseFlow stub = offerStub(flowId);
-        client().invokeRPC(stub::acceptCustomerOffer, "yes");
-        client().invokeRPC(stub::rejectCustomerOffer, "no");
-        final List<StepCompletion> completions = waitForCompletedFlow(flowId);
-        assertEquals(1, completions.size());
-        assertTrue(Set.of("FulfillOffer", "CloseRejectedOffer")
-                .contains(completions.get(0).getStepType()));
-    }
-
-    @Test
     void criticalSectionRunsOneEditAtATime() {
         final String flowId = startPatternFlow(
                 ContractEditFlow.class,

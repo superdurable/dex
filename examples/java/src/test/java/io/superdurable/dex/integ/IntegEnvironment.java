@@ -214,6 +214,7 @@ final class IntegEnvironment implements AutoCloseable {
                 customerAccountFlow));
         flows.addAll(workflowPatternFlows.all());
         flows.addAll(ConditionOrderIntegTest.conditionOrderProbeFlows());
+        flows.addAll(OfferResponseWindowIntegTest.offerResponseWindowProbeFlows());
 
         final Path cacheDirectory = Files.createTempDirectory("dex-java-examples-integ-");
         final Registry registry = new Registry(flows);

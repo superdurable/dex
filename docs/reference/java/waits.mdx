@@ -53,6 +53,13 @@ In an **AnyOf**, Dex consumes messages only from the Channel condition that it
 selects to satisfy the Wait. Other Channel conditions consume nothing, even if
 they are also ready, and their messages stay queued.
 
+<a id="anyof-selection-order"></a>Dex checks a Wait when it starts, when a
+Channel it waits on changes, when one of its Timers fires, when one of its
+SubFlows ends, and when a graceful completion request arrives. Each check
+follows one committed change. So a message queued before the Wait starts wins
+at once, and otherwise the condition whose event commits first wins. A Timer
+and a message are rarely ready at the same check.
+
 When several **AnyOf** conditions are ready at the same check, Dex selects the
 first ready one in this order: Timer conditions, then Channel conditions, then
 SubFlow conditions, then the graceful completion condition, each kind in the

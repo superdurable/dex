@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { Client, Registry, StepExecutionId, Worker, rpc, type Context } from "@superdurable/dex";
+import { Client, Registry, StepExecutionId, Worker, rpc, stringCodec, type Context } from "@superdurable/dex";
 
 import { loadEnv } from "../../src/config/env.js";
 import type { SampleServer } from "../../src/main.js";
@@ -139,6 +139,18 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
         triggerGet(context, "/patterns/polling/start", {
           workflowId: newFlowId("pattern-polling"),
         }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/deferred-choice",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/deferred-choice/start", {
+          workflowId: newFlowId("deferred-choice"),
+          offerId: "offer-smoke",
+        });
+        await verifyDeferredChoiceAcceptance(result.flowId);
+        return result;
+      },
       flags: defaultFlags(),
     },
     {
@@ -512,6 +524,26 @@ test("flow smoke all registered flows via controller", async (t) => {
   }
 });
 
+test("deferred choice route answers 409 after the Flow ended and 404 for a missing Flow", async () => {
+  const flowId = newFlowId("deferred-choice-ended");
+  const start = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/start?${new URLSearchParams({ workflowId: flowId, offerId: "offer-ended" })}`,
+  );
+  assert.equal(start.status, 200, await start.text());
+  const accepted = await acceptOfferRoute(flowId);
+  assert.equal(accepted.status, 200, accepted.body);
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+
+  const late = await acceptOfferRoute(flowId);
+  assert.equal(late.status, 409, late.body);
+  assert.equal(late.body, "offer response window closed");
+
+  const missing = await acceptOfferRoute(newFlowId("deferred-choice-missing"));
+  assert.equal(missing.status, 404, missing.body);
+  assert.equal(missing.body, "offer response flow not found");
+});
+
 test("attribute read returns committed values of a closed run", async () => {
   const flowId = newFlowId("primitive-attribute-read");
   await server.client.startFlow(attributeFlow, flowId, "read");
@@ -789,6 +821,28 @@ async function refundRoute(
   const response = await fetch(url);
   const text = await response.text();
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+// Accepts the offer over HTTP and waits for the fulfillment.
+async function verifyDeferredChoiceAcceptance(flowId: string): Promise<void> {
+  const response = await acceptOfferRoute(flowId);
+  assert.equal(response.status, 200, response.body);
+  assert.equal(response.body, "offer response recorded");
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+  assert.deepEqual(
+    result.completions
+      .filter((completion) => completion.stepType === "FulfillOffer")
+      .map((completion) => completion.decode(stringCodec)),
+    ["fulfilled offer-smoke"],
+  );
+}
+
+async function acceptOfferRoute(flowId: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/accept?${new URLSearchParams({ workflowId: flowId, note: "looks good" })}`,
+  );
+  return { status: response.status, body: await response.text() };
 }
 
 // The order's second shipment runs for a day, so its lookup by number reports running.

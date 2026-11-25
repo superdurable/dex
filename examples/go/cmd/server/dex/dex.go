@@ -34,6 +34,7 @@ import (
 	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
 	controllongrunningwork "github.com/superdurable/dex/examples/go/patterns/control-long-running-work"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
+	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
@@ -184,6 +185,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)
 	inboundeventloop.RegisterRoutes(router, client, registry.SupportTicket)
+	deferredchoice.RegisterRoutes(router, client, registry.OfferResponse)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
 	childflows.RegisterRoutes(router, client, registry.OrderFulfillment)

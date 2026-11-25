@@ -34,6 +34,9 @@ from dex_examples.patterns.child_flows_business_identity.controller import (
 from dex_examples.patterns.control_long_running_work.controller import (
     create_control_long_running_work_blueprint,
 )
+from dex_examples.patterns.deferred_choice.controller import (
+    create_deferred_choice_blueprint,
+)
 from dex_examples.patterns.drain_channels.external_publishing.controller import (
     create_draining_channel_blueprint,
 )
@@ -144,6 +147,7 @@ def create_app(app_state: ExampleApp) -> Quart:
 
     quart_app.register_blueprint(create_polling_pattern_blueprint(app_state))
     quart_app.register_blueprint(create_fail_fast_blueprint(app_state))
+    quart_app.register_blueprint(create_deferred_choice_blueprint(app_state))
     quart_app.register_blueprint(create_control_long_running_work_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_flow_blueprint(app_state))

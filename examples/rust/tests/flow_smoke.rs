@@ -219,6 +219,15 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "patterns/deferred-choice",
+            path: "/patterns/deferred-choice/start",
+            query: HashMap::from([
+                ("workflowId".into(), client.new_flow_id("deferred-choice")),
+                ("offerId".into(), "offer-smoke".into()),
+            ]),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/control-long-running-work",
             path: "/patterns/control-long-running-work/start",
             query: query(&client.new_flow_id("control-long-running-work")),
@@ -935,6 +944,58 @@ fn attribute_read_requires_workflow_id() {
     assert_eq!(status, 400, "{body}");
     let error_body: Value = serde_json::from_str(&body).expect("parse Attribute read error");
     assert_eq!(error_body, json!({"error": "workflowId is required"}));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_controller_records_an_acceptance() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = http_client.new_flow_id("deferred-choice");
+    let started = http_client.trigger_get(
+        "/patterns/deferred-choice/start",
+        &HashMap::from([
+            ("workflowId".into(), flow_id.clone()),
+            ("offerId".into(), "offer-smoke".into()),
+        ]),
+    );
+    assert_eq!(started.flow_id, flow_id);
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &flow_id);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body, "offer response recorded");
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("the offer closes");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let fulfilled = result
+        .completions()
+        .iter()
+        .filter(|completion| completion.step_type == "FulfillOffer")
+        .map(|completion| completion.decode::<String>().expect("decode FulfillOffer"))
+        .collect::<Vec<_>>();
+    assert_eq!(fulfilled, ["fulfilled offer-smoke"]);
+
+    // A response after the Flow closed is a closed window, not a server error.
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &flow_id);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body, "offer response window closed");
+    let never_started = http_client.new_flow_id("deferred-choice-missing");
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &never_started);
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body, "offer response flow not found");
+}
+
+/// Accepts the offer through the HTTP route. Returns the status and the body.
+fn accept_offer_over_http(base_url: &str, flow_id: &str) -> (u16, String) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!("{base_url}/patterns/deferred-choice/accept"))
+        .query(&[("workflowId", flow_id), ("note", "looks good")])
+        .send()
+        .expect("GET /patterns/deferred-choice/accept");
+    let status = response.status().as_u16();
+    let body = response.text().expect("read the acceptance response");
+    (status, body)
 }
 
 #[test]

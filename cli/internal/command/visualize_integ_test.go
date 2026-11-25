@@ -1055,6 +1055,11 @@ var multiFlowExampleDirectories = map[string]bool{
 	"workflow-patterns": true,
 }
 
+var crossModuleProbeFlowSources = map[string]bool{
+	"examples/python/tests/integ/offer_response_window_probe_flow.py": true,
+	"examples/rust/tests/offer_response_window_probe/mod.rs":          true,
+}
+
 func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 	t.Helper()
 	type sourceRoot struct {
@@ -1080,6 +1085,10 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 			// Workflow pattern catalogs define several small Flows per file; visualize renders one Flow per file.
 			if entry.IsDir() && multiFlowExampleDirectories[entry.Name()] {
 				return filepath.SkipDir
+			}
+			// These test probe Flows reuse example Steps from other modules, which one-file analysis cannot resolve.
+			if relative, relErr := filepath.Rel(repositoryRoot, path); relErr == nil && crossModuleProbeFlowSources[filepath.ToSlash(relative)] {
+				return nil
 			}
 			if entry.IsDir() || filepath.Ext(path) != root.extension ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "Test.java") {

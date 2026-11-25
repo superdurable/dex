@@ -326,6 +326,35 @@ async def assert_inbound_event_loop_timers(flow_id: str) -> None:
     )
 
 
+async def assert_step_execute_completed(flow_id: str, step_type: str) -> None:
+    """Waits until the Flow history shows a completed Execute of the Step type."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        history = await asyncio.to_thread(
+            run_dexcli_json,
+            [
+                dexcli_path(),
+                "flow",
+                "history",
+                flow_id,
+                "--server",
+                flow_service_address(),
+                "--output",
+                "json",
+                "--page-size",
+                "50",
+            ],
+        )
+        for event in history.get("events", []):
+            if (
+                event.get("type") == "StepExecuteCompleted"
+                and _history_event_step_type(event.get("payload") or {}) == step_type
+            ):
+                return
+        await asyncio.sleep(0.2)
+    raise AssertionError(f"{flow_id} never completed the Execute of {step_type}")
+
+
 def _flow_started_start_step_type(events: list[dict[str, Any]]) -> str:
     for event in events:
         payload = event.get("payload")
