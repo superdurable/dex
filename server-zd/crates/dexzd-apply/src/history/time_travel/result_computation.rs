@@ -140,11 +140,13 @@ impl ComputedTimeTravel {
     /// Returns the TimeTravel command that applies the result staged under `staging_id`.
     ///
     /// Apply checks its request, seq, and target point against the staging. Propose it at
-    /// [`Self::run_attempt`].
+    /// [`Self::run_attempt`]. An owner sets `should_reject_publication_during_pending_close`;
+    /// older logs left it false.
     pub fn time_travel_command(
         &self,
         staging_id: &[u8],
         should_restore_running_as_pending: bool,
+        should_reject_publication_during_pending_close: bool,
     ) -> TimeTravelCommand {
         TimeTravelCommand {
             request: Some(self.request.clone()),
@@ -153,6 +155,7 @@ impl ComputedTimeTravel {
             computed_through_seq: self.computed_through_seq,
             target_run_attempt: self.result.target.point.attempt,
             target_run_seq: self.result.target.point.seq,
+            should_reject_publication_during_pending_close,
         }
     }
 

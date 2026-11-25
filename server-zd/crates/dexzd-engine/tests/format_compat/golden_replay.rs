@@ -33,7 +33,7 @@ use crate::testdata_tree::{
 /// Digest of every file of each version, README included. Regenerate the newest version before 1.0; afterward versions are immutable: add `v<N+1>`.
 const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[
     ("v1", "40b2004160b6f2900b954b2eff8e286b"),
-    ("v2", "577334597c03c8d9967c1e42e7799a7d"),
+    ("v2", "91bc1b0e8b60fcaf3add8b9da59cc173"),
 ];
 /// The restoring node starts this long after the last recorded command.
 pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
@@ -218,7 +218,10 @@ fn decode_version(version: &TestdataVersion) -> DecodedObjects {
     decode_objects(&read_files(&version.directory.join(OBJECTS_DIRECTORY)))
 }
 
-async fn assert_replays_to_recorded_state(version: &TestdataVersion, snapshot_use: SnapshotUse) {
+pub(crate) async fn assert_replays_to_recorded_state(
+    version: &TestdataVersion,
+    snapshot_use: SnapshotUse,
+) {
     let recorded_text = std::fs::read_to_string(version.directory.join(STATE_DUMP_FILE))
         .expect("read the recorded state dump");
     let recorded = parse_state_dump(&recorded_text);
