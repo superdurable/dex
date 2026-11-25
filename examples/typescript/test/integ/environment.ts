@@ -30,6 +30,8 @@ import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flo
 import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
+import { ExpenseReimbursementFlow } from "../../src/patterns/fail-fast/expense-reimbursement-flow.js";
+import { FakePaymentProvider } from "../../src/patterns/fail-fast/fake-payment-provider.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -51,6 +53,8 @@ import {
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const paymentProvider = new FakePaymentProvider();
+const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 
 export interface IntegEnvironment {
   readonly client: Client;
@@ -67,6 +71,8 @@ export interface IntegEnvironment {
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
   readonly loanApplicationFlow: typeof loanApplicationFlow;
+  readonly expenseReimbursementFlow: ExpenseReimbursementFlow;
+  readonly paymentProvider: FakePaymentProvider;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -111,6 +117,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
     deferredChoiceOrderProbeFlow,
     cancelCaseOrderProbeFlow,
   ];
@@ -145,6 +152,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
+    paymentProvider,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

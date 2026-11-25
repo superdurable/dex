@@ -32,6 +32,7 @@ import { createInterruptibleRouter } from "./patterns/interruptible/controller.j
 import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
 import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/controller.js";
+import { createFailFastRouter } from "./patterns/fail-fast/controller.js";
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
@@ -72,6 +73,7 @@ import {
   aiAgentFlow,
   claudeAgentSdkOrderSupportFlow,
   createExampleRegistry,
+  expenseReimbursementFlow,
   mastraOrderSupportFlow,
   openAIAgentsOrderSupportFlow,
   orderProcessingFlow,
@@ -130,6 +132,7 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
   app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
+  app.use("/patterns/fail-fast", createFailFastRouter(client, expenseReimbursementFlow));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));

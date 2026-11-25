@@ -142,6 +142,16 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "patterns/fail-fast",
+      trigger: () =>
+        triggerGet(context, "/patterns/fail-fast/start", {
+          workflowId: newFlowId("pattern-fail-fast"),
+          amountCents: "12000",
+          bankAccount: "12345678",
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/interruptible",
       trigger: () =>
         triggerGet(context, "/patterns/interruptible/start", {

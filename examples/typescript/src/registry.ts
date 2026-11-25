@@ -42,6 +42,8 @@ import {
   submitRequestFlow,
   waitForHalfParentFlow,
 } from "./patterns/parallel-subflows/parallel-subflows.js";
+import { ExpenseReimbursementFlow } from "./patterns/fail-fast/expense-reimbursement-flow.js";
+import { FakePaymentProvider } from "./patterns/fail-fast/fake-payment-provider.js";
 import { FakeJobService } from "./patterns/polling/fake-job-service.js";
 import { PollingFlow } from "./patterns/polling/polling-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
@@ -108,6 +110,8 @@ import { environmentOr } from "./config/env.js";
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
+const paymentProvider = new FakePaymentProvider();
+const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
@@ -158,6 +162,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   advancedShortLiveParentFlow,
   submitRequestFlow,
   pollingFlow,
+  expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
@@ -230,6 +235,7 @@ export {
   submitRequestFlow,
   pollingFlow,
   pollingJobs,
+  expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,

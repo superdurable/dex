@@ -115,6 +115,7 @@ Under [`src/patterns/`](./src/patterns):
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - [Polling an external job in one long-running Step](./src/patterns/polling)
+- [Failing fast on a permanent provider error](./src/patterns/fail-fast)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
