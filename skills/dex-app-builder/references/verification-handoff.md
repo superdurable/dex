@@ -86,6 +86,23 @@ its Dex Web URL again at handoff.
 and Server overrides are in the
 [CLI reference](https://docs.superdurable.io/reference/cli/).
 
+## Optional correctness checks
+
+Before handoff, ask the user whether they want to try two optional Dex
+checks. Offer them; do not recommend them strongly or require them.
+
+- Static lock check: `dexcli visualize` warns when a handler writes an
+  Attribute or publishes to a Channel without the lock the resource declares,
+  or when concurrent writers share an Attribute that declares no lock
+  requirement. The warnings leave the graph valid. See
+  [Declared lock requirements](https://docs.superdurable.io/reference/web/flow-visualization#declared-lock-requirements).
+- Lost-result test run: `dexcli dev` can drop finished Step and RPC results.
+  A Step then runs again as after a Worker crash, and an RPC caller sees a
+  failure. Rerun the local journeys, and any requested tests, against it.
+  Check that each Flow reaches the same result, each external effect happens
+  once, and a Step that runs again sees correct state. See
+  [Worker result loss injection](https://docs.superdurable.io/reference/server/configuration#dev-worker-result-loss).
+
 ## Durable verification
 
 This list guides requested runtime acceptance. It is not a requirement to
