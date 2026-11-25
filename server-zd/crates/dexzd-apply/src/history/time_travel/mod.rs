@@ -299,6 +299,7 @@ mod owner_staging {
         bodies.push(Command::TimeTravel(computed.time_travel_command(
             &staging_id,
             time_travel.should_restore_running_as_pending,
+            time_travel.should_reject_publication_during_pending_close,
         )));
         let expected_run_attempt = if command.expected_run_attempt == 0 {
             computed.run_attempt()

@@ -89,12 +89,6 @@ public class DrainingExternalChannelFlow implements Flow<String> {
                         "DrainingExternalChannelFlow process message: " + value);
             }
 
-            try {
-                Thread.sleep(20000);
-            } catch (final InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-
             return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
                     StepMovement.of(ProcessMessage.class, null),

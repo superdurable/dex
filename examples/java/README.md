@@ -93,6 +93,7 @@ after E2E tests for manual HTTP exploration.
 Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
 - [Cancel case: stop a running child Flow](./src/main/java/io/superdurable/dex/patterns/cancelcase)
+- [Child Flows with business identity: one top-level Flow per shipment number](./src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity)
 - [Critical section: a one-message Channel token](./src/main/java/io/superdurable/dex/patterns/criticalsection)
 - Cron schedule
 - [Deferred choice: the first response or expiry wins](./src/main/java/io/superdurable/dex/patterns/deferredchoice)
@@ -102,9 +103,11 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - [Polling an external job in one long-running Step](./src/main/java/io/superdurable/dex/patterns/polling)
+- [Failing fast on a permanent provider error](./src/main/java/io/superdurable/dex/patterns/failfast)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
+- [Entity Flow customer accounts](./src/main/java/io/superdurable/dex/patterns/entityflow)
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

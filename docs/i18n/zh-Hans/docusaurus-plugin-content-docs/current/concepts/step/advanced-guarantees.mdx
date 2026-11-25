@@ -55,7 +55,7 @@ Step 的 **durability** 决定 Dex 什么时候保存它的进度。
 
 被取消方法的代码会一直运行到方法返回，它的外部调用仍然会生效。方法应检查取消状态并返回。见 [Step 取消](/reference/server/step-and-flow-close#step-cancellation)。
 
-<a id="cancel-a-publishing-step"></a>被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的 Step 或 RPC 也不能替它发布。Dex 要到保存发起取消的那个结果时，才确定取消哪些 Step。那时被取消的 Step 可能已经发布过了。所以不要取消其他 Step 依赖它发布消息的 Step，例如 [临界区](/design-patterns/critical-section)中持有 token 的 Step。要提前停止这样的 Step，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。
+<a id="cancel-a-publishing-step"></a>被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的 Step 或 RPC 也不能替它发布。Dex 要到保存发起取消的那个结果时，才确定取消哪些 Step。那时被取消的 Step 可能已经发布过了。所以不要取消其他 Step 依赖它发布消息的 Step，例如 [临界区](/design-patterns/parallel/critical-section)中持有 token 的 Step。要提前停止这样的 Step，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。
 
 `GracefulComplete` 结束它自己的分支，并请求 Dex 在没有 active Step 后完成 Flow。这个请求会一直有效：之后某个分支以 `DeadEnd` 结束，也不会撤回它。见[完成请求](/reference/server/step-and-flow-close#completion-requests)。
 

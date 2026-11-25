@@ -379,6 +379,7 @@ fn time_travel_removes_queued_rows_and_restored_attempts_are_pending_since_the_t
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: true,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             reset_type: FlowResetType::Beginning as i32,
             ..ResetFlowRequest::default()

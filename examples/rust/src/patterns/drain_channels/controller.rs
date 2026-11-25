@@ -43,21 +43,6 @@ struct StartQuery {
     message_id: String,
 }
 
-/// Restarts a closed Flow ID. A retried start returns the original run while that run is
-/// still the latest run for the Flow ID and its start request ID matches.
-fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
-    StartFlowOptions::new()
-        .timeout(Duration::from_secs(60 * 60))
-        .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
-        .request_id(format!("start:{message_id}"))
-        .ignore_already_started(true)
-}
-
-/// Returns a random 128-bit message ID for a caller that sent none.
-fn new_message_id() -> String {
-    format!("{:032x}", fastrand::u128(..))
-}
-
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route(
@@ -137,4 +122,19 @@ async fn start_or_publish(
         Ok(Err(unconfirmed)) => (StatusCode::CONFLICT, unconfirmed).into_response(),
         Err(error) => map_sdk_error(error).into_response(),
     }
+}
+
+/// Restarts a closed Flow ID. A retried start returns the original run while that run is
+/// still the latest run for the Flow ID and its start request ID matches.
+fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(60 * 60))
+        .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
+        .request_id(format!("start:{message_id}"))
+        .ignore_already_started(true)
+}
+
+/// Returns a random 128-bit message ID for a caller that sent none.
+fn new_message_id() -> String {
+    format!("{:032x}", fastrand::u128(..))
 }

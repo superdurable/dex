@@ -5,17 +5,21 @@ sidebar_label: 并行 Step
 
 # 并行 Step
 
-选择启动和协调并发 Step execution 的四种方式。
+选择 Flow 如何同时运行多个 Step，以及何时继续。
 
-## 问题与做法
+<a id="问题与做法"></a>
 
-每种模式都用 `GoToMany` 启动并发的 Step execution。它们的区别在于运行哪些 Step，以及 Flow 何时继续。
+## 选择模式 {#choose-a-pattern}
 
 - [静态并行 Step](/design-patterns/parallel/static)：启动固定的一组不同 Step 类型。
 - [动态并行 Step](/design-patterns/parallel/dynamic)：按运行时数量启动同一 Step 类型的 execution。
-- [等待并行 Step](/design-patterns/parallel/await)：等待所有动态 execution 向 Join 上报结果。
+- [等待并行 Step](/design-patterns/parallel/await)：等待所有动态 execution 上报结果。
 - [首个获胜的并行 Step](/design-patterns/parallel/first-win)：用第一个完成的 execution 取消其 sibling。
+- [临界区](/design-patterns/parallel/critical-section)：让并行分支轮流执行一段跨多个 Step 的流程。
 
-## 下一步
+<a id="下一步"></a>
 
-- [并行 SubFlow](/design-patterns/parallel-subflows)
+## 下一步 {#next}
+
+- [静态并行 Step](/design-patterns/parallel/static)
+- [子 Flow](/design-patterns/subflows)

@@ -142,6 +142,16 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "patterns/fail-fast",
+      trigger: () =>
+        triggerGet(context, "/patterns/fail-fast/start", {
+          workflowId: newFlowId("pattern-fail-fast"),
+          amountCents: "12000",
+          bankAccount: "12345678",
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/interruptible",
       trigger: () =>
         triggerGet(context, "/patterns/interruptible/start", {
@@ -169,6 +179,18 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           metadata: { source: "smoke", tags: ["example"] },
         });
         return { flowId: result.flowId || userId, runId: result.runId };
+      },
+      flags: noStartStepFlags(),
+    },
+    {
+      name: "patterns/entity-flow",
+      trigger: () => {
+        const accountId = newFlowId("entity-flow");
+        return triggerPost(context, "/patterns/entity-flow/account", {
+          accountId,
+          displayName: "Smoke Tester",
+          email: `${accountId}@example.com`,
+        });
       },
       flags: noStartStepFlags(),
     },
@@ -254,6 +276,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     parallelSubFlowsSmokeEntry("wait-for-half"),
     parallelSubFlowsSmokeEntry("long-lived-parent"),
     parallelSubFlowsSmokeEntry("short-lived-parent"),
+    {
+      name: "patterns/child-flows-business-identity",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/child-flows-business-identity/start", {
+          workflowId: newFlowId("child-flows-order"),
+        });
+        await verifyShipmentLookupByNumber(result.flowId);
+        return result;
+      },
+      flags: defaultFlags(),
+    },
     {
       name: "patterns/drain-channels/internal",
       trigger: () =>
@@ -748,6 +781,50 @@ async function refundRoute(
   const response = await fetch(url);
   const text = await response.text();
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+// The order's second shipment runs for a day, so its lookup by number reports running.
+async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
+  const shipmentNumber = `${orderId}-2`;
+  await pollUntil(
+    async () => {
+      const { status, body } = await getChildFlowsRoute("/shipment", shipmentNumber);
+      return status === 200 && (JSON.parse(body) as { status?: string }).status === "running";
+    },
+    `shipment lookup for order ${orderId} never reported running`,
+  );
+
+  // The order is not a shipment: both shipment routes answer 404 and leave it running.
+  for (const route of ["/shipment", "/cancel-shipment"]) {
+    const { status } = await getChildFlowsRoute(route, orderId);
+    assert.equal(status, 404, route);
+  }
+  assert.equal((await server.client.describeFlow(orderId)).status, "running");
+
+  const canceled = await getChildFlowsRoute("/cancel-shipment", shipmentNumber);
+  assert.equal(canceled.status, 200, canceled.body);
+  await pollUntil(
+    async () => (await server.client.describeFlow(shipmentNumber)).status === "cancelled",
+    `shipment ${shipmentNumber} never became canceled`,
+  );
+}
+
+async function getChildFlowsRoute(route: string, shipmentNumber: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/child-flows-business-identity${route}?${new URLSearchParams({ shipmentNumber })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+async function pollUntil(check: () => Promise<boolean>, message: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(message);
 }
 
 function attributeReadUrl(query: Record<string, string>): string {

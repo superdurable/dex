@@ -249,6 +249,8 @@ The parent receives each child's result durably:
   quorum, or while the parent stops the rest, count in the parent's result as
   the business rule states.
 
+The [Child Flows with Business Identity](/design-patterns/subflows/child-flows-with-business-identity) pattern shows a variant of these rules in runnable code. Its report RPC writes the parent's record directly under a lock instead of publishing to a Channel. A start that finds the number already started is recorded as `rejected` instead of read and matched.
+
 ## Identifiers {#identifiers}
 
 The word Flow can mean a Flow definition or a Flow run. These

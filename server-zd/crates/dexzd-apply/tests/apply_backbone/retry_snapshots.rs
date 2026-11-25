@@ -436,6 +436,7 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
                     target_run_attempt: 0,
                     target_run_seq: 0,
                     should_restore_running_as_pending: false,
+                    should_reject_publication_during_pending_close: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),
                         reset_type: FlowResetType::HistoryEventTime as i32,
@@ -462,6 +463,7 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
                     target_run_attempt: 0,
                     target_run_seq: 0,
                     should_restore_running_as_pending: false,
+                    should_reject_publication_during_pending_close: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),
                         reset_type: FlowResetType::Beginning as i32,

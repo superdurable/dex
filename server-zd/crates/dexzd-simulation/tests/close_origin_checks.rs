@@ -178,6 +178,7 @@ fn a_reset_that_finalizes_a_restored_pending_close_is_a_natural_close() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: FLOW_ID.to_owned(),
             reset_type: FlowResetType::HistoryEventTime as i32,

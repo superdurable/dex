@@ -23,13 +23,17 @@
     "message": "并行 Step",
     "description": "The label for category Parallel Steps in sidebar docs"
   },
-  "sidebar.docs.category.Parallel SubFlows": {
-    "message": "并行 SubFlow",
-    "description": "The label for category Parallel SubFlows in sidebar docs"
+  "sidebar.docs.category.SubFlows": {
+    "message": "子 Flow",
+    "description": "The label for category SubFlows in sidebar docs"
   },
   "sidebar.docs.category.Durable Timer": {
     "message": "持久化定时器",
     "description": "The label for category Durable Timer in sidebar docs"
+  },
+  "sidebar.docs.category.External Interaction": {
+    "message": "外部交互",
+    "description": "The label for category External Interaction in sidebar docs"
   },
   "sidebar.docs.category.Failure Handling": {
     "message": "失败处理",
@@ -43,9 +47,9 @@
     "message": "响应式更新",
     "description": "The label for category Responsive Update in sidebar docs"
   },
-  "sidebar.docs.category.AttributeMap Partitioning": {
-    "message": "AttributeMap 分区",
-    "description": "The label for category AttributeMap Partitioning in sidebar docs"
+  "sidebar.docs.category.Data Storage": {
+    "message": "数据存储",
+    "description": "The label for category Data Storage in sidebar docs"
   },
   "sidebar.docs.category.Examples": {
     "message": "示例",

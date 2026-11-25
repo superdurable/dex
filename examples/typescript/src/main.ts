@@ -24,14 +24,17 @@ import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
 import { startExampleWorker } from "./config/worker.js";
+import { createChildFlowsBusinessIdentityRouter } from "./patterns/child-flows-business-identity/controller.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
+import { createEntityFlowRouter } from "./patterns/entity-flow/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
 import { createHashPartitionedAttributeMapRouter } from "./patterns/hash-partitioned-attribute-map/controller.js";
 import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
 import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
 import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/controller.js";
+import { createFailFastRouter } from "./patterns/fail-fast/controller.js";
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
@@ -72,8 +75,10 @@ import {
   aiAgentFlow,
   claudeAgentSdkOrderSupportFlow,
   createExampleRegistry,
+  expenseReimbursementFlow,
   mastraOrderSupportFlow,
   openAIAgentsOrderSupportFlow,
+  orderFulfillmentFlow,
   orderProcessingFlow,
   piOrderSupportFlow,
   pollingFlow,
@@ -130,8 +135,10 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
   app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
+  app.use("/patterns/fail-fast", createFailFastRouter(client, expenseReimbursementFlow));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
+  app.use("/patterns/entity-flow", createEntityFlowRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));
   app.use(
     "/patterns/sequentially-chunked-attribute-map",
@@ -148,6 +155,10 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   );
   app.use("/patterns/parallel", createParallelRouter(client));
   app.use("/patterns/parallel-subflows", createParallelSubFlowsRouter(client));
+  app.use(
+    "/patterns/child-flows-business-identity",
+    createChildFlowsBusinessIdentityRouter(client, orderFulfillmentFlow),
+  );
   app.use("/patterns/recovery", createRecoveryRouter(client));
   app.use("/patterns/drain-channels/internal", createDrainInternalRouter(client));
   app.use("/patterns/drain-channels/external-publishing", createDrainingChannelRouter(client));

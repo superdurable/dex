@@ -86,45 +86,49 @@ mappings:
 
   - skill: dex-app-builder/references/core/patterns.md
     docs:
-      - docs/content/design-patterns/attribute-map-partitioning.mdx
-      - docs/content/design-patterns/cancel-case.mdx
-      - docs/content/design-patterns/critical-section.mdx
-      - docs/content/design-patterns/deferred-choice.mdx
+      - docs/content/design-patterns/data-storage.mdx
+      - docs/content/design-patterns/data-storage/entity-flow-attribute-sync.mdx
+      - docs/content/design-patterns/data-storage/entity-flow.mdx
+      - docs/content/design-patterns/data-storage/hash-partitioned-attribute-map.mdx
+      - docs/content/design-patterns/data-storage/sequentially-chunked-attribute-map.mdx
       - docs/content/design-patterns/drain-channels.mdx
       - docs/content/design-patterns/drain-internal-channels.mdx
       - docs/content/design-patterns/draining-channel-for-external-publishing.mdx
       - docs/content/design-patterns/durable-timer/cron.mdx
-      - docs/content/design-patterns/durable-timer/inactiveness-tracker-timer.mdx
       - docs/content/design-patterns/durable-timer/index.mdx
+      - docs/content/design-patterns/durable-timer/polling.mdx
       - docs/content/design-patterns/durable-timer/reminder.mdx
-      - docs/content/design-patterns/entity-store.mdx
+      - docs/content/design-patterns/external-interaction.mdx
+      - docs/content/design-patterns/external-interaction/decision-with-deadline.mdx
+      - docs/content/design-patterns/external-interaction/idle-timer-with-resolution.mdx
+      - docs/content/design-patterns/external-interaction/idle-timer.mdx
+      - docs/content/design-patterns/external-interaction/stop-long-running-work.mdx
       - docs/content/design-patterns/failure-handling.mdx
       - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
+      - docs/content/design-patterns/failure-handling/fail-fast-on-permanent-errors.mdx
       - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
       - docs/content/design-patterns/failure-handling/manual-recovery.mdx
       - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
-      - docs/content/design-patterns/hash-partitioned-attribute-map.mdx
-      - docs/content/design-patterns/inbound-event-loop.mdx
       - docs/content/design-patterns/index.mdx
-      - docs/content/design-patterns/interruptible.mdx
-      - docs/content/design-patterns/parallel-subflows.mdx
-      - docs/content/design-patterns/parallel-subflows/back-pressure.mdx
-      - docs/content/design-patterns/parallel-subflows/basic.mdx
-      - docs/content/design-patterns/parallel-subflows/long-lived-parent.mdx
-      - docs/content/design-patterns/parallel-subflows/partitioning.mdx
-      - docs/content/design-patterns/parallel-subflows/short-lived-parent.mdx
-      - docs/content/design-patterns/parallel-subflows/wait-for-half.mdx
       - docs/content/design-patterns/parallel.mdx
       - docs/content/design-patterns/parallel/await.mdx
+      - docs/content/design-patterns/parallel/critical-section.mdx
       - docs/content/design-patterns/parallel/dynamic.mdx
       - docs/content/design-patterns/parallel/first-win.mdx
       - docs/content/design-patterns/parallel/static.mdx
-      - docs/content/design-patterns/polling.mdx
       - docs/content/design-patterns/responsive-update.mdx
       - docs/content/design-patterns/responsive-update/attribute-match.mdx
       - docs/content/design-patterns/responsive-update/step-completion.mdx
       - docs/content/design-patterns/responsive-update/stream.mdx
-      - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
+      - docs/content/design-patterns/subflows.mdx
+      - docs/content/design-patterns/subflows/back-pressure.mdx
+      - docs/content/design-patterns/subflows/basic.mdx
+      - docs/content/design-patterns/subflows/cancel-case.mdx
+      - docs/content/design-patterns/subflows/child-flows-with-business-identity.mdx
+      - docs/content/design-patterns/subflows/long-lived-parent.mdx
+      - docs/content/design-patterns/subflows/partitioning.mdx
+      - docs/content/design-patterns/subflows/short-lived-parent.mdx
+      - docs/content/design-patterns/subflows/wait-for-half.mdx
 
   - skill: dex-app-builder/references/backend-implementation.md
     docs:

@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::workflow_patterns::TaskInterval;
@@ -131,9 +132,13 @@ impl WorkflowPatternsEnvironment {
             )
             .expect("create Workflow Patterns Client"),
         );
-        let worker_registry =
-            create_worker_registry(Arc::clone(&client), polling_jobs, customer_refund_flow)
-                .expect("register Rust example Worker");
+        let worker_registry = create_worker_registry(
+            Arc::clone(&client),
+            polling_jobs,
+            customer_refund_flow,
+            Arc::new(FakeAccountArchive::default()),
+        )
+        .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
             .pull(example_pull_worker_options());

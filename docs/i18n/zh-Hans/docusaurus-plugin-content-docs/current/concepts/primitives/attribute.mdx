@@ -314,7 +314,7 @@ self.progress
 
 ### 拆分持续增长的集合 {#attributemap-partitioning}
 
-持续增长的集合应该拆到多个有大小上限的 AttributeMap instance 里。[AttributeMap 分区](/design-patterns/attribute-map-partitioning)对比了两种模式：只追加、有顺序的数据用顺序 chunk，按稳定 key 查找用 hash 分区。
+持续增长的集合应该拆到多个有大小上限的 AttributeMap instance 里。[数据存储](/design-patterns/data-storage)对比了两种模式：只追加、有顺序的数据用顺序 chunk，按稳定 key 查找用 hash 分区。
 
 <a id="initial-attribute-values"></a>
 <a id="read-from-outside-a-flow"></a>
@@ -435,7 +435,7 @@ Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表
 
 Flow 仍是数据的权威来源。表里的一行保存最新值，不是历史记录，所以不要根据这张表做 Flow 决策。sync 的行为，包括被丢弃的写入和修复，见 [Dex 和你的数据库](/components/your-database)。
 
-配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页（英文）。完整示例见 [Entity Store](/design-patterns/entity-store) 模式。
+配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页（英文）。完整示例见 [带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync) 模式。
 
 <a id="参考"></a>
 

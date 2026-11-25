@@ -127,7 +127,7 @@ Use **RetryAfter** to choose the delay before the next attempt. It overrides
 the retry schedule of the **RetryPolicy**.
 
 Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
-external system; use the [Polling](/design-patterns/polling) pattern.
+external system; use the [Polling](/design-patterns/durable-timer/polling) pattern.
 
 A retry of one **Execute** call reuses the
 [state snapshot](#selective-state-loading) that Dex took when it handed the
@@ -262,7 +262,7 @@ retries end, the failure policy decides what happens next. If no failure route
 is configured, the Flow fails. See
 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 For a long wait on an external system, see
-[Polling](/design-patterns/polling).
+[Polling](/design-patterns/durable-timer/polling).
 
 ## Heartbeat {#heartbeat}
 
@@ -273,7 +273,7 @@ Sending a Stream message is an implicit heartbeat.
 For example, an **Execute** method timeout of 60 seconds and a
 **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds
 instead of waiting for the full 60 seconds. To wait for an external system in
-one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+one heartbeating Step, use the [Polling](/design-patterns/durable-timer/polling) pattern.
 
 A heartbeat can persist a checkpoint value. The next attempt receives the
 latest stored value and can resume from it. An explicit heartbeat without a

@@ -1,0 +1,70 @@
+---
+title: 带结论的空闲定时器
+sidebar_label: 带结论的空闲定时器
+---
+
+# 带结论的空闲定时器
+
+记录每一条到达的消息，在有人给出结论或一段时间内没有新消息时结束（以前叫作入站事件循环，Inbound Event Loop）。
+
+当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [空闲定时器](/design-patterns/external-interaction/idle-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
+
+## 结构
+
+```pseudocode
+rpc sendReply(text)   -> validate text; if invalid: return a rejection
+                         Replies.publish(text); return accepted
+rpc resolve(reason)   -> if reason is empty: return a rejection
+                         Resolutions.publish(reason)
+
+AwaitInbound.waitFor(pendingResolution)
+    if pendingResolution: Until(Replies.AtLeast(1))    // drain before closing
+    else: AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
+AwaitInbound.execute(pendingResolution)
+    if the Timer fired:   goTo(CloseInactive)
+    replies = the messages the reply Channel Condition consumed
+    if replies is empty:  goTo(Resolve, the consumed resolution)
+    Transcript = Transcript + replies
+    if pendingResolution: goTo(Resolve, pendingResolution)
+    goTo(AwaitInbound, none)    // a new execution of the same Step starts a fresh Timer
+
+Resolve.execute(reason)
+    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
+CloseInactive.execute      // a reply or resolution committed before the empty check reopens the wait
+    forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
+```
+
+## 规则
+
+- RPC 只校验输入，然后把它发布到 Channel。它不写入等待中的 Step 会读取或加锁的 Attribute。
+- 只有一个等待中的 Step。它用 `AnyOf` 等待回复 Channel、结论 Channel 和不活跃 Timer。
+- 先声明回复 Channel，再声明结论 Channel。多个 Channel Condition 同时就绪时，先声明的那个胜出，并且只消费胜出者的消息。所以在结论之前收到的回复总会先被记录。
+- Channel Condition 只有胜出时才消费消息。`Execute` 运行期间到达的回复会留在队列里，由下一次执行处理，不会丢失。
+- `Execute` 把消费到的消息追加到一个 Attribute，例如 transcript。等待中的 Step 是这个 Attribute 唯一的写入者。
+- 然后 `Execute` 回到同一个 Step。新的执行会注册新的等待，所以每条消息之后不活跃 Timer 都会重新开始。
+- 要一次取走所有排队的回复，用“至少一条”的 Channel Condition。也可以每次执行只取一条。
+- 让 transcript 保持有界。长对话把消息存放在 [sequentially chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map) 中。
+
+## 为什么由 Step 负责 transcript {#为什么不让-rpc-写-transcript}
+
+如果由 RPC 追加 transcript，等待中的 Step 就必须锁住 transcript，RPC 为了读取再修改也必须加锁。锁不会排队。只要 Step 或另一个 RPC 持有这把锁，新到的 RPC 都会因为锁冲突被拒绝，客户端只能重试。发布到 Channel 不需要锁，所以并发的回复不会冲突。
+
+## 结论之后到达的回复
+
+每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow。做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。空检查时仍在排队、或已被领取但 Step 还没完成的回复会阻止关闭，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。不活跃关闭还检查结论 Channel，因为 Timer 和结论同时就绪时 Timer 胜出；它的 fallback 重新开始等待。回复 Channel 只能由等待中的 Step 消费。
+
+结论 RPC 拒绝空的原因，因为空的待定结论表示"没有结论"。
+
+调用方必须确认每条回复都已处理时，等待中的 Step 在同一次提交里记录回复的业务 ID，调用方读取这份记录；见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
+
+## 示例
+
+可以从 [空闲定时器](/design-patterns/external-interaction/idle-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
+
+## 下一步
+
+- [停止长时间运行的工作](/design-patterns/external-interaction/stop-long-running-work)
+- [Channel](/concepts/primitives/channel)
+- [Timer](/concepts/primitives/timer)
+- [RPC](/concepts/primitives/rpc)
+- [排空 Channel](/design-patterns/drain-channels)

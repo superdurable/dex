@@ -587,6 +587,7 @@ fn time_travel_to_an_unsynced_value_marks_a_store_deletion() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -621,6 +622,7 @@ fn time_travel_refreshes_pending_snapshots_before_reapplying_writes() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: "account-1".to_owned(),
                 reset_type: FlowResetType::Beginning as i32,
@@ -654,6 +656,7 @@ fn reapplied_synced_write_retains_its_snapshot_after_an_unsynced_write() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -700,6 +703,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
                     ..ResetFlowRequest::default()
@@ -768,6 +772,7 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
                     history_event_time: (target_time * 1000).to_string(),
@@ -1063,6 +1068,7 @@ fn time_travel_remarks_rows_of_the_abandoned_and_restored_state() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
@@ -1123,6 +1129,7 @@ fn time_travel_reapplies_unsynced_writes_without_requesting_synchronization() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
