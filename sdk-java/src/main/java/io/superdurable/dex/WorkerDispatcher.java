@@ -16,6 +16,7 @@ package io.superdurable.dex;
 
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
+import io.superdurable.dex.exceptions.MissingAttributeLockException;
 import io.superdurable.gen.ChannelCondition;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.CloseDecision;
@@ -108,13 +109,24 @@ final class WorkerDispatcher {
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final Wait wait = callWaitFor(step.getStep(), context, input);
-            serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+            final List<AttributeWrite> attributeWrites = context.getAttributeWrites();
+            final List<io.superdurable.gen.ChannelMessage> publications =
+                    context.getPublications();
+            RequiredAttributeLockCheck.check(
+                    flow,
+                    step.getName(),
+                    MissingAttributeLockException.HandlerMethod.WAIT_FOR,
+                    null,
+                    step.getWaitForLockKeys(),
+                    attributeWrites,
+                    publications);
+            serverProtocol.requireHardDeleteAttributeSupport(attributeWrites);
             final InvokeWaitForMethodResponse.Builder response =
                     InvokeWaitForMethodResponse.newBuilder()
-                            .addAllUpsertAttributes(context.getAttributeWrites())
+                            .addAllUpsertAttributes(attributeWrites)
                             .addAllUpsertStepExeLocals(context.getLocalWrites())
                             .addAllRecordEvents(context.getEvents())
-                            .addAllPublishToChannel(context.getPublications())
+                            .addAllPublishToChannel(publications)
                             .addAllDeleteFromChannel(context.getChannelDeletions());
             final WaitingCondition waiting = mapWait(flow, step, wait);
             if (waiting != null) {
@@ -159,13 +171,24 @@ final class WorkerDispatcher {
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final StepDecision decision = callExecute(step.getStep(), context, input);
-            serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+            final List<AttributeWrite> attributeWrites = context.getAttributeWrites();
+            final List<io.superdurable.gen.ChannelMessage> publications =
+                    context.getPublications();
+            RequiredAttributeLockCheck.check(
+                    flow,
+                    step.getName(),
+                    MissingAttributeLockException.HandlerMethod.EXECUTE,
+                    null,
+                    step.getExecuteLockKeys(),
+                    attributeWrites,
+                    publications);
+            serverProtocol.requireHardDeleteAttributeSupport(attributeWrites);
             final InvokeExecuteMethodResponse response = InvokeExecuteMethodResponse.newBuilder()
                     .setStepDecision(mapDecision(flow, step, decision))
-                    .addAllUpsertAttributes(context.getAttributeWrites())
+                    .addAllUpsertAttributes(attributeWrites)
                     .addAllRecordEvents(context.getEvents())
                     .addAllUpsertStepExeLocals(context.getLocalWrites())
-                    .addAllPublishToChannel(context.getPublications())
+                    .addAllPublishToChannel(publications)
                     .addAllDeleteFromChannel(context.getChannelDeletions())
                     .build();
             final Throwable finalizationFailure = context.finalizeStepOutputs(null);
@@ -251,11 +274,21 @@ final class WorkerDispatcher {
             arguments = new Object[] {context};
         }
         final Object returned = invoke(flow.getFlow(), method, arguments);
-        serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+        final List<AttributeWrite> attributeWrites = context.getAttributeWrites();
+        final List<io.superdurable.gen.ChannelMessage> publications = context.getPublications();
+        RequiredAttributeLockCheck.check(
+                flow,
+                null,
+                MissingAttributeLockException.HandlerMethod.RPC,
+                rpc.getName(),
+                rpc.getLockKeys(),
+                attributeWrites,
+                publications);
+        serverProtocol.requireHardDeleteAttributeSupport(attributeWrites);
         final InvokeWorkerRPCResponse.Builder response = InvokeWorkerRPCResponse.newBuilder()
-                .addAllUpsertAttributes(context.getAttributeWrites())
+                .addAllUpsertAttributes(attributeWrites)
                 .addAllRecordEvents(context.getEvents())
-                .addAllPublishToChannel(context.getPublications())
+                .addAllPublishToChannel(publications)
                 .addAllDeleteFromChannel(context.getChannelDeletions());
         if (returned instanceof RPCResult) {
             final RPCResult<?> result = (RPCResult<?>) returned;

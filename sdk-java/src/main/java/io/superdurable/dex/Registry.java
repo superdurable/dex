@@ -224,6 +224,7 @@ public final class Registry {
         }
         final Map<String, PersistenceDefinition> persistence =
                 assemblePersistence(flowType, schema, attributeIndexes);
+        validateRequiredLockAttributes(flowType, persistence);
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
         return new RegisteredFlow(
                 flowType,
@@ -264,6 +265,34 @@ public final class Registry {
             addPersistence(flowType, persistence, definition, attributeIndexes);
         }
         return persistence;
+    }
+
+    // Every declared coordination lock must name a singleton Attribute of the same Flow.
+    private static void validateRequiredLockAttributes(
+            final String flowType,
+            final Map<String, PersistenceDefinition> persistence) {
+        for (PersistenceDefinition definition : persistence.values()) {
+            final LockRequirement requirement = definition.getLockRequirement();
+            if (requirement == null || requirement.getMode() != LockRequirement.Mode.ATTRIBUTE) {
+                continue;
+            }
+            final boolean isChannel =
+                    definition instanceof Channel || definition instanceof ChannelMap;
+            final String usage = definition.getClass().getSimpleName() + " "
+                    + definition.getName() + (isChannel ? " publish lock" : " write lock");
+            final String lockName = requirement.getLockAttributeName();
+            final PersistenceDefinition lockDefinition = persistence.get(lockName);
+            if (lockDefinition instanceof AttributeMap) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " " + usage + ": lock Attribute " + lockName
+                                + " is an AttributeMap; use a singleton Attribute");
+            }
+            if (!(lockDefinition instanceof Attribute)) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " " + usage + ": lock Attribute " + lockName
+                                + " is not in the PersistenceSchema");
+            }
+        }
     }
 
     private static void addPersistence(
@@ -723,18 +752,42 @@ public final class Registry {
         private final Step<?> step;
         private final boolean starting;
         private final boolean skipWaitFor;
+        private final Set<String> waitForLockKeys;
+        private final Set<String> executeLockKeys;
 
         RegisteredStep(final String name, final Step<?> step, final boolean starting) {
             this.name = name;
             this.step = step;
             this.starting = starting;
             this.skipWaitFor = Registry.skipsWaitFor(step);
+            // Read once: declared lock requirements count only registration-time locks.
+            final StepOptions options = step.getStepOptions();
+            this.waitForLockKeys = options == null
+                    ? Collections.<String>emptySet()
+                    : lockKeys(options.getWaitForLocks());
+            this.executeLockKeys = options == null
+                    ? Collections.<String>emptySet()
+                    : lockKeys(options.getExecuteLocks());
         }
 
         String getName() { return name; }
         Step<?> getStep() { return step; }
         boolean isStarting() { return starting; }
         boolean skipsWaitFor() { return skipWaitFor; }
+        Set<String> getWaitForLockKeys() { return waitForLockKeys; }
+        Set<String> getExecuteLockKeys() { return executeLockKeys; }
+
+        private static Set<String> lockKeys(final List<AttributeLock> locks) {
+            final Set<String> keys = new HashSet<String>();
+            for (AttributeLock lock : locks) {
+                if (lock != null) {
+                    keys.add(lock.getInstance() == null
+                            ? lock.getAttribute()
+                            : physicalName(lock.getAttribute(), lock.getInstance()));
+                }
+            }
+            return Collections.unmodifiableSet(keys);
+        }
     }
 
     static final class RegisteredRpc {
@@ -742,6 +795,7 @@ public final class Registry {
         private final Method method;
         private final RPC annotation;
         private final List<String> locks;
+        private final Set<String> lockKeys;
         private final RpcStateLoads stateLoads;
 
         RegisteredRpc(
@@ -754,6 +808,7 @@ public final class Registry {
             this.method = method;
             this.annotation = annotation;
             this.locks = locks;
+            this.lockKeys = Collections.unmodifiableSet(new HashSet<String>(locks));
             this.stateLoads = stateLoads;
         }
 
@@ -761,6 +816,7 @@ public final class Registry {
         Method getMethod() { return method; }
         RPC getAnnotation() { return annotation; }
         List<String> getLocks() { return locks; }
+        Set<String> getLockKeys() { return lockKeys; }
         RpcStateLoads getStateLoads() { return stateLoads; }
     }
 

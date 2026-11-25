@@ -724,14 +724,14 @@ Worker then fails each handler that writes or publishes without registering
 that lock. Dex does not infer a missing lock from what a handler reads and
 writes; the declaration states the rule.
 
-| Declared on | Requirement | Go (since 1.45.17) | Python (since 1.45.18) |
-| --- | --- | --- | --- |
-| Attribute | Every write holds the Attribute's own lock | **WritesRequireLock** | **writes_require_lock=True** |
-| AttributeMap | A write of an instance holds that instance's lock | **WritesRequireLock** | **writes_require_lock=True** |
-| Attribute or AttributeMap | Every write holds the lock of one singleton coordination Attribute | **WritesRequireAttributeLock** | **writes_require_lock=**&lt;Attribute&gt; |
-| Channel or ChannelMap | Every publish holds the lock of one singleton Attribute | **PublishesRequireAttributeLock** with **DefineChannelWithOptions** or **DefineChannelMapWithOptions** | **publishes_require_lock=**&lt;Attribute&gt; |
+| Declared on | Requirement | Go (since 1.45.17) | Python (since 1.45.18) | Java (since 1.45.4) |
+| --- | --- | --- | --- | --- |
+| Attribute | Every write holds the Attribute's own lock | **WritesRequireLock** | **writes_require_lock=True** | **writesRequireLock** |
+| AttributeMap | A write of an instance holds that instance's lock | **WritesRequireLock** | **writes_require_lock=True** | **writesRequireLock** |
+| Attribute or AttributeMap | Every write holds the lock of one singleton coordination Attribute | **WritesRequireAttributeLock** | **writes_require_lock=**&lt;Attribute&gt; | **writesRequireAttributeLock** |
+| Channel or ChannelMap | Every publish holds the lock of one singleton Attribute | **PublishesRequireAttributeLock** with **DefineChannelWithOptions** or **DefineChannelMapWithOptions** | **publishes_require_lock=**&lt;Attribute&gt; | **publishesRequireAttributeLock** |
 
-Only the Go and Python SDKs support the declaration so far.
+Only the Go, Python, and Java SDKs support the declaration so far.
 
 The Worker checks each **WaitFor**, **Execute**, and RPC invocation after the
 handler returns successfully:
@@ -757,21 +757,23 @@ writes that the Step already sent and external side effects stay. Dex retries a
 failed Step method under its retry policy. A retry registers the same locks, so
 it fails again unless the handler takes another path. An RPC caller receives the
 failure as a Worker invocation error whose Worker error type is
-`*dex.MissingAttributeLockError` in Go and
-`dex.runtime_errors.MissingAttributeLockError` in Python.
+`*dex.MissingAttributeLockError` in Go,
+`dex.runtime_errors.MissingAttributeLockError` in Python, and
+`io.superdurable.dex.exceptions.MissingAttributeLockException` in Java.
 
 An AttributeMap that requires each instance's own lock accepts only writes of
 instances whose locks the handler registers. Registered locks are fixed, so this
 suits a map with a known set of instances. For instances chosen at run time,
-declare a coordination Attribute with **WritesRequireAttributeLock** or
-**writes_require_lock**, and register that lock in every writer. All writers of
+declare a coordination Attribute with **WritesRequireAttributeLock**,
+**writes_require_lock**, or **writesRequireAttributeLock**, and register that lock in every writer. All writers of
 the map then run one at a time within the Flow run, as in
 [Coordinate writes across the whole AttributeMap](#whole-map-coordination).
 
 The lock Attribute of a requirement must be a singleton Attribute in the same
 Flow's **PersistenceSchema**. Registry construction fails otherwise: Go
-**NewRegistry** returns an error, and Python **Registry** raises
-**FlowDefinitionError**. Go also rejects a zero Attribute with an empty name.
+**NewRegistry** returns an error, Python **Registry** raises
+**FlowDefinitionError**, and the Java **Registry** constructor throws
+**FlowDefinitionException**. Go also rejects a zero Attribute with an empty name.
 In Python, the lock Attribute must be the same object that the schema
 registers.
 
@@ -785,6 +787,10 @@ sends. The check cannot see these cases:
 - In Python, the **StepOptions** of a **StepMovement** replace the Step's whole
   options, including its lock fields. Options that leave out the lock run the
   Step without it.
+- In Java, the **StepOptions** passed to **StepMovement.of** or
+  **onExecuteFailureProceedTo** replace the target Step's whole options, as in
+  Python. The Worker reads each Step's **getStepOptions** once, when the
+  **Registry** is built.
 - Dex takes an RPC's locks from the Client's definition. A Client built
   without the lock runs the RPC without it.
 - A Worker built without the declaration does not check it.
@@ -796,8 +802,10 @@ locks in movement options.
 
 The API names are in the [Go Attribute](/reference/go/attribute#api-names),
 [Go Channel](/reference/go/channel#api-names),
-[Python Attribute](/reference/python/attribute#api-names), and
-[Python Channel](/reference/python/channel#api-names) references.
+[Python Attribute](/reference/python/attribute#api-names),
+[Python Channel](/reference/python/channel#api-names),
+[Java Attribute](/reference/java/attribute#api-names), and
+[Java Channel](/reference/java/channel#api-names) references.
 
 ## RPCs {#rpcs}
 

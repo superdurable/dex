@@ -19,6 +19,7 @@ them in the [Java SDK API reference](./index.mdx#api-reference).
 | Define a ChannelMap | **ChannelMap.define** | [ChannelMap](/reference/server/runtime-data#channelmap) |
 | Declare it in the Flow | **PersistenceSchema.of**, returned from **getPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
 | Publish a message from a Step or RPC | **publish** | [Commits](./step.mdx#commit-boundary) |
+| Require a lock for every publish (since 1.45.4) | **publishesRequireAttributeLock** of **Channel** and **ChannelMap**; a publish without the lock fails with **MissingAttributeLockException** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Wait for messages | **forOne**, **forN**, **atLeast**, **atMost**, and **range** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
 | Read the messages a wait consumed | **getConditionResults** | [Channel results](./waits.mdx#channel-results) |
 | Load pending messages for a method | **addWaitForLoadChannel**, **addExecuteLoadChannel**, and their ChannelMap variants of **StepOptions.Builder**, or **loadChannels**, **loadChannelMaps**, and **loadChannelMapInstances** of **@RPC** | [Selective state loading](./step-options.mdx#selective-state-loading) |
