@@ -23,7 +23,6 @@ looks empty" and "flow closes".
 - On the first execution the input is non-`None`, so the message from the input
   is processed instead of one from the channel.
 - Otherwise it waits for a value on `queueChannel` and processes that.
-- Then it sleeps 20 seconds, leaving a window for more messages to arrive.
 - Finally it either loops (channel non-empty) or force-completes the flow
   (channel empty).
 

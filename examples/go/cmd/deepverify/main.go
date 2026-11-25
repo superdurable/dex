@@ -963,23 +963,22 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 		ctx, registry.DrainExternal, flowID, "first message", hourStartOptions(),
 	)
 	if err != nil {
-		return fail(name, "", err)
-	}
-	time.Sleep(1 * time.Second)
-	var output string
-	if err := client.InvokeRPC(
-		ctx,
-		flowID,
-		registry.DrainExternal.PublishExternalChannelMessage,
-		"second message",
-		&output,
-	); err != nil {
-		return fail(name, "second message", err)
+		return fail(name, "start first message", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
-		return fail(name, "", err)
+		return fail(name, "wait for first message", err)
 	}
-	return pass(name, "start + extra message drained to ForceComplete")
+	restartOptions := hourStartOptions()
+	restartOptions.IDReusePolicy = dex.IDReuseAllowIfNotRunning
+	if _, err := client.StartFlow(
+		ctx, registry.DrainExternal, flowID, "second message", restartOptions,
+	); err != nil {
+		return fail(name, "start second message", err)
+	}
+	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
+		return fail(name, "wait for second message", err)
+	}
+	return pass(name, "start, complete, restart with next message")
 }
 
 func verifyWaitForStepCompletion(

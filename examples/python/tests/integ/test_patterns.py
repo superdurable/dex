@@ -19,6 +19,37 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from dex_examples.app import ExampleApp
+from dex_examples.config import start_options
+from dex_examples.patterns.entity_store.user_profile import (
+    UserProfile,
+    UserProfileMetadata,
+)
+from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
+from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
+    AdvancedLongLiveParentFlow,
+)
+from dex_examples.patterns.parallel_subflows.models import ParentInput
+from dex_examples.patterns.polling.job_service import JobState
+from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
+from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
+    FailureRecoveryWorkflowInput,
+)
+from dex_examples.patterns.cron.cron_schedule_flow import (
+    CronScheduleInput,
+    Interval,
+    IntervalUnit,
+)
+from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
+    JobSeekerData,
+)
+from tests.integ.conftest import (
+    LONG_WAIT_TIMEOUT,
+    WAIT_TIMEOUT,
+    flow_status_or_none,
+    wait_until,
+)
+
 from dex import (
     AsyncClient,
     AttributeMatch,
@@ -30,37 +61,6 @@ from dex import (
     StepExecutionId,
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
-)
-from dex_examples.patterns.entity_store.user_profile import (
-    UserProfile,
-    UserProfileMetadata,
-)
-from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
-    AdvancedLongLiveParentFlow,
-)
-from dex_examples.patterns.parallel_subflows.models import ParentInput
-from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
-    JobSeekerData,
-)
-
-from dex_examples.app import ExampleApp
-from dex_examples.config import start_options
-from dex_examples.patterns.cron.cron_schedule_flow import (
-    CronScheduleInput,
-    Interval,
-    IntervalUnit,
-)
-from dex_examples.patterns.polling.job_service import JobState
-from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
-from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
-    FailureRecoveryWorkflowInput,
-)
-from tests.integ.conftest import (
-    LONG_WAIT_TIMEOUT,
-    WAIT_TIMEOUT,
-    flow_status_or_none,
-    wait_until,
 )
 
 pytestmark = pytest.mark.integ
@@ -128,6 +128,7 @@ async def test_draining_channel_for_external_publishing(
         barrier.release.set()
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status is FlowStatus.COMPLETED
+    assert barrier.execution_count == 2
 
 
 class _FirstMessageExecutionBarrier:
@@ -138,8 +139,10 @@ class _FirstMessageExecutionBarrier:
         self.original_execute = execute
         self.started = asyncio.Event()
         self.release = asyncio.Event()
+        self.execution_count = 0
 
     async def execute(self, context: Context, input: str) -> StepDecision:
+        self.execution_count += 1
         if input == self.first_message:
             self.started.set()
             await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
