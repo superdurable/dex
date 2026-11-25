@@ -18,7 +18,9 @@ import io.superdurable.gen.WorkerErrorResponse;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
@@ -86,12 +88,27 @@ final class WorkerErrorMapper {
         return details.build();
     }
 
-    /** Returns whether {@code failure} or any exception in its cause chain is a NonRetryableException. */
+    /**
+     * Returns whether {@code failure} or any exception reachable through causes and suppressed
+     * exceptions is a NonRetryableException. Buffered Stream finalizer failures are suppressed.
+     */
     private static boolean hasNonRetryableCause(final Throwable failure) {
         final Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Throwable current = failure; current != null && visited.add(current); current = current.getCause()) {
+        final Deque<Throwable> pending = new ArrayDeque<>();
+        pending.push(failure);
+        while (!pending.isEmpty()) {
+            final Throwable current = pending.pop();
+            if (!visited.add(current)) {
+                continue;
+            }
             if (current instanceof NonRetryableException) {
                 return true;
+            }
+            if (current.getCause() != null) {
+                pending.push(current.getCause());
+            }
+            for (final Throwable suppressed : current.getSuppressed()) {
+                pending.push(suppressed);
             }
         }
         return false;

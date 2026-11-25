@@ -143,8 +143,9 @@ can run `execute`, and `execute` can go to a recovery Step.
   and message. Create it with a message to report `NonRetryableException`
   itself. Subclasses are non-retryable too.
 - `NonRetryableException` wins over `RetryAfterException` in either nesting
-  order. It also counts anywhere in the `getCause()` chain of the thrown
-  exception; Dex then reports the outer exception.
+  order. It also counts anywhere in the `getCause()` chain or the
+  `getSuppressed()` exceptions of the thrown exception, such as a buffered
+  Stream finalizer failure. Dex then reports the outer exception.
 - An RPC handler never retries, so `NonRetryableException` changes nothing
   there.
 - Tests can reach the failure route at once while the retry policy keeps its

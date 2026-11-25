@@ -71,6 +71,24 @@ final class WorkerErrorMapperNonRetryableTest {
     }
 
     @Test
+    void markerInASuppressedFinalizerFailureIsNonRetryable() {
+        final IllegalStateException handlerFailure = new IllegalStateException("charge failed");
+        handlerFailure.addSuppressed(new NonRetryableException("finalizer rejected the output"));
+        final WorkerErrorResponse response = mapper.mapFailure(handlerFailure, null);
+        assertTrue(response.getNonRetryable());
+        assertEquals("charge failed", response.getDetail());
+    }
+
+    @Test
+    void causeAndSuppressedCyclesStayRetryable() {
+        final IllegalStateException first = new IllegalStateException("first");
+        final IllegalStateException second = new IllegalStateException("second", first);
+        first.initCause(second);
+        first.addSuppressed(second);
+        assertFalse(mapper.mapFailure(first, null).getNonRetryable());
+    }
+
+    @Test
     void plainFailureStaysRetryable() {
         assertFalse(mapper.mapFailure(new IllegalStateException("boom"), null).getNonRetryable());
     }
