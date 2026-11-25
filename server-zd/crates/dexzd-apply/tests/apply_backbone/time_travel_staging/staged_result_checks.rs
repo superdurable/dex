@@ -80,7 +80,7 @@ fn a_time_travel_that_does_not_match_its_staging_is_rejected() {
                 .iter()
                 .all(is_accepted)
         );
-        let mut body = computed.time_travel_command(&staging_id, true);
+        let mut body = computed.time_travel_command(&staging_id, true, true);
         change(&mut body);
         let rejected = harness.apply_time_travel_at(body, attempt);
         assert!(
@@ -130,8 +130,10 @@ fn staged_input_out_of_range_or_order_is_rejected() {
                 .iter()
                 .all(is_accepted)
         );
-        let rejected =
-            harness.apply_time_travel_at(computed.time_travel_command(staging_id, true), attempt);
+        let rejected = harness.apply_time_travel_at(
+            computed.time_travel_command(staging_id, true, true),
+            attempt,
+        );
         assert!(
             is_error(&rejected.reply, INVALID_ARGUMENT),
             "{:?}",
@@ -342,8 +344,8 @@ fn a_staged_value_is_restored_only_over_its_birth_record_with_its_size() {
                 .iter()
                 .all(is_accepted)
         );
-        let rejected =
-            harness.apply_time_travel_at(staged.time_travel_command(staging_id, true), attempt);
+        let rejected = harness
+            .apply_time_travel_at(staged.time_travel_command(staging_id, true, true), attempt);
         assert!(is_error(&rejected.reply, ABORTED), "{:?}", rejected.reply);
         let message = error_message(&rejected.reply);
         assert!(
@@ -361,7 +363,7 @@ fn a_staged_value_is_restored_only_over_its_birth_record_with_its_size() {
             .all(is_accepted)
     );
     let no_birth =
-        pruned.apply_time_travel_at(staged.time_travel_command(b"pruned", true), attempt);
+        pruned.apply_time_travel_at(staged.time_travel_command(b"pruned", true, true), attempt);
     assert!(is_error(&no_birth.reply, ABORTED), "{:?}", no_birth.reply);
     assert!(
         error_message(&no_birth.reply).contains("no birth record"),

@@ -514,6 +514,7 @@ impl Harness {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(request),
         }))
     }
@@ -1006,6 +1007,7 @@ fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
                 ..reset_to_time(original_close_time)
@@ -1797,6 +1799,7 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reset_to_time(target_time)),
     }));
     let target = time_travel_target_hash(&harness.context, &harness.state, &travel)
@@ -2507,6 +2510,7 @@ fn rebuilt_states_equal_the_recorded_states_at_every_point() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
                 ..reset_to_time(timestamp)
@@ -2555,6 +2559,7 @@ fn diagnostic_hash_detects_a_broken_time_travel_rebuild() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reset(FlowResetType::Beginning)),
     }));
     let original = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -3207,6 +3212,7 @@ fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reapplying(reset(FlowResetType::Beginning))),
     }));
     let error = apply_staged_twice(&harness.context, &mut harness.state, &command)
@@ -3913,6 +3919,7 @@ fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow(
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reset_to_time(target_time)),
     }));
     let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -4076,6 +4083,7 @@ fn assert_permission_rebuild_with_collected_value(
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reset_to_time(target_time)),
     }));
     let previous_state = harness.state.rows.clone();
@@ -4276,6 +4284,7 @@ fn permission_rebuild_preserves_accumulated_grants_and_reapplies_new_grants() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(reset_to_time(target_time)),
     }));
     let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -5039,6 +5048,7 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(request),
         }));
         let (expected, _) =
@@ -5351,6 +5361,7 @@ fn time_travel_rebuilds_messages_requeued_by_a_cancel() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
                 ..reset_to_time(timestamp)

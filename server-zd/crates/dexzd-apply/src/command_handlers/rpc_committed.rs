@@ -21,7 +21,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::ApplyError;
-use crate::command_handlers::command_replies::{error_reply, grpc_code};
+use crate::command_handlers::command_replies::{error_reply, grpc_code, terminal_cleanup_reply};
 use crate::command_handlers::flow_close::{
     finalize_pending_close_if_ready, is_terminal_cleanup_in_progress,
 };
@@ -75,6 +75,14 @@ pub(crate) fn apply_rpc_committed(
     let Some(response) = command.response.as_ref() else {
         return Ok(reject_invalid("RPC response is missing"));
     };
+    // No Step could consume the message. Older logs and rebuilds repeat what was recorded.
+    if command.should_reject_publication_during_pending_close
+        && !response.publish_to_channel.is_empty()
+        && is_terminal_cleanup_in_progress(&cursor)
+        && !scope.is_history_rebuild()
+    {
+        return Ok(HandlerResult::Rejected(terminal_cleanup_reply()));
+    }
     let is_transactional = command.is_transactional;
     if let Some(decision) = response.step_decision.as_ref()
         && (decision.close_decision.is_some() || !decision.cancel_sibling_step_types.is_empty())
@@ -120,7 +128,8 @@ pub(crate) fn apply_rpc_committed(
         ..EffectValueReferences::default()
     };
     let mut changed_channels = published.changed_channels;
-    // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go.
+    // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go,
+    // unless they publish to a Channel.
     // As in the Go Server, an RPC result starts no Step during terminal cleanup.
     let mut started_step_execution_ids = Vec::new();
     if let Some(decision) = response.step_decision.as_ref()

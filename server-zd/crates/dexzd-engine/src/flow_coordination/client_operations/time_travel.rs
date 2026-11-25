@@ -164,8 +164,11 @@ impl FlowCoordinatorRegistry {
                 other => return Err(unexpected_reply("TimeTravelStage", &other)),
             }
         }
-        let time_travel =
-            flow_command::Command::TimeTravel(computed.time_travel_command(&staging_id, true));
+        let time_travel = flow_command::Command::TimeTravel(computed.time_travel_command(
+            &staging_id,
+            true,
+            true,
+        ));
         let reply = self
             .propose_attempt_command(flow, run_id, expected_run_attempt, time_travel)
             .await?;
