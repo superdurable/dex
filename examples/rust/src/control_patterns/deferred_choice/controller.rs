@@ -119,6 +119,9 @@ fn send_customer_response(
         Ok(ResponseOutcome::WindowClosed) => {
             (StatusCode::CONFLICT, "offer response window closed").into_response()
         }
+        Ok(ResponseOutcome::FlowNotFound) => {
+            (StatusCode::NOT_FOUND, "offer response flow not found").into_response()
+        }
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -126,10 +129,11 @@ fn send_customer_response(
 enum ResponseOutcome {
     Recorded,
     WindowClosed,
+    FlowNotFound,
 }
 
-/// Treats a response to a Flow that already closed as a closed window.
-/// Returns the original error when the Flow never existed or is still running.
+/// Treats a response to a closing or closed Flow as a closed window.
+/// Returns FlowNotFound when the Flow never existed, or the original error otherwise.
 fn send_and_classify_response(
     client: &Client,
     flow_id: &str,
@@ -139,9 +143,12 @@ fn send_and_classify_response(
     match invoke_response_rpc(client, flow_id, rpc, note) {
         Ok(outcome) if outcome == OFFER_RESPONSE_WINDOW_CLOSED => Ok(ResponseOutcome::WindowClosed),
         Ok(_) => Ok(ResponseOutcome::Recorded),
+        // Describe may still report Running while the Flow closes.
+        Err(SdkError::FlowClosing { .. }) => Ok(ResponseOutcome::WindowClosed),
         Err(error @ (SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. })) => {
             match client.describe_flow(flow_id) {
                 Ok(info) if info.status != FlowStatus::Running => Ok(ResponseOutcome::WindowClosed),
+                Err(SdkError::FlowNotFound { .. }) => Ok(ResponseOutcome::FlowNotFound),
                 _ => Err(error),
             }
         }

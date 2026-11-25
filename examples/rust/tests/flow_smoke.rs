@@ -982,8 +982,8 @@ fn deferred_choice_controller_records_an_acceptance() {
     assert_eq!(body, "offer response window closed");
     let never_started = http_client.new_flow_id("deferred-choice-missing");
     let (status, body) = accept_offer_over_http(&http_client.base_url, &never_started);
-    assert_ne!(status, 409, "{body}");
-    assert_ne!(status, 200, "{body}");
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body, "offer response flow not found");
 }
 
 /// Accepts the offer through the HTTP route. Returns the status and the body.

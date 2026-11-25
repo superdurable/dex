@@ -68,8 +68,9 @@ use dex_sdk::{
     WorkerOptions,
 };
 use offer_response_window_probe::{
-    ACCEPT_WINDOW_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED, HELD_RESPONSE_GATE,
-    HeldResponseReleaseGuard, OPEN_WINDOW_PROBE_GATE, OfferResponseWindowProbeFlow,
+    ACCEPT_GATED_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED,
+    HELD_RESPONSE_GATE, HeldResponseReleaseGuard, OPEN_OFFER_DECISION_GATE, OPEN_WINDOW_PROBE_GATE,
+    OfferResponseDecisionGateProbeFlow, OfferResponseWindowProbeFlow, REJECT_GATED_PROBE_OFFER,
     REJECT_WINDOW_PROBE_OFFER, register_offer_response_window_probe,
     wait_until_execute_waits_for_locks,
 };
@@ -422,31 +423,24 @@ fn deferred_choice_response_after_the_decision_gets_window_closed() {
 fn deferred_choice_second_reply_gets_window_closed_before_the_decision() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
-        &OfferResponseWindowProbeFlow::default(),
+        &OfferResponseDecisionGateProbeFlow::default(),
         "deferred-choice-double",
         "offer-5".to_string(),
     );
-    // Both replies race the wait; the first one closes the window either way.
-    let first = environment.invoke_retrying_lock_conflicts(
-        &flow_id,
-        ACCEPT_WINDOW_PROBE_OFFER,
-        "yes".to_string(),
-    );
-    let second = environment.invoke_retrying_lock_conflicts(
-        &flow_id,
-        REJECT_WINDOW_PROBE_OFFER,
-        "no".to_string(),
-    );
+    // AwaitOfferResponse has not started, so only the first reply can close the window.
+    let first = environment.invoke(&flow_id, ACCEPT_GATED_PROBE_OFFER, "yes".to_string());
+    let second = environment.invoke(&flow_id, REJECT_GATED_PROBE_OFFER, "no".to_string());
     assert_eq!(first, OFFER_RESPONSE_RECORDED);
     assert_eq!(second, OFFER_RESPONSE_WINDOW_CLOSED);
 
-    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
+    environment.invoke(&flow_id, OPEN_OFFER_DECISION_GATE, ());
     let result = environment.wait_for_completed_flow(&flow_id);
     assert_eq!(
         outputs_of::<String>(&result, "FulfillOffer"),
         ["fulfilled offer-5"]
     );
     assert!(outputs_of::<String>(&result, "CloseRejectedOffer").is_empty());
+    assert!(outputs_of::<String>(&result, "ExpireOffer").is_empty());
 }
 
 #[test]

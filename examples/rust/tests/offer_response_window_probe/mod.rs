@@ -135,7 +135,104 @@ fn execute_waits_for_locks(state: &serde_json::Value, step_type: &str) -> bool {
 }
 
 pub(crate) fn register_offer_response_window_probe(registry: Registry) -> SdkResult<Registry> {
-    registry.register(OfferResponseWindowProbeFlow::default())
+    registry
+        .register(OfferResponseWindowProbeFlow::default())?
+        .register(OfferResponseDecisionGateProbeFlow::default())
+}
+
+static OFFER_DECISION_GATE_OPENED: LazyLock<Channel<()>> =
+    LazyLock::new(|| Channel::new("offerDecisionGateOpened"));
+
+pub(crate) const ACCEPT_GATED_PROBE_OFFER: Rpc<String, String> =
+    Rpc::new("accept_gated_probe_offer");
+pub(crate) const REJECT_GATED_PROBE_OFFER: Rpc<String, String> =
+    Rpc::new("reject_gated_probe_offer");
+pub(crate) const OPEN_OFFER_DECISION_GATE: Rpc<(), ()> = Rpc::new("open_offer_decision_gate");
+
+/// Holds AwaitOfferResponse behind a gate, so replies commit before its wait exists.
+#[derive(Default)]
+pub(crate) struct OfferResponseDecisionGateProbeFlow {
+    await_offer_decision_gate: AwaitOfferDecisionGate,
+    await_offer_response: AwaitOfferResponse,
+    fulfill_offer: FulfillOffer,
+    close_rejected_offer: CloseRejectedOffer,
+    route_response_before_expiry: RouteResponseBeforeExpiry,
+    expire_offer: ExpireOffer,
+}
+
+impl OfferResponseDecisionGateProbeFlow {
+    fn accept_gated_probe_offer(
+        &self,
+        context: &mut Context,
+        note: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        OfferResponseFlow::default().accept_customer_offer(context, note)
+    }
+
+    fn reject_gated_probe_offer(
+        &self,
+        context: &mut Context,
+        note: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        OfferResponseFlow::default().reject_customer_offer(context, note)
+    }
+
+    fn open_offer_decision_gate(&self, context: &mut Context) -> HandlerResult<()> {
+        OFFER_DECISION_GATE_OPENED.publish(context, ())
+    }
+}
+
+impl Flow for OfferResponseDecisionGateProbeFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.await_offer_decision_gate)
+            .and(&self.await_offer_response)
+            .and(&self.fulfill_offer)
+            .and(&self.close_rejected_offer)
+            .and(&self.route_response_before_expiry)
+            .and(&self.expire_offer)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&OFFER_RESPONSE_WINDOW)
+            .channel(&OFFER_DECISION_GATE_OPENED)
+            .channel(&OFFER_ACCEPTED)
+            .channel(&OFFER_REJECTED)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function(
+                ACCEPT_GATED_PROBE_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::accept_gated_probe_offer,
+            )
+            .function(
+                REJECT_GATED_PROBE_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::reject_gated_probe_offer,
+            )
+            .procedure_without_input(OPEN_OFFER_DECISION_GATE, Self::open_offer_decision_gate)
+    }
+}
+
+#[derive(Default)]
+struct AwaitOfferDecisionGate;
+
+impl Step for AwaitOfferDecisionGate {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(OFFER_DECISION_GATE_OPENED.for_one()))
+    }
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        offer_id: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(&AwaitOfferResponse, offer_id))
+    }
 }
 
 #[derive(Default)]
