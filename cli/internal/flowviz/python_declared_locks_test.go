@@ -194,7 +194,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"two writers without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute, at least one of which reads it first",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute, at least one of which also reads it",
 		},
 		"blind writers are not nudged": {
 			source: pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
@@ -213,29 +213,66 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"one unlocked writer of two without declaration": {
 			source:          pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is registered by every writer",
+			messageFragment: "and no lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: pythonDeclaredLocksCase{waitBody: "CartFlow.total.set(context, 1)", executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)"},
 		},
 		"writers share another attribute's lock": {
-			source: pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+			source: pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+		},
+		"writers share one constant map instance lock": {
+			source: pythonDeclaredLocksCase{rpcLocks: `items.lock("cart")`, stepOptions: pythonStepLocks("execute_lock_attributes", `CartFlow.items.lock("cart")`), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+		},
+		"writers hold locks of different map instances": {
+			source:      pythonDeclaredLocksCase{rpcLocks: `items.lock("rpc")`, stepOptions: pythonStepLocks("execute_lock_attributes", `CartFlow.items.lock("step")`), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"writers hold different locks": {
 			source:          pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is registered by every writer",
+			messageFragment: "and no lock is held by every writer",
+		},
+		"read in a helper counts as a read": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def read_total(context):\n    return CartFlow.total.get(context)",
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   "CartFlow.total.set(context, read_total(context) + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"context passed to an unknown call may read": {
+			source: pythonDeclaredLocksCase{
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, compute(context))",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"read in wait_for and write in execute under the same lock": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: "    def get_step_options(self):\n        return StepOptions(wait_for_lock_attributes=(CartFlow.cart_lock.lock(),), execute_lock_attributes=(CartFlow.cart_lock.lock(),))\n",
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", CartFlow.total.get(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\") + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"timeout writer with unknown locks keeps the warning": {
+			source:      pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)", timeoutBody: "self.total.set(context, 0)"},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"single read-writer under another attribute's lock": {
 			source: pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
 		},
-		"dynamic locks count as held for the nudge": {
+		"unknown locks keep the warning": {
 			source: pythonDeclaredLocksCase{
 				rpcLocks:    "total.lock()",
 				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCK_TABLE[\"total\"])\n",
 				rpcBody:     "self.total.set(context, 1)",
-				executeBody: "CartFlow.total.set(context, 2)",
+				executeBody: pythonReadThenWriteTotal,
 			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"local lock list shadows the module list": {
 			source: pythonDeclaredLocksCase{

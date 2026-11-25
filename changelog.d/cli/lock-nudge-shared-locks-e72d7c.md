@@ -1,4 +1,4 @@
 ---
 section: Changed
 ---
-- **lock_requirement_not_declared** no longer warns when every writer holds one common lock of any Attribute, when the writes are blind, or, in Go, when every **InvokeRPCWithOptions** call in the package locks what the RPC writes.
+- **lock_requirement_not_declared** no longer warns when every writer registers the same exact lock, of any Attribute, or when no writer reads the Attribute. It keeps the warning when it cannot read a writer's locks or reads.

@@ -276,42 +276,55 @@ func (checker *goDeclaredLockChecker) isDirectLockCall(expression ast.Expr) bool
 // stepOptionsAreLiteral reports whether the Step's GetStepOptions is the SDK default or returns only literal options.
 // It also reports whether a return may not run, since that return's locks join the union and can hide a missing lock.
 func (checker *goDeclaredLockChecker) stepOptionsAreLiteral(stepValueType types.Type) (bool, bool) {
+	shape := checker.stepOptionsShape(stepValueType)
+	return shape.isLiteral, shape.hasUnreachableReturn
+}
+
+type goStepOptionsShape struct {
+	isLiteral            bool
+	hasUnreachableReturn bool
+	// returnCount is 0 for the SDK default and -1 when GetStepOptions cannot be read.
+	returnCount int
+}
+
+func (checker *goDeclaredLockChecker) stepOptionsShape(stepValueType types.Type) goStepOptionsShape {
+	unreadable := goStepOptionsShape{returnCount: -1}
 	if stepValueType == nil {
-		return false, false
+		return unreadable
 	}
 	selection := types.NewMethodSet(stepValueType).Lookup(nil, "GetStepOptions")
 	if selection == nil {
-		return false, false
+		return unreadable
 	}
 	method, isFunction := selection.Obj().(*types.Func)
 	if !isFunction {
-		return false, false
+		return unreadable
 	}
 	method = method.Origin()
 	if method.Pkg() != nil && method.Pkg().Path() == goSDKPackage {
-		return true, false
+		return goStepOptionsShape{isLiteral: true}
 	}
 	declaration := checker.evaluator.functions.declarations[method]
 	if declaration == nil || declaration.Body == nil {
-		return false, false
+		return unreadable
 	}
-	isLiteral := true
-	hasUnreachableReturn := false
+	shape := goStepOptionsShape{isLiteral: true}
 	ast.Inspect(declaration.Body, func(node ast.Node) bool {
 		switch current := node.(type) {
 		case *ast.FuncLit:
 			return false
 		case *ast.ReturnStmt:
+			shape.returnCount++
 			if len(current.Results) != 1 || !checker.optionsAreLiteral(current.Results[0]) {
-				isLiteral = false
+				shape.isLiteral = false
 			}
 			if goMayNotRun(declaration.Body, current, checker.analyzer.typeInfo) {
-				hasUnreachableReturn = true
+				shape.hasUnreachableReturn = true
 			}
 		}
 		return true
 	})
-	return isLiteral, hasUnreachableReturn
+	return shape
 }
 
 // unprovenWriteReason returns why dexcli cannot prove that the write runs on the declared resource, or "".
@@ -622,54 +635,67 @@ func (checker *goDeclaredLockChecker) addDiagnostic(handler goHandlerSummary, ac
 
 // reportUndeclaredRequirements nudges an Attribute that may lose an update to declare its lock.
 // It considers only writes that can overlap: an RPC can run beside any handler, while Steps alone may run in sequence.
-// Writers that all hold one common lock, of any Attribute, are serialized, so they trigger nothing.
+// Writers that all hold one common lock, by exact identity, through each read and write are serialized, so they trigger nothing.
 // Blind writes alone trigger nothing either: each commits whole, so a lock would not change the outcome.
+// When the analyzer is unsure about locks or reads, it keeps the warning.
 func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements map[string]goLockRequirement, declarationIsReadable map[string]bool) {
-	writers := make(map[string]map[string]bool)
-	rpcWriters := make(map[string]bool)
-	readWriters := make(map[string]bool)
-	rpcReadWriters := make(map[string]map[string]bool)
-	commonLocks := make(map[string]map[string]bool)
-	isLockKnown := make(map[string]bool)
-	for _, handler := range checker.analyzer.handlerSummaries {
-		label := goHandlerLabel(checker.analyzer, handler)
-		reads := make(map[string]bool)
-		writes := make(map[string]bool)
+	stepReads := make(map[string]map[string]bool)
+	handlerReads := make([]map[string]bool, len(checker.analyzer.handlerSummaries))
+	handlerWrites := make([]map[string]bool, len(checker.analyzer.handlerSummaries))
+	for index, handler := range checker.analyzer.handlerSummaries {
+		handlerReads[index] = make(map[string]bool)
+		handlerWrites[index] = make(map[string]bool)
 		for _, access := range handler.summary.accesses {
 			if checker.analyzer.node(access.resourceID).Kind != "attribute" {
 				continue
 			}
 			switch goResourceEdgeKind(access.methodName, handler.phase) {
 			case "resource_read":
-				reads[access.resourceID] = true
+				handlerReads[index][access.resourceID] = true
+				if handler.phase == "execute" || handler.phase == "wait_for" {
+					addHandlerLabel(stepReads, handler.ownerID, access.resourceID)
+				}
 			case "resource_write":
-				writes[access.resourceID] = true
+				handlerWrites[index][access.resourceID] = true
 			}
 		}
-		heldResources := make(map[string]bool)
-		if len(writes) > 0 {
-			heldResources = checker.ownLockResources(handler)
+	}
+	writers := make(map[string]map[string]bool)
+	rpcWriters := make(map[string]bool)
+	readWriters := make(map[string]bool)
+	rpcReadWriters := make(map[string]map[string]bool)
+	commonLocks := make(map[string]map[string]bool)
+	isCommonLockBroken := make(map[string]bool)
+	for index, handler := range checker.analyzer.handlerSummaries {
+		writes := handlerWrites[index]
+		if len(writes) == 0 {
+			continue
 		}
+		label := goHandlerLabel(checker.analyzer, handler)
+		heldLocks := checker.exactHeldLocks(handler)
 		for resourceID := range writes {
 			addHandlerLabel(writers, resourceID, label)
-			if reads[resourceID] {
+			readsInHandler := handlerReads[index][resourceID]
+			// A read in the other phase of the same Step runs under a separate lock hold, so no lock protects the pair.
+			readsInOtherPhase := !readsInHandler && stepReads[handler.ownerID][resourceID]
+			if readsInHandler || readsInOtherPhase {
 				readWriters[resourceID] = true
 			}
 			if handler.phase == "rpc" {
 				rpcWriters[resourceID] = true
-				if reads[resourceID] {
+				if readsInHandler {
 					addHandlerLabel(rpcReadWriters, resourceID, label)
 				}
 			}
-			if heldResources == nil {
+			if heldLocks == nil || readsInOtherPhase {
+				isCommonLockBroken[resourceID] = true
 				continue
 			}
-			if !isLockKnown[resourceID] {
-				isLockKnown[resourceID] = true
-				commonLocks[resourceID] = heldResources
-				continue
+			if existing, isSet := commonLocks[resourceID]; isSet {
+				commonLocks[resourceID] = intersectLockSets(existing, heldLocks)
+			} else {
+				commonLocks[resourceID] = heldLocks
 			}
-			commonLocks[resourceID] = intersectLockSets(commonLocks[resourceID], heldResources)
 		}
 	}
 	resourceIDs := make([]string, 0, len(writers))
@@ -681,14 +707,14 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		if _, isDeclared := requirements[resourceID]; isDeclared || !declarationIsReadable[resourceID] {
 			continue
 		}
-		if !isLockKnown[resourceID] || len(commonLocks[resourceID]) > 0 {
+		if !isCommonLockBroken[resourceID] && len(commonLocks[resourceID]) > 0 {
 			continue
 		}
 		resource := checker.analyzer.node(resourceID)
 		var reason string
 		switch {
 		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && readWriters[resourceID]:
-			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") + ", at least one of which reads it first, and no lock is registered by every writer"
+			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") + ", at least one of which also reads it, and no lock is held by every writer"
 		case len(rpcReadWriters[resourceID]) > 0:
 			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") + " without a registered lock"
 		default:
@@ -710,41 +736,63 @@ func intersectLockSets(left map[string]bool, right map[string]bool) map[string]b
 	return common
 }
 
-// ownLockResources returns the resources whose lock, for any instance, the handler holds, for the nudge only.
-// An RPC also holds the locks that every invocation in the package passes; declared requirements never count those.
-// It returns nil when the locks cannot be read, so the handler does not narrow the common lock.
-func (checker *goDeclaredLockChecker) ownLockResources(handler goHandlerSummary) map[string]bool {
-	held := make(map[string]bool)
-	if handler.phase == "timeout" {
-		return nil
-	}
-	locks, isRegistered := checker.handlerLocks(handler)
-	if !isRegistered || locks.unresolved != "" {
-		return nil
-	}
-	for _, lock := range locks.locks {
-		held[lock.resourceID] = true
-	}
-	if handler.phase == "rpc" {
-		sites := checker.sources.rpcInvocationLockSites[strings.TrimPrefix(handler.ownerID, "rpc:")]
-		if len(sites) > 0 {
-			for resourceID := range sites[0] {
-				if everySiteLocks(sites, resourceID) {
-					held[resourceID] = true
-				}
+// exactHeldLocks returns the lock identities that every registration of the handler surely holds, for the nudge only.
+// A singleton lock is its resource ID; an AttributeMap instance lock adds its constant key, and a dynamic key is left out.
+// It returns nil when the analyzer cannot be sure: a timeout handler, unreadable locks, several GetStepOptions returns,
+// or a movement that overrides the Step's options.
+func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) map[string]bool {
+	switch handler.phase {
+	case "execute", "wait_for":
+		stepType := strings.TrimPrefix(handler.ownerID, "step:")
+		shape := checker.stepOptionsShape(checker.analyzer.stepValueTypes[stepType])
+		if shape.returnCount > 1 || shape.returnCount < 0 || len(checker.sources.stepOptionOverrides[handler.ownerID]) > 0 ||
+			len(checker.sources.unattributedStepOverrides) > 0 {
+			return nil
+		}
+		locks, _ := checker.handlerLocks(handler)
+		if locks.unresolved != "" {
+			return nil
+		}
+		return checker.exactLockKeys(locks.locks)
+	case "rpc":
+		registrations, isRegistered := checker.sources.rpcOptions[strings.TrimPrefix(handler.ownerID, "rpc:")]
+		if !isRegistered {
+			return nil
+		}
+		var held map[string]bool
+		for _, registration := range registrations {
+			locks := checker.locksFromStruct(checker.evaluator.evaluateStruct(registration), "LockAttributes")
+			if locks.unresolved != "" {
+				return nil
+			}
+			keys := checker.exactLockKeys(locks.locks)
+			if held == nil {
+				held = keys
+			} else {
+				held = intersectLockSets(held, keys)
 			}
 		}
+		if held == nil {
+			held = make(map[string]bool)
+		}
+		return held
 	}
-	return held
+	return nil
 }
 
-func everySiteLocks(sites []map[string]bool, resourceID string) bool {
-	for _, site := range sites {
-		if !site[resourceID] {
-			return false
+func (checker *goDeclaredLockChecker) exactLockKeys(locks []goHeldLock) map[string]bool {
+	keys := make(map[string]bool)
+	for _, lock := range locks {
+		resource := checker.analyzer.node(lock.resourceID)
+		isMap := resource.Resource != nil && resource.Resource.Map
+		switch {
+		case !isMap:
+			keys[lock.resourceID] = true
+		case lock.instance.isConstant:
+			keys[lock.resourceID+"\x00"+lock.instance.value] = true
 		}
 	}
-	return true
+	return keys
 }
 
 func addHandlerLabel(labels map[string]map[string]bool, resourceID string, label string) {

@@ -908,6 +908,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         if method is None:
             return locks
         returns = self.function_returns(method)
+        if len(returns) > 1:
+            for field in fields:
+                locks[field]["hasSeveralConfigurations"] = True
         for statement in returns or [None]:
             value = statement.value if statement is not None else None
             if not isinstance(value, ast.Call) or not self.is_dex_reference(value.func, "StepOptions") or value.args:
@@ -1005,7 +1008,41 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 "span": self.span(call),
                 "unproven": unproven,
             })
-        self.lock_handlers.append({"ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses})
+        helper_reads, may_read_any = self.helper_reads(owner_id, method)
+        self.lock_handlers.append({
+            "ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses,
+            "helperReads": helper_reads, "mayReadAny": may_read_any,
+        })
+
+    # Reads made by helpers that a handler calls with its context: one level of module functions and methods of
+    # the enclosing class. A call that passes the context to anything else may read any Attribute.
+    def helper_reads(self, owner_id, method):
+        context_name = method.args.args[1].arg if len(method.args.args) > 1 else None
+        enclosing_class = next((statement for statement in ast.walk(self.tree) if isinstance(statement, ast.ClassDef) and method in statement.body), None)
+        reads = set()
+        may_read_any = False
+        for call in ast.walk(method):
+            if not isinstance(call, ast.Call) or context_name is None:
+                continue
+            passes_context = any(isinstance(argument, ast.Name) and argument.id == context_name for argument in [*call.args, *(keyword.value for keyword in call.keywords)])
+            if not passes_context:
+                continue
+            if isinstance(call.func, ast.Attribute) and self.resource_for(call.func.value, owner_id):
+                continue
+            helper = None
+            if isinstance(call.func, ast.Name):
+                helper = self.functions.get(call.func.id)
+            elif isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name) and call.func.value.id == "self" and enclosing_class is not None:
+                helper = self.method(enclosing_class, call.func.attr)
+            if helper is None:
+                may_read_any = True
+                continue
+            for inner in ast.walk(helper):
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute):
+                    resource_id = self.resource_for(inner.func.value, owner_id)
+                    if resource_id and self.resource_edge_kind(inner.func.attr, "execute") == "resource_read":
+                        reads.add(resource_id)
+        return reads, may_read_any
 
     # Nodes that run whenever the function body runs past them: no nested scopes and no constant-false branches.
     def surely_reached_nodes(self, function):
@@ -1170,13 +1207,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             requirement, readable[resource_id] = self.declared_lock_requirement(resource_id)
             if requirement is not None:
                 requirements[resource_id] = requirement
-        writers = {}
-        rpc_writers = set()
-        read_writers = set()
-        rpc_read_writers = {}
-        common_locks = {}
+        handler_reads = []
+        handler_writes = []
+        step_reads = {}
         for handler in self.lock_handlers:
-            reads = set()
+            reads = set(handler.get("helperReads", ()))
             writes = set()
             for access in handler["accesses"]:
                 resource_id = access["resourceId"]
@@ -1189,31 +1224,46 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 is_guarded = (is_attribute and access["method"] in {"set", "delete"}) or (resource_id.startswith("resource:channel:") and access["method"] == "publish")
                 if is_guarded and resource_id in requirements and handler["phase"] != "timeout":
                     self.check_declared_lock(handler, access, requirements[resource_id])
-            # Writers that all hold one common lock, of any Attribute, are serialized; unreadable locks do not narrow it.
-            locks = handler["locks"]
-            is_lock_unknown = locks is None or locks["unresolved"] is not None
-            held = set() if is_lock_unknown else {lock[0] for lock in locks["locks"]}
+            if handler.get("mayReadAny"):
+                reads |= writes
+            handler_reads.append(reads)
+            handler_writes.append(writes)
+            if handler["phase"] in {"execute", "wait_for"}:
+                step_reads.setdefault(handler["ownerId"], set()).update(reads)
+        overridden_steps = self.steps_with_movement_options()
+        writers = {}
+        rpc_writers = set()
+        read_writers = set()
+        rpc_read_writers = {}
+        common_locks = {}
+        broken_common_locks = set()
+        for handler, reads, writes in zip(self.lock_handlers, handler_reads, handler_writes):
+            held = self.exact_held_locks(handler, overridden_steps)
             # Only writes that can overlap count: an RPC can run beside any handler, while Steps alone may run in sequence.
             is_rpc = handler["phase"] == "rpc"
             for resource_id in writes:
                 writers.setdefault(resource_id, set()).add(handler["label"])
-                if resource_id in reads:
+                reads_in_handler = resource_id in reads
+                # A read in the other phase of the same Step runs under a separate lock hold, so no lock protects the pair.
+                reads_in_other_phase = not reads_in_handler and resource_id in step_reads.get(handler["ownerId"], set()) and handler["phase"] != "rpc"
+                if reads_in_handler or reads_in_other_phase:
                     read_writers.add(resource_id)
                 if is_rpc:
                     rpc_writers.add(resource_id)
-                    if resource_id in reads:
+                    if reads_in_handler:
                         rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
-                if is_lock_unknown:
+                if held is None or reads_in_other_phase:
+                    broken_common_locks.add(resource_id)
                     continue
                 common_locks[resource_id] = common_locks[resource_id] & held if resource_id in common_locks else set(held)
         for resource_id in sorted(writers):
             if resource_id in requirements or not readable.get(resource_id, False):
                 continue
-            if resource_id not in common_locks or common_locks[resource_id]:
+            if resource_id not in broken_common_locks and common_locks.get(resource_id):
                 continue
             # Blind writes alone each commit whole, so a lock would not change the outcome.
             if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in read_writers:
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", at least one of which reads it first, and no lock is registered by every writer"
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", at least one of which also reads it, and no lock is held by every writer"
             elif resource_id in rpc_read_writers:
                 reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + " without a registered lock"
             else:
@@ -1221,6 +1271,36 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             call, _ = self.resource_declarations[resource_id]
             name = self.node_name(resource_id)
             self.warning("lock_requirement_not_declared", f"attribute {name} {reason}; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock", self.span(call))
+
+    # Lock identities that a handler surely holds, for the nudge only: a singleton's ID, or a map ID with a constant key.
+    # Returns None when the analyzer cannot be sure, which keeps the warning.
+    def exact_held_locks(self, handler, overridden_steps):
+        locks = handler["locks"]
+        if locks is None or locks["unresolved"] is not None or locks.get("hasSeveralConfigurations"):
+            return None
+        if handler["phase"] in {"execute", "wait_for"} and (None in overridden_steps or handler["ownerId"].split(":", 1)[1] in overridden_steps):
+            return None
+        held = set()
+        for resource_id, instance, has_instance in locks["locks"]:
+            if not has_instance:
+                held.add(resource_id)
+            elif instance is not None:
+                held.add(f"{resource_id}\x00{instance}")
+        return held
+
+    # Step names that a StepMovement.of passes options for; None stands for a target dexcli cannot name.
+    def steps_with_movement_options(self):
+        overridden = set()
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "of" or not node.args:
+                continue
+            if not self.is_dex_reference(node.func.value, "StepMovement"):
+                continue
+            if not any(keyword.arg == "options" for keyword in node.keywords) and len(node.args) < 3:
+                continue
+            target = node.args[0]
+            overridden.add(target.id if isinstance(target, ast.Name) else None)
+        return overridden
 
     def node_name(self, node_id):
         for node in self.graph["nodes"]:
