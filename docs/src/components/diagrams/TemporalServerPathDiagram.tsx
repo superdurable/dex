@@ -44,7 +44,7 @@ export default function TemporalServerPathDiagram({markdownDescription}: {markdo
             title={translate({id: 'docs.temporal.perf.path.dexNode', message: 'Active node'})}
             detail={translate({id: 'docs.temporal.perf.path.dexNodeDetail', message: 'batches the writes of many Flows'})}
           />
-          <TemporalLaneArrow tone="accent" label={translate({id: 'docs.temporal.perf.path.dexWrite', message: 'write first, then acknowledge'})} />
+          <TemporalLaneArrow tone="accent" label={translate({id: 'docs.temporal.perf.path.dexWrite', message: 'write the log'})} />
           <TemporalLaneBox
             icon={Cloud}
             title={translate({id: 'docs.temporal.perf.path.dexLog', message: 'Log in object storage'})}

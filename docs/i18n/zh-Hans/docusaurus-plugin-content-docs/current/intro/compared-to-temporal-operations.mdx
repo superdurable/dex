@@ -37,7 +37,7 @@ import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDep
 | Worker 缓存 | 缓存上限是 Workflow Execution 的个数（[Worker tuning reference](https://docs.temporal.io/develop/worker-tuning-reference)）。适合 Worker 内存的大小要靠试出来。见 [Worker 内存](/intro/compared-to-temporal/performance#worker)。 | Worker 不保留 Workflow 缓存。存放大值的 blob cache 有字节上限。 |
 | history 大小 | 每个 Workflow Execution 最多 51,200 个事件或 50 MB，到 10,240 个事件或 10 MB 时警告（[limits](https://docs.temporal.io/workflow-execution/limits)）。在 [Temporal Cloud](https://docs.temporal.io/cloud/limits) 上固定，在自托管的 server 上是可以配置的默认值。 | 保留每次运行最新的一段事件。更早的事件被清理，Flow 继续运行。见 [Dex 这边](#history-limit-dex)。 |
 | Continue-As-New | 应用代码在达到 history 上限之前把状态交给一次新的运行。见 [Continue-As-New](#continue-as-new)。 | Flow 不需要为 history 大小换成新的运行。 |
-| payload 大小 | 每个 payload 2 MB，每条 gRPC 消息 4 MB。自托管的 server 在 512 KB 时警告（[blob size limit](https://docs.temporal.io/troubleshooting/blob-size-limit-error)）。在 [Temporal Cloud](https://docs.temporal.io/evaluate/cloud/limits) 上，一次 Event History 事务最多 4 MB。 | 默认每个值 16 MiB，每次 Flow 运行 64 MiB 活跃状态。见[数据大小](#data-size)。 |
+| payload 大小 | 每个 payload 2 MB，每条 gRPC 消息 4 MB。自托管的 server 在 512 KB 时警告（[blob size limit](https://docs.temporal.io/troubleshooting/blob-size-limit-error)）。在 [Temporal Cloud](https://docs.temporal.io/cloud/limits) 上，一次 Event History 事务最多 4 MB。 | 默认每个值 16 MiB，每次 Flow 运行 64 MiB 活跃状态。见[数据大小](#data-size)。 |
 | 部署新代码 | Patching API 让新代码和打开的运行保持兼容。[Worker Versioning](https://docs.temporal.io/worker-versioning) 从 2026-03-30 起正式可用（[公告](https://temporal.io/blog/ga-worker-versioning-public-preview-upgrade-on-continue-as-new)）。Auto-Upgrade 的 Workflow 仍然需要 patching。 | 每个 Step 运行接手它的 Worker 上的代码。见[修改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
 | 每个执行的消息数 | 10,000 个 Signal，10 个进行中的 Update，总共 2,000 个 Update（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)），默认最多 2,000 个未完成的 Child Workflow（[defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | Channel 消息和 RPC 都没有每次运行的总数上限。见[操作和恢复 Flow](/intro/compared-to-temporal/experience#channel)。 |
 
@@ -45,7 +45,7 @@ import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDep
 
 [从 15:02 开始观看](https://youtu.be/fzl88JWt734?t=902)
 
-演示运行的是使用上表默认限制的本地开发 server。Temporal 用 MB 和 KB 写这些限制。下文实测的字节数是精确值，server 实际执行的 payload 上限是 2 MiB，即 2,097,152 字节。每个数字都来自 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going)（英文）仓库里的脚本。
+演示运行的是使用上表默认限制的本地开发 server。Temporal 用 MB 和 KB 写这些限制。下文实测的字节数是精确值，server 实际执行的 payload 上限是 2 MiB，即 2,097,152 字节。每个数字都来自 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going)（英文）仓库里的脚本。AI 回复是本地模拟，不是真实的模型。仓库列出了[使用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below)（英文）。
 
 ### 一直聊下去的会话 {#history-limit-flood}
 
@@ -85,7 +85,7 @@ workflow 仍然是 Running，继续接收 Signal，但不再回复。停下来�
 | 200 字节，每秒 8 条 | 408 条，其中 407 条在 51 秒内得到回复 | 4,907 个事件，history 52,602,112 到 52,602,325 字节 |
 | 8 KiB，每秒 2 条 | 109 条，其中 108 条在 54 秒内得到回复 | 1,319 个事件，history 52,719,073 到 52,719,369 字节 |
 
-两组运行都以 `Workflow history size exceeds limit.` 结束。先达到的是 50 MB 的 history 大小上限，在 2 MB 的 payload 上限之前。没有 workflow task 失败，终止之前 Worker 也没有记录任何错误。这些数字适用于每次调用都接收完整聊天记录的普通 activity。演示没有测量其他设计。
+两组运行都以 `Workflow history size exceeds limit.` 结束。先达到的是 50 MB 的 history 大小上限，2 MB 的 payload 上限没有达到。没有 workflow task 失败，终止之前 Worker 也没有记录任何错误。这些数字适用于每次调用都接收完整聊天记录的普通 activity。演示没有测量其他设计。
 
 ### Dex 这边 {#history-limit-dex}
 

@@ -571,7 +571,7 @@
   "docs.temporal.perf.path.dex": {"message": "Dex Server"},
   "docs.temporal.perf.path.dexNode": {"message": "活跃节点"},
   "docs.temporal.perf.path.dexNodeDetail": {"message": "把许多 Flow 的写入合成一批"},
-  "docs.temporal.perf.path.dexWrite": {"message": "先写入，再确认"},
+  "docs.temporal.perf.path.dexWrite": {"message": "写入日志"},
   "docs.temporal.perf.path.dexLog": {"message": "对象存储里的日志"},
   "docs.temporal.perf.path.dexLogDetail": {"message": "记录本身"},
   "docs.temporal.perf.path.dexApply": {"message": "然后应用"},
