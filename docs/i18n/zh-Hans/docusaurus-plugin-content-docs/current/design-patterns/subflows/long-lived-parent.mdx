@@ -614,13 +614,14 @@ impl Step for LongLiveHandleSubFlow {
 
 接收可以关闭时，父 Flow 按以下步骤运行：
 
-1. 接收开放且队列没有超过上限时，`sendRequest` 接受请求，把它排进 `Requests` Channel。
+1. `sendRequest` 持有 `intakeClosed` lock。接收开放且当前队列长度低于上限时，它接受请求，把它排进 `Requests` Channel。
 2. `HandleRequest` 中的每个 worker 等待一个排队的请求，或者等待 graceful completion 请求。
-3. 领到请求的 worker 启动它的子 Flow。关闭之后，它改为把请求记为已交还，然后等待下一个请求。
-4. 被唤醒时队列已空的 worker 结束自己的分支。
-5. `closeIntake` 把接收标记为已关闭，并发布一条关闭消息。`CloseIntake` 收到它后 graceful complete 这个 Flow。
+3. 领到请求的 worker 持有 `intakeClosed` lock，启动它的子 Flow。关闭之后，它改为把请求记为已交还，然后等待下一个请求。
+4. 本次等待经 graceful completion 请求唤醒、且没有消费请求的 worker 结束自己的分支。
+5. `closeIntake` 持有 `intakeClosed` lock，把接收标记为已关闭，并发布一条关闭消息。`CloseIntake` 收到它后 graceful complete 这个 Flow。
 
 ## 下一步
 
+- [短生命周期父 Flow](/design-patterns/subflows/short-lived-parent)
 - [高可用背压](/design-patterns/subflows/back-pressure)
 - [Channel](/concepts/primitives/channel)

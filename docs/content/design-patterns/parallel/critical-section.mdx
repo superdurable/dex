@@ -25,8 +25,8 @@ In the example:
 
 1. `StartContractEdits` puts the token in the Channel. Then it starts one branch for each edit, plus `FinishContractEdits`, which waits for every edit to finish.
 2. Each branch waits in `EnterContractEdit` for the token. It enters only once it holds the token.
-3. `EditContract` changes the contract. `SaveContractEdit` saves the change and puts the token back.
-4. When any of these three Steps fails, its failure route, `ReleaseContractEditToken`, puts the token back. The other branches keep their turn.
+3. `EditContract` changes the contract and moves to `SaveContractEdit`, which records the saved edit and puts the token back. When the reviewer withdraws, `EditContract` records the withdrawal and puts the token back instead.
+4. When the `Execute` of `EnterContractEdit`, `EditContract`, or `SaveContractEdit` runs out of retries, `ExecuteFailure` routes it to `ReleaseContractEditToken`. That Step records the failed edit and puts the token back.
 
 Any waiting branch can get the token next, in no fixed order.
 
@@ -643,6 +643,7 @@ fn leave_contract_edit(
 
 ## Next
 
+- [SubFlows](/design-patterns/subflows)
 - [Channel](/concepts/primitives/channel)
 - [Step](/concepts/step)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

@@ -570,9 +570,9 @@ The example is simplified: its RPC can publish as soon as the Flow starts, and i
 
 With the gate, the parent runs these steps:
 
-1. `AdmitBatch` takes the start batch. An empty batch completes the Flow at once, because the intake never opened.
-2. Otherwise `AdmitBatch` queues each request in the `Requests` Channel, opens the intake, and starts the workers in `HandleRequest`.
-3. `sendRequest` accepts a request only while the intake is open and the queue is below its limit. It queues the request in the same Channel.
+1. `AdmitBatch` takes the start batch while it holds the lock on the admission Attribute. An empty batch returns `GracefulComplete`, because the intake never opened.
+2. Otherwise `AdmitBatch`, in one commit, queues each request in the `Requests` Channel, opens the intake, sets the active child count to 0, and starts the workers in `HandleRequest`.
+3. `sendRequest` reads the admission Attribute without a lock. It accepts a request only while the intake is open and the current queue length is below the limit. It queues the request in the same Channel.
 
 ## Next
 

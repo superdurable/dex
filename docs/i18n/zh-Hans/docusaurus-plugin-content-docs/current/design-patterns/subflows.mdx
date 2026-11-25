@@ -10,6 +10,8 @@ sidebar_label: 子 Flow
 1. 每一份工作都需要自己的执行历史、重试和生命周期。
 2. 需要的并发量超过单个 Flow 的并发限制。
 
+<a id="选择模式"></a>
+
 ## 选择模式 {#choose-a-pattern}
 
 - [基础父 Flow](/design-patterns/subflows/basic)：启动运行时数量的 SubFlow，并等待它们全部完成。
@@ -21,6 +23,8 @@ sidebar_label: 子 Flow
 - [连同子 Flow 一起取消](/design-patterns/subflows/cancel-case)：Flow 被取消时，停止它启动的子 Flow。
 
 前四页是父 Flow 的几种形状。分区和背压建立在它们之上。
+
+<a id="下一步"></a>
 
 ## 下一步 {#next}
 

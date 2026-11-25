@@ -571,9 +571,9 @@ impl Step for ShortLiveHandleSubFlow {
 
 加上开关后，父 Flow 按以下步骤运行：
 
-1. `AdmitBatch` 接收启动批次。批次为空时，接收从未开放，Flow 立即完成。
-2. 否则 `AdmitBatch` 把每个请求排进 `Requests` Channel，开放接收，并在 `HandleRequest` 中启动 worker。
-3. 只有在接收开放且队列没有超过上限时，`sendRequest` 才接受请求，并把它排进同一个 Channel。
+1. `AdmitBatch` 持有接收开关 Attribute 的 lock，接收启动批次。批次为空时返回 `GracefulComplete`，因为接收从未开放。
+2. 否则 `AdmitBatch` 在同一次提交中把每个请求排进 `Requests` Channel、开放接收、把运行中子 Flow 计数设为 0，并在 `HandleRequest` 中启动 worker。
+3. `sendRequest` 不加 lock 地读取接收开关 Attribute。只有在接收开放且当前队列长度低于上限时，它才接受请求，并把它排进同一个 Channel。
 
 ## 下一步
 

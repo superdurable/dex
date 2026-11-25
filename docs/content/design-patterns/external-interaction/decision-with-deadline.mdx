@@ -23,8 +23,8 @@ When the first Condition is satisfied, the Step's `Execute` runs. It checks whic
 
 1. The customer accepts or rejects through an RPC. Each RPC publishes the customer's note to its own Channel.
 2. `AwaitOfferResponse` waits for an acceptance, a rejection, or the 3-day deadline, whichever comes first.
-3. When the deadline has passed, it moves to `ExpireOffer`.
-4. When the customer accepted, it moves to `FulfillOffer`. Otherwise the customer rejected, and it moves to `CloseRejectedOffer`.
+3. When the Timer won (`HasTimerFired`), it moves to `ExpireOffer`.
+4. When the acceptance Channel won, it moves to `FulfillOffer`. When the rejection Channel won, it moves to `CloseRejectedOffer`.
 
 Only one Condition wins, so only one branch ever starts.
 

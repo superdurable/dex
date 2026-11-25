@@ -613,13 +613,14 @@ The example stops after the running children finish. A parent that closes its in
 
 With a closable intake, the parent runs these steps:
 
-1. `sendRequest` accepts a request while the intake is open and the queue is below its limit. It queues the request in the `Requests` Channel.
+1. `sendRequest` holds the `intakeClosed` lock. It accepts a request while the intake is open and the current queue length is below the limit. It queues the request in the `Requests` Channel.
 2. Each worker in `HandleRequest` waits for a queued request or for a graceful completion request.
-3. A worker that took a request starts its child. After the close, it records the request as returned instead and waits for the next one.
-4. A worker that wakes with no request ends its branch.
-5. `closeIntake` marks the intake closed and publishes a close message. `CloseIntake` receives it and completes the Flow gracefully.
+3. A worker that took a request holds the `intakeClosed` lock and starts its child. After the close, it records the request as returned instead and waits for the next one.
+4. A worker whose wait ended through the graceful completion request, with no request consumed, ends its branch.
+5. `closeIntake` holds the `intakeClosed` lock, marks the intake closed, and publishes a close message. `CloseIntake` receives it and completes the Flow gracefully.
 
 ## Next
 
+- [Short-lived parent](/design-patterns/subflows/short-lived-parent)
 - [Back pressure for high availability](/design-patterns/subflows/back-pressure)
 - [Channel](/concepts/primitives/channel)

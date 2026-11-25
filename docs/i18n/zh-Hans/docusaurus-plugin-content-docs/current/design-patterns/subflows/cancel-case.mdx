@@ -19,10 +19,10 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 
 - 取消 RPC 把原因发布到一个取消 Channel。
 - 启动 SubFlow 的 Step 用 `AnyOf` 同时等待 SubFlow 和取消 Channel。
-- 如果子 Flow 先结束，`Execute` 读取它的结果并继续。
+- 如果子 Flow 先成功完成，`Execute` 读取它的结果并继续。子 Flow 以其他方式结束时，例如失败或超时，父 Flow 用 `ForceFail` 失败。
 - 如果取消消息胜出，`Execute` 用 `SubFlowID` 读取子 Flow ID，用 Client 的 `StopFlow` 停止子 Flow，再用 `ForceFail` 关闭父 Flow。
 - 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后才到达的取消，仍然能关闭这个 case。
-- 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。这样，已经到达的取消总是优先于正常完成。
+- 在每个等待中，已经到达的取消都优先于正常完成。等待 SubFlow 时，已就绪的 Channel 总是优先于已就绪的 SubFlow。等待两个 Channel 时，先声明的 Channel 胜出，所以把取消 Channel 声明在决定 Channel 之前。
 - 如果最后一个 Step 已经消费了它的决定消息，或者 Flow 已经关闭，之后到达的取消不能再改变结果。
 - 决定最终确定后，关闭 Flow 时不要消费取消 Channel。如果关闭时排空取消 Channel 并回退到取消路径，晚到的取消就会推翻决定。
 
@@ -31,8 +31,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 1. 申请人通过 `cancelApplication` RPC 撤回申请。RPC 把原因发布到 `ApplicationCanceled` Channel。
 2. `RunCreditCheck` 把信用检查作为子 Flow 启动，超时时间为 7 天。它等待撤回，或者等待信用检查结束。
 3. 如果申请人先撤回，`RunCreditCheck` 停止信用检查，并带着原因让申请失败。
-4. 如果信用检查先结束，申请带着报告进入 `AwaitUnderwriterDecision`。
-5. `AwaitUnderwriterDecision` 等待撤回或审批人的决定。撤回让申请失败，决定让申请完成。
+4. 如果信用检查先成功完成，申请带着报告进入 `AwaitUnderwriterDecision`。信用检查失败或超时时，申请失败。
+5. `AwaitUnderwriterDecision` 等待撤回或审批人的决定。它先声明撤回 Channel，所以撤回和决定同时就绪时撤回胜出。撤回让申请失败，决定让申请完成。
 
 ## 停止子 Flow
 
@@ -555,6 +555,7 @@ impl Step for AwaitUnderwriterDecision {
 
 ## 下一步
 
+- [持久化定时器](/design-patterns/durable-timer)
 - [SubFlow](/concepts/primitives/subflow)
 - [Channel](/concepts/primitives/channel)
 - [SubFlow](/design-patterns/subflows)

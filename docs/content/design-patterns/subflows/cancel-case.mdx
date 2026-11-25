@@ -19,10 +19,10 @@ A SubFlow keeps running when its parent completes, fails, times out, or is stopp
 
 - A cancel RPC publishes the reason to a cancel Channel.
 - The Step that starts the SubFlow waits with `AnyOf` for the SubFlow or the cancel Channel.
-- When the child finishes first, `Execute` reads its result and moves on.
+- When the child completes first, `Execute` reads its result and moves on. Any other end of the child, such as a failure or a timeout, fails the parent with `ForceFail`.
 - When the cancel message wins, `Execute` reads the child Flow ID with `SubFlowID`. It stops the child with the Client `StopFlow` and closes the parent with `ForceFail`.
 - Every later Step that waits also waits for the cancel Channel. A cancel that arrives after the child finished still closes the case.
-- List the cancel condition first in every wait. When the cancel message and another condition are ready at the same time, the first declared condition wins. A pending cancel then always wins over a normal completion.
+- A pending cancel wins over a normal completion in every wait. In the wait on the SubFlow, a ready Channel always wins over a ready SubFlow. In a wait on two Channels, the first declared Channel wins, so declare the cancel Channel before the decision Channel.
 - A cancel that arrives after the last Step consumed its decision message, or after the Flow closed, cannot change the outcome.
 - Once the decision is final, close the Flow without consuming the cancel Channel. A close that drains the cancel Channel and falls back to a cancel path would let a late cancel override the decision.
 
@@ -31,8 +31,8 @@ In the example:
 1. The applicant withdraws through the `cancelApplication` RPC. It publishes the reason to the `ApplicationCanceled` Channel.
 2. `RunCreditCheck` starts the credit check as a child Flow with a 7-day timeout. It waits for a withdrawal or for the credit check to finish.
 3. When the applicant withdraws first, `RunCreditCheck` stops the credit check and fails the application with the reason.
-4. When the credit check finishes first, the application moves to `AwaitUnderwriterDecision` with the report.
-5. `AwaitUnderwriterDecision` waits for a withdrawal or the underwriter's decision. A withdrawal fails the application. A decision completes it.
+4. When the credit check completes first, the application moves to `AwaitUnderwriterDecision` with the report. When the credit check fails or times out, the application fails.
+5. `AwaitUnderwriterDecision` waits for a withdrawal or the underwriter's decision. It declares the withdrawal Channel first, so a withdrawal that is ready together with a decision wins. A withdrawal fails the application. A decision completes it.
 
 ## Stopping the child
 
@@ -555,6 +555,7 @@ impl Step for AwaitUnderwriterDecision {
 
 ## Next
 
+- [Durable Timer](/design-patterns/durable-timer)
 - [SubFlow](/concepts/primitives/subflow)
 - [Channel](/concepts/primitives/channel)
 - [SubFlows](/design-patterns/subflows)

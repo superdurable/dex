@@ -7,7 +7,7 @@ sidebar_label: 带结论的空闲定时器
 
 记录每一条到达的消息，在有人给出结论或一段时间内没有新消息时结束（以前叫作入站事件循环，Inbound Event Loop）。
 
-当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [不活跃追踪定时器](/design-patterns/external-interaction/idle-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
+当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [空闲定时器](/design-patterns/external-interaction/idle-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
 
 ## 结构
 
@@ -59,10 +59,11 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 ## 示例
 
-可以从 [不活跃追踪定时器](/design-patterns/external-interaction/idle-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
+可以从 [空闲定时器](/design-patterns/external-interaction/idle-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
 
 ## 下一步
 
+- [可中断执行](/design-patterns/interruptible)
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)
 - [RPC](/concepts/primitives/rpc)

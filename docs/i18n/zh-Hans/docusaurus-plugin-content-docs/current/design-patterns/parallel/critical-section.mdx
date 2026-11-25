@@ -26,8 +26,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/crit
 
 1. `StartContractEdits` 先把 token 放进 Channel，再为每份修改启动一个分支，同时启动 `FinishContractEdits`，由它等待所有修改结束。
 2. 每个分支在 `EnterContractEdit` 中等待 token，拿到后才进入。
-3. `EditContract` 修改合同，`SaveContractEdit` 保存修改并把 token 放回去。
-4. 这三个 Step 中任何一个失败时，它的失败路由 `ReleaseContractEditToken` 会把 token 放回去，其他分支照常轮到。
+3. `EditContract` 修改合同后进入 `SaveContractEdit`，由它记录已保存的修改并把 token 放回去。审阅人撤回时，`EditContract` 改为记录撤回并把 token 放回去。
+4. `EnterContractEdit`、`EditContract` 或 `SaveContractEdit` 的 `Execute` 重试耗尽时，`ExecuteFailure` 把它路由到 `ReleaseContractEditToken`。这个 Step 记录失败的修改并把 token 放回去。
 
 任何等待中的分支都可能下一个拿到 token，顺序不固定。
 
@@ -641,6 +641,7 @@ fn leave_contract_edit(
 
 ## 下一步
 
+- [子 Flow](/design-patterns/subflows)
 - [Channel](/concepts/primitives/channel)
 - [Step](/concepts/step)
 - [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)

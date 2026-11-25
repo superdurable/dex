@@ -6,7 +6,7 @@ title: Idle Timer with Resolution
 
 Record every incoming message, and end when someone resolves the conversation or when no message arrives for a while (formerly Inbound Event Loop).
 
-Use this pattern when a Flow takes inbound messages until a resolution arrives or the conversation goes quiet. Examples are replies in a support ticket, messages in a chat session, or answers in a review thread. It extends the [Inactiveness Tracker Timer](/design-patterns/external-interaction/idle-timer): each message restarts the inactivity Timer, and a separate resolution message ends the loop.
+Use this pattern when a Flow takes inbound messages until a resolution arrives or the conversation goes quiet. Examples are replies in a support ticket, messages in a chat session, or answers in a review thread. It extends the [Idle Timer](/design-patterns/external-interaction/idle-timer): each message restarts the inactivity Timer, and a separate resolution message ends the loop.
 
 ## Shape
 
@@ -58,10 +58,11 @@ When the caller must confirm each reply was handled, the waiting Step records th
 
 ## Examples
 
-Start from the [Inactiveness Tracker Timer](/design-patterns/external-interaction/idle-timer) example. It shows the race between the Timer and the Channel, and the loop back to the same Step. Add a resolution Channel, a transcript Attribute, and input validation in the RPC.
+Start from the [Idle Timer](/design-patterns/external-interaction/idle-timer) example. It shows the race between the Timer and the Channel, and the loop back to the same Step. Add a resolution Channel, a transcript Attribute, and input validation in the RPC.
 
 ## Next
 
+- [Interruptible execution](/design-patterns/interruptible)
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)
 - [RPC](/concepts/primitives/rpc)
