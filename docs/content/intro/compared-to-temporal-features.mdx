@@ -7,7 +7,7 @@ description: Ten Dex features and the nearest mechanism in Temporal for each. De
 
 # Features Only in Dex
 
-Dex ships these ten features as part of the product. For each one, the table names the nearest mechanism in Temporal.
+These ten features come with Dex, in Dex Web, dexcli, the SDKs, and Dex Server. For each one, the table shows how the nearest mechanism in Temporal differs.
 
 | Feature | Dex | Nearest in Temporal |
 | --- | --- | --- |
@@ -15,8 +15,8 @@ Dex ships these ten features as part of the product. For each one, the table nam
 | [Generated forms](#generated-ui) | Dex Web builds start forms, Actions, Summary and Display fields, and the Work Queue from the Flow's definition. | The Web UI lists and shows Workflow Executions ([Web UI](https://docs.temporal.io/web-ui)). |
 | [Clone fork](#clone-fork) | Copies a run's state at one point into a new Flow, and the source run keeps running. | Reset: "In all cases the current run will be terminated and a new run started." ([API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)) |
 | [Connectors](#connectors) | Released Connectors give a Flow ready-made Steps and Triggers for external providers. | The integrations page lists agent frameworks, model providers, frameworks, and observability tools, not ready-made Activities or triggers for third-party services ([Integrations](https://docs.temporal.io/integrations)). |
-| [Skip a Timer](#skip-timer) | `SkipTimer` makes one waiting Timer of a running Flow ready at once. | A Timer resolves when its duration has passed ([Timers](https://docs.temporal.io/workflow-execution/timers-delays)). The SDK test server skips time in tests ([Testing suite](https://docs.temporal.io/develop/python/testing-suite)). |
-| [Wait for a Step](#wait-for-step) | A Client call returns when one Step execution completes, while the Flow keeps running. | An Update whose handler waits on a condition: "You could write your read operation as an Update" ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). The handler is Workflow code and runs on a Worker. |
+| [Skip a Timer](#skip-timer) | `SkipTimer` makes one waiting Timer of a running Flow ready at once. | A Timer resolves when its duration has passed ([Timers](https://docs.temporal.io/workflow-execution/timers-delays)), and the SDK test server skips time in tests ([Testing suite](https://docs.temporal.io/develop/python/testing-suite)). |
+| [Wait for a Step](#wait-for-step) | A Client call returns when one Step execution completes, while the Flow keeps running. | An Update whose handler is Workflow code that waits on a condition and runs on a Worker ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). |
 | [Wait for an Attribute](#wait-for-attribute) | A Client call returns when an Attribute's value matches a typed comparison. | The same Update with a handler that waits on a condition ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). |
 | [Server-side reads](#read-without-worker) | Dex Server answers `GetAttributes` itself, so the read works while no Worker runs. | A Query calls into its Query handler, which runs on a Worker ([Sending messages](https://docs.temporal.io/sending-messages)). |
 | [Attribute Store sync](#attribute-store-sync) | Dex Server writes selected Attributes to PostgreSQL tables you own. | Workflow state and events persist in the Temporal Service's database, and a Visibility store serves execution lists ([Persistence](https://docs.temporal.io/temporal-service/persistence)). |
@@ -25,10 +25,6 @@ Dex ships these ten features as part of the product. For each one, the table nam
 ## Flow design from source {#flow-design}
 
 `dexcli visualize` reads one Flow source file and builds its Flow Definition Graph without running the code. It reads Go, Python, TypeScript, Java, and Rust. Dex Web draws the graph on the **Designs** page and in each run's **Design** view. A Step card shows who acts at that Step, such as a person, a Timer, or the Flow itself.
-
-```bash
-dexcli visualize ./order_flow.go
-```
 
 <img
   src="/img/production/dex-web-run-design.png"
@@ -50,7 +46,7 @@ See [Dex Web](/reference/web/dex-web#start-flow).
 
 ## Clone fork {#clone-fork}
 
-Clone fork gives the new Flow its own Flow ID and the point's Attributes, pending Channel messages, and waiting Steps. The new Flow starts a history of its own. A common use is to branch an agent session while the original session continues. Start it from Dex Web with **Clone fork from here…** on an event, from a Client with `CloneForkFlow`, or with `dexcli flow clone-fork`.
+Clone fork gives the new Flow its own Flow ID and copies Attributes, pending Channel messages, and waiting Steps. The new Flow starts a history of its own. A common use is to branch an agent session while the original session continues. Start it from Dex Web with **Clone fork from here…** on an event, from a Client with `CloneForkFlow`, or with `dexcli flow clone-fork`.
 
 <img
   src="/img/compared-to-temporal/dex-web-clone-fork-dialog.png"
@@ -62,7 +58,7 @@ See [Branch a Flow with Clone Fork](/components/operate-and-debug#clone-fork).
 
 ## Connectors {#connectors}
 
-A Connector gives a Flow Steps that call an external provider, and Triggers that turn provider events into Flow starts or RPC calls. Your application imports a Connector package and uses its Steps like your own. A Mutation sends the same idempotency key on every retry and handles a call whose outcome is unknown. Dex Web **Connectors** shows each connection and the setup it needs. Browse released Connectors in the [Connector catalog](https://connectors.superdurable.io/).
+A Connector gives a Flow Steps that call an external provider, and Triggers that turn provider events into Flow starts or RPC calls. A Mutation sends the same idempotency key on every retry and handles a call whose outcome is unknown. Dex Web **Connectors** shows each connection and the setup it needs. Browse released Connectors in the [Connector catalog](https://connectors.superdurable.io/).
 
 <img
   src="/img/compared-to-temporal/dex-web-connectors.png"
@@ -73,11 +69,7 @@ See [Connector](/concepts/connector).
 
 ## Skip a Timer {#skip-timer}
 
-`SkipTimer` selects one Timer by Flow ID, Step execution, and the Timer's condition ID or index. The waiting Step continues as if the Timer had fired. Use it in tests, or in production to run a waiting Step early. The Go, Python, Java, TypeScript, and Rust Clients have it. This command skips the **ship-delay** Timer of the `Ship` Step in the [Quick Start](/quick-start) order Flow:
-
-```bash
-dexcli flow skip-timer order-1a2b3c4d --step-type Ship --condition-id ship-delay --yes
-```
+`SkipTimer` selects one Timer by Flow ID, Step execution, and the Timer's condition ID or index. The waiting Step continues as if the Timer had fired. Use it in tests, or in production to run a waiting Step early. The Go, Python, Java, TypeScript, and Rust Clients have it, and so does `dexcli flow skip-timer`.
 
 See [Skip a Timer](/concepts/primitives/timer#skip-a-timer).
 
