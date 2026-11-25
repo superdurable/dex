@@ -109,9 +109,12 @@ func (AddItemStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, er
 	EXECUTE_BODY
 	return dex.GracefulComplete(input), nil
 }
+
+EXTRA_SOURCE
 `
 
 type goDeclaredLocksCase struct {
+	extraSource    string
 	totalOptions   string
 	itemsOptions   string
 	repliesOptions string
@@ -281,6 +284,58 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "if false {\n\t\t_ = total.Set(ctx, 1)\n\t}"},
 			diagnostics: []string{"warning declared_lock_unresolved"},
 		},
+		"lock element rewritten through a pointer": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				stepOptions:  "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\tlock := dex.LockAttribute(cartLock)\n\talias := &lock\n\t*alias = dex.LockAttribute(total)\n\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{lock}}\n}",
+				executeBody:  "_ = total.Set(ctx, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"package receiver rebound": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				extraSource:  "func rebind() { total = spare }",
+				executeBody:  "_ = total.Set(ctx, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"shared lock reference rebound": {
+			source: goDeclaredLocksCase{
+				itemsOptions: "dex.WritesRequireAttributeLock(cartLock)",
+				extraSource:  "func rebind() { cartLock = dex.DefineAttribute[bool](\"other-lock\") }",
+				rpcBody:      `_ = items.Set(ctx, "apple", 1)`,
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a constant-false loop": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "for false {\n\t\t_ = total.Set(ctx, 1)\n\t}"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a helper called from a dead branch of another helper": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				extraSource:  "func outer(ctx dex.Context) {\n\tif false {\n\t\tinner(ctx)\n\t}\n}\n\nfunc inner(ctx dex.Context) { _ = total.Set(ctx, 1) }",
+				executeBody:  "outer(ctx)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a direct helper": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				extraSource:  "func inner(ctx dex.Context) { _ = total.Set(ctx, 1) }",
+				executeBody:  "inner(ctx)",
+			},
+			diagnostics: []string{"warning declared_lock_missing"},
+		},
+		"lock only in an unreachable option return": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				stepOptions:  "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\tif false {\n\t\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(total)}}\n\t}\n\treturn nil\n}",
+				executeBody:  "_ = total.Set(ctx, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
 		"channel map publish without lock": {
 			source:      goDeclaredLocksCase{rpcBody: `_ = rooms.Publish(ctx, "lobby", "hi")`},
 			diagnostics: []string{"warning declared_lock_missing"},
@@ -335,6 +390,7 @@ func analyzeGoDeclaredLocksSource(t *testing.T, source goDeclaredLocksCase) *Gra
 		"TIMEOUT_BODY", source.timeoutBody,
 		"WAIT_BODY", source.waitBody,
 		"EXECUTE_BODY", source.executeBody,
+		"EXTRA_SOURCE", source.extraSource,
 	)
 	directory := t.TempDir()
 	sdkDirectory, err := filepath.Abs(filepath.Join("..", "..", "..", "sdk-go"))

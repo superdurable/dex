@@ -26,6 +26,8 @@ LOCK_TABLE = {"total": (Attribute("unused", int).lock(),)}
 
 LOCKS = ()
 
+MODULE_PRELUDE
+
 
 def attribute_options():
     return {}
@@ -40,6 +42,7 @@ class CartFlow(Flow[str]):
     total = Attribute("total", int, TOTAL_OPTIONS)
     items = AttributeMap("items", int, ITEMS_OPTIONS)
     replies = Channel("replies", str, REPLIES_OPTIONS)
+    CLASS_EXTRA
 
     def __init__(self):
         self.start = StartStep()
@@ -80,10 +83,16 @@ STEP_OPTIONS
     def execute(self, context: Context, input: str) -> StepDecision:
         EXECUTE_BODY
         return graceful_complete(input)
+
+
+MODULE_EXTRA
 `
 
 type pythonDeclaredLocksCase struct {
 	outerDecorator string
+	modulePrelude  string
+	classExtra     string
+	moduleExtra    string
 	totalOptions   string
 	itemsOptions   string
 	repliesOptions string
@@ -137,7 +146,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"step without options": {
 			source:          pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "CartFlow.total.set(context, 1)"},
 			diagnostics:     []string{"warning declared_lock_missing"},
-			messageFragment: "Step AddItemStep execute writes attribute total without the lock its declaration requires; add total.lock() to execute_lock_attributes",
+			messageFragment: "Step AddItemStep execute writes attribute total without the lock its declaration requires; add CartFlow.total.lock() to execute_lock_attributes",
 		},
 		"rpc without locks": {
 			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "self.total.set(context, 1)"},
@@ -221,8 +230,48 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 			diagnostics: []string{"warning declared_lock_unresolved"},
 		},
 		"receiver attribute of another object": {
-			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "other = object()\n        other.total.set(context, 1)"},
+			source: pythonDeclaredLocksCase{
+				totalOptions:  "writes_require_lock=True",
+				modulePrelude: "class Holder:\n    def __init__(self):\n        self.total = Attribute(\"holder-total\", int)",
+				rpcBody:       "other = Holder()\n        other.total.set(context, 1)",
+			},
 			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"flow class attribute rebound": {
+			source: pythonDeclaredLocksCase{
+				totalOptions: "writes_require_lock=True",
+				moduleExtra:  "CartFlow.total = CartFlow.cart_lock",
+				executeBody:  "CartFlow.total.set(context, True)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"class lock bound after the declaration": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "guard = Attribute(\"module-lock\", bool)",
+				totalOptions:  "writes_require_lock=guard",
+				classExtra:    "guard = Attribute(\"class-lock\", bool)",
+				stepOptions:   "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=(guard.lock(),))\n",
+				executeBody:   "CartFlow.total.set(context, 1)",
+			},
+		},
+		"write after a short-circuit operand": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "False and CartFlow.total.set(context, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"named lock list changed in place": {
+			source: pythonDeclaredLocksCase{
+				totalOptions:  "writes_require_lock=True",
+				moduleExtra:   "ALIAS = LOCKS_FOR_STEP\nALIAS.append(CartFlow.total.lock())",
+				modulePrelude: "LOCKS_FOR_STEP = []",
+				stepOptions:   "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCKS_FOR_STEP)\n",
+				executeBody:   "CartFlow.total.set(context, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"rpc suggestion uses the class-body name": {
+			source:          pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=cart_lock", rpcBody: `self.replies.publish(context, "hi")`},
+			diagnostics:     []string{"warning declared_lock_missing"},
+			messageFragment: "add cart_lock.lock() to the rpc lock_attributes",
 		},
 		"write in a nested function": {
 			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "def inner():\n            CartFlow.total.set(context, 1)\n        inner"},
@@ -317,6 +366,9 @@ func analyzePythonDeclaredLocksSource(t *testing.T, source pythonDeclaredLocksCa
 		", ITEMS_OPTIONS", resourceOptions(source.itemsOptions),
 		", REPLIES_OPTIONS", resourceOptions(source.repliesOptions),
 		"OUTER_DECORATOR", source.outerDecorator,
+		"MODULE_PRELUDE", source.modulePrelude,
+		"CLASS_EXTRA", source.classExtra,
+		"MODULE_EXTRA", source.moduleExtra,
 		"RPC_OPTIONS", rpcOptions,
 		" MOVE_OPTIONS", source.moveOptions,
 		"STEP_OPTIONS\n", stepOptions,

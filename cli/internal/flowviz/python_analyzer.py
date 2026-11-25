@@ -919,7 +919,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 if None in keywords:
                     locks[field]["unresolved"] = locks[field]["unresolved"] or "**options"
                 elif field in keywords:
-                    self.merge_lock_list(locks[field], keywords[field], owner_id)
+                    self.merge_lock_list(locks[field], keywords[field], owner_id, scope_method=method)
         return locks
 
     # The outermost @rpc registers the method; an unknown decorator outside it may replace the registration.
@@ -936,12 +936,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 if keyword.arg is None:
                     locks["unresolved"] = locks["unresolved"] or "**options"
                 elif keyword.arg == "lock_attributes":
-                    self.merge_lock_list(locks, keyword.value, f"rpc:{method.name}")
+                    self.merge_lock_list(locks, keyword.value, f"rpc:{method.name}", class_call=decorator)
             return locks
         return locks
 
-    def merge_lock_list(self, locks, expression, owner_id):
-        if isinstance(expression, ast.Name):
+    def merge_lock_list(self, locks, expression, owner_id, scope_method=None, class_call=None):
+        is_named = isinstance(expression, ast.Name)
+        if is_named:
             # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
             locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
             expression = self.module_assignment(expression.id) or expression
@@ -955,8 +956,21 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
                 locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
                 continue
+            proven_id = None if is_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
+            if proven_id is not None:
+                resource_id = proven_id
+            elif not is_named:
+                locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(lock)} is not proven in its registration scope"
             instance = lock.args[0] if lock.args else keywords.get("instance")
             locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
+
+    # Resolves a registration lock in its own scope: a method body sees module names, a class body sees earlier class bindings.
+    def registration_lock_resource(self, expression, owner_id, scope_method, class_call):
+        if class_call is not None and isinstance(expression, ast.Name) and self.flow_class is not None:
+            module_id = self.proven_resource_reference(expression, owner_id, set())
+            return self.class_body_binding(self.flow_class.name, expression.id, class_call, module_id)
+        local_names = self.locally_bound_names(scope_method) if scope_method is not None else set()
+        return self.proven_resource_reference(expression, owner_id, local_names)
 
     def constant_instance(self, expression):
         if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
@@ -1006,6 +1020,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 pending.append(node.test)
                 pending.extend(node.body if node.test.value else node.orelse)
                 continue
+            # Short-circuit and conditional expressions may skip every operand after the first.
+            if isinstance(node, ast.BoolOp):
+                pending.append(node.values[0])
+                continue
+            if isinstance(node, ast.IfExp):
+                pending.append(node.test)
+                continue
             pending.extend(ast.iter_child_nodes(node))
         return reached
 
@@ -1020,24 +1041,85 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 
     # Resolves a resource reference only through module names, Flow class attributes, and self of a Flow method or wired Step.
     def proven_resource_reference(self, expression, owner_id, local_names):
+        rebound = self.rebound_references()
         if isinstance(expression, ast.Name):
-            if expression.id in local_names:
+            if expression.id in local_names or expression.id in rebound:
                 return None
-            resource_id = self.resources.get(expression.id)
-            return resource_id if resource_id and resource_id.rsplit(":", 1)[-1] == expression.id else None
+            return next((f"resource:{kind}:{expression.id}" for kind in ("attribute", "channel", "stream") if f"resource:{kind}:{expression.id}" in self.resource_declarations), None)
         if not isinstance(expression, ast.Attribute) or not isinstance(expression.value, ast.Name):
             return None
         owner = expression.value.id
         if owner in self.flow_classes and owner not in local_names:
-            return self.resources.get(f"{owner}.{expression.attr}")
+            key = f"{owner}.{expression.attr}"
+            return None if key in rebound else self.resources.get(key)
         if owner != "self":
             return None
         if owner_id.startswith("step:"):
             return self.step_resources.get(owner_id.split(":", 1)[1], {}).get(expression.attr)
         flow_class = self.flow_class
-        if flow_class is None or self.assigns_self_attribute(flow_class, expression.attr):
+        key = f"{flow_class.name}.{expression.attr}" if flow_class is not None else ""
+        if flow_class is None or key in rebound or self.assigns_self_attribute(flow_class, expression.attr):
             return None
-        return self.resources.get(f"{flow_class.name}.{expression.attr}")
+        return self.resources.get(key)
+
+    # In a class body, a bare name refers to the class binding executed before the call, else to the module binding.
+    def class_body_binding(self, owner, name, call, module_resource_id):
+        class_node = next((statement for statement in self.tree.body if isinstance(statement, ast.ClassDef) and statement.name == owner), None)
+        if class_node is None:
+            return None
+        binding = None
+        for member in class_node.body:
+            if member.lineno >= call.lineno:
+                break
+            targets = member.targets if isinstance(member, ast.Assign) else [member.target] if isinstance(member, (ast.AnnAssign, ast.AugAssign)) else []
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets) or (isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and member.name == name):
+                binding = member
+        if binding is None:
+            return module_resource_id
+        class_resource_id = self.resources.get(f"{owner}.{name}")
+        declaration = self.resource_declarations.get(class_resource_id, (None, None))[1] if class_resource_id else None
+        if declaration is binding and f"{owner}.{name}" not in self.rebound_references():
+            return class_resource_id
+        return None
+
+    # Module names and Flow class attributes that the module binds more than once, so they may not hold their resource.
+    def rebound_references(self):
+        if getattr(self, "_rebound_references", None) is not None:
+            return self._rebound_references
+        counts = {}
+        rebound = set()
+
+        def count(key):
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] > 1:
+                rebound.add(key)
+
+        def targets_of(node):
+            if isinstance(node, ast.Assign):
+                return node.targets
+            if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                return [node.target]
+            if isinstance(node, ast.Delete):
+                return node.targets
+            return []
+
+        for statement in self.tree.body:
+            for target in targets_of(statement):
+                if isinstance(target, ast.Name):
+                    count(target.id)
+            if isinstance(statement, ast.ClassDef) and statement.name in self.flow_classes:
+                for member in statement.body:
+                    for target in targets_of(member):
+                        if isinstance(target, ast.Name):
+                            count(f"{statement.name}.{target.id}")
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Global):
+                rebound.update(node.names)
+            for target in targets_of(node):
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in self.flow_classes:
+                    rebound.add(f"{target.value.id}.{target.attr}")
+        self._rebound_references = rebound
+        return rebound
 
     def assigns_self_attribute(self, class_node, attribute):
         for node in ast.walk(class_node):
@@ -1075,8 +1157,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         lock_id = self.proven_resource_reference(value, "", set())
         owner = resource_id.split(":", 2)[-1].rpartition(".")[0]
         if isinstance(value, ast.Name) and owner:
-            # In a class body, a bare name refers to an attribute defined earlier in the same class.
-            lock_id = self.resources.get(f"{owner}.{value.id}") or lock_id
+            lock_id = self.class_body_binding(owner, value.id, call, lock_id)
         lock_call = self.resource_declarations.get(lock_id, (None, None))[0] if lock_id else None
         if not lock_id or not lock_id.startswith("resource:attribute:") or lock_call is None or self.resource_details(lock_call)["map"]:
             return {"unresolved": self.unparse(value)}, False
@@ -1141,6 +1222,22 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 return node.get("name") or node_id
         return node_id.rsplit(":", 1)[-1]
 
+    # Writes the lock as code that the registration scope can evaluate, or describes it when no binding is visible there.
+    def registration_lock_text(self, lock_id, phase, same_instance, instance):
+        key = lock_id.split(":", 2)[-1]
+        owner, _, attribute = key.rpartition(".")
+        if not owner:
+            reference = key
+        elif phase == "rpc" and self.flow_class is not None and owner == self.flow_class.name:
+            reference = attribute
+        else:
+            reference = key
+        if not reference.isidentifier() and not all(part.isidentifier() for part in reference.split(".")):
+            return f"the lock of {self.node_name(lock_id)}"
+        if not same_instance:
+            return f"{reference}.lock()"
+        return f"{reference}.lock({instance!r})" if instance is not None else f"{reference}.lock(<written instance>)"
+
     def check_declared_lock(self, handler, access, requirement):
         resource_id = access["resourceId"]
         name = self.node_name(resource_id)
@@ -1150,11 +1247,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             self.warning("declared_lock_unresolved", f"{subject}, but dexcli cannot read the lock requirement of its declaration ({requirement['unresolved']})", access["span"])
             return
         lock_id = requirement["lock"]
-        lock_name = self.node_name(lock_id)
-        lock_text = f"{lock_name}.lock()"
         is_write_key_known = not requirement["sameInstance"] or access["instance"] is not None
-        if requirement["sameInstance"]:
-            lock_text = f"{lock_name}.lock({access['instance']!r})" if is_write_key_known else f"{lock_name}.lock(<written instance>)"
+        lock_text = self.registration_lock_text(lock_id, handler["phase"], requirement["sameInstance"], access["instance"] if is_write_key_known else None)
         locks = handler["locks"]
         reason = locks["unresolved"] or locks.get("notLiteral")
         is_uncertain = reason is not None
