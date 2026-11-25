@@ -30,6 +30,11 @@ from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow impo
     AdvancedLongLiveParentFlow,
 )
 from dex_examples.patterns.parallel_subflows.models import ParentInput
+from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+    PAYOUT_OUTCOME,
+    PayoutOutcome,
+)
+from dex_examples.patterns.fail_fast.payment_provider import ExpenseClaim
 from dex_examples.patterns.polling.job_service import JobState
 from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
@@ -233,6 +238,54 @@ async def test_failure_recovery(
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status is FlowStatus.FAILED
     assert "Failed to process transaction" in (result.error_message or "")
+
+
+async def test_fail_fast_routes_a_rejected_bank_account_after_one_attempt(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    retry = app.expense_reimbursement.submit_payout.get_step_options().execute_retry
+    assert retry is not None and retry.total_duration == timedelta(hours=1)
+    flow_id = new_flow_id("pattern-fail-fast")
+    await client.start_flow(
+        app.expense_reimbursement,
+        flow_id,
+        ExpenseClaim(12_000, "not-a-bank-account"),
+        start_options(),
+    )
+
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert result.single_output(str) == (
+        "rejected: bank account not-a-bank-account is invalid"
+    )
+    values = await client.get_attributes(flow_id, PAYOUT_OUTCOME)
+    assert values.get(PAYOUT_OUTCOME) == PayoutOutcome(
+        "REJECTED", "bank account not-a-bank-account is invalid", 1
+    )
+    assert app.payment_provider.count_submissions(flow_id) == 1
+
+
+async def test_fail_fast_retries_a_provider_timeout(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-fail-fast")
+    await client.start_flow(
+        app.expense_reimbursement,
+        flow_id,
+        ExpenseClaim(12_000, "12345678"),
+        start_options(),
+    )
+
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert result.single_output(str) == f"payout-{flow_id}"
+    values = await client.get_attributes(flow_id, PAYOUT_OUTCOME)
+    assert values.get(PAYOUT_OUTCOME) == PayoutOutcome("PAID", f"payout-{flow_id}", 2)
+    assert app.payment_provider.count_submissions(flow_id) == 2
 
 
 async def test_reminder_opt_out(

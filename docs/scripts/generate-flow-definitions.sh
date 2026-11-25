@@ -46,6 +46,7 @@ generate_flow_definition examples/python/dex_examples/patterns/cron/cron_schedul
 generate_flow_definition examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py design-patterns/inactiveness-tracker
 generate_flow_definition examples/python/dex_examples/patterns/reminders/reminder_flow.py design-patterns/reminder
 generate_flow_definition examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py design-patterns/execute-failure-recovery
+generate_flow_definition examples/python/dex_examples/patterns/fail-fast/expense_reimbursement_flow.py design-patterns/fail-fast-on-permanent-errors
 generate_flow_definition examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py design-patterns/manual-recovery
 generate_flow_definition examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py design-patterns/wait-for-failure-recovery
 generate_flow_definition examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py design-patterns/graceful-timeout

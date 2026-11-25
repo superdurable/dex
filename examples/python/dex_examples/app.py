@@ -88,6 +88,10 @@ from dex_examples.patterns.parallel_subflows.wait_for_half_parent_flow import (
 )
 from dex_examples.patterns.polling.job_service import FakeJobService
 from dex_examples.patterns.polling.polling_flow import PollingFlow
+from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+    ExpenseReimbursementFlow,
+)
+from dex_examples.patterns.fail_fast.payment_provider import FakePaymentProvider
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
 from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber_flow import (
@@ -208,6 +212,8 @@ class ExampleApp:
         self.polling_jobs = FakeJobService()
         self.polling = PollingFlow(self.polling_jobs)
         self.failure_recovery = FailureRecoveryFlow()
+        self.payment_provider = FakePaymentProvider()
+        self.expense_reimbursement = ExpenseReimbursementFlow(self.payment_provider)
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
         self.user_profile = UserProfileFlow()
@@ -282,6 +288,7 @@ class ExampleApp:
             self.submit_subflow_request,
             self.polling,
             self.failure_recovery,
+            self.expense_reimbursement,
             self.reminder,
             self.inactiveness_tracker,
             self.user_profile,

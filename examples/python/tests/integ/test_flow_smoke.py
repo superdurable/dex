@@ -139,6 +139,17 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "patterns/fail-fast",
+            lambda c: trigger_get(
+                "/patterns/fail-fast/start",
+                {
+                    "workflowId": new_id("pattern-fail-fast"),
+                    "amountCents": "12000",
+                    "bankAccount": "12345678",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
             "patterns/interruptible",
             lambda c: trigger_get(
                 "/patterns/interruptible/start",
