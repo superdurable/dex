@@ -14,10 +14,7 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from dex import (
-    AsyncContext,
     Channel,
     Context,
     Flow,
@@ -32,8 +29,6 @@ from dex import (
     rpc,
 )
 
-DRAIN_WINDOW_SECONDS = 20
-
 
 # dex:group group-id:messages group-label:"Messages"
 # dex:explanation text:"Process one queued message, then complete once no message waits."
@@ -46,9 +41,7 @@ class ProcessMessage(Step[str]):
             return Wait.until(self.queue_channel.for_one())
         return Wait.skip_immediately()
 
-    async def execute(  # type: ignore[override]
-        self, context: AsyncContext, input: str
-    ) -> StepDecision:
+    def execute(self, context: Context, input: str) -> StepDecision:
         if input is not None:
             print(f"DrainingExternalChannelFlow process message: {input}")
         else:
@@ -59,9 +52,6 @@ class ProcessMessage(Step[str]):
             if value is None:
                 raise RuntimeError("No channel message value found")
             print(f"DrainingExternalChannelFlow process message: {value}")
-
-        # Yield so AsyncWorker can serve other Flows during the drain window.
-        await asyncio.sleep(DRAIN_WINDOW_SECONDS)
 
         return force_complete_if_channels_empty(
             None,

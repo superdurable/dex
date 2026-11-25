@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 
 import pytest
 from dex_examples.app import ExampleApp
@@ -52,10 +53,11 @@ from tests.integ.conftest import (
 from dex import (
     AsyncClient,
     AttributeMatch,
+    Context,
     FlowConfig,
     FlowStatus,
-    IdReusePolicy,
     StartFlowOptions,
+    StepDecision,
     StepExecutionId,
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
@@ -100,20 +102,51 @@ async def test_draining_channel_for_external_publishing(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("drain-external")
+    first_message = f"first message for {flow_id}"
+    barrier = _FirstMessageExecutionBarrier(
+        first_message, app.drain_external.process_message.execute
+    )
+    monkeypatch.setattr(app.drain_external.process_message, "execute", barrier.execute)
     run_id = await client.start_flow(
         app.drain_external,
         flow_id,
-        "first message from start",
+        first_message,
         start_options(),
     )
-    assert run_id
-    await client.invoke_rpc(
-        app.drain_external.publish_external_channel_message,
-        flow_id,
-        "message from test",
-    )
+    try:
+        assert run_id
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        await client.invoke_rpc(
+            app.drain_external.publish_external_channel_message,
+            flow_id,
+            "message from test",
+        )
+    finally:
+        barrier.release.set()
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert barrier.execution_count == 2
+
+
+class _FirstMessageExecutionBarrier:
+    def __init__(
+        self, first_message: str, execute: Callable[[Context, str], StepDecision]
+    ) -> None:
+        self.first_message = first_message
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.execution_count = 0
+
+    async def execute(self, context: Context, input: str) -> StepDecision:
+        self.execution_count += 1
+        if input == self.first_message:
+            self.started.set()
+            await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_interruptible_start_and_cancel(
