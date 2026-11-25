@@ -33,9 +33,11 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cont
 | 控制 | Primitive | 原因 |
 | --- | --- | --- |
 | 参数，例如批量大小、速率或暂停标志 | Attribute | 最新的值生效。循环只需要当前值。 |
-| 针对某一条数据的命令，例如跳过或重试 | Channel | 每条命令都会保留，并按顺序处理。后来的命令不会替换先前的命令。 |
+| 针对某一条数据的命令，例如跳过或重试 | Channel | 已接受的命令按 FIFO 顺序排队，由唯一的消费者按这个顺序取出。后来的命令不会替换先前的命令。 |
 
-要从 Channel 接收命令，循环用 `AnyOf` 同时等待 Timer 和这个 Channel。然后 `Execute` 处理它消费到的每一条命令。
+要从 Channel 接收命令，循环用 `AnyOf` 同时等待 Timer 和这个 Channel。`AnyOf` 只为胜出的 Channel 分支消费消息。`Execute` 先判断哪个分支胜出：Channel 胜出时处理消费到的命令，Timer 胜出时处理下一批数据。之后到达的命令留在队列里，由后面的某一轮处理。
+
+如果循环停止前必须处理完每一条已接受的命令，就在 Flow 关闭前排空这个 Channel。外部调用方可能同时发布时，用原子的 complete-if-empty 决策关闭 Flow，做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。
 
 ## 选择停止方式 {#choose-how-to-stop}
 
@@ -46,6 +48,8 @@ Dex 内置三种停止工作的方式。按哪些工作必须停、哪些工作�
 | StopFlow | 整个运行，立即停止 | 运行必须马上结束，也没有 Step 需要汇报或清理。 |
 | Graceful completion | 等待 graceful completion Condition 的 Step；没有活跃的 Step 时 Flow 完成 | Flow 应先做完当前的工作，然后完成。 |
 | Step 取消 | 选定的正在运行的 Step | 一个分支必须停止，Flow 的其余部分继续运行。 |
+
+<a id="finish-the-current-unit-then-stop"></a>
 
 下面的示例把停止请求和其他控制值一起放在控制 Attribute 里。循环读取它，并在下一个单元开始前停止。如果循环的等待包含 graceful completion Condition，graceful completion 也能停止这样的循环，这时不需要停止 Attribute。
 
@@ -73,7 +77,11 @@ Step 决定或 RPC 可以取消选定的活跃 Step，例如按 Step 类型取�
 
 ## 示例 {#example}
 
+<a id="core-implementation"></a>
+
 `RecordBackfillFlow` 分批处理 1000 条记录。`StartRecordBackfill` 从第一条记录开始，进入 `ProcessRecordBatch`。`ProcessRecordBatch` 在两批之间等待一秒。每次 `Execute` 先读取 `stopRequested` 和 `batchSize` 两个 Attribute。在批量大小 RPC 设置它之前，批量大小是 10。
+
+示例用打印来模拟处理每一批。每次已提交的 `GoTo` 都把位置推进到已处理范围之后，所以修改批量大小不会跳过或重复某个范围。重试的 `Execute` 可能再次处理同一个范围。因此真实的处理必须按每条记录的业务 ID 保持幂等。
 
 批量大小 RPC 拒绝小于 1 或大于 1000 的值。停止 RPC 写入 `stopRequested`。循环随后在下一批开始前 graceful complete。循环停下后，Flow 完成。
 

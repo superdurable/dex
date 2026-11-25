@@ -21,10 +21,14 @@
 package integ
 
 import (
+	"context"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/registry"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 // At the default batch size the backfill needs 100 seconds, longer than the wait timeout.
@@ -39,6 +43,8 @@ func TestControlLongRunningWorkReadsTheBatchSizeEachBatch(t *testing.T) {
 			"batch size must be between 1 and 1000",
 		)
 	}
+	// The first batch has used the default size, so a later batch must read the new one.
+	waitForFirstRecordBatch(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.SetBatchSize, 1000, nil)
 
 	result := waitForCompletedWorkflowPattern(t, flowID)
@@ -49,10 +55,27 @@ func TestControlLongRunningWorkStopsBeforeTheNextBatch(t *testing.T) {
 	flow := registry.RecordBackfill
 	flowID := startWorkflowPattern(t, flow, "pattern-control-long-running-work-stop", nil)
 
+	waitForFirstRecordBatch(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.RequestStop, nil, nil)
 
 	result := waitForCompletedWorkflowPattern(t, flowID)
 	outputs := decodeStepOutputs[string](t, result, "ProcessRecordBatch")
 	require.Len(t, outputs, 1)
-	require.Regexp(t, `^stopped before record \d+$`, outputs[0])
+	stoppedBefore, found := strings.CutPrefix(outputs[0], "stopped before record ")
+	require.True(t, found, outputs[0])
+	record, err := strconv.Atoi(stoppedBefore)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, record, 11)
+}
+
+func waitForFirstRecordBatch(t *testing.T, flowID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), workflowPatternWaitTimeout)
+	defer cancel()
+	require.NoError(t, integClient.WaitForStepCompletion(
+		ctx,
+		flowID,
+		dex.StepExecutionID{StepType: "ProcessRecordBatch"},
+		dex.WaitForStepCompletionOptions{},
+	))
 }

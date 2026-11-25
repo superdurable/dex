@@ -649,7 +649,11 @@ func verifyControlLongRunningWork(ctx context.Context, client *dex.Client, stamp
 	if err != nil {
 		return fail(name, "", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	if err := client.WaitForStepCompletion(
+		ctx, flowID, dex.StepExecutionID{StepType: "ProcessRecordBatch"}, dex.WaitForStepCompletionOptions{},
+	); err != nil {
+		return fail(name, "wait for the first batch", err)
+	}
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.RecordBackfill.SetBatchSize, 500, nil,
 	); err != nil {

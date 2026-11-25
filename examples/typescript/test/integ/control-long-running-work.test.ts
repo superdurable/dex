@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "@superdurable/dex";
+import { StepExecutionId, stringCodec } from "@superdurable/dex";
 
 import { recordBackfillFlow } from "../../src/patterns/control-long-running-work/record-backfill-flow.js";
 import {
@@ -44,6 +44,12 @@ async function startRecordBackfill(prefix: string): Promise<string> {
   return flowId;
 }
 
+async function waitForFirstRecordBatch(flowId: string): Promise<void> {
+  await environment.client.waitForStepCompletion(flowId, StepExecutionId.of("ProcessRecordBatch"), {
+    requestTimeoutMs: WAIT_TIMEOUT_MS,
+  });
+}
+
 async function completedOutput(flowId: string): Promise<string> {
   const result = await environment.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "completed", `${flowId}: ${result.errorMessage ?? ""}`);
@@ -61,6 +67,8 @@ test("control long-running work reads the batch size each batch", async () => {
       /batch size must be between 1 and 1000/,
     );
   }
+  // The first batch has used the default size, so a later batch must read the new one.
+  await waitForFirstRecordBatch(flowId);
   await environment.client.invokeRPC(recordBackfillFlow.setBatchSize, flowId, 1000);
 
   assert.equal(await completedOutput(flowId), "processed 1000 records");
@@ -69,7 +77,11 @@ test("control long-running work reads the batch size each batch", async () => {
 test("control long-running work stops before the next batch", async () => {
   const flowId = await startRecordBackfill("control-long-running-work-stop");
 
+  await waitForFirstRecordBatch(flowId);
   await environment.client.invokeRPC(recordBackfillFlow.requestStop, flowId);
 
-  assert.match(await completedOutput(flowId), /^stopped before record \d+$/);
+  const output = await completedOutput(flowId);
+  const match = /^stopped before record (\d+)$/.exec(output);
+  assert.ok(match, output);
+  assert.ok(Number(match[1]) >= 11, output);
 });

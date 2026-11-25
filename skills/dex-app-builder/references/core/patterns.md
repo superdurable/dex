@@ -564,8 +564,11 @@ rpc requestStop        -> stopRequested = true
 - Keep the loop position in the Step input and the controls in Attributes. An RPC validates and writes each control.
 - Read every control at the start of each `Execute`. A new value applies from the next iteration.
 - Apply a default when a control is unset, at read time. A default written by the start Step could overwrite an RPC that arrived first.
-- Use an Attribute for a parameter, such as a batch size, a rate, or a pause flag: the latest value wins. Use a Channel for per-item commands, such as skip or retry: every command is kept and processed in order. The loop then waits on the Timer and the Channel with `AnyOf`.
+- Use an Attribute for a parameter, such as a batch size, a rate, or a pause flag: the latest value wins. Use a Channel for per-item commands, such as skip or retry: accepted commands queue in FIFO order and one consumer takes them in that order.
+- The loop then waits on the Timer and the Channel with `AnyOf`. `AnyOf` consumes messages only for the Channel branch that wins. `Execute` checks which branch won: it handles the consumed commands when the Channel won and processes the next batch when the Timer won. Later commands stay queued.
+- When every accepted command must be handled before the loop stops, drain the Channel before the Flow closes. When outside callers can publish concurrently, close with an atomic complete-if-empty decision; see [Drain an external Channel](#drain-an-external-channel).
 - StopFlow, graceful completion, and the Step cancellation signal are the built-in ways to stop work. Graceful completion wakes only the waits that include its Condition. A stop request in a control Attribute lets each unit finish before the loop stops.
+- Each committed `GoTo` moves the position past the processed range, so a new batch size never skips or repeats a range. A retried `Execute` can process the same range again, so make real processing idempotent by each record's business ID.
 - Persist the outcome and make cleanup explicit. Cancelling a local future does not reverse an external effect.
 - To stop now and cancel running Steps, use RPC cancellation. See [rpc.md](rpc.md#cancel-running-steps-from-an-rpc).
 

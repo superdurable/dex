@@ -32,9 +32,11 @@ Use this pattern for work that loops for a long time, such as a backfill or batc
 | Control | Primitive | Why |
 | --- | --- | --- |
 | A parameter, such as a batch size, a rate, or a pause flag | Attribute | The latest value wins. The loop needs only the current value. |
-| A command for one item, such as skip or retry | Channel | Every command is kept and processed in order. A later command does not replace an earlier one. |
+| A command for one item, such as skip or retry | Channel | Accepted commands queue in FIFO order, and one consumer takes them in that order. A later command does not replace an earlier one. |
 
-To take commands from a Channel, the loop waits on the Timer and the Channel together with `AnyOf`. `Execute` then handles every command it consumed.
+To take commands from a Channel, the loop waits on the Timer and the Channel together with `AnyOf`. `AnyOf` consumes messages only for the Channel branch that wins. `Execute` checks which branch won: it handles the consumed commands when the Channel won, and processes the next batch when the Timer won. Commands that arrive later stay queued for a later iteration.
+
+When every accepted command must be handled before the loop stops, drain the Channel before the Flow closes. When outside callers can publish at the same time, close with an atomic complete-if-empty decision, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing).
 
 ## Choose how to stop {#choose-how-to-stop}
 
@@ -45,6 +47,8 @@ Dex has three built-in ways to stop work. Choose by what must stop and what must
 | StopFlow | The whole run, at once | The run must end now, and no Step needs to report or clean up. |
 | Graceful completion | Steps that wait on the graceful completion Condition; the Flow completes once no Step is active | The Flow should finish its current work and then complete. |
 | Step cancellation | Chosen running Steps | One branch must stop while the rest of the Flow keeps running. |
+
+<a id="finish-the-current-unit-then-stop"></a>
 
 The example below keeps its stop request in a control Attribute, next to its other controls. The loop reads it and stops before its next unit. Graceful completion also stops such a loop when its wait includes the graceful completion Condition, and then no stop Attribute is needed.
 
@@ -72,7 +76,11 @@ Use Step cancellation to stop one branch, such as one job that the user no longe
 
 ## Example {#example}
 
+<a id="core-implementation"></a>
+
 `RecordBackfillFlow` processes 1000 records in batches. `StartRecordBackfill` moves to `ProcessRecordBatch` at the first record. `ProcessRecordBatch` waits one second between batches. Each `Execute` reads the `stopRequested` and `batchSize` Attributes first. The batch size is 10 until the batch size RPC sets it.
+
+The example prints each batch to simulate processing. Each committed `GoTo` moves the position past the processed range, so a new batch size never skips or repeats a range. A retried `Execute` can process the same range again. Real processing must therefore be idempotent by each record's business ID.
 
 The batch size RPC rejects a size below 1 or above 1000. The stop RPC sets `stopRequested`. The loop then completes gracefully before its next batch. The Flow completes once the loop has stopped.
 

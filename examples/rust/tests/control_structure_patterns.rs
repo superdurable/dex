@@ -53,7 +53,7 @@ use dex_examples_rust::control_patterns::inbound_event_loop::{
 };
 use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::patterns::control_long_running_work::{
-    REQUEST_STOP, RecordBackfillFlow, SET_BATCH_SIZE,
+    ProcessRecordBatch, REQUEST_STOP, RecordBackfillFlow, SET_BATCH_SIZE,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
@@ -419,6 +419,8 @@ fn control_long_running_work_reads_the_batch_size_each_batch() {
             "{error}"
         );
     }
+    // The first batch has used the default size, so a later batch must read the new one.
+    environment.wait_for_step(&flow_id, &ProcessRecordBatch);
     environment.invoke(&flow_id, SET_BATCH_SIZE, 1000);
 
     let result = environment.wait_for_completed_flow(&flow_id);
@@ -434,6 +436,7 @@ fn control_long_running_work_stops_before_the_next_batch() {
         "control-long-running-work-stop",
         (),
     );
+    environment.wait_for_step(&flow_id, &ProcessRecordBatch);
     environment
         .client
         .invoke_rpc_without_input(&flow_id, REQUEST_STOP)
@@ -441,7 +444,11 @@ fn control_long_running_work_stops_before_the_next_batch() {
 
     let result = environment.wait_for_completed_flow(&flow_id);
     let output = single_output(&result);
-    assert!(output.starts_with("stopped before record "), "{output}");
+    let record: i64 = output
+        .strip_prefix("stopped before record ")
+        .and_then(|record| record.parse().ok())
+        .unwrap_or_else(|| panic!("unexpected stop output: {output}"));
+    assert!(record >= 11, "{output}");
 }
 
 #[test]

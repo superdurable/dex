@@ -20,6 +20,8 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.StepCompletion;
+import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.patterns.controllongrunningwork.RecordBackfillFlow;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,8 @@ public class ControlLongRunningWorkIntegTest {
                     rejected.getMessage().contains("batch size must be between 1 and 1000"),
                     rejected.getMessage());
         }
+        // The first batch has used the default size, so a later batch must read the new one.
+        waitForFirstRecordBatch(flowId);
         client().invokeRPC(stub::setBatchSize, 1000);
 
         assertEquals("processed 1000 records", completedOutput(flowId));
@@ -60,10 +64,20 @@ public class ControlLongRunningWorkIntegTest {
     void stopsBeforeTheNextBatch() {
         final String flowId = startRecordBackfill("control-long-running-work-stop");
 
+        waitForFirstRecordBatch(flowId);
         client().invokeRPC(backfillStub(flowId)::requestStop);
 
         final String output = completedOutput(flowId);
-        assertTrue(output.matches("stopped before record \\d+"), output);
+        final String prefix = "stopped before record ";
+        assertTrue(output.matches(prefix + "\\d+"), output);
+        assertTrue(Integer.parseInt(output.substring(prefix.length())) >= 11, output);
+    }
+
+    private static void waitForFirstRecordBatch(final String flowId) {
+        client().waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("ProcessRecordBatch", 1),
+                WaitForStepCompletionOptions.newBuilder().requestTimeout(WAIT_TIMEOUT).build());
     }
 
     private static String startRecordBackfill(final String prefix) {
