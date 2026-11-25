@@ -393,6 +393,10 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 </SdkSnippet>
 </SdkTabs>
 
+## 测试重试用尽后的路径 {#retry-exhaustion}
+
+用 Step 的真实选项测试它的 failure route。让 fake provider 每次 attempt 都立即失败。Step 限定了 maximum attempts 时，重试在真实的 backoff 之后结束。attempt 次数少、初始间隔短时，只需要几秒。method timeout、heartbeat timeout 和 retry total duration 保持原样。如果持续失败后 failure route 必须尽快运行，Step 在生产中也要限定 maximum attempts。attempt 次数不限时，failure route 要等 total duration 用完才运行。见 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy)（英文）。
+
 ## 下一步 {#next}
 
 - [使用 AI 构建](/build-with-ai/dex-developer-skill)：安装 Dex Skills，让 coding agent 编写和测试代码。

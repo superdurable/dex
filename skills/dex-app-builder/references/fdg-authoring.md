@@ -81,6 +81,10 @@ in a form the analyzer can read. These rules hold in every language:
 
 - **Return analyzer-visible decisions from Execute.** A helper may compute
   the input or record state. The decision itself is returned by Execute.
+- **Return the Wait expression from WaitFor.** Like Execute and its
+  decision, WaitFor returns its Wait expression directly in source, such as
+  `AnyOf(Replies.AtLeast(1), Timer(...))`. A shared helper may compute a
+  duration or a key, but never builds or returns the Wait itself.
 - **Resolvable targets.** Use a target the analyzer can resolve to a
   registered Step. For a loop, use the same static target form as for any
   other transition. In Python, name the registered target instead of passing

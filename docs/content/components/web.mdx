@@ -17,7 +17,8 @@ inputs, Attributes, and failures, and act on it.
   Attribute changes.
 - The **Flow canvas** draws a Flow's Steps and transitions from its Flow
   Definition Graph. The **dexcli visualize** analyzer produces this graph from
-  Flow source.
+  Flow source. Each `Execute` returns its decision, and each `WaitFor` returns
+  its Wait, directly in source, so the analyzer can read them.
 - **Start Flow** starts a Flow, and **Actions** call RPCs on a selected run.
 - Features such as **Designs**, **Work Queue**, **Connectors**, and the
   **Agent session** view show only when they apply. Their release status is in

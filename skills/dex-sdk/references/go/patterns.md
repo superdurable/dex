@@ -96,6 +96,10 @@ func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecisio
 - A partial join waits `ForBranches(round, n)` or `ForFirstBranch(round)`, and
   the next round's split Step resets with `ForRemainingBranches`; see
   [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go).
+- First-win losers and branches of a cancelling join pass `ctx` to every
+  external call, such as `http.NewRequestWithContext(ctx, ...)`. Dex cancels
+  `ctx` when it cancels the Step, so the call aborts; withdraw a reservation
+  the call already made when `ctx.Err()` is set.
 
 ## Polling
 
@@ -328,9 +332,6 @@ func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDe
   a reply committed before the empty check is still recorded. The fallback
   returns to `awaitInbound` with the pending resolution. The inactivity close
   also checks `Resolutions` and reopens the wait.
-- A reply that commits while the close waits may have no consumer. A caller
-  that must not lose a reply gives it a stable ID and confirms it from a
-  record of handled IDs; see [the rules](../core/patterns.md#inbound-event-loop).
 - Start the Flow with `""` as its input: no pending resolution.
 
 ## Durable Timer

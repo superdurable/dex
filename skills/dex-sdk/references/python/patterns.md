@@ -226,9 +226,6 @@ class ConversationFlow(Flow[str]):
   reply committed before the empty check is still recorded. The fallback
   returns to `AwaitInbound` with the pending resolution. The inactivity close
   also checks `RESOLUTIONS` and reopens the wait. Start the Flow with `""`.
-- A reply that commits while the close waits may have no consumer. A caller
-  that must not lose a reply gives it a stable ID and confirms it from a
-  record of handled IDs; see [the rules](../core/patterns.md#inbound-event-loop).
 
 ## Python notes for the other patterns
 
@@ -238,6 +235,11 @@ class ConversationFlow(Flow[str]):
   and the join Step reads `join.branch_results(context, round)`. A partial join
   waits on `join.for_branches(round, n)`, and the next round resets with
   `join.for_remaining_branches(previous_round, n)`.
+- First-win losers and branches of a cancelling join stop their in-flight
+  external call when Dex cancels the Step. An async handler's task is
+  canceled, so let `asyncio.CancelledError` propagate after withdrawing a
+  reservation the call already made. A synchronous handler checks
+  `context.is_cancellation_requested()` between bounded calls.
 - Revision Attribute match: `wait_for_attribute_match(flow_id, REVISION,
   AttributeMatch.greater_than_or_equal(n), WaitForAttributeOptions(request_timeout=...))`
   returns the matched value; reload state with `get_attributes` afterwards.

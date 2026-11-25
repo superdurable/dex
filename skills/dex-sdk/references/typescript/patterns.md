@@ -175,7 +175,8 @@ class AwaitInit implements Step<number> {
 ## TypeScript notes for other patterns
 
 - First win: the winner returns `withCancelingSiblingSteps(decision, Work)`.
-  Losers watch `context.cancellationSignal`.
+  Losers, and branches of a cancelling join, watch `context.cancellationSignal`
+  and pass it to their external call.
 - Partitioned AttributeMaps: an upsert passes the same bucket to both
   `lockAttributeMapInstances` and `loadAttributeMapInstances` in
   `client.invokeRPCWithOptions`. A read passes only the load.

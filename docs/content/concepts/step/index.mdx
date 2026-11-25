@@ -321,8 +321,9 @@ Each method uses the server defaults until StepOptions set its own. The
 defaults are the same in every SDK; see
 [StepOptions defaults](/reference/python/step-options#defaults).
 
-The defaults fit short calls. A Step whose provider call can stay silent for
-minutes sets two options itself:
+The defaults fit short calls, and the default heartbeat timeout is short. A
+Step with a call that can run longer than the heartbeat timeout without
+sending a heartbeat sets two options itself:
 
 - a heartbeat timeout of at least that call's method timeout. A loop of short
   calls that heartbeats between them keeps its longest silent interval below

@@ -487,8 +487,9 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
 - `StepOptions` holds per-method timeouts, `HeartbeatTimeout`, `WaitForRetry`
   and `ExecuteRetry` (`*dex.RetryPolicy`), failure routes, durability, locks,
   and loads. Leave a field zero to use the default.
-- A Step whose provider call can stay silent for minutes sets
-  `HeartbeatTimeout` to at least that call's `ExecuteMethodTimeout`, or
+- The default `HeartbeatTimeout` is short. A Step with a call that can run
+  longer than it without sending a heartbeat sets `HeartbeatTimeout` to at
+  least that call's `ExecuteMethodTimeout`, or
   heartbeats from a loop of short calls. It also sets
   `ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: n, TotalDuration: d}` with
   `d` sized as in [step.md](../core/step.md#time-bounds), such as about `n`

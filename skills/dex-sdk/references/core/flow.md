@@ -106,17 +106,18 @@ ChildJobFlow:
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
 - When several entry points can start the same child, they all derive the same Flow ID and Request ID from the same complete request. Otherwise catch the typed already-started error, read the existing run, and track it only after its business identity matches. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
-- The report Step must not run before the outcome Step commits. Under ASYNC durability the next Step can start before that commit is stored, so keep the Execute of these two Steps SYNC, the default, even when the Flow defaults to ASYNC; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
+- Keep the Execute of the outcome Step and the report Step SYNC, the default, even when the Flow defaults to ASYNC. Under ASYNC durability the report Step could start before the outcome commit is stored; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
 - The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
 - Give every child its own Flow timeout. A closing parent never stops its children.
-- StopFlow (cancel, fail, or terminate) starts no new application code in the child: no later decision, failure route, or cleanup runs. A handler already running gets a cancellation signal; if it ignores the signal, it can keep running and make more external calls, and Dex discards its uncommitted result. So a report sent around the stop can still arrive. The parent reconciles instead of waiting for a report:
-  - After a successful stop, it reads the child's terminal status and its outcome Attribute, and records both.
-  - When StopFlow returns not found, not active, or closing, or when the reconcile Timer fires, it reads the child with DescribeFlow and a Client Attribute read. A closed child records its terminal status, plus its outcome when one was committed. A running or closing child is still unknown: read it again later. A child that is not found has no record; the business policy decides, for example "unavailable".
-  - Any other error, such as a permission or transport error, proves nothing. Return it so the Step retries.
-  - Keep the terminal status and the outcome apart: a completed child without an outcome is not a stopped one.
-- To let a child finish its own report when it is stopped, give the child a stop RPC that ends it through its own Steps.
-- Children that finish after a quorum, or while the parent stops the rest, still count. Normal reports and reconciled outcomes go into the same record, keyed by the child Flow ID. The exact StopFlow and DescribeFlow errors are in the [Client reference](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow).
+- Reconcile every child the parent stops or stops waiting for. StopFlow (cancel, fail, or terminate) runs no more application code in the child, so a stopped child may never report. The `reconcile` step reads the child's stored state instead:
+  1. Run it after StopFlow succeeds or returns not found, not active, or closing, and when the reconcile Timer fires. Read the child with DescribeFlow and a Client Attribute read.
+  2. Closed: record its terminal status, plus its outcome Attribute when one was committed. Keep the two apart: a completed child without an outcome is not a stopped one.
+  3. Running or closing: leave it unknown and read again at the next interval.
+  4. Not found: apply the business policy, for example record "unavailable".
+  5. Any other StopFlow or read error, such as a permission or transport error: return it so the Step retries.
+- A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing. The exact StopFlow and DescribeFlow errors are in the [Client reference](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow).
+- When a stopped child must still send its own report, give it a stop RPC that ends it through its own Steps instead of StopFlow.
 
 ## Flow options
 

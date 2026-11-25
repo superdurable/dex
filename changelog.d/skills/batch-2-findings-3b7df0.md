@@ -3,11 +3,15 @@ bump: patch
 ---
 - **dex-sdk** and **dex-app-builder** model a child job with its own business identity as a top-level child Flow: a Step starts it with a stable Flow ID and Request ID, and the parent receives its result durably. A routing row points to it.
 - A top-level child commits its outcome in one SYNC Step and reports in the next with a stable Request ID; the parent keeps one record per child, with the outcome and terminal status as separate fields.
-- StopFlow starts no new application code, so a stopped child runs no report or cleanup path. The parent reconciles from the child's stored state, treats an unclear state as unknown, and records children that finish after a quorum.
-- A Step whose provider call can stay silent for minutes sets its heartbeat timeout and an explicit retry total duration. The total duration only decides whether to schedule another attempt, so a business deadline uses a durable Timer. Each StepOptions section names the options.
+- The parent reconciles every child it stops in five steps from the child's stored state, because a stopped child runs no report or cleanup path; late reports and children that finish after a quorum fill the same record.
+- A Step with a call that can run longer than the short default heartbeat timeout without a heartbeat sets its heartbeat timeout and an explicit retry total duration. The total duration only decides whether to retry, so a business deadline uses a durable Timer. Each StepOptions section names them.
 - **Graceful timeout**: active Steps keep running while the timeout handler runs; when it commits ForceComplete or ForceFail, Dex starts closing the Flow, possibly after the deadline.
 - **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
-- **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason. A message that commits while a close waits may have no consumer, so callers confirm handling by a stable ID.
+- **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason.
+- **Drain an external Channel**: the RPC only validates and publishes, and writes no Attribute a Step reads or locks. A routing row sends bursts of events per entity to it.
+- Tests reach the exhausted-retry route with real durations: the fake fails every attempt at once, and the Step's bounded maximum attempts ends the retries.
+- Java and Rust references show the **dex:group** and **dex:explanation** directives; WaitFor returns its Wait directly in source, never from a helper.
+- First-win losers and cancelled Partial join branches watch the Step's cancellation signal and abort or withdraw their in-flight call; each language reference names the API.
 - **Long-lived parent** closes its intake: each worker returns the request it took once the intake is closed, and idle workers end through the graceful completion Condition or a wake message.
 - **Short-lived parent** opens its intake only after the start batch is queued, so an empty batch completes at once; its buffer limit is approximate.
 - **Polling** adds a deadline watchdog that shares the lock with the Step that records the result and checks the status before it declares the work overdue. Polling guidance no longer restates default values.

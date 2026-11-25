@@ -16,6 +16,8 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 The cancellation selector cancels only sibling executions of the same Step type. Other branches keep running.
 
+Each losing execution watches its Step's cancellation signal. When the signal fires, it aborts or withdraws its in-flight external call, such as a pending quote request. Cancellation is cooperative, and it does not reverse an external effect that already happened.
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py',

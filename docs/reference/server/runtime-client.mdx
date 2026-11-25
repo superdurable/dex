@@ -83,6 +83,22 @@ are neither transactional nor locking. An RPC that commits during the close,
 including one the server accepted before the close began, keeps its Attribute
 writes and Channel publications. It starts and cancels no Steps.
 
+A close can wait after the server records it. For example, a
+**ForceCompleteIfChannelsEmpty** decision finds the Channels empty, records
+the close, and stops the consumers. The close then waits for pending Attribute
+Sync writes and for transactional or locking RPCs admitted before it. During
+that window, an RPC that is neither transactional nor locking can still commit
+a Channel publication. No Step consumes that message, so the RPC's accepted
+reply does not mean the message will be handled. Adding or removing a lock on
+the RPC does not close the window. A retry that reuses a recorded request ID
+can return the earlier result.
+
+When a caller must confirm that every message was handled, give each message
+a stable business ID. The Step that consumes the message records the handled
+IDs in the same commit. The caller reads that record, for example with an
+Attribute read. It sends a missing ID again to a Flow run that still accepts
+it, or reports that ID as unconfirmed.
+
 The Flow reports **RUNNING** until the server records the close.
 
 Each SDK exposes a typed Flow closing error. When you get it, read the Flow

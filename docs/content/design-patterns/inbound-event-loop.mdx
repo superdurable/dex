@@ -52,9 +52,7 @@ Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Ch
 
 The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
 
-The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. When the check is empty, Dex records the close decision in that commit and stops the consumers. The close can then wait, for example for Attribute Store sync or for a transactional or locking RPC admitted before it. During that wait an RPC can still commit a publication that no Step will consume; issue superdurable/dex#2230 tracks this. Adding or removing a lock on the RPC does not prevent it. Once the close is recorded, Dex rejects new publications, though a retry with a recorded request ID can return the earlier result. See [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
-
-So an accepted RPC reply does not prove that the message will be handled. When every message must be handled, give each one a stable business ID, and have the consuming Step record the handled IDs in the same commit. The caller reads that record and sends a missing ID again to a Flow that still accepts it, or reports it as unconfirmed.
+This is the design to use: close with `ForceCompleteIfChannelsEmpty`, and keep the waiting Step the only consumer. The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. How requests behave while the Flow closes is in [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
 
 ## Examples
 

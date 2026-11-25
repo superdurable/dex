@@ -416,6 +416,18 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 </SdkSnippet>
 </SdkTabs>
 
+## Test the route after retries run out {#retry-exhaustion}
+
+Test a Step's failure route with the Step's real options. Make the fake
+provider fail every attempt at once. When the Step bounds its maximum
+attempts, the retries end after the real backoff. With a few attempts and a
+short initial interval, that takes seconds. Keep the method timeout, heartbeat
+timeout, and retry total duration as they are. A Step whose failure route must
+run soon after a persistent failure bounds its maximum attempts in production
+too. With unbounded attempts, the route runs only when the total duration
+ends. See
+[Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy).
+
 ## Next
 
 - [Build with AI](/build-with-ai/dex-developer-skill): install Dex Skills and let a coding agent write and test the code.

@@ -12,7 +12,9 @@ Process Channel messages that clients publish, and complete the Flow as soon as 
 
 Use this pattern when messages come from outside the Worker, possibly in bursts. A Client calls an RPC that appends each message to the Channel. The Flow completes as soon as the Channel is empty, so it runs only while there is work. The next message starts it again.
 
-`ProcessMessage` returns a `ForceCompleteIfChannelsEmpty` decision. Dex checks the Channel when it saves that decision and records the close decision in the same commit. While the close waits, a message an RPC commits may have no consumer; see [Inbound Event Loop](/design-patterns/inbound-event-loop). If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its `Execute`, Dex takes the fallback movement back to `ProcessMessage` instead.
+The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. `ProcessMessage` owns that state, so concurrent RPCs never hit a lock conflict.
+
+`ProcessMessage` returns a `ForceCompleteIfChannelsEmpty` decision. Dex checks the Channel when it saves that decision and records the close decision in the same commit. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its `Execute`, Dex takes the fallback movement back to `ProcessMessage` instead.
 
 Only one Step may consume a Channel checked by `ForceCompleteIfChannelsEmpty`.
 

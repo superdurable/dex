@@ -135,6 +135,10 @@ public class OrderFlow implements Flow<OrderRequest> {
   the same predecessor. `.withCancelingSteps(X.class)` cancels every execution
   of `X`. Steps created by the same decision are not canceled. These varargs
   methods produce an unchecked-generics warning; suppress it locally.
+- First-win losers and branches of a cancelling join stop their in-flight
+  external call when canceled. Dex interrupts the handler thread: return on
+  `InterruptedException`, and check `context.isCancellationRequested()`
+  between bounded calls. Withdraw a reservation the call already made.
 
 ## StepOptions
 
@@ -161,8 +165,9 @@ public StepOptions getStepOptions() {
   (`initialInterval`, `backoffCoefficient`, `maximumInterval`,
   `maximumAttempts`, `totalDuration`). Bound retries whenever a recovery route
   must eventually run.
-- A Step whose provider call can stay silent for minutes sets
-  `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
+- The default `heartbeatTimeout` is short. A Step with a call that can run
+  longer than it without sending a heartbeat sets `heartbeatTimeout` to at
+  least that call's `executeMethodTimeout`, or
   heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
   `totalDuration(d)` on `executeRetry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times

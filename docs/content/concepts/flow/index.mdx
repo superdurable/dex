@@ -231,15 +231,15 @@ The parent receives each child's result durably:
   business identity matches.
 - Each child has its own Flow timeout. A closing parent never stops its
   children.
-- A client stop starts no new code in the child, so no report or cleanup
-  path runs. A handler that ignores the cancellation signal can keep
-  running and make more calls, so a report can still arrive. The parent reconciles from the child's
-  stored state: after a stop it records the terminal status and the stored
-  outcome. A refused stop, or a timer for unreported children, leads to a
-  read. A closed child is recorded. A running child stays unknown and is
-  read again later. Any other error proves nothing.
-- Children that finish after a quorum, or while the parent stops the rest,
-  still count in the parent's result.
+- The parent reconciles every child it stops from the child's stored state.
+  A client stop starts no new code in the child, so the child may never
+  report. After a stop, a refused stop, or a timer for unreported children,
+  the parent reads the child. It records a closed child's terminal status and
+  stored outcome. It reads a running child again later. It returns any other
+  error, so the Step retries.
+- A report that still arrives after the stop fills the same record. Children
+  that finish after a quorum, or while the parent stops the rest, still count
+  in the parent's result.
 
 ## Identifiers {#identifiers}
 

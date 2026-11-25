@@ -242,6 +242,30 @@ Rules:
 - Read [../core/application.md](../core/application.md) for routing, retries
   across Worker restarts, heartbeats, and shutdown guarantees.
 
+## Dex Web metadata
+
+The FDG 2.0 analyzer reads Rust source. Put exactly one group line and one
+explanation line as `//` comments, not `///` doc comments, directly above
+each local Step struct. The group ID is kebab-case, and the explanation is one
+sentence:
+
+```rust
+// dex:group group-id:lookup group-label:"Lookup"
+// dex:explanation text:"Looks up a catalog record."
+struct LookupRecord;
+
+impl Step for LookupRecord {
+    type Input = String;
+
+    fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input))
+    }
+}
+```
+
+Then run `dexcli visualize SOURCE --schema-version 2.0` and fix every error.
+See [Flow visualization](https://docs.superdurable.io/reference/web/flow-visualization).
+
 ## What Rust does not have
 
 - There is no Rust Connector SDK. Do not invent a loader for Dex Web Connector
@@ -273,6 +297,7 @@ Rules:
 
 - [ ] Flow type named after its domain; RPC names start with a verb.
 - [ ] Step types are domain names, never `Init`, `Start`, or `Process`.
+- [ ] Every local Step struct has one `// dex:group` and one `// dex:explanation` line above it, as in [Dex Web metadata](#dex-web-metadata).
 - [ ] Definitions are `static LazyLock`; RPCs are `const`.
 - [ ] Every reachable Step in `steps()`; every definition in `persistence()`.
 - [ ] Durable values are owned serde types with stable field names.

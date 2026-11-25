@@ -53,9 +53,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 结论 RPC 拒绝空的原因，因为空的待定结论表示"没有结论"。
 
-空检查会计入排队中和已被领取的回复，所以在它之前提交的回复会走 fallback 并被记录。检查为空时，Dex 在这次提交里记录关闭决定并停止消费者。之后关闭可能要等待，例如等 Attribute Store 同步，或等它之前已获准的 transactional 或 locking RPC。等待期间，RPC 仍可能提交一条没有任何 Step 会消费的发布；issue superdurable/dex#2230 跟踪这个问题。给 RPC 加 lock 或去掉 lock 都不能避免。关闭记录下来之后，Dex 拒绝新的发布，但使用已记录 request ID 的重试可能返回之前的结果。见 [Flow 关闭期间的请求](/reference/server/runtime-client#requests-during-flow-close)（英文）。
-
-所以 RPC 返回已接受，并不能证明消息会被处理。每条消息都必须处理时，给每条消息一个稳定的业务 ID，让消费的 Step 在同一次提交里记录已处理的 ID。调用方读取这份记录，把缺少的 ID 重新发给仍在接收的 Flow，或者报告为未确认。
+这就是应该采用的设计：用 `ForceCompleteIfChannelsEmpty` 结束 Flow，并让等待中的 Step 作为唯一的消费者。空检查会计入排队中和已被领取的回复，所以在它之前提交的回复会走 fallback 并被记录。Flow 关闭期间请求如何处理，见 [Flow 关闭期间的请求](/reference/server/runtime-client#requests-during-flow-close)（英文）。
 
 ## 示例
 

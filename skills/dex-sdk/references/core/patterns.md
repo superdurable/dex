@@ -147,6 +147,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
+- In the cancelling variant, each branch watches its Step's cancellation signal and, when it fires, aborts or withdraws its in-flight external call, as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
@@ -161,6 +162,7 @@ FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
+- Each loser watches its Step's cancellation signal and, when it fires, aborts or withdraws its in-flight external call, such as a pending quote request or a reserved slot. Pass the signal to the call's client, or check it between bounded units of work. The language reference names the signal.
 
 ## Parallel SubFlows
 
@@ -198,9 +200,8 @@ rpc sendRequest(request)                         // reads admission; takes no lo
 - Use the atomic complete-if-Channels-empty decision. Never check the Channel size in application code before completing.
 - The Steps that change the counter declare the same `admission` lock. Keep the RPC free of locks; it only reads the gate.
 - The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once. Check the start batch against the limit at the start boundary.
-- The buffer limit is approximate: concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken.
-- A request that commits while the close waits may have no consumer, as in the [Inbound event loop](#inbound-event-loop). A caller that must not lose a request confirms it from a record of handled request IDs, not from the RPC reply.
-- The runnable example is simplified: it has no intake gate and starts the workers even for an empty batch.
+- Treat the buffer limit as approximate and set it below any hard capacity: concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken.
+- The runnable example is simplified: it has no intake gate and starts the workers even for an empty batch. Follow the skeleton above.
 
 ### Long-lived parent
 
@@ -251,7 +252,7 @@ WaitForQuorum.execute -> publish one AllDone message per unfinished child; grace
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
 - Define what happens to children outside the quorum.
-- A child can finish at the same moment its stop message arrives. A Channel Condition wins over a SubFlow Condition when both are ready, so the Step may stop a child that already ended. Neither a successful nor a refused stop proves how the child ended: read its terminal status and stored result, as in the skeleton, so the report counts every child that finished. Record every child, finished or stopped, in one record keyed by its SubFlow ID. The runnable examples are simplified: they do not read the child's terminal state after a successful stop.
+- After every stop, read the child's terminal status and stored result, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
 - With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
@@ -418,8 +419,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
 - Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply committed after the resolution but before the empty check is still recorded. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 - The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
-- The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. When the check is empty, Dex records the close decision in that commit and stops the consumers. The close can then wait, for example for Attribute Store sync or for a transactional or locking RPC admitted before it. During that wait an RPC can still commit a publication that no Step will consume; issue superdurable/dex#2230 tracks this. Adding or removing a lock on the RPC does not prevent it. Once the close is recorded, Dex rejects new publications, though a retry with a recorded Request ID can return the earlier result. See [Requests during Flow close](https://docs.superdurable.io/reference/server/runtime-client#requests-during-flow-close).
-- So an accepted RPC reply does not prove that the message will be handled. When every message must be handled, give each one a stable business ID, and have the consuming Step record the handled IDs in the same commit. The caller reads that record and sends a missing ID again to a Flow that still accepts it, or reports it as unconfirmed.
+- This is the design to use: ForceCompleteIfChannelsEmpty closing with the waiting Step as the only consumer. The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. How requests behave while the Flow closes is in [Requests during Flow close](https://docs.superdurable.io/reference/server/runtime-client#requests-during-flow-close).
 
 Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 
@@ -514,7 +514,8 @@ Controller:
     other errors: return them
 ```
 
-- The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty. A message that an RPC commits while the close waits may have no consumer, as in the [Inbound event loop](#inbound-event-loop).
+- The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
+- The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty.
 - Only one Step may consume a Channel that the decision checks.
 
 ## Interruptible execution

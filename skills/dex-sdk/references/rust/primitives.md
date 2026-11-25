@@ -144,6 +144,10 @@ impl Step for AwaitApproval {
 - `.cancel_sibling_step(&Step)` cancels executions of that Step type scheduled
   by the same predecessor. `.cancel_step(&Step)` cancels every execution of
   it. Steps created by the same decision are not canceled.
+- First-win losers and branches of a cancelling join stop their in-flight
+  external call when canceled. Check `context.is_cancelled()` between bounded
+  calls, or give the call a short timeout and check after it returns.
+  Withdraw a reservation the call already made.
 - Clone owned input only where two movements need it.
 
 ## StepOptions
@@ -166,8 +170,9 @@ fn options(&self) -> StepOptions<Self::Input> {
   (`initial_interval`, `backoff_coefficient`, `maximum_interval`,
   `maximum_attempts`, `total_duration`). Bound retries whenever a recovery
   route must eventually run.
-- A Step whose provider call can stay silent for minutes sets
-  `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
+- The default `heartbeat_timeout` is short. A Step with a call that can run
+  longer than it without sending a heartbeat sets `heartbeat_timeout` to at
+  least that call's `execute_method_timeout`, or
   heartbeats from a loop of short calls. It also sets `maximum_attempts(n)` and
   `total_duration(d)` on `execute_retry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times
