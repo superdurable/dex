@@ -11,6 +11,7 @@
 package io.superdurable.dex;
 
 import io.grpc.Status;
+import io.superdurable.dex.exceptions.NonRetryableException;
 import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.gen.WorkerErrorResponse;
 
@@ -46,10 +47,23 @@ final class WorkerErrorMapper {
                     .setGrpcStatus(cancellationStatus.value())
                     .build();
         }
-        final RetryAfterException retryAfter = failure instanceof RetryAfterException
-                ? (RetryAfterException) failure
-                : null;
-        final Throwable reportedFailure = retryAfter == null ? failure : retryAfter.getCause();
+        RetryAfterException retryAfter = null;
+        boolean isNonRetryable = false;
+        Throwable reportedFailure = failure;
+        while (true) {
+            if (reportedFailure instanceof RetryAfterException && retryAfter == null) {
+                retryAfter = (RetryAfterException) reportedFailure;
+                reportedFailure = retryAfter.getCause();
+            } else if (reportedFailure instanceof NonRetryableException
+                    && !isNonRetryable
+                    && reportedFailure.getCause() != null) {
+                isNonRetryable = true;
+                reportedFailure = reportedFailure.getCause();
+            } else {
+                isNonRetryable |= reportedFailure instanceof NonRetryableException;
+                break;
+            }
+        }
         final String message = truncateUtf8(reportedFailure.getMessage() == null
                 ? reportedFailure.toString()
                 : reportedFailure.getMessage(),
@@ -62,7 +76,8 @@ final class WorkerErrorMapper {
                         MAX_WORKER_ERROR_TYPE_BYTES,
                         ERROR_TYPE_TRUNCATION_MARKER))
                 .setStackTrace(stackTrace(reportedFailure))
-                .setGrpcStatus(grpcErrorStatusMapping.statusFor(reportedFailure).value());
+                .setGrpcStatus(grpcErrorStatusMapping.statusFor(reportedFailure).value())
+                .setNonRetryable(isNonRetryable);
         if (retryAfter != null) {
             details.setRetryAfterSeconds((int) retryAfter.getRetryAfter().getSeconds());
         }
