@@ -18,10 +18,18 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Router, type Request, type Response } from "express";
 
-import { RpcLockConflictError, type Client } from "@superdurable/dex";
+import {
+  FlowNotActiveOrNotFoundError,
+  FlowNotFoundError,
+  RpcLockConflictError,
+  type Client,
+} from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { OFFER_RESPONSE_WINDOW_CLOSED, offerResponseFlow } from "./offer-response-flow.js";
+import {
+  OFFER_RESPONSE_WINDOW_CLOSED,
+  offerResponseFlow,
+} from "./offer-response-flow.js";
 
 const RESPONSE_LOCK_CONFLICT_ATTEMPTS = 5;
 const RESPONSE_LOCK_CONFLICT_BACKOFF_MS = 200;
@@ -35,19 +43,36 @@ export function createDeferredChoiceRouter(client: Client): Router {
     const workflowId = String(request.query.workflowId ?? "");
     const offerId = String(request.query.offerId ?? "");
     if (!workflowId || !offerId) {
-      response.status(400).json({ error: "workflowId and offerId are required" });
+      response
+        .status(400)
+        .json({ error: "workflowId and offerId are required" });
       return;
     }
-    const runId = await client.startFlow(offerResponseFlow, workflowId, offerId, startOptions());
+    const runId = await client.startFlow(
+      offerResponseFlow,
+      workflowId,
+      offerId,
+      startOptions(),
+    );
     response.send(runId);
   });
 
   router.get("/accept", async (request, response) => {
-    await sendCustomerResponse(client, offerResponseFlow.acceptCustomerOffer, request, response);
+    await sendCustomerResponse(
+      client,
+      offerResponseFlow.acceptCustomerOffer,
+      request,
+      response,
+    );
   });
 
   router.get("/reject", async (request, response) => {
-    await sendCustomerResponse(client, offerResponseFlow.rejectCustomerOffer, request, response);
+    await sendCustomerResponse(
+      client,
+      offerResponseFlow.rejectCustomerOffer,
+      request,
+      response,
+    );
   });
 
   return router;
@@ -66,12 +91,50 @@ async function sendCustomerResponse(
     response.status(400).json({ error: "workflowId and note are required" });
     return;
   }
-  const outcome = await invokeResponseRPC(client, rpc, workflowId, note);
+  let outcome: string;
+  try {
+    outcome = await invokeResponseRPC(client, rpc, workflowId, note);
+  } catch (error) {
+    if (!(await isClosedFlow(client, error, workflowId))) {
+      throw error;
+    }
+    outcome = OFFER_RESPONSE_WINDOW_CLOSED;
+  }
   if (outcome === OFFER_RESPONSE_WINDOW_CLOSED) {
     response.status(409).send("offer response window closed");
     return;
   }
   response.send("offer response recorded");
+}
+
+/**
+ * Tells a Flow that already closed from one that never existed.
+ *
+ * @returns Whether the RPC failed because the Flow exists and has closed.
+ */
+async function isClosedFlow(
+  client: Client,
+  error: unknown,
+  workflowId: string,
+): Promise<boolean> {
+  if (!(
+    error instanceof FlowNotActiveOrNotFoundError ||
+    error instanceof FlowNotFoundError
+  )) {
+    return false;
+  }
+  try {
+    const flow = await client.describeFlow(workflowId);
+    return flow.status !== "running";
+  } catch (describeError) {
+    if (
+      describeError instanceof FlowNotFoundError ||
+      describeError instanceof FlowNotActiveOrNotFoundError
+    ) {
+      return false;
+    }
+    throw describeError;
+  }
 }
 
 /**
@@ -91,7 +154,10 @@ async function invokeResponseRPC(
     try {
       return await client.invokeRPC(rpc, workflowId, note);
     } catch (error) {
-      if (!(error instanceof RpcLockConflictError) || attempt === RESPONSE_LOCK_CONFLICT_ATTEMPTS) {
+      if (
+        !(error instanceof RpcLockConflictError) ||
+        attempt === RESPONSE_LOCK_CONFLICT_ATTEMPTS
+      ) {
         throw error;
       }
       await delay(attempt * RESPONSE_LOCK_CONFLICT_BACKOFF_MS);

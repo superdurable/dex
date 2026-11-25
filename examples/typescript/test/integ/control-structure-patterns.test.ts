@@ -19,6 +19,7 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  RpcLockConflictError,
   StepExecutionId,
   TimerId,
   stringCodec,
@@ -135,6 +136,37 @@ for (const testCase of deferredChoiceCases) {
   });
 }
 
+type ProbeResponseRPC = typeof offerResponseWindowProbeFlow.acceptProbeOffer;
+
+// Execute holds the window lock briefly, so a response may get a lock conflict.
+async function invokeRetryingLockConflict(rpc: ProbeResponseRPC, flowId: string, note: string): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await environment.client.invokeRPC(rpc, flowId, note);
+    } catch (error) {
+      if (!(error instanceof RpcLockConflictError) || attempt === 5) {
+        throw error;
+      }
+      await delay(attempt * 200);
+    }
+  }
+}
+
+async function waitForExecuteWaitingForLocks(flowId: string, stepType: string): Promise<void> {
+  await awaitCondition(
+    () => environment.client.getFlowState(flowId),
+    (state) =>
+      state.activeStepExecutions.some(
+        (execution) =>
+          execution.stepType === stepType &&
+          execution.invocation?.method === "execute" &&
+          execution.invocation.pendingReason === "waitingForLocks",
+      ),
+    WAIT_TIMEOUT_MS,
+    `${flowId}: ${stepType} execute never waited for the window lock`,
+  );
+}
+
 function completionOutputs(result: FlowResult, stepType: string): string[] {
   return result.completions
     .filter((completion) => completion.stepType === stepType)
@@ -161,6 +193,22 @@ test("deferred choice answers window closed to a response after the decision", a
   assert.deepEqual(completionOutputs(result, "CloseRejectedOffer"), []);
 });
 
+test("deferred choice records only the first of two back-to-back responses", async () => {
+  const flow = offerResponseWindowProbeFlow;
+  const flowId = await startPatternFlow(flow, "pattern-deferred-choice-double", "offer-5");
+  assert.equal(await invokeRetryingLockConflict(flow.acceptProbeOffer, flowId, "yes"), OFFER_RESPONSE_RECORDED);
+  assert.equal(
+    await invokeRetryingLockConflict(flow.rejectProbeOffer, flowId, "no"),
+    OFFER_RESPONSE_WINDOW_CLOSED,
+  );
+
+  await waitForStep(flowId, "AwaitOfferResponse");
+  await environment.client.invokeRPC(flow.openProbeGate, flowId);
+  const result = await waitForCompletedFlow(flowId);
+  assert.deepEqual(completionOutputs(result, "FulfillOffer"), ["fulfilled offer-5"]);
+  assert.deepEqual(completionOutputs(result, "CloseRejectedOffer"), []);
+});
+
 test("deferred choice takes a response committed after the Timer won", async () => {
   const held = holdNextOfferResponse();
   const flow = offerResponseWindowProbeFlow;
@@ -172,20 +220,24 @@ test("deferred choice takes a response committed after the Timer won", async () 
     flowId,
     "yes, just in time",
   );
-  const enteredTimeout = new AbortController();
   try {
-    await Promise.race([
-      held.entered,
-      delay(WAIT_TIMEOUT_MS, undefined, { signal: enteredTimeout.signal }).then(() => {
-        throw new Error(`${flowId}: the held response RPC never ran`);
-      }),
-    ]);
+    const enteredTimeout = new AbortController();
+    try {
+      await Promise.race([
+        held.entered,
+        delay(WAIT_TIMEOUT_MS, undefined, { signal: enteredTimeout.signal }).then(() => {
+          throw new Error(`${flowId}: the held response RPC never ran`);
+        }),
+      ]);
+    } finally {
+      enteredTimeout.abort();
+    }
+    // The Timer wins while the RPC holds the window lock, so execute waits for the RPC.
+    await skipOfferExpiry(flowId);
+    await waitForExecuteWaitingForLocks(flowId, "AwaitOfferResponse");
   } finally {
-    enteredTimeout.abort();
+    held.release();
   }
-  // The Timer wins while the RPC holds the window lock, so execute waits for the RPC.
-  await skipOfferExpiry(flowId);
-  held.release();
   assert.equal(await heldResponse, OFFER_RESPONSE_RECORDED);
 
   await waitForStep(flowId, "RouteResponseBeforeExpiry");

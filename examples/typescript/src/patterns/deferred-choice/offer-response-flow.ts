@@ -27,6 +27,7 @@ import {
   type Context,
   type Flow,
   type PersistenceSchema,
+  type RetryPolicy,
   type RPCResult,
   type Step,
   type StepDecision,
@@ -36,7 +37,7 @@ import {
 /** How long the customer has to respond. */
 export const OFFER_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
 
-/** The response window is open until AwaitOfferResponse decides. Unset reads as open. */
+/** The first reply or AwaitOfferResponse closes the response window. Unset reads as open. */
 export const RESPONSE_WINDOW_OPEN = "open";
 export const RESPONSE_WINDOW_CLOSED = "closed";
 
@@ -47,11 +48,21 @@ export const OFFER_RESPONSE_WINDOW_CLOSED = "window closed";
 export const offerAccepted = new Channel("offerAccepted", stringCodec);
 export const offerRejected = new Channel("offerRejected", stringCodec);
 /** Locked by both response RPCs and by AwaitOfferResponse.execute. */
-export const offerResponseWindow = new Attribute("offerResponseWindow", stringCodec);
+export const offerResponseWindow = new Attribute(
+  "offerResponseWindow",
+  stringCodec,
+);
+
+/** Responses get lock conflicts while the locked execute retries, so its retry budget stays short. */
+export const AWAIT_OFFER_RESPONSE_EXECUTE_RETRY: RetryPolicy = {
+  initialIntervalMs: 1000,
+  maximumAttempts: 3,
+  totalDurationMs: 60 * 1000,
+};
+export const AWAIT_OFFER_RESPONSE_EXECUTE_TIMEOUT_MS = 10 * 1000;
 
 /**
- * Publishes the response unless the window is closed. The publish commits
- * together with this check, because the RPC holds the window lock.
+ * Publishes the first response and closes the window. The RPC lock commits both with the check.
  */
 export function publishWhileWindowOpen(
   context: Context,
@@ -62,6 +73,8 @@ export function publishWhileWindowOpen(
     return { output: OFFER_RESPONSE_WINDOW_CLOSED };
   }
   response.publish(context, note);
+  // The first reply closes the window, so a second reply cannot also be recorded.
+  offerResponseWindow.set(context, RESPONSE_WINDOW_CLOSED);
   return { output: OFFER_RESPONSE_RECORDED };
 }
 
@@ -80,7 +93,11 @@ export class AwaitOfferResponse implements Step<string> {
 
   /** Locks the response window in execute, the same lock as the response RPCs. */
   public getStepOptions(): StepOptions {
-    return { executeLockAttributes: [offerResponseWindow.lock()] };
+    return {
+      executeLockAttributes: [offerResponseWindow.lock()],
+      executeRetry: AWAIT_OFFER_RESPONSE_EXECUTE_RETRY,
+      executeMethodTimeoutMs: AWAIT_OFFER_RESPONSE_EXECUTE_TIMEOUT_MS,
+    };
   }
 
   public waitFor(_context: Context, _offerId: string): Wait {
@@ -92,7 +109,7 @@ export class AwaitOfferResponse implements Step<string> {
   }
 
   public execute(context: Context, offerId: string): StepDecision {
-    // Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+    // Closes the window when the Timer won and no reply closed it first.
     offerResponseWindow.set(context, RESPONSE_WINDOW_CLOSED);
     if (context.hasTimerFired()) {
       // A response committed after the Timer won but before this execute took the lock.
@@ -190,24 +207,41 @@ export class OfferResponseFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [offerResponseWindow], channels: [offerAccepted, offerRejected] };
+    return {
+      attributes: [offerResponseWindow],
+      channels: [offerAccepted, offerRejected],
+    };
   }
 
   /**
    * Records that the customer accepted the offer.
-   * Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+   * Returns OFFER_RESPONSE_WINDOW_CLOSED after the first reply or the decision.
    */
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
-  public acceptCustomerOffer(context: Context, note: string): RPCResult<string> {
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
+  public acceptCustomerOffer(
+    context: Context,
+    note: string,
+  ): RPCResult<string> {
     return publishWhileWindowOpen(context, offerAccepted, note);
   }
 
   /**
    * Records that the customer rejected the offer.
-   * Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+   * Returns OFFER_RESPONSE_WINDOW_CLOSED after the first reply or the decision.
    */
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
-  public rejectCustomerOffer(context: Context, note: string): RPCResult<string> {
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [offerResponseWindow.lock()],
+  })
+  public rejectCustomerOffer(
+    context: Context,
+    note: string,
+  ): RPCResult<string> {
     return publishWhileWindowOpen(context, offerRejected, note);
   }
 }

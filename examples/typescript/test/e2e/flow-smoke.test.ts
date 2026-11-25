@@ -524,6 +524,25 @@ test("flow smoke all registered flows via controller", async (t) => {
   }
 });
 
+test("deferred choice route answers 409 after the Flow ended, not for a missing Flow", async () => {
+  const flowId = newFlowId("deferred-choice-ended");
+  const start = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/start?${new URLSearchParams({ workflowId: flowId, offerId: "offer-ended" })}`,
+  );
+  assert.equal(start.status, 200, await start.text());
+  const accepted = await acceptOfferRoute(flowId);
+  assert.equal(accepted.status, 200, accepted.body);
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+
+  const late = await acceptOfferRoute(flowId);
+  assert.equal(late.status, 409, late.body);
+  assert.equal(late.body, "offer response window closed");
+
+  const missing = await acceptOfferRoute(newFlowId("deferred-choice-missing"));
+  assert.notEqual(missing.status, 409, missing.body);
+});
+
 test("attribute read returns committed values of a closed run", async () => {
   const flowId = newFlowId("primitive-attribute-read");
   await server.client.startFlow(attributeFlow, flowId, "read");
@@ -803,15 +822,11 @@ async function refundRoute(
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
 }
 
-// The order's second shipment runs for a day, so its lookup by number reports running.
 // Accepts the offer over HTTP and waits for the fulfillment.
 async function verifyDeferredChoiceAcceptance(flowId: string): Promise<void> {
-  const response = await fetch(
-    `${context.baseUrl}/patterns/deferred-choice/accept?${new URLSearchParams({ workflowId: flowId, note: "looks good" })}`,
-  );
-  const body = await response.text();
-  assert.equal(response.status, 200, body);
-  assert.equal(body, "offer response recorded");
+  const response = await acceptOfferRoute(flowId);
+  assert.equal(response.status, 200, response.body);
+  assert.equal(response.body, "offer response recorded");
   const result = await server.client.waitForFlow(flowId, 30_000);
   assert.equal(result.status, "completed", result.errorMessage ?? "");
   assert.deepEqual(
@@ -822,6 +837,14 @@ async function verifyDeferredChoiceAcceptance(flowId: string): Promise<void> {
   );
 }
 
+async function acceptOfferRoute(flowId: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/accept?${new URLSearchParams({ workflowId: flowId, note: "looks good" })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+// The order's second shipment runs for a day, so its lookup by number reports running.
 async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
   const shipmentNumber = `${orderId}-2`;
   await pollUntil(
