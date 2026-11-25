@@ -620,7 +620,7 @@ func (client *Client) StartFlow(
 	if err != nil {
 		return "", err
 	}
-	timeout, timeoutPolicy, flowOptions, err := mapStartFlowOptions(resolvedOptions)
+	timeout, timeoutPolicy, flowOptions, err := mapStartFlowOptions(registered, resolvedOptions)
 	if err != nil {
 		return "", err
 	}
@@ -707,7 +707,7 @@ func mapStartingStep(
 	if err != nil {
 		return "", nil, nil, err
 	}
-	options, err := mapRegisteredStepOptions(flow.startingStep, nil)
+	options, err := mapRegisteredStepOptions(flow, flow.startingStep, nil)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -2060,7 +2060,7 @@ func (client *Client) doInvokeRPC(
 		channelMapInstances,
 		invokeChannelMapInstances,
 	)
-	timeout, locks, err := mapRPCOptions(registered.options)
+	timeout, locks, err := mapRegisteredRPCOptions(flow, registered)
 	if err != nil {
 		return err
 	}

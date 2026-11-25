@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import queue
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
@@ -27,6 +28,7 @@ from dex import (
     AsyncContext,
     AsyncWorker,
     Attribute,
+    AttributeLock,
     AttributeMap,
     BlobCacheConfig,
     Channel,
@@ -38,11 +40,13 @@ from dex import (
     FlowDefinitionError,
     FlowResult,
     FlowStatus,
+    FlowTimeoutHandlerOptions,
     PersistenceSchema,
     PullWorkerOptions,
     Registry,
     RetryPolicy,
     RPCInvokeOptions,
+    RpcLockConflictError,
     RPCResult,
     StartFlowOptions,
     Step,
@@ -50,11 +54,13 @@ from dex import (
     StepList,
     StepMovement,
     StepOptions,
+    SubFlow,
     Wait,
     WaitForFailurePolicy,
     Worker,
     WorkerInvocationError,
     WorkerOptions,
+    dead_end,
     force_complete,
     go_to,
     go_to_many,
@@ -433,11 +439,11 @@ def _worker_options(task_queue: str) -> WorkerOptions:
 
 
 @contextmanager
-def _sync_worker(task_queue: str) -> Iterator[Worker]:
+def _sync_worker(task_queue: str, registry: Registry) -> Iterator[Worker]:
     with TemporaryDirectory(prefix="dex-python-lock-req-cache-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
         try:
-            worker = Worker(_registry(False), cache, _worker_options(task_queue))
+            worker = Worker(registry, cache, _worker_options(task_queue))
             failures: list[BaseException] = []
 
             def run_worker() -> None:
@@ -471,7 +477,7 @@ def _sync_worker(task_queue: str) -> Iterator[Worker]:
 
 
 @contextmanager
-def _async_worker(task_queue: str) -> Iterator[AsyncWorker]:
+def _async_worker(task_queue: str, registry: Registry) -> Iterator[AsyncWorker]:
     with TemporaryDirectory(prefix="dex-python-lock-req-async-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
         try:
@@ -487,9 +493,7 @@ def _async_worker(task_queue: str) -> Iterator[AsyncWorker]:
                 loop_thread = started_thread
 
                 async def create_worker() -> AsyncWorker:
-                    return AsyncWorker(
-                        _registry(True), cache, _worker_options(task_queue)
-                    )
+                    return AsyncWorker(registry, cache, _worker_options(task_queue))
 
                 worker = asyncio.run_coroutine_threadsafe(create_worker(), loop).result(
                     timeout=20
@@ -523,13 +527,11 @@ def _async_worker(task_queue: str) -> Iterator[AsyncWorker]:
 
 
 @contextmanager
-def _client(is_async: bool) -> Iterator[Client]:
+def _client(registry: Registry) -> Iterator[Client]:
     with TemporaryDirectory(prefix="dex-python-lock-req-client-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
         try:
-            client = Client(
-                _registry(is_async), cache, ClientOptions(_server_address())
-            )
+            client = Client(registry, cache, ClientOptions(_server_address()))
             try:
                 yield client
             finally:
@@ -539,14 +541,24 @@ def _client(is_async: bool) -> Iterator[Client]:
 
 
 @contextmanager
-def _harness(is_async: bool) -> Iterator[tuple[Client, str]]:
+def _harness_with_registries(
+    worker_registry: Registry, client_registry: Registry, is_async: bool
+) -> Iterator[tuple[Client, str]]:
     task_queue = f"py-lock-req-{uuid4().hex[:12]}"
     with ExitStack() as stack:
         if is_async:
-            stack.enter_context(_async_worker(task_queue))
+            stack.enter_context(_async_worker(task_queue, worker_registry))
         else:
-            stack.enter_context(_sync_worker(task_queue))
-        yield stack.enter_context(_client(is_async)), task_queue
+            stack.enter_context(_sync_worker(task_queue, worker_registry))
+        yield stack.enter_context(_client(client_registry)), task_queue
+
+
+@contextmanager
+def _harness(is_async: bool) -> Iterator[tuple[Client, str]]:
+    with _harness_with_registries(
+        _registry(is_async), _registry(is_async), is_async
+    ) as harness:
+        yield harness
 
 
 def _run_flow(
@@ -756,6 +768,318 @@ def test_declared_lock_requirements_on_async_worker() -> None:
         client.invoke_rpc(locked, flow_id, "hi")
 
 
+class _SnapshotControl:
+    """Changes Step options after registration and pauses a Step in execute."""
+
+    def __init__(self) -> None:
+        self.options_changed = False
+        # One mutable list shared by every read; clearing it changes the options in place.
+        self.shared_lock_list: list[AttributeLock] = [TOTAL.lock()]
+        self._entered: queue.Queue[str] = queue.Queue()
+        self._release = threading.Event()
+
+    def step_options(self) -> StepOptions:
+        """Hold the total lock until the options change after registration."""
+        locks = () if self.options_changed else (TOTAL.lock(),)
+        return StepOptions(
+            execute_retry=RetryPolicy(maximum_attempts=1),
+            execute_lock_attributes=locks,
+        )
+
+    def shared_list_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(maximum_attempts=1),
+            execute_lock_attributes=cast(Any, self.shared_lock_list),
+        )
+
+    def change_options(self) -> None:
+        self.options_changed = True
+        self.shared_lock_list.clear()
+
+    def pause(self, flow_id: str) -> None:
+        self._entered.put(flow_id)
+        if not self._release.wait(timeout=45):
+            raise RuntimeError("the paused Step was not released")
+
+    def arm(self) -> None:
+        self._release.clear()
+
+    def wait_entered(self) -> str:
+        return self._entered.get(timeout=30)
+
+    def release(self) -> None:
+        self._release.set()
+
+    def reset(self) -> None:
+        self.options_changed = False
+        self.shared_lock_list[:] = [TOTAL.lock()]
+        self._release.clear()
+        self._entered = queue.Queue()
+
+
+SNAPSHOT = _SnapshotControl()
+
+
+class PyLockSnapGatedStep(Step[None]):
+    """Writes the total after the test releases it; only registration sees its lock."""
+
+    def get_step_options(self) -> StepOptions | None:
+        return SNAPSHOT.step_options()
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        SNAPSHOT.pause(context.flow_id)
+        TOTAL.set(context, 1)
+        return graceful_complete("written")
+
+
+class PyLockSnapSharedListGatedStep(PyLockSnapGatedStep):
+    """Registers its lock in a list that the test clears after registration."""
+
+    def get_step_options(self) -> StepOptions | None:
+        return SNAPSHOT.shared_list_step_options()
+
+
+class PyLockSnapAsyncGatedStep(Step[None]):
+    def get_step_options(self) -> StepOptions | None:
+        return SNAPSHOT.step_options()
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: None
+    ) -> StepDecision:
+        await asyncio.to_thread(SNAPSHOT.pause, context.flow_id)
+        TOTAL.set(context, 1)
+        return graceful_complete("written")
+
+
+class PyLockSnapFailingStep(Step[None]):
+    """Fails once, so its execute failure route moves to the gated Step."""
+
+    def __init__(self, recovery: Step[None]) -> None:
+        self._recovery = recovery
+
+    def get_step_options(self) -> StepOptions | None:
+        return StepOptions(
+            execute_retry=RetryPolicy(maximum_attempts=1)
+        ).on_execute_failure_proceed_to(self._recovery)
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        raise RuntimeError("route to the execute failure target")
+
+
+class PyLockSnapStartFlow(Flow[None]):
+    """Starts in the gated Step, as a Flow or as a SubFlow."""
+
+    def __init__(self) -> None:
+        self.gated = PyLockSnapGatedStep()
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.gated)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return SCHEMA
+
+    @rpc(lock_attributes=(TOTAL.lock(),))
+    def set_total_locked(self, context: Context, value: int) -> None:
+        TOTAL.set(context, value)
+
+
+class PyLockSnapSubFlowStep(Step[None]):
+    def __init__(self, child: PyLockSnapStartFlow) -> None:
+        self._child = child
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(SubFlow.run(self._child, None))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("sub-flow done")
+
+
+class PyLockSnapDispatchStep(Step[str]):
+    def __init__(self, targets: dict[str, Step[None]]) -> None:
+        self._targets = targets
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        if input == "timeout":
+            # The Flow stays open until its timeout handler runs.
+            return dead_end()
+        return go_to(self._targets[input], None)
+
+
+class PyLockSnapRouteFlow(Flow[str]):
+    """Moves to the gated Step by movement, failure route, timeout failure, or SubFlow."""
+
+    def __init__(self, child: PyLockSnapStartFlow) -> None:
+        self.gated = PyLockSnapGatedStep()
+        self.shared_list_gated = PyLockSnapSharedListGatedStep()
+        self.failing = PyLockSnapFailingStep(self.gated)
+        self.sub_flow = PyLockSnapSubFlowStep(child)
+        self.dispatch = PyLockSnapDispatchStep(
+            {
+                "movement": self.gated,
+                "shared-list-movement": self.shared_list_gated,
+                "execute-failure": self.failing,
+                "sub-flow": self.sub_flow,
+            }
+        )
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.dispatch).other_steps(
+            self.gated, self.shared_list_gated, self.failing, self.sub_flow
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return SCHEMA
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        raise RuntimeError("route to the timeout handler failure target")
+
+    @rpc(lock_attributes=(TOTAL.lock(),))
+    def set_total_locked(self, context: Context, value: int) -> None:
+        TOTAL.set(context, value)
+
+
+class PyLockSnapAsyncRouteFlow(Flow[str]):
+    """Moves to an ``async def`` gated Step on an AsyncWorker."""
+
+    def __init__(self) -> None:
+        self.gated = PyLockSnapAsyncGatedStep()
+        self.dispatch = PyLockSnapDispatchStep({"movement": self.gated})
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.dispatch).other_steps(self.gated)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return SCHEMA
+
+    @rpc(lock_attributes=(TOTAL.lock(),))
+    def set_total_locked(self, context: Context, value: int) -> None:
+        TOTAL.set(context, value)
+
+
+SNAPSHOT_START_FLOW = PyLockSnapStartFlow()
+SNAPSHOT_ROUTE_FLOW = PyLockSnapRouteFlow(SNAPSHOT_START_FLOW)
+SNAPSHOT_ASYNC_FLOW = PyLockSnapAsyncRouteFlow()
+
+
+@contextmanager
+def _snapshot_harness(is_async: bool) -> Iterator[tuple[Client, str]]:
+    """Build both registries, then change the Step options for every later read."""
+    SNAPSHOT.reset()
+    flows: tuple[Flow[Any], ...] = (
+        (SNAPSHOT_ASYNC_FLOW,)
+        if is_async
+        else (SNAPSHOT_START_FLOW, SNAPSHOT_ROUTE_FLOW)
+    )
+    worker_registry = Registry(flows, allow_async_handlers=is_async)
+    client_registry = Registry(flows, allow_async_handlers=is_async)
+    try:
+        with _harness_with_registries(
+            worker_registry, client_registry, is_async
+        ) as harness:
+            SNAPSHOT.change_options()
+            try:
+                yield harness
+            finally:
+                SNAPSHOT.release()
+    finally:
+        SNAPSHOT.reset()
+
+
+def _assert_step_holds_registered_lock(
+    client: Client,
+    set_total_locked: Callable[[Context, int], None],
+    start: Callable[[], object],
+) -> None:
+    """Pause the gated Step, expect a lock conflict, then release it and expect its write."""
+    SNAPSHOT.arm()
+    start()
+    paused_flow_id = SNAPSHOT.wait_entered()
+    try:
+        with pytest.raises(RpcLockConflictError):
+            client.invoke_rpc(set_total_locked, paused_flow_id, 2)
+    finally:
+        SNAPSHOT.release()
+    result = client.wait_for_flow(paused_flow_id, WAIT_TIMEOUT)
+    assert _single_output(result) == "written"
+    assert client.get_attributes(paused_flow_id, TOTAL).get(TOTAL) == 1
+
+
+def _start_snapshot_flow(
+    client: Client, flow: Flow[Any], task_queue: str, input: object
+) -> Callable[[], object]:
+    return lambda: client.start_flow(
+        flow,
+        unique_id("py-lock-snap"),
+        input,
+        StartFlowOptions(task_queue=task_queue),
+    )
+
+
+@pytest.mark.parametrize(
+    "send_path",
+    [
+        "start",
+        "movement",
+        "shared-list-movement",
+        "execute-failure",
+        "sub-flow",
+        "timeout-handler-failure",
+    ],
+)
+def test_every_send_path_uses_the_registered_step_locks(send_path: str) -> None:
+    with _snapshot_harness(is_async=False) as (client, task_queue):
+        if send_path == "start":
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_START_FLOW.set_total_locked,
+                _start_snapshot_flow(client, SNAPSHOT_START_FLOW, task_queue, None),
+            )
+        elif send_path == "sub-flow":
+            # The paused Step runs in the child Flow.
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_START_FLOW.set_total_locked,
+                _start_snapshot_flow(
+                    client, SNAPSHOT_ROUTE_FLOW, task_queue, send_path
+                ),
+            )
+        elif send_path == "timeout-handler-failure":
+            timeout_options = StartFlowOptions(
+                task_queue=task_queue,
+                timeout=timedelta(seconds=1),
+                timeout_handler_options=FlowTimeoutHandlerOptions(
+                    retry=RetryPolicy(maximum_attempts=1)
+                ).on_failure_proceed_to(SNAPSHOT_ROUTE_FLOW.gated),
+            )
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_ROUTE_FLOW.set_total_locked,
+                lambda: client.start_flow(
+                    SNAPSHOT_ROUTE_FLOW,
+                    unique_id("py-lock-snap-timeout"),
+                    "timeout",
+                    timeout_options,
+                ),
+            )
+        else:
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_ROUTE_FLOW.set_total_locked,
+                _start_snapshot_flow(
+                    client, SNAPSHOT_ROUTE_FLOW, task_queue, send_path
+                ),
+            )
+
+
+def test_async_worker_movement_uses_the_registered_step_locks() -> None:
+    with _snapshot_harness(is_async=True) as (client, task_queue):
+        _assert_step_holds_registered_lock(
+            client,
+            SNAPSHOT_ASYNC_FLOW.set_total_locked,
+            _start_snapshot_flow(client, SNAPSHOT_ASYNC_FLOW, task_queue, "movement"),
+        )
+
+
 class _SchemaFlow(Flow[None]):
     def __init__(self, schema: PersistenceSchema) -> None:
         self._schema = schema
@@ -804,6 +1128,81 @@ def test_registration_rejects_an_unregistered_lock_attribute() -> None:
         )
 
 
+class _InvalidLockEntryStep(Step[None]):
+    """Registers a valid lock followed by one invalid lock entry."""
+
+    def __init__(self, invalid_lock: object) -> None:
+        self._invalid_lock = invalid_lock
+
+    def get_step_options(self) -> StepOptions | None:
+        # A list, so the test also covers a lock sequence the Step could clear later.
+        return StepOptions(
+            execute_lock_attributes=cast(Any, [TOTAL.lock(), self._invalid_lock])
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete()
+
+
+class _InvalidLockEntryFlow(Flow[None]):
+    def __init__(self, schema: PersistenceSchema, invalid_lock: object) -> None:
+        self._schema = schema
+        self.step = _InvalidLockEntryStep(invalid_lock)
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.step)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return self._schema
+
+
+@pytest.mark.parametrize(
+    ("invalid_lock", "message"),
+    [
+        (None, r"execute_lock_attributes\[1\] is NoneType, not an AttributeLock"),
+        (
+            AttributeLock(cast(Any, object())),
+            r"execute_lock_attributes\[1\] locks object, not an Attribute or AttributeMap",
+        ),
+        (
+            AttributeLock(Attribute("py-lock-req-unregistered", int)),
+            r"execute_lock_attributes\[1\] locks Attribute 'py-lock-req-unregistered', "
+            r"which Flow \S+ does not register as an Attribute",
+        ),
+        (
+            AttributeLock(TOTAL, "child"),
+            r"execute_lock_attributes\[1\] locks singleton Attribute 'py-lock-req-total' "
+            r"with instance 'child'",
+        ),
+        (
+            AttributeLock(ITEMS),
+            r"execute_lock_attributes\[1\] locks AttributeMap 'py-lock-req-items' "
+            r"without an instance",
+        ),
+        (
+            # A lone surrogate cannot be encoded as UTF-8.
+            AttributeLock(ITEMS, "\ud800"),
+            r"execute_lock_attributes\[1\]: 'utf-8' codec can't encode",
+        ),
+    ],
+    ids=[
+        "none",
+        "not-a-definition",
+        "unregistered",
+        "singleton-instance",
+        "map-no-instance",
+        "map-instance-not-utf8",
+    ],
+)
+def test_registration_rejects_an_invalid_step_lock_only_with_declarations(
+    invalid_lock: object, message: str
+) -> None:
+    with pytest.raises(FlowDefinitionError, match=message):
+        Registry((_InvalidLockEntryFlow(SCHEMA, invalid_lock),))
+    # Without a declaration, registration does not map the locks, as before.
+    Registry((_InvalidLockEntryFlow(PersistenceSchema.of(FREE), invalid_lock),))
+
+
 class _LateLockStep(Step[None]):
     """Returns options that use a lock Attribute the Flow builds in its schema callback."""
 
@@ -818,26 +1217,53 @@ class _LateLockStep(Step[None]):
         return StepOptions(execute_lock_attributes=(lock.lock(),))
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        return graceful_complete()
+        return go_to(self._flow.next_step, None)
+
+
+class _LateLockNextStep(_LateLockStep):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("done")
 
 
 class _LateLockFlow(Flow[None]):
-    def __init__(self) -> None:
+    def __init__(self, declares_lock_requirement: bool) -> None:
+        self.declares_lock_requirement = declares_lock_requirement
         self.lock: Attribute[bool] | None = None
         self.step = _LateLockStep(self)
+        self.next_step = _LateLockNextStep(self)
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.step)
+        return StepList.start_step(self.step).other_steps(self.next_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         self.lock = Attribute("py-lock-req-late-lock", bool)
-        return PersistenceSchema.of(self.lock)
+        if not self.declares_lock_requirement:
+            return PersistenceSchema.of(self.lock)
+        return PersistenceSchema.of(
+            self.lock,
+            Attribute("py-lock-req-late-total", int, writes_require_lock=True),
+        )
 
 
-def test_registration_reads_step_options_once_after_the_schema() -> None:
-    flow = _LateLockFlow()
-    Registry((flow,))
+@pytest.mark.parametrize("declares_lock_requirement", [False, True])
+def test_registration_reads_step_options_once_after_the_schema(
+    declares_lock_requirement: bool,
+) -> None:
+    flow = _LateLockFlow(declares_lock_requirement)
+    registry = Registry((flow,))
     assert flow.step.option_reads == 1
+    assert flow.next_step.option_reads == 1
+    with _harness_with_registries(registry, registry, is_async=False) as (
+        client,
+        task_queue,
+    ):
+        _, result = _run_flow(client, flow, task_queue, None)
+        assert _single_output(result) == "done"
+    # With a declaration, the Client start and the Worker movement send the registered options.
+    # Without one, each send reads the options again, as before declarations existed.
+    expected_reads = 1 if declares_lock_requirement else 2
+    assert flow.step.option_reads == expected_reads
+    assert flow.next_step.option_reads == expected_reads
 
 
 def test_an_attribute_map_cannot_be_a_lock_attribute() -> None:
