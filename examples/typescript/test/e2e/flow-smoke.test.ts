@@ -173,6 +173,18 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: noStartStepFlags(),
     },
     {
+      name: "patterns/entity-flow",
+      trigger: () => {
+        const accountId = newFlowId("entity-flow");
+        return triggerPost(context, "/patterns/entity-flow/account", {
+          accountId,
+          displayName: "Smoke Tester",
+          email: `${accountId}@example.com`,
+        });
+      },
+      flags: noStartStepFlags(),
+    },
+    {
       name: "patterns/sequentially-chunked-attribute-map",
       trigger: () =>
         triggerPost(
