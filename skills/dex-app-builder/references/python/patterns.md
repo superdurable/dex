@@ -175,17 +175,22 @@ class AwaitInbound(Step[str]):
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
+        # Route on the Condition that won; only the winner has results.
+        replies = REPLIES.results(context)
+        if replies:
+            # An unset list Attribute reads as None.
+            transcript = TRANSCRIPT.get(context) or []
+            TRANSCRIPT.set(context, [*transcript, *replies])
+            if input:
+                return go_to(ResolveConversation, input)
+            # A new execution registers a new wait, so the Timer restarts.
+            return go_to(AwaitInbound, "")
+        resolutions = RESOLUTIONS.results(context)
+        if resolutions:
+            return go_to(ResolveConversation, resolutions[0])
         if context.has_timer_fired():
             return go_to(CloseInactiveConversation, None)
-        replies = REPLIES.results(context)
-        if not replies:
-            return go_to(ResolveConversation, RESOLUTIONS.results(context)[0])
-        # An unset list Attribute reads as None.
-        transcript = TRANSCRIPT.get(context) or []
-        TRANSCRIPT.set(context, [*transcript, *replies])
-        if input:
-            return go_to(ResolveConversation, input)
-        return go_to(AwaitInbound, "")
+        raise RuntimeError("no Condition of the conversation wait completed")
 
 
 class ConversationFlow(Flow[str]):

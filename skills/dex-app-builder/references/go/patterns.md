@@ -269,33 +269,38 @@ func (awaitInbound) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait,
 	), nil
 }
 
+// Execute routes on the Condition that won; only the winner has results.
 func (awaitInbound) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
-	if ctx.HasTimerFired() {
-		return dex.GoTo(closeInactiveConversation{}, nil), nil
-	}
 	replies, err := Replies.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(replies) == 0 {
-		reasons, err := Resolutions.GetConditionResults(ctx)
-		if err != nil {
+	if len(replies) > 0 {
+		transcript, err := Transcript.Get(ctx)
+		var notFound *dex.AttributeNotFoundError
+		if err != nil && !errors.As(err, &notFound) {
 			return nil, err
 		}
+		if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
+			return nil, err
+		}
+		if pendingResolution != "" {
+			return dex.GoTo(resolveConversation{}, pendingResolution), nil
+		}
+		// A new execution registers a new wait, so the Timer restarts.
+		return dex.GoTo(awaitInbound{}, ""), nil
+	}
+	reasons, err := Resolutions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
 		return dex.GoTo(resolveConversation{}, reasons[0]), nil
 	}
-	transcript, err := Transcript.Get(ctx)
-	var notFound *dex.AttributeNotFoundError
-	if err != nil && !errors.As(err, &notFound) {
-		return nil, err
+	if ctx.HasTimerFired() {
+		return dex.GoTo(closeInactiveConversation{}, nil), nil
 	}
-	if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
-		return nil, err
-	}
-	if pendingResolution != "" {
-		return dex.GoTo(resolveConversation{}, pendingResolution), nil
-	}
-	return dex.GoTo(awaitInbound{}, ""), nil
+	return nil, errors.New("no Condition of the conversation wait completed")
 }
 
 type resolveConversation struct {
