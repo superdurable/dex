@@ -10,6 +10,7 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | Upstream test | Coverage |
 | --- | --- |
 | `AnyCommandCombinationTest` | condition combinations and WaitFor failure |
+| `AttributeLockRequirementTest` | declared write and publish lock requirements in Step and RPC handlers, rollback of rejected invocations, call-time and movement locks that do not count, a started Step holding the captured lock when later `getStepOptions()` calls drop it, and the unchecked timeout handler |
 | `BasicTest` | start inputs, ID reuse, custom names, config, describe, step wait |
 | `ConditionalCompleteTest` | multi-message signal/internal channel draining and conditional close |
 | `InternalChannelTest` | parallel movements, payloads, unselected conditions, and channel maps |

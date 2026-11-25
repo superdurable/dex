@@ -97,6 +97,27 @@ public class UserContractsTest {
     }
 
     @Test
+    public void lockRequirementDeclarationsReturnTypedDefinitions() {
+        final Attribute<Boolean> coordination = Attribute.define("coordination", Boolean.class);
+        final Attribute<Integer> total =
+                Attribute.define("total", Integer.class).writesRequireLock();
+        final Attribute<Integer> balance = Attribute.define("balance", Integer.class)
+                .writesRequireAttributeLock(coordination)
+                .syncToAttributeStore();
+        final AttributeMap<String> lines =
+                AttributeMap.define("lines", String.class).writesRequireLock();
+        final AttributeMap<String> notes = AttributeMap.define("notes", String.class)
+                .hardDeleteOnNull()
+                .writesRequireAttributeLock(coordination);
+        final Channel<String> replies = Channel.define("replies", String.class)
+                .publishesRequireAttributeLock(coordination);
+        final ChannelMap<String> events = ChannelMap.define("events", String.class)
+                .publishesRequireAttributeLock(coordination);
+        Assertions.assertNotNull(PersistenceSchema.of(
+                coordination, total, balance, lines, notes, replies, events));
+    }
+
+    @Test
     public void persistenceDefinitionNamesReserveSlash() {
         Assertions.assertThrows(
                 IllegalArgumentException.class,

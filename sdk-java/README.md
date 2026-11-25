@@ -867,6 +867,27 @@ BlobCache. Writes require a Server with an enabled blob store and protocol
 version 3 or later. See the `Attribute.hardDeleteOnNull()` Javadoc for retry,
 concurrency, Flow ID reuse, reset, retention, and backup limitations.
 
+Definitions can declare the lock that every write or publish requires:
+
+```java
+Attribute<Boolean> cartLock = Attribute.define("cart-lock", Boolean.class);
+Attribute<Integer> total = Attribute.define("total", Integer.class)
+        .writesRequireLock();
+AttributeMap<Integer> items = AttributeMap.define("items", Integer.class)
+        .writesRequireAttributeLock(cartLock);
+Channel<String> replies = Channel.define("replies", String.class)
+        .publishesRequireAttributeLock(cartLock);
+```
+
+After each `waitFor`, `execute`, and RPC handler, the Worker compares these
+writes and publishes with the locks the handler registered in `StepOptions` or
+`@RPC`. A missing lock fails the invocation with
+`MissingAttributeLockException`, and Dex discards its buffered changes. Locks
+added for one call do not count, and Flow timeout handlers are not checked.
+`Registry` rejects a lock Attribute that is not a singleton Attribute of the
+same schema. See
+[Declared lock requirements](https://docs.superdurable.io/reference/server/runtime-data#declared-lock-requirements).
+
 The IWF integration inventory is implemented as real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/integ`](src/test/java/io/superdurable/dex/integ/README.md).
 They run Java Client and Java Worker against `dexcli dev`, with Rust used only

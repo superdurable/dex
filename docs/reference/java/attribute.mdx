@@ -23,6 +23,7 @@ them in the [Java SDK API reference](./index.mdx#api-reference).
 | Count AttributeMap instances and list their keys | **AttributeMap.getMapSize** and **AttributeMap.getAllInstanceKeys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Load AttributeMap values for a method | **addWaitForLoadAttributeMap**, **addExecuteLoadAttributeMap**, and their instance variants of **StepOptions.Builder**, or **loadAttributeMaps** and **loadAttributeMapInstances** of **@RPC** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Lock a value for a read-modify-write | **AttributeLock.of**, with **addWaitForLock** and **addExecuteLock** of **StepOptions.Builder**, or **lockAttributes** and **lockAttributeMaps** of **@RPC** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Require a lock for every write (since 1.45.4) | **writesRequireLock** and **writesRequireAttributeLock** of **Attribute** and **AttributeMap**; a write without the lock fails with **MissingAttributeLockException** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Index a value for search | **AttributeIndex** and **AttributeIndex.Type**, passed to **define** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
 | Project writes to an Attribute Store | **syncToAttributeStore** | [Attribute sync](/reference/server/attribute-store-sync) |
 | Store a value that can be erased | **hardDeleteOnNull** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |

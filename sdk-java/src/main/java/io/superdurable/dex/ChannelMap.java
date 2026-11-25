@@ -36,10 +36,15 @@ import java.util.Objects;
 public final class ChannelMap<T> extends PersistenceDefinition {
     private final String name;
     private final Class<T> valueType;
+    private final LockRequirement publishLock;
 
-    private ChannelMap(final String name, final Class<T> valueType) {
+    private ChannelMap(
+            final String name,
+            final Class<T> valueType,
+            final LockRequirement publishLock) {
         this.name = Attribute.requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
+        this.publishLock = publishLock;
     }
 
     /**
@@ -53,7 +58,52 @@ public final class ChannelMap<T> extends PersistenceDefinition {
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> ChannelMap<T> define(final String name, final Class<T> valueType) {
-        return new ChannelMap<T>(name, valueType);
+        return new ChannelMap<T>(name, valueType, null);
+    }
+
+    /**
+     * Returns a definition whose every publish, to any instance, requires holding the lock of the
+     * singleton Attribute {@code lockAttribute}.
+     *
+     * <p>A {@code waitFor}, {@code execute}, or RPC invocation that calls
+     * {@link #publish(Context, String, Object)} without holding
+     * {@code AttributeLock.of(lockAttribute)} fails with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}, and Dex discards the
+     * changes buffered for its result. The rules of
+     * {@link Channel#publishesRequireAttributeLock(Attribute)} apply: only registration-time locks
+     * count, Flow timeout handlers and Client publishes are not checked, and waits, reads, and
+     * deletes of pending messages are not affected.
+     *
+     * <p>{@code lockAttribute} must be registered in the same Flow's {@link PersistenceSchema}.
+     * {@link Registry} construction fails with
+     * {@link io.superdurable.dex.exceptions.FlowDefinitionException} when no Attribute with that
+     * name is registered there, or when the name belongs to an AttributeMap.
+     *
+     * <pre>{@code
+     * final Attribute<Boolean> sessionLock = Attribute.define("session-lock", Boolean.class);
+     * final ChannelMap<String> sessionEvents =
+     *         ChannelMap.define("session-events", String.class)
+     *                 .publishesRequireAttributeLock(sessionLock);
+     *
+     * // In every Step that publishes session events:
+     * return StepOptions.newBuilder()
+     *         .addExecuteLock(AttributeLock.of(sessionLock))
+     *         .build();
+     * }</pre>
+     *
+     * @param lockAttribute the singleton Attribute whose lock every publish requires
+     * @return a new immutable Channel-map definition whose publishes require the lock of
+     *     {@code lockAttribute}
+     * @throws NullPointerException if {@code lockAttribute} is {@code null}
+     * @since 1.45.4
+     */
+    public ChannelMap<T> publishesRequireAttributeLock(final Attribute<?> lockAttribute) {
+        return new ChannelMap<T>(name, valueType, LockRequirement.attribute(lockAttribute));
+    }
+
+    @Override
+    LockRequirement getLockRequirement() {
+        return publishLock;
     }
 
     String getName() {

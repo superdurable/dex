@@ -26,6 +26,8 @@ import java.util.Objects;
  * reads in that invocation also see its staged writes. A failed invocation does not commit them.
  * External readers use {@link Client#getAttributes(String, AttributeRead...)} for committed state.
  * Concurrent writers that need serialization must participate in {@link AttributeLock} locking.
+ * Declare {@link #writesRequireLock()} or {@link #writesRequireAttributeLock(Attribute)} to make
+ * the Worker fail a writer that does not register the lock.
  *
  * <pre>{@code
  * private final Attribute<Integer> counter =
@@ -53,18 +55,21 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
     private final AttributeIndex index;
     private final boolean syncToAttributeStore;
     private final boolean hardDeleteOnNull;
+    private final LockRequirement writeLock;
 
     private Attribute(
             final String name,
             final Class<T> valueType,
             final AttributeIndex index,
             final boolean syncToAttributeStore,
-            final boolean hardDeleteOnNull) {
+            final boolean hardDeleteOnNull,
+            final LockRequirement writeLock) {
         this.name = requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
         this.syncToAttributeStore = syncToAttributeStore;
         this.hardDeleteOnNull = hardDeleteOnNull;
+        this.writeLock = writeLock;
     }
 
     /**
@@ -78,7 +83,7 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> Attribute<T> define(final String name, final Class<T> valueType) {
-        return new Attribute<T>(name, valueType, null, false, false);
+        return new Attribute<T>(name, valueType, null, false, false, null);
     }
 
     /**
@@ -96,7 +101,7 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
             final String name,
             final Class<T> valueType,
             final AttributeIndex index) {
-        return new Attribute<T>(name, valueType, index, false, false);
+        return new Attribute<T>(name, valueType, index, false, false, null);
     }
 
     /**
@@ -114,7 +119,7 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
             throw new IllegalStateException(
                     "hard-delete Attribute " + name + " cannot use syncToAttributeStore");
         }
-        return new Attribute<T>(name, valueType, index, true, false);
+        return new Attribute<T>(name, valueType, index, true, false, writeLock);
     }
 
     /**
@@ -226,7 +231,151 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
     public Attribute<T> hardDeleteOnNull() {
         HardDeleteAttributes.requireDefinitionSupport(
                 name, valueType, index, syncToAttributeStore);
-        return new Attribute<T>(name, valueType, index, false, true);
+        return new Attribute<T>(name, valueType, index, false, true, writeLock);
+    }
+
+    /**
+     * Returns a definition whose every write requires holding this Attribute's own lock.
+     *
+     * <p>Two Steps or RPCs that read a value and then write it can overwrite each other's update
+     * unless both hold the same lock. Declare the requirement on the definition, and the Worker
+     * enforces it. A {@code waitFor}, {@code execute}, or RPC invocation that writes this Attribute
+     * with {@link #set(Context, Object)} or {@link #delete(Context)} without holding
+     * {@link AttributeLock#of(Attribute)} for it fails with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}. Dex then discards the
+     * changes buffered for the invocation's result. The check is not a warning; calling this method
+     * opts in to it. Reads are not checked.
+     *
+     * <p>Only the locks a handler registers count: {@link StepOptions.Builder#addWaitForLock} or
+     * {@link StepOptions.Builder#addExecuteLock} in the options that {@link Step#getStepOptions()}
+     * returns, and {@link RPC#lockAttributes} for an RPC. In a Flow whose schema declares any lock
+     * requirement, each {@link Registry} calls each Step's {@code getStepOptions()} once, after the
+     * schema is assembled. A request that uses the Step's default options sends the locks that the
+     * sending side's Registry captured. The Worker checks writes against the locks its own Registry
+     * captured. When the Client and the Worker build separate Registries, both must capture the
+     * same locks, so {@code getStepOptions()} must return the same locks each time. In other Flows
+     * the SDK keeps calling {@code getStepOptions()} each time it builds a request, as before.
+     * Locks added for one call do not count:
+     * {@link RPCInvokeOptions.Builder#addLockAttributeMapInstance} and the options passed to
+     * {@link StepMovement#of(Class, Object, StepOptions)} cannot satisfy the requirement. Register
+     * the lock instead. A Flow timeout handler is not checked, because its locks come from
+     * {@link StartFlowOptions}. Attribute values set when a Flow starts are not checked either.
+     *
+     * <p>The check compares writes with the registered locks, not with the locks Dex acquires for
+     * the call. Options passed with a {@link StepMovement}, with
+     * {@link StepOptions.Builder#onExecuteFailureProceedTo(Class, StepOptions)}, or with
+     * {@link FlowTimeoutHandlerOptions.Builder#onFailureProceedTo} replace the target Step's whole
+     * options, and Dex takes an RPC's locks from the Client's definition. Keep the required lock in such
+     * options, and build every Client and Worker from the same definitions. A Worker built without
+     * this declaration does not check it.
+     *
+     * <p>Use {@link #writesRequireAttributeLock(Attribute)} instead to require the lock of a shared
+     * coordination Attribute. When both methods are chained, the last call wins. The declaration
+     * is kept by {@link #syncToAttributeStore()} and {@link #hardDeleteOnNull()}. Register the
+     * returned definition in the Flow's {@link PersistenceSchema}, not the original one.
+     *
+     * <pre>{@code
+     * public final class OrderFlow implements Flow<Integer> {
+     *     final Attribute<Integer> orderTotal =
+     *             Attribute.define("order-total", Integer.class).writesRequireLock();
+     *     private final AddItem addItem = new AddItem(orderTotal);
+     *
+     *     @Override
+     *     public StepList<Integer> getSteps() {
+     *         return StepList.startStep(addItem);
+     *     }
+     *
+     *     @Override
+     *     public PersistenceSchema getPersistenceSchema() {
+     *         return PersistenceSchema.of(orderTotal);
+     *     }
+     * }
+     *
+     * final class AddItem implements Step<Integer> {
+     *     private final Attribute<Integer> orderTotal;
+     *
+     *     AddItem(final Attribute<Integer> orderTotal) {
+     *         this.orderTotal = orderTotal;
+     *     }
+     *
+     *     @Override
+     *     public Class<Integer> getInputType() {
+     *         return Integer.class;
+     *     }
+     *
+     *     @Override
+     *     public StepOptions getStepOptions() {
+     *         return StepOptions.newBuilder()
+     *                 .addExecuteLock(AttributeLock.of(orderTotal))
+     *                 .build();
+     *     }
+     *
+     *     @Override
+     *     public StepDecision execute(final Context context, final Integer price) {
+     *         orderTotal.set(context, orderTotal.get(context) + price);
+     *         return StepDecision.gracefulComplete();
+     *     }
+     * }
+     * }</pre>
+     *
+     * @return a new immutable Attribute definition whose writes require this Attribute's own lock
+     * @since 1.45.4
+     */
+    public Attribute<T> writesRequireLock() {
+        return new Attribute<T>(
+                name, valueType, index, syncToAttributeStore, hardDeleteOnNull,
+                LockRequirement.ownKey());
+    }
+
+    /**
+     * Returns a definition whose every write requires holding the lock of the singleton Attribute
+     * {@code lockAttribute}.
+     *
+     * <p>Use it when several values share one invariant and one coordination Attribute protects
+     * them all. The rules of {@link #writesRequireLock()} apply: only locks that the handler
+     * registers count, and a write without the lock fails the invocation with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}. Each writer must
+     * register {@code AttributeLock.of(lockAttribute)}. The coordination Attribute needs no stored
+     * value.
+     *
+     * <p>{@code lockAttribute} must be registered in the same Flow's {@link PersistenceSchema}.
+     * {@link Registry} construction fails with
+     * {@link io.superdurable.dex.exceptions.FlowDefinitionException} when no Attribute with that
+     * name is registered there, or when the name belongs to an AttributeMap. When both methods are
+     * chained, the last call wins.
+     *
+     * <pre>{@code
+     * final Attribute<Boolean> balanceLock = Attribute.define("balance-lock", Boolean.class);
+     * final Attribute<Integer> balance =
+     *         Attribute.define("balance", Integer.class).writesRequireAttributeLock(balanceLock);
+     *
+     * // In every Step that writes balance:
+     * return StepOptions.newBuilder()
+     *         .addExecuteLock(AttributeLock.of(balanceLock))
+     *         .build();
+     *
+     * // In every RPC that writes balance:
+     * @RPC(lockAttributes = {"balance-lock"})
+     * public void addCredit(final Context context, final Integer amount) {
+     *     balance.set(context, balance.get(context) + amount);
+     * }
+     * }</pre>
+     *
+     * @param lockAttribute the singleton coordination Attribute whose lock every write requires
+     * @return a new immutable Attribute definition whose writes require the lock of
+     *     {@code lockAttribute}
+     * @throws NullPointerException if {@code lockAttribute} is {@code null}
+     * @since 1.45.4
+     */
+    public Attribute<T> writesRequireAttributeLock(final Attribute<?> lockAttribute) {
+        return new Attribute<T>(
+                name, valueType, index, syncToAttributeStore, hardDeleteOnNull,
+                LockRequirement.attribute(lockAttribute));
+    }
+
+    @Override
+    LockRequirement getLockRequirement() {
+        return writeLock;
     }
 
     String getName() {
