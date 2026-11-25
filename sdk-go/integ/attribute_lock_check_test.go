@@ -604,6 +604,19 @@ func (workers lockCheckWorkers) readCounter(t *testing.T, flowID string) (int, b
 	return counter, result.IsSet(lockCheckCounter)
 }
 
+// readWrittenKey reads the counter for an empty instance, or one lock-check-entries instance.
+func (workers lockCheckWorkers) readWrittenKey(t *testing.T, flowID string, instance string) (int, bool) {
+	t.Helper()
+	if instance == "" {
+		return workers.readCounter(t, flowID)
+	}
+	value := -1
+	result, err := workers.client.GetAttributes(integrationContext(t), flowID,
+		dex.ReadAttributeMapInstance(lockCheckEntries, instance, &value))
+	require.NoError(t, err)
+	return value, result.IsMapInstanceSet(lockCheckEntries, instance)
+}
+
 // TestUnlockedAttributeReadModifyWriteStepDetection covers Step methods in warning and strict mode.
 func TestUnlockedAttributeReadModifyWriteStepDetection(t *testing.T) {
 	workers := startLockCheckWorkers(t)
@@ -736,7 +749,9 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 		isReported bool
 		handler    string
 		attribute  string
-		invoke     func(ctx context.Context, flowID string) error
+		// writtenInstance is the lock-check-entries instance the RPC writes, or empty for the counter.
+		writtenInstance string
+		invoke          func(ctx context.Context, flowID string) error
 	}{
 		{
 			name: "unlocked", isReported: true, handler: "RPC.UnlockedIncrement", attribute: "lock-check-counter",
@@ -746,6 +761,7 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 		},
 		{
 			name: "registered-map-load", isReported: true, handler: "RPC.RegisteredLoadEntryIncrement", attribute: "lock-check-entries",
+			writtenInstance: "e1",
 			invoke: func(ctx context.Context, flowID string) error {
 				return workers.client.InvokeRPC(ctx, flowID, flow.RegisteredLoadEntryIncrement, "e1", new(dex.None))
 			},
@@ -757,7 +773,8 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 			},
 		},
 		{
-			name: "runtime-selected-map-lock",
+			name:            "runtime-selected-map-lock",
+			writtenInstance: "e1",
 			invoke: func(ctx context.Context, flowID string) error {
 				return workers.client.InvokeRPCWithOptions(ctx, flowID, flow.RuntimeSelectedEntryIncrement, "e1",
 					new(dex.None), dex.RPCInvokeOptions{
@@ -770,7 +787,7 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name+"/warn", func(t *testing.T) {
 			before := workers.warnWorker.UnlockedAttributeReadModifyWriteCount()
-			_, err := invokeOnQueue(t, workers.warnQueue, testCase.invoke)
+			flowID, err := invokeOnQueue(t, workers.warnQueue, testCase.invoke)
 			require.NoError(t, err)
 			detections := workers.warnWorker.UnlockedAttributeReadModifyWriteCount() - before
 			if testCase.isReported {
@@ -779,6 +796,9 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 			} else {
 				require.Zero(t, detections)
 			}
+			value, isSet := workers.readWrittenKey(t, flowID, testCase.writtenInstance)
+			require.True(t, isSet, "warning mode commits the RPC's write")
+			require.Equal(t, 1, value)
 		})
 		t.Run(testCase.name+"/strict", func(t *testing.T) {
 			before := workers.strictWorker.UnlockedAttributeReadModifyWriteCount()
@@ -787,6 +807,8 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 			if !testCase.isReported {
 				require.NoError(t, err)
 				require.Zero(t, detections)
+				_, isSet := workers.readWrittenKey(t, flowID, testCase.writtenInstance)
+				require.True(t, isSet, "a clean invocation commits in strict mode")
 				return
 			}
 			require.Equal(t, uint64(1), detections)
@@ -795,7 +817,7 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 			require.NotNil(t, invocationErr.Worker)
 			require.Equal(t, "*dex.UnlockedAttributeReadModifyWriteError", invocationErr.Worker.Type)
 			require.Contains(t, invocationErr.Worker.Detail, testCase.attribute)
-			_, isSet := workers.readCounter(t, flowID)
+			_, isSet := workers.readWrittenKey(t, flowID, testCase.writtenInstance)
 			require.False(t, isSet, "strict mode discards the RPC's writes")
 		})
 	}
@@ -807,14 +829,23 @@ func TestUnlockedAttributeReadModifyWriteRPCDetection(t *testing.T) {
 		}
 		for run := 0; run < 2; run++ {
 			before := workers.warnWorker.UnlockedAttributeReadModifyWriteCount()
-			_, err := invokeOnQueue(t, workers.warnQueue, invoke)
+			flowID, err := invokeOnQueue(t, workers.warnQueue, invoke)
 			require.NoError(t, err)
 			require.Equal(t, uint64(2), workers.warnWorker.UnlockedAttributeReadModifyWriteCount()-before)
+			for _, instance := range instances {
+				value, isSet := workers.readWrittenKey(t, flowID, instance)
+				require.True(t, isSet, "warning mode commits instance %s", instance)
+				require.Equal(t, 1, value)
+			}
 		}
 		require.Equal(t, 1, workers.warnLogger.warningCount("RPC.IncrementEntriesExceptE2", "lock-check-entries"))
 
 		before := workers.strictWorker.UnlockedAttributeReadModifyWriteCount()
-		_, err := invokeOnQueue(t, workers.strictQueue, invoke)
+		flowID, err := invokeOnQueue(t, workers.strictQueue, invoke)
+		for _, instance := range instances {
+			_, isSet := workers.readWrittenKey(t, flowID, instance)
+			require.False(t, isSet, "strict mode discards instance %s, including the declared e2", instance)
+		}
 		require.Equal(t, uint64(2), workers.strictWorker.UnlockedAttributeReadModifyWriteCount()-before)
 		var invocationErr *dex.WorkerInvocationError
 		require.ErrorAs(t, err, &invocationErr)

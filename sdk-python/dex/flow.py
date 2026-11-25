@@ -622,7 +622,6 @@ class Registry:
                 ),
                 definition.is_start_step,
                 type(step).wait_for is Step.wait_for,
-                *Registry._step_attribute_lock_scopes(step.get_step_options()),
             )
             registered_steps[step_name] = registered_step
             registered_steps_by_class[step_class] = (
@@ -696,14 +695,39 @@ class Registry:
             attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
-        for registered_step in registered_steps.values():
+        return Registry._with_step_attribute_lock_scopes(registered_flow)
+
+    @staticmethod
+    def _with_step_attribute_lock_scopes(
+        registered_flow: _RegisteredFlow,
+    ) -> _RegisteredFlow:
+        # Reads each Step's options once, for both validation and the lock check snapshot.
+        scoped_steps: dict[str, _RegisteredStep] = {}
+        for step_name, registered_step in registered_flow.steps.items():
+            options = registered_step.step.get_step_options()
             Registry._validate_step_targets(
-                registered_flow,
-                registered_step,
-                registered_step.step.get_step_options(),
-                set(),
+                registered_flow, registered_step, options, set()
             )
-        return registered_flow
+            wait_for_lock_scope, execute_lock_scope = (
+                Registry._step_attribute_lock_scopes(options)
+            )
+            scoped_steps[step_name] = replace(
+                registered_step,
+                wait_for_lock_scope=wait_for_lock_scope,
+                execute_lock_scope=execute_lock_scope,
+            )
+        start_step = registered_flow.start_step
+        return replace(
+            registered_flow,
+            steps=MappingProxyType(scoped_steps),
+            steps_by_class=MappingProxyType(
+                {
+                    step_class: tuple(scoped_steps[step.name] for step in steps)
+                    for step_class, steps in registered_flow.steps_by_class.items()
+                }
+            ),
+            start_step=None if start_step is None else scoped_steps[start_step.name],
+        )
 
     @staticmethod
     def _step_attribute_lock_scopes(

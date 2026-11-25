@@ -392,9 +392,11 @@ def _sync_worker(task_queue: str, is_strict: bool) -> Iterator[Worker]:
                 worker.wait_pull_registered(timeout=30)
                 yield worker
             finally:
-                worker.close()
-                thread.join(timeout=10)
-            assert not thread.is_alive(), "lock check Worker did not stop"
+                try:
+                    worker.close()
+                finally:
+                    thread.join(timeout=10)
+                    assert not thread.is_alive(), "lock check Worker did not stop"
             if failures:
                 raise RuntimeError("lock check Worker failed") from failures[0]
         finally:
@@ -405,39 +407,45 @@ def _sync_worker(task_queue: str, is_strict: bool) -> Iterator[Worker]:
 def _async_worker(task_queue: str, is_strict: bool) -> Iterator[AsyncWorker]:
     with TemporaryDirectory(prefix="dex-python-lock-check-async-") as cache_directory:
         cache = open_blob_cache(BlobCacheConfig(cache_directory, 16 * 1024 * 1024))
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(
-            target=loop.run_forever,
-            name=f"lock-check-async-{task_queue}",
-            daemon=True,
-        )
-        loop_thread.start()
         try:
-
-            async def create_worker() -> AsyncWorker:
-                return AsyncWorker(
-                    _registry(True), cache, _worker_options(task_queue, is_strict)
-                )
-
-            worker = asyncio.run_coroutine_threadsafe(create_worker(), loop).result(
-                timeout=20
+            loop = asyncio.new_event_loop()
+            loop_thread = threading.Thread(
+                target=loop.run_forever,
+                name=f"lock-check-async-{task_queue}",
+                daemon=True,
             )
-            serving = asyncio.run_coroutine_threadsafe(worker.start(), loop)
+            loop_thread.start()
             try:
-                asyncio.run_coroutine_threadsafe(
-                    worker.wait_pull_registered(timeout=30), loop
-                ).result(timeout=40)
-                yield worker
-            finally:
-                asyncio.run_coroutine_threadsafe(worker.close(), loop).result(
+
+                async def create_worker() -> AsyncWorker:
+                    return AsyncWorker(
+                        _registry(True), cache, _worker_options(task_queue, is_strict)
+                    )
+
+                worker = asyncio.run_coroutine_threadsafe(create_worker(), loop).result(
                     timeout=20
                 )
-                serving.result(timeout=20)
+                serving = asyncio.run_coroutine_threadsafe(worker.start(), loop)
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        worker.wait_pull_registered(timeout=30), loop
+                    ).result(timeout=40)
+                    yield worker
+                finally:
+                    try:
+                        asyncio.run_coroutine_threadsafe(worker.close(), loop).result(
+                            timeout=20
+                        )
+                    finally:
+                        serving.result(timeout=20)
+            finally:
+                loop.call_soon_threadsafe(loop.stop)
+                loop_thread.join(timeout=10)
+                is_loop_stopped = not loop_thread.is_alive()
+                if is_loop_stopped:
+                    loop.close()
+                assert is_loop_stopped, "lock check event loop did not stop"
         finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=10)
-            assert not loop_thread.is_alive(), "lock check event loop did not stop"
-            loop.close()
             cache.close()
 
 
@@ -503,6 +511,14 @@ def _run_flow(
 
 def _counter(client: Client, flow_id: str) -> int | None:
     return client.get_attributes(flow_id, COUNTER).get(COUNTER)
+
+
+def _written_value(client: Client, flow_id: str, instance: str | None) -> int | None:
+    """Read the counter for ``None``, or one ``ENTRIES`` instance."""
+    if instance is None:
+        return _counter(client, flow_id)
+    entry = ENTRIES.instance(instance)
+    return client.get_attributes(flow_id, entry).get(entry)
 
 
 def _warning_count(
@@ -594,30 +610,36 @@ def _check_strict_retries_then_recovers(workers: _LockCheckWorkers) -> None:
 
 def _invoke_on_queue(
     client: Client, task_queue: str, invoke: Callable[[str], None]
-) -> str:
+) -> tuple[str, WorkerInvocationError | None]:
+    """Invoke an RPC on a new RPC Flow and return the Flow ID and any Worker error."""
     flow_id = unique_id("py-lock-check-rpc")
     client.start_flow(RPC_FLOW, flow_id, None, StartFlowOptions(task_queue=task_queue))
     try:
         invoke(flow_id)
+    except WorkerInvocationError as error:
+        return flow_id, error
     finally:
         client.stop_flow(flow_id)
-    return flow_id
+    return flow_id, None
 
 
 def _rpc_cases(
     client: Client,
-) -> list[tuple[str, str | None, str | None, Callable[[str], None]]]:
+) -> list[tuple[str, str | None, str | None, str | None, Callable[[str], None]]]:
+    """Return name, handler label, reported Attribute, written instance, and invoker."""
     return [
         (
             "unlocked",
             "rpc.unlocked_increment",
             COUNTER.name,
+            None,
             lambda flow_id: client.invoke_rpc(RPC_FLOW.unlocked_increment, flow_id),
         ),
         (
             "registered-map-load",
             "rpc.registered_load_entry_increment",
             ENTRIES.name,
+            "e1",
             lambda flow_id: client.invoke_rpc(
                 RPC_FLOW.registered_load_entry_increment, flow_id, "e1"
             ),
@@ -626,12 +648,14 @@ def _rpc_cases(
             "locked",
             None,
             None,
+            None,
             lambda flow_id: client.invoke_rpc(RPC_FLOW.locked_increment, flow_id),
         ),
         (
             "runtime-selected-map-lock",
             None,
             None,
+            "e1",
             lambda flow_id: client.invoke_rpc(
                 RPC_FLOW.runtime_selected_entry_increment,
                 flow_id,
@@ -648,54 +672,61 @@ def _rpc_cases(
 def _check_rpc_cases(
     workers: _LockCheckWorkers, caplog: pytest.LogCaptureFixture
 ) -> None:
-    for name, handler, attribute, invoke in _rpc_cases(workers.client):
+    for name, handler, attribute, written_instance, invoke in _rpc_cases(
+        workers.client
+    ):
         before = workers.warn_count()
-        _invoke_on_queue(workers.client, workers.warn_queue, invoke)
+        flow_id, error = _invoke_on_queue(workers.client, workers.warn_queue, invoke)
+        assert error is None, name
         detections = workers.warn_count() - before
         if handler is not None and attribute is not None:
             assert detections == 1, name
             assert _warning_count(caplog, handler, attribute) == 1, name
         else:
             assert detections == 0, name
+        assert _written_value(workers.client, flow_id, written_instance) == 1, name
 
         before = workers.strict_count()
+        flow_id, error = _invoke_on_queue(workers.client, workers.strict_queue, invoke)
         if handler is None or attribute is None:
-            _invoke_on_queue(workers.client, workers.strict_queue, invoke)
+            assert error is None, name
             assert workers.strict_count() - before == 0, name
+            assert _written_value(workers.client, flow_id, written_instance) == 1, name
             continue
-        flow_ids: list[str] = []
-
-        def invoke_and_record(flow_id: str) -> None:
-            flow_ids.append(flow_id)
-            invoke(flow_id)
-
-        with pytest.raises(WorkerInvocationError) as raised:
-            _invoke_on_queue(workers.client, workers.strict_queue, invoke_and_record)
+        assert error is not None, name
         assert workers.strict_count() - before == 1, name
-        assert raised.value.worker_error_type == STRICT_ERROR_TYPE, name
-        assert attribute in raised.value.worker_error_detail, name
-        assert _counter(workers.client, flow_ids[0]) is None, name
+        assert error.worker_error_type == STRICT_ERROR_TYPE, name
+        assert attribute in error.worker_error_detail, name
+        assert _written_value(workers.client, flow_id, written_instance) is None, name
 
 
 def _check_several_map_instances(
     workers: _LockCheckWorkers, caplog: pytest.LogCaptureFixture
 ) -> None:
+    instances = ["e3", "e1", "e2"]
+
     def invoke(flow_id: str) -> None:
         workers.client.invoke_rpc(
-            RPC_FLOW.increment_entries_except_e2, flow_id, ["e3", "e1", "e2"]
+            RPC_FLOW.increment_entries_except_e2, flow_id, instances
         )
 
     for _ in range(2):
         before = workers.warn_count()
-        _invoke_on_queue(workers.client, workers.warn_queue, invoke)
+        flow_id, error = _invoke_on_queue(workers.client, workers.warn_queue, invoke)
+        assert error is None
         assert workers.warn_count() - before == 2
+        for instance in instances:
+            assert _written_value(workers.client, flow_id, instance) == 1, instance
     assert _warning_count(caplog, "rpc.increment_entries_except_e2", ENTRIES.name) == 1
 
     before = workers.strict_count()
-    with pytest.raises(WorkerInvocationError) as raised:
-        _invoke_on_queue(workers.client, workers.strict_queue, invoke)
+    flow_id, error = _invoke_on_queue(workers.client, workers.strict_queue, invoke)
+    assert error is not None
     assert workers.strict_count() - before == 2
-    detail = raised.value.worker_error_detail
+    # Strict mode discards every write of the call, including the declared e2.
+    for instance in instances:
+        assert _written_value(workers.client, flow_id, instance) is None, instance
+    detail = error.worker_error_detail
     assert "instance 'e2'" not in detail
     assert 0 <= detail.index("instance 'e1'") < detail.index("instance 'e3'")
 
