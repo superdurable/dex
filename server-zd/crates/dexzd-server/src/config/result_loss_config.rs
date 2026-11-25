@@ -59,7 +59,7 @@ pub struct WorkerResultLossConfig {
     /// Share of RPC results to drop the same way; the RPC caller gets `UNAVAILABLE`. Defaults to
     /// none.
     pub rpc_results: ResultLossShare,
-    /// Seed of every drop decision; the same seed drops the same results. Defaults to 0.
+    /// Seed for Worker result loss decisions. Defaults to 0.
     pub seed: u64,
 }
 

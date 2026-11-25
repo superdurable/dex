@@ -76,8 +76,7 @@ pub struct WorkerResultLossOptions {
         value_parser = ResultLossShare::parse_fraction
     )]
     pub inject_rpc_result_loss: ResultLossShare,
-    /// Development only: the seed of the drop decisions. The same seed drops the same results.
-    /// Defaults to 0.
+    /// Development only: seed for Worker result loss decisions. Defaults to 0.
     #[arg(long, value_name = "SEED", default_value_t = 0)]
     pub inject_result_loss_seed: u64,
 }

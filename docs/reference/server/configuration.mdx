@@ -449,11 +449,13 @@ policy runs, as after a real crash.
 Nothing the dropped result carried takes effect: its Attribute writes,
 Channel publications, and Step decision are discarded. Stream writes and
 heartbeat checkpoints that the Worker sent before the result still take
-effect, as in a real crash. Only a WaitFor or Execute result that passes the
-server's checks is dropped. A Worker error, such as an exception in the
-handler, and a result that fails the checks, such as an Execute result
-without a Step decision or with a value over the size limit, keep their own
-failure.
+effect, as in a real crash. Step results are eligible for loss after the
+server checks their response fields and value sizes, before it tries to save
+their effects. A Worker error, such as an exception in the handler, and a
+result that fails those checks, such as an Execute result without a Step
+decision or with a value over the size limit, keep their own failure. A
+dropped result can hide a rejection that would occur while saving its
+effects, such as a rejected SubFlow start.
 
 A dropped RPC result answers the RPC caller with **UNAVAILABLE**, and
 nothing commits. A transactional RPC retried with the same request ID runs
@@ -463,21 +465,20 @@ differ: while the Worker has sent no output, matching may give the RPC to
 another Worker within the dispatch wait. The injection always answers
 **UNAVAILABLE**.
 
-The decisions are reproducible. The same seed drops the same results:
+The decisions are reproducible. The same drop fraction, seed, and result
+identity give the same drop decision:
 
 - A Step result is identified by its Flow ID, the Step execution ID that
-  Dex assigned, the method, the run attempt, and the attempt number. The
-  same seed with the same assigned Step execution IDs and attempts drops the
-  same results. Timing, concurrency, other Flows, and the server-generated
-  run ID do not change the decision.
+  Dex assigned, the method, the run attempt, and the attempt number.
+  Timing, concurrency, other Flows, and the server-generated run ID do not
+  change the decision.
 - An RPC result is identified by its Flow ID, RPC name, and its position
   among the successful Worker responses to that RPC on that Flow ID since
-  the server started. The same seed with the same order of successful
-  responses drops the same calls. Concurrent calls, Worker errors, and a
-  server restart can change that order.
+  the server started. Concurrent calls, Worker errors, and a server restart
+  can change that position.
 
-Give the Flows in such a test fixed Flow IDs to reproduce a run. A unique
-Flow ID per run gives each run a different drop pattern. A real crash can
+Give the Flows in such a test fixed Flow IDs to reproduce the decisions. A
+unique Flow ID per run changes the input to each drop decision. A real crash can
 lose more than one result, and it also closes the Worker's connection; this
 injection drops one result at a time and keeps the Worker connected.
 

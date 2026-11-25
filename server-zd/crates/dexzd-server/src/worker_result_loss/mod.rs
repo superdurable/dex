@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Development-only Worker result loss: drops seeded Worker results at the transport, like a Worker
-//! crash after its handler ran.
+//! Development-only fault injection for Step and RPC results.
 
 mod rpc_results;
 mod step_results;

@@ -111,8 +111,9 @@ pub trait MethodDispatchSession: Send {
 
     /// Returns the disconnect detail when development fault injection drops this task's result.
     ///
-    /// Returns `None`, the default, to record a valid result; `Some` fails a valid result as a
-    /// Worker disconnect with that detail. Invalid results fail as usual either way.
+    /// Returns `None`, the default, to record a valid result; `Some` fails a result that passed
+    /// the Worker result checks as a Worker disconnect with that detail. Results those checks
+    /// reject fail as usual either way.
     fn injected_result_loss(&self) -> Option<&str> {
         None
     }

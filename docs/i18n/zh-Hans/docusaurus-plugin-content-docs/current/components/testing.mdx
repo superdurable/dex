@@ -423,9 +423,9 @@ dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
 
 重试策略只允许一次 attempt 的 Step 在这里会运行它的 failure policy，就像真实崩溃之后一样。
 
-seed 和每个结果的 Flow ID、Step execution ID、方法、run attempt、attempt 一起决定丢弃哪些结果。使用同样的 seed，并且结果的 Flow ID、Step execution ID、方法、run attempt 和 attempt 都相同时，运行才能复现。保留失败测试用过的 Flow ID；Flow 按同样的顺序调度同样的 Step 时，Step execution ID 才会相同。
+相同的丢弃比例、seed 和结果标识会产生相同的丢弃决定。Step 结果的标识是它的 Flow ID、Step execution ID、方法、run attempt 和 attempt。要再次得到相同的决定，保持丢弃比例、seed 和失败测试用过的 Flow ID 不变。Flow 按同样的顺序调度同样的 Step 时，Step execution ID 才会相同。
 
-**-inject-rpc-result-loss** 用同样的方式丢弃 RPC 结果。RPC 的调用方会收到 **UNAVAILABLE**，由调用方决定是否重试。对 RPC 来说，成功的 RPC 响应按同样的顺序到达时，同样的 seed 会丢弃同样的调用。并发调用和 Worker 错误会改变这个顺序。
+**-inject-rpc-result-loss** 用同样的方式丢弃 RPC 结果。RPC 的调用方会收到 **UNAVAILABLE**，由调用方决定是否重试。RPC 结果的标识是它的 Flow ID、RPC 名称，以及成功 RPC 响应的顺序。并发调用和 Worker 错误会改变这个顺序。
 
 [Worker result loss injection](/reference/server/configuration#dev-worker-result-loss)（英文）列出了确切的规则。
 

@@ -182,7 +182,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		0,
 		"testing only: fraction from 0 to 1 of Worker RPC results to drop; the caller gets UNAVAILABLE",
 	)
-	flags.Uint64Var(&cfg.ResultLossSeed, "inject-result-loss-seed", 0, "seed of the result loss; the same seed drops the same results")
+	flags.Uint64Var(&cfg.ResultLossSeed, "inject-result-loss-seed", 0, "seed for Worker result loss decisions")
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
 	flags.StringVar(&cfg.AllowedHosts, "allowed-hosts", "", "comma-separated extra host names that Dex Web /api requests may use")
 	flags.StringVar(
