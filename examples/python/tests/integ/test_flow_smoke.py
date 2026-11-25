@@ -185,6 +185,13 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "patterns/inbound-event-loop",
+            lambda c: trigger_get(
+                "/patterns/inbound-event-loop/start",
+                {"workflowId": new_id("inbound-event-loop")},
+            ),
+        ),
+        FlowSmokeEntry(
             "patterns/parallel/static",
             lambda c: trigger_get(
                 "/patterns/parallel/start/static",

@@ -41,6 +41,9 @@ from dex_examples.patterns.hash_partitioned_attribute_map.controller import (
 from dex_examples.patterns.inactiveness_tracker_timer.controller import (
     create_inactiveness_tracker_timer_blueprint,
 )
+from dex_examples.patterns.inbound_event_loop.controller import (
+    create_inbound_event_loop_blueprint,
+)
 from dex_examples.patterns.interruptible.controller import (
     create_interruptible_blueprint,
 )
@@ -146,6 +149,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     )
     quart_app.register_blueprint(create_manual_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_inactiveness_tracker_timer_blueprint(app_state))
+    quart_app.register_blueprint(create_inbound_event_loop_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_subflows_blueprint(app_state))
     quart_app.register_blueprint(create_recovery_blueprint(app_state))

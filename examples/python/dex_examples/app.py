@@ -96,6 +96,9 @@ from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber
 from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow import (
     InactivenessTrackerFlow,
 )
+from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
+    SupportTicketFlow,
+)
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
@@ -210,6 +213,7 @@ class ExampleApp:
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
+        self.support_ticket = SupportTicketFlow()
         self.user_profile = UserProfileFlow()
         self.chunked_subscriber = ChunkedSubscriberFlow()
         self.customer_directory = CustomerDirectoryFlow()
@@ -284,6 +288,7 @@ class ExampleApp:
             self.failure_recovery,
             self.reminder,
             self.inactiveness_tracker,
+            self.support_ticket,
             self.user_profile,
             self.chunked_subscriber,
             self.customer_directory,
