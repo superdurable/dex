@@ -100,6 +100,7 @@ var (
 	PollingJobs           *patternspolling.FakeJobService
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
+	AccountArchive        *entityflow.FakeAccountArchive
 	CustomerAccount       *entityflow.CustomerAccountFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
@@ -186,7 +187,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
-	CustomerAccount = entityflow.NewCustomerAccountFlow()
+	AccountArchive = entityflow.NewFakeAccountArchive()
+	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()

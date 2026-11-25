@@ -79,7 +79,8 @@ func OpenAccountOptions(contact ContactDetails) (dex.StartFlowOptions, error) {
 		return dex.StartFlowOptions{}, err
 	}
 	return dex.StartFlowOptions{
-		Attributes: []dex.InitialAttributeDef{displayName, email, creditBalance, retired},
+		IDReusePolicy: dex.IDReuseDisallow,
+		Attributes:    []dex.InitialAttributeDef{displayName, email, creditBalance, retired},
 	}, nil
 }
 

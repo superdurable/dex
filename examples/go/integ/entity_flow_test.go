@@ -95,12 +95,46 @@ func TestEntityFlowKeepsOneCustomerAccountUntilRetired(t *testing.T) {
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.AdjustCreditBalance,
 		entityflow.CreditAdjustment{Amount: -5 * entityFlowConcurrentDeposits}, nil)
 	require.NoError(t, err)
+	registry.AccountArchive.MakeUnavailable(flowID)
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.RetireAccount, nil, nil)
 	require.NoError(t, err)
+	requireEntityFlowRunning(t, ctx, flowID)
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.AdjustCreditBalance,
 		entityflow.CreditAdjustment{Amount: 10}, nil)
-	require.Error(t, err)
-	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
+	require.ErrorContains(t, err, "account is retired")
+	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.UpdateContactDetails,
+		entityflow.ContactDetails{DisplayName: "Ada Byron", Email: "ada@byron.example"}, nil)
+	require.ErrorContains(t, err, "account is retired")
+	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.RetireAccount, nil, nil)
+	require.NoError(t, err)
+	requireEntityFlowRunning(t, ctx, flowID)
+
+	registry.AccountArchive.MakeAvailable(flowID)
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancelClose()
+	result, err := integClient.WaitForFlow(closeCtx, flowID, dex.WaitForFlowOptions{})
+	require.NoError(t, err)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Equal(t, 1, registry.AccountArchive.ArchiveCount(flowID))
+	var retired bool
+	creditBalance = -1
+	_, err = integClient.GetAttributes(ctx, flowID,
+		dex.ReadAttribute(entityflow.CreditBalance, &creditBalance),
+		dex.ReadAttribute(entityflow.Retired, &retired),
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), creditBalance)
+	require.True(t, retired)
+
+	_, err = integClient.StartFlow(ctx, registry.CustomerAccount, flowID, nil, options)
+	require.ErrorAs(t, err, &alreadyStarted)
+}
+
+func requireEntityFlowRunning(t *testing.T, ctx context.Context, flowID string) {
+	t.Helper()
+	info, err := integClient.DescribeFlow(ctx, flowID)
+	require.NoError(t, err)
+	require.Equal(t, dex.FlowRunning, info.Status)
 }
 
 func depositCreditsWithRetry(ctx context.Context, flowID string, amount int64) error {

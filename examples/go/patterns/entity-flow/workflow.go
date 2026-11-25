@@ -23,6 +23,7 @@ package entityflow
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -59,24 +60,25 @@ type CreditAdjustment struct {
 
 type CustomerAccountFlow struct {
 	dex.FlowDefaults
+	archive *FakeAccountArchive
 }
 
-func NewCustomerAccountFlow() *CustomerAccountFlow {
-	return &CustomerAccountFlow{}
+func NewCustomerAccountFlow(archive *FakeAccountArchive) *CustomerAccountFlow {
+	return &CustomerAccountFlow{archive: archive}
 }
 
-func (*CustomerAccountFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStep(CloseAccountStep{})}
+func (flow *CustomerAccountFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStep(CloseAccountStep{archive: flow.archive})}
 }
 
 func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
-	balanceLock := &dex.RPCOptions{
+	accountLock := &dex.RPCOptions{
 		LockAttributes: []dex.AttributeLock{dex.LockAttribute(CreditBalance)},
 	}
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.UpdateContactDetails, nil),
-		dex.DefineRPC(flow.AdjustCreditBalance, balanceLock),
-		dex.DefineRPC(flow.RetireAccount, balanceLock),
+		dex.DefineRPC(flow.UpdateContactDetails, accountLock),
+		dex.DefineRPC(flow.AdjustCreditBalance, accountLock),
+		dex.DefineRPC(flow.RetireAccount, accountLock),
 	}
 }
 
@@ -90,6 +92,9 @@ func (*CustomerAccountFlow) UpdateContactDetails(
 	ctx dex.Context,
 	contact ContactDetails,
 ) (*dex.RPCResult[dex.None], error) {
+	if err := requireOpenAccount(ctx); err != nil {
+		return nil, err
+	}
 	if err := contact.Validate(); err != nil {
 		return nil, err
 	}
@@ -106,12 +111,8 @@ func (*CustomerAccountFlow) AdjustCreditBalance(
 	ctx dex.Context,
 	adjustment CreditAdjustment,
 ) (*dex.RPCResult[int64], error) {
-	retired, err := Retired.Get(ctx)
-	if err != nil {
+	if err := requireOpenAccount(ctx); err != nil {
 		return nil, err
-	}
-	if retired {
-		return nil, errors.New("account is retired")
 	}
 	if adjustment.Amount == 0 {
 		return nil, errors.New("amount must not be zero")
@@ -134,6 +135,13 @@ func (*CustomerAccountFlow) RetireAccount(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if retired {
+		return &dex.RPCResult[dex.None]{}, nil
+	}
 	balance, err := CreditBalance.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -149,13 +157,37 @@ func (*CustomerAccountFlow) RetireAccount(
 	}, nil
 }
 
-// dex:group group-id:account-retirement group-label:"Account retirement"
-// dex:explanation text:"Complete the account Flow after the retire request passes its checks."
-type CloseAccountStep struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+func requireOpenAccount(ctx dex.Context) error {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return errors.New("account is retired")
+	}
+	return nil
 }
 
-func (CloseAccountStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+// dex:group group-id:account-retirement group-label:"Account retirement"
+// dex:explanation text:"Archive the retired account, then complete its Flow."
+type CloseAccountStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	archive *FakeAccountArchive
+}
+
+func (CloseAccountStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval: time.Second,
+			MaximumInterval: time.Second,
+		},
+	}
+}
+
+func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if err := step.archive.ArchiveAccount(ctx.FlowID()); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete(nil), nil
 }
 
