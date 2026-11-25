@@ -14,13 +14,12 @@ use futures::future::BoxFuture;
 
 use super::ResultLossDecisions;
 
-/// Wraps the Worker RPC transport so that a dropped RPC result arrives as a Worker disconnect,
-/// which the caller sees as `UNAVAILABLE` with nothing committed.
+/// Wraps the Worker RPC transport so a dropped RPC result reaches the caller as `UNAVAILABLE`,
+/// with nothing committed.
 pub(super) struct ResultLossRpcInvoker {
     inner: Arc<dyn RpcWorkerInvoker>,
     decisions: ResultLossDecisions,
-    /// Worker RPC results seen so far per Flow ID and RPC name. An RPC has no attempt number, so
-    /// this count tells a retried call from the first one. It lives as long as the server node.
+    /// Worker RPC results per Flow ID and RPC name; RPCs have no attempt number to tell retries apart.
     result_counts: Mutex<BTreeMap<(String, String), u64>>,
 }
 

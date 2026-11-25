@@ -18,14 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-/**
- * This test flow calls a counting fake external service from every Execute and RPC handler.
- *
- * Pipeline: S1 -> S2 -> S3. Each Execute charges the fake service once and appends its Step
- * type to the Step input; S3 completes the Flow with the joined path.
- * Hold: WaitFor waits on a Channel that nobody publishes, so the Flow stays open for RPCs.
- * RPC "charge": charges the fake service and writes the Attribute "charge-<input>".
- */
+// Execute and RPC handlers call a counting fake service; S1 -> S2 -> S3 completes, Hold stays open.
 const (
 	FlowType     = "result_loss"
 	Step1        = "S1"

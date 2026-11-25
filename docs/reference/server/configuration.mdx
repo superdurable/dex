@@ -438,11 +438,13 @@ it, and **local** and **serve** reject the flags. At startup, server-zd logs
 one warning with the fractions and the seed.
 
 A dropped Step result fails its attempt the way a Worker disconnect does.
-The attempt's failure detail starts with **WORKER_DISCONNECTED** and names
-the fault injection. The attempt counts against the Step's retry policy, and
-the next attempt starts after the policy's backoff. Nothing the result
-carried takes effect: its Attribute writes, Channel publications, and Step
-decision are discarded. When the retry policy runs out, the Step fails as it
+The attempt's failure detail starts with
+**DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED** and names the fault
+injection. The attempt counts against the Step's retry policy, and the next
+attempt starts after the policy's backoff. Nothing the result carried takes
+effect: its Attribute writes, Channel publications, and Step decision are
+discarded. Stream writes and heartbeat checkpoints that the Worker sent
+before the result still take effect, as in a real crash. When the retry policy runs out, the Step fails as it
 would after a real crash. Only results are dropped. A Worker error, such as
 an exception in the handler, arrives unchanged.
 

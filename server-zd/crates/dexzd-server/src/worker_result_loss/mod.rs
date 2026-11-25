@@ -6,9 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Development-only Worker result loss: `dex-server-zd dev` drops a seeded share of Worker
-//! results at the Worker transport, as if the Worker crashed after its handler ran and before its
-//! result arrived. The engine then sees the same Worker disconnect that a real crash produces.
+//! Development-only Worker result loss: drops seeded Worker results at the transport, like a Worker
+//! crash after its handler ran.
 
 mod rpc_results;
 mod step_results;
@@ -52,8 +51,8 @@ pub(crate) fn rpc_invoker(
     Arc::new(ResultLossRpcInvoker::new(invoker, decisions))
 }
 
-/// Logs one warning at startup when `config` drops Worker results, so that nobody mistakes the
-/// injected retries for real failures.
+/// Logs one startup warning when `config` drops Worker results, so injected retries are not
+/// mistaken for real failures.
 pub(crate) fn warn_when_enabled(config: WorkerResultLossConfig) {
     if !config.is_enabled() {
         return;
@@ -66,8 +65,8 @@ pub(crate) fn warn_when_enabled(config: WorkerResultLossConfig) {
     );
 }
 
-/// Decides which Worker results to drop from a seed and each result's identity, so that the
-/// decision never depends on timing, concurrency, or other Flows.
+/// Drops a Worker result by hashing the seed with the result's identity, never timing or
+/// concurrency.
 #[derive(Clone, Copy, Debug)]
 struct ResultLossDecisions {
     share: ResultLossShare,

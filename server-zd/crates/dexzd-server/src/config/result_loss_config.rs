@@ -50,8 +50,7 @@ impl ResultLossShare {
     }
 }
 
-/// Development-only Worker result loss of `dex-server-zd dev`. Only the `dev` command-line flags
-/// set it; YAML cannot, so `local` and `serve` never drop results.
+/// Development-only Worker result loss; only `dex-server-zd dev` flags set it, never YAML.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WorkerResultLossConfig {
     /// Share of WaitFor and Execute results to drop, as if the Worker crashed after the method

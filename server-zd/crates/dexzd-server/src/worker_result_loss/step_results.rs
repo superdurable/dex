@@ -24,9 +24,6 @@ use futures::future::BoxFuture;
 use super::ResultLossDecisions;
 
 /// Wraps Worker matching so that a dropped Step method result arrives as a Worker disconnect.
-///
-/// Both ways to reach a Worker slot, a direct reservation and a Claim of a queued attempt, are
-/// wrapped, so whether an attempt was queued never changes the decision.
 pub(super) struct ResultLossMethodDispatcher {
     inner: Arc<dyn MethodDispatcher>,
     decisions: ResultLossDecisions,
@@ -79,6 +76,7 @@ impl MethodDispatcher for ResultLossMethodDispatcher {
     fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
         Box::pin(async move {
             let claim = self.inner.next_claim().await?;
+            // Queued attempts reach Workers through Claims, so queueing never changes a decision.
             Some(MethodClaim {
                 stream: self.wrap_stream(claim.stream),
                 ..claim
@@ -187,8 +185,7 @@ struct DroppedAttempt {
 impl DroppedAttempt {
     /// Returns the attempt of `request` when its result is dropped.
     ///
-    /// The identity is the Flow ID, Step execution ID, method, run attempt, and attempt. It leaves
-    /// out the server-minted run ID, so the same seed drops the same attempts in every new run.
+    /// The identity leaves out the server-minted run ID, so every new run drops the same attempts.
     fn decide(request: &MethodRequest, decisions: ResultLossDecisions) -> Option<Self> {
         let (method, context) = match request {
             MethodRequest::WaitFor(request) => ("waitFor", request.context.as_ref()),

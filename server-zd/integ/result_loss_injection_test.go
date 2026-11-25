@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/server-zd/integ/workflow/result_loss"
@@ -22,8 +23,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Every run starts its own server, so the fixed Flow IDs never collide. The drop decisions hash
-// the Flow ID, so a fixed ID is what makes the same seed drop the same results in every run.
+// Drop decisions hash the Flow ID, so reproducible runs need fixed IDs; each run has its own server.
 const (
 	resultLossPipelineFlowID = "result-loss-pipeline"
 	resultLossHoldFlowID     = "result-loss-hold"
@@ -107,20 +107,19 @@ func waitForCompletedFlow(
 ) *dexpb.FlowResult {
 	t.Helper()
 	var response *dexpb.FlowResult
-	require.Eventually(t, func() bool {
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		var err error
 		response, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 			FlowId: flowID, NeedsResults: true, WaitTimeSeconds: 10,
 		})
-		require.NoError(t, err)
-		return response.GetFlowStatus() != dexpb.FlowStatus_FLOW_STATUS_RUNNING
+		require.NoError(collect, err)
+		require.NotEqual(collect, dexpb.FlowStatus_FLOW_STATUS_RUNNING, response.GetFlowStatus())
 	}, 90*time.Second, 100*time.Millisecond)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	return response
 }
 
-// runResultLossRPCs invokes the charge RPC resultLossRPCCalls times, retrying each call on
-// UNAVAILABLE as a careful caller would, on a new server started with devFlags.
+// runResultLossRPCs calls the charge RPC on a new server started with devFlags, retrying each UNAVAILABLE answer.
 //
 // Returns the fake service's RPC call count and the UNAVAILABLE answers of each logical call.
 func runResultLossRPCs(t *testing.T, devFlags []string) (int64, []int) {
@@ -145,13 +144,16 @@ func runResultLossRPCs(t *testing.T, devFlags []string) (int64, []int) {
 	for call := range resultLossRPCCalls {
 		input := fmt.Sprintf("c%d", call+1)
 		expectedAttributes = append(expectedAttributes, result_loss.ChargePrefix+input)
+		// A careful caller retries with the same request ID; nothing was recorded, so the handler runs again.
+		requestID := newRequestID()
 		for {
 			response, rpcErr := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-				RequestId:      newRequestID(),
-				FlowId:         resultLossHoldFlowID,
-				RpcName:        result_loss.RPCCharge,
-				Input:          stringValue(input),
-				TimeoutSeconds: 10,
+				RequestId:       requestID,
+				FlowId:          resultLossHoldFlowID,
+				RpcName:         result_loss.RPCCharge,
+				Input:           stringValue(input),
+				TimeoutSeconds:  10,
+				IsTransactional: true,
 			})
 			if status.Code(rpcErr) == codes.Unavailable {
 				unavailableAnswers[call]++

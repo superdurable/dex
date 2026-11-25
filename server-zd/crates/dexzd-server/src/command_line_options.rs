@@ -51,8 +51,8 @@ pub struct DevServerCommandOptions {
     pub worker_result_loss: WorkerResultLossOptions,
 }
 
-/// Flags of `dex-server-zd dev` that drop Worker results, as if the Worker crashed after its
-/// method or RPC handler ran and before its result reached the server.
+/// Flags of `dex-server-zd dev` that drop Worker results, as if the Worker crashed after running
+/// the handler.
 #[derive(Debug, Args)]
 pub struct WorkerResultLossOptions {
     /// Development only: the fraction, from 0 to 1, of Worker WaitFor and Execute results to
@@ -302,18 +302,23 @@ mod tests {
                 "--inject-step-result-loss {value:?} must be rejected"
             );
         }
-        for command in ["local", "serve"] {
+        for arguments in [
+            ["local", "--data-dir", "/tmp/zd"],
+            ["serve", "--config", "/tmp/zd.yaml"],
+        ] {
+            let command = arguments[0];
             assert!(
-                CommandLineOptions::try_parse_from([
-                    "dex-server-zd",
-                    command,
-                    "--data-dir",
-                    "/tmp/zd",
-                    "--config",
-                    "/tmp/zd.yaml",
-                    "--inject-step-result-loss",
-                    "0.5",
-                ])
+                CommandLineOptions::try_parse_from(["dex-server-zd"].into_iter().chain(arguments))
+                    .is_ok(),
+                "{command} parses without the flag"
+            );
+            assert!(
+                CommandLineOptions::try_parse_from(
+                    ["dex-server-zd"]
+                        .into_iter()
+                        .chain(arguments)
+                        .chain(["--inject-step-result-loss", "0.5"])
+                )
                 .is_err(),
                 "{command} must reject --inject-step-result-loss"
             );
