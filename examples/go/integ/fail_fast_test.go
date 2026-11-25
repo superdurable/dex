@@ -39,8 +39,11 @@ func TestFailFastRoutesRejectedBankAccountAfterOneAttempt(t *testing.T) {
 
 	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+	var output string
+	require.NoError(t, result.Completions[0].Output.Decode(&output))
+	require.Equal(t, "rejected: bank account is invalid", output)
 	require.Equal(t, failfast.PayoutOutcome{
-		Status: "REJECTED", Detail: "bank account not-a-bank-account is invalid", SubmitAttempt: 1,
+		Status: "REJECTED", Detail: "bank account is invalid", SubmitAttempt: 1,
 	}, readPayoutOutcome(t, flowID))
 	require.Equal(t, 1, registry.PaymentProvider.CountSubmissions(flowID))
 }

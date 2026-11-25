@@ -49,14 +49,11 @@ test("failFastRoutesRejectedBankAccountAfterOneAttempt", async () => {
 
   const result = await environment.client.waitForFlow(flowId, 45_000);
   assert.equal(result.status, "completed");
-  assert.equal(
-    result.singleOutput(stringCodec),
-    "rejected: bank account not-a-bank-account is invalid",
-  );
+  assert.equal(result.singleOutput(stringCodec), "rejected: bank account is invalid");
   const [outcome] = await environment.client.getAttributes(flowId, payoutOutcome);
   assert.deepEqual(outcome, {
     status: "REJECTED",
-    detail: "bank account not-a-bank-account is invalid",
+    detail: "bank account is invalid",
     submitAttempt: 1,
   });
   assert.equal(environment.paymentProvider.countSubmissions(flowId), 1);

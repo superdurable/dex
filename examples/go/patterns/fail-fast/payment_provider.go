@@ -22,7 +22,6 @@ package failfast
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 )
 
@@ -44,7 +43,7 @@ func (err *PayoutRejectedError) Error() string {
 var ErrPayoutTimeout = errors.New("payment provider timed out")
 
 // FakePaymentProvider stands in for a payment provider API.
-// It rejects a bank account that is not eight digits at once.
+// It accepts only a bank account of eight ASCII digits and rejects any other at once.
 // It times out on the first submission of every valid claim, then pays it.
 type FakePaymentProvider struct {
 	mutex       sync.Mutex
@@ -62,7 +61,7 @@ func (provider *FakePaymentProvider) SubmitPayout(claimID string, claim ExpenseC
 	submissions := provider.submissions[claimID]
 	provider.mutex.Unlock()
 	if !isEightDigits(claim.BankAccount) {
-		return "", &PayoutRejectedError{Reason: fmt.Sprintf("bank account %s is invalid", claim.BankAccount)}
+		return "", &PayoutRejectedError{Reason: "bank account is invalid"}
 	}
 	if submissions == 1 {
 		return "", ErrPayoutTimeout

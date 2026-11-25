@@ -16,13 +16,12 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-
-@dataclass
-class ExpenseClaim:
-    amount_cents: int
-    bank_account: str
+if TYPE_CHECKING:
+    from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+        ExpenseClaim,
+    )
 
 
 class PayoutRejectedError(Exception):
@@ -36,8 +35,9 @@ class PayoutTimeoutError(Exception):
 class FakePaymentProvider:
     """Stands in for a payment provider API.
 
-    It rejects a bank account that is not eight digits at once. It times out on
-    the first submission of every valid claim, then pays it.
+    It accepts only a bank account of eight ASCII digits and rejects any other
+    at once. It times out on the first submission of every valid claim, then
+    pays it.
     """
 
     def __init__(self) -> None:
@@ -49,8 +49,9 @@ class FakePaymentProvider:
         with self._lock:
             self._submissions[claim_id] += 1
             submissions = self._submissions[claim_id]
-        if not (len(claim.bank_account) == 8 and claim.bank_account.isdigit()):
-            raise PayoutRejectedError(f"bank account {claim.bank_account} is invalid")
+        account = claim.bank_account
+        if not (len(account) == 8 and account.isascii() and account.isdigit()):
+            raise PayoutRejectedError("bank account is invalid")
         if submissions == 1:
             raise PayoutTimeoutError("payment provider timed out")
         return f"payout-{claim_id}"

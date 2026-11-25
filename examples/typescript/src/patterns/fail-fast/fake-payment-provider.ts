@@ -27,7 +27,7 @@ export class PayoutTimeoutError extends Error {}
 
 /**
  * Stands in for a payment provider API.
- * It rejects a bank account that is not eight digits at once.
+ * It accepts only a bank account of eight ASCII digits and rejects any other at once.
  * It times out on the first submission of every valid claim, then pays it.
  */
 export class FakePaymentProvider {
@@ -38,7 +38,7 @@ export class FakePaymentProvider {
     const submissions = (this.submissions.get(claimId) ?? 0) + 1;
     this.submissions.set(claimId, submissions);
     if (!/^\d{8}$/.test(claim.bankAccount)) {
-      throw new PayoutRejectedError(`bank account ${claim.bankAccount} is invalid`);
+      throw new PayoutRejectedError("bank account is invalid");
     }
     if (submissions === 1) {
       throw new PayoutTimeoutError("payment provider timed out");

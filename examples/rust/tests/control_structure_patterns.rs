@@ -322,13 +322,13 @@ fn fail_fast_routes_a_rejected_bank_account_after_one_attempt() {
     assert_eq!(completion_step_types(&result), ["RecordRejectedClaim"]);
     assert_eq!(
         outputs_of::<String>(&result, "RecordRejectedClaim"),
-        ["rejected: bank account not-a-bank-account is invalid"]
+        ["rejected: bank account is invalid"]
     );
     assert_eq!(
         environment.payout_outcome(&flow_id),
         PayoutOutcome {
             status: "REJECTED".to_string(),
-            detail: "bank account not-a-bank-account is invalid".to_string(),
+            detail: "bank account is invalid".to_string(),
             submit_attempt: 1,
         }
     );

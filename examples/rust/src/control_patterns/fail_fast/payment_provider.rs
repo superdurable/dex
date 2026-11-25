@@ -46,7 +46,7 @@ impl Display for PayoutError {
 impl Error for PayoutError {}
 
 /// FakePaymentProvider stands in for a payment provider API.
-/// It rejects a bank account that is not eight digits at once.
+/// It accepts only a bank account of eight ASCII digits and rejects any other at once.
 /// It times out on the first submission of every valid claim, then pays it.
 #[derive(Default)]
 pub struct FakePaymentProvider {
@@ -76,7 +76,7 @@ impl FakePaymentProvider {
                 .all(|character| character.is_ascii_digit());
         if !is_eight_digits {
             return Err(PayoutError::Rejected {
-                reason: format!("bank account {} is invalid", claim.bank_account),
+                reason: "bank account is invalid".to_string(),
             });
         }
         if submissions == 1 {

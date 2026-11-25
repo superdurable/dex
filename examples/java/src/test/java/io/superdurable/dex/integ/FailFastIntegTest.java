@@ -42,11 +42,9 @@ public class FailFastIntegTest {
 
         final FlowResult result = environment.client().waitForFlow(flowId, Duration.ofSeconds(45));
         assertEquals(FlowStatus.COMPLETED, result.getStatus());
+        assertEquals("rejected: bank account is invalid", result.getSingleOutput(String.class));
         assertEquals(
-                "rejected: bank account not-a-bank-account is invalid",
-                result.getSingleOutput(String.class));
-        assertEquals(
-                new PayoutOutcome("REJECTED", "bank account not-a-bank-account is invalid", 1),
+                new PayoutOutcome("REJECTED", "bank account is invalid", 1),
                 readPayoutOutcome(environment, flowId));
         assertEquals(1, environment.fakePaymentProvider().countSubmissions(flowId));
     }

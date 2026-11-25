@@ -23,7 +23,7 @@ import java.util.Map;
 
 /**
  * Stands in for a payment provider API.
- * It rejects a bank account that is not eight digits at once.
+ * It accepts only a bank account of eight ASCII digits and rejects any other at once.
  * It times out on the first submission of every valid claim, then pays it.
  */
 @Component
@@ -51,7 +51,7 @@ public class FakePaymentProvider {
             count = submissions.merge(claimId, 1, Integer::sum);
         }
         if (!claim.bankAccount().matches("\\d{8}")) {
-            throw new PayoutRejectedException("bank account " + claim.bankAccount() + " is invalid");
+            throw new PayoutRejectedException("bank account is invalid");
         }
         if (count == 1) {
             throw new PayoutTimeoutException("payment provider timed out");

@@ -20,8 +20,10 @@ from quart import Blueprint, Response, abort, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.fail_fast.expense_reimbursement_flow import PAYOUT_OUTCOME
-from dex_examples.patterns.fail_fast.payment_provider import ExpenseClaim
+from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+    PAYOUT_OUTCOME,
+    ExpenseClaim,
+)
 from dex_examples.shared.query import required_int_query, required_query
 
 

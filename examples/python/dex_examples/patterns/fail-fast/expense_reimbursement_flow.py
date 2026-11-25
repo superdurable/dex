@@ -32,10 +32,15 @@ from dex import (
 )
 
 from dex_examples.patterns.fail_fast.payment_provider import (
-    ExpenseClaim,
     FakePaymentProvider,
     PayoutRejectedError,
 )
+
+
+@dataclass
+class ExpenseClaim:
+    amount_cents: int
+    bank_account: str
 
 
 @dataclass
