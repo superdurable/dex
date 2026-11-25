@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-10T21:14:31Z",
+  "generatedAt": "2026-11-25T20:54:53Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -458,6 +458,23 @@
     },
     {
       "id": "edge:0011",
+      "kind": "resource_lock",
+      "from": "rpc:swap",
+      "to": "resource:attribute:OrchestrationFlow.data",
+      "label": "lock",
+      "span": {
+        "startLine": 139,
+        "startColumn": 27,
+        "endLine": 139,
+        "endColumn": 38
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "swap"
+      }
+    },
+    {
+      "id": "edge:0012",
       "kind": "resource_write",
       "from": "rpc:swap",
       "to": "resource:attribute:OrchestrationFlow.data",
@@ -473,7 +490,7 @@
       }
     },
     {
-      "id": "edge:0012",
+      "id": "edge:0013",
       "kind": "resource_write",
       "from": "step:CallAPI1",
       "to": "resource:attribute:OrchestrationFlow.data",

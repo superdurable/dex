@@ -28,6 +28,7 @@ from dex import (
     StepDecision,
     StepList,
     StepMovement,
+    StepOptions,
     Timer,
     Wait,
     dead_end,
@@ -81,14 +82,30 @@ class Reminder(Step[None]):
         if status is not Status.INITIATED:
             return dead_end()
         if self.flow.opt_out_reminder.results(context):
-            self.flow.update_status(context, status, "user opted out of reminders")
-            return dead_end()
+            return go_to(RecordReminderOptOut, None)
         self.flow.service.send_email(
             self.flow.job_seeker_id.get(context),
             "Reminder: please respond",
             "Please respond to the engagement.",
         )
         return go_to(Reminder, None)
+
+
+# dex:group group-id:reminders group-label:"Reminders"
+# dex:explanation text:"Record the reminder opt-out in the notes under the status lock."
+class RecordReminderOptOut(Step[None]):
+    def __init__(self, flow: "EngagementFlow") -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.flow.engagement_status.lock(),))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        status = self.flow.engagement_status.get(context)
+        if status is not Status.INITIATED:
+            return dead_end()
+        self.flow.update_status(context, status, "user opted out of reminders")
+        return dead_end()
 
 
 # dex:group group-id:closing group-label:"Closing"
@@ -154,12 +171,14 @@ class EngagementFlow(Flow[EngagementInput]):
         self.initialize = Initialize(self)
         self.process_timeout = ProcessTimeout(self)
         self.reminder = Reminder(self)
+        self.record_reminder_opt_out = RecordReminderOptOut(self)
         self.notify_external_system = NotifyExternalSystem(self)
 
     def get_steps(self) -> StepList[EngagementInput]:
         return StepList.start_step(self.initialize).other_steps(
             self.process_timeout,
             self.reminder,
+            self.record_reminder_opt_out,
             self.notify_external_system,
         )
 
@@ -182,7 +201,7 @@ class EngagementFlow(Flow[EngagementInput]):
     def opt_out(self, context: Context) -> None:
         self.opt_out_reminder.publish(context, None)
 
-    @rpc
+    @rpc(lock_attributes=(engagement_status.lock(),))
     def decline(self, context: Context, note: str) -> RPCResult[Status]:
         status = self.engagement_status.get(context)
         if status is not Status.INITIATED:
@@ -198,7 +217,7 @@ class EngagementFlow(Flow[EngagementInput]):
             ),
         )
 
-    @rpc
+    @rpc(lock_attributes=(engagement_status.lock(),))
     def accept(self, context: Context, note: str) -> RPCResult[Status]:
         status = self.engagement_status.get(context)
         if status is not Status.INITIATED and status is not Status.DECLINED:

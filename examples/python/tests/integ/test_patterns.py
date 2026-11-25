@@ -26,9 +26,6 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
-    AdvancedLongLiveParentFlow,
-)
 from dex_examples.patterns.parallel_subflows.models import ParentInput
 from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
     PAYOUT_OUTCOME,
@@ -56,14 +53,12 @@ from tests.integ.conftest import (
 
 from dex import (
     AsyncClient,
-    AttributeMatch,
     Context,
     FlowConfig,
     FlowStatus,
     StartFlowOptions,
     StepDecision,
     StepExecutionId,
-    WaitForAttributeOptions,
     WaitForStepCompletionOptions,
 )
 
@@ -313,12 +308,7 @@ async def test_long_lived_parallel_subflows_stop(
         start_options(),
     )
 
-    await client.wait_for_attribute_match(
-        flow_id,
-        AdvancedLongLiveParentFlow.stopped,
-        AttributeMatch.equal_to(False),
-        WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
-    )
+    # Stop may arrive before Init runs; Init does not reset Stopped.
     await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED

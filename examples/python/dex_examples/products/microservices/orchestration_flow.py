@@ -136,7 +136,7 @@ class OrchestrationFlow(Flow[str]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.data, self.ready)
 
-    @rpc
+    @rpc(lock_attributes=(data.lock(),))
     def swap(self, context: Context, new_data: str) -> RPCResult[str]:
         old_data = self.data.get(context)
         self.data.set(context, new_data)

@@ -59,7 +59,7 @@ public class OrchestrationFlow implements Flow<String> {
         return PersistenceSchema.of(data, ready);
     }
 
-    @RPC
+    @RPC(lockAttributes = {"data"})
     public RPCResult<String> swap(final Context context, final String newData) {
         final String oldData = data.get(context);
         data.set(context, newData);

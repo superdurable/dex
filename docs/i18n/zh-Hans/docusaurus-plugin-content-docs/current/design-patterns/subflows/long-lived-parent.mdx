@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-Init Step 将初始请求发布到 `RequestChannel`，把 **Stopped** 设为 false，并启动 N 个 HandleRequest Step。每个 worker 取出最早的一条消息，然后跳转到 HandleSubFlow Step。这个 Step 启动并等待 `ExampleSubFlow`。子 Flow 完成后，它回到 HandleRequest Step；如果 **Stop** RPC 已把 **Stopped** 设为 true，它就 graceful complete。
+Init Step 将初始请求发布到 `RequestChannel`，并启动 N 个 HandleRequest Step。每个 worker 取出最早的一条消息，然后跳转到 HandleSubFlow Step。这个 Step 启动并等待 `ExampleSubFlow`。子 Flow 完成后，它回到 HandleRequest Step；如果 **Stop** RPC 已把 **Stopped** 设为 true，它就 graceful complete。**Stopped** 在 **Stop** RPC 设置之前没有值，而且只有这个 RPC 会写它。因此，在 Init 完成之前到达的 Stop 也不会丢失。
 
 `SendRequest` 在发布前检查 Channel size。Channel 达到 buffer threshold 时，它返回 false。调用方可以稍后重试，父 Flow 也不会过载。
 
@@ -33,13 +33,8 @@ MAX_BUFFERED_REQUESTS = 100
 
 
 class LongLiveInit(Step[ParentInput]):
-    def __init__(
-        self,
-        request_channel: Channel[str],
-        stopped: Attribute[bool],
-    ) -> None:
+    def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
-        self.stopped = stopped
 
     def get_step_type(self) -> str:
         return "Init"
@@ -47,7 +42,6 @@ class LongLiveInit(Step[ParentInput]):
     def execute(self, context: Context, input: ParentInput) -> StepDecision:
         for request in input.requests:
             self.request_channel.publish(context, request)
-        self.stopped.set(context, False)
         concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
         return go_to_many(
             *(StepMovement.of(LongLiveHandleRequest, None) for _ in range(concurrency))
@@ -94,7 +88,7 @@ class AdvancedLongLiveParentFlow(Flow[ParentInput]):
     stopped = Attribute("Stopped", bool)
 
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
-        self.init = LongLiveInit(self.request_channel, self.stopped)
+        self.init = LongLiveInit(self.request_channel)
         self.handle_request = LongLiveHandleRequest(self.request_channel)
         self.handle_subflow = LongLiveHandleSubFlow(example_subflow, self.stopped)
 
@@ -192,9 +186,6 @@ func (longLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecisi
 			return nil, err
 		}
 	}
-	if err := Stopped.Set(ctx, false); err != nil {
-		return nil, err
-	}
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
@@ -231,8 +222,10 @@ func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.W
 }
 
 func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	// Stopped has no value until the Stop RPC sets it.
 	stopped, err := Stopped.Get(ctx)
-	if err != nil {
+	var notFound *dex.AttributeNotFoundError
+	if err != nil && !errors.As(err, &notFound) {
 		return nil, err
 	}
 	if stopped {
@@ -297,7 +290,6 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
             for (final String request : input.requests) {
                 requestChannel.publish(context, request);
             }
-            stopped.set(context, false);
             final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
             final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
             for (int index = 0; index < concurrency; index++) {
@@ -372,7 +364,6 @@ class LongLiveInit implements Step<ParentInput> {
 
   public execute(context: Context, input: ParentInput): StepDecision {
     for (const request of input.requests) requestChannel.publish(context, request);
-    this.flow.stopped.set(context, false);
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>
@@ -535,7 +526,6 @@ impl Step for LongLiveInit {
         for request in input.requests {
             REQUEST_CHANNEL.publish(context, request)?;
         }
-        STOPPED.set(context, false)?;
         let concurrency = if input.concurrency == 0 {
             DEFAULT_CONCURRENCY
         } else {

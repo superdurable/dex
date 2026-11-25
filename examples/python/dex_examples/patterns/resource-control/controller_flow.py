@@ -218,7 +218,7 @@ class ControllerFlow(Flow[Request]):
             self.shutdown_requested,
         )
 
-    @rpc
+    @rpc(lock_attributes=(shutdown_requested.lock(),))
     def shutdown(self, context: Context) -> RPCResult[bool]:
         if self.shutdown_requested.get(context):
             return RPCResult(False)

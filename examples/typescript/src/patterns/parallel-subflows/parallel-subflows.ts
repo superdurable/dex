@@ -277,7 +277,6 @@ class LongLiveInit implements Step<ParentInput> {
 
   public execute(context: Context, input: ParentInput): StepDecision {
     for (const request of input.requests) requestChannel.publish(context, request);
-    this.flow.stopped.set(context, false);
     const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
     return goToMany(
       ...Array.from({ length: concurrency }, () =>

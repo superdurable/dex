@@ -77,7 +77,7 @@ impl Flow for OrchestrationFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(SWAP_ORCHESTRATION_DATA, Self::swap)
+            .function(SWAP_ORCHESTRATION_DATA.lock(DATA.lock()), Self::swap)
             .procedure_without_input(SIGNAL_ORCHESTRATION_READY, Self::signal_ready)
     }
 }

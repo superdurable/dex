@@ -20,7 +20,11 @@
 
 package parallelsubflows
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"errors"
+
+	"github.com/superdurable/dex/sdk-go/dex"
+)
 
 var (
 	LongLiveRequestChannel = dex.DefineChannel[string]("RequestChannel")
@@ -87,9 +91,6 @@ func (longLiveInit) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecisi
 			return nil, err
 		}
 	}
-	if err := Stopped.Set(ctx, false); err != nil {
-		return nil, err
-	}
 	count := concurrency(input.Concurrency)
 	movements := make([]dex.StepMovement, 0, count)
 	for index := 0; index < count; index++ {
@@ -126,8 +127,10 @@ func (step longLiveHandleSubFlow) WaitFor(_ dex.Context, request string) (*dex.W
 }
 
 func (longLiveHandleSubFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	// Stopped has no value until the Stop RPC sets it.
 	stopped, err := Stopped.Get(ctx)
-	if err != nil {
+	var notFound *dex.AttributeNotFoundError
+	if err != nil && !errors.As(err, &notFound) {
 		return nil, err
 	}
 	if stopped {
