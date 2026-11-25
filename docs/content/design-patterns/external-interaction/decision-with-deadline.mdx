@@ -21,9 +21,9 @@ One Step waits for every event at once. Its `WaitFor` returns `AnyOf` with one C
 
 When the first Condition is satisfied, the Step's `Execute` runs. It checks which Condition won and moves to the matching branch.
 
-1. The customer accepts or rejects through an RPC. While the response window is open, each RPC publishes the customer's note to its own Channel.
+1. The customer accepts or rejects through an RPC. The first response publishes the customer's note to its own Channel and closes the response window. Every later response gets "window closed".
 2. `AwaitOfferResponse` waits for an acceptance, a rejection, or the 3-day deadline, whichever comes first.
-3. Its `Execute` closes the response window first.
+3. Its `Execute` closes the response window, if no response closed it yet.
 4. When the acceptance Channel won, it moves to `FulfillOffer`. When the rejection Channel won, it moves to `CloseRejectedOffer`.
 5. When the Timer won (`HasTimerFired`), it moves to `ExpireOffer`. If a response is still queued, it moves to `RouteResponseBeforeExpiry` instead, which takes that response.
 
@@ -36,26 +36,35 @@ Only one Condition wins, so only one branch ever starts.
 - Channel priority follows declaration order. Declare the Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
 - In `Execute`, check which Condition fired: `HasTimerFired` for the Timer, and the Channel results for the responses. A Channel that lost returns no results. Do not treat a missing response as expiry.
 - The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
-- Every response gets a clear answer. It is recorded and decides the offer, or the RPC returns "window closed". After the Flow closes, Dex rejects the RPC.
+- Every response gets a clear answer. The first one is recorded and decides the offer. Every later one gets "window closed". After the Flow closes, Dex rejects the RPC before its handler runs, so the HTTP route reads the closed Flow and answers "window closed" too.
 - To test the expiry branch, skip the Timer with the Client `SkipTimer`. Do not shorten the business deadline for tests.
 
 ## Close the response window {#close-the-response-window}
 
-A response can commit after the Timer won but before `Execute` runs. Its RPC returns success. Without a window, `Execute` would then expire the offer, and the customer's response would be silently ignored. A Channel size read in `Execute` alone does not close this gap, because a response can still commit after it.
+Without a window, a customer can be told a response was accepted that never decides the offer. This happens in two ways:
 
-The example closes the gap with an Attribute lock:
+- A response commits after the Timer won but before `Execute` runs. Its RPC returns success. `Execute` then expires the offer, and the response is silently ignored.
+- An acceptance and a rejection both commit before the wait takes one. Both RPCs return success, but the wait consumes only one.
 
-- The `offerResponseWindow` Attribute is open until `AwaitOfferResponse` decides. An unset value reads as open.
-- Both response RPCs lock `offerResponseWindow`. A locked RPC is transactional, so its check and its publish commit together. When the window is closed, the RPC publishes nothing and returns "window closed".
+A Channel size read in `Execute` alone does not close these gaps, because a response can still commit after it.
+
+The example closes the gaps with an Attribute lock:
+
+- The `offerResponseWindow` Attribute starts open. An unset value reads as open.
+- Both response RPCs lock `offerResponseWindow`. A locked RPC is transactional, so its check, its publish, and its window write commit together. The first response publishes and closes the window. When the window is closed, the RPC publishes nothing and returns "window closed".
+- So at most one response is ever queued, and only its caller hears "recorded".
 - `Execute` of `AwaitOfferResponse` locks the same Attribute and sets it to closed. Dex takes the lock before it hands `Execute` to a Worker, and reads the state after that.
 - A response that committed before the lock is in the Channel. `Execute` sees it through the Channel size and moves to `RouteResponseBeforeExpiry`. That Step waits on both Channels, and the queued response wins at once.
 - While `Execute` holds the lock, a response RPC gets a lock conflict. Dex does not queue it. The HTTP route retries a few times with a short backoff. After the window closes, the retry returns "window closed", and the route answers `409`. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
+
+The business deadline is the moment the locked `Execute` closes the window, not the instant the Timer fires. A first response that commits after the Timer fired, but before that close, is accepted and decides the offer. The pattern chooses this on purpose, so every caller gets a truthful answer. It is not a hard cutoff at the Timer instant.
 
 Keep these rules when you use the window:
 
 - Every RPC that writes a response Channel declares the same lock. Locks are cooperative. An RPC without the lock bypasses the window.
 - Lock only `Execute`, not `WaitFor`.
 - Keep the locked `Execute` short. Put side effects, such as an expiry notice, in the next Step. A failing `Execute` keeps the lock through its retries, and responses get lock conflicts meanwhile.
+- Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example allows 3 attempts within 1 minute, with 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
 - Make the response idempotent, so a retried call is safe.
 - To wait again, reopen the window under the same lock, in the `Execute` that starts the next wait.
 
@@ -68,7 +77,7 @@ Keep these rules when you use the window:
 
 `OfferResponseFlow` starts with the offer ID. `AwaitOfferResponse` waits for the `acceptCustomerOffer` RPC, the `rejectCustomerOffer` RPC, or the 3-day Timer. It closes the response window and moves to `FulfillOffer`, `CloseRejectedOffer`, `RouteResponseBeforeExpiry`, or `ExpireOffer`. Each outcome Step completes the Flow with its outcome.
 
-The HTTP routes, with the lock conflict retry, and the tests are in the example folders. Try the routes in the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+The HTTP routes, with the lock conflict retry and the closed-Flow check, and the tests are in the example folders. Try the routes in the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
 
 <SdkTabs
   examples={{

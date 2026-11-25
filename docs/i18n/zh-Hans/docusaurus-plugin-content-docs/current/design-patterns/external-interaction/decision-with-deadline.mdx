@@ -21,9 +21,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 第一个 Condition 满足后，这个 Step 的 `Execute` 运行。它检查是哪个 Condition 胜出，然后进入对应的分支。
 
-1. 客户通过 RPC 接受或拒绝报价。回应窗口打开时，每个 RPC 把客户的备注发布到各自的 Channel。
+1. 客户通过 RPC 接受或拒绝报价。第一个回应把客户的备注发布到各自的 Channel，并关闭回应窗口。之后的回应都会得到“窗口已关闭”。
 2. `AwaitOfferResponse` 等待接受、拒绝或 3 天截止时间，以先到者为准。
-3. 它的 `Execute` 先关闭回应窗口。
+3. 如果还没有回应关闭窗口，它的 `Execute` 会关闭回应窗口。
 4. 接受 Channel 胜出时，进入 `FulfillOffer`。拒绝 Channel 胜出时，进入 `CloseRejectedOffer`。
 5. Timer 胜出时（`HasTimerFired`），进入 `ExpireOffer`。如果仍有回应在排队，就改为进入 `RouteResponseBeforeExpiry`，由它取走这条回应。
 
@@ -36,26 +36,35 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - Channel 的优先级按声明顺序决定。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
 - 在 `Execute` 中，判断是哪个 Condition 触发了：用 `HasTimerFired` 判断 Timer，用 Channel 结果判断客户回应。落败的 Channel 没有结果。不要把“没有回应”当作已过期。
 - Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
-- 每个回应都会得到明确的答复：要么被记录并决定这份报价，要么 RPC 返回“窗口已关闭”。Flow 关闭后，Dex 会拒绝这个 RPC。
+- 每个回应都会得到明确的答复。第一个回应被记录并决定这份报价，之后的回应都得到“窗口已关闭”。Flow 关闭后，Dex 在 handler 运行之前就拒绝这个 RPC，所以 HTTP 路由会读取已关闭的 Flow，同样返回“窗口已关闭”。
 - 测试过期分支时，用 Client 的 `SkipTimer` 跳过 Timer。不要为了测试缩短业务截止时间。
 
 ## 关闭回应窗口 {#close-the-response-window}
 
-回应可能在 Timer 胜出之后、`Execute` 运行之前提交，它的 RPC 返回成功。如果没有窗口，`Execute` 随后会让报价过期，客户的回应就被悄悄忽略了。只在 `Execute` 里读取 Channel 大小并不能堵住这个缺口，因为读取之后仍可能有回应提交。
+如果没有窗口，客户可能被告知回应已被接受，但这个回应并没有决定报价。这有两种情况：
 
-示例用 Attribute 锁堵住这个缺口：
+- 回应在 Timer 胜出之后、`Execute` 运行之前提交，它的 RPC 返回成功。`Execute` 随后让报价过期，这个回应就被悄悄忽略了。
+- 接受和拒绝都在等待取走其中一个之前提交。两个 RPC 都返回成功，但等待只消费其中一个。
 
-- `offerResponseWindow` Attribute 在 `AwaitOfferResponse` 做出决定之前保持打开。未设置的值视为打开。
-- 两个回应 RPC 都锁住 `offerResponseWindow`。带锁的 RPC 是事务性的，所以它的检查和发布一起提交。窗口已关闭时，RPC 不发布任何消息，返回“窗口已关闭”。
+只在 `Execute` 里读取 Channel 大小并不能堵住这些缺口，因为读取之后仍可能有回应提交。
+
+示例用 Attribute 锁堵住这些缺口：
+
+- `offerResponseWindow` Attribute 初始为打开。未设置的值视为打开。
+- 两个回应 RPC 都锁住 `offerResponseWindow`。带锁的 RPC 是事务性的，所以它的检查、发布和窗口写入一起提交。第一个回应发布消息并关闭窗口。窗口已关闭时，RPC 不发布任何消息，返回“窗口已关闭”。
+- 所以任何时候最多只有一个回应在排队，也只有它的调用方会得到“已记录”。
 - `AwaitOfferResponse` 的 `Execute` 锁住同一个 Attribute，并把它设为关闭。Dex 先拿到锁，再把 `Execute` 交给 Worker，之后才读取状态。
 - 在拿锁之前提交的回应已经在 Channel 里。`Execute` 通过 Channel 大小看到它，进入 `RouteResponseBeforeExpiry`。这个 Step 等待两个 Channel，排队的回应会立刻胜出。
 - `Execute` 持有锁期间，回应 RPC 会遇到 lock conflict。Dex 不会让它排队。HTTP 路由用短暂的退避重试几次。窗口关闭后，重试会返回“窗口已关闭”，路由返回 `409`。参见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
+
+业务截止时间是加锁的 `Execute` 关闭窗口的那一刻，而不是 Timer 触发的那一刻。第一个回应如果在 Timer 触发之后、窗口关闭之前提交，会被接受并决定这份报价。这个模式有意这样选择，让每个调用方都得到真实的答复。它不是在 Timer 触发那一刻的硬性截止。
 
 使用这个窗口时遵守这些规则：
 
 - 每个写回应 Channel 的 RPC 都声明同一把锁。锁是协作式的，不声明锁的 RPC 会绕过窗口。
 - 只锁 `Execute`，不锁 `WaitFor`。
 - 让加锁的 `Execute` 保持简短。把副作用（例如过期通知）放到下一个 Step。失败的 `Execute` 在重试期间一直持有锁，这段时间里回应都会遇到 lock conflict。
+- 给加锁的 `Execute` 设一个明确的短重试预算：总重试时长、最大尝试次数和每次尝试的超时。默认的总预算很长，而第一次尝试之前等待锁的时间不计入预算。示例允许 1 分钟内最多 3 次尝试，每次 10 秒。参见 [StepOptions reference](/reference/go/step-options#defaults)。
 - 让回应是幂等的，这样重试调用是安全的。
 - 要再次等待时，在开始下一轮等待的 `Execute` 里，在同一把锁下重新打开窗口。
 
@@ -68,7 +77,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 `OfferResponseFlow` 以报价 ID 启动。`AwaitOfferResponse` 等待 `acceptCustomerOffer` RPC、`rejectCustomerOffer` RPC 或 3 天的 Timer。它关闭回应窗口，然后进入 `FulfillOffer`、`CloseRejectedOffer`、`RouteResponseBeforeExpiry` 或 `ExpireOffer`。每个结果 Step 都用各自的结果完成 Flow。
 
-HTTP 路由（包括 lock conflict 重试）和测试在示例目录里。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用这些路由。
+HTTP 路由（包括 lock conflict 重试和已关闭 Flow 的检查）和测试在示例目录里。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用这些路由。
 
 <SdkTabs
   examples={{

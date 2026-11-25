@@ -601,11 +601,11 @@ Wait for several events and route on whichever happens first, such as accept, re
 ```text
 rpc acceptCustomerOffer(note), locks OfferResponseWindowClosed
     -> if OfferResponseWindowClosed: return windowClosed
-       OfferAccepted.publish(note); return recorded
+       OfferAccepted.publish(note); OfferResponseWindowClosed.set(true); return recorded
 rpc rejectCustomerOffer(note): the same, publishing to OfferRejected
 
 AwaitOfferResponse.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne(), Timer(3 days))
-AwaitOfferResponse.execute, locks OfferResponseWindowClosed
+AwaitOfferResponse.execute, locks OfferResponseWindowClosed, short retry budget
     OfferResponseWindowClosed.set(true)
     winner = the Condition that fired
     if winner is OfferAccepted: goTo(FulfillOffer)
@@ -619,23 +619,30 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
 - A response already queued when the wait starts wins at once. Otherwise the event that commits first wins. Declare the decision Channels in business priority order; it decides between responses that are both queued.
-- A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. The lock gives every response one of two answers: it is recorded and decides, or the caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
+- A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
 
 ### Close a reply window with an Attribute lock
 
-Use this when the business must decide "no reply came before the deadline" and a caller must never be told a late reply was accepted. The race: the Timer wins, Execute is about to run, and a reply RPC publishes and returns success. Execute then escalates as if no reply came, and the reply is silently ignored. A Channel size read in Execute is a snapshot, and a closing check such as ForceCompleteIfChannelsEmpty guards only the Flow close, so neither closes this gap. Runnable examples: [Decision with Deadline](#decision-with-deadline).
+Use this when the business must decide "no reply came before the deadline" and a caller must never be told a reply was accepted when the Flow ignored it. Two races need it:
+
+- The Timer wins, Execute is about to run, and a reply RPC publishes and returns success. Execute then escalates as if no reply came, and the reply is silently ignored.
+- Two reply RPCs both publish and return success before the wait takes one. The wait consumes only one, so the other caller was told a reply was accepted that never decides.
+
+A Channel size read in Execute is a snapshot, and a closing check such as ForceCompleteIfChannelsEmpty guards only the Flow close, so neither closes these gaps. Runnable examples: [Decision with Deadline](#decision-with-deadline).
 
 ```text
 Attribute replyWindow: open | closed            // unset reads as open
 
 rpc sendReply(reply), transactional, locks replyWindow
     if replyWindow is closed: return windowClosed   // a business result, not an error
-    Reply.publish(reply); return recorded           // the publish commits with the handler
+    Reply.publish(reply)                            // commits with the handler
+    replyWindow.set(closed)                         // the first reply closes the window
+    return recorded
 
 AwaitReply.waitFor -> AnyOf(Reply.ForOne(), Timer(deadline))     // no lock on WaitFor
-AwaitReply.execute, locks replyWindow
+AwaitReply.execute, locks replyWindow, short retry budget
     replyWindow.set(closed)
     if Reply won: goTo(HandleReply, the consumed reply)
     // the Timer won
@@ -650,17 +657,20 @@ Why it holds:
 - Execute takes its Attribute locks before Dex hands out its first attempt, and its state snapshot is taken after that. So a reply RPC that committed earlier is in the snapshot's Channel size.
 - While the Execute holds the lock, a reply RPC that declares the lock gets a lock conflict. It is rejected, not queued.
 - While a reply RPC holds the lock, the Execute waits for it, and then sees its message. An Execute that is still waiting for the lock does not block the RPC; that window is why Execute checks the size.
-- A transactional RPC commits its handler and its publish together. Once the window is closed, every later reply sees it and gets "window closed".
+- A transactional RPC commits its handler, its publish, and its window write together. The first reply closes the window, so at most one reply is ever queued, and the wait or the size check takes exactly that one. Every later reply sees the closed window and gets "window closed".
+- The business deadline is the moment the locked Execute closes the window, not the instant the Timer fires. A first reply that commits after the Timer fired and before that close is accepted and decides. This is deliberate: every caller gets a truthful answer. The window is not a hard cutoff at the Timer instant.
 
 Rules:
 
 - Every RPC that writes the reply Channel declares the same lock. Locks are cooperative; an RPC without it bypasses the window. Prefer one entry RPC per reply Channel.
 - Lock only Execute. WaitFor and Execute have separate lock sets, and the wait itself holds no lock.
 - Keep the locked Execute short: set the window, check the winner and the size, and route. Put side effects, such as escalation notices or provider calls, in the next Step, with bounded retries. A locked Execute holds the lock through its retry backoff, and every reply meanwhile gets a lock conflict.
+- Give the locked Execute an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The defaults are in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Callers retry a lock conflict with bounded backoff. Keep the reply idempotent, for example with a business reply ID.
-- Close the window on every branch, not only the Timer branch, so a reply after the decision also gets "window closed".
+- After the Flow closes, a reply RPC fails before its handler runs. A caller that must answer "window closed" then reads the retained Flow to tell a closed Flow from one that never existed.
+- Close the window in the reply RPC and in the Execute on every branch, so a reply after the first reply or after the decision gets "window closed".
 - To wait again, such as a new reply round, reopen the window under the same lock, in the Execute that starts the next wait.
-- Test it: a reply before the deadline decides; a reply after the window closed gets "window closed"; a reply that commits after the Timer won but before the locked Execute runs is taken through the size check.
+- Test it: a reply before the deadline decides; two replies sent back to back give one "recorded" and one "window closed"; a reply after the window closed gets "window closed"; a reply that commits after the Timer won but before the locked Execute runs is taken through the size check. In that last test, confirm the Execute is waiting for its locks before the reply RPC releases the lock.
 
 ### Critical section
 
