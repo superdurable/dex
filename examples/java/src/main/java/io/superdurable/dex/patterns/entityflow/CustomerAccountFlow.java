@@ -127,7 +127,7 @@ public class CustomerAccountFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            archive.archiveAccount(context.getFlowId());
+            archive.archiveAccount(context.getFlowId(), context.getStepExecutionId());
             return StepDecision.gracefulComplete();
         }
     }

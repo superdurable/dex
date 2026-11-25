@@ -33,6 +33,7 @@ import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow.CreditAdjustm
 import io.superdurable.dex.patterns.entityflow.FakeAccountArchive;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
@@ -100,6 +101,7 @@ public class EntityFlowIntegTest {
         final FakeAccountArchive archive = environment.accountArchive();
         archive.makeUnavailable(flowId);
         client.invokeRPC(stub::retireAccount);
+        waitForArchiveAttempts(archive, flowId, 1);
         assertEquals(FlowStatus.RUNNING, client.describeFlow(flowId).getStatus());
         final RuntimeException retiredAdjustment = assertThrows(
                 RuntimeException.class,
@@ -112,13 +114,18 @@ public class EntityFlowIntegTest {
                         new ContactDetails("Ada Byron", "ada@byron.example")));
         assertTrue(retiredContact.getMessage().contains("account is retired"));
         client.invokeRPC(stub::retireAccount);
+        waitForArchiveAttempts(archive, flowId, 2);
         assertEquals(FlowStatus.RUNNING, client.describeFlow(flowId).getStatus());
 
+        archive.loseNextResponse(flowId);
         archive.makeAvailable(flowId);
         assertEquals(
                 FlowStatus.COMPLETED,
                 client.waitForFlow(flowId, Duration.ofSeconds(45)).getStatus());
-        assertEquals(1, archive.archiveCount(flowId));
+        final List<String> attempts = archive.attemptStepExecutionIds(flowId);
+        assertTrue(attempts.size() >= 4, "archive attempts: " + attempts.size());
+        assertEquals(1, new HashSet<>(attempts).size());
+        assertEquals(1, archive.archiveRecordCount(flowId));
         final AttributeValues closed = client.getAttributes(flowId, flow.creditBalance, flow.retired);
         assertEquals(0L, closed.get(flow.creditBalance).orElseThrow());
         assertEquals(Boolean.TRUE, closed.get(flow.retired).orElseThrow());
@@ -126,6 +133,24 @@ public class EntityFlowIntegTest {
         assertThrows(
                 FlowAlreadyStartedException.class,
                 () -> client.startFlow(flow, flowId, null, options));
+    }
+
+    private static void waitForArchiveAttempts(
+            final FakeAccountArchive archive,
+            final String flowId,
+            final int count) {
+        final long deadline = System.nanoTime() + Duration.ofSeconds(45).toNanos();
+        while (archive.attemptStepExecutionIds(flowId).size() < count) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("timed out waiting for " + count + " archive attempts");
+            }
+            try {
+                Thread.sleep(50);
+            } catch (final InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        }
     }
 
     private static void depositWithRetry(
