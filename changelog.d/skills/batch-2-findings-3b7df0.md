@@ -8,7 +8,7 @@ bump: patch
 - **Graceful timeout**: active Steps keep running while the timeout handler runs; when it commits ForceComplete or ForceFail, Dex starts closing the Flow, possibly after the deadline.
 - **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
 - **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason.
-- **Drain an external Channel**: one Flow ID per entity; the RPC only publishes. The controller starts first with a per-message Request ID, then publishes to a run another start owns, with a per-message Request ID where the released SDK supports it; the Python, Java, and Rust examples set only the start one.
+- **Drain an external Channel**: one Flow ID per entity; the RPC only publishes. The controller starts first with a per-message Request ID and publishes only to a run another start owns, also with a per-message Request ID where the released SDK supports it.
 - Patterns that need confirmed handling record each message's business ID in the consuming Step's commit; the caller reads that record. The close-window detail lives in the Developer reference.
 - A provider-confirmed permanent rejection routes to the failure Step from Execute; ForceFail only when the whole Flow must end at once. A fake rejection verifies that branch; a direct test verifies the recovery Step; Dex's retry scheduling is not re-tested.
 - Java and Rust references show the **dex:group** and **dex:explanation** directives. Every WaitFor return path resolves to a Wait factory the analyzer can read.
