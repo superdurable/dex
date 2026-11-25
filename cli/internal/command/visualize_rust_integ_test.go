@@ -189,11 +189,10 @@ func requireScannedExampleDiagnostics(t *testing.T, source string, graph *flowvi
 	requireExampleGraphLintWarnings(t, graph, source)
 }
 
-// Long-lived Flows that only a stop request or a Flow timeout closes.
+// These examples deliberately have no Flow-closing decision; they run until stopped or timed out.
 var exampleGraphLintWarnings = map[string][]string{
-	"examples/go/products/ai-agent/workflow.go:AIAgentFlow":                                       {"no_completion_path"},
-	"examples/go/products/job-post/workflow.go:JobPostingFlow":                                    {"no_completion_path"},
-	"examples/python/sync-python/sync_examples/patterns/parent_child/parent_flow.py:ParentFlowV2": {"no_completion_path"},
+	"examples/go/products/ai-agent/workflow.go:AIAgentFlow":    {"no_completion_path"},
+	"examples/go/products/job-post/workflow.go:JobPostingFlow": {"no_completion_path"},
 }
 
 // observedExampleGraphLintKeys records each scanned key, so the scan can prove every listed key was checked.

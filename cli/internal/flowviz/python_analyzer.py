@@ -549,6 +549,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         instance = self.step_instances[step_name]
         step_class = instance.declaration
         self.current_frame = EvaluationFrame(instance)
+        if not self.is_handler_class_provable(step_class, {"execute"}, "Step"):
+            self.decision_analysis_complete = False
         execute = self.method(step_class, "execute")
         if execute is None:
             self.error("step_handler_not_in_file", f"Step {step_name} execute must be defined in the source file", self.span(step_class))
@@ -599,6 +601,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 
     def analyze_flow_handlers(self, flow_class):
         ignored = {"__init__", "get_steps", "get_persistence_schema", "get_flow_type", "get_flow_options", "get_flow_config"}
+        if not self.is_handler_class_provable(flow_class, {"handle_timeout"}, "Flow"):
+            self.decision_analysis_complete = False
         for statement in flow_class.body:
             if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) or statement.name in ignored:
                 continue
@@ -923,18 +927,15 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)
         outcomes = []
-        recognized_returns = set()
+        if not self.is_decision_handler_provable(method, rpc):
+            self.decision_analysis_complete = False
 
         def collect_decisions(expression, condition):
             found = self.decision_outcomes(expression, condition, rpc, locals_map)
             outcomes.extend(found)
-            if self.is_recognized_decision(expression, rpc):
-                recognized_returns.add(id(expression))
             return bool(found)
 
         self.walk_statements(method.body, "", collect_decisions)
-        if any(id(statement.value) not in recognized_returns for statement in self.method_returns(method) if statement.value is not None):
-            self.decision_analysis_complete = False
         if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
             for outcome in outcomes:
                 if not outcome.get("condition"):
@@ -1038,21 +1039,96 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 has_raise = True
         return has_raise
 
-    def is_recognized_decision(self, expression, rpc):
-        if isinstance(expression, ast.IfExp):
-            return self.is_recognized_decision(expression.body, rpc) and self.is_recognized_decision(expression.orelse, rpc)
-        return bool(self.decision_type(expression, rpc))
+    # Every return must be an allowlisted dex shape; anything else may hide a Flow-closing decision.
+    def is_decision_handler_provable(self, method, rpc):
+        expected_decorators = 1 if rpc else 0
+        if len(method.decorator_list) != expected_decorators or self.dex_names_rebound():
+            return False
+        if any(isinstance(node, (ast.Yield, ast.YieldFrom)) for node in self.function_nodes(method)):
+            return False
+        for statement in self.function_returns(method):
+            if statement.value is None:
+                if not rpc:
+                    return False
+            elif not (self.is_provable_rpc_result(statement.value) if rpc else self.is_provable_step_decision(statement.value)):
+                return False
+        return True
 
-    # Returns of the method itself, excluding nested functions and classes.
-    def method_returns(self, method):
-        pending = list(method.body)
-        while pending:
-            node = pending.pop()
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
-                continue
-            if isinstance(node, ast.Return):
-                yield node
-            pending.extend(ast.iter_child_nodes(node))
+    def is_provable_step_decision(self, expression):
+        if isinstance(expression, ast.IfExp):
+            return self.is_provable_step_decision(expression.body) and self.is_provable_step_decision(expression.orelse)
+        if not isinstance(expression, ast.Call):
+            return False
+        if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
+            return self.is_provable_step_decision(expression.func.value)
+        if self.is_join_call(expression, {"end_branch"}):
+            return True
+        for name in ("go_to", "graceful_complete", "force_complete", "force_fail", "dead_end", "force_complete_if_channels_empty"):
+            if self.is_dex_reference(expression.func, name):
+                return not any(isinstance(argument, ast.Starred) for argument in expression.args)
+        if self.is_dex_reference(expression.func, "go_to_many"):
+            return not expression.keywords and self.are_provable_movements(expression.args)
+        return False
+
+    def is_provable_rpc_result(self, expression):
+        if isinstance(expression, (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set, ast.JoinedStr)):
+            return True
+        if not isinstance(expression, ast.Call) or not self.is_dex_reference(expression.func, "RPCResult"):
+            return False
+        if len(expression.args) > 1 or any(isinstance(argument, ast.Starred) for argument in expression.args):
+            return False
+        for keyword in expression.keywords:
+            if keyword.arg is None:
+                return False
+            if keyword.arg == "next_steps" and not (
+                isinstance(keyword.value, (ast.Tuple, ast.List)) and self.are_provable_movements(keyword.value.elts)
+            ):
+                return False
+        return True
+
+    def are_provable_movements(self, expressions):
+        for expression in expressions:
+            if not (
+                isinstance(expression, ast.Call)
+                and isinstance(expression.func, ast.Attribute)
+                and expression.func.attr == "of"
+                and self.is_dex_reference(expression.func.value, "StepMovement")
+                and not any(isinstance(argument, ast.Starred) for argument in expression.args)
+            ):
+                return False
+        return True
+
+    # True when the module binds a dex import name again, so a call by that name may not reach dex.
+    def dex_names_rebound(self):
+        names = set(self.imports) | self.module_aliases
+        bindings = 0
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in names:
+                return True
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name in names:
+                return True
+            if isinstance(node, ast.arg) and node.arg in names:
+                return True
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for imported in node.names:
+                    if (imported.asname or imported.name.split(".")[0]) in names:
+                        bindings += 1
+        return bindings != len(names)
+
+    # A handler bound by assignment, defined twice, inherited from a user class, or decorated is not provable.
+    def is_handler_class_provable(self, class_node, handler_names, base_name):
+        for base in class_node.bases:
+            if not self.is_dex_reference(base, base_name):
+                return False
+        definitions = {}
+        for statement in class_node.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                definitions[statement.name] = definitions.get(statement.name, 0) + 1
+            elif isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                if any(isinstance(target, ast.Name) and target.id in handler_names for target in targets):
+                    return False
+        return all(definitions.get(name, 0) <= 1 for name in handler_names)
 
     def decision_outcomes(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):
