@@ -1833,18 +1833,20 @@ class ServiceErrorResponse(_message.Message):
     def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ..., dispatch_task_error_reason: _Optional[_Union[DispatchTaskErrorReason, str]] = ...) -> None: ...
 
 class WorkerErrorResponse(_message.Message):
-    __slots__ = ("detail", "error_type", "stack_trace", "retry_after_seconds", "grpc_status")
+    __slots__ = ("detail", "error_type", "stack_trace", "retry_after_seconds", "grpc_status", "non_retryable")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
     RETRY_AFTER_SECONDS_FIELD_NUMBER: _ClassVar[int]
     GRPC_STATUS_FIELD_NUMBER: _ClassVar[int]
+    NON_RETRYABLE_FIELD_NUMBER: _ClassVar[int]
     detail: str
     error_type: str
     stack_trace: str
     retry_after_seconds: int
     grpc_status: int
-    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ..., grpc_status: _Optional[int] = ...) -> None: ...
+    non_retryable: bool
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ..., grpc_status: _Optional[int] = ..., non_retryable: _Optional[bool] = ...) -> None: ...
 
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)

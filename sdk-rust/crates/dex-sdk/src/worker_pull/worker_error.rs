@@ -42,6 +42,7 @@ pub(crate) fn worker_error_response(error: HandlerError) -> WorkerErrorResponse 
         stack_trace,
         retry_after_seconds: error.retry_after_seconds(),
         grpc_status: Code::Unknown as i32,
+        non_retryable: false,
     }
 }
 

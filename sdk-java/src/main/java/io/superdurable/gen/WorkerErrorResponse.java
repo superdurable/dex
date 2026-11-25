@@ -194,6 +194,21 @@ private static final long serialVersionUID = 0L;
     return grpcStatus_;
   }
 
+  public static final int NON_RETRYABLE_FIELD_NUMBER = 6;
+  private boolean nonRetryable_ = false;
+  /**
+   * <pre>
+   * When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+   * </pre>
+   *
+   * <code>bool non_retryable = 6;</code>
+   * @return The nonRetryable.
+   */
+  @java.lang.Override
+  public boolean getNonRetryable() {
+    return nonRetryable_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -223,6 +238,9 @@ private static final long serialVersionUID = 0L;
     if (grpcStatus_ != 0) {
       output.writeInt32(5, grpcStatus_);
     }
+    if (nonRetryable_ != false) {
+      output.writeBool(6, nonRetryable_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -243,6 +261,10 @@ private static final long serialVersionUID = 0L;
     if (grpcStatus_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(5, grpcStatus_);
+    }
+    if (nonRetryable_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(6, nonRetryable_);
     }
     return size;
   }
@@ -278,6 +300,8 @@ private static final long serialVersionUID = 0L;
         != other.getRetryAfterSeconds()) return false;
     if (getGrpcStatus()
         != other.getGrpcStatus()) return false;
+    if (getNonRetryable()
+        != other.getNonRetryable()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -299,6 +323,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getRetryAfterSeconds();
     hash = (37 * hash) + GRPC_STATUS_FIELD_NUMBER;
     hash = (53 * hash) + getGrpcStatus();
+    hash = (37 * hash) + NON_RETRYABLE_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getNonRetryable());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -435,6 +462,7 @@ private static final long serialVersionUID = 0L;
       stackTrace_ = "";
       retryAfterSeconds_ = 0;
       grpcStatus_ = 0;
+      nonRetryable_ = false;
       return this;
     }
 
@@ -483,6 +511,9 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000010) != 0)) {
         result.grpcStatus_ = grpcStatus_;
       }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.nonRetryable_ = nonRetryable_;
+      }
     }
 
     @java.lang.Override
@@ -517,6 +548,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getGrpcStatus() != 0) {
         setGrpcStatus(other.getGrpcStatus());
+      }
+      if (other.getNonRetryable() != false) {
+        setNonRetryable(other.getNonRetryable());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -569,6 +603,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000010;
               break;
             } // case 40
+            case 48: {
+              nonRetryable_ = input.readBool();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 48
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -874,6 +913,50 @@ private static final long serialVersionUID = 0L;
     public Builder clearGrpcStatus() {
       bitField0_ = (bitField0_ & ~0x00000010);
       grpcStatus_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private boolean nonRetryable_ ;
+    /**
+     * <pre>
+     * When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+     * </pre>
+     *
+     * <code>bool non_retryable = 6;</code>
+     * @return The nonRetryable.
+     */
+    @java.lang.Override
+    public boolean getNonRetryable() {
+      return nonRetryable_;
+    }
+    /**
+     * <pre>
+     * When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+     * </pre>
+     *
+     * <code>bool non_retryable = 6;</code>
+     * @param value The nonRetryable to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNonRetryable(boolean value) {
+
+      nonRetryable_ = value;
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+     * </pre>
+     *
+     * <code>bool non_retryable = 6;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNonRetryable() {
+      bitField0_ = (bitField0_ & ~0x00000020);
+      nonRetryable_ = false;
       onChanged();
       return this;
     }

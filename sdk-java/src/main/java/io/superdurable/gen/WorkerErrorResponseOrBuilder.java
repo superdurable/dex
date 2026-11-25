@@ -61,4 +61,14 @@ public interface WorkerErrorResponseOrBuilder extends
    * @return The grpcStatus.
    */
   int getGrpcStatus();
+
+  /**
+   * <pre>
+   * When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+   * </pre>
+   *
+   * <code>bool non_retryable = 6;</code>
+   * @return The nonRetryable.
+   */
+  boolean getNonRetryable();
 }

@@ -2015,6 +2015,8 @@ export interface WorkerErrorResponse {
   retryAfterSeconds: number;
   /** gRPC status code that the Worker derives from the handler error. */
   grpcStatus: number;
+  /** When true, the Step attempt skips its remaining retries. The server ignores it for RPCs. */
+  nonRetryable: boolean;
 }
 
 export interface ChannelInfo {
@@ -12900,7 +12902,7 @@ export const ServiceErrorResponse: MessageFns<ServiceErrorResponse> = {
 };
 
 function createBaseWorkerErrorResponse(): WorkerErrorResponse {
-  return { detail: "", errorType: "", stackTrace: "", retryAfterSeconds: 0, grpcStatus: 0 };
+  return { detail: "", errorType: "", stackTrace: "", retryAfterSeconds: 0, grpcStatus: 0, nonRetryable: false };
 }
 
 export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
@@ -12919,6 +12921,9 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
     }
     if (message.grpcStatus !== 0) {
       writer.uint32(40).int32(message.grpcStatus);
+    }
+    if (message.nonRetryable !== false) {
+      writer.uint32(48).bool(message.nonRetryable);
     }
     return writer;
   },
@@ -12970,6 +12975,14 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
           message.grpcStatus = reader.int32();
           continue;
         }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.nonRetryable = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12989,6 +13002,7 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
     message.stackTrace = object.stackTrace ?? "";
     message.retryAfterSeconds = object.retryAfterSeconds ?? 0;
     message.grpcStatus = object.grpcStatus ?? 0;
+    message.nonRetryable = object.nonRetryable ?? false;
     return message;
   },
 };

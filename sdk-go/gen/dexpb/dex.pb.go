@@ -10559,7 +10559,9 @@ type WorkerErrorResponse struct {
 	StackTrace        string                 `protobuf:"bytes,3,opt,name=stack_trace,json=stackTrace,proto3" json:"stack_trace,omitempty"`
 	RetryAfterSeconds int32                  `protobuf:"varint,4,opt,name=retry_after_seconds,json=retryAfterSeconds,proto3" json:"retry_after_seconds,omitempty"`
 	// gRPC status code that the Worker derives from the handler error.
-	GrpcStatus    int32 `protobuf:"varint,5,opt,name=grpc_status,json=grpcStatus,proto3" json:"grpc_status,omitempty"`
+	GrpcStatus int32 `protobuf:"varint,5,opt,name=grpc_status,json=grpcStatus,proto3" json:"grpc_status,omitempty"`
+	// When true, the Step attempt skips its remaining retries. The server ignores it for RPCs.
+	NonRetryable  bool `protobuf:"varint,6,opt,name=non_retryable,json=nonRetryable,proto3" json:"non_retryable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10627,6 +10629,13 @@ func (x *WorkerErrorResponse) GetGrpcStatus() int32 {
 		return x.GrpcStatus
 	}
 	return 0
+}
+
+func (x *WorkerErrorResponse) GetNonRetryable() bool {
+	if x != nil {
+		return x.NonRetryable
+	}
+	return false
 }
 
 type ChannelInfo struct {
@@ -14870,7 +14879,7 @@ const file_dex_proto_rawDesc = "" +
 	"\x1aoriginal_worker_error_type\x18\x04 \x01(\tR\x17originalWorkerErrorType\x12?\n" +
 	"\x1coriginal_worker_error_status\x18\x05 \x01(\x05R\x19originalWorkerErrorStatus\x12H\n" +
 	"!original_worker_error_stack_trace\x18\x06 \x01(\tR\x1doriginalWorkerErrorStackTrace\x12Y\n" +
-	"\x1adispatch_task_error_reason\x18\a \x01(\x0e2\x1c.dex.DispatchTaskErrorReasonR\x17dispatchTaskErrorReason\"\xbe\x01\n" +
+	"\x1adispatch_task_error_reason\x18\a \x01(\x0e2\x1c.dex.DispatchTaskErrorReasonR\x17dispatchTaskErrorReason\"\xe3\x01\n" +
 	"\x13WorkerErrorResponse\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\x12\x1d\n" +
 	"\n" +
@@ -14879,7 +14888,8 @@ const file_dex_proto_rawDesc = "" +
 	"stackTrace\x12.\n" +
 	"\x13retry_after_seconds\x18\x04 \x01(\x05R\x11retryAfterSeconds\x12\x1f\n" +
 	"\vgrpc_status\x18\x05 \x01(\x05R\n" +
-	"grpcStatus\"!\n" +
+	"grpcStatus\x12#\n" +
+	"\rnon_retryable\x18\x06 \x01(\bR\fnonRetryable\"!\n" +
 	"\vChannelInfo\x12\x12\n" +
 	"\x04size\x18\x01 \x01(\x05R\x04size\"\x87\x06\n" +
 	"\x1aInvokeWaitForMethodRequest\x12&\n" +
