@@ -18,6 +18,9 @@ import asyncio
 import json
 import socket
 from collections.abc import AsyncIterator, Callable
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 from uuid import uuid4
 
 import pytest
@@ -39,7 +42,10 @@ from tests.integ.flow_smoke_helper import (
     FlowSmokeHttpClient,
     assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step,
+    dexcli_path,
+    flow_service_address,
     parse_flow_trigger_response,
+    run_dexcli_json,
 )
 
 
@@ -245,6 +251,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         parallel_subflows_entry("long-lived-parent"),
         parallel_subflows_entry("short-lived-parent"),
         FlowSmokeEntry(
+            "patterns/child-flows-business-identity",
+            lambda c: _child_flows_business_identity_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
             "patterns/drain-channels/internal",
             lambda c: trigger_get(
                 "/patterns/drain-channels/internal/start",
@@ -439,6 +449,77 @@ async def _signup_trigger(
     )
     parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
+
+
+async def _child_flows_business_identity_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    """Starts an order, finds its long shipment by shipment number, then cancels it."""
+    order_id = new_id("child-flows-order")
+    shipment_number = f"{order_id}-2"
+    flow_id, run_id, _ = await client.get(
+        "/patterns/child-flows-business-identity/start", {"workflowId": order_id}
+    )
+    deadline = asyncio.get_running_loop().time() + 30
+    while True:
+        status, body = await _get_child_flows_route(client, "/shipment", shipment_number)
+        # The lookup returns 404 until the order starts the shipment.
+        if status == 200 and json.loads(body)["status"] == "running":
+            break
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"shipment lookup for order {order_id}")
+        await asyncio.sleep(0.2)
+
+    # The order is not a shipment: both shipment routes answer 404 and leave it running.
+    for route in ("/shipment", "/cancel-shipment"):
+        status, _ = await _get_child_flows_route(client, route, order_id)
+        assert status == 404, route
+    assert await _dexcli_flow_status(order_id) == "FLOW_STATUS_RUNNING"
+
+    status, body = await _get_child_flows_route(client, "/cancel-shipment", shipment_number)
+    assert status == 200, body
+    deadline = asyncio.get_running_loop().time() + 30
+    while await _dexcli_flow_status(shipment_number) != "FLOW_STATUS_CANCELED":
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"shipment {shipment_number} did not become canceled")
+        await asyncio.sleep(0.2)
+    return flow_id, run_id
+
+
+async def _get_child_flows_route(
+    client: FlowSmokeHttpClient, route: str, shipment_number: str
+) -> tuple[int, str]:
+    url = (
+        f"{client.base_url}/patterns/child-flows-business-identity{route}?"
+        + urlencode({"shipmentNumber": shipment_number})
+    )
+
+    def do_request() -> tuple[int, str]:
+        try:
+            with urlopen(url, timeout=30) as response:
+                return response.status, response.read().decode("utf-8")
+        except HTTPError as error:
+            return error.code, error.read().decode("utf-8")
+
+    return await asyncio.to_thread(do_request)
+
+
+async def _dexcli_flow_status(flow_id: str) -> str:
+    summary = await asyncio.to_thread(
+        run_dexcli_json,
+        [
+            dexcli_path(),
+            "flow",
+            "summary",
+            flow_id,
+            "--server",
+            flow_service_address(),
+            "--output",
+            "json",
+        ],
+    )
+    return str(summary.get("flowStatus", ""))
 
 
 async def _rpc_only_pattern_trigger(

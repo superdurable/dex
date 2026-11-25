@@ -28,6 +28,9 @@ from werkzeug.exceptions import HTTPException
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_cors import install_quart_cors
+from dex_examples.patterns.child_flows_business_identity.controller import (
+    create_child_flows_business_identity_blueprint,
+)
 from dex_examples.patterns.drain_channels.external_publishing.controller import (
     create_draining_channel_blueprint,
 )
@@ -152,6 +155,9 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_inactiveness_tracker_timer_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_subflows_blueprint(app_state))
+    quart_app.register_blueprint(
+        create_child_flows_business_identity_blueprint(app_state)
+    )
     quart_app.register_blueprint(create_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_drain_internal_blueprint(app_state))
     quart_app.register_blueprint(create_draining_channel_blueprint(app_state))

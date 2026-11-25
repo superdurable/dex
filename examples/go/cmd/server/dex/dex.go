@@ -31,6 +31,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
@@ -183,6 +184,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
+	childflows.RegisterRoutes(router, client, registry.OrderFulfillment)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)

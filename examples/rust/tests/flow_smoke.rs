@@ -295,6 +295,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             "/patterns/parallel-subflows/start/short-lived-parent",
         ),
         FlowSmokeEntry {
+            name: "patterns/child-flows-business-identity",
+            path: "/patterns/child-flows-business-identity/start",
+            query: query(&client.new_flow_id("child-flows-order")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/drain-channels/internal",
             path: "/patterns/drain-channels/internal/start",
             query: query(&client.new_flow_id("drain-internal")),
@@ -782,6 +788,92 @@ fn flow_smoke_all_registered_flows_via_controller() {
         );
         assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_finds_a_shipment_by_its_number() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let order_id = http_client.new_flow_id("child-flows-order");
+    let started = http_client.trigger_get(
+        "/patterns/child-flows-business-identity/start",
+        &query(&order_id),
+    );
+    assert_eq!(started.flow_id, order_id);
+
+    let shipment_number = format!("{order_id}-2");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, body) = get_child_flows_route(&http_client, "/shipment", &shipment_number);
+        let shipment = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+        if status == 200 && shipment["status"] == "running" {
+            assert_eq!(
+                shipment["shipmentNumber"],
+                shipment_number.as_str(),
+                "{body}"
+            );
+            assert_eq!(shipment["outcome"], "", "{body}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} lookup returned {status}: {body}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    let (status, body) =
+        get_child_flows_route(&http_client, "/shipment", &format!("{order_id}-missing"));
+    assert_eq!(status, 404, "{body}");
+
+    // The order is not a shipment: both shipment routes answer 404 and leave it running.
+    for route in ["/shipment", "/cancel-shipment"] {
+        let (status, body) = get_child_flows_route(&http_client, route, &order_id);
+        assert_eq!(status, 404, "{route}: {body}");
+    }
+    let order_status = environment
+        .client
+        .describe_flow(&order_id)
+        .expect("describe the order")
+        .status;
+    assert_eq!(order_status, FlowStatus::Running);
+
+    let (status, body) = get_child_flows_route(&http_client, "/cancel-shipment", &shipment_number);
+    assert_eq!(status, 200, "{body}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = environment
+            .client
+            .describe_flow(&shipment_number)
+            .map(|info| info.status);
+        if matches!(status, Ok(FlowStatus::Canceled)) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} is {status:?}, expected Canceled"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn get_child_flows_route(
+    http_client: &FlowSmokeHttpClient,
+    route: &str,
+    shipment_number: &str,
+) -> (u16, String) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/patterns/child-flows-business-identity{route}",
+            http_client.base_url
+        ))
+        .query(&[("shipmentNumber", shipment_number)])
+        .send()
+        .unwrap_or_else(|error| panic!("GET {route} for {shipment_number}: {error}"));
+    let status = response.status().as_u16();
+    let body = response.text().expect("read the shipment route response");
+    (status, body)
 }
 
 #[test]

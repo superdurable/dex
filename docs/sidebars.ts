@@ -114,6 +114,7 @@ const sidebars: SidebarsConfig = {
             'design-patterns/subflows/partitioning',
             'design-patterns/subflows/back-pressure',
             'design-patterns/subflows/cancel-case',
+            'design-patterns/subflows/child-flows-with-business-identity',
           ],
         },
         {

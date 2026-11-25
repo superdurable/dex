@@ -71,6 +71,7 @@ pub fn build_router(
         .merge(patterns::parallel_subflows::controller::mount(
             client.clone(),
         ))
+        .merge(control_patterns::child_flows_business_identity::controller::mount(client.clone()))
         .merge(patterns::recovery::controller::mount(client.clone()))
         .merge(patterns::drain_channels::controller::mount(client.clone()))
         .merge(patterns::wait_for_step_completion::controller::mount(

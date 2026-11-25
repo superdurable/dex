@@ -19,6 +19,8 @@ import { Registry, type Flow } from "@superdurable/dex";
 import { getClient } from "./client-holder.js";
 import { creditCheckFlow } from "./patterns/cancel-case/credit-check-flow.js";
 import { LoanApplicationFlow } from "./patterns/cancel-case/loan-application-flow.js";
+import { OrderFulfillmentFlow } from "./patterns/child-flows-business-identity/order-fulfillment-flow.js";
+import { ShipmentFlow } from "./patterns/child-flows-business-identity/shipment-flow.js";
 import { contractEditFlow } from "./patterns/critical-section/contract-edit-flow.js";
 import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
 import { offerResponseFlow } from "./patterns/deferred-choice/offer-response-flow.js";
@@ -114,6 +116,8 @@ const pollingFlow = new PollingFlow(pollingJobs);
 const paymentProvider = new FakePaymentProvider();
 const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
+const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
@@ -177,6 +181,8 @@ export const allExampleFlows: readonly Flow<any>[] = [
   contractEditFlow,
   creditCheckFlow,
   loanApplicationFlow,
+  shipmentFlow,
+  orderFulfillmentFlow,
   exampleFlow,
   stepFlow,
   retryFlow,
@@ -251,6 +257,8 @@ export {
   contractEditFlow,
   creditCheckFlow,
   loanApplicationFlow,
+  shipmentFlow,
+  orderFulfillmentFlow,
   exampleFlow,
   stepFlow,
   retryFlow,

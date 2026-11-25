@@ -24,6 +24,7 @@ import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
 import { startExampleWorker } from "./config/worker.js";
+import { createChildFlowsBusinessIdentityRouter } from "./patterns/child-flows-business-identity/controller.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
 import { createEntityFlowRouter } from "./patterns/entity-flow/controller.js";
@@ -77,6 +78,7 @@ import {
   expenseReimbursementFlow,
   mastraOrderSupportFlow,
   openAIAgentsOrderSupportFlow,
+  orderFulfillmentFlow,
   orderProcessingFlow,
   piOrderSupportFlow,
   pollingFlow,
@@ -153,6 +155,10 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   );
   app.use("/patterns/parallel", createParallelRouter(client));
   app.use("/patterns/parallel-subflows", createParallelSubFlowsRouter(client));
+  app.use(
+    "/patterns/child-flows-business-identity",
+    createChildFlowsBusinessIdentityRouter(client, orderFulfillmentFlow),
+  );
   app.use("/patterns/recovery", createRecoveryRouter(client));
   app.use("/patterns/drain-channels/internal", createDrainInternalRouter(client));
   app.use("/patterns/drain-channels/external-publishing", createDrainingChannelRouter(client));

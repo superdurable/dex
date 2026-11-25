@@ -277,6 +277,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     parallelSubFlowsSmokeEntry("long-lived-parent"),
     parallelSubFlowsSmokeEntry("short-lived-parent"),
     {
+      name: "patterns/child-flows-business-identity",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/child-flows-business-identity/start", {
+          workflowId: newFlowId("child-flows-order"),
+        });
+        await verifyShipmentLookupByNumber(result.flowId);
+        return result;
+      },
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/drain-channels/internal",
       trigger: () =>
         triggerGet(context, "/patterns/drain-channels/internal/start", {
@@ -770,6 +781,50 @@ async function refundRoute(
   const response = await fetch(url);
   const text = await response.text();
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+// The order's second shipment runs for a day, so its lookup by number reports running.
+async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
+  const shipmentNumber = `${orderId}-2`;
+  await pollUntil(
+    async () => {
+      const { status, body } = await getChildFlowsRoute("/shipment", shipmentNumber);
+      return status === 200 && (JSON.parse(body) as { status?: string }).status === "running";
+    },
+    `shipment lookup for order ${orderId} never reported running`,
+  );
+
+  // The order is not a shipment: both shipment routes answer 404 and leave it running.
+  for (const route of ["/shipment", "/cancel-shipment"]) {
+    const { status } = await getChildFlowsRoute(route, orderId);
+    assert.equal(status, 404, route);
+  }
+  assert.equal((await server.client.describeFlow(orderId)).status, "running");
+
+  const canceled = await getChildFlowsRoute("/cancel-shipment", shipmentNumber);
+  assert.equal(canceled.status, 200, canceled.body);
+  await pollUntil(
+    async () => (await server.client.describeFlow(shipmentNumber)).status === "cancelled",
+    `shipment ${shipmentNumber} never became canceled`,
+  );
+}
+
+async function getChildFlowsRoute(route: string, shipmentNumber: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/child-flows-business-identity${route}?${new URLSearchParams({ shipmentNumber })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+async function pollUntil(check: () => Promise<boolean>, message: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(message);
 }
 
 function attributeReadUrl(query: Record<string, string>): string {
