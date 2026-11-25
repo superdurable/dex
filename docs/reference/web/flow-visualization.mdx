@@ -498,6 +498,16 @@ Use **channel-map** to name a ChannelMap. The directive satisfies instance reads
 
 The analysis does not track paths: a load declared on one movement into a Step counts for every movement into it. Calls through interfaces, function values, and reflection are not followed. When load options cannot be evaluated, such as options returned by another package, the default mode reports nothing for that read.
 
+## Declared lock requirements {#declared-lock-requirements}
+
+**Since dexcli 1.48.1.** An Attribute, AttributeMap, Channel, or ChannelMap can declare the lock that every write or publish requires. In Go, the options are **dex.WritesRequireLock**, **dex.WritesRequireAttributeLock**, and **dex.PublishesRequireAttributeLock**. In Python, they are **writes_require_lock** and **publishes_require_lock**. The Worker enforces the requirement at run time; see [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements). For Go and Python sources, **dexcli visualize** also checks it in every mode:
+
+- **declared_lock_missing** (blocking): a **WaitFor**, **Execute**, or RPC handler writes a declared Attribute or AttributeMap instance with **Set** or **Delete**, or publishes to a declared Channel. Its registration locks do not include the required lock. The analyzer reports it only when it can read the declaration, the written instance key when the instance's own lock is required, and every registration lock of the handler.
+- **declared_lock_unresolved** (warning): the same write, but the analyzer cannot prove that the lock is held. For example, the lock list is computed, a lock or the write names a dynamic AttributeMap instance, or the declaration names a lock Attribute the analyzer cannot resolve.
+- **lock_requirement_not_declared** (warning): an Attribute or AttributeMap without a lock requirement may lose an update. Either two or more handlers write it, at least one of them an RPC, and one writer does not register the Attribute's own lock; or an RPC reads and then writes it without that lock. Writes by Steps alone are not reported, because Steps of one Flow often run in sequence. A handler whose registration locks the analyzer cannot read counts as holding the lock. If the writes can run concurrently, declare the requirement and register the lock.
+
+Only registration locks count, as at run time. They are **StepOptions.WaitForLockAttributes** and **StepOptions.ExecuteLockAttributes** from **GetStepOptions** and **RPCOptions.LockAttributes** in Go, and **wait_for_lock_attributes**, **execute_lock_attributes**, and **@rpc(lock_attributes=...)** in Python. Locks passed with one movement or one RPC call do not count. Flow timeout handlers are not checked. A resource whose definition options the analyzer cannot read, such as unpacked options, is neither checked nor reported as undeclared. The Go analyzer follows writes in same-package helpers; the Python analyzer reads only the handler body.
+
 ## Application lints {#application-lints}
 
 **--lint app** adds checks for application mistakes that compile and pass the default analysis. The application checks below apply to Go. Python, TypeScript, Java, and Rust accept the flag and enforce the same FDG 2.0 group and explanation requirements. The state-load diagnostics above are reported in every mode.
