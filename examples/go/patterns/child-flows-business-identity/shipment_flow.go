@@ -90,7 +90,11 @@ func (DeliverShipment) Execute(ctx dex.Context, request ShipmentRequest) (*dex.S
 	}
 	return dex.GoTo(ReportShipmentOutcome{}, PendingReport{
 		OrderFlowID: request.OrderFlowID,
-		Report:      ShipmentReport{ShipmentNumber: request.Shipment.ShipmentNumber, Outcome: outcome},
+		Report: ShipmentReport{
+			ShipmentNumber: request.Shipment.ShipmentNumber,
+			ShipmentRunID:  ctx.RunID(),
+			Outcome:        outcome,
+		},
 	}), nil
 }
 

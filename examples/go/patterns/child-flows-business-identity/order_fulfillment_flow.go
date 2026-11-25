@@ -36,7 +36,13 @@ const ShipmentTimeout = 30 * 24 * time.Hour
 
 // Shipment record statuses that are not a terminal Flow status.
 const (
-	ShipmentRejected    = "rejected"
+	// ShipmentStarting marks a shipment of the order that has no claimed run yet.
+	ShipmentStarting = "starting"
+	// ShipmentStarted marks a shipment whose run this order started and claimed.
+	ShipmentStarted = "started"
+	// ShipmentRejected marks a shipment number that another request owns.
+	ShipmentRejected = "rejected"
+	// ShipmentUnavailable marks a claimed run that can no longer be read.
 	ShipmentUnavailable = "unavailable"
 )
 
@@ -53,27 +59,33 @@ type Order struct {
 type TrackedShipment struct {
 	Shipment                 Shipment `json:"shipment"`
 	ReconcileIntervalSeconds int      `json:"reconcileIntervalSeconds"`
+	// ShipmentRunID is the run this order started and tracks; empty before the start.
+	ShipmentRunID string `json:"shipmentRunId,omitempty"`
 }
 
-// ShipmentReport is what a shipment sends to its order when it ends.
+// ShipmentReport is what a shipment run sends to its order when it ends.
 type ShipmentReport struct {
 	ShipmentNumber string `json:"shipmentNumber"`
+	ShipmentRunID  string `json:"shipmentRunId"`
 	Outcome        string `json:"outcome"`
 }
 
-// ShipmentRecord is the order's record of one shipment. A report or a reconcile
-// read fills Outcome; a reconcile read fills Status.
+// ShipmentRecord is the order's record of one shipment. RunID is the claimed run.
+// A report or a reconcile read fills Outcome; a reconcile read fills the terminal Status.
 type ShipmentRecord struct {
 	Status  string `json:"status,omitempty"`
+	RunID   string `json:"runId,omitempty"`
 	Outcome string `json:"outcome,omitempty"`
 }
 
 var (
 	// ShipmentRecords holds one record per shipment, keyed by shipment number.
 	ShipmentRecords = dex.DefineAttributeMap[ShipmentRecord]("shipmentRecords")
-	// ShipmentRecordsLock serializes the report RPC and AwaitShipment writes; it stores no value.
-	ShipmentRecordsLock  = dex.DefineAttribute[bool]("shipmentRecordsLock")
-	errClientUnavailable = errors.New("childflows: Client is not ready")
+	// ShipmentRecordsLock serializes every write to ShipmentRecords; it stores no value.
+	ShipmentRecordsLock = dex.DefineAttribute[bool]("shipmentRecordsLock")
+	// ErrShipmentNotClaimed asks a shipment to retry its report after the order claims its run.
+	ErrShipmentNotClaimed = errors.New("childflows: the order has not claimed this shipment run yet")
+	errClientUnavailable  = errors.New("childflows: Client is not ready")
 )
 
 // OrderFulfillmentFlow ships an order as one ShipmentFlow per shipment.
@@ -116,14 +128,19 @@ func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-// RecordShipmentOutcome fills the outcome of a shipment's record. The first report
-// wins; a repeated or late report changes nothing.
+// RecordShipmentOutcome fills the outcome of a shipment's record. It accepts only the run
+// this order claimed; the first report wins, and any other report changes nothing.
+// It returns ErrShipmentNotClaimed while the order is still starting that shipment.
 func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report ShipmentReport) (*dex.RPCResult[dex.None], error) {
-	record, err := loadShipmentRecord(ctx, report.ShipmentNumber)
+	record, found, err := loadShipmentRecord(ctx, report.ShipmentNumber)
 	if err != nil {
 		return nil, err
 	}
-	if record.Outcome != "" {
+	if found && record.Status == ShipmentStarting {
+		return nil, ErrShipmentNotClaimed
+	}
+	// Ignore an unknown or rejected shipment, another run, and a repeated report.
+	if !found || record.RunID != report.ShipmentRunID || record.Outcome != "" {
 		return &dex.RPCResult[dex.None]{}, nil
 	}
 	record.Outcome = report.Outcome
@@ -134,22 +151,32 @@ func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report Shipm
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts one branch per shipment, after checking that shipment numbers are unique."
+// dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
 type StartShipments struct {
 	dex.StepDefaultsNoWaitFor[Order]
 }
 
-func (StartShipments) Execute(_ dex.Context, order Order) (*dex.StepDecision, error) {
+// GetStepOptions takes the records lock, so registration never races a report.
+func (StartShipments) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)}}
+}
+
+func (StartShipments) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
 	if len(order.Shipments) == 0 {
 		return dex.GracefulComplete(nil), nil
 	}
 	numbers := make(map[string]bool, len(order.Shipments))
-	movements := make([]dex.StepMovement, 0, len(order.Shipments))
 	for _, shipment := range order.Shipments {
 		if numbers[shipment.ShipmentNumber] {
 			return dex.ForceFail(duplicateShipmentPrefix + shipment.ShipmentNumber), nil
 		}
 		numbers[shipment.ShipmentNumber] = true
+	}
+	movements := make([]dex.StepMovement, 0, len(order.Shipments))
+	for _, shipment := range order.Shipments {
+		if err := ShipmentRecords.Set(ctx, shipment.ShipmentNumber, ShipmentRecord{Status: ShipmentStarting}); err != nil {
+			return nil, err
+		}
 		movements = append(movements, dex.MovementOf(StartShipment{}, TrackedShipment{
 			Shipment:                 shipment,
 			ReconcileIntervalSeconds: order.ReconcileIntervalSeconds,
@@ -175,11 +202,16 @@ func ShipmentStartRequestID(orderFlowID string, shipment Shipment) (string, erro
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 type StartShipment struct {
 	dex.StepDefaultsNoWaitFor[TrackedShipment]
 	getClient    func() *dex.Client
 	shipmentFlow *ShipmentFlow
+}
+
+// GetStepOptions takes the records lock, so the claim and the rejection never race a report.
+func (StartShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)}}
 }
 
 func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
@@ -193,7 +225,7 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, err
 	}
 	timeout := ShipmentTimeout
-	_, err = client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
+	runID, err := client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
 		OrderFlowID: ctx.FlowID(),
 		Shipment:    tracked.Shipment,
 	}, dex.StartFlowOptions{
@@ -213,11 +245,16 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	if err != nil {
 		return nil, err
 	}
+	// Claim the run: reports and reads of any other run of this number are ignored.
+	if err := ShipmentRecords.Set(ctx, number, ShipmentRecord{Status: ShipmentStarted, RunID: runID}); err != nil {
+		return nil, err
+	}
+	tracked.ShipmentRunID = runID
 	return dex.GoTo(AwaitShipment{}, tracked), nil
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the shipment at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 type AwaitShipment struct {
 	dex.StepDefaults
 	getClient func() *dex.Client
@@ -241,7 +278,7 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, errClientUnavailable
 	}
 	number := tracked.Shipment.ShipmentNumber
-	reading, err := reconcileShipment(ctx, client, number)
+	reading, err := reconcileShipment(ctx, client, number, tracked.ShipmentRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,11 +286,12 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return dex.GoTo(AwaitShipment{}, tracked), nil
 	}
 	// Merge with the record, which may already hold the reported outcome.
-	record, err := loadShipmentRecord(ctx, number)
+	record, _, err := loadShipmentRecord(ctx, number)
 	if err != nil {
 		return nil, err
 	}
 	record.Status = reading.Status
+	record.RunID = tracked.ShipmentRunID
 	if record.Outcome == "" {
 		record.Outcome = reading.Outcome
 	}
@@ -263,39 +301,64 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	return dex.GracefulComplete(nil), nil
 }
 
-// loadShipmentRecord returns the loaded record of a shipment, or an empty record when it has none.
+// loadShipmentRecord returns the loaded record of a shipment and whether it exists.
 // It returns an error when the record cannot be read.
-func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, error) {
+func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, bool, error) {
 	record, err := ShipmentRecords.Get(ctx, number)
 	var notFound *dex.AttributeNotFoundError
 	if errors.As(err, &notFound) {
-		return ShipmentRecord{}, nil
+		return ShipmentRecord{}, false, nil
 	}
-	return record, err
+	return record, err == nil, err
 }
 
-// reconcileShipment reads a shipment: its status first, then its outcome.
-// It returns a "running" record while the shipment runs, an "unavailable" record when the
-// shipment does not exist, and an error for any other failure so the Step retries.
-func reconcileShipment(ctx context.Context, client *dex.Client, number string) (ShipmentRecord, error) {
-	info, err := client.DescribeFlow(ctx, number)
-	var notFound *dex.FlowNotFoundError
-	if errors.As(err, &notFound) {
-		return ShipmentRecord{Status: ShipmentUnavailable}, nil
-	}
-	if err != nil {
-		return ShipmentRecord{}, err
+// reconcileShipment reads the claimed run of a shipment: its status first, then its outcome.
+// It returns a "running" record while that run runs, and an "unavailable" record when that
+// run no longer exists or another run replaced it. It keeps an outcome only when the run
+// is still the claimed one after the read. It returns an error for any other failure so the Step retries.
+func reconcileShipment(ctx context.Context, client *dex.Client, number string, runID string) (ShipmentRecord, error) {
+	info, found, err := describeClaimedRun(ctx, client, number, runID)
+	if err != nil || !found {
+		return ShipmentRecord{Status: ShipmentUnavailable}, err
 	}
 	record := ShipmentRecord{Status: info.Status.String()}
 	if info.Status == dex.FlowRunning {
 		return record, nil
 	}
 	// An unset outcome Attribute leaves Outcome empty: the shipment ended without one.
-	_, err = client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &record.Outcome))
+	var outcome string
+	_, err = client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &outcome))
+	var notFound *dex.FlowNotFoundError
 	if errors.As(err, &notFound) {
 		return record, nil
 	}
-	return record, err
+	if err != nil {
+		return ShipmentRecord{}, err
+	}
+	// The Attribute read targets the latest run, so confirm it is still the claimed one.
+	_, stillClaimed, err := describeClaimedRun(ctx, client, number, runID)
+	if err != nil {
+		return ShipmentRecord{}, err
+	}
+	if stillClaimed {
+		record.Outcome = outcome
+	}
+	return record, nil
+}
+
+// describeClaimedRun describes the latest run of a shipment.
+// It returns found as false when the shipment does not exist or its latest run is not runID,
+// and an error for any other failure.
+func describeClaimedRun(ctx context.Context, client *dex.Client, number string, runID string) (dex.FlowInfo, bool, error) {
+	info, err := client.DescribeFlow(ctx, number)
+	var notFound *dex.FlowNotFoundError
+	if errors.As(err, &notFound) {
+		return dex.FlowInfo{}, false, nil
+	}
+	if err != nil {
+		return dex.FlowInfo{}, false, err
+	}
+	return info, info.RunID == runID, nil
 }
 
 var _ dex.Flow = (*OrderFulfillmentFlow)(nil)
