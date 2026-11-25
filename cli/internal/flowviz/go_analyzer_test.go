@@ -49,7 +49,15 @@ func TestGoAnalyzerSpreadSubFlowWait(t *testing.T) {
 		{"slice alias", initialize + "\n" + appendSubFlow + "\nalias := conditions\nreturn dex.AllOf(alias...), nil", "allOf", false},
 		{"slice write after loop", initialize + "\n" + appendSubFlow + "\nconditions = append(conditions, dex.Timer(0))\n" + waitAll, "allOf", false},
 		{"spread from another call", "return dex.AllOf(conditionList()...), nil", "allOf", false},
+		{"spread from field", "return dex.AllOf(step.prebuilt...), nil", "allOf", false},
+		{"statement before return", initialize + "\n" + appendSubFlow + "\n_ = len(conditions)\n" + waitAll, "allOf", false},
+		{"range over map", initialize + "\n" + strings.Replace(appendSubFlow, "range requests", "range map[string]string{\"request\": requests[0]}", 1) + "\n" + waitAll, "allOf", false},
 		{"spread in combo", initialize + "\n" + appendSubFlow + "\nreturn dex.AnyComboOf(dex.Combo(conditions...)), nil", "anyComboOf", false},
+		{"top-level combo spread", "combos := []dex.ConditionCombination{dex.Combo(dex.SubFlow(step.child, requests[0]))}\nreturn dex.AnyComboOf(combos...), nil", "anyComboOf", false},
+		{"opaque appended element", "conditions := []dex.Condition{dex.Timer(0)}\nconditions = append(conditions, step.prebuilt[0])\n" + waitAll, "allOf", false},
+		{"opaque element helper", "return dex.AllOf([]dex.Condition{firstCondition(step.prebuilt)}...), nil", "allOf", false},
+		{"slice passed to another call", "conditions := []dex.Condition{dex.Timer(0)}\nreplaceCondition(conditions, dex.SubFlow(step.child, requests[0]))\n" + waitAll, "allOf", false},
+		{"alias overwrites element", "conditions := []dex.Condition{dex.Timer(0)}\nalias := conditions\nalias[0] = dex.SubFlow(step.child, requests[0])\n" + waitAll, "allOf", false},
 		{"shadowed append", "append := func(list []dex.Condition, _ dex.Condition) []dex.Condition { return list }\n" + initialize + "\n" + appendSubFlow + "\n" + waitAll, "allOf", false},
 		{"slice captured in loop", initialize + "\n" + strings.Replace(appendSubFlow, "request))", "func() string { conditions = nil; return request }()))", 1) + "\n" + waitAll, "allOf", false},
 	}
@@ -60,6 +68,7 @@ func TestGoAnalyzerSpreadSubFlowWait(t *testing.T) {
 	}
 	graph := analyzeGoSpreadWaitSource(t, fmt.Sprintf(goSpreadWaitSource, waitBranches.String()))
 	require.NotContains(t, diagnosticCodes(graph), "go_type_check_failed", "%+v", graph.Diagnostics)
+	require.False(t, graph.Valid)
 	rejectedCount := 0
 	for _, test := range tests {
 		if !test.accepted {
@@ -100,6 +109,69 @@ func TestGoAnalyzerSpreadSubFlowWait(t *testing.T) {
 		}
 	}
 	require.Equal(t, rejectedCount, diagnosticCount)
+}
+
+func TestGoAnalyzerSpreadConditionParameter(t *testing.T) {
+	source := fmt.Sprintf(goSpreadWaitSource, "case \"parameter\":\nreturn dex.AllOf(prebuilt...), nil")
+	source = strings.NewReplacer("requests []string", "prebuilt []dex.Condition", "switch requests[0]", "switch \"parameter\"", "_ []string", "_ []dex.Condition").Replace(source)
+	graph := analyzeGoSpreadWaitSource(t, source)
+	require.NotContains(t, diagnosticCodes(graph), "go_type_check_failed", "%+v", graph.Diagnostics)
+	require.False(t, graph.Valid)
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "dynamic_wait_condition" {
+			require.Equal(t, "error", diagnostic.Severity)
+			return
+		}
+	}
+	t.Fatal("missing dynamic_wait_condition diagnostic for parameter")
+}
+
+func TestGoAnalyzerSpreadNonSubFlowConditions(t *testing.T) {
+	const branches = `
+	case "conditional timer":
+		conditions := []dex.Condition{approvalChannel.ForOne()}
+		if len(requests) > 1 {
+			timer, err := approvalTimer(requests[1])
+			if err != nil {
+				return nil, err
+			}
+			conditions = append(conditions, timer)
+		}
+		return dex.AnyOf(conditions...), nil
+	case "range timers":
+		var conditions []dex.Condition
+		for range requests {
+			conditions = append(conditions, dex.Timer(0))
+		}
+		return dex.AllOf(conditions...), nil
+	case "combo spread":
+		return dex.AnyComboOf([]dex.ConditionCombination{dex.Combo(dex.Timer(0))}...), nil
+	case "spread in combo":
+		conditions := []dex.Condition{dex.Timer(0)}
+		return dex.AnyComboOf(dex.Combo(conditions...)), nil
+	case "alias":
+		conditions := []dex.Condition{dex.Timer(0)}
+		alias := conditions
+		return dex.AllOf(alias...), nil
+	`
+	graph := analyzeGoSpreadWaitSource(t, fmt.Sprintf(goSpreadWaitSource, branches))
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	warningCount := 0
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "dynamic_wait_condition" {
+			require.Equal(t, "warning", diagnostic.Severity)
+			warningCount++
+		}
+	}
+	require.Equal(t, 5, warningCount)
+	unknownCount := 0
+	for _, node := range graph.Nodes {
+		if node.Wait != nil && len(node.Wait.Conditions) == 1 && node.Wait.Conditions[0].Kind == "unknown" {
+			require.Empty(t, node.Wait.Conditions[0].SubFlowID)
+			unknownCount++
+		}
+	}
+	require.Equal(t, warningCount, unknownCount)
 }
 
 func TestGoAnalyzerParallelSubFlowsExample(t *testing.T) {
@@ -161,11 +233,29 @@ func analyzeGoSpreadWaitSource(t *testing.T, source string) *Graph {
 
 const goSpreadWaitSource = `package spreadwait
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"errors"
+
+	"github.com/superdurable/dex/sdk-go/dex"
+)
 
 type ParentFlow struct { dex.FlowDefaults }
 func (*ParentFlow) GetSteps() []dex.StepDef { return []dex.StepDef{dex.DefineStartStep(LaunchChildren{})} }
-func (*ParentFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.PersistenceSchema{} }
+func (*ParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{approvalChannel}}
+}
+
+func (flow *ParentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.GetDexSummary, nil), dex.DefineRPC(flow.GetDexDisplay, nil)}
+}
+
+func (*ParentFlow) GetDexSummary(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+func (*ParentFlow) GetDexDisplay(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
 
 type ChildFlow struct { dex.FlowDefaults }
 func (*ChildFlow) GetFlowType() string { return "RegisteredChild" }
@@ -177,11 +267,14 @@ func (flow *DynamicChildFlow) GetFlowType() string { return flow.name }
 func (*DynamicChildFlow) GetSteps() []dex.StepDef { return nil }
 func (*DynamicChildFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.PersistenceSchema{} }
 
+// dex:group group-id:children group-label:"Children"
+// dex:explanation text:"Waits for children."
 type LaunchChildren struct {
 	dex.StepDefaults
 	child *ChildFlow
 	dynamicChild dex.Flow
 	dynamicTypeChild *DynamicChildFlow
+	prebuilt []dex.Condition
 }
 
 func (step LaunchChildren) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
@@ -197,4 +290,19 @@ func (LaunchChildren) Execute(_ dex.Context, _ []string) (*dex.StepDecision, err
 }
 
 func conditionList() []dex.Condition { return nil }
+
+func firstCondition(conditions []dex.Condition) dex.Condition { return conditions[0] }
+
+func replaceCondition(conditions []dex.Condition, condition dex.Condition) {
+	conditions[0] = condition
+}
+
+var approvalChannel = dex.DefineChannel[string]("approvals")
+
+func approvalTimer(request string) (dex.Condition, error) {
+	if request == "" {
+		return nil, errors.New("missing approval request")
+	}
+	return dex.Timer(0), nil
+}
 `

@@ -966,7 +966,7 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 		position := analyzer.fileSet.Position(result.call.Pos())
 		waitID := fmt.Sprintf("wait:%s:%d:%d", stepType, position.Line, position.Column)
 		waitType := goWaitType(analyzer.callName(result.call))
-		conditions := analyzer.goWaitConditions(waitID, result.call, method.Body)
+		conditions := analyzer.goWaitConditions(waitID, result.call, method)
 		analyzer.graph.AddNode(Node{
 			ID: waitID, Kind: "wait", Name: waitType, ParentID: ownerID, Condition: result.condition,
 			Phase: "wait_for", Span: analyzer.span(result.call), Wait: &WaitDetails{Type: waitType, Conditions: conditions},
@@ -1159,11 +1159,11 @@ func (analyzer *goAnalyzer) checkedChannels(expression ast.Expr) []string {
 	return channels
 }
 
-func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr, body *ast.BlockStmt) []WaitCondition {
-	collector := &goWaitConditionCollector{analyzer: analyzer, waitID: waitID, conditions: make([]WaitCondition, 0)}
+func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr, method *ast.FuncDecl) []WaitCondition {
+	collector := &goWaitConditionCollector{analyzer: analyzer, waitID: waitID, method: method, conditions: make([]WaitCondition, 0)}
 	for index, argument := range waitCall.Args {
 		if waitCall.Ellipsis.IsValid() && index == len(waitCall.Args)-1 {
-			collector.collectSpread(waitCall, argument, index, body)
+			collector.collectSpread(waitCall, argument, index)
 			continue
 		}
 		collector.collect(argument, index, nil, goMaximumHelperDepth, goCallReach{})
