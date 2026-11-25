@@ -9,4 +9,4 @@
 
 The `get_ticket_transcript` RPC reads the current transcript chunk while the ticket is open. This example pins `dex-sdk` 1.44.0, which has no Client Attribute read.
 
-See the [Inbound Event Loop design pattern](https://docs.superdurable.io/design-patterns/durable-timer/inbound-event-loop).
+See the [Inbound Event Loop design pattern](https://docs.superdurable.io/design-patterns/inbound-event-loop).
