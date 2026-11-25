@@ -34,6 +34,7 @@ from dex_examples.patterns.drain_channels.external_publishing.controller import 
 from dex_examples.patterns.drain_channels.internal.controller import (
     create_drain_internal_blueprint,
 )
+from dex_examples.patterns.entity_flow.controller import create_entity_flow_blueprint
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
 from dex_examples.patterns.hash_partitioned_attribute_map.controller import (
     create_hash_partitioned_attribute_map_blueprint,
@@ -139,6 +140,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_fail_fast_blueprint(app_state))
     quart_app.register_blueprint(create_interruptible_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
+    quart_app.register_blueprint(create_entity_flow_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))
     quart_app.register_blueprint(
         create_sequentially_chunked_attribute_map_blueprint(app_state)

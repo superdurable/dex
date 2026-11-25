@@ -186,6 +186,7 @@ Under [`patterns/`](./patterns):
 - [Failure recovery](./patterns/recovery)
 - [Reminders](./patterns/reminders)
 - [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)
+- [Entity Flow customer accounts](./patterns/entity-flow)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)
 - [Wait for Step completion](./patterns/wait-for-step-completion)

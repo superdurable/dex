@@ -29,6 +29,7 @@ import {
 import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flow.js";
 import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
+import { customerAccountFlow } from "../../src/patterns/entity-flow/customer-account-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import { ExpenseReimbursementFlow } from "../../src/patterns/fail-fast/expense-reimbursement-flow.js";
 import { FakePaymentProvider } from "../../src/patterns/fail-fast/fake-payment-provider.js";
@@ -73,6 +74,7 @@ export interface IntegEnvironment {
   readonly loanApplicationFlow: typeof loanApplicationFlow;
   readonly expenseReimbursementFlow: ExpenseReimbursementFlow;
   readonly paymentProvider: FakePaymentProvider;
+  readonly customerAccountFlow: typeof customerAccountFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -118,6 +120,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     creditCheckFlow,
     loanApplicationFlow,
     expenseReimbursementFlow,
+    customerAccountFlow,
     deferredChoiceOrderProbeFlow,
     cancelCaseOrderProbeFlow,
   ];
@@ -154,6 +157,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     loanApplicationFlow,
     expenseReimbursementFlow,
     paymentProvider,
+    customerAccountFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -190,6 +191,26 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				flowID, runID := parseFlowTriggerResponse(string(responseBody), "")
 				return flowID, runID
 			},
+		},
+		{
+			name: "patterns/entity-flow",
+			trigger: func(t *testing.T) (string, string) {
+				accountID := smokeWorkflowID(t, "entity-flow")
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/patterns/entity-flow/account",
+					nil,
+					entityflow.AccountRequest{
+						AccountID: accountID,
+						ContactDetails: entityflow.ContactDetails{
+							DisplayName: "Smoke Tester",
+							Email:       accountID + "@example.com",
+						},
+					},
+				)
+			},
+			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
 			name: "patterns/entity-store",

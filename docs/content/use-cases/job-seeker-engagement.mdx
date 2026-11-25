@@ -10,7 +10,7 @@ Keep an employer and a job seeker aligned while the job seeker decides whether t
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
-**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Reminder](/design-patterns/durable-timer/reminder), [Interruptible wait](/design-patterns/interruptible), [Responsive Update](/design-patterns/responsive-update), [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
+**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Reminder](/design-patterns/durable-timer/reminder), [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline), [Responsive Update](/design-patterns/responsive-update), [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -47,7 +47,7 @@ It combines these design patterns:
 
 - [**Static parallel Steps**](/design-patterns/parallel/static) separate the deadline, the reminder loop, and the external notification. A slow branch does not block the others.
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
-- [**Interruptible wait**](/design-patterns/interruptible) uses `AnyOf` so a Channel message can wake a Step before its Timer.
+- [**Decision with Deadline**](/design-patterns/external-interaction/decision-with-deadline) uses `AnyOf` so a Channel message can wake a Step before its Timer.
 - [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
 - [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets a caller wait until an Attribute reaches the value it expects.
 - **Completion by one branch**: `ProcessTimeout` completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
@@ -433,6 +433,6 @@ The Go, Java, Python, and TypeScript examples implement the full 60-day process.
 ## Next
 
 - [Reminder](/design-patterns/durable-timer/reminder)
-- [Interruptible](/design-patterns/interruptible)
+- [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline)
 - [Responsive update](/design-patterns/responsive-update)
 - [Attribute match](/design-patterns/responsive-update/attribute-match)

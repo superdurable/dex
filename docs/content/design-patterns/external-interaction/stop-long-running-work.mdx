@@ -1,23 +1,58 @@
 ---
-title: 可中断执行
-sidebar_label: 可中断执行
+title: Stop Long-Running Work
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
 
-# 可中断执行
+# Stop Long-Running Work
 
-在收到持久化中断信号后，安全地停止长时间工作。
+Stop Long-Running Work, formerly Interruptible execution, stops work that runs for a long time when someone asks for it.
 
-这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [轮询](/design-patterns/durable-timer/polling)。
+Use this pattern for work that loops for a long time, such as batch processing. To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
 
-`InterruptibleFlow` 并行启动 `WorkA` 和 `WorkB`。要中断它们，客户端调用 **interrupt** RPC，由它写入 `interruptSignal` Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 `GracefulComplete`。两个分支都停下后，Flow 才完成。
+## Choose how to stop {#choose-how-to-stop}
+
+Dex has three built-in ways to stop work. Choose by what must stop and what must still run.
+
+| Way | What stops | Use it when |
+| --- | --- | --- |
+| StopFlow | The whole run, at once | The run must end now, and no Step needs to report or clean up. |
+| Graceful completion | Steps that wait on the graceful completion Condition; the Flow completes once no Step is active | The Flow should finish its current work and then complete. |
+| Step cancellation | Chosen running Steps | One branch must stop while the rest of the Flow keeps running. |
+
+### Stop the whole run with StopFlow {#stopflow}
+
+A client calls `StopFlow` to cancel, fail, or terminate the run. Each type records a different terminal status. The run closes as soon as the stop commits.
+
+After the stop commits, only handlers that were already running can still run. No later Step decision, failure route, or cleanup runs. Running Steps get a cancellation signal. A handler that ignores it keeps running, and its calls to external systems still take effect. Dex discards its uncommitted result. Whoever waits for the stopped Flow reads its terminal state instead of waiting for a report.
+
+Use StopFlow when nothing in the Flow needs to finish its work or run cleanup. See [Stop a Flow](/reference/server/runtime-client#stop-a-flow) for every stop type.
+
+### Ask the Flow to complete gracefully {#graceful-completion}
+
+The Flow is asked to complete gracefully: a client calls `StopFlow` with graceful complete, or a Step returns `GracefulComplete`. Active Steps keep running, and their decisions still apply. The Flow completes once no Step is active.
+
+A waiting Step that includes the graceful completion Condition stops waiting when the request arrives. Its `Execute` handles any message it consumed first. Otherwise it ends its branch. Steps whose wait lacks the Condition keep running and keep the Flow open. A loop that moves to its next unit through a Timer and `GoTo` keeps looping until it checks for the request itself.
+
+Use graceful completion when each branch should finish its current unit and then stop. Add the Condition to every wait that would otherwise keep a branch alive. Every SDK has the graceful completion Condition: Go, Python, Java, TypeScript, and Rust. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
+
+### Cancel running Steps {#cancel-running-steps}
+
+A Step decision or an RPC cancels chosen active Steps, for example by Step type. The rest of the Flow keeps running. The SDK passes a cancellation signal to each canceled handler. The handler checks the signal and returns. Dex discards the canceled Step's later result.
+
+Use Step cancellation to stop one branch, such as one job that the user no longer needs. Keep each handler idempotent, because a canceled Step's consumed messages normally return to their Channels. See [Step cancellation](/reference/server/step-and-flow-close#step-cancellation).
+
+## Finish the current unit, then stop {#finish-the-current-unit-then-stop}
+
+This example stops looping work after the current unit finishes. It records the stop request in an Attribute, and each branch checks it between units. The Attribute flag works the same way with any SDK. Where the SDK supports it, graceful completion is a better signal: each branch would wait on its Timer and the graceful completion Condition together, and no Attribute is needed.
+
+`InterruptibleFlow` starts `WorkA` and `WorkB` in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the `interruptSignal` Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns `GracefulComplete`. The Flow completes when both branches have stopped.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## 核心实现
+## Core implementation
 
-每个示例展示 `WorkA`，`WorkB` 与它相同。`WaitFor` 在两个工作单元之间等待。`Execute` 在信号已写入时完成，否则进入下一个单元。可运行示例还包含 Flow 注册和 **interrupt** RPC。
+Each sample shows `WorkA`; `WorkB` is the same. `WaitFor` pauses between units of work. `Execute` completes if the signal is set, and otherwise moves to the next unit. The runnable examples also include Flow registration and the **interrupt** RPC.
 
 <SdkTabs
   examples={{
@@ -226,7 +261,7 @@ impl Step for WorkA {
 </SdkSnippet>
 </SdkTabs>
 
-## 下一步
+## Next
 
-- [响应式更新](/design-patterns/responsive-update)
-- [持久化定时器](/design-patterns/durable-timer)
+- [Responsive Update](/design-patterns/responsive-update)
+- [Durable Timer](/design-patterns/durable-timer)

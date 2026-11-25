@@ -27,6 +27,7 @@ import (
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
@@ -102,6 +103,8 @@ var (
 	PaymentProvider       *failfast.FakePaymentProvider
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
+	AccountArchive        *entityflow.FakeAccountArchive
+	CustomerAccount       *entityflow.CustomerAccountFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
@@ -189,6 +192,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
+	AccountArchive = entityflow.NewFakeAccountArchive()
+	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
@@ -257,6 +262,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ExpenseReimbursement,
 		Interruptible,
 		Reminder,
+		CustomerAccount,
 		UserProfile,
 		ManualRecovery,
 		InactivenessTracker,

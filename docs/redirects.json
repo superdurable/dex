@@ -164,6 +164,14 @@
     "to": "/zh-Hans/design-patterns/external-interaction/idle-timer-with-resolution"
   },
   {
+    "from": "/design-patterns/interruptible",
+    "to": "/design-patterns/external-interaction/stop-long-running-work"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/interruptible",
+    "to": "/zh-Hans/design-patterns/external-interaction/stop-long-running-work"
+  },
+  {
     "from": "/design-patterns/entity-store",
     "to": "/design-patterns/data-storage/entity-flow-attribute-sync"
   },
