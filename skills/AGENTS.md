@@ -22,10 +22,10 @@ directly at the repository root.
   matching natural-language descriptions. `dex-sdk` answers explicit
   invocation only.
 - `dex-app-builder` holds every Dex rule once. Its product route is the
-  end-to-end workflow for business discovery, Flow and FDG modeling, an
-  explicit no-custom-UI or custom-UI decision, backend implementation in Go,
-  Python, TypeScript, Java, or Rust, and local verification with
-  source-available Dex tooling. Its SDK-only route implements, debugs, tests,
+  backend-first workflow for business discovery, Flow and FDG modeling,
+  backend implementation in Go, Python, TypeScript, Java, or Rust, and local
+  verification with source-available Dex tooling. The user's own UI, Dex
+  Web, and released Connectors are optional; discovery asks once about each. Its SDK-only route implements, debugs, tests,
   and operates applications through the public Dex SDK without product
   discovery.
 - `dex-sdk` is a transition skill. Its only instruction is to load

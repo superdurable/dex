@@ -1,6 +1,6 @@
 ---
 name: dex-app-builder
-description: Primary skill for all Dex work with source-available Dex. Use for Dex product, application, or workflow requests; for requests to learn, get started with, set up, or understand Dex; and for standalone SDK work that implements, debugs, tests, or operates code using the Dex SDK in Go, Python, TypeScript, Java, or Rust. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, the backend with released connectors, and local verification with dexcli dev. Not for official connector-library work.
+description: Primary skill for all Dex work with source-available Dex. Use for Dex product, application, or workflow requests; for requests to learn, get started with, set up, or understand Dex; and for standalone SDK work that implements, debugs, tests, or operates code using the Dex SDK in Go, Python, TypeScript, Java, or Rust. Orchestrates business discovery, Flow and FDG modeling, the backend and its application API, and local verification with dexcli dev, plus the user's own UI, Dex Web, or released connectors when the user wants them. Not for official connector-library work.
 ---
 
 # Dex App Builder
@@ -35,7 +35,7 @@ Pick the route first:
 | --- | --- |
 | A Dex product, application, or business process, end to end | **Product route**: the [workflow](#the-workflow) stages, the [product constraints](#product-constraints), and every section from [Mental model](#mental-model) on |
 | Learn, install, set up, or understand Dex, with no concrete process yet | [Getting started](references/getting-started.md) |
-| Implement, debug, test, or operate code that uses the Dex SDK, such as fixing a Flow or adding a Step | **SDK-only route**: skip discovery, the UI decision, and the product constraints. Start at [Mental model](#mental-model) and keep the application's existing language, structure, and versions |
+| Implement, debug, test, or operate code that uses the Dex SDK, such as fixing a Flow or adding a Step | **SDK-only route**: skip discovery, the UI and Connector questions, and the product constraints. Start at [Mental model](#mental-model) and keep the application's existing language, structure, and versions |
 | Add or change an official Connector, operation, Trigger, or UI unit | [Connector Contributor](../dex-connector-contributor/SKILL.md) |
 
 - A request that arrives through the former `dex-sdk` skill takes the
@@ -54,20 +54,29 @@ Pick the route first:
 
 ## The workflow
 
-The product route has one reference per stage. Read only the sections the
-next decision needs. Record decisions in the application's own documentation
-and do not reread a reference once its facts are recorded.
+The product route builds the backend: the Flows, their Dex state, the Workers,
+and the application API that the application's UI or callers use. It has one
+reference per stage. Read only the sections the next decision needs. Record
+decisions in the application's own documentation and do not reread a
+reference once its facts are recorded.
 
 | Stage | Goal | Reference |
 | --- | --- | --- |
 | 0. Workspace | Classify the repository, choose or keep the language, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
-| 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, Connectors, management mapping | [Product discovery](references/product-discovery.md) |
-| 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web](references/dex-web-v2.md) |
-| 3. Backend | Flow design, Dex-first storage, Actions, Workers, API contract | [Backend implementation](references/backend-implementation.md) |
-| 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [FDG authoring](references/fdg-authoring.md) |
-| 3b. Connectors | Catalog discovery, Connector Steps, Triggers, `llm`, credentials | [Connector architecture](references/connector-architecture.md) |
-| 4. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
-| 4'. Managed Dex App | Repository rules, checks, import, and Live for Dex Cloud | [Managed Dex App](references/managed-dex-app.md) |
+| 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, external systems; ask once about UI and Connectors | [Product discovery](references/product-discovery.md) |
+| 2. Backend | Flow design, Dex-first state, Workers, the application API contract | [Backend implementation](references/backend-implementation.md) |
+| 2a. FDG | Start input, Step groups, explanations, Summary, Display, Actions, diagnostics | [FDG authoring](references/fdg-authoring.md) |
+| 3. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
+| 3'. Managed Dex App | Repository rules, checks, import, and Live for Dex Cloud | [Managed Dex App](references/managed-dex-app.md) |
+
+The UI and Connectors are optional. Discovery asks the user once about each.
+Load these references only for the options the user chose:
+
+| The user wants | Reference |
+| --- | --- |
+| Their own UI, which most products need | [UI workflow](references/ui-workflow.md) |
+| Dex Web for operations and management, alone or with their own UI | [Dex Web](references/dex-web-v2.md) |
+| A released Connector for an external system | [Connector architecture](references/connector-architecture.md) |
 
 Before Stage 0 picks a language, ask whether the application runs locally only
 or is imported into Dex Cloud as a Managed Dex App. A Managed Dex App starts
@@ -95,11 +104,12 @@ than them. They take precedence.
   lists for the application's language. Skip a capability it does not list.
   Never invent syntax, and never ask the user to switch languages for it.
   Give each local Step its `dex:group` and `dex:explanation` directives.
-- **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
-  history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
-  binary or image when deployed. Do not recreate management APIs or UI. A
-  separate participant interaction is a valid custom UI. A backend
-  requirement alone is not.
+- **The UI is the user's choice.** Most products need their own UI. Dex Web
+  can serve operations and management, alone or next to it. Never default to
+  Dex Web alone, and never ask for a Dex Web gap before building the user's
+  UI. When the user also uses Dex Web, leave its Runs, Work Queue, Actions,
+  edits, history, and diagnostics to it unless the user asks for them in
+  their own UI. Locally, `dexcli dev` always serves Dex Web to inspect Flows.
 - **External stores need a recorded gap.** Justify a store outside Dex with
   a concrete access or scale gap and one owner per fact. No speculative
   database, projection, or cache.
@@ -120,9 +130,10 @@ than them. They take precedence.
   documentation before coding, including selective loads, locks, retention,
   retries, and uncertain-effect handling.
 - **Credentials stay outside.** Keep them out of code, Flow state, logs, and
-  definitions. Locally, Dex Web configures Connector connections. The
-  application reads them through the project configuration loader of its
-  language's Connector SDK.
+  definitions. The application reads them from its configuration or
+  environment at run time. With a released Connector, it reads its
+  connections through the project configuration loader of its language's
+  Connector SDK, and locally Dex Web configures them.
   An operator or hosting platform supplies the deployed configuration. Dex
   hosts none.
 - **Authorization at the trusted boundary.** A browser permission selection

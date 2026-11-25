@@ -374,7 +374,7 @@ assert.match(dexSkills, /dex-developer-skill\/dex-app-builder/);
 assert.match(dexSkills, /dex-developer-skill\/dex-sdk/);
 assert.match(dexSkills, /dex-developer-skill\/dex-connector-contributor/);
 assert.match(dexAppBuilder, /primary skill/i);
-assert.match(dexAppBuilder, /Choose the application surface/);
+assert.match(dexAppBuilder, /Your UI and Connectors are optional/);
 assert.match(dexAppBuilder, /call external providers only from <code>Execute<\/code>/);
 // Dex SDK merged into Dex App Builder; its page explains the transition.
 assert.match(dexAppBuilder, /Version and source authority/);
@@ -392,7 +392,7 @@ assert.match(zhDexSkills, /开始实现前/);
 assert.match(zhDexAppBuilder, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 Skill/);
-assert.match(zhDexAppBuilder, /选择应用界面/);
+assert.match(zhDexAppBuilder, /UI 和 Connector 都是可选的/);
 assert.match(zhDexAppBuilder, /版本与来源/);
 assert.match(zhDexAppBuilder, /Skill 默认只读/);
 assert.match(zhDexSdk, /Dex App Builder 的一部分/);

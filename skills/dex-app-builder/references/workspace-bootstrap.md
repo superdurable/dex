@@ -62,8 +62,9 @@ source-available Dex:
    [Rust](https://github.com/superdurable/dex/tree/main/examples/rust).
 4. Keep each Flow in its own source file named for its domain. Add one
    Registry that composes every Flow and one Worker entry point. Add an
-   application HTTP server only for a confirmed custom UI or integration
-   ingress. Add a frontend directory only for a confirmed custom UI.
+   application HTTP server when the user's own UI, another caller, or
+   integration ingress needs the application API. Add a frontend directory
+   when the user wants their own UI.
 5. Record the project's own commands for FDG rendering, code generation,
    checks, builds, tests, and local runs in its README or build file. Later
    work reuses them.
@@ -73,8 +74,9 @@ release, and `dexcli` release. If a release cannot be resolved or verified,
 report that blocker. Never fall back to an unreleased dependency.
 
 An optional frontend and its generated client stay separate from the
-backend, whatever its language. Use an official Connector package that the
-catalog lists for the application's language.
+backend, whatever its language. When the user chose a released Connector,
+use the official Connector package that the catalog lists for the
+application's language.
 
 ## Pair the SDK and the CLI
 

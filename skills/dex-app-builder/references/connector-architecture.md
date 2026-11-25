@@ -7,6 +7,11 @@ Connectors are released separately from Dex, in the
 A Connector is not a generic API wrapper, a node-based automation library, or
 a second workflow engine.
 
+Connectors are optional. Load this reference when the user wants a released
+Connector for an external system, as asked in
+[product discovery](product-discovery.md#connector-question). The rules here
+apply to the systems the user chose a Connector for.
+
 App Builder integrates Connectors from the application's own language. Use
 the Connector packages that the catalog lists for that language, through the
 Dex SDK and the Connector SDK of that language. The SDK reference for
@@ -334,8 +339,10 @@ integration code.
 
 For a public external product with a documented API or official SDK, a
 missing Connector, operation, or Trigger is a Connector contribution, never
-permission to call the provider directly. Explain the exact gap. Ask for
-authorization, then load
+permission to call the provider directly. Explain the exact gap. The user may
+instead decline the Connector for that system, as in
+[product discovery](product-discovery.md#connector-question). Otherwise ask
+for authorization, then load
 [Connector Contributor](../../dex-connector-contributor/SKILL.md) completely.
 The Connector repository then owns manifest authoring, generated surfaces,
 provider tests, examples, release order, and its pull-request workflow.

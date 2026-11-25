@@ -1,8 +1,10 @@
-# Dex Web as the management surface
+# Dex Web for operations and management
 
-Dex Web is the operator UI for Dex. App Builder treats it as the
-first management interface, not merely a Flow inspector. This file holds the
-rules an application must follow so Dex Web can manage it. The
+Dex Web is the operator UI for Dex. Load this reference when the user wants
+Dex Web to operate and manage the application, alone or next to their own UI.
+It is optional. Locally, `dexcli dev` serves it to inspect Flows either way.
+This file holds the rules an application must follow so Dex Web can manage
+it. The
 [Dex Web reference](https://docs.superdurable.io/reference/web/dex-web) has
 the flags, defaults, image details, page behavior, and `/api` contracts.
 
@@ -50,8 +52,9 @@ Dex Web loads a bounded window of recent history for a Run. Show the progress
 of a long-running business process in Display fields, not through the
 execution graph.
 
-Design these contracts before you propose a custom management backend or UI.
-[FDG authoring](fdg-authoring.md) has the exact syntax.
+When the user uses Dex Web, design these contracts for the management needs
+it covers, and keep those needs out of the user's own UI unless the user asks
+for them there. [FDG authoring](fdg-authoring.md) has the exact syntax.
 
 ## Actions, permissions, and Work Queue
 

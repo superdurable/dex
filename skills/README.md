@@ -300,13 +300,16 @@ SDK for the application's language, `dexcli` (including `dexcli dev` and the FDG
 It starts with business discovery: process maintainers, managers, terminal
 users, permissions, triggers, actions, waits, approvals, recovery, and audit
 requirements. It models Flows, their primitives, and their Flow Definition
-Graph (FDG) before code, and maps management needs to Dex Web before
-confirming **No custom UI** or **Custom UI**. Runs and Indexed Attributes cover
-list and search, Summary RPCs provide list fields, Display RPCs provide details
-and editable scalars, Action RPC metadata provides forms and permission-gated
-operations, Work Queue discovers actionable Runs, and timeline/graph views show
-progress and failures. A request for an admin backend is not itself a reason
-for Custom UI; discovery must record a specific Dex Web capability gap.
+Graph (FDG) before code. The backend is the main line: Flow design, Dex-first
+state, Workers, and the application's own HTTP API contract for its UI or
+callers. Discovery asks once which UI the user wants: their own UI, which most
+products need, Dex Web for operations and management, or both. There is no
+Dex Web-only default, and the user's own UI needs no recorded Dex Web gap.
+When the user chooses Dex Web, Runs and Indexed Attributes cover list and
+search, Summary RPCs provide list fields, Display RPCs provide details and
+editable scalars, Action RPC metadata provides forms and permission-gated
+operations, Work Queue discovers actionable Runs, and timeline/graph views
+show progress and failures; the user's own UI repeats them only on request.
 
 The backend can be Go, Python, TypeScript, Java, or Rust, and must satisfy strict Dex Web / FDG 2.0
 rendering with the directives the Flow visualization reference lists for that language.
@@ -317,9 +320,7 @@ the installed `dexcli`. App Builder does not borrow SDK setup from a neighboring
 catalog lists the languages of each connector and of each operation and Trigger, and App Builder
 uses the connector packages for the application's language.
 
-No custom UI uses Dex Web for every management interaction, so the
-application ships only its Worker plus any confirmed integration ingress.
-For a custom frontend, App Builder first builds only low-fidelity static pages
+For the user's own frontend, App Builder first builds only low-fidelity static pages
 when an interaction choice is unresolved, then designs the Flow, Connector
 boundaries, and application API contract together, generates the server
 interfaces and TypeScript client, implements the backend, wires the UI
@@ -327,8 +328,11 @@ through the generated client after the real Dex and Connector paths run, and
 adds visual polish only after real E2E passes. The application does not ship a
 mock backend or mock controls.
 
-Connector integrations reuse released dedicated connectors from
-`superdurable/dex-connectors-library`. Selection starts from the canonical
+Connectors are optional too. When discovery finds an external system, App
+Builder asks whether the user wants a released connector for it; otherwise the
+application calls the system from its own `Execute` code with idempotency,
+timeouts, and recovery. Chosen connector integrations reuse released dedicated
+connectors from `superdurable/dex-connectors-library`. Selection starts from the canonical
 published [`catalog.yaml`](https://connectors.superdurable.io/catalog.yaml),
 then verifies every exact Trigger, Query, Mutation, or UI capability, and its
 support for the application's language, against the selected component tag's immutable `connector.yaml`. If the catalog or release
