@@ -25,7 +25,7 @@ application types.
 | Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
 | Drain internal Channels | side Step loops until a final marker | `patterns/drain-channels/internal/drain-internal-channels-flow.ts` |
 | Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING`, a per-message `requestId`, and `ignoreAlreadyStarted: true`; on `FlowAlreadyStartedError` it publishes with `invokeRPCWithOptions` and a per-message `requestId` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
-| Interruptible execution | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
+| Stop Long-Running Work (formerly Interruptible execution) | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
 | Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
 | Responsive update: Stream | `client.readStream` with a persisted resume token | `primitives/stream/stream-flow.ts` |

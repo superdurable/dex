@@ -523,7 +523,7 @@ building blocks:
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drain_channels` |
 | Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts first with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)`, a per-message `.request_id(...)`, and `.ignore_already_started(true)`; on `SdkError::FlowAlreadyStarted`, publish with `invoke_rpc_with_options` and `RpcInvokeOptions::request_id` where the installed SDK has it | `patterns/drain_channels` |
-| Interruptible | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
+| Stop Long-Running Work (formerly Interruptible execution) | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
 | Wait for Step completion | `wait_for_step_completion` after start | `patterns/wait_for_step_completion` |
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |
 | Stream progress | `buffered_text` plus `read_stream_with_timeout` | `primitives/stream` |

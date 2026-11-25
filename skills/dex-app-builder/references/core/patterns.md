@@ -41,7 +41,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Handle an overall Flow deadline | [Graceful timeout](#graceful-timeout) |
 | Finish only after internal producers' messages are handled | [Drain internal Channels](#drain-internal-channels) |
 | Process bursty external messages in a short Flow | [Drain an external Channel](#drain-an-external-channel) |
-| Stop long repeating work on request | [Interruptible execution](#interruptible-execution) |
+| Stop long repeating work on request | [Stop Long-Running Work](#stop-long-running-work) (formerly Interruptible execution) |
 | Route on whichever of several events happens first, such as a decision or its deadline | [Decision with Deadline](#decision-with-deadline) |
 | Let parallel branches take turns on a sequence of Steps | [Critical section](#critical-section) |
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
@@ -535,9 +535,11 @@ Controller(entityId, message):                   // flowId = entityId; message h
 - Only one Step may consume a Channel that the decision checks.
 - When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
-## Interruptible execution
+## Stop Long-Running Work
 
 Long repeating work that can be stopped by a durable signal. Go folder: `interruptible`.
+
+StopFlow, graceful completion, and the Step cancellation signal are the built-in ways to stop work. Graceful completion wakes only the waits that include its Condition. The Attribute flag below lets each unit of work finish before it stops.
 
 ```text
 Work.waitFor(progress) -> Until(Timer(gap))
