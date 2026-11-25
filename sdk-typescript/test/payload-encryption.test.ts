@@ -863,23 +863,58 @@ test("a wrapped payload error keeps fixed text and the non-retryable flag", asyn
       workerErrorResponseForServer(this: unknown, task: unknown, failure: unknown, grpcStatus: number): Promise<WorkerErrorResponse>;
     }
   ).workerErrorResponseForServer;
+  const sealWorkerErrorResponse = (PullWorker.prototype as unknown as { sealWorkerErrorResponse: unknown }).sealWorkerErrorResponse;
   const plainHost = {
     payloadEncryption: new PayloadEncryption(payloadEncryptionSettings({ encryptErrorText: false })),
-    sealWorkerErrorResponse: (PullWorker.prototype as unknown as { sealWorkerErrorResponse: unknown }).sealWorkerErrorResponse,
+    sealWorkerErrorResponse,
   };
+  const hosts = [true, false].flatMap((encryptErrorText) => [
+    { payloadEncryption: new PayloadEncryption(payloadEncryptionSettings({ encryptErrorText })), sealWorkerErrorResponse },
+    {
+      payloadEncryption: new PayloadEncryption(payloadEncryptionSettings({
+        payloadCodec: new AesGcmPayloadCodec(keyProvider),
+        encryptErrorText,
+      })),
+      sealWorkerErrorResponse,
+    },
+  ]);
   const payloadError = (): PayloadEncryptionError => {
     const error = new PayloadEncryptionError("decode", "unknown_key", sentinel, "k1", { cause: new Error(sentinel) });
     error.name = sentinel;
     return error;
   };
-  for (const failure of [
-    new NonRetryableError(payloadError()),
-    retryAfter(7, new NonRetryableError(payloadError())),
-  ]) {
-    const response = await workerErrorResponseForServer.call(plainHost, task, failure, 2);
-    assert.ok(!Buffer.from(WorkerErrorResponse.encode(response).finish()).includes(Buffer.from(sentinel)));
-    assert.equal(response.errorType, "PayloadEncryptionError");
-    assert.equal(response.nonRetryable, true);
+  const withDynamicCause = (): Error => {
+    let reads = 0;
+    const error = new Error(`${sentinel} outer`);
+    error.name = sentinel;
+    Object.defineProperty(error, "cause", {
+      get: () => (reads++ === 0 ? payloadError() : new Error(`${sentinel} on a later read`)),
+    });
+    return error;
+  };
+  const failures: { failure: () => unknown; isNonRetryable: boolean }[] = [
+    { failure: () => new NonRetryableError(payloadError()), isNonRetryable: true },
+    { failure: () => retryAfter(7, new NonRetryableError(payloadError())), isNonRetryable: true },
+    { failure: () => new Error(`${sentinel} outer`, { cause: payloadError() }), isNonRetryable: false },
+    {
+      failure: () => new Error(`${sentinel} outer`, { cause: new NonRetryableError(payloadError()) }),
+      isNonRetryable: true,
+    },
+    { failure: () => new AggregateError([new Error(sentinel), payloadError()], sentinel), isNonRetryable: false },
+    {
+      failure: () => new AggregateError([new NonRetryableError(new Error(sentinel)), payloadError()], sentinel),
+      isNonRetryable: true,
+    },
+    { failure: withDynamicCause, isNonRetryable: false },
+  ];
+  for (const host of hosts) {
+    for (const { failure, isNonRetryable } of failures) {
+      const response = await workerErrorResponseForServer.call(host, task, failure(), 2);
+      assert.ok(!Buffer.from(WorkerErrorResponse.encode(response).finish()).includes(Buffer.from(sentinel)));
+      assert.equal(response.errorType, "PayloadEncryptionError");
+      assert.equal(response.stackTrace, "");
+      assert.equal(response.nonRetryable, isNonRetryable);
+    }
   }
 
   const failingEncryption = new PayloadEncryption(payloadEncryptionSettings({

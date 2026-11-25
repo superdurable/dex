@@ -28,6 +28,7 @@ import { translateServiceError, workerErrorResponse } from "../src/grpc-status.j
 import { InvocationContext } from "../src/invocation-context.js";
 import { NonRetryableError } from "../src/non-retryable.js";
 import { retryAfter } from "../src/retry-after.js";
+import { resolveWorkerFailure } from "../src/worker-failure-resolution.js";
 
 test("missing Flow uses the endpoint lifecycle requirement", () => {
   const error = serviceError(status.NOT_FOUND, ErrorSubStatus.ERROR_SUB_STATUS_FLOW_NOT_EXISTS);
@@ -168,6 +169,21 @@ test("non-retryable worker errors report the cause in either nesting order", () 
   assert.equal(fromSubclass.nonRetryable, true);
   assert.equal(fromSubclass.errorType, "InvalidOrderError");
   assert.equal(workerErrorResponse(cause).nonRetryable, false);
+});
+
+test("hostile AggregateError members keep the flag found before them", () => {
+  const members = new Proxy([new NonRetryableError("bad input"), new Error("second")], {
+    get(target, property, receiver) {
+      if (property === "1") throw new Error("hostile member");
+      if (property === "length") return 2 ** 32;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const group = new AggregateError([], "group");
+  Object.defineProperty(group, "errors", { value: members });
+  const resolution = resolveWorkerFailure(group);
+  assert.equal(resolution.isNonRetryable, true);
+  assert.equal(workerErrorResponse(group).nonRetryable, true);
 });
 
 test("non-retryable markers count inside the SDK finalizer group and cause chains", () => {

@@ -42,13 +42,13 @@ import {
 } from "./gen/dex.js";
 import {
   disabledPayloadEncryption,
-  isPayloadEncryptionErrorWithoutThrowing,
   isSdkHydrationError,
   payloadWorkerErrorResponse,
   type PayloadEncryption,
 } from "./payload-value-encryption.js";
 import { Timestamp } from "./gen/google/protobuf/timestamp.js";
-import { unwrapWorkerFailure, workerErrorResponse } from "./grpc-status.js";
+import { workerErrorResponseFromResolution } from "./grpc-status.js";
+import { resolveWorkerFailure } from "./worker-failure-resolution.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
 import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
@@ -672,19 +672,23 @@ export class PullWorker implements PullSlotStreamHost {
     failure: unknown,
     grpcStatus: status,
   ): Promise<WorkerErrorResponse> {
-    // Resolved without reading name, message, or stack, and never throws.
-    const { reported, isNonRetryable } = unwrapWorkerFailure(failure);
+    // Read once, without name, message, or stack; never throws.
+    const resolution = resolveWorkerFailure(failure);
     try {
-      if (isPayloadEncryptionErrorWithoutThrowing(reported)) {
-        // Built before reading name, message, or stack, so no codec or handler text reaches the Server.
-        return payloadWorkerErrorResponse(reported, grpcStatus, isNonRetryable);
+      if (resolution.payloadEncryptionError !== undefined) {
+        // A payload error anywhere in the failure sends fixed fields only, before any serialization.
+        return payloadWorkerErrorResponse(resolution.payloadEncryptionError, grpcStatus, resolution.isNonRetryable);
       }
-      return await this.sealWorkerErrorResponse(task, failure, workerErrorResponse(failure, grpcStatus));
+      return await this.sealWorkerErrorResponse(
+        task,
+        failure,
+        workerErrorResponseFromResolution(resolution, grpcStatus),
+      );
     } catch {
       return fixedWorkerErrorResponse(
         "Dex TypeScript SDK could not read or encrypt the Worker error",
         grpcStatus,
-        isNonRetryable,
+        resolution.isNonRetryable,
       );
     }
   }

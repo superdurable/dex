@@ -29,8 +29,7 @@ import {
   type ErrorSubStatus as ErrorSubStatusValue,
 } from "./errors.js";
 import type { PayloadEncryption } from "./payload-value-encryption.js";
-import { NonRetryableError } from "./non-retryable.js";
-import { RetryAfterError } from "./retry-after.js";
+import { resolveWorkerFailure, type WorkerFailureResolution } from "./worker-failure-resolution.js";
 
 const statusDetailsKey = "grpc-status-details-bin";
 const maxWorkerErrorDetailBytes = 1024;
@@ -46,7 +45,19 @@ interface AnyDetail {
 }
 
 export function workerErrorResponse(failure: unknown, grpcStatus: status = status.UNKNOWN): WorkerErrorResponse {
-  const { reported, retryAfterError, isNonRetryable } = unwrapWorkerFailure(failure);
+  return workerErrorResponseFromResolution(resolveWorkerFailure(failure), grpcStatus);
+}
+
+/**
+ * Builds the Worker failure from an already resolved handler failure, so its getters run once.
+ * Reads name, message, and stack of the reported failure; callers handle payload errors first.
+ * @returns The response with the reported failure's text, retry-after request, and flag.
+ */
+export function workerErrorResponseFromResolution(
+  resolution: WorkerFailureResolution,
+  grpcStatus: status = status.UNKNOWN,
+): WorkerErrorResponse {
+  const { reported, retryAfterError, isNonRetryable } = resolution;
   const cause = reported instanceof Error ? reported : new Error(String(reported));
   const detail = truncateWorkerFailureField(
     cause.message || cause.name,
@@ -69,67 +80,6 @@ export function workerErrorResponse(failure: unknown, grpcStatus: status = statu
     grpcStatus,
     nonRetryable: isNonRetryable,
   });
-}
-
-/**
- * Removes the RetryAfterError and NonRetryableError wrappers of a handler failure.
- * Never throws: Proxy traps and throwing getters count as absent values.
- * @returns The first failure under the wrappers, the outermost retry-after request, and whether
- * a NonRetryableError appears in the `cause` chains or AggregateError members, such as the
- * group Dex builds when a buffered Stream finalizer also fails.
- */
-export function unwrapWorkerFailure(failure: unknown): {
-  reported: unknown;
-  retryAfterError: RetryAfterError | undefined;
-  isNonRetryable: boolean;
-} {
-  let reported = failure;
-  let retryAfterError: RetryAfterError | undefined;
-  const unwrapped = new Set<unknown>();
-  while (!unwrapped.has(reported)) {
-    unwrapped.add(reported);
-    const isRetryAfter = isInstanceWithoutThrowing(reported, RetryAfterError);
-    if (!isRetryAfter && !isInstanceWithoutThrowing(reported, NonRetryableError)) break;
-    const cause = readPropertyWithoutThrowing(reported, "cause");
-    if (isRetryAfter) retryAfterError ??= reported as RetryAfterError;
-    if (!isInstanceWithoutThrowing(cause, Error)) break;
-    reported = cause;
-  }
-  return { reported, retryAfterError, isNonRetryable: hasNonRetryableMarker(failure) };
-}
-
-function hasNonRetryableMarker(failure: unknown): boolean {
-  const pending: unknown[] = [failure];
-  const visited = new Set<unknown>();
-  while (pending.length > 0) {
-    const current = pending.pop();
-    if (typeof current !== "object" || current === null || visited.has(current)) continue;
-    visited.add(current);
-    if (isInstanceWithoutThrowing(current, NonRetryableError)) return true;
-    pending.push(readPropertyWithoutThrowing(current, "cause"));
-    if (isInstanceWithoutThrowing(current, AggregateError)) {
-      const members = readPropertyWithoutThrowing(current, "errors");
-      if (Array.isArray(members)) pending.push(...(members as unknown[]));
-    }
-  }
-  return false;
-}
-
-function isInstanceWithoutThrowing(value: unknown, type: abstract new (...args: never[]) => unknown): boolean {
-  try {
-    return value instanceof type;
-  } catch {
-    return false;
-  }
-}
-
-function readPropertyWithoutThrowing(value: unknown, property: string): unknown {
-  if (typeof value !== "object" || value === null) return undefined;
-  try {
-    return Reflect.get(value, property);
-  } catch {
-    return undefined;
-  }
 }
 
 function truncateWorkerFailureField(
