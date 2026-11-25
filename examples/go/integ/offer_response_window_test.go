@@ -24,12 +24,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // OfferResponseWindowProbeFlow runs the Decision with Deadline Steps beside a gated Step,
@@ -119,6 +123,16 @@ func (HoldOfferProbeOpen) Execute(dex.Context, dex.None) (*dex.StepDecision, err
 // requireDeferredChoiceSmokeAcceptance accepts the offer over HTTP and waits for the fulfillment.
 func requireDeferredChoiceSmokeAcceptance(t *testing.T, flowID string) {
 	t.Helper()
+	status, body := sendDeferredChoiceAcceptance(t, flowID)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Equal(t, "offer response recorded", body)
+	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"fulfilled offer-smoke"}, decodeStepOutputs[string](t, result, "FulfillOffer"))
+}
+
+// sendDeferredChoiceAcceptance calls the accept route and returns the status and body.
+func sendDeferredChoiceAcceptance(t *testing.T, flowID string) (int, string) {
+	t.Helper()
 	query := url.Values{"workflowId": {flowID}, "note": {"looks good"}}
 	request, err := http.NewRequestWithContext(
 		integrationContext(t),
@@ -132,10 +146,30 @@ func requireDeferredChoiceSmokeAcceptance(t *testing.T, flowID string) {
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, response.StatusCode, string(body))
-	require.Equal(t, "offer response recorded", string(body))
-	result := waitForCompletedWorkflowPattern(t, flowID)
-	require.Equal(t, []string{"fulfilled offer-smoke"}, decodeStepOutputs[string](t, result, "FulfillOffer"))
+	return response.StatusCode, string(body)
+}
+
+// requireAwaitOfferResponseWaitingForLocks polls until AwaitOfferResponse Execute waits for the window lock.
+func requireAwaitOfferResponseWaitingForLocks(t *testing.T, flowID string) {
+	t.Helper()
+	connection, err := grpc.NewClient(flowServiceAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer connection.Close()
+	flowService := dexpb.NewFlowServiceClient(connection)
+	require.Eventually(t, func() bool {
+		state, stateErr := flowService.GetFlowState(integrationContext(t), &dexpb.GetFlowStateRequest{FlowId: flowID})
+		if stateErr != nil {
+			return false
+		}
+		for _, step := range state.GetActiveStepExecutions() {
+			invocation := step.GetExecuteInvocation()
+			if step.GetStepType() == "AwaitOfferResponse" && invocation != nil &&
+				invocation.GetPendingReason() == dexpb.StepMethodPendingReason_STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS {
+				return true
+			}
+		}
+		return false
+	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "Flow %s: Execute never waited for the window lock", flowID)
 }
 
 func TestDeferredChoiceResponseAfterTheDecisionGetsWindowClosed(t *testing.T) {
@@ -155,9 +189,57 @@ func TestDeferredChoiceResponseAfterTheDecisionGetsWindowClosed(t *testing.T) {
 	require.Empty(t, decodeStepOutputs[string](t, result, "CloseRejectedOffer"))
 }
 
+func TestDeferredChoiceSecondReplyGetsWindowClosed(t *testing.T) {
+	flow := &OfferResponseWindowProbeFlow{}
+	flowID := startWorkflowPattern(t, flow, "pattern-deferred-choice-double", "offer-5")
+	// Both replies go out at once, possibly before the wait registers.
+	var first, second string
+	invokeWorkflowPatternRPC(t, flowID, flow.AcceptProbeOffer, "yes", &first)
+	invokeWorkflowPatternRPC(t, flowID, flow.RejectProbeOffer, "no", &second)
+	require.Equal(t, deferredchoice.OfferResponseRecorded, first)
+	require.Equal(t, deferredchoice.OfferResponseWindowClosed, second)
+
+	waitForWorkflowPatternStep(t, flowID, "AwaitOfferResponse")
+	invokeWorkflowPatternRPC(t, flowID, flow.OpenProbeGate, nil, nil)
+	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"fulfilled offer-5"}, decodeStepOutputs[string](t, result, "FulfillOffer"))
+	require.Empty(t, decodeStepOutputs[string](t, result, "CloseRejectedOffer"))
+}
+
+func TestDeferredChoiceRouteAnswersConflictAfterTheFlowEnds(t *testing.T) {
+	flowID := newFlowID(t, "pattern-deferred-choice-route")
+	query := url.Values{"workflowId": {flowID}, "offerId": {"offer-6"}}
+	request, err := http.NewRequestWithContext(
+		integrationContext(t),
+		http.MethodGet,
+		examplesAPIURL+"/patterns/deferred-choice/start?"+query.Encode(),
+		nil,
+	)
+	require.NoError(t, err)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	status, body := sendDeferredChoiceAcceptance(t, flowID)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Equal(t, "offer response recorded", body)
+	waitForCompletedWorkflowPattern(t, flowID)
+
+	status, body = sendDeferredChoiceAcceptance(t, flowID)
+	require.Equal(t, http.StatusConflict, status, body)
+	require.Equal(t, "offer response window closed", body)
+
+	status, body = sendDeferredChoiceAcceptance(t, newFlowID(t, "pattern-deferred-choice-missing"))
+	require.NotEqual(t, http.StatusConflict, status, body)
+}
+
 func TestDeferredChoiceResponseCommittedAfterTheTimerWonIsTaken(t *testing.T) {
 	heldResponseEntered = make(chan struct{})
 	heldResponseReleased = make(chan struct{})
+	var release sync.Once
+	releaseHeldResponse := func() { release.Do(func() { close(heldResponseReleased) }) }
+	t.Cleanup(releaseHeldResponse)
 	flow := &OfferResponseWindowProbeFlow{}
 	flowID := startWorkflowPattern(t, flow, "pattern-deferred-choice-late", "offer-4")
 	waitForWorkflowPatternStep(t, flowID, "OpenOfferProbe")
@@ -179,7 +261,8 @@ func TestDeferredChoiceResponseCommittedAfterTheTimerWonIsTaken(t *testing.T) {
 	}
 	// The Timer wins while the RPC holds the window lock, so Execute waits for the RPC.
 	skipOfferExpiry(t, flowID)
-	close(heldResponseReleased)
+	requireAwaitOfferResponseWaitingForLocks(t, flowID)
+	releaseHeldResponse()
 	response := <-held
 	require.NoError(t, response.err)
 	require.Equal(t, deferredchoice.OfferResponseRecorded, response.outcome)

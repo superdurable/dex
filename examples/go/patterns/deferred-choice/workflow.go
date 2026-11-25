@@ -30,7 +30,7 @@ import (
 // OfferExpiry is how long the customer has to respond.
 const OfferExpiry = 3 * 24 * time.Hour
 
-// The response window is open until AwaitOfferResponse decides. Unset reads as open.
+// The response window is open until the first reply or AwaitOfferResponse closes it. Unset reads as open.
 const (
 	ResponseWindowOpen   = "open"
 	ResponseWindowClosed = "closed"
@@ -50,6 +50,14 @@ var (
 )
 
 var responseWindowLock = []dex.AttributeLock{dex.LockAttribute(OfferResponseWindow)}
+
+// A failing locked Execute holds the window lock through its retries, so keep the budget short.
+const (
+	awaitOfferResponseRetryInterval = time.Second
+	awaitOfferResponseMaxAttempts   = 3
+	awaitOfferResponseRetryBudget   = time.Minute
+	awaitOfferResponseMethodTimeout = 10 * time.Second
+)
 
 // OfferResponseFlow routes on the first of three events: the customer accepts,
 // the customer rejects, or the offer expires.
@@ -105,17 +113,21 @@ func (*OfferResponseFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResu
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
-// publishWhileWindowOpen publishes the response unless the window is closed.
-// The publish commits together with this check, because the RPC holds the window lock.
+// publishWhileWindowOpen publishes the first reply and closes the window; later replies get OfferResponseWindowClosed.
+// The check, the publish, and the close commit together, because the RPC holds the window lock.
 func publishWhileWindowOpen(ctx dex.Context, response dex.Channel[string], note string) (*dex.RPCResult[string], error) {
 	window, err := readResponseWindow(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if window == ResponseWindowClosed {
+	if window != ResponseWindowOpen {
 		return &dex.RPCResult[string]{Output: OfferResponseWindowClosed}, nil
 	}
 	if err := response.Publish(ctx, note); err != nil {
+		return nil, err
+	}
+	// The first reply closes the window, so a second reply cannot also be recorded.
+	if err := OfferResponseWindow.Set(ctx, ResponseWindowClosed); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[string]{Output: OfferResponseRecorded}, nil
@@ -136,9 +148,18 @@ func readResponseWindow(ctx dex.Context) (string, error) {
 // dex:explanation text:"Waits for an acceptance, a rejection, or the 3-day deadline, closes the response window, and routes on the winner."
 type AwaitOfferResponse struct{ dex.StepDefaults }
 
-// GetStepOptions locks the response window in Execute, the same lock as the response RPCs.
+// GetStepOptions locks the response window in Execute, the same lock as the response RPCs,
+// and gives that locked Execute a short retry budget.
 func (AwaitOfferResponse) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteLockAttributes: responseWindowLock}
+	return &dex.StepOptions{
+		ExecuteLockAttributes: responseWindowLock,
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval: awaitOfferResponseRetryInterval,
+			MaximumAttempts: awaitOfferResponseMaxAttempts,
+			TotalDuration:   awaitOfferResponseRetryBudget,
+		},
+		ExecuteMethodTimeout: awaitOfferResponseMethodTimeout,
+	}
 }
 
 func (AwaitOfferResponse) WaitFor(dex.Context, string) (*dex.Wait, error) {

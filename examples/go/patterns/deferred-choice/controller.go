@@ -86,12 +86,29 @@ func (controller *controller) sendCustomerResponse(request *gin.Context, rpc any
 	if !found {
 		return
 	}
-	outcome, err := invokeResponseRPC(request.Request.Context(), controller.client, flowID, rpc, note)
-	if err == nil && outcome == OfferResponseWindowClosed {
+	ctx := request.Request.Context()
+	outcome, err := invokeResponseRPC(ctx, controller.client, flowID, rpc, note)
+	if (err == nil && outcome == OfferResponseWindowClosed) || isClosedOffer(ctx, controller.client, flowID, err) {
 		request.String(http.StatusConflict, "offer response window closed")
 		return
 	}
 	httputil.RespondString(request, "offer response recorded", err)
+}
+
+// isClosedOffer reports whether err rejected the reply because the offer Flow already closed.
+// Dex rejects an RPC to a closed Flow before the handler runs, so the retained Flow tells closed from never started.
+func isClosedOffer(ctx context.Context, client *sdk.Client, flowID string, err error) bool {
+	var closing *sdk.FlowClosingError
+	if errors.As(err, &closing) {
+		return true
+	}
+	var notActive *sdk.FlowNotActiveOrNotFoundError
+	var notFound *sdk.FlowNotFoundError
+	if !errors.As(err, &notActive) && !errors.As(err, &notFound) {
+		return false
+	}
+	info, describeErr := client.DescribeFlow(ctx, flowID)
+	return describeErr == nil && info.Status != sdk.FlowRunning
 }
 
 // invokeResponseRPC retries a lock conflict with bounded backoff. Retrying is safe:
