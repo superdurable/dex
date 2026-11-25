@@ -108,6 +108,9 @@ from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber
 from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow import (
     InactivenessTrackerFlow,
 )
+from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
+    SupportTicketConversationFlow,
+)
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
@@ -224,6 +227,7 @@ class ExampleApp:
         self.expense_reimbursement = ExpenseReimbursementFlow(self.payment_provider)
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
+        self.support_ticket = SupportTicketConversationFlow()
         self.account_archive = FakeAccountArchive()
         self.customer_account = CustomerAccountFlow(self.account_archive)
         self.user_profile = UserProfileFlow()
@@ -303,6 +307,7 @@ class ExampleApp:
             self.expense_reimbursement,
             self.reminder,
             self.inactiveness_tracker,
+            self.support_ticket,
             self.customer_account,
             self.user_profile,
             self.chunked_subscriber,

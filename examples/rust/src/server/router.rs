@@ -67,6 +67,9 @@ pub fn build_router(
         .merge(patterns::inactiveness_tracker::controller::mount(
             client.clone(),
         ))
+        .merge(control_patterns::inbound_event_loop::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::parallel::controller::mount(client.clone()))
         .merge(patterns::parallel_subflows::controller::mount(
             client.clone(),

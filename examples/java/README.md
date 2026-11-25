@@ -107,6 +107,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
+- [Idle Timer with Resolution](./src/main/java/io/superdurable/dex/patterns/inboundeventloop)
 - [Entity Flow customer accounts](./src/main/java/io/superdurable/dex/patterns/entityflow)
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling

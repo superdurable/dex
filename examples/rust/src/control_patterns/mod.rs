@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Control-structure patterns: Deferred Choice, Critical Section, and Cancel
-//! Case, each as one single-Flow example, and Child Flows with Business Identity.
+//! Control-structure patterns: Deferred Choice, Critical Section, Cancel
+//! Case, and Idle Timer with Resolution, each as one single-Flow example, and
+//! Child Flows with Business Identity.
 
 pub mod cancel_case;
 pub mod child_flows_business_identity;
 pub mod critical_section;
 pub mod deferred_choice;
 pub mod fail_fast;
+pub mod inbound_event_loop;
 
 use std::sync::Arc;
 
@@ -51,5 +53,6 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(loan_application)?
         .register(order_fulfillment)?
         .register(shipment)?
-        .register(fail_fast::ExpenseReimbursementFlow::default())
+        .register(fail_fast::ExpenseReimbursementFlow::default())?
+        .register(inbound_event_loop::SupportTicketConversationFlow::default())
 }

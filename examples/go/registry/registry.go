@@ -33,6 +33,7 @@ import (
 	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
+	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
@@ -109,6 +110,7 @@ var (
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
+	SupportTicket         *inboundeventloop.SupportTicketConversationFlow
 	StaticParallel        *parallel.StaticParallelStepsFlow
 	DynamicParallel       *parallel.DynamicParallelStepsFlow
 	AwaitParallel         *parallel.AwaitParallelStepsFlow
@@ -200,6 +202,7 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
+	SupportTicket = inboundeventloop.NewSupportTicketConversationFlow()
 	StaticParallel = parallel.NewStaticParallelStepsFlow()
 	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
@@ -271,6 +274,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		UserProfile,
 		ManualRecovery,
 		InactivenessTracker,
+		SupportTicket,
 		StaticParallel,
 		DynamicParallel,
 		AwaitParallel,
