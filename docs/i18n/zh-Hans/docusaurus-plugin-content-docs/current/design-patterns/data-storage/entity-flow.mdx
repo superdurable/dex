@@ -27,7 +27,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/enti
 2. **修改联系方式。** `UpdateContactDetails` 先检查账户未停用，再校验新的名称和邮箱地址，然后写入这两个 Attribute。
 3. **调整积分余额。** `AdjustCreditBalance` 先检查账户未停用，再读取余额、加上调整的数额，结果小于零时拒绝。修改账户的三个 RPC 都声明同一把锁。拿到锁的调用逐个执行。遇到锁被占用的调用会以 lock conflict 失败，调用方只对这个错误退避重试。
 4. **读取账户。** 应用用 Client 读取 Attribute。读取时不运行任何 Worker。
-5. **停用账户。** `RetireAccount` 检查余额为零，把账户标记为已停用，然后启动 `CloseAccountStep`。重复停用不会改变任何东西。`CloseAccountStep` 归档账户，并以 graceful completion 结束 Flow。
+5. **停用账户。** `RetireAccount` 检查余额为零，把账户标记为已停用，然后启动 `CloseAccountStep`。只要 Flow 还接收 RPC，重复停用就不会改变任何东西。`CloseAccountStep` 只归档一次账户，并以 graceful completion 结束 Flow。
 
 在这些调用之间，Flow 没有活动的 Step。它保持运行，但不占用 Worker，因此可以存在几个月甚至几年。
 
@@ -384,16 +384,20 @@ client.get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
 
 ### 停用实体 {#retire-the-entity}
 
-`RetireAccount` 持有和其他 RPC 相同的锁。它检查余额，设置 `retired` Attribute，然后启动 `CloseAccountStep`。如果账户已经停用，它直接返回，不再启动新的 Step，所以重试停用是安全的。
+`RetireAccount` 持有和其他 RPC 相同的锁。它检查余额，设置 `retired` Attribute，然后启动 `CloseAccountStep`。只要 Flow 还接收 RPC，重复停用会发现账户已停用，直接返回，不再启动新的 Step。
 
-`CloseAccountStep` 归档账户并返回 `GracefulComplete`，Flow 随即完成。在此之前 RPC 仍然可以运行，每个 RPC 都会在锁内读到 `retired` 并拒绝修改。归档系统不可用时，这个 Step 失败，Dex 会重试它；Flow 保持运行，账户保持停用。在 Dex 清除这个 Flow 之前，仍然可以用 Client 读取它。
+`CloseAccountStep` 归档账户并返回 `GracefulComplete`，Flow 随即完成。在 Flow 结束之前，`UpdateContactDetails` 和 `AdjustCreditBalance` 会在锁内读到 `retired`，返回 "account is retired" 错误。归档系统不可用时，这个 Step 失败，Dex 会重试它。重试期间 Flow 保持运行，账户保持停用。
+
+Dex 可能多次运行同一个 Step execution，例如某次尝试已经归档了账户，但结果丢失。归档系统以账户的 Flow ID 作为唯一键，所以重试的尝试会找到已有记录并直接成功，不会重复归档。真实的归档服务用唯一插入或幂等 upsert 做到同样的效果。
+
+Flow 完成后，在 Dex 清除这个 Flow 之前，可以用 Client 读取保留的 Attribute。Dex 会拒绝发给正在关闭或已关闭的 Flow 的带锁 RPC，所以重复请求的调用方要处理这个错误，并读取保留的状态。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
 def execute(self, context: Context, input: None) -> StepDecision:
-    self.archive.archive_account(context.flow_id)
+    self.archive.archive_account(context.flow_id, context.step_execution_id)
     return graceful_complete()
 
 @rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
@@ -441,7 +445,7 @@ func (*CustomerAccountFlow) RetireAccount(
 }
 
 func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := step.archive.ArchiveAccount(ctx.FlowID()); err != nil {
+	if err := step.archive.ArchiveAccount(ctx.FlowID(), ctx.StepExecutionID()); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
@@ -467,7 +471,7 @@ public RPCResult<Void> retireAccount(final Context context) {
 
 @Override
 public StepDecision execute(final Context context, final Void input) {
-    archive.archiveAccount(context.getFlowId());
+    archive.archiveAccount(context.getFlowId(), context.getStepExecutionId());
     return StepDecision.gracefulComplete();
 }
 ```
@@ -491,7 +495,7 @@ public retireAccount(context: Context): RPCResult<void> {
 }
 
 public execute(context: Context, _input: void): StepDecision {
-  this.archive.archiveAccount(context.flowId);
+  this.archive.archiveAccount(context.flowId, context.stepExecutionId);
   return gracefulComplete();
 }
 ```
@@ -515,7 +519,7 @@ fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> 
 
 fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
     self.archive
-        .archive_account(context.flow_id())
+        .archive_account(context.flow_id(), context.step_execution_id())
         .map_err(|message| account_error(&message))?;
     Ok(StepDecision::graceful_complete(()))
 }
@@ -524,7 +528,7 @@ fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecisi
 </SdkSnippet>
 </SdkTabs>
 
-实体 Flow 也可以有一个长期等待的 Step，例如等待命令 Channel 的 Step。如果你使用的 SDK 和 Server 提供 graceful completion 条件，就把它加进这个等待；收到完成请求时，这个 Step 会被唤醒。如果不提供，就让停用 RPC 向这个 Channel 发布一条明确的关闭消息，Step 读到这条消息后结束。SDK 和 Server 的支持情况参见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)。
+实体 Flow 也可以有一个长期等待的 Step，例如等待命令 Channel 的 Step。如果你使用的 SDK 和 Server 提供 graceful completion 条件，就把它加进这个等待；收到完成请求时，这个 Step 会被唤醒。如果不提供，就让停用 RPC 向这个 Channel 发布一条明确的关闭消息，Step 读到这条消息后结束。Server 的支持情况参见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)，所用 SDK 的支持情况参见它的 Waits 参考：[Python](/reference/python/waits#graceful-completion-requests)、[Go](/reference/go/waits#graceful-completion-requests)、[Java](/reference/java/waits#graceful-completion-requests)、[TypeScript](/reference/typescript/waits#graceful-completion-requests) 或 [Rust](/reference/rust/waits#graceful-completion-requests)。
 
 ## 控制状态的大小 {#keep-the-state-bounded}
 

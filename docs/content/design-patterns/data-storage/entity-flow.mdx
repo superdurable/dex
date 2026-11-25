@@ -27,7 +27,7 @@ To also query the latest state of many entities with SQL, extend this pattern wi
 2. **Change the contact details.** `UpdateContactDetails` checks that the account is open, validates the new name and email address, then writes both Attributes.
 3. **Adjust the credit balance.** `AdjustCreditBalance` checks that the account is open, reads the balance, adds the amount, and rejects a result below zero. All three RPCs that change the account declare the same lock. Calls that get the lock run one at a time. A call that finds the lock held fails with a lock conflict, and the caller retries only that error, with backoff.
 4. **Read the account.** The application reads the Attributes with the Client. No Worker runs for the read.
-5. **Retire the account.** `RetireAccount` checks that the balance is zero, marks the account retired, and starts `CloseAccountStep`. A repeated retire changes nothing. `CloseAccountStep` archives the account and completes the Flow gracefully.
+5. **Retire the account.** `RetireAccount` checks that the balance is zero, marks the account retired, and starts `CloseAccountStep`. While the Flow still accepts RPCs, a repeated retire changes nothing. `CloseAccountStep` archives the account once and completes the Flow gracefully.
 
 Between these calls the Flow has no active Step. It keeps running and holds no Worker, so it can live for months or years.
 
@@ -384,16 +384,20 @@ client.get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
 
 ### Retire the entity
 
-`RetireAccount` holds the same lock as the other RPCs. It checks the balance, sets the `retired` Attribute, and starts `CloseAccountStep`. When the account is already retired, it returns without starting another Step, so a retried retire is safe.
+`RetireAccount` holds the same lock as the other RPCs. It checks the balance, sets the `retired` Attribute, and starts `CloseAccountStep`. While the Flow still accepts RPCs, a repeated retire finds the account retired and returns without starting another Step.
 
-`CloseAccountStep` archives the account and returns `GracefulComplete`, and the Flow completes. Until then, RPCs still run, and each one sees `retired` under the lock and rejects the change. When the archive is unavailable, the Step fails and Dex retries it; the Flow stays running and the account stays retired. The completed Flow stays readable with the Client until Dex purges it.
+`CloseAccountStep` archives the account and returns `GracefulComplete`, and the Flow completes. Until the Flow closes, `UpdateContactDetails` and `AdjustCreditBalance` see `retired` under the lock and return the "account is retired" error. When the archive is unavailable, the Step fails and Dex retries it. During those retries the Flow stays running and the account stays retired.
+
+Dex can run the same Step execution more than once, for example when an attempt archives the account but its result is lost. The archive uses the account's Flow ID as a unique key, so a retried attempt finds the record and succeeds without archiving twice. A real archive service does the same with a unique insert or an idempotent upsert.
+
+After the Flow completes, read the retained Attributes with the Client until Dex purges the Flow. Dex rejects locked RPCs to a closing or closed Flow, so a caller that repeats a request then handles that error and reads the retained state.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
 def execute(self, context: Context, input: None) -> StepDecision:
-    self.archive.archive_account(context.flow_id)
+    self.archive.archive_account(context.flow_id, context.step_execution_id)
     return graceful_complete()
 
 @rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
@@ -441,7 +445,7 @@ func (*CustomerAccountFlow) RetireAccount(
 }
 
 func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := step.archive.ArchiveAccount(ctx.FlowID()); err != nil {
+	if err := step.archive.ArchiveAccount(ctx.FlowID(), ctx.StepExecutionID()); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
@@ -467,7 +471,7 @@ public RPCResult<Void> retireAccount(final Context context) {
 
 @Override
 public StepDecision execute(final Context context, final Void input) {
-    archive.archiveAccount(context.getFlowId());
+    archive.archiveAccount(context.getFlowId(), context.getStepExecutionId());
     return StepDecision.gracefulComplete();
 }
 ```
@@ -491,7 +495,7 @@ public retireAccount(context: Context): RPCResult<void> {
 }
 
 public execute(context: Context, _input: void): StepDecision {
-  this.archive.archiveAccount(context.flowId);
+  this.archive.archiveAccount(context.flowId, context.stepExecutionId);
   return gracefulComplete();
 }
 ```
@@ -515,7 +519,7 @@ fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> 
 
 fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
     self.archive
-        .archive_account(context.flow_id())
+        .archive_account(context.flow_id(), context.step_execution_id())
         .map_err(|message| account_error(&message))?;
     Ok(StepDecision::graceful_complete(()))
 }
@@ -524,7 +528,7 @@ fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecisi
 </SdkSnippet>
 </SdkTabs>
 
-An entity Flow can also have a Step that waits on something long, such as a Channel of incoming commands. Add the graceful completion condition to that wait where your SDK and Server provide it; a completion request then wakes the Step. Where they do not, have the retire RPC publish an explicit close message to that Channel, and let the Step end when it reads the message. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition) for the SDK and Server support.
+An entity Flow can also have a Step that waits on something long, such as a Channel of incoming commands. Add the graceful completion condition to that wait where your SDK and Server provide it; a completion request then wakes the Step. Where they do not, have the retire RPC publish an explicit close message to that Channel, and let the Step end when it reads the message. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition) for the Server support, and the Waits reference of your SDK for its support: [Python](/reference/python/waits#graceful-completion-requests), [Go](/reference/go/waits#graceful-completion-requests), [Java](/reference/java/waits#graceful-completion-requests), [TypeScript](/reference/typescript/waits#graceful-completion-requests), or [Rust](/reference/rust/waits#graceful-completion-requests).
 
 ## Keep the state bounded
 
