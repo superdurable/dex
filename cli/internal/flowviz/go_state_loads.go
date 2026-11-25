@@ -37,12 +37,14 @@ type goHandlerStateLoads struct {
 
 // goStateLoadSources holds load selections; one whose Step or RPC is unknown applies to all of them.
 type goStateLoadSources struct {
-	stepOptionOverrides         map[string][]goScopedExpression
-	stepOptionUnknowns          map[string][]goUnresolvedConstruct
-	unattributedStepOverrides   []goScopedExpression
-	unattributedStepUnknowns    []goUnresolvedConstruct
-	rpcOptions                  map[string][]goScopedExpression
-	rpcInvocationLoads          map[string]*goHandlerStateLoads
+	stepOptionOverrides       map[string][]goScopedExpression
+	stepOptionUnknowns        map[string][]goUnresolvedConstruct
+	unattributedStepOverrides []goScopedExpression
+	unattributedStepUnknowns  []goUnresolvedConstruct
+	rpcOptions                map[string][]goScopedExpression
+	rpcInvocationLoads        map[string]*goHandlerStateLoads
+	// rpcInvocationLockSites holds, per RPC, the resources each invocation in the package locks with a literal lock call.
+	rpcInvocationLockSites      map[string][]map[string]bool
 	unattributedInvocationLoads *goHandlerStateLoads
 	timeoutOptions              []goScopedExpression
 	timeoutFieldValues          map[string][]goScopedExpression
@@ -120,6 +122,7 @@ func newGoStateLoadChecker(
 			stepOptionUnknowns:          make(map[string][]goUnresolvedConstruct),
 			rpcOptions:                  make(map[string][]goScopedExpression),
 			rpcInvocationLoads:          make(map[string]*goHandlerStateLoads),
+			rpcInvocationLockSites:      make(map[string][]map[string]bool),
 			unattributedInvocationLoads: &goHandlerStateLoads{},
 			timeoutFieldValues:          make(map[string][]goScopedExpression),
 		},
@@ -499,6 +502,31 @@ func (collector *goStateLoadSourceCollector) collectInvocationLoads(call *ast.Ca
 		collector.collectInvocationOptions(argument)
 	}
 	collector.invocationLoads = nil
+	if rpcName != "" {
+		sources.rpcInvocationLockSites[rpcName] = append(sources.rpcInvocationLockSites[rpcName], collector.invocationLocks(call))
+	}
+}
+
+// invocationLocks returns the resources that literal LockAttribute or LockAttributeMap calls in an invocation lock.
+func (collector *goStateLoadSourceCollector) invocationLocks(call *ast.CallExpr) map[string]bool {
+	locks := make(map[string]bool)
+	for _, argument := range call.Args {
+		ast.Inspect(argument, func(node ast.Node) bool {
+			lock, isCall := node.(*ast.CallExpr)
+			if !isCall || len(lock.Args) == 0 {
+				return true
+			}
+			switch collector.checker.analyzer.callName(lock) {
+			case "LockAttribute", "LockAttributeMap":
+				resourceID := collector.checker.evaluator.resolveResource(goScopedExpression{expression: lock.Args[0], scope: collector.scope})
+				if resourceID != "" {
+					locks[resourceID] = true
+				}
+			}
+			return true
+		})
+	}
+	return locks
 }
 
 func (collector *goStateLoadSourceCollector) collectInvocationLoad(node ast.Node) bool {

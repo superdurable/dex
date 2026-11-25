@@ -127,6 +127,8 @@ type goDeclaredLocksCase struct {
 	executeBody    string
 }
 
+const goReadThenWriteTotal = "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+2)"
+
 func goExecuteLocks(locks string) string {
 	return "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{" + locks + "}}\n}"
 }
@@ -218,14 +220,17 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			diagnostics: []string{"warning declared_lock_unresolved"},
 		},
 		"two writers without declaration": {
-			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
+			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of which reads it first",
+		},
+		"blind writers are not nudged": {
+			source: goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
 		},
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written without its lock by RPC Reply",
+			messageFragment: "is both read and written by RPC Reply without a registered lock",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -234,12 +239,36 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
 		},
 		"one unlocked writer of two without declaration": {
-			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
+			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and Step AddItemStep Execute registers no lock of it",
+			messageFragment: "and no lock is registered by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: goDeclaredLocksCase{waitBody: "_ = total.Set(ctx, 1)", executeBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
+		},
+		"writers share another attribute's lock": {
+			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
+		},
+		"writers hold different locks": {
+			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "and no lock is registered by every writer",
+		},
+		"single read-writer under another attribute's lock": {
+			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
+		},
+		"every invocation locks the map instance": {
+			source: goDeclaredLocksCase{
+				extraSource: "func invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(items, key)},\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t})\n}",
+				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+		},
+		"one invocation does not lock the map instance": {
+			source: goDeclaredLocksCase{
+				extraSource: "func invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\tif err := client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(items, key)},\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t}); err != nil {\n\t\treturn err\n\t}\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t})\n}",
+				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"dynamic locks count as held for the nudge": {
 			source: goDeclaredLocksCase{

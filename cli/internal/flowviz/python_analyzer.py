@@ -1172,8 +1172,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 requirements[resource_id] = requirement
         writers = {}
         rpc_writers = set()
-        unlocked_writers = {}
-        unlocked_read_writers = {}
+        read_writers = set()
+        rpc_read_writers = {}
+        common_locks = {}
         for handler in self.lock_handlers:
             reads = set()
             writes = set()
@@ -1188,7 +1189,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 is_guarded = (is_attribute and access["method"] in {"set", "delete"}) or (resource_id.startswith("resource:channel:") and access["method"] == "publish")
                 if is_guarded and resource_id in requirements and handler["phase"] != "timeout":
                     self.check_declared_lock(handler, access, requirements[resource_id])
-            # A writer that registers the Attribute's own lock cannot lose an update; unreadable locks count as held.
+            # Writers that all hold one common lock, of any Attribute, are serialized; unreadable locks do not narrow it.
             locks = handler["locks"]
             is_lock_unknown = locks is None or locks["unresolved"] is not None
             held = set() if is_lock_unknown else {lock[0] for lock in locks["locks"]}
@@ -1196,20 +1197,25 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             is_rpc = handler["phase"] == "rpc"
             for resource_id in writes:
                 writers.setdefault(resource_id, set()).add(handler["label"])
+                if resource_id in reads:
+                    read_writers.add(resource_id)
                 if is_rpc:
                     rpc_writers.add(resource_id)
-                if is_lock_unknown or resource_id in held:
+                    if resource_id in reads:
+                        rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                if is_lock_unknown:
                     continue
-                unlocked_writers.setdefault(resource_id, set()).add(handler["label"])
-                if resource_id in reads and is_rpc:
-                    unlocked_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                common_locks[resource_id] = common_locks[resource_id] & held if resource_id in common_locks else set(held)
         for resource_id in sorted(writers):
             if resource_id in requirements or not readable.get(resource_id, False):
                 continue
-            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in unlocked_writers:
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and " + ", ".join(sorted(unlocked_writers[resource_id])) + " registers no lock of it"
-            elif resource_id in unlocked_read_writers:
-                reason = "is both read and written without its lock by " +", ".join(sorted(unlocked_read_writers[resource_id]))
+            if resource_id not in common_locks or common_locks[resource_id]:
+                continue
+            # Blind writes alone each commit whole, so a lock would not change the outcome.
+            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in read_writers:
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", at least one of which reads it first, and no lock is registered by every writer"
+            elif resource_id in rpc_read_writers:
+                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + " without a registered lock"
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]

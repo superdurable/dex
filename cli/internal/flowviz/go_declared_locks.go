@@ -622,12 +622,15 @@ func (checker *goDeclaredLockChecker) addDiagnostic(handler goHandlerSummary, ac
 
 // reportUndeclaredRequirements nudges an Attribute that may lose an update to declare its lock.
 // It considers only writes that can overlap: an RPC can run beside any handler, while Steps alone may run in sequence.
-// A writer that registers the Attribute's own lock cannot lose an update, so it alone triggers nothing.
+// Writers that all hold one common lock, of any Attribute, are serialized, so they trigger nothing.
+// Blind writes alone trigger nothing either: each commits whole, so a lock would not change the outcome.
 func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements map[string]goLockRequirement, declarationIsReadable map[string]bool) {
 	writers := make(map[string]map[string]bool)
 	rpcWriters := make(map[string]bool)
-	unlockedWriters := make(map[string]map[string]bool)
-	unlockedRPCReadWriters := make(map[string]map[string]bool)
+	readWriters := make(map[string]bool)
+	rpcReadWriters := make(map[string]map[string]bool)
+	commonLocks := make(map[string]map[string]bool)
+	isLockKnown := make(map[string]bool)
 	for _, handler := range checker.analyzer.handlerSummaries {
 		label := goHandlerLabel(checker.analyzer, handler)
 		reads := make(map[string]bool)
@@ -649,16 +652,24 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		}
 		for resourceID := range writes {
 			addHandlerLabel(writers, resourceID, label)
+			if reads[resourceID] {
+				readWriters[resourceID] = true
+			}
 			if handler.phase == "rpc" {
 				rpcWriters[resourceID] = true
+				if reads[resourceID] {
+					addHandlerLabel(rpcReadWriters, resourceID, label)
+				}
 			}
-			if heldResources == nil || heldResources[resourceID] {
+			if heldResources == nil {
 				continue
 			}
-			addHandlerLabel(unlockedWriters, resourceID, label)
-			if reads[resourceID] && handler.phase == "rpc" {
-				addHandlerLabel(unlockedRPCReadWriters, resourceID, label)
+			if !isLockKnown[resourceID] {
+				isLockKnown[resourceID] = true
+				commonLocks[resourceID] = heldResources
+				continue
 			}
+			commonLocks[resourceID] = intersectLockSets(commonLocks[resourceID], heldResources)
 		}
 	}
 	resourceIDs := make([]string, 0, len(writers))
@@ -670,14 +681,16 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		if _, isDeclared := requirements[resourceID]; isDeclared || !declarationIsReadable[resourceID] {
 			continue
 		}
+		if !isLockKnown[resourceID] || len(commonLocks[resourceID]) > 0 {
+			continue
+		}
 		resource := checker.analyzer.node(resourceID)
 		var reason string
 		switch {
-		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && len(unlockedWriters[resourceID]) > 0:
-			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") +
-				", and " + strings.Join(sortedLabels(unlockedWriters[resourceID]), ", ") + " registers no lock of it"
-		case len(unlockedRPCReadWriters[resourceID]) > 0:
-			reason = "is both read and written without its lock by " + strings.Join(sortedLabels(unlockedRPCReadWriters[resourceID]), ", ")
+		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && readWriters[resourceID]:
+			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") + ", at least one of which reads it first, and no lock is registered by every writer"
+		case len(rpcReadWriters[resourceID]) > 0:
+			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") + " without a registered lock"
 		default:
 			continue
 		}
@@ -687,8 +700,19 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 	}
 }
 
-// ownLockResources returns the resources whose own lock, for any instance, the handler registers.
-// It returns nil when the registration locks cannot be read, so no write of the handler counts as unlocked.
+func intersectLockSets(left map[string]bool, right map[string]bool) map[string]bool {
+	common := make(map[string]bool)
+	for resourceID := range left {
+		if right[resourceID] {
+			common[resourceID] = true
+		}
+	}
+	return common
+}
+
+// ownLockResources returns the resources whose lock, for any instance, the handler holds, for the nudge only.
+// An RPC also holds the locks that every invocation in the package passes; declared requirements never count those.
+// It returns nil when the locks cannot be read, so the handler does not narrow the common lock.
 func (checker *goDeclaredLockChecker) ownLockResources(handler goHandlerSummary) map[string]bool {
 	held := make(map[string]bool)
 	if handler.phase == "timeout" {
@@ -701,7 +725,26 @@ func (checker *goDeclaredLockChecker) ownLockResources(handler goHandlerSummary)
 	for _, lock := range locks.locks {
 		held[lock.resourceID] = true
 	}
+	if handler.phase == "rpc" {
+		sites := checker.sources.rpcInvocationLockSites[strings.TrimPrefix(handler.ownerID, "rpc:")]
+		if len(sites) > 0 {
+			for resourceID := range sites[0] {
+				if everySiteLocks(sites, resourceID) {
+					held[resourceID] = true
+				}
+			}
+		}
+	}
 	return held
+}
+
+func everySiteLocks(sites []map[string]bool, resourceID string) bool {
+	for _, site := range sites {
+		if !site[resourceID] {
+			return false
+		}
+	}
+	return true
 }
 
 func addHandlerLabel(labels map[string]map[string]bool, resourceID string, label string) {
