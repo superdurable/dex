@@ -65,7 +65,7 @@ func NewCustomerAccountFlow() *CustomerAccountFlow {
 }
 
 func (*CustomerAccountFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStep(closeAccount{})}
+	return []dex.StepDef{dex.DefineStep(CloseAccountStep{})}
 }
 
 func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
@@ -134,17 +134,17 @@ func (*CustomerAccountFlow) RetireAccount(
 		return nil, errors.New("spend or refund the credit balance before retiring")
 	}
 	return &dex.RPCResult[dex.None]{
-		NextSteps: []dex.StepMovement{dex.MovementOf(closeAccount{}, nil)},
+		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},
 	}, nil
 }
 
 // dex:group group-id:account-retirement group-label:"Account retirement"
 // dex:explanation text:"Complete the account Flow after the retire request passes its checks."
-type closeAccount struct {
+type CloseAccountStep struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (closeAccount) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+func (CloseAccountStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }
 

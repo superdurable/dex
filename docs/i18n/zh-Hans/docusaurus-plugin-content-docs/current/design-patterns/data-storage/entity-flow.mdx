@@ -389,11 +389,11 @@ func (*CustomerAccountFlow) RetireAccount(
 		return nil, errors.New("spend or refund the credit balance before retiring")
 	}
 	return &dex.RPCResult[dex.None]{
-		NextSteps: []dex.StepMovement{dex.MovementOf(closeAccount{}, nil)},
+		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},
 	}, nil
 }
 
-func (closeAccount) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+func (CloseAccountStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }
 ```
