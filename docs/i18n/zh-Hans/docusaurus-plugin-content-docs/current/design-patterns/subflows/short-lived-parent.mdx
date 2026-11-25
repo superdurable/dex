@@ -569,7 +569,7 @@ impl Step for ShortLiveHandleSubFlow {
 - 缓冲上限是软上限。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。需要硬上限时，用原子的准入，比如加锁的预留。在启动 Flow 的地方用上限检查启动批次。
 - 调用方必须确认每个请求都已处理时，消费的 Step 在同一次提交里记录请求的业务 ID，调用方读取这份记录；见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
 
-加上开关后，父 Flow 按以下步骤运行：
+以下步骤描述带接收开关的变体。它额外的 Step `AdmitBatch` 不在上面的图中。
 
 1. `AdmitBatch` 持有接收开关 Attribute 的 lock，接收启动批次。批次为空时返回 `GracefulComplete`，因为接收从未开放。
 2. 否则 `AdmitBatch` 在同一次提交中把每个请求排进 `Requests` Channel、开放接收、把运行中子 Flow 计数设为 0，并在 `HandleRequest` 中启动 worker。

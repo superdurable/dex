@@ -568,7 +568,7 @@ The example is simplified: its RPC can publish as soon as the Flow starts, and i
 - The buffer limit is a soft limit. Concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken. A hard limit needs atomic admission, such as a locked reservation. Check the start batch against the limit where the Flow is started.
 - When the caller must confirm each request was handled, the consuming Step records the request's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
-With the gate, the parent runs these steps:
+These steps describe the variant with an intake gate. Its extra Step, `AdmitBatch`, is not in the graph above.
 
 1. `AdmitBatch` takes the start batch while it holds the lock on the admission Attribute. An empty batch returns `GracefulComplete`, because the intake never opened.
 2. Otherwise `AdmitBatch`, in one commit, queues each request in the `Requests` Channel, opens the intake, sets the active child count to 0, and starts the workers in `HandleRequest`.

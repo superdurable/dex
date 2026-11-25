@@ -8,6 +8,8 @@ slug: /design-patterns/durable-timer
 
 Worker 重启后，Timer 仍按原计划触发。这些模式适合定期执行的工作、提醒，或等待外部系统。
 
+## 选择模式 {#choose-a-pattern}
+
 - [Cron 定时调度](/design-patterns/durable-timer/cron)：在一个 Flow 中按固定间隔执行工作。
 - [提醒](/design-patterns/durable-timer/reminder)：定期发送提醒，直到接收者退订。
 - [轮询](/design-patterns/durable-timer/polling)：在一个长时间运行的 Step 中等待外部系统。

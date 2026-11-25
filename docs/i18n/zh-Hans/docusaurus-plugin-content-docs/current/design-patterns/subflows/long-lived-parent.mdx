@@ -612,7 +612,7 @@ impl Step for LongLiveHandleSubFlow {
 - 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。
 - graceful completion condition 需要 SDK 和 server 支持；见 [Graceful completion requests](/reference/go/waits#graceful-completion-requests)（英文）。没有它时，关闭 Step 给每个 worker 发布一条唤醒消息，每个 worker 同时等待这个唤醒 Channel，它声明在请求 Channel 之后。
 
-接收可以关闭时，父 Flow 按以下步骤运行：
+以下步骤描述可关闭接收的变体。它额外的 Step（例如 `CloseIntake`）不在上面的图中。
 
 1. `sendRequest` 持有 `intakeClosed` lock。接收开放且当前队列长度低于上限时，它接受请求，把它排进 `Requests` Channel。
 2. `HandleRequest` 中的每个 worker 等待一个排队的请求，或者等待 graceful completion 请求。
@@ -623,5 +623,6 @@ impl Step for LongLiveHandleSubFlow {
 ## 下一步
 
 - [短生命周期父 Flow](/design-patterns/subflows/short-lived-parent)
+- [多父 Flow 分区](/design-patterns/subflows/partitioning)
 - [高可用背压](/design-patterns/subflows/back-pressure)
 - [Channel](/concepts/primitives/channel)

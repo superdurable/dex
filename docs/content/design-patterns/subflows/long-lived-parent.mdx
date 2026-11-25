@@ -611,7 +611,7 @@ The example stops after the running children finish. A parent that closes its in
 - The admission RPC checks the Channel size for its limit. Every RPC receives Channel sizes, so the parent keeps no separate waiting counter.
 - The graceful completion condition needs SDK and server support; see [Graceful completion requests](/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one wake message per worker, and each worker also waits for that wake Channel, declared after the request Channel.
 
-With a closable intake, the parent runs these steps:
+These steps describe the closable-intake variant. Its extra Steps, such as `CloseIntake`, are not in the graph above.
 
 1. `sendRequest` holds the `intakeClosed` lock. It accepts a request while the intake is open and the current queue length is below the limit. It queues the request in the `Requests` Channel.
 2. Each worker in `HandleRequest` waits for a queued request or for a graceful completion request.
@@ -622,5 +622,6 @@ With a closable intake, the parent runs these steps:
 ## Next
 
 - [Short-lived parent](/design-patterns/subflows/short-lived-parent)
+- [Multiple parents with partitioning](/design-patterns/subflows/partitioning)
 - [Back pressure for high availability](/design-patterns/subflows/back-pressure)
 - [Channel](/concepts/primitives/channel)
