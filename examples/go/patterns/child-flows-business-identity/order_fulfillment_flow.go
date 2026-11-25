@@ -469,10 +469,18 @@ func (*ShipmentFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[
 	return &dex.RPCResult[map[string]any]{Output: map[string]any{"outcome": outcome}}, nil
 }
 
-// GetDexDisplay returns the same fields as GetDexSummary for Dex Web.
+// GetDexDisplay returns the shipment's committed outcome for Dex Web, or no fields before delivery.
 // It returns an error when the outcome cannot be read.
-func (flow *ShipmentFlow) GetDexDisplay(ctx dex.Context, input dex.None) (*dex.RPCResult[map[string]any], error) {
-	return flow.GetDexSummary(ctx, input)
+func (*ShipmentFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	outcome, err := ShipmentOutcome.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{"outcome": outcome}}, nil
 }
 
 // dex:group group-id:deliver group-label:"Deliver"
