@@ -480,5 +480,65 @@
   "theme.tags.tagsPageTitle": {
     "message": "标签",
     "description": "The title of the tag list page"
+  },
+  "docs.temporal.overview.architecture.description": {
+    "message": "Temporal：你的 Worker 在内存里缓存 Workflow 状态，并连接 Temporal Service。Temporal Service 由 Frontend、History、Matching 和 Worker 四个服务组成，运行在数据库（Cassandra、MySQL 或 PostgreSQL）上。Dex：你的 Worker 在磁盘上保留 blob cache，并连接一个 Dex Server 二进制。Dex Server 把当前状态存在本地磁盘，并写入对象存储。",
+    "description": "The text alternative of the Dex vs. Temporal architecture diagram"
+  },
+  "docs.temporal.overview.architecture.yourWorker": {
+    "message": "你的 Worker",
+    "description": "The application Worker box in the Dex vs. Temporal architecture diagram"
+  },
+  "docs.temporal.overview.architecture.frontend": {
+    "message": "Frontend",
+    "description": "A Temporal service name"
+  },
+  "docs.temporal.overview.architecture.history": {
+    "message": "History",
+    "description": "A Temporal service name"
+  },
+  "docs.temporal.overview.architecture.matching": {
+    "message": "Matching",
+    "description": "A Temporal service name"
+  },
+  "docs.temporal.overview.architecture.workerService": {
+    "message": "Worker",
+    "description": "The Temporal Worker service name"
+  },
+  "docs.temporal.overview.architecture.temporalWorkerCache": {
+    "message": "Workflow 状态缓存在内存里",
+    "description": "The cache detail of the Temporal Worker box"
+  },
+  "docs.temporal.overview.architecture.temporalService": {
+    "message": "Temporal Service",
+    "description": "The group of Temporal services in the architecture diagram"
+  },
+  "docs.temporal.overview.architecture.database": {
+    "message": "数据库",
+    "description": "The database box under the Temporal Service"
+  },
+  "docs.temporal.overview.architecture.databaseDetail": {
+    "message": "Cassandra、MySQL 或 PostgreSQL",
+    "description": "The databases Temporal supports"
+  },
+  "docs.temporal.overview.architecture.dexWorkerCache": {
+    "message": "blob cache 在磁盘上",
+    "description": "The cache detail of the Dex Worker box"
+  },
+  "docs.temporal.overview.architecture.dexServer": {
+    "message": "Dex Server：一个二进制",
+    "description": "The Dex Server group in the architecture diagram"
+  },
+  "docs.temporal.overview.architecture.localStore": {
+    "message": "本地磁盘存储",
+    "description": "The local disk store inside Dex Server"
+  },
+  "docs.temporal.overview.architecture.objectStorage": {
+    "message": "对象存储",
+    "description": "The object storage box under Dex Server"
+  },
+  "docs.temporal.overview.architecture.objectStorageDetail": {
+    "message": "Amazon S3 或兼容 S3 的服务",
+    "description": "The object storage services Dex Server supports"
   }
 }

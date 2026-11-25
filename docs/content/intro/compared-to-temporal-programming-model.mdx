@@ -1,23 +1,95 @@
 ---
-title: Dex vs. Temporal in Depth
-sidebar_label: Dex vs. Temporal in Depth
+title: Programming Model
+sidebar_label: Programming Model
 slug: /intro/compared-to-temporal/programming-model
-description: The text version of the Dex vs. Temporal video series. Episode 1 builds one AI support conversation with an idle timer on both engines, changes its code while conversations are open, and runs one conversation until Temporal's history limit ends it, with every number measured by a public script.
+description: How Temporal and Dex code compare. The same processes take about the same number of lines, a code change needs versioning code only on Temporal, and an idle timer shows which statements a Temporal Workflow turns into commands, with every number measured by a public script.
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inactiveness-tracker.json';
 
-# Dex vs. Temporal in Depth
+# Programming Model
 
-This page is the text version of the Dex vs. Temporal video series, one section per part of each episode. Episode 1 builds the same AI support conversation on both engines, changes its code while conversations are open, and lets one conversation run for a long time. Every number comes from a script in the [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) repository.
+Temporal replays Workflow code against its Event History, so new code must produce the same commands for runs that are already open. A Dex Flow is a set of Steps, and each Step runs the code of the Worker that takes it.
 
-Both servers ran in their local development mode on one laptop, with default limits. The AI reply and the sentiment analysis are local mocks, not a real model. The demo repository lists the [versions used](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below). Temporal facts come from the [Temporal documentation](https://docs.temporal.io).
+<YouTubeVideo videoId="_5LuwZcJhhc" title="The same process in Temporal and Dex code" poster="/img/videos/dex-vs-temporal-short2.jpg" orientation="vertical" />
+
+## Lines of code {#more-code}
+
+The [agent-reply](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply) example drafts a reply, waits for a human to approve it, and sends it. Version 2 adds a step after the draft that notifies the reviewer. The table counts the lines of each flow definition file, without blank and comment lines.
+
+| | Temporal | Dex |
+| --- | --- | --- |
+| Version 1, `flow_v1.py` | 26 | 26 |
+| Version 2, `flow_v2.py` | 34 | 30 |
+| Change from version 1 to 2 | 8 lines added | 6 lines added, 2 removed |
+
+The Temporal change adds the `notify_reviewer` Activity and guards it with `workflow.patched`. Without the guard, open runs fail, as shown below. See [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply/temporal/flow_v2.py).
+
+```diff
++@activity.defn
++async def notify_reviewer(draft: str) -> str:
++    return f"reviewer notified: {draft}"
++
++
+ @activity.defn
+ async def send_reply(draft: str) -> str:
+@@
+         draft = await workflow.execute_activity(
+             draft_reply, ticket,
+             start_to_close_timeout=timedelta(seconds=10),
+         )
++        if workflow.patched("notify-reviewer"):
++            await workflow.execute_activity(
++                notify_reviewer, draft,
++                start_to_close_timeout=timedelta(seconds=10),
++            )
+         await workflow.wait_condition(lambda: self.approved)
+```
+
+The Dex change adds `NotifyReviewerStep` and points `DraftReplyStep` to it. It has no versioning code. See [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply/dex/flow_v2.py).
+
+```diff
+ class DraftReplyStep(Step[str]):
+     def execute(self, context: Context, input: str) -> StepDecision:
+-        return go_to(SendReplyStep, f"draft reply for {input}")
++        return go_to(NotifyReviewerStep, f"draft reply for {input}")
++
++
++class NotifyReviewerStep(Step[str]):
++    def execute(self, context: Context, input: str) -> StepDecision:
++        return go_to(SendReplyStep, input)
+@@
+         self.draft_reply = DraftReplyStep()
++        self.notify_reviewer = NotifyReviewerStep()
+         self.send_reply = SendReplyStep()
+@@
+         return StepList.start_step(self.draft_reply).other_steps(
+-            self.send_reply
++            self.notify_reviewer, self.send_reply
+         )
+```
+
+The demo started replies on version 1, stopped that Worker, and deployed version 2. On Temporal, this run used version 2 without `workflow.patched`.
+
+| Reply at the deploy | Temporal | Dex |
+| --- | --- | --- |
+| Approved, sending the reply, and retrying it | The next Workflow Task fails with a nondeterminism error. The run stays Running. | Completes. |
+| Waiting for approval | Completes, and notifies the reviewer after the approval. | Completes without `NotifyReviewerStep`. |
+| Completed | `temporal workflow stack` fails with the same error. | Reading the result works, with or without a Worker. |
+
+The error on Temporal:
+
+```text
+[TMPRL1100] Nondeterminism error: Activity type of scheduled event 'send_reply' does not match activity type of activity command 'notify_reviewer'
+```
+
+With `workflow.patched`, the approved Temporal runs complete too. The demo repository lists the [versions used](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply#results) for these results.
 
 ## The scenario {#scenario}
 
 [Watch at 0:40](https://youtu.be/fzl88JWt734?t=40)
 
-An AI support agent answers a customer. One Temporal workflow or one Dex Flow runs per conversation.
+The rest of this page follows Episode 1. An AI support agent answers a customer. One Temporal workflow or one Dex Flow runs per conversation.
 
 - The conversation starts with the customer's first message.
 - Each customer message gets one AI reply.
@@ -36,7 +108,7 @@ This is one direct way to write the timer. The Signal handler replies to the mes
 
 [Watch at 4:51](https://youtu.be/fzl88JWt734?t=291)
 
-The customer follows up at second 20, so the nudge is due at second 50. It goes out at second 30. The run reports no error and raises no alert.
+The nudge goes out at second 30. The run reports no error and raises no alert.
 
 | Implementation | Nudge sent at | Errors |
 | --- | --- | --- |
@@ -52,7 +124,7 @@ Temporal runs workflow code as [workflow tasks](https://docs.temporal.io/tasks).
 
 A timer is one of those commands. The call to `sleep` sends a StartTimer command, and the server records the timer with the first value of `nudge_at`. The Signal handler later changes `nudge_at`. Changing a variable sends no command. So the first timer still fires at second 30.
 
-The code is valid Python, and the Timer fired as scheduled. The application logic changed `nudge_at` and never started a new Timer. The code does not show which statements become commands, or when.
+The code is valid Python, and the Timer fired as scheduled. The code does not show which statements become commands, or when.
 
 ## The correct Temporal code {#correct-temporal-code}
 
@@ -66,13 +138,13 @@ The correct workflow follows the official [updatable timer sample](https://githu
 4. `workflow.wait_condition` with a timeout waits for a new message or the end of the idle window.
 5. The timeout raises `asyncio.TimeoutError`, which the code catches.
 
-See [conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow.py). It sent the nudge at second 50.0.
+See [conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow.py).
 
 ## The Dex Flow {#dex-flow}
 
 [Watch at 9:28](https://youtu.be/fzl88JWt734?t=568)
 
-A Step says what it waits for and where it goes next. `WaitForCustomerStep` waits for any of two conditions: a message on the `CustomerMessages` Channel, or a Timer for the idle window. If the Timer fired, the Flow moves to `NudgeCustomerStep`. Otherwise it moves to `GenerateReplyStep`, which replies and moves back to `WaitForCustomerStep`. Each time `WaitForCustomerStep` starts, it starts a new Timer. The `post_message` RPC publishes each customer message to the Channel. See [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py). It sent the nudge at second 50.4.
+A Step says what it waits for and where it goes next. `WaitForCustomerStep` waits for any of two conditions: a message on the `CustomerMessages` Channel, or a Timer for the idle window. If the Timer fired, the Flow moves to `NudgeCustomerStep`. Otherwise it moves to `GenerateReplyStep`, which replies and moves back to `WaitForCustomerStep`. Each time `WaitForCustomerStep` starts, it starts a new Timer. The `post_message` RPC publishes each customer message to the Channel. See [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py).
 
 The [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) pattern has the same shape in every SDK. Notice the two conditions in `WaitFor` and the decision in `Execute`, which moves the Step to itself on activity:
 
@@ -244,73 +316,6 @@ Queries to conversation A fail too. A conversation started on version 2 works. T
 
 [Deploy Code Changes](/concepts/change-flow-code) covers what a deploy changes for open Flows and how to keep them working.
 
-## The history limit and Continue-As-New {#history-limit}
-
-[Watch at 15:02](https://youtu.be/fzl88JWt734?t=902)
-
-Temporal limits each Workflow Execution. Temporal Cloud has fixed [limits](https://docs.temporal.io/evaluate/cloud/limits). A self-hosted server has [defaults](https://docs.temporal.io/self-hosted-guide/defaults), and the history limits are configurable there:
-
-| Limit | Temporal Cloud | Self-hosted default |
-| --- | --- | --- |
-| Event History | 51,200 events or 50 MB. Warns after 10,240 events or 10 MB. | Errors at 51,200 events or 50 MB. Warns at 10,240 events or 10 MB. |
-| Payload | 2 MB per request | Errors at 2 MB. Warns at 512 KB. |
-| Event History transaction | 4 MB | Not listed |
-| Signals per Workflow Execution | 10,000 | Not listed |
-
-A warning comes when either threshold is reached. The demos ran a local development server with the default limits. Temporal writes the limits in MB and KB. The measured byte counts below are exact, and the payload limit the server applied was 2 MiB, 2,097,152 bytes.
-
-### The conversation that keeps going {#history-limit-flood}
-
-The load test sends follow-up messages at 8 per second, about 200 bytes each, and gets one AI reply per message. The correct workflow has no Continue-As-New.
-
-- 4,266 follow-up messages were accepted and answered in 533 seconds. The 4,267th was rejected: `workflow execution already completed`.
-- The server terminated the workflow at 51,201 history events: `Workflow history count exceeds limit.` The history size was 9 MB, far below 50 MB.
-- Each customer message adds 12 history events: 1 Signal, 2 workflow tasks of 3 events each, 1 activity of 3 events, 1 timer canceled, and 1 timer started.
-
-### Continue-As-New {#continue-as-new}
-
-[Continue-As-New](https://docs.temporal.io/develop/python/workflows/continue-as-new) ends the run and starts a new one with fresh history. The new run keeps the same Workflow ID and gets a new Run ID. The workflow code does this itself:
-
-1. Check `workflow.info().is_continue_as_new_suggested()`.
-2. Wait until every Signal and Update handler has finished. Temporal's guidance: "Complete all handlers before using Continue-as-New."
-3. Take a snapshot of the state: the transcript, every unanswered message, the agent, the status, and the timer deadline.
-4. Pass the snapshot as the next run's input, and restore the state from it in the new run.
-
-The demo's [conversation_workflow_inline_transcript.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow_inline_transcript.py) does this in 249 lines. The workflow without Continue-As-New has 148. It chains runs at the server's suggestion, about 4,100 events per run.
-
-The snapshot is a payload, so it is limited to 2 MB. After 3,531 answered follow-up messages, the next run's input was 2,199,782 bytes. The limit is 2,097,152 bytes. The workflow task failed:
-
-```text
-[TMPRL1103] Attempted to upload payloads with size that exceeded the error limit.
-```
-
-The workflow stayed Running and kept accepting Signals, and it stopped replying. The stop point moves with the timing of each Continue-As-New.
-
-Temporal's answer for large payloads is [External Storage](https://docs.temporal.io/external-storage), in Public Preview. It stores a payload outside the Event History and records a reference token in its place. With a local directory as the store, the demo answered 10,000 messages, each once. The stored objects stayed after the workflow completed. Temporal documents that it "does not automatically delete payloads from your external store".
-
-### The conversation context in each activity {#context-in-activity}
-
-This implementation gives each reply the whole transcript as context. `ConversationWithContextWorkflow` passes the transcript to each reply activity as a regular input. It has no Continue-As-New and no External Storage. Temporal records each activity's input in its `ActivityTaskScheduled` event. So each reply copies the transcript into the history again, and the history grows with the square of the message count.
-
-| Messages | Follow-up messages accepted | Terminated at |
-| --- | --- | --- |
-| 200 bytes, 8 per second | 408, of which 407 were answered in 51 s | 4,907 events, 52,602,112 to 52,602,325 history bytes |
-| 8 KiB, 2 per second | 109, of which 108 were answered in 54 s | 1,319 events, 52,719,073 to 52,719,369 history bytes |
-
-Both runs ended with `Workflow history size exceeds limit.` The 50 MB history size limit was reached first. The 2 MB payload limit was not. No workflow task failed, and the Worker logged no error before the termination. These numbers hold for a regular activity that receives the full transcript on each call. The demo did not measure other designs.
-
-### Dex {#history-limit-dex}
-
-The Dex Flow ran the same load for 30 minutes. It answered all 14,138 follow-up messages that were sent and kept running, with no backlog at the end. The load driver dropped 262 of 14,400 planned sends by back-pressure during a slow period of about three minutes.
-
-Dex keeps a window of each run's newest events and prunes older ones. The window pruned the old history, and the Flow kept running. The [History window](/reference/server/configuration#history-window) reference gives the defaults. The demo repository lists the [event counts it measured](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going).
-
-The Flow keeps the transcript in an AttributeMap of chunks, within 32 MiB of the run's 64 MiB state budget. When an append does not fit, `TrimTranscriptStep` folds the oldest chunks into a summary and deletes them. With 8 KiB messages, the transcript reached 33.2 MB and stayed under the budget. 64 chunks went into the summary, and the Flow kept running.
-
-### Data size {#data-size}
-
-Temporal limits a payload to 2 MB. A self-hosted server warns at 512 KB by default. The payload limit covers an activity input and a Continue-As-New snapshot. Dex limits a value, such as an Attribute value or a Channel message, to 16 MiB by default. A Flow run holds up to 64 MiB of active state by default. The history and the superseded values kept for Time Travel do not count toward it. See [Limits](/reference/server/configuration#limits) and [Flow state budget](/reference/server/configuration#flow-state-budget).
-
 ## The complete code {#complete-code}
 
 [Watch at 20:24](https://youtu.be/fzl88JWt734?t=1224)
@@ -329,42 +334,29 @@ Because the transitions are explicit, Dex draws the Flow design from the source 
 
 [Flow visualization](/reference/web/flow-visualization) describes the analyzer and the canvas.
 
-## Run the server {#run-the-server}
-
-Temporal needs a database. Dex Server is one binary on object storage or db9.
-
-| | Temporal Service | Dex Server |
-| --- | --- | --- |
-| Processes | Frontend, History, Matching, and Worker services. They can share a process. Temporal recommends separate processes in production. | One binary. One active node holds a lease in object storage. Standby nodes take over when it stops. See [Dex Server](/components/server). |
-| Required storage | A database: Cassandra, MySQL, or PostgreSQL. SQLite for development and testing only. | Object storage, such as Amazon S3, or [db9](/reference/server/object-storage#db9) in its place. |
-| Search storage | A Visibility store: Elasticsearch, OpenSearch, MySQL, PostgreSQL, or SQLite. Temporal recommends Elasticsearch in production. | Built-in by default. PostgreSQL or ParadeDB optional. |
-
-The Temporal facts come from [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server), [Persistence](https://docs.temporal.io/temporal-service/persistence), and [Visibility](https://docs.temporal.io/self-hosted-guide/visibility).
-
-When the active Dex node fails over, Dex fails every Step attempt that a Worker had received. Each attempt is retried under its Step's retry policy. See [Failover and Deploys](/concepts/failover-and-deploys). [Performance](/intro/performance) gives measured throughput and latency for one Dex node.
-
-## Concurrency defaults {#concurrency-defaults}
-
-A Temporal Python Workflow runs its coroutines on one thread, and they interleave at each `await`. Dex runs the Steps of parallel branches in parallel, and you declare locks where needed.
-
-In a Temporal Python Workflow, Signal and Update handlers run alongside the main function, and they switch at each `await`. Temporal recommends an [`asyncio.Lock`](https://docs.temporal.io/develop/python/workflows/message-passing#use-asynciolock-to-prevent-concurrent-handler-execution) to protect an update that spans an `await`.
-
-When a Flow has parallel branches, Dex runs their Steps in parallel, on one Worker or on several. An RPC can run alongside them. They share the Flow's Attributes. Use a [lock](/concepts/primitives/attribute#locking) for a read-modify-write that must run alone. Without a lock, two writers that read and then write can overwrite each other.
-
 ## Run it yourself {#run-it-yourself}
 
-The demo needs `uv`, the `temporal` CLI, and `dexcli`. Each script starts its own server and prints its results. The scripts are in the [scripts](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/scripts) folder. The demo repository lists the [versions used](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below) for the numbers on this page.
+The demo needs `uv`, the `temporal` CLI, and `dexcli`. Each script starts its own server and prints its results. Both servers run in their local development mode with default limits. The AI reply and the sentiment analysis are local mocks, not a real model.
+
+The Episode 1 scripts are in the [scripts](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/scripts) folder, with their [versions used](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below). The reply-with-approval scripts are in the [agent-reply](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply) folder and also need `python3`.
 
 Every script except `d-design.sh` stops what it started. `d-design.sh` keeps Dex running after a successful run, because its default is `KEEP=1`. Stop it with `scripts/dex/stop.sh`, or start the script with `KEEP=0`.
 
 | Topic | Temporal | Dex |
 | --- | --- | --- |
+| Reply with approval, version 1 and 2 | `agent-reply/temporal/run.sh`, `upgrade.sh`, `upgrade-in-send.sh`, `query-completed.sh` | `agent-reply/dex/run.sh`, `upgrade.sh`, `upgrade-in-send.sh`, `read-completed.sh` |
 | The idle timer | `scripts/temporal/t1-naive-timer.sh` | `scripts/dex/d1-timer.sh` |
 | Changing the code | `scripts/temporal/t2-change-code.sh`, `scripts/temporal/t2-patch-fix.sh` | `scripts/dex/d2-change-code.sh`, `scripts/dex/d2-idle-window-variation.sh` |
-| The history limit | `scripts/temporal/t5-flood.sh`, `scripts/temporal/t6-continue-as-new.sh` | `scripts/dex/d5-flood-fair.sh` |
+| [The history limit](/intro/compared-to-temporal/operations#history-limit) | `scripts/temporal/t5-flood.sh`, `scripts/temporal/t6-continue-as-new.sh` | `scripts/dex/d5-flood-fair.sh` |
 | External Storage | `EXTERNAL_STORAGE=1 scripts/temporal/t6-continue-as-new.sh` | |
 | Context in each activity, transcript budget | `scripts/temporal/t8-context-in-activity.sh` | `scripts/dex/d7-transcript-budget.sh` |
 | The Flow design | | `scripts/dex/d-design.sh` |
+
+## Episode 1 {#episode-1}
+
+Episode 1 is the full walkthrough of this page's support conversation: the idle timer, the code change, and the conversation that keeps going.
+
+<YouTubeVideo videoId="fzl88JWt734" title="Dex vs Temporal, Ep. 1: one idle timer, three production problems" poster="/img/videos/dex-vs-temporal-ep1.jpg" />
 
 ## Next
 

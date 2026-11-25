@@ -2,47 +2,49 @@
 title: Dex 与 Temporal 对比
 sidebar_label: Dex 与 Temporal 对比
 slug: /intro/compared-to-temporal
-description: Dex 和 Temporal 的区别。Temporal 通过按 Event History 重放 workflow 代码来重建一次运行，Dex 保存每个 Step 的结果和状态，从那里继续。本页有真实运行的对比视频、对比总表、两者的共同点和术语对照。
+description: Dex 和 Temporal 在 Worker 内存和 CPU、server 吞吐量、运维、长时间运行的流程、功能和代码上的区别，附实测数字、两者的架构、共同点和术语对照。
 ---
 
 import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDiagram';
+import TemporalArchitectureDiagram from '@site/src/components/diagrams/TemporalArchitectureDiagram';
 
 # Dex 与 Temporal 对比
 
-Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。Temporal 通过按 Event History 重放 workflow 代码来重建一次运行，Dex 保存每个 Step 的结果和状态，从那里继续。Temporal 的服务运行在数据库上，Dex Server 是一个二进制，运行在对象存储或 db9 上。
+Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续运行。Temporal 按存在数据库里的 Event History 重放 workflow 代码，Dex 保存每个 Step 的结果，并作为一个二进制运行在对象存储上。
 
-<YouTubeVideo videoId="fzl88JWt734" title="Dex vs Temporal, Ep. 1: one idle timer, three production problems" poster="/img/videos/dex-vs-temporal-ep1.jpg" />
-
-视频是英文的。视频里的每个演示都是真实运行的。代码、脚本和每个实测数字都在 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) 仓库里。
+<YouTubeVideo videoId="b0IyH3H5DpE" title="Why Dex is lighter than Temporal" poster="/img/videos/dex-vs-temporal-short1.jpg" orientation="vertical" />
 
 ## 区别一览 {#differences-at-a-glance}
 
-每个主题都链接到 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)里对应的完整章节。关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。实测数字来自演示仓库。
+实测数字来自 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) 仓库和 Dex 的[性能](/intro/performance)页面。
 
 | 主题 | Temporal | Dex |
 | --- | --- | --- |
-| [写代码](/intro/compared-to-temporal/programming-model#natural-temporal-code) | workflow 代码以 workflow task 的方式运行，每个 task 向 server 发送 command。哪些语句会变成 command，代码里看不出来。在演示里，空闲计时器的一种直接写法在第 30 秒而不是第 50 秒发出提醒，没有任何报错。它的 Timer 按原定时间触发，代码没有重新设置 Timer。 | 每个 Step 写明它等什么、接下来去哪。演示里的 Flow 在第 50.4 秒发出提醒。 |
-| [改代码](/intro/compared-to-temporal/programming-model#change-code) | 如果一次部署改变了未结束的运行产生的 command，这次运行的 Workflow Task 会因非确定性错误而失败，并不断重试。运行本身保持打开。Patching 让新代码兼容旧的 history。Pinned 的 Worker Versioning 让每次运行留在它开始时的 Worker 版本上。 | 每个 Step 运行接手它的 Worker 上的代码。已经登记的等待保留原来的条件。演示加了一个 Step，未结束的会话走进了它。 |
-| [长时间运行的流程](/intro/compared-to-temporal/programming-model#history-limit) | 一个 Workflow Execution 的 history 最多 51,200 个事件或 50 MB。这些上限在 Temporal Cloud 上是固定的，在自托管的 server 上是默认值。在演示里，server 在 4,266 条消息之后、第 51,201 个事件时终止了 workflow。把会话内容传给每次回复的 activity 时，它在 50 MB 的上限处被终止，这时接收了 408 条消息，回复了 407 条。Continue-As-New 要你自己写。 | Dex 保留每次运行最新的一段事件，并清理更早的事件。演示里的 Flow 在 30 分钟内回复了 14,138 条消息，仍在运行，聊天记录存在 Attribute 里。 |
-| [数据大小](/intro/compared-to-temporal/programming-model#data-size) | 一个 payload 最多 2 MB。自托管的 server 默认在 512 KB 时警告。 | 默认情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。见 [Limits](/reference/server/configuration#limits)（英文）。 |
-| [看清流程](/intro/compared-to-temporal/programming-model#complete-code) | 流程的形状就是 workflow 代码。 | `dexcli visualize` 从源码画出 Flow design。Dex Web 显示一次运行在等哪个 Step。 |
-| [运行服务器](/intro/compared-to-temporal/programming-model#run-the-server) | Frontend、History、Matching 和 Worker 服务，运行在数据库上。 | 一个二进制，运行在对象存储或 db9 上。 |
+| [Worker 内存和 CPU](/intro/compared-to-temporal/performance#worker) | 在 512 MB 的容器里，Worker 被 [OOM kill](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-default-cache-512m)，715 条消息没有得到回复。给 2 GB、缓存 50 个 Workflow 时，峰值是 [581.6 MiB，CPU 36.3%](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-cache50-2g)。 | 在 512 MB 里，Worker 峰值是 [85.5 MiB](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-512m)，3,000 条消息全部得到回复。给 2 GB 时，峰值是 [79.8 MiB，CPU 17.4%](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-2g)。 |
+| [Server 吞吐量](/intro/compared-to-temporal/performance#server) | Temporal Cloud 的默认上限是[每个 Namespace 每秒 500 个 action](https://docs.temporal.io/cloud/limits)。 | 一个运行在 S3 上的 Dex Server 节点，[2 vCPU 时每秒运行 1,772 个 SYNC Step，16 vCPU 时 8,403 个](/intro/performance)。 |
+| [运行服务器](/intro/compared-to-temporal/operations#run-the-server) | [Frontend、History、Matching 和 Worker 服务](https://docs.temporal.io/temporal-service/temporal-server)，运行在 Cassandra、MySQL 或 PostgreSQL 上，另外还要一个 Visibility 存储。 | 一个二进制。唯一必需的依赖是对象存储（例如 Amazon S3）或 db9。 |
+| [长时间运行的流程](/intro/compared-to-temporal/operations#history-limit) | 一个 Event History 最多 [51,200 个事件或 50 MB](https://docs.temporal.io/workflow-execution/limits)。更长的流程要在代码里做 Continue-As-New。 | Dex 保留每次运行最新的事件，清理更早的事件。运行一直继续，不需要开始新的运行。 |
+| [数据大小](/intro/compared-to-temporal/operations#data-size) | 一个 payload 最多 [2 MB](https://docs.temporal.io/troubleshooting/blob-size-limit-error)。自托管的 server 在 512 KB 时警告。 | [默认](/reference/server/configuration#limits)情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。 |
+| [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) 终止当前运行，开始一次新的运行，Run ID 也是新的。 | Time Travel 让同一次运行回到较早的时间点。Run ID 不变。 |
+| [Dex 独有的功能](/intro/compared-to-temporal/features) | [Web UI](https://docs.temporal.io/web-ui) 显示每个 Workflow Execution 的 Event History。 | 从源码画出的 Flow design、Dex Web 生成的表单、Clone fork、Connector、`SkipTimer`、等待某个 Step 或某个 Attribute，以及不需要 Worker 的读取。 |
+| [改代码](/intro/compared-to-temporal/programming-model#change-code) | 如果一次部署改变了未结束的运行产生的 command，它的 Workflow Task 会因非确定性错误而失败。[Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching) 或 [Worker Versioning](https://docs.temporal.io/worker-versioning) 让未结束的运行继续正常工作。 | 每个 Step 运行接手它的 Worker 上的代码。演示里的改动不需要任何版本控制代码。 |
+| [写代码](/intro/compared-to-temporal/programming-model#more-code) | workflow 代码必须是[确定性的](#the-main-difference-an-explicit-step-graph-not-replayed-code)。演示里带审批的回复 Workflow 有 26 行。 | Step 是普通代码。同样的 Flow 也是 26 行。 |
+
+## 架构 {#architecture}
+
+注意两边的 Worker。Temporal 的 Worker [在内存里缓存 Workflow 状态](https://docs.temporal.io/sticky-execution)。Dex 的 Worker 通过磁盘上的 [blob cache](/components/application#blob-cache) 读取大的值。
+
+<TemporalArchitectureDiagram markdownDescription="Temporal：你的 Worker 在内存里缓存 Workflow 状态，并连接 Temporal Service。Temporal Service 由 Frontend、History、Matching 和 Worker 四个服务组成，运行在数据库（Cassandra、MySQL 或 PostgreSQL）上。Dex：你的 Worker 在磁盘上保留 blob cache，并连接一个 Dex Server 二进制。Dex Server 把当前状态存在本地磁盘，并写入对象存储。" />
 
 ## 重放与保存的 Step 结果 {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
-Worker 停止之后，两个引擎用不同的方式重建一次运行。
+Worker 停止之后，两个引擎用不同的方式继续一次运行。
 
 <RecoveryModelDiagram markdownDescription="Worker 运行中途停止。Temporal：Event History 记录每条命令和结果；新的 Worker 从头重放 workflow 函数，直到最后一个 await，所以 workflow 代码必须是确定的。Dex：Step 结果和 Attribute 与每个决定一起保存；Worker 从保存的进度继续，运行下一个 Step；进行中的工作可能按重试策略重试，所以每个外部效果必须是幂等的。" />
 
-**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即 Workflow Execution 生命周期中发生的每件事的完整、持久的日志。运行不在 Worker 缓存中时，Worker 从头再运行这个函数来继续它。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对。不一致就是非确定性错误。所以对同样的输入，workflow 代码必须以同样的顺序发出同样的调用。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。
+**Temporal。** 一个 Workflow 是一个函数。服务器记录 Event History，即 Workflow Execution 生命周期中发生的每件事的完整、持久的日志。运行不在 Worker 缓存中时，Worker 从头再运行这个函数。已记录的 Activity 结果直接返回，Activity 不再运行。代码产生的命令会和历史比对，不一致就是非确定性错误。读取时钟、随机数和 I/O 要通过 Temporal 的 API，或者放进 Activity。
 
-**Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把每个完成的 Step 的结果、它写入的 Attribute 和这个决定一起保存。Worker 从保存的状态继续：它运行下一个 Step，读取保存的 Attribute。进行中的工作可能按它的重试策略重试。[故障转移和部署](/concepts/failover-and-deploys)列出了每种情况下哪些工作会再次运行。
-
-| | Temporal：重放 workflow 代码 | Dex：保存每个 Step 的结果 |
-| --- | --- | --- |
-| 编排代码 | 必须是确定性的。读取时钟、随机值和 I/O 要通过 Temporal 的 API，或者放进 Activity。 | 普通代码。Step 可以读取时钟、使用随机值，调用任何库。 |
-| 修复 bug 后恢复 | Reset 从较早的事件开始一次新的运行。 | Time Travel 恢复较早时间点的 Attribute、Channel 消息和等待中的 Step，Run ID 不变。 |
-| Worker 停止后的状态 | 通过重放 Event History 重建，在两次任务之间缓存在 Worker 上 | 从每个 Step 一起保存的 Attribute 读取。恢复时 Worker 不需要 history 缓存。 |
+**Dex。** 一个 Flow 是一组 Step。每个 Step 返回一个决定，指明接下来运行哪些 Step，或者完成 Flow。Dex 把每个完成的 Step 的结果、它写入的 Attribute 和这个决定一起保存。Worker 从保存的状态继续，运行下一个 Step。进行中的工作可能按它的重试策略重试。[故障转移和部署](/concepts/failover-and-deploys)列出了每种情况下哪些工作会再次运行。
 
 ## 共同点 {#what-they-share}
 
@@ -72,8 +74,8 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 | Search Attributes | 带索引的 Attribute | |
 | Workflow ID 冲突策略，用于仍打开的 Workflow ID。Workflow ID 复用策略，用于已关闭的 Workflow ID。 | ID 复用策略，同时用于打开和已关闭的 Flow ID。启动 request ID。 | 启动 request ID 让 Dex 识别重试的启动请求。见 [StartFlowOptions](/reference/python/start-flow-options)（英文）。 |
 | 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都由 Worker 代码以协作的方式停止外部工作。被取消的 attempt 之后返回的任何结果，Dex 都会丢弃。见[取消运行中的 Step](/reference/server/runtime-data#cancel-running-steps)。 |
-| Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel 保留 Run ID。 |
-| Continue-As-New，用于控制 history 大小 | 不需要为 history 大小开始新的运行 | Dex 会裁剪旧的历史事件。见 [history 上限](/intro/compared-to-temporal/programming-model#history-limit)。 |
+| Reset | [Time Travel](/components/operate-and-debug#time-travel) | 见[回到较早的时间点](/intro/compared-to-temporal/experience#time-travel)。 |
+| Continue-As-New，用于控制 history 大小 | 不需要为 history 大小开始新的运行 | 见 [history 上限](/intro/compared-to-temporal/operations#history-limit)。 |
 | Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
 | Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |
 | Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
@@ -81,18 +83,21 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 
 Dex 由 iWF 演进而来。iWF 的 State 对应 Dex 的 Step，`WaitUntil` 对应 `WaitFor`。
 
-## 视频分集 {#episodes}
+## 视频 {#videos}
 
-这个视频系列每集比较一个主题。每一集都有文字版。
+每个视频都有一个内容相同的文字页面。视频是英文的。
 
-- **第 1 集：一个空闲计时器，三个线上问题。** 写代码、改代码，以及一个一直聊下去的会话。[在 YouTube 上观看](https://youtu.be/fzl88JWt734)（英文），或者阅读 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)。
-
-新的一集发布后会列在这里。
+- [Why Dex is lighter than Temporal](https://youtube.com/shorts/b0IyH3H5DpE)：本页顶部的短视频。
+- [Why Temporal Workers run out of memory](https://youtube.com/shorts/qjeMoeRau7M)：[性能和资源用量](/intro/compared-to-temporal/performance#worker)。
+- [How Dex Server works inside](https://youtube.com/shorts/xZtFv4mOS04)：[性能和资源用量](/intro/compared-to-temporal/performance#server)。
+- [The same process in Temporal and Dex code](https://youtube.com/shorts/_5LuwZcJhhc)：[编程模型](/intro/compared-to-temporal/programming-model#more-code)。
+- [Episode 1: one idle timer, three production problems](https://youtu.be/fzl88JWt734)：[编程模型](/intro/compared-to-temporal/programming-model)的完整讲解。
 
 ## 下一步 {#next}
 
-- [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)：第 1 集的文字版，列出每个实测数字。
+- [性能和资源用量](/intro/compared-to-temporal/performance)
+- [运维](/intro/compared-to-temporal/operations)
+- [Dex 独有的功能](/intro/compared-to-temporal/features)
+- [操作和恢复 Flow](/intro/compared-to-temporal/experience)
+- [编程模型](/intro/compared-to-temporal/programming-model)
 - [Dex 与其他引擎对比](/intro/compared-to-other-engines)：Restate、DBOS、Step Functions 和 Agent 框架的 checkpoint。
-- [部署代码变更](/concepts/change-flow-code)：未结束的 Flow 怎样遇到新代码。
-- [性能](/intro/performance)和[限制](/intro/limits)。
-- [Dex vs. 数据库](/intro/compared-to-database)：用数据库和队列构建的同一个订单流程。

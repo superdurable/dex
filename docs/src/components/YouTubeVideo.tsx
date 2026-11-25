@@ -18,11 +18,16 @@ export type YouTubeVideoProps = {
   title: string;
   /** A self-hosted poster image path under static/, such as /img/videos/name.jpg. */
   poster: string;
+  /** The video shape: horizontal (16:9, the default) or vertical (9:16, a YouTube Short with a 720x1280 poster). */
+  orientation?: YouTubeVideoOrientation;
 };
+
+export type YouTubeVideoOrientation = 'horizontal' | 'vertical';
 
 // The player loads only after a click, so a reader who does not play the video sends no request to YouTube.
 // The poster is a link to YouTube, so it still works before hydration or without JavaScript.
-export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps): ReactNode {
+export default function YouTubeVideo({videoId, title, poster, orientation = 'horizontal'}: YouTubeVideoProps): ReactNode {
+  const isVertical = orientation === 'vertical';
   const [isPlaying, setIsPlaying] = useState(false);
   const playerRef = useRef<HTMLIFrameElement>(null);
   // The poster link disappears on activation, so focus moves to the player that replaces it.
@@ -42,7 +47,9 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
     setIsPlaying(true);
   };
   const posterUrl = useBaseUrl(poster);
-  const watchUrl = `https://youtu.be/${encodeURIComponent(videoId)}`;
+  const watchUrl = isVertical
+    ? `https://youtube.com/shorts/${encodeURIComponent(videoId)}`
+    : `https://youtu.be/${encodeURIComponent(videoId)}`;
   const playerUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1`;
   const playLabel = translate(
     {
@@ -63,7 +70,7 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
     description: 'The separator between the Watch on YouTube link and the video title',
   });
   return (
-    <figure className={styles.video}>
+    <figure className={isVertical ? `${styles.video} ${styles.vertical}` : styles.video}>
       <div className={styles.frame}>
         {isPlaying ? (
           <iframe
@@ -77,7 +84,14 @@ export default function YouTubeVideo({videoId, title, poster}: YouTubeVideoProps
           />
         ) : (
           <a href={watchUrl} className={styles.poster} onClick={playInline} onKeyDown={playOnSpace} aria-label={playLabel}>
-            <img src={posterUrl} alt="" width={1280} height={720} loading="lazy" decoding="async" />
+            <img
+              src={posterUrl}
+              alt=""
+              width={isVertical ? 720 : 1280}
+              height={isVertical ? 1280 : 720}
+              loading="lazy"
+              decoding="async"
+            />
             <span className={styles.playIcon} aria-hidden="true">
               <svg viewBox="0 0 68 48" width="68" height="48">
                 <rect width="68" height="48" rx="12" />

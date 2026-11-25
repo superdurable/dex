@@ -22,6 +22,15 @@
   border: 1px solid var(--ifm-color-emphasis-300);
 }
 
+/* A Short keeps its 9:16 shape and stays narrow so it does not dominate the page. */
+.vertical {
+  max-width: 320px;
+}
+
+.vertical .frame {
+  aspect-ratio: 9 / 16;
+}
+
 .poster,
 .player {
   position: absolute;

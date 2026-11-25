@@ -11,8 +11,8 @@
 // Sections of the old Dex vs. Temporal page that moved to other pages. The page redirect keeps the hash,
 // so an old link such as /intro/compared-to-durable-execution/#run-the-server arrives here.
 const movedSections: Record<string, {page: string; anchor?: string}> = {
-  'run-the-server': {page: 'compared-to-temporal/programming-model', anchor: 'run-the-server'},
-  'concurrency-defaults': {page: 'compared-to-temporal/programming-model', anchor: 'concurrency-defaults'},
+  'run-the-server': {page: 'compared-to-temporal/operations', anchor: 'run-the-server'},
+  'concurrency-defaults': {page: 'compared-to-temporal/operations', anchor: 'concurrency-defaults'},
   'the-same-process-in-both-models': {page: 'compared-to-temporal/programming-model', anchor: 'complete-code'},
   'other-engines': {page: 'compared-to-other-engines'},
   'replay-based-workflow-engines': {page: 'compared-to-other-engines', anchor: 'replay-based-workflow-engines'},

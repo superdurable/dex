@@ -190,7 +190,8 @@ try {
   await writeFile(join(outDir, 'img/example.png'), '');
   await writeFile(join(contentPath, 'index.mdx'), homeSource);
   await writeFile(join(contentPathLocalized, 'translated.mdx'),
-    '# Translated\n\n<YouTubeVideo videoId="abc_123-X" title="示例视频" poster="/img/sample.jpg" />\n');
+    '# Translated\n\n<YouTubeVideo videoId="abc_123-X" title="示例视频" poster="/img/sample.jpg" />\n\n'
+    + '<YouTubeVideo videoId="short_45-Y" title="竖屏视频" poster="/img/short.jpg" orientation="vertical" />\n');
   await writeFile(join(contentPath, 'translated.mdx'), '# English source\n');
   await writeFile(join(contentPath, 'older.mdx'), '# Earlier version\n');
   await writeFile(join(contentPath, 'agents.mdx'), '# Agents\n\n<FrameworkTabs>\n<FrameworkTab framework="claude-agent-sdk">\n\nClaude agents.\n\n</FrameworkTab>\n<FrameworkTab framework="mastra">\n\n## Setup\n\nMastra agents.\n\n</FrameworkTab>\n</FrameworkTabs>\n');
@@ -261,7 +262,9 @@ try {
   assert.doesNotMatch(translatedPage, /site_locale|本页内容是英文原文/);
   // A video exports as a localized text link with the locale's separator, and no player or poster.
   assert.match(translatedPage, /\n\[在 YouTube 上观看\]\(https:\/\/youtu\.be\/abc_123-X\)：示例视频\n/);
-  assert.doesNotMatch(translatedPage, /iframe|youtube-nocookie|sample\.jpg/);
+  assert.doesNotMatch(translatedPage, /iframe|youtube-nocookie|sample\.jpg|short\.jpg/);
+  // A vertical video is a YouTube Short, so its link opens the Shorts page.
+  assert.match(translatedPage, /\n\[在 YouTube 上观看\]\(https:\/\/youtube\.com\/shorts\/short_45-Y\)：竖屏视频\n/);
   // A moved page's old Markdown names its successor: the .md file one page, each language file another.
   const movedOld = await readFile(join(outDir, 'old-page.md'), 'utf8');
   assert.match(movedOld, /\n本页已移至 \[Translated\]\(https:\/\/docs\.example\.test\/zh-Hans\/translated\.md\)。\n$/);
@@ -406,6 +409,9 @@ try {
     ['# Heading\n\n<DexSystemDiagram />\n', /index.mdx:3: DexSystemDiagram requires markdownDescription/],
     ['# Heading\n\n<YouTubeVideo videoId="abc" poster="/img/sample.jpg" />\n', /index.mdx:3: YouTubeVideo requires a title/],
     ['# Heading\n\n<YouTubeVideo videoId="a/b?c" title="Bad" poster="/img/sample.jpg" />\n', /index.mdx:3: YouTubeVideo requires a videoId/],
+    ['# Heading\n\n<YouTubeVideo videoId="abc" title="Bad" poster="/img/sample.jpg" orientation="square" />\n',
+      /index.mdx:3: YouTubeVideo orientation must be "horizontal" or "vertical"/],
+    ['# Heading\n\n<TemporalSampleChart />\n', /index.mdx:3: TemporalSampleChart requires markdownDescription/],
     ['# Heading\n\nTotal {1 + 1}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\n{/* hidden comment */}\n', /index.mdx:3: MDX expressions need an explicit Markdown expansion/],
     ['# Heading\n\nexport const value = 1;\n', /index.mdx:3: Only imports are supported in MDX modules/],

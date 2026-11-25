@@ -2,47 +2,49 @@
 title: Dex vs. Temporal
 sidebar_label: Dex vs. Temporal
 slug: /intro/compared-to-temporal
-description: How Dex and Temporal differ. Temporal rebuilds a run by replaying workflow code against its Event History, while Dex saves each Step's result and state and continues from there. A video comparison with real runs, a summary table, what the two share, and a terms map.
+description: How Dex and Temporal differ in Worker memory and CPU, server throughput, operations, long-running processes, features, and code, with measured numbers, the two architectures, what they share, and a terms map.
 ---
 
 import RecoveryModelDiagram from '@site/src/components/diagrams/RecoveryModelDiagram';
+import TemporalArchitectureDiagram from '@site/src/components/diagrams/TemporalArchitectureDiagram';
 
 # Dex vs. Temporal
 
-Dex and Temporal both run processes that survive crashes, restarts, and long waits. Temporal rebuilds a run by replaying workflow code against its Event History, while Dex saves each Step's result and state and continues from there. Temporal's service runs on a database, and Dex Server runs as one binary on object storage or db9.
+Dex and Temporal both run processes that survive crashes, restarts, and long waits. Temporal replays workflow code against an Event History kept in a database, while Dex saves each Step's result and runs as one binary on object storage.
 
-<YouTubeVideo videoId="fzl88JWt734" title="Dex vs Temporal, Ep. 1: one idle timer, three production problems" poster="/img/videos/dex-vs-temporal-ep1.jpg" />
-
-Every demo in the video is a real run. The code, the scripts, and every measured number are in the [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) repository.
+<YouTubeVideo videoId="b0IyH3H5DpE" title="Why Dex is lighter than Temporal" poster="/img/videos/dex-vs-temporal-short1.jpg" orientation="vertical" />
 
 ## Differences at a glance {#differences-at-a-glance}
 
-Each topic links to its full section in [Dex vs. Temporal in Depth](/intro/compared-to-temporal/programming-model). Temporal facts come from the [Temporal documentation](https://docs.temporal.io). Measured numbers come from the demo repository.
+Measured numbers come from the [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo) repository and the Dex [Performance](/intro/performance) page.
 
 | Topic | Temporal | Dex |
 | --- | --- | --- |
-| [Writing code](/intro/compared-to-temporal/programming-model#natural-temporal-code) | Workflow code runs as workflow tasks, and each task sends commands to the server. The code does not show which statements become commands. In the demo, a direct idle-timer implementation sent the reminder at second 30 instead of 50, with no error. Its Timer fired as scheduled, and the code never set a new one. | Each Step declares what it waits for and where it goes next. The demo Flow sent the reminder at second 50.4. |
-| [Changing code](/intro/compared-to-temporal/programming-model#change-code) | If a deploy changes the commands that an open run produces, that run's Workflow Task fails with a non-determinism error and is retried. The run stays open. Patching keeps the new code compatible with old histories. Pinned Worker Versioning keeps each run on the Worker version it started on. | Each Step runs the code of the Worker that takes it. A wait that is already registered keeps its conditions. The demo added a Step, and open conversations went through it. |
-| [Long-running processes](/intro/compared-to-temporal/programming-model#history-limit) | A Workflow Execution's history holds at most 51,200 events or 50 MB. These limits are fixed on Temporal Cloud and are defaults on a self-hosted server. In the demo, the server terminated the workflow after 4,266 messages, at 51,201 events. With the conversation passed to each reply activity, it terminated at the 50 MB limit, after accepting 408 messages and answering 407. Continue-As-New is code you write. | Dex keeps a window of each run's newest events and prunes older ones. The demo Flow answered 14,138 messages in 30 minutes and kept running, with its transcript in Attributes. |
-| [Data size](/intro/compared-to-temporal/programming-model#data-size) | A payload holds at most 2 MB. A self-hosted server warns at 512 KB by default. | A value holds up to 16 MiB, and a Flow run holds up to 64 MiB of active state, by default. See [Limits](/reference/server/configuration#limits). |
-| [Seeing the process](/intro/compared-to-temporal/programming-model#complete-code) | The process shape is the workflow code. | `dexcli visualize` draws the Flow design from source. Dex Web shows which Step a run waits in. |
-| [Running the server](/intro/compared-to-temporal/programming-model#run-the-server) | Frontend, History, Matching, and Worker services on a database. | One binary on object storage or db9. |
+| [Worker memory and CPU](/intro/compared-to-temporal/performance#worker) | In a 512 MB container, the Worker was [OOM-killed](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-default-cache-512m), and 715 messages got no reply. With 2 GB and a cache of 50 Workflows, it peaked at [581.6 MiB and 36.3% CPU](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-cache50-2g). | In 512 MB, the Worker peaked at [85.5 MiB](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-512m) and answered all 3,000 messages. With 2 GB, it peaked at [79.8 MiB and 17.4% CPU](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-2g). |
+| [Server throughput](/intro/compared-to-temporal/performance#server) | Temporal Cloud's default limit is [500 actions per second per Namespace](https://docs.temporal.io/cloud/limits). | One Dex Server node on S3 ran [1,772 SYNC Steps per second on 2 vCPU and 8,403 on 16 vCPU](/intro/performance). |
+| [Running the server](/intro/compared-to-temporal/operations#run-the-server) | [Frontend, History, Matching, and Worker services](https://docs.temporal.io/temporal-service/temporal-server) on Cassandra, MySQL, or PostgreSQL, plus a Visibility store. | One binary. Its only required dependency is object storage, such as Amazon S3, or db9. |
+| [Long-running processes](/intro/compared-to-temporal/operations#history-limit) | An Event History holds at most [51,200 events or 50 MB](https://docs.temporal.io/workflow-execution/limits). A longer process needs Continue-As-New in your code. | Dex keeps each run's newest events and prunes older ones. The run keeps going without a new run. |
+| [Data size](/intro/compared-to-temporal/operations#data-size) | A payload holds at most [2 MB](https://docs.temporal.io/troubleshooting/blob-size-limit-error). A self-hosted server warns at 512 KB. | A value holds up to 16 MiB, and a Flow run up to 64 MiB of active state, by [default](/reference/server/configuration#limits). |
+| [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) terminates the current run and starts a new run with a new Run ID. | Time Travel moves the same run back to an earlier point. The Run ID stays the same. |
+| [Features only in Dex](/intro/compared-to-temporal/features) | The [Web UI](https://docs.temporal.io/web-ui) shows the Event History of each Workflow Execution. | Flow designs drawn from source, forms generated in Dex Web, Clone fork, Connectors, `SkipTimer`, waits for a Step or an Attribute, and reads without a Worker. |
+| [Changing code](/intro/compared-to-temporal/programming-model#change-code) | A deploy that changes the commands of an open run fails its Workflow Task with a nondeterminism error. [Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching) or [Worker Versioning](https://docs.temporal.io/worker-versioning) keeps open runs working. | Each Step runs the code of the Worker that takes it. The demo's change needed no versioning code. |
+| [Writing code](/intro/compared-to-temporal/programming-model#more-code) | Workflow code must be [deterministic](#the-main-difference-an-explicit-step-graph-not-replayed-code). The demo's reply-with-approval Workflow has 26 lines. | Steps are ordinary code. The same Flow has 26 lines. |
+
+## Architecture {#architecture}
+
+Look at the Workers. The Temporal Worker [caches Workflow state in memory](https://docs.temporal.io/sticky-execution). The Dex Worker reads large values through a [blob cache](/components/application#blob-cache) on disk.
+
+<TemporalArchitectureDiagram markdownDescription="Temporal: your Worker keeps an in-memory cache of Workflow state and talks to the Temporal Service, which runs Frontend, History, Matching, and Worker services on a database (Cassandra, MySQL, or PostgreSQL). Dex: your Worker keeps a blob cache on disk and talks to one Dex Server binary, which keeps current state in a local disk store and writes to object storage." />
 
 ## Replay and saved Step results {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
-The two engines rebuild a run in different ways after a Worker stops.
+The two engines continue a run in different ways after a Worker stops.
 
 <RecoveryModelDiagram markdownDescription="A Worker stops mid-run. Temporal: the Event History holds every command and result; a new Worker replays the workflow function from the top to the last await, so workflow code must be deterministic. Dex: Step results and Attributes are saved with each decision; a Worker continues from that saved progress with the next Step, and work that was in progress may be retried under its retry policy, so each external effect must be idempotent." />
 
-**Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning to continue it. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history. A mismatch is a nondeterminism error. Workflow code must therefore make the same calls in the same order for the same input. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
+**Temporal.** A Workflow is one function. The server records an Event History, "a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution". When the run is not in a Worker's cache, a Worker runs the function again from the beginning. Recorded Activity results are returned instead of running the Activities again. The commands the code produces are checked against the history, and a mismatch is a nondeterminism error. Clock reads, random numbers, and I/O go through Temporal APIs or into Activities.
 
-**Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves each finished Step's result, its Attribute writes, and the decision together. A Worker continues from that saved state: it runs the next Step and reads the saved Attributes. Work that was in progress may be retried under its retry policy. [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again in each case.
-
-| | Temporal: replays workflow code | Dex: saves each Step's result |
-| --- | --- | --- |
-| Orchestration code | Must be deterministic. Clock reads, random values, and I/O go through Temporal APIs or into Activities. | Ordinary code. A Step can read the clock, use random values, and call any library. |
-| Recover after a bug fix | Reset starts a new run from an earlier event. | Time Travel restores Attributes, Channel messages, and waiting Steps at an earlier point, with the same Run ID. |
-| State after a Worker stops | Rebuilt by replaying the Event History, and cached on a Worker between tasks | Read from the Attributes saved with each Step. Recovery needs no history cache in the Worker. |
+**Dex.** A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow. Dex saves each finished Step's result, its Attribute writes, and the decision together. A Worker continues from that saved state with the next Step. Work that was in progress may be retried under its retry policy. [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again in each case.
 
 ## What they share {#what-they-share}
 
@@ -72,27 +74,30 @@ The two engines rebuild a run in different ways after a Worker stops.
 | Search Attributes | Indexed Attributes | |
 | Workflow ID Conflict Policy, for an open Workflow ID. Workflow ID Reuse Policy, for a closed one. | ID reuse policy, for open and closed Flow IDs. Start request ID. | The start request ID lets Dex recognize a retried start request. See [StartFlowOptions](/reference/python/start-flow-options). |
 | Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | In both, your Worker code stops its external work cooperatively. Dex discards anything a canceled attempt returns later. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
-| Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel keeps the Run ID. |
-| Continue-As-New, to keep the history small | No new run needed for history size | Dex prunes old history events. See [The history limit](/intro/compared-to-temporal/programming-model#history-limit). |
-| Patching, Worker Versioning | Keep old Step types and change data additively | See [Changing the code](/intro/compared-to-temporal/programming-model#change-code). |
+| Reset | [Time Travel](/components/operate-and-debug#time-travel) | See [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel). |
+| Continue-As-New, to keep the history small | No new run needed for history size | See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
+| Patching, Worker Versioning | Keep old Step types and change data additively | See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
 | Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
 | Nexus | No direct equivalent | A service in another team starts a Flow or calls an RPC over the FlowService API. |
 | Temporal Web UI | [Dex Web](/components/web) | |
 
 Dex evolved from iWF. An iWF State corresponds to a Dex Step, and `WaitUntil` corresponds to `WaitFor`.
 
-## Episodes {#episodes}
+## Videos {#videos}
 
-The video series compares the two engines one topic at a time. Each episode has a text version.
+Each video has a page with the same content in text. The videos are in English.
 
-- **Episode 1: one idle timer, three production problems.** Writing code, changing code, and a conversation that keeps going. [Watch it on YouTube](https://youtu.be/fzl88JWt734), or read [Dex vs. Temporal in Depth](/intro/compared-to-temporal/programming-model).
-
-New episodes are listed here when they are published.
+- [Why Dex is lighter than Temporal](https://youtube.com/shorts/b0IyH3H5DpE): the short at the top of this page.
+- [Why Temporal Workers run out of memory](https://youtube.com/shorts/qjeMoeRau7M): [Performance and Resource Use](/intro/compared-to-temporal/performance#worker).
+- [How Dex Server works inside](https://youtube.com/shorts/xZtFv4mOS04): [Performance and Resource Use](/intro/compared-to-temporal/performance#server).
+- [The same process in Temporal and Dex code](https://youtube.com/shorts/_5LuwZcJhhc): [Programming Model](/intro/compared-to-temporal/programming-model#more-code).
+- [Episode 1: one idle timer, three production problems](https://youtu.be/fzl88JWt734): the full walkthrough of [Programming Model](/intro/compared-to-temporal/programming-model).
 
 ## Next
 
-- [Dex vs. Temporal in Depth](/intro/compared-to-temporal/programming-model): the text version of episode 1, with every measured number.
+- [Performance and Resource Use](/intro/compared-to-temporal/performance)
+- [Operations](/intro/compared-to-temporal/operations)
+- [Features Only in Dex](/intro/compared-to-temporal/features)
+- [Operating and Recovering Flows](/intro/compared-to-temporal/experience)
+- [Programming Model](/intro/compared-to-temporal/programming-model)
 - [Dex vs. Other Engines](/intro/compared-to-other-engines): Restate, DBOS, Step Functions, and agent framework checkpoints.
-- [Deploy Code Changes](/concepts/change-flow-code): how open Flows meet new code.
-- [Performance](/intro/performance) and [Limits](/intro/limits).
-- [Dex vs. Databases](/intro/compared-to-database): the same order process built on a database and queues.

@@ -714,6 +714,20 @@ for (const localeRoot of ['', 'zh-Hans/']) {
     assert.equal(indexedMarkdown.has(`${siteOrigin}/${oldPath}`), false, `llms.txt must not list ${oldPath}`);
   }
 }
+// Each section that moved off the old Dex vs. Temporal page lands on a page and anchor that exist.
+{
+  const movedSource = await readFile(join(docsRoot, 'src/clientModules/movedSectionAnchors.ts'), 'utf8');
+  const movedTargets = [...movedSource.matchAll(/'([\w-]+)':\s*\{\s*page: '([\w/-]+)'(?:,\s*anchor: '([\w-]+)')?,?\s*\}/g)];
+  assert.ok(movedTargets.length >= 3, 'movedSectionAnchors.ts must list the moved sections');
+  for (const localeRoot of ['', 'zh-Hans/']) {
+    const overview = await readFile(join(root, localeRoot, 'intro', 'compared-to-temporal', 'index.html'), 'utf8');
+    for (const [, oldId, page, anchor] of movedTargets) {
+      assert.doesNotMatch(overview, new RegExp(`id="${oldId}"`), `${localeRoot}intro/compared-to-temporal keeps #${oldId}, so the move never runs`);
+      const target = await readFile(join(root, localeRoot, 'intro', ...page.split('/'), 'index.html'), 'utf8');
+      if (anchor) assert.match(target, new RegExp(`id="${anchor}"`), `${localeRoot}intro/${page} must have #${anchor}`);
+    }
+  }
+}
 // A concept page's Go file links the Go reference, and the note about the Python reference stays in the Python file.
 {
   const stepGo = await readFile(join(root, 'concepts/step.go.md'), 'utf8');

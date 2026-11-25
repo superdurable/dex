@@ -25,6 +25,8 @@ const sdkLabels = {python: 'Python', go: 'Go', java: 'Java', typescript: 'TypeSc
 const diagrams = new Set(['DexSystemDiagram', 'ExecutionApproachDiagram', 'StepWaitExecuteDiagram',
   'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram', 'ArchitectureComparison',
   'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram', 'RecoveryModelDiagram', 'AgentTermMapDiagram']);
+// The Dex vs. Temporal pages name each figure Temporal<Topic>Diagram or Temporal<Topic>Chart.
+const temporalComparisonFigure = /^Temporal[A-Z]\w*(?:Diagram|Chart)$/;
 // Docusaurus default admonition keywords.
 const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution', 'important', 'secondary', 'success'];
 const localeCopies = {
@@ -534,7 +536,7 @@ async function expandJsx(node, context) {
     const snippet = await snippetContent(node, context);
     return snippetMarkdown(snippet.language, {...snippet, example: attribute(node, 'example', context)}, context);
   }
-  if (diagrams.has(name)) {
+  if (diagrams.has(name) || temporalComparisonFigure.test(name)) {
     const description = attribute(node, 'markdownDescription', context);
     const table = attribute(node, 'markdownTable', context);
     if (table !== undefined) return diagramTable(table, description, context, node);
@@ -603,10 +605,15 @@ async function expandServerZdCompatibility(node, context) {
 function expandYouTubeVideo(node, context) {
   const videoId = attribute(node, 'videoId', context);
   const title = attribute(node, 'title', context);
+  const orientation = attribute(node, 'orientation', context) ?? 'horizontal';
   if (typeof videoId !== 'string' || !/^[\w-]+$/.test(videoId)) fail(context, node, 'YouTubeVideo requires a videoId');
   if (typeof title !== 'string' || !title.trim()) fail(context, node, 'YouTubeVideo requires a title');
+  if (orientation !== 'horizontal' && orientation !== 'vertical') {
+    fail(context, node, 'YouTubeVideo orientation must be "horizontal" or "vertical"');
+  }
+  const url = orientation === 'vertical' ? `https://youtube.com/shorts/${videoId}` : `https://youtu.be/${videoId}`;
   return [{type: 'paragraph', children: [
-    {type: 'link', url: `https://youtu.be/${videoId}`, children: [text(context.copy.watchOnYouTube)]},
+    {type: 'link', url, children: [text(context.copy.watchOnYouTube)]},
     text(`${context.copy.separator}${title.trim()}`)]}];
 }
 
