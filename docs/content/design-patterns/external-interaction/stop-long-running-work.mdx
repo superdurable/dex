@@ -1,14 +1,50 @@
 ---
-title: Interruptible execution
+title: Stop Long-Running Work
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
 
-# Interruptible execution
+# Stop Long-Running Work
 
-Stop long-running work safely when a durable interrupt arrives.
+Stop Long-Running Work, formerly Interruptible execution, stops work that runs for a long time when someone asks for it.
 
 Use this pattern for work that loops for a long time, such as batch processing. To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
+
+## Choose how to stop {#choose-how-to-stop}
+
+Dex has three built-in ways to stop work. Choose by what must stop and what must still run.
+
+| Way | What stops | Use it when |
+| --- | --- | --- |
+| StopFlow | The whole run, at once | The run must end now, and no Step needs to report or clean up. |
+| Graceful completion | Each branch, at its next stopping point | The Flow should finish its current work and then complete. |
+| Step cancellation | Chosen running Steps | One branch must stop while the rest of the Flow keeps running. |
+
+### Stop the whole run with StopFlow {#stopflow}
+
+A client calls `StopFlow` to cancel, fail, or terminate the run. Each type records a different terminal status. The run closes as soon as the stop commits.
+
+After the stop commits, only handlers that were already running can still run. No later Step decision, failure route, or cleanup runs. Running Steps get a cancellation signal. A handler that ignores it keeps running, and its calls to external systems still take effect. Dex discards its uncommitted result. Whoever waits for the stopped Flow reads its terminal state instead of waiting for a report.
+
+Use StopFlow when nothing in the Flow needs to finish its work or run cleanup. See [Stop a Flow](/reference/server/runtime-client#stop-a-flow) for every stop type.
+
+### Ask the Flow to complete gracefully {#graceful-completion}
+
+The Flow is asked to complete gracefully: a client calls `StopFlow` with graceful complete, or a Step returns `GracefulComplete`. Active Steps keep running, and their decisions still apply. The Flow completes once no Step is active.
+
+A waiting Step that includes the graceful completion Condition stops waiting when the request arrives. Its `Execute` handles any message it consumed first. Otherwise it ends its branch, and the Flow completes when every branch has ended.
+
+Use graceful completion when each branch should finish its current unit and then stop. Every SDK has the graceful completion Condition: Go, Python, Java, TypeScript, and Rust. It needs a server that supports it. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
+
+### Cancel running Steps {#cancel-running-steps}
+
+A Step decision or an RPC cancels chosen active Steps, for example by Step type. The rest of the Flow keeps running. The SDK passes a cancellation signal to each canceled handler. The handler checks the signal and returns. Dex discards the canceled Step's later result.
+
+Use Step cancellation to stop one branch, such as one job that the user no longer needs. Keep each handler idempotent, because a canceled Step's consumed messages normally return to their Channels. See [Step cancellation](/reference/server/step-and-flow-close#step-cancellation).
+
+## Finish the current unit, then stop {#finish-the-current-unit-then-stop}
+
+This example stops looping work after the current unit finishes. It records the stop request in an Attribute, and each branch checks it between units. Graceful completion is the preferred signal where your SDK and server support the graceful completion Condition. The Attribute flag works the same way with any SDK.
 
 `InterruptibleFlow` starts `WorkA` and `WorkB` in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the `interruptSignal` Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns `GracefulComplete`. The Flow completes when both branches have stopped.
 

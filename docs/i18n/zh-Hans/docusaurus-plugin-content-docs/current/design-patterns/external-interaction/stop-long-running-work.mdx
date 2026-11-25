@@ -1,21 +1,57 @@
 ---
-title: 可中断执行
-sidebar_label: 可中断执行
+title: 停止长时间运行的工作
+sidebar_label: 停止长时间运行的工作
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
 
-# 可中断执行
+# 停止长时间运行的工作
 
-在收到持久化中断信号后，安全地停止长时间工作。
+停止长时间运行的工作（Stop Long-Running Work，原名“可中断执行”）在有人提出要求时，停止长时间运行的工作。
 
 这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [轮询](/design-patterns/durable-timer/polling)。
+
+## 选择停止方式 {#choose-how-to-stop}
+
+Dex 内置三种停止工作的方式。按哪些工作必须停、哪些工作还要继续来选择。
+
+| 方式 | 停止什么 | 适用场景 |
+| --- | --- | --- |
+| StopFlow | 整个运行，立即停止 | 运行必须马上结束，也没有 Step 需要汇报或清理。 |
+| Graceful completion | 每个分支，在下一个停止点停止 | Flow 应先做完当前的工作，然后完成。 |
+| Step 取消 | 选定的正在运行的 Step | 一个分支必须停止，Flow 的其余部分继续运行。 |
+
+### 用 StopFlow 停止整个运行 {#stopflow}
+
+客户端调用 `StopFlow` 来取消（cancel）、失败（fail）或终止（terminate）这个运行。每种类型记录不同的终止状态。stop 一提交，运行就关闭。
+
+stop 提交后，只有已经在运行的 handler 还能继续运行。之后的 Step 决定、失败路由和清理都不会运行。正在运行的 Step 会收到取消信号。忽略这个信号的 handler 会继续运行，它对外部系统的调用仍然生效。Dex 会丢弃它未提交的结果。等待这个 Flow 的一方读取它的终止状态，而不是等它汇报。
+
+当 Flow 里没有工作需要做完、也没有清理需要运行时，使用 StopFlow。各种 stop 类型见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)（英文）。
+
+### 请求 Flow graceful completion {#graceful-completion}
+
+Flow 收到 graceful completion 请求：客户端用 graceful complete 调用 `StopFlow`，或者某个 Step 返回 `GracefulComplete`。正在运行的 Step 继续运行，它们的决定仍然生效。没有活跃的 Step 时，Flow 完成。
+
+等待中的 Step 如果包含 graceful completion Condition，请求到达时就停止等待。它的 `Execute` 先处理已经消费的消息。没有消息时，它结束自己的分支；所有分支都结束后，Flow 完成。
+
+当每个分支应先做完当前单元再停止时，使用 graceful completion。所有 SDK 都提供 graceful completion Condition：Go、Python、Java、TypeScript 和 Rust。它需要支持这个 Condition 的 server。见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)（英文）。
+
+### 取消正在运行的 Step {#cancel-running-steps}
+
+Step 决定或 RPC 可以取消选定的活跃 Step，例如按 Step 类型取消。Flow 的其余部分继续运行。SDK 把取消信号传给每个被取消的 handler。handler 检查这个信号并返回。Dex 丢弃被取消 Step 之后的结果。
+
+要停止一个分支时使用 Step 取消，例如用户不再需要的一个任务。被取消 Step 消费的消息通常会回到它们的 Channel，所以每个 handler 都要保持幂等。见 [Step cancellation](/reference/server/step-and-flow-close#step-cancellation)（英文）。
+
+## 做完当前单元再停止 {#finish-the-current-unit-then-stop}
+
+这个示例在当前单元做完后停止循环工作。它把停止请求记录在一个 Attribute 里，每个分支在两个单元之间检查它。在 SDK 和 server 支持 graceful completion Condition 时，优先用 graceful completion 作为停止信号。Attribute 标志在任何 SDK 上都以同样方式工作。
 
 `InterruptibleFlow` 并行启动 `WorkA` 和 `WorkB`。要中断它们，客户端调用 **interrupt** RPC，由它写入 `interruptSignal` Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 `GracefulComplete`。两个分支都停下后，Flow 才完成。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## 核心实现
+## 核心实现 {#core-implementation}
 
 每个示例展示 `WorkA`，`WorkB` 与它相同。`WaitFor` 在两个工作单元之间等待。`Execute` 在信号已写入时完成，否则进入下一个单元。可运行示例还包含 Flow 注册和 **interrupt** RPC。
 

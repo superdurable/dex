@@ -134,7 +134,7 @@ const sidebars: SidebarsConfig = {
             'design-patterns/external-interaction/decision-with-deadline',
             'design-patterns/external-interaction/idle-timer',
             'design-patterns/external-interaction/idle-timer-with-resolution',
-            'design-patterns/interruptible',
+            'design-patterns/external-interaction/stop-long-running-work',
           ],
         },
         {

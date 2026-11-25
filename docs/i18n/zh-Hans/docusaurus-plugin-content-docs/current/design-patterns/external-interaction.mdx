@@ -12,6 +12,6 @@ sidebar_label: 外部交互
 - [带截止时间的决定](/design-patterns/external-interaction/decision-with-deadline)：等待几个外部决定之一或一个截止时间，由最先发生的那个决定下一步。
 - [空闲定时器](/design-patterns/external-interaction/idle-timer)：每次有新活动时，重新开始计算不活跃时长。
 - [带结论的空闲定时器](/design-patterns/external-interaction/idle-timer-with-resolution)：记录每一条到达的消息，直到有人给出结论或对话长时间没有动静。
-- [可中断执行](/design-patterns/interruptible)：用户要求时，干净地停止长时间运行的工作。
+- [停止长时间运行的工作](/design-patterns/external-interaction/stop-long-running-work)：有人要求时，选择如何停止长时间运行的工作：停止整个运行、让每个分支在下一个停止点停止，或停止选定的 Step。
 
 如果是调用方等待 Flow，请参见[响应式更新](/design-patterns/responsive-update)。
