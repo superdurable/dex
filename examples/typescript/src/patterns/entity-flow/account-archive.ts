@@ -14,16 +14,30 @@
  * limitations under the License.
  */
 
-/** In-memory stand-in for the system that keeps records of closed accounts. */
+/**
+ * In-memory stand-in for the system that keeps records of closed accounts.
+ * Archiving is idempotent per account, as a unique insert keyed by the Flow ID would be.
+ */
 export class FakeAccountArchive {
   private readonly unavailableFlowIds = new Set<string>();
-  private readonly archiveCounts = new Map<string, number>();
+  private readonly lostResponseFlowIds = new Set<string>();
+  private readonly archiveRecords = new Map<string, string>();
+  private readonly attemptStepExecutionIds = new Map<string, string[]>();
 
-  public archiveAccount(flowId: string): void {
+  public archiveAccount(flowId: string, stepExecutionId: string): void {
+    const attempts = this.attemptStepExecutionIds.get(flowId) ?? [];
+    attempts.push(stepExecutionId);
+    this.attemptStepExecutionIds.set(flowId, attempts);
+    if (this.archiveRecords.has(flowId)) {
+      return;
+    }
     if (this.unavailableFlowIds.has(flowId)) {
       throw new Error("account archive is unavailable");
     }
-    this.archiveCounts.set(flowId, this.archiveCount(flowId) + 1);
+    this.archiveRecords.set(flowId, stepExecutionId);
+    if (this.lostResponseFlowIds.delete(flowId)) {
+      throw new Error("account archive response was lost");
+    }
   }
 
   public makeUnavailable(flowId: string): void {
@@ -34,7 +48,15 @@ export class FakeAccountArchive {
     this.unavailableFlowIds.delete(flowId);
   }
 
-  public archiveCount(flowId: string): number {
-    return this.archiveCounts.get(flowId) ?? 0;
+  public loseNextResponse(flowId: string): void {
+    this.lostResponseFlowIds.add(flowId);
+  }
+
+  public archiveRecordCount(flowId: string): number {
+    return this.archiveRecords.has(flowId) ? 1 : 0;
+  }
+
+  public attemptStepExecutionIdsFor(flowId: string): readonly string[] {
+    return [...(this.attemptStepExecutionIds.get(flowId) ?? [])];
   }
 }

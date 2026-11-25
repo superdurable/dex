@@ -122,6 +122,7 @@ test(
     });
     accountArchive.makeUnavailable(flowId);
     await client.invokeRPC(flow.retireAccount, flowId);
+    await waitForArchiveAttempts(flowId, 1);
     assert.equal((await client.describeFlow(flowId)).status, "running");
     await assert.rejects(
       client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: 10 }),
@@ -135,12 +136,17 @@ test(
       /account is retired/,
     );
     await client.invokeRPC(flow.retireAccount, flowId);
+    await waitForArchiveAttempts(flowId, 2);
     assert.equal((await client.describeFlow(flowId)).status, "running");
 
+    accountArchive.loseNextResponse(flowId);
     accountArchive.makeAvailable(flowId);
     const result = await client.waitForFlow(flowId, CLOSE_TIMEOUT_MS);
     assert.equal(result.status, "completed");
-    assert.equal(accountArchive.archiveCount(flowId), 1);
+    const attempts = accountArchive.attemptStepExecutionIdsFor(flowId);
+    assert.ok(attempts.length >= 4, `archive attempts: ${attempts.length}`);
+    assert.equal(new Set(attempts).size, 1);
+    assert.equal(accountArchive.archiveRecordCount(flowId), 1);
     const [closedBalance, closedRetired] = await client.getAttributes(
       flowId,
       flow.creditBalance,
@@ -155,6 +161,16 @@ test(
     );
   },
 );
+
+async function waitForArchiveAttempts(flowId: string, count: number): Promise<void> {
+  const deadline = Date.now() + CLOSE_TIMEOUT_MS;
+  while (accountArchive.attemptStepExecutionIdsFor(flowId).length < count) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${count} archive attempts`);
+    }
+    await delay(50);
+  }
+}
 
 async function depositWithRetry(flowId: string, amount: number): Promise<void> {
   for (let attempt = 1; attempt <= 50; attempt += 1) {

@@ -89,7 +89,7 @@ export class CloseAccountStep implements Step<void> {
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    this.archive.archiveAccount(context.flowId);
+    this.archive.archiveAccount(context.flowId, context.stepExecutionId);
     return gracefulComplete();
   }
 }
