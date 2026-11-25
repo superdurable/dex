@@ -22,10 +22,13 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
+import io.superdurable.dex.StepOptions;
+import java.time.Duration;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -35,13 +38,19 @@ public class CustomerAccountFlow implements Flow<Void> {
     public final Attribute<Long> creditBalance = Attribute.define("credit_balance", Long.class);
     public final Attribute<Boolean> retired = Attribute.define("retired", Boolean.class);
 
+    private final FakeAccountArchive archive;
+
+    public CustomerAccountFlow(final FakeAccountArchive archive) {
+        this.archive = archive;
+    }
+
     public static String customerAccountFlowId(final String accountId) {
         return "customer-account-" + accountId;
     }
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.withoutStartStep(new CloseAccountStep());
+        return StepList.withoutStartStep(new CloseAccountStep(archive));
     }
 
     @Override
@@ -49,8 +58,9 @@ public class CustomerAccountFlow implements Flow<Void> {
         return PersistenceSchema.of(displayName, email, creditBalance, retired);
     }
 
-    @RPC(name = "UpdateContactDetails")
+    @RPC(name = "UpdateContactDetails", lockAttributes = {"credit_balance"})
     public void updateContactDetails(final Context context, final ContactDetails contact) {
+        requireOpenAccount(context);
         contact.validate();
         displayName.set(context, contact.displayName);
         email.set(context, contact.email);
@@ -60,9 +70,7 @@ public class CustomerAccountFlow implements Flow<Void> {
     public RPCResult<Long> adjustCreditBalance(
             final Context context,
             final CreditAdjustment adjustment) {
-        if (Boolean.TRUE.equals(retired.get(context))) {
-            throw new IllegalStateException("account is retired");
-        }
+        requireOpenAccount(context);
         if (adjustment.amount == 0) {
             throw new IllegalArgumentException("amount must not be zero");
         }
@@ -76,6 +84,9 @@ public class CustomerAccountFlow implements Flow<Void> {
 
     @RPC(name = "RetireAccount", lockAttributes = {"credit_balance"})
     public RPCResult<Void> retireAccount(final Context context) {
+        if (Boolean.TRUE.equals(retired.get(context))) {
+            return RPCResult.of((Void) null);
+        }
         if (creditBalance.get(context) != 0) {
             throw new IllegalArgumentException(
                     "spend or refund the credit balance before retiring");
@@ -84,16 +95,39 @@ public class CustomerAccountFlow implements Flow<Void> {
         return RPCResult.of((Void) null, StepMovement.of(CloseAccountStep.class, null));
     }
 
+    private void requireOpenAccount(final Context context) {
+        if (Boolean.TRUE.equals(retired.get(context))) {
+            throw new IllegalStateException("account is retired");
+        }
+    }
+
     // dex:group group-id:account-retirement group-label:"Account retirement"
-    // dex:explanation text:"Complete the account Flow after the retire request passes its checks."
+    // dex:explanation text:"Archive the retired account, then complete its Flow."
     public static final class CloseAccountStep implements Step<Void> {
+        private final FakeAccountArchive archive;
+
+        CloseAccountStep(final FakeAccountArchive archive) {
+            this.archive = archive;
+        }
+
         @Override
         public Class<Void> getInputType() {
             return Void.class;
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            .initialInterval(Duration.ofSeconds(1))
+                            .maximumInterval(Duration.ofSeconds(1))
+                            .build())
+                    .build();
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Void input) {
+            archive.archiveAccount(context.getFlowId());
             return StepDecision.gracefulComplete();
         }
     }

@@ -23,12 +23,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.superdurable.dex.AttributeValues;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow;
 import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow.ContactDetails;
 import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow.CreditAdjustment;
+import io.superdurable.dex.patterns.entityflow.FakeAccountArchive;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +50,7 @@ public class EntityFlowIntegTest {
         final String flowId = CustomerAccountFlow.customerAccountFlowId(
                 environment.newFlowId("entity-flow"));
         final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
                 .addAttribute(flow.displayName, "Ada")
                 .addAttribute(flow.email, "ada@example.com")
                 .addAttribute(flow.creditBalance, 0L)
@@ -94,13 +97,35 @@ public class EntityFlowIntegTest {
         client.invokeRPC(
                 stub::adjustCreditBalance,
                 new CreditAdjustment(-5L * CONCURRENT_DEPOSITS));
+        final FakeAccountArchive archive = environment.accountArchive();
+        archive.makeUnavailable(flowId);
         client.invokeRPC(stub::retireAccount);
-        assertThrows(
+        assertEquals(FlowStatus.RUNNING, client.describeFlow(flowId).getStatus());
+        final RuntimeException retiredAdjustment = assertThrows(
                 RuntimeException.class,
                 () -> client.invokeRPC(stub::adjustCreditBalance, new CreditAdjustment(10)));
+        assertTrue(retiredAdjustment.getMessage().contains("account is retired"));
+        final RuntimeException retiredContact = assertThrows(
+                RuntimeException.class,
+                () -> client.invokeRPC(
+                        stub::updateContactDetails,
+                        new ContactDetails("Ada Byron", "ada@byron.example")));
+        assertTrue(retiredContact.getMessage().contains("account is retired"));
+        client.invokeRPC(stub::retireAccount);
+        assertEquals(FlowStatus.RUNNING, client.describeFlow(flowId).getStatus());
+
+        archive.makeAvailable(flowId);
         assertEquals(
                 FlowStatus.COMPLETED,
                 client.waitForFlow(flowId, Duration.ofSeconds(45)).getStatus());
+        assertEquals(1, archive.archiveCount(flowId));
+        final AttributeValues closed = client.getAttributes(flowId, flow.creditBalance, flow.retired);
+        assertEquals(0L, closed.get(flow.creditBalance).orElseThrow());
+        assertEquals(Boolean.TRUE, closed.get(flow.retired).orElseThrow());
+
+        assertThrows(
+                FlowAlreadyStartedException.class,
+                () -> client.startFlow(flow, flowId, null, options));
     }
 
     private static void depositWithRetry(

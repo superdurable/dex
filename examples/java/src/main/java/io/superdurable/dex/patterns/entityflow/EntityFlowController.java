@@ -18,6 +18,7 @@ package io.superdurable.dex.patterns.entityflow;
 
 import io.superdurable.dex.AttributeValues;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import java.util.Map;
@@ -46,6 +47,7 @@ public class EntityFlowController {
         final String flowId = CustomerAccountFlow.customerAccountFlowId(request.requireAccountId());
         final CustomerAccountFlow.ContactDetails contact = request.contactDetails();
         final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
                 .addAttribute(flow.displayName, contact.displayName)
                 .addAttribute(flow.email, contact.email)
                 .addAttribute(flow.creditBalance, 0L)
