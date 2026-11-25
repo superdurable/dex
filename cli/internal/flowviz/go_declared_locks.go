@@ -688,6 +688,7 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 	commonLocks := make(map[string]map[string]bool)
 	isExemptionBlocked := make(map[string]bool)
 	hasCrossPhaseRead := make(map[string]bool)
+	hasSeenRPCRead := make(map[string]bool)
 	for index, handler := range checker.analyzer.handlerSummaries {
 		current := &facts[index]
 		if len(current.writes) == 0 {
@@ -710,6 +711,9 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 				rpcWriters[resourceID] = true
 				if readsHere {
 					addHandlerLabel(rpcReadWriters, resourceID, label)
+				}
+				if current.reads[resourceID] {
+					hasSeenRPCRead[resourceID] = true
 				}
 			}
 			if sibling != nil && sibling.reads[resourceID] {
@@ -744,9 +748,13 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && (readWriters[resourceID] || isExemptionBlocked[resourceID]):
 			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") +
 				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], ", at least one of them reads it, and no exact registration lock is held by every writer")
-		case len(rpcReadWriters[resourceID]) > 0:
+		case len(rpcReadWriters[resourceID]) > 0 && hasSeenRPCRead[resourceID]:
 			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") +
 				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], " without an exact registration lock")
+		case len(rpcReadWriters[resourceID]) > 0:
+			// The read is only possible through the context, so the message does not name it.
+			reason = "is written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") +
+				", and dexcli cannot prove that it does not read it under one exact registration lock"
 		default:
 			continue
 		}

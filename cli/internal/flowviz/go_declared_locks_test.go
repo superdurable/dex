@@ -403,6 +403,14 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			},
 			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
+		"single RPC with only a possible read": {
+			source: goDeclaredLocksCase{
+				extraSource: "func audit(ctx dex.Context) { _ = ctx }",
+				rpcBody:     "audit(ctx)\n\t_ = total.Set(ctx, 1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "is written by RPC Reply, and dexcli cannot prove that it does not read it under one exact registration lock",
+		},
 		"context passed to a helper keeps the warning": {
 			source: goDeclaredLocksCase{
 				extraSource: "func audit(ctx dex.Context) { _ = ctx }",

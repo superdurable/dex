@@ -1241,6 +1241,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         rpc_writers = set()
         read_writers = set()
         rpc_read_writers = {}
+        rpc_read_facts = {}
         common_locks = {}
         blocked_exemptions = set()
         cross_phase_reads = set()
@@ -1259,6 +1260,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     rpc_writers.add(resource_id)
                     if reads_here:
                         rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                        rpc_read_facts.setdefault(resource_id, []).append(facts)
                 if sibling is not None and resource_id in sibling["reads"]:
                     cross_phase_reads.add(resource_id)
                 if not facts["isFullyAnalyzed"] or reads_in_other_phase or (sibling is not None and not sibling["isFullyAnalyzed"]):
@@ -1282,7 +1284,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and (resource_id in read_writers or resource_id in blocked_exemptions):
                 reason = "is written by " + ", ".join(sorted(writers[resource_id])) + cause(resource_id, ", at least one of them reads it, and no exact registration lock is held by every writer")
             elif resource_id in rpc_read_writers:
-                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + cause(resource_id, " without an exact registration lock")
+                labels = ", ".join(sorted(rpc_read_writers[resource_id]))
+                # A read seen in the code is named; a read only possible through the context is not.
+                if any(resource_id in facts["reads"] for facts in rpc_read_facts[resource_id]):
+                    reason = "is both read and written by " + labels + cause(resource_id, " without an exact registration lock")
+                else:
+                    reason = "is written by " + labels + ", and dexcli cannot prove that it does not read it under one exact registration lock"
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
@@ -1357,13 +1364,22 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         def enclosing_function(target):
             return next((node for node in ast.walk(self.tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and target in set(ast.walk(node))), None)
 
+        # A local list is known only when every binding of the name in the function is a plain or annotated
+        # assignment of a literal list of allowed movements; any other binding, or none, leaves it unknown.
         def is_literal_list(name, function):
-            if function is None:
+            if function is None or name in {argument.arg for argument in ast.walk(function.args) if isinstance(argument, ast.arg)}:
                 return False
+            allowed_bindings = set()
             for node in ast.walk(function):
-                if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
-                    if not isinstance(node.value, (ast.List, ast.Tuple)) or not all(is_allowed_movement(element) for element in node.value.elts):
-                        return False
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id == name:
+                        value = node.value
+                        if isinstance(value, (ast.List, ast.Tuple)) and all(is_allowed_movement(element) for element in value.elts):
+                            allowed_bindings.add(target)
+            bindings = [node for node in ast.walk(function) if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del))]
+            if not bindings or any(binding not in allowed_bindings for binding in bindings):
+                return False
             allowed_uses = set()
             for node in ast.walk(function):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == name:
@@ -1400,7 +1416,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 movements = [keyword.value for keyword in node.keywords if keyword.arg == "next_steps"] + node.args[1:]
                 if any(keyword.arg is None for keyword in node.keywords) or not all(is_allowed_argument(movement) for movement in movements):
                     return False
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == "fork":
+            elif self.is_dex_reference(node.func, "force_complete_if_channels_empty"):
+                fallbacks = [keyword.value for keyword in node.keywords if keyword.arg == "fallback"] + node.args[1:2]
+                if any(keyword.arg is None for keyword in node.keywords) or any(isinstance(argument, ast.Starred) for argument in node.args) or len(fallbacks) != 1 or not is_allowed_movement(fallbacks[0]):
+                    return False
+            elif self.is_dex_reference(node.func, "StepDecision"):
+                return False
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in {"fork", "fork_with_round_key"}:
                 for builder_list in [*node.args[1:], *(keyword.value for keyword in node.keywords)]:
                     builders = builder_list.elts if isinstance(builder_list, (ast.List, ast.Tuple)) else [builder_list.elt] if isinstance(builder_list, (ast.ListComp, ast.GeneratorExp)) else [builder_list]
                     if not all(isinstance(builder, ast.Lambda) and is_allowed_movement(builder.body) for builder in builders):

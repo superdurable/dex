@@ -377,6 +377,55 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				executeBody: pythonReadThenWriteTotal,
 			},
 		},
+		"annotated movement list with a helper movement": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import configured_movement",
+				moduleExtra:   "def fan_out(value):\n    movements: list[StepMovement] = [StepMovement.of(AddItemStep, value), configured_movement(AddItemStep, value)]\n    return go_to_many(*movements)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"annotated movement list built only from StepMovement.of": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "def fan_out(value):\n    movements: list[StepMovement] = [StepMovement.of(AddItemStep, value)]\n    return go_to_many(*movements)",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+		},
+		"conditional completion fallback from a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from dex import force_complete_if_channels_empty\nfrom movement_helpers import configured_movement",
+				moduleExtra:   "def finish(value):\n    return force_complete_if_channels_empty(value, configured_movement(AddItemStep, value), CartFlow.replies)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"conditional completion fallback from StepMovement.of": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from dex import force_complete_if_channels_empty",
+				moduleExtra:   "def finish(value):\n    return force_complete_if_channels_empty(value, StepMovement.of(AddItemStep, value), CartFlow.replies)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+		},
+		"single RPC with only a possible read": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def audit(context):\n    return None",
+				rpcBody:       "audit(context)\n        self.total.set(context, 1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "is written by RPC Reply, and dexcli cannot prove that it does not read it under one exact registration lock",
+		},
 		"handler returns a decision from a helper": {
 			source: pythonDeclaredLocksCase{
 				modulePrelude: "from movement_helpers import configured_decision",
