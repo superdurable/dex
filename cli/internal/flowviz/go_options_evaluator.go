@@ -95,10 +95,11 @@ type goLocalAssignments struct {
 	values     []goScopedExpression
 	fields     map[string][]goScopedExpression
 	isEscaping bool
+	isDeclared bool
 }
 
 type goLocalAssignmentCollector struct {
-	evaluator   *goOptionsEvaluator
+	analyzer    *goAnalyzer
 	object      types.Object
 	scope       *goEvaluationScope
 	assignments *goLocalAssignments
@@ -251,9 +252,9 @@ func (evaluator *goOptionsEvaluator) unresolvedAt(construct string, position tok
 	return goUnresolvedConstruct{construct: construct, position: evaluator.analyzer.fileSet.Position(position)}
 }
 
-func (evaluator *goOptionsEvaluator) localAssignments(object types.Object, scope *goEvaluationScope) *goLocalAssignments {
+func (analyzer *goAnalyzer) localAssignments(object types.Object, scope *goEvaluationScope) *goLocalAssignments {
 	collector := &goLocalAssignmentCollector{
-		evaluator:   evaluator,
+		analyzer:    analyzer,
 		object:      object,
 		scope:       scope,
 		assignments: &goLocalAssignments{fields: make(map[string][]goScopedExpression)},
@@ -425,7 +426,7 @@ func (evaluation *goEvaluation) variableValues(
 		*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
 		return nil
 	}
-	assignments := evaluation.evaluator.localAssignments(object, value.scope)
+	assignments := evaluation.evaluator.analyzer.localAssignments(object, value.scope)
 	if assignments.isEscaping {
 		*unresolved = append(*unresolved, evaluation.evaluator.unresolved(value))
 		return nil
@@ -626,6 +627,9 @@ func (collector *goLocalAssignmentCollector) visit(node ast.Node) bool {
 func (collector *goLocalAssignmentCollector) collectAssignment(assignment *ast.AssignStmt) {
 	for index, left := range assignment.Lhs {
 		if collector.isObject(left) {
+			if identifier, isIdentifier := ast.Unparen(left).(*ast.Ident); isIdentifier && collector.analyzer.typeInfo.Defs[identifier] == collector.object {
+				collector.assignments.isDeclared = true
+			}
 			collector.collectValue(assignment.Rhs, index, len(assignment.Lhs))
 			continue
 		}
@@ -645,7 +649,8 @@ func (collector *goLocalAssignmentCollector) collectAssignment(assignment *ast.A
 
 func (collector *goLocalAssignmentCollector) collectDeclaration(specification *ast.ValueSpec) {
 	for index, name := range specification.Names {
-		if collector.evaluator.analyzer.typeInfo.Defs[name] == collector.object {
+		if collector.analyzer.typeInfo.Defs[name] == collector.object {
+			collector.assignments.isDeclared = true
 			collector.collectValue(specification.Values, index, len(specification.Names))
 		}
 	}
@@ -666,7 +671,7 @@ func (collector *goLocalAssignmentCollector) collectValue(values []ast.Expr, ind
 
 // A value passed by reference to code outside the Dex SDK may gain fields this analysis cannot see.
 func (collector *goLocalAssignmentCollector) collectEscape(call *ast.CallExpr) {
-	if function := collector.evaluator.functions.calledFunction(call); function != nil && function.Pkg() != nil && function.Pkg().Path() == goSDKPackage {
+	if function := collector.analyzer.functions.calledFunction(call); function != nil && function.Pkg() != nil && function.Pkg().Path() == goSDKPackage {
 		return
 	}
 	for _, argument := range call.Args {
@@ -687,7 +692,7 @@ func (collector *goLocalAssignmentCollector) isObject(expression ast.Expr) bool 
 	if !isIdentifier {
 		return false
 	}
-	return collector.evaluator.analyzer.typeInfo.ObjectOf(identifier) == collector.object
+	return collector.analyzer.typeInfo.ObjectOf(identifier) == collector.object
 }
 
 func (collector *goReturnCollector) visit(node ast.Node) bool {
