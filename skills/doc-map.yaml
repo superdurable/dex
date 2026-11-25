@@ -101,13 +101,13 @@ mappings:
       - docs/content/design-patterns/external-interaction/decision-with-deadline.mdx
       - docs/content/design-patterns/external-interaction/idle-timer-with-resolution.mdx
       - docs/content/design-patterns/external-interaction/idle-timer.mdx
+      - docs/content/design-patterns/external-interaction/stop-long-running-work.mdx
       - docs/content/design-patterns/failure-handling.mdx
       - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
       - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
       - docs/content/design-patterns/failure-handling/manual-recovery.mdx
       - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
       - docs/content/design-patterns/index.mdx
-      - docs/content/design-patterns/interruptible.mdx
       - docs/content/design-patterns/parallel.mdx
       - docs/content/design-patterns/parallel/await.mdx
       - docs/content/design-patterns/parallel/critical-section.mdx
