@@ -212,7 +212,7 @@ func runPatternScenarios(
 	}
 	cases := []caseFn{
 		{"pattern/polling", func() result { return verifyPolling(ctx, client, stamp) }},
-		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
+		{"pattern/control-long-running-work", func() result { return verifyControlLongRunningWork(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
 		{"pattern/manual-recovery-retry", func() result { return verifyManualRecoveryRetry(ctx, client, stamp) }},
@@ -640,38 +640,30 @@ func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result
 	return pass(name, "AwaitJob polled the job until it succeeded")
 }
 
-func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/interruptible"
-	flowID := "dv-interrupt-" + stamp
+func verifyControlLongRunningWork(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/control-long-running-work"
+	flowID := "dv-control-long-running-work-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.Interruptible, flowID, nil, hourStartOptions(),
+		ctx, registry.RecordBackfill, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
 	}
 	time.Sleep(500 * time.Millisecond)
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Interruptible.Interrupt, nil, nil,
+		ctx, flowID, registry.RecordBackfill.SetBatchSize, 500, nil,
 	); err != nil {
-		return fail(name, "interrupt rpc", err)
+		return fail(name, "set batch size rpc", err)
 	}
-	var signal string
 	if err := client.InvokeRPC(
-		ctx,
-		flowID,
-		registry.Interruptible.GetInterruptSignal,
-		nil,
-		&signal,
+		ctx, flowID, registry.RecordBackfill.RequestStop, nil, nil,
 	); err != nil {
-		return fail(name, "get interrupt signal", err)
-	}
-	if signal != "cancel" {
-		return fail(name, "signal="+signal, nil)
+		return fail(name, "request stop rpc", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 60*time.Second); err != nil {
 		return fail(name, "", err)
 	}
-	return pass(name, "Interrupt RPC set cancel; flow completed")
+	return pass(name, "SetBatchSize and RequestStop accepted; flow completed")
 }
 
 func verifyReminder(ctx context.Context, client *dex.Client, stamp string) result {

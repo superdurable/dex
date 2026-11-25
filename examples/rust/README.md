@@ -103,7 +103,7 @@ remain split so their orchestration boundaries are visible.
 | Cron schedule | [`CronScheduleFlow`](src/patterns/cron) | Fixed-interval durable timer loop |
 | Drain internal Channel | [`DrainInternalChannelFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, sentinel completion |
 | Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
-| Interruptible execution | [`InterruptibleFlow`](src/patterns/interruptible/flow.rs) | Graceful interrupt handling |
+| Control Long-Running Work | [`RecordBackfillFlow`](src/patterns/control_long_running_work/flow.rs) | Control Attributes read each batch: batch size and stop request |
 | Manual recovery | [`ManualRecoveryFlow`](src/patterns/intervention/flow.rs) | Exhausted retry recovery and manual Channel decision |
 | Static parallel Steps | [`StaticParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A fixed set of concurrent Step types |
 | Dynamic parallel Steps | [`DynamicParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A runtime-sized set of one Step type |

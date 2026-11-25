@@ -52,6 +52,9 @@ use dex_examples_rust::control_patterns::inbound_event_loop::{
     SEND_TICKET_REPLY, SupportTicketConversationFlow, TRANSCRIPT_CHUNKS,
 };
 use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
+use dex_examples_rust::patterns::control_long_running_work::{
+    REQUEST_STOP, RecordBackfillFlow, SET_BATCH_SIZE,
+};
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
@@ -392,6 +395,53 @@ fn deferred_choice_consumes_only_the_winning_response() {
         ["FulfillOffer", "CloseRejectedOffer"].contains(&step_types[0].as_str()),
         "{step_types:?}"
     );
+}
+
+/// At the default batch size the backfill needs 100 seconds, longer than the wait timeout.
+#[test]
+#[ignore = "requires dexcli dev"]
+fn control_long_running_work_reads_the_batch_size_each_batch() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &RecordBackfillFlow::default(),
+        "control-long-running-work-batch",
+        (),
+    );
+    for invalid_size in [0, 1001] {
+        let error = environment
+            .client
+            .invoke_rpc(&flow_id, SET_BATCH_SIZE, invalid_size)
+            .expect_err("an out-of-range batch size is rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("batch size must be between 1 and 1000"),
+            "{error}"
+        );
+    }
+    environment.invoke(&flow_id, SET_BATCH_SIZE, 1000);
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "processed 1000 records");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn control_long_running_work_stops_before_the_next_batch() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &RecordBackfillFlow::default(),
+        "control-long-running-work-stop",
+        (),
+    );
+    environment
+        .client
+        .invoke_rpc_without_input(&flow_id, REQUEST_STOP)
+        .unwrap_or_else(|error| panic!("request stop on {flow_id}: {error}"));
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    let output = single_output(&result);
+    assert!(output.starts_with("stopped before record "), "{output}");
 }
 
 #[test]

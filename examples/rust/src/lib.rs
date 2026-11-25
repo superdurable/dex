@@ -48,7 +48,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
-    "InterruptibleFlow",
+    "RecordBackfillFlow",
     "ManualRecoveryFlow",
     "StaticParallelStepsFlow",
     "DynamicParallelStepsFlow",

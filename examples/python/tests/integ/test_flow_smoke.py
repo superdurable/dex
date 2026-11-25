@@ -157,10 +157,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
-            "patterns/interruptible",
+            "patterns/control-long-running-work",
             lambda c: trigger_get(
-                "/patterns/interruptible/start",
-                {"workflowId": new_id("interruptible")},
+                "/patterns/control-long-running-work/start",
+                {"workflowId": new_id("control-long-running-work")},
             ),
         ),
         FlowSmokeEntry(

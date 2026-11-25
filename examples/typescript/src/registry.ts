@@ -29,7 +29,7 @@ import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-
 import { customerAccountFlow } from "./patterns/entity-flow/customer-account-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { customerDirectoryFlow } from "./patterns/hash-partitioned-attribute-map/customer-directory-flow.js";
-import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
+import { recordBackfillFlow } from "./patterns/control-long-running-work/record-backfill-flow.js";
 import { manualRecoveryFlow } from "./patterns/intervention/manual-recovery-flow.js";
 import {
   awaitParallelStepsFlow,
@@ -155,7 +155,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
-  interruptibleFlow,
+  recordBackfillFlow,
   manualRecoveryFlow,
   staticParallelStepsFlow,
   dynamicParallelStepsFlow,
@@ -231,7 +231,7 @@ export {
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
-  interruptibleFlow,
+  recordBackfillFlow,
   manualRecoveryFlow,
   staticParallelStepsFlow,
   dynamicParallelStepsFlow,

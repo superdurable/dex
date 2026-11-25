@@ -219,9 +219,9 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/interruptible",
-            path: "/patterns/interruptible/start",
-            query: query(&client.new_flow_id("interruptible")),
+            name: "patterns/control-long-running-work",
+            path: "/patterns/control-long-running-work/start",
+            query: query(&client.new_flow_id("control-long-running-work")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

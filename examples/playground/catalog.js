@@ -272,12 +272,16 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
-    id: "interruptible",
-    title: "Interruptible",
-    flowIdPrefix: "interruptible",
+    id: "control-long-running-work",
+    title: "Control Long-Running Work",
+    flowIdPrefix: "control-long-running-work",
     endpoints: [
-      endpoint("GET", "/patterns/interruptible/start", "Start", [flowId()]),
-      endpoint("GET", "/patterns/interruptible/cancel", "Cancel", [flowId()]),
+      endpoint("GET", "/patterns/control-long-running-work/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/control-long-running-work/set-batch-size", "Set batch size", [
+        flowId(),
+        query("batchSize", { default: "100" }),
+      ]),
+      endpoint("GET", "/patterns/control-long-running-work/stop", "Request stop", [flowId()]),
     ],
   },
   {

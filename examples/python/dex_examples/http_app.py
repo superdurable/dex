@@ -31,6 +31,9 @@ from dex_examples.http_cors import install_quart_cors
 from dex_examples.patterns.child_flows_business_identity.controller import (
     create_child_flows_business_identity_blueprint,
 )
+from dex_examples.patterns.control_long_running_work.controller import (
+    create_control_long_running_work_blueprint,
+)
 from dex_examples.patterns.drain_channels.external_publishing.controller import (
     create_draining_channel_blueprint,
 )
@@ -47,9 +50,6 @@ from dex_examples.patterns.inactiveness_tracker_timer.controller import (
 )
 from dex_examples.patterns.inbound_event_loop.controller import (
     create_inbound_event_loop_blueprint,
-)
-from dex_examples.patterns.interruptible.controller import (
-    create_interruptible_blueprint,
 )
 from dex_examples.patterns.intervention.controller import (
     create_manual_recovery_blueprint,
@@ -144,7 +144,7 @@ def create_app(app_state: ExampleApp) -> Quart:
 
     quart_app.register_blueprint(create_polling_pattern_blueprint(app_state))
     quart_app.register_blueprint(create_fail_fast_blueprint(app_state))
-    quart_app.register_blueprint(create_interruptible_blueprint(app_state))
+    quart_app.register_blueprint(create_control_long_running_work_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_flow_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))

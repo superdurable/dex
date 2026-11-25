@@ -51,7 +51,6 @@ from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
 from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
-    flow_status_or_none,
     wait_until,
 )
 
@@ -152,25 +151,6 @@ class _FirstMessageExecutionBarrier:
             self.started.set()
             await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
         return self.original_execute(context, input)
-
-
-async def test_interruptible_start_and_cancel(
-    app: ExampleApp,
-    client: AsyncClient,
-    new_flow_id: Callable[[str], str],
-) -> None:
-    flow_id = new_flow_id("interruptible")
-    await client.start_flow(app.interruptible, flow_id, None, start_options())
-    await wait_until(
-        "interruptible flow running",
-        lambda: _status_is(client, flow_id, FlowStatus.RUNNING),
-    )
-    await client.invoke_rpc(app.interruptible.interrupt, flow_id)
-    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-
-
-async def _status_is(client: AsyncClient, flow_id: str, status: FlowStatus) -> bool:
-    return await flow_status_or_none(client, flow_id) is status
 
 
 async def test_manual_recovery_retry_completes(

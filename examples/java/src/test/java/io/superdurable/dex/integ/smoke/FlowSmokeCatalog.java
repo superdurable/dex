@@ -78,9 +78,9 @@ final class FlowSmokeCatalog {
                                 "amountCents", "12000",
                                 "bankAccount", "12345678")),
                 FlowSmokeEntry.get(
-                        "patterns/interruptible",
-                        "/patterns/interruptible/start",
-                        Map.of("workflowId", environment.newFlowId("interruptible"))),
+                        "patterns/control-long-running-work",
+                        "/patterns/control-long-running-work/start",
+                        Map.of("workflowId", environment.newFlowId("control-long-running-work"))),
                 FlowSmokeEntry.get("patterns/reminders", "/patterns/reminders/start", Map.of()),
                 entityFlow(environment),
                 entityStore(environment),

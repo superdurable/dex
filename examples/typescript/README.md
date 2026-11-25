@@ -108,9 +108,9 @@ after E2E tests for manual HTTP exploration.
 
 Under [`src/patterns/`](./src/patterns):
 
+- [Control Long-Running Work: change the batch size or stop a record backfill](./src/patterns/control-long-running-work)
 - Cron schedule
 - Drain internal / externally published channels
-- Interruptible execution
 - Manual recovery
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)

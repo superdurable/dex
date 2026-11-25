@@ -55,7 +55,9 @@ pub fn build_router(
         .merge(control_patterns::fail_fast::controller::mount(
             client.clone(),
         ))
-        .merge(patterns::interruptible::controller::mount(client.clone()))
+        .merge(patterns::control_long_running_work::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(data_storage::entity_flow::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))

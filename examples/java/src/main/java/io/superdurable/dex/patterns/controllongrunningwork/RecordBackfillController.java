@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.interruptible;
+package io.superdurable.dex.patterns.controllongrunningwork;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.shared.ExampleFlows;
@@ -25,32 +25,41 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/patterns/interruptible")
-public class InterruptibleController {
+@RequestMapping("/patterns/control-long-running-work")
+public class RecordBackfillController {
     private final Client client;
-    private final InterruptibleFlow interruptibleFlow;
+    private final RecordBackfillFlow recordBackfillFlow;
 
-    public InterruptibleController(
+    public RecordBackfillController(
             final Client client,
-            final InterruptibleFlow interruptibleFlow) {
+            final RecordBackfillFlow recordBackfillFlow) {
         this.client = client;
-        this.interruptibleFlow = interruptibleFlow;
+        this.recordBackfillFlow = recordBackfillFlow;
     }
 
     @GetMapping("/start")
-    ResponseEntity<String> startInterruptible(@RequestParam final String workflowId) {
+    ResponseEntity<String> startRecordBackfill(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                interruptibleFlow,
+                recordBackfillFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
     }
 
-    @GetMapping("/cancel")
-    ResponseEntity<String> cancelInterruptible(@RequestParam final String workflowId) {
-        final InterruptibleFlow stub = client.newRpcStub(InterruptibleFlow.class, workflowId);
-        client.invokeRPC(stub::interrupt);
+    @GetMapping("/set-batch-size")
+    ResponseEntity<String> setBatchSize(
+            @RequestParam final String workflowId,
+            @RequestParam final int batchSize) {
+        final RecordBackfillFlow stub = client.newRpcStub(RecordBackfillFlow.class, workflowId);
+        client.invokeRPC(stub::setBatchSize, batchSize);
+        return ResponseEntity.ok("done");
+    }
+
+    @GetMapping("/stop")
+    ResponseEntity<String> requestStop(@RequestParam final String workflowId) {
+        final RecordBackfillFlow stub = client.newRpcStub(RecordBackfillFlow.class, workflowId);
+        client.invokeRPC(stub::requestStop);
         return ResponseEntity.ok("done");
     }
 }

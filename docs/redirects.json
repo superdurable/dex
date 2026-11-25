@@ -165,11 +165,19 @@
   },
   {
     "from": "/design-patterns/interruptible",
-    "to": "/design-patterns/external-interaction/stop-long-running-work"
+    "to": "/design-patterns/external-interaction/control-long-running-work"
   },
   {
     "from": "/zh-Hans/design-patterns/interruptible",
-    "to": "/zh-Hans/design-patterns/external-interaction/stop-long-running-work"
+    "to": "/zh-Hans/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/design-patterns/external-interaction/stop-long-running-work",
+    "to": "/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/external-interaction/stop-long-running-work",
+    "to": "/zh-Hans/design-patterns/external-interaction/control-long-running-work"
   },
   {
     "from": "/design-patterns/entity-store",

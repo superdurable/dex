@@ -25,12 +25,12 @@ use dex_examples_rust::control_patterns::{
 };
 use dex_examples_rust::data_storage::entity_flow::CustomerAccountFlow;
 use dex_examples_rust::patterns::{
+    control_long_running_work::RecordBackfillFlow,
     cron::CronScheduleFlow,
     drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
     entity_store::UserProfileFlow,
     hash_partitioned_attribute_map::CustomerDirectoryFlow,
     inactiveness_tracker::InactivenessTrackerFlow,
-    interruptible::InterruptibleFlow,
     intervention::ManualRecoveryFlow,
     parallel::{
         AwaitParallelStepsFlow, DynamicParallelStepsFlow, FirstWinParallelStepsFlow,
@@ -122,7 +122,7 @@ fn catalog_matches_every_cross_language_example() {
         CronScheduleFlow::default().flow_type(),
         DrainInternalChannelFlow::default().flow_type(),
         DrainingExternalChannelFlow::default().flow_type(),
-        InterruptibleFlow::default().flow_type(),
+        RecordBackfillFlow::default().flow_type(),
         ManualRecoveryFlow::default().flow_type(),
         StaticParallelStepsFlow::default().flow_type(),
         DynamicParallelStepsFlow::default().flow_type(),

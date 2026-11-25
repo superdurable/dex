@@ -94,11 +94,11 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
 - [Cancel case: stop a running child Flow](./src/main/java/io/superdurable/dex/patterns/cancelcase)
 - [Child Flows with business identity: one top-level Flow per shipment number](./src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity)
+- [Control Long-Running Work: change the batch size or stop a record backfill](./src/main/java/io/superdurable/dex/patterns/controllongrunningwork)
 - [Critical section: a one-message Channel token](./src/main/java/io/superdurable/dex/patterns/criticalsection)
 - Cron schedule
 - [Deferred choice: the first response or expiry wins](./src/main/java/io/superdurable/dex/patterns/deferredchoice)
 - Drain internal / externally published channels
-- Interruptible execution
 - Manual recovery
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)

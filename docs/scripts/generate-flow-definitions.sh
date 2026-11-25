@@ -55,7 +55,7 @@ generate_flow_definition examples/python/dex_examples/patterns/fail-fast/expense
 generate_flow_definition examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py design-patterns/manual-recovery
 generate_flow_definition examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py design-patterns/wait-for-failure-recovery
 generate_flow_definition examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py design-patterns/graceful-timeout
-generate_flow_definition examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py design-patterns/interruptible
+generate_flow_definition examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py design-patterns/control-long-running-work
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/submit_request_flow.py design-patterns/parallel-subflows-submit-request
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/basic_parent_flow.py design-patterns/parallel-subflows-basic
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/advanced_long_live_parent_flow.py design-patterns/parallel-subflows-long-lived

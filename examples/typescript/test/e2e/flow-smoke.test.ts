@@ -152,10 +152,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/interruptible",
+      name: "patterns/control-long-running-work",
       trigger: () =>
-        triggerGet(context, "/patterns/interruptible/start", {
-          workflowId: newFlowId("interruptible"),
+        triggerGet(context, "/patterns/control-long-running-work/start", {
+          workflowId: newFlowId("control-long-running-work"),
         }),
       flags: defaultFlags(),
     },
@@ -498,8 +498,8 @@ test("flow smoke all registered flows via controller", async (t) => {
         const result = await entry.trigger(context);
         assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);
         await assertFlowSmokeStartStep(entry, result.flowId, result.runId);
-        if (entry.name === "patterns/interruptible") {
-          await triggerGet(context, "/patterns/interruptible/cancel", {
+        if (entry.name === "patterns/control-long-running-work") {
+          await triggerGet(context, "/patterns/control-long-running-work/stop", {
             workflowId: result.flowId,
           });
         }

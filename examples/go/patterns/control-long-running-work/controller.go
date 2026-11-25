@@ -18,9 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package interruptible
+package controllongrunningwork
 
 import (
+	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,14 +32,15 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *InterruptibleFlow
+	flow   *RecordBackfillFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *InterruptibleFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *RecordBackfillFlow) {
 	controller := &controller{client: client, flow: flow}
-	group := router.Group("/patterns/interruptible")
+	group := router.Group("/patterns/control-long-running-work")
 	group.GET("/start", controller.start)
-	group.GET("/cancel", controller.cancel)
+	group.GET("/set-batch-size", controller.setBatchSize)
+	group.GET("/stop", controller.requestStop)
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
@@ -60,7 +63,31 @@ func (controller *controller) start(request *gin.Context) {
 	httputil.RespondString(request, runID, err)
 }
 
-func (controller *controller) cancel(request *gin.Context) {
+func (controller *controller) setBatchSize(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	sizeText, found := httputil.RequiredQuery(request, "batchSize")
+	if !found {
+		return
+	}
+	size, err := strconv.Atoi(sizeText)
+	if err != nil {
+		request.JSON(http.StatusBadRequest, gin.H{"error": "batchSize must be an integer"})
+		return
+	}
+	err = controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.SetBatchSize,
+		size,
+		nil,
+	)
+	httputil.RespondString(request, "done", err)
+}
+
+func (controller *controller) requestStop(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
@@ -68,7 +95,7 @@ func (controller *controller) cancel(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		controller.flow.Interrupt,
+		controller.flow.RequestStop,
 		nil,
 		nil,
 	)

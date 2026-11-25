@@ -518,7 +518,7 @@ building blocks:
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drainchannels` |
 | Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts first with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)`, a per-message `.requestId(...)`, and `.ignoreAlreadyStarted(true)`; on `FlowAlreadyStartedException`, publish with `RPCInvokeOptions` and a per-message request ID where the installed SDK has it | `patterns/drainchannels` |
-| Stop Long-Running Work (formerly Interruptible execution) | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
+| Control Long-Running Work (formerly Stop Long-Running Work and Interruptible execution) | RPCs write batch size and stop Attributes; each batch reads them first | `patterns/controllongrunningwork` |
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |
 | Stream progress | `BufferedTextStream` plus `client.readStream` | `primitives/stream` |
