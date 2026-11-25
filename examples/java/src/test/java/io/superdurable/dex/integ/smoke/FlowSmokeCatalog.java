@@ -68,6 +68,7 @@ final class FlowSmokeCatalog {
                         "/patterns/interruptible/start",
                         Map.of("workflowId", environment.newFlowId("interruptible"))),
                 FlowSmokeEntry.get("patterns/reminders", "/patterns/reminders/start", Map.of()),
+                entityFlow(environment),
                 entityStore(environment),
                 FlowSmokeEntry.post(
                         "patterns/sequentially-chunked-attribute-map",
@@ -246,6 +247,20 @@ final class FlowSmokeCatalog {
         return Map.of(
                 "username", username,
                 "email", username + "@example.com");
+    }
+
+    private static FlowSmokeEntry entityFlow(final FlowSmokeEnvironment environment) {
+        return FlowSmokeEntry.custom(
+                "patterns/entity-flow",
+                FlowSmokeFlags.noStartStep(),
+                env -> {
+                    final String accountId = env.newFlowId("entity-flow");
+                    final Map<String, Object> body = new LinkedHashMap<>();
+                    body.put("accountId", accountId);
+                    body.put("displayName", "Smoke Tester");
+                    body.put("email", accountId + "@example.com");
+                    return env.triggerHttp("POST", "/patterns/entity-flow/account", Map.of(), body);
+                });
     }
 
     private static FlowSmokeEntry entityStore(final FlowSmokeEnvironment environment) {
