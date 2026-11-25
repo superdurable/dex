@@ -24,7 +24,7 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 | AtLeastAtMost(min, max) | at least min are pending | from min up to max |
 
 - AtMost does not wait by itself. To wait for at least one message and take up to a limit, use AtLeastAtMost with a minimum of 1.
-- Give each Channel one kind of consumer. A wait for several messages can starve while waits for one message keep taking them. Use one ChannelMap instance per consumer when they need different counts. Waiter order is in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#channel-waiter-order).
+- At any moment, let at most one waiting Step consume a given Channel, so which Step receives a message never depends on timing. Different Step types may consume it in different phases of the Flow. A wait for several messages can starve while waits for one message keep taking them. Use one ChannelMap instance per consumer when they need different counts. Waiter order is in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#channel-waiter-order).
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
@@ -77,7 +77,7 @@ Rules:
 
 ## Self-check
 
-- Does each Channel have one clear producer and consumer contract?
+- Does each Channel have a clear producer and at most one active consumer at a time?
 - Does every Execute check which Condition won before reading a Channel result?
 - Are external publications drained before completion, with the atomic complete-if-empty decision where publishers are external?
 - Do moves and edits use a transactional RPC that sends only the message ID?

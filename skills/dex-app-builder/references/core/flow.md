@@ -110,7 +110,7 @@ ChildJobFlow:
 - The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
 - Give every child its own Flow timeout. A closing parent never stops its children.
-- Reconcile every child the parent stops or stops waiting for. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive. Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
+- When the parent needs to know how a stopped child ended, reconcile it: for example, to count its result, undo or bill its side effects, or show its outcome. When the parent does not need it, stop the child and move on. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive. Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
   1. Read DescribeFlow first. RUNNING: read again at the next interval.
   2. Terminal: record its status, then read its outcome Attribute. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races.
   3. Only a typed missing-run result goes to the business policy, for example record "unavailable".

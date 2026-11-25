@@ -38,9 +38,10 @@ Modeling:
 - [ ] WaitFor calls no external system; provider calls are in Execute.
 - [ ] No external polling in WaitFor or through a Timer loop; external waits use the Polling pattern.
 - [ ] No other Flow is started or mutated from WaitFor.
-- [ ] The Flow owns the decisions and status of its process; the caller only supplies facts, starts Flows, calls RPCs, and reads. See [client.md](client.md#the-flow-owns-decisions-and-status).
-- [ ] Business deadlines, routing, decisions, retry-stable identities, WaitFor, and RPC handlers never read the wall clock. A decision with a deadline races its decision Channels and Timer in one waiting Step, and Execute checks the Timer result; a deadline for the whole Flow uses the Flow timeout.
-- [ ] Each Channel has one consumer contract: one Step type with one wait shape. An event every waiter must receive uses one ChannelMap key per waiter.
+- [ ] The Flow preferably owns the decisions and status of its process; the caller supplies facts, starts Flows, calls RPCs, and reads. See [client.md](client.md#the-flow-owns-decisions-and-status).
+- [ ] Business deadlines are durable Timers, never clock comparisons in a Step or an RPC. Idempotency keys and business IDs never derive from the current time. A decision with a deadline races its decision Channels and Timer in one waiting Step, and Execute checks which Condition fired; a deadline for the whole Flow uses the Flow timeout.
+- [ ] At any moment, at most one waiting Step consumes each Channel. An event every waiter must receive uses one ChannelMap key per waiter.
+- [ ] Compensation after an exhausted Step starts with that Step, because it may have taken effect.
 - [ ] Frequent concurrent appenders publish through an RPC to a Channel consumed by one writing Step; a few synchronous writers share the same Attribute lock.
 - [ ] Every Step returns analyzer-visible decisions from Execute, uses targets the analyzer can resolve, and is composed, not subclassed from another Step.
 

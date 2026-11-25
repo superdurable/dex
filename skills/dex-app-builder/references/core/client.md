@@ -6,11 +6,11 @@ Inside a Step or RPC handler, read and write through the Context, never through 
 
 ## The Flow owns decisions and status
 
-The caller supplies business facts. The Flow owns the decisions and status of this process. Its Steps and RPC handlers apply its business rules and write the resulting state. When an initial status depends on those rules, compute it in the first Step. Dex Web and later reads use the committed state.
+The only hard boundary is that a Client never writes Flow state directly; it has no such API. Within that boundary, prefer that the Flow owns the decisions and status of its process. Pass business facts as start input or initial Attributes and let Steps and RPC handlers apply the business rules and write the resulting state. When an initial status depends on those rules, compute it in the first Step. Dex Web and later reads use the committed state.
 
 - The caller, the application code that uses the Client, chooses the Flow ID and Request ID, starts Flows, invokes RPCs, waits, and reads.
-- Pass raw business facts as start input. Never compute a rule-dependent decision or initial status in the caller and pass it as start input or initial Attributes.
-- The caller never repeats a rule the Flow applies. Two copies drift apart.
+- Then the rules live in one place, and status changes commit together with the Flow's progress.
+- A caller that precomputes a rule-dependent decision, such as "needs a second approval", and passes it as start input spreads the rule across two places. The two copies drift apart.
 
 ## Operations
 

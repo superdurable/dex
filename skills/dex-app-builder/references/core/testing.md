@@ -36,7 +36,7 @@ Core behavior:
 - Let a handler exceed its heartbeat timeout and assert the retry.
 - Publish Channel and ChannelMap messages through typed RPCs. Verify order, single consumption, stale message IDs, and rejection after closure.
 - Invoke read-only and mutating RPCs. After closure, verify that query-only reads still work, that a non-transactional RPC's effects are rejected, and that transactional or locked RPCs are rejected before the handler. For transactional RPCs, verify all effects commit or none do.
-- Fire and skip Timers. Verify the business deadline and the timeout handler path.
+- Fire and skip Timers. Verify the business deadline and the timeout handler path. Skip the Flow timeout the same way instead of shortening it; [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer) shows how to select it.
 - Exercise parallel branches, and SubFlows if any, with a deliberate failure and cancellation.
 - Lose a Stream consumer and recover canonical state from a read-only RPC or a Client Attribute read.
 

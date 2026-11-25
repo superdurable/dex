@@ -253,8 +253,8 @@ WaitForQuorum.execute -> publish one AllDone message per unfinished child; grace
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
 - Define what happens to children outside the quorum.
-- After every stop, read the child's terminal status and stored result, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
-- With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
+- When the parent's result or a follow-up action depends on how each child ended, such as counting results, undoing side effects, or showing every outcome, read the child's terminal status and stored result after every stop, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. When the parent needs only the quorum, stop the remaining children and move on without the read. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
+- With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and, when the parent needs its outcome, reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
 
@@ -399,12 +399,13 @@ AwaitInbound.waitFor(pendingResolution)
     if pendingResolution: Until(Replies.AtLeast(1))         // drain before closing
     else: AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
 AwaitInbound.execute(pendingResolution)
-    if the Timer fired:    goTo(CloseInactive)
-    replies = Replies.conditionResults()
-    if replies is empty:   goTo(Resolve, Resolutions.conditionResults()[0])
-    Transcript.set(Transcript.get() + replies)
-    if pendingResolution:  goTo(Resolve, pendingResolution)
-    goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
+    winner = the Condition that fired
+    if winner is Replies:
+        Transcript.set(Transcript.get() + Replies.conditionResults())
+        if pendingResolution: goTo(Resolve, pendingResolution)
+        goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
+    if winner is Resolutions:  goTo(Resolve, Resolutions.conditionResults()[0])
+    if winner is the Timer:    goTo(CloseInactive)
 
 Resolve.execute(reason)
     forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
@@ -414,6 +415,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 - The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
 - The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
+- Execute asks which Condition won; it never infers the winner from an empty result. When several Conditions are ready at once, AnyOf picks in a fixed order: Timers first, then Channels in declaration order. So the Timer wins over a reply or resolution that arrives at the same moment. The closing Step's ForceCompleteIfChannelsEmpty catches those messages and returns to the waiting Step, which handles them. Express business priority between Channels by their declaration order.
 - Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
@@ -453,6 +455,7 @@ VoidPayment.execute    -> compensate; goTo(RestoreQuantity)       // reads conte
 RestoreQuantity.execute -> compensate; forceFail("payment failed")
 ```
 
+- A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Compensation starts with that Step, as `VoidPayment` does for `ChargePayment`: undo it with its original reference, and make every undo a no-op for an action that never happened.
 - Recovery Steps get the same input, or the input the route passes, and must be idempotent; they can be retried.
 - Failing the Flow after compensation is a legitimate outcome.
 
@@ -560,7 +563,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
-| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Channel Conditions are ready at once, the first declared wins. Execute checks the Timer explicitly, then the Channel results, and moves to one branch. |
+| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Conditions are ready at once, a ready Timer wins, then the first declared Channel. Execute checks which Condition fired and moves to one branch. |
 | Mutual exclusion inside one Execute | An Execute lock on a shared Attribute | A lock covers one Step method. It never covers a WaitFor or several Steps. |
 | Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
 | Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
@@ -579,14 +582,16 @@ rpc rejectCustomerOffer(note) -> OfferRejected.publish(note)
 
 AwaitOfferResponse.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne(), Timer(3 days))
 AwaitOfferResponse.execute
-    if the Timer fired:            goTo(ExpireOffer)
-    if OfferAccepted has a result: goTo(FulfillOffer)
-    otherwise:                     goTo(CloseRejectedOffer)
+    winner = the Condition that fired
+    if winner is OfferAccepted: goTo(FulfillOffer)
+    if winner is OfferRejected: goTo(CloseRejectedOffer)
+    if winner is the Timer:     goTo(ExpireOffer)
 ```
 
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
-- When several Channel Conditions are ready at once, the first one declared wins. Declare them in business priority order.
-- Check the Timer explicitly in Execute. Never treat "no Channel result" as "the deadline passed".
+- In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
+- When several Conditions are ready at once, AnyOf picks in a fixed order: a ready Timer first, then Channels in declaration order. Declare the decision Channels in business priority order.
+- A decision that is ready when the deadline fires loses to the Timer and stays queued. When the business wants such a decision to count, the expiry Step first takes any queued decision with an AtMost wait, which is ready at once even when the Channel is empty, and routes on what it took.
 - A late response cannot change the chosen branch. While the Flow runs, its RPC succeeds and publishes a message that nothing consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -734,8 +739,9 @@ rpc appendRecord(record)       // locks state and chunks["current"]; loads chunk
         chunks[zeroPadded(firstSequence)] = current     // archive, immutable
         chunks["current"] = empty
         state.newestArchivedToken = zeroPadded(firstSequence)
-        with a retention window:
-            delete chunks[token] for each expired token, by key
+        bound the total:
+            delete chunks[token] for each token past the count or age limit, by key,
+                after archiving it elsewhere when the business must keep it
             state.oldestRetainedToken = oldest token still kept
     state.nextSequence += 1                             // all in one commit
 
@@ -746,7 +752,7 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 ```
 
 - For an append-only history, archive bounded chunks and load only the requested page.
-- If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+- Bound the total as well, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Size limits per value and per Flow are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
