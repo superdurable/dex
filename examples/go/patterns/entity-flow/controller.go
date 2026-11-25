@@ -74,8 +74,12 @@ func OpenAccountOptions(contact ContactDetails) (dex.StartFlowOptions, error) {
 	if err != nil {
 		return dex.StartFlowOptions{}, err
 	}
+	retired, err := dex.InitialAttribute(Retired, false)
+	if err != nil {
+		return dex.StartFlowOptions{}, err
+	}
 	return dex.StartFlowOptions{
-		Attributes: []dex.InitialAttributeDef{displayName, email, creditBalance},
+		Attributes: []dex.InitialAttributeDef{displayName, email, creditBalance, retired},
 	}, nil
 }
 

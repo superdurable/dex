@@ -51,6 +51,7 @@ public class EntityFlowIntegTest {
                 .addAttribute(flow.displayName, "Ada")
                 .addAttribute(flow.email, "ada@example.com")
                 .addAttribute(flow.creditBalance, 0L)
+                .addAttribute(flow.retired, false)
                 .build();
         client.startFlow(flow, flowId, null, options);
         assertThrows(
@@ -94,6 +95,9 @@ public class EntityFlowIntegTest {
                 stub::adjustCreditBalance,
                 new CreditAdjustment(-5L * CONCURRENT_DEPOSITS));
         client.invokeRPC(stub::retireAccount);
+        assertThrows(
+                RuntimeException.class,
+                () -> client.invokeRPC(stub::adjustCreditBalance, new CreditAdjustment(10)));
         assertEquals(
                 FlowStatus.COMPLETED,
                 client.waitForFlow(flowId, Duration.ofSeconds(45)).getStatus());

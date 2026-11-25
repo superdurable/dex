@@ -49,6 +49,7 @@ def create_entity_flow_blueprint(app_state: ExampleApp) -> Blueprint:
             .with_attribute(flow.display_name, contact.display_name)
             .with_attribute(flow.email, contact.email)
             .with_attribute(flow.credit_balance, 0)
+            .with_attribute(flow.retired, False)
         )
         run_id = await app_state.client.start_flow(flow, flow_id, None, options)
         return started_flow(flow_id, run_id)

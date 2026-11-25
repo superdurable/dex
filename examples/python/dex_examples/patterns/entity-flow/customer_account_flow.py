@@ -63,12 +63,15 @@ class CustomerAccountFlow(Flow[None]):
     display_name = Attribute("display_name", str)
     email = Attribute("email", str)
     credit_balance = Attribute("credit_balance", int)
+    retired = Attribute("retired", bool)
 
     def get_steps(self) -> StepList[None]:
         return StepList.empty().other_steps(CloseAccountStep())
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.display_name, self.email, self.credit_balance)
+        return PersistenceSchema.of(
+            self.display_name, self.email, self.credit_balance, self.retired
+        )
 
     @rpc(name="UpdateContactDetails")
     def update_contact_details(self, context: Context, input: ContactDetails) -> None:
@@ -80,6 +83,8 @@ class CustomerAccountFlow(Flow[None]):
     def adjust_credit_balance(
         self, context: Context, input: CreditAdjustment
     ) -> RPCResult[int]:
+        if self.retired.get(context):
+            raise ValueError("account is retired")
         if input.amount == 0:
             raise ValueError("amount must not be zero")
         balance = self.credit_balance.get(context) + input.amount
@@ -92,4 +97,5 @@ class CustomerAccountFlow(Flow[None]):
     def retire_account(self, context: Context) -> RPCResult[None]:
         if self.credit_balance.get(context) != 0:
             raise ValueError("spend or refund the credit balance before retiring")
+        self.retired.set(context, True)
         return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))

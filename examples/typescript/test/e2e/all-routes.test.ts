@@ -381,6 +381,42 @@ test("design-pattern entity store profile lifecycle", async () => {
   );
 });
 
+test("design-pattern entity flow account lifecycle", async () => {
+  const accountId = id("account");
+  requireOk(
+    await post("/patterns/entity-flow/account", {
+      accountId,
+      displayName: "Ada Lovelace",
+      email: "ada@example.com",
+    }),
+    "entity flow open",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/contact", {
+      accountId,
+      displayName: "Ada Byron",
+      email: "ada.byron@example.com",
+    }),
+    "entity flow update contact",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/credits", { accountId, amount: 25 }),
+    "entity flow add credits",
+  );
+  requireOk(
+    await get("/patterns/entity-flow/account", { accountId }),
+    "entity flow get",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/credits", { accountId, amount: -25 }),
+    "entity flow spend credits",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/retire", undefined, { accountId }),
+    "entity flow retire",
+  );
+});
+
 test("design-pattern manual recovery start", async () => {
   requireOk(
     await get("/patterns/manual-recovery/start", { workflowId: id("manual-recovery") }),

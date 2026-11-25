@@ -49,6 +49,7 @@ public class EntityFlowController {
                 .addAttribute(flow.displayName, contact.displayName)
                 .addAttribute(flow.email, contact.email)
                 .addAttribute(flow.creditBalance, 0L)
+                .addAttribute(flow.retired, false)
                 .build();
         try {
             final String runId = client.startFlow(flow, flowId, null, options);

@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_storage::entity_flow::flow::{
     ADJUST_CREDIT_BALANCE, CREDIT_BALANCE, ContactDetails, CreditAdjustment, CustomerAccountFlow,
-    DISPLAY_NAME, EMAIL, RETIRE_ACCOUNT, UPDATE_CONTACT_DETAILS, customer_account_flow_id,
+    DISPLAY_NAME, EMAIL, RETIRE_ACCOUNT, RETIRED, UPDATE_CONTACT_DETAILS, customer_account_flow_id,
 };
 use crate::server::helpers::{
     ErrorBody, SharedClient, StartResponse, is_already_started, map_sdk_error, ok_json, ok_text,
@@ -90,6 +90,7 @@ pub fn open_account_options(contact: ContactDetails) -> StartFlowOptions {
         .initial_attribute(&DISPLAY_NAME, contact.display_name)
         .initial_attribute(&EMAIL, contact.email)
         .initial_attribute(&CREDIT_BALANCE, 0_i64)
+        .initial_attribute(&RETIRED, false)
 }
 
 async fn open_account(

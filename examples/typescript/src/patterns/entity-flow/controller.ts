@@ -39,6 +39,7 @@ export function createEntityFlowRouter(client: Client): Router {
           InitialAttribute.of(customerAccountFlow.displayName, contact.displayName),
           InitialAttribute.of(customerAccountFlow.email, contact.email),
           InitialAttribute.of(customerAccountFlow.creditBalance, 0n),
+          InitialAttribute.of(customerAccountFlow.retired, false),
         ],
       });
       response.json({ flowID: flowId, runID: runId });

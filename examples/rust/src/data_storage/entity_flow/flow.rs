@@ -29,6 +29,7 @@ pub static DISPLAY_NAME: LazyLock<Attribute<String>> =
 pub static EMAIL: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("email"));
 pub static CREDIT_BALANCE: LazyLock<Attribute<i64>> =
     LazyLock::new(|| Attribute::new("credit_balance"));
+pub static RETIRED: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("retired"));
 
 pub fn customer_account_flow_id(account_id: &str) -> String {
     format!("customer-account-{account_id}")
@@ -80,6 +81,9 @@ impl CustomerAccountFlow {
         context: &mut Context,
         adjustment: CreditAdjustment,
     ) -> HandlerResult<RpcResult<i64>> {
+        if RETIRED.get(context)?.unwrap_or(false) {
+            return Err(account_error("account is retired"));
+        }
         if adjustment.amount == 0 {
             return Err(account_error("amount must not be zero"));
         }
@@ -97,6 +101,7 @@ impl CustomerAccountFlow {
                 "spend or refund the credit balance before retiring",
             ));
         }
+        RETIRED.set(context, true)?;
         Ok(RpcResult::new(()).then(StepMovement::to(&CloseAccountStep, ())))
     }
 }
@@ -113,6 +118,7 @@ impl Flow for CustomerAccountFlow {
             .attribute(&DISPLAY_NAME)
             .attribute(&EMAIL)
             .attribute(&CREDIT_BALANCE)
+            .attribute(&RETIRED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {

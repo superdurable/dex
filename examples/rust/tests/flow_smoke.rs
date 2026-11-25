@@ -635,6 +635,13 @@ fn entity_flow_keeps_one_customer_account_until_retired() {
     client
         .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
         .expect("retire account");
+    client
+        .invoke_rpc(
+            &flow_id,
+            ADJUST_CREDIT_BALANCE,
+            CreditAdjustment { amount: 10 },
+        )
+        .expect_err("a retired account rejects credit adjustments");
     let result = client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("wait for retired account");

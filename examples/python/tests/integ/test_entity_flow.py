@@ -20,6 +20,7 @@ from typing import Callable
 import pytest
 from dex import (
     AsyncClient,
+    DexServiceError,
     FlowAlreadyStartedError,
     FlowStatus,
     RpcLockConflictError,
@@ -52,6 +53,7 @@ async def test_customer_account_entity_flow_lifecycle(
         .with_attribute(flow.display_name, "Ada")
         .with_attribute(flow.email, "ada@example.com")
         .with_attribute(flow.credit_balance, 0)
+        .with_attribute(flow.retired, False)
     )
     await client.start_flow(flow, flow_id, None, options)
     with pytest.raises(FlowAlreadyStartedError):
@@ -94,6 +96,10 @@ async def test_customer_account_entity_flow_lifecycle(
         CreditAdjustment(-5 * CONCURRENT_DEPOSITS),
     )
     await client.invoke_rpc(flow.retire_account, flow_id)
+    with pytest.raises(DexServiceError):
+        await client.invoke_rpc(
+            flow.adjust_credit_balance, flow_id, CreditAdjustment(10)
+        )
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
 

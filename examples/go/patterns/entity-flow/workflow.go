@@ -31,6 +31,7 @@ var (
 	DisplayName   = dex.DefineAttribute[string]("display_name")
 	Email         = dex.DefineAttribute[string]("email")
 	CreditBalance = dex.DefineAttribute[int64]("credit_balance")
+	Retired       = dex.DefineAttribute[bool]("retired")
 )
 
 func CustomerAccountFlowID(accountID string) string {
@@ -81,7 +82,7 @@ func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
 
 func (*CustomerAccountFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{DisplayName, Email, CreditBalance},
+		Attributes: []dex.AttributeDef{DisplayName, Email, CreditBalance, Retired},
 	}
 }
 
@@ -105,6 +106,13 @@ func (*CustomerAccountFlow) AdjustCreditBalance(
 	ctx dex.Context,
 	adjustment CreditAdjustment,
 ) (*dex.RPCResult[int64], error) {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if retired {
+		return nil, errors.New("account is retired")
+	}
 	if adjustment.Amount == 0 {
 		return nil, errors.New("amount must not be zero")
 	}
@@ -132,6 +140,9 @@ func (*CustomerAccountFlow) RetireAccount(
 	}
 	if balance != 0 {
 		return nil, errors.New("spend or refund the credit balance before retiring")
+	}
+	if err := Retired.Set(ctx, true); err != nil {
+		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{
 		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},

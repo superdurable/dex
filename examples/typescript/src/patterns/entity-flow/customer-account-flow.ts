@@ -17,6 +17,7 @@
 import {
   Attribute,
   StepList,
+  booleanCodec,
   StepMovement,
   gracefulComplete,
   int64Codec,
@@ -55,6 +56,7 @@ export function validateContactDetails(contact: ContactDetails): void {
 }
 
 const creditBalance = new Attribute("credit_balance", int64Codec);
+const retired = new Attribute("retired", booleanCodec);
 
 // dex:group group-id:account-retirement group-label:"Account retirement"
 // dex:explanation text:"Complete the account Flow after the retire request passes its checks."
@@ -72,6 +74,7 @@ export class CustomerAccountFlow implements Flow<void> {
   public readonly displayName = new Attribute("display_name", stringCodec);
   public readonly email = new Attribute("email", stringCodec);
   public readonly creditBalance = creditBalance;
+  public readonly retired = retired;
   private readonly closeAccount = new CloseAccountStep();
 
   public getFlowType(): string {
@@ -83,7 +86,9 @@ export class CustomerAccountFlow implements Flow<void> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.displayName, this.email, this.creditBalance] };
+    return {
+      attributes: [this.displayName, this.email, this.creditBalance, this.retired],
+    };
   }
 
   @rpc({ name: "UpdateContactDetails", inputCodec: jsonCodec<ContactDetails>() })
@@ -103,6 +108,9 @@ export class CustomerAccountFlow implements Flow<void> {
     context: Context,
     adjustment: CreditAdjustment,
   ): RPCResult<bigint> {
+    if (this.retired.get(context)) {
+      throw new Error("account is retired");
+    }
     if (adjustment.amount === 0) {
       throw new Error("amount must not be zero");
     }
@@ -123,6 +131,7 @@ export class CustomerAccountFlow implements Flow<void> {
     if (this.creditBalance.get(context) !== 0n) {
       throw new Error("spend or refund the credit balance before retiring");
     }
+    this.retired.set(context, true);
     return {
       output: undefined,
       nextSteps: [StepMovement.of(CloseAccountStep, undefined)],

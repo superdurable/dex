@@ -50,6 +50,7 @@ test("entity Flow keeps one customer account until it is retired", async () => {
       InitialAttribute.of(flow.displayName, "Ada"),
       InitialAttribute.of(flow.email, "ada@example.com"),
       InitialAttribute.of(flow.creditBalance, 0n),
+      InitialAttribute.of(flow.retired, false),
     ],
   };
   await client.startFlow(flow, flowId, undefined, options);
@@ -100,6 +101,9 @@ test("entity Flow keeps one customer account until it is retired", async () => {
     amount: -5 * CONCURRENT_DEPOSITS,
   });
   await client.invokeRPC(flow.retireAccount, flowId);
+  await assert.rejects(
+    client.invokeRPC(flow.adjustCreditBalance, flowId, { amount: 10 }),
+  );
   const result = await client.waitForFlow(flowId);
   assert.equal(result.status, "completed");
 });

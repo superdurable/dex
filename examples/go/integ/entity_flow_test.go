@@ -97,6 +97,9 @@ func TestEntityFlowKeepsOneCustomerAccountUntilRetired(t *testing.T) {
 	require.NoError(t, err)
 	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.RetireAccount, nil, nil)
 	require.NoError(t, err)
+	err = integClient.InvokeRPC(ctx, flowID, registry.CustomerAccount.AdjustCreditBalance,
+		entityflow.CreditAdjustment{Amount: 10}, nil)
+	require.Error(t, err)
 	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID).Status)
 }
 

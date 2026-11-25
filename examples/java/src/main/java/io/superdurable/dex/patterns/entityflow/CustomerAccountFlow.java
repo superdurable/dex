@@ -33,6 +33,7 @@ public class CustomerAccountFlow implements Flow<Void> {
     public final Attribute<String> displayName = Attribute.define("display_name", String.class);
     public final Attribute<String> email = Attribute.define("email", String.class);
     public final Attribute<Long> creditBalance = Attribute.define("credit_balance", Long.class);
+    public final Attribute<Boolean> retired = Attribute.define("retired", Boolean.class);
 
     public static String customerAccountFlowId(final String accountId) {
         return "customer-account-" + accountId;
@@ -45,7 +46,7 @@ public class CustomerAccountFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(displayName, email, creditBalance);
+        return PersistenceSchema.of(displayName, email, creditBalance, retired);
     }
 
     @RPC(name = "UpdateContactDetails")
@@ -59,6 +60,9 @@ public class CustomerAccountFlow implements Flow<Void> {
     public RPCResult<Long> adjustCreditBalance(
             final Context context,
             final CreditAdjustment adjustment) {
+        if (Boolean.TRUE.equals(retired.get(context))) {
+            throw new IllegalStateException("account is retired");
+        }
         if (adjustment.amount == 0) {
             throw new IllegalArgumentException("amount must not be zero");
         }
@@ -76,6 +80,7 @@ public class CustomerAccountFlow implements Flow<Void> {
             throw new IllegalArgumentException(
                     "spend or refund the credit balance before retiring");
         }
+        retired.set(context, true);
         return RPCResult.of((Void) null, StepMovement.of(CloseAccountStep.class, null));
     }
 
