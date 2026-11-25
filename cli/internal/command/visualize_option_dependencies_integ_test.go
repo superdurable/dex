@@ -53,6 +53,7 @@ func TestVisualizeHandlesRelatedOptionDependencies(t *testing.T) {
 				err := app.Execute(context.Background(), arguments)
 				var graph flowviz.Graph
 				require.NoError(t, json.Unmarshal(output.Bytes(), &graph), "%v", err)
+				graph.Diagnostics = withoutLockNudge(graph.Diagnostics)
 				if scenario == "recursive-helpers" || scenario == "expansion-limit" {
 					if lint == "" {
 						require.NoError(t, err)
@@ -106,6 +107,7 @@ func TestVisualizeDistinguishesSDKNamesFromApplicationHelpers(t *testing.T) {
 				require.Equal(t, 1, ExitCode(err))
 				var graph flowviz.Graph
 				require.NoError(t, json.Unmarshal(output.Bytes(), &graph))
+				graph.Diagnostics = withoutLockNudge(graph.Diagnostics)
 				require.False(t, graph.Valid)
 				require.Equal(t, expectedCodes, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
 			}

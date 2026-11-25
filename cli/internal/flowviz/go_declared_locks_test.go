@@ -230,7 +230,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written by RPC Reply without a registered lock",
+			messageFragment: "is both read and written by RPC Reply, and dexcli cannot prove that one exact registration lock covers it",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -304,6 +304,65 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			source: goDeclaredLocksCase{
 				extraSource: "func invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\tif err := client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(items, key)},\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t}); err != nil {\n\t\treturn err\n\t}\n\treply := flow.Reply\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", reply, key, &output, dex.RPCInvokeOptions{})\n}",
 				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"reads in both phases under the same lock": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{\n\t\tWaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t\tExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t}\n}",
+				waitBody:    "value, _ := total.Get(ctx)\n\t_ = spare.Set(ctx, value)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "current, _ := total.Get(ctx)\n\tsnapshot, _ := spare.Get(ctx)\n\tif current >= 0 {\n\t\t_ = total.Set(ctx, snapshot+1)\n\t}",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"step options from a branching helper": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var useLock bool\n\nfunc stepOptionsFor(locked bool) *dex.StepOptions {\n\tif locked {\n\t\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)}}\n\t}\n\treturn nil\n}",
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn stepOptionsFor(useLock)\n}",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc options from a branching helper": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  "rpcOptionsFor(useLock)",
+				extraSource: "var useLock bool\n\nfunc rpcOptionsFor(locked bool) *dex.RPCOptions {\n\tif locked {\n\t\treturn &dex.RPCOptions{LockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)}}\n\t}\n\treturn nil\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)",
+				executeBody: "_ = total.Set(ctx, 2)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement options passed through a variable": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var overrideOption = dex.WithStepOptions(&dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(spare)}})",
+				moveOptions: ", overrideOption",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc registered through an alias": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "func (flow *CartFlow) alternateRPCs() []dex.RPCDef {\n\treply := flow.Reply\n\treturn []dex.RPCDef{dex.DefineRPC(reply, nil)}\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"context passed to a helper keeps the warning": {
+			source: goDeclaredLocksCase{
+				extraSource: "func audit(ctx dex.Context) { _ = ctx }",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "audit(ctx)\n\t_ = total.Set(ctx, 2)",
 			},
 			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},

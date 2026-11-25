@@ -105,6 +105,8 @@ type pythonDeclaredLocksCase struct {
 	executeBody    string
 }
 
+const pythonBothPhaseCartLock = "    def get_step_options(self):\n        return StepOptions(wait_for_lock_attributes=(CartFlow.cart_lock.lock(),), execute_lock_attributes=(CartFlow.cart_lock.lock(),))\n"
+
 const pythonReadThenWriteTotal = "CartFlow.total.set(context, CartFlow.total.get(context) + 2)"
 
 func pythonStepLocks(field string, locks string) string {
@@ -202,7 +204,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written by RPC Reply without a registered lock",
+			messageFragment: "is both read and written by RPC Reply, and dexcli cannot prove that one exact registration lock covers it",
 		},
 		"read then write under own lock without declaration": {
 			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
@@ -255,6 +257,57 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				waitBody:    "CartFlow.items.set(context, \"snapshot\", CartFlow.total.get(context))",
 				rpcBody:     "self.total.set(context, 1)",
 				executeBody: "CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\") + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"reads in both phases under the same lock": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonBothPhaseCartLock,
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", CartFlow.total.get(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "if CartFlow.total.get(context) >= 0:\n            CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\") + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"unknown read in wait_for and write in execute": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonBothPhaseCartLock,
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", compute(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\"))",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"helper that calls another helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def outer(context):\n    return inner(context)\n\n\ndef inner(context):\n    return CartFlow.total.get(context)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   "CartFlow.total.set(context, outer(context) + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"mutable named lock list": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "STEP_LOCKS = [Attribute(\"cart-lock\", bool).lock()]",
+				moduleExtra:   "STEP_LOCKS.clear()",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=STEP_LOCKS)\n",
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement options through a Step alias": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "ALIAS = AddItemStep\n\n\ndef move(value):\n    return StepMovement.of(ALIAS, value, options=StepOptions())",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
 			},
 			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
