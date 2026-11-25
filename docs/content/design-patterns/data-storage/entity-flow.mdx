@@ -23,11 +23,11 @@ To also query the latest state of many entities with SQL, extend this pattern wi
 
 ## How it works
 
-1. **Open the account.** The application starts a Flow whose ID comes from the account ID, such as `customer-account-42`. The start request sets the initial Attributes. A second start with the same account ID fails, so each account has exactly one Flow.
+1. **Open the account.** The application starts a Flow whose ID comes from the account ID, such as `customer-account-42`. The start request sets the initial Attributes. A second start with the same account ID fails while Dex keeps the account's Flow, so each account has exactly one Flow.
 2. **Change the contact details.** `UpdateContactDetails` validates the new name and email address, then writes both Attributes.
 3. **Adjust the credit balance.** `AdjustCreditBalance` reads the balance, adds the amount, and rejects a result below zero. It locks the balance Attribute, so concurrent adjustments run one at a time.
 4. **Read the account.** The application reads the Attributes with the Client. No Worker runs for the read.
-5. **Retire the account.** `RetireAccount` checks that the balance is zero and moves to `CloseAccountStep`. That Step completes the Flow gracefully.
+5. **Retire the account.** `RetireAccount` checks that the balance is zero, marks the account retired, and moves to `CloseAccountStep`. That Step completes the Flow gracefully.
 
 Between these calls the Flow has no active Step. It keeps running and holds no Worker, so it can live for months or years.
 
@@ -47,6 +47,7 @@ options = (
     .with_attribute(flow.display_name, contact.display_name)
     .with_attribute(flow.email, contact.email)
     .with_attribute(flow.credit_balance, 0)
+    .with_attribute(flow.retired, False)
 )
 run_id = await app_state.client.start_flow(flow, flow_id, None, options)
 ```
@@ -80,6 +81,7 @@ final StartFlowOptions options = StartFlowOptions.newBuilder()
         .addAttribute(flow.displayName, contact.displayName)
         .addAttribute(flow.email, contact.email)
         .addAttribute(flow.creditBalance, 0L)
+        .addAttribute(flow.retired, false)
         .build();
 try {
     final String runId = client.startFlow(flow, flowId, null, options);
@@ -101,6 +103,7 @@ try {
       InitialAttribute.of(customerAccountFlow.displayName, contact.displayName),
       InitialAttribute.of(customerAccountFlow.email, contact.email),
       InitialAttribute.of(customerAccountFlow.creditBalance, 0n),
+      InitialAttribute.of(customerAccountFlow.retired, false),
     ],
   });
   response.json({ flowID: flowId, runID: runId });
@@ -122,6 +125,7 @@ pub fn open_account_options(contact: ContactDetails) -> StartFlowOptions {
         .initial_attribute(&DISPLAY_NAME, contact.display_name)
         .initial_attribute(&EMAIL, contact.email)
         .initial_attribute(&CREDIT_BALANCE, 0_i64)
+        .initial_attribute(&RETIRED, false)
 }
 ```
 
@@ -146,6 +150,8 @@ def update_contact_details(self, context: Context, input: ContactDetails) -> Non
 def adjust_credit_balance(
     self, context: Context, input: CreditAdjustment
 ) -> RPCResult[int]:
+    if self.retired.get(context):
+        raise ValueError("account is retired")
     if input.amount == 0:
         raise ValueError("amount must not be zero")
     balance = self.credit_balance.get(context) + input.amount
@@ -174,6 +180,13 @@ func (*CustomerAccountFlow) AdjustCreditBalance(
 	ctx dex.Context,
 	adjustment CreditAdjustment,
 ) (*dex.RPCResult[int64], error) {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if retired {
+		return nil, errors.New("account is retired")
+	}
 	if adjustment.Amount == 0 {
 		return nil, errors.New("amount must not be zero")
 	}
@@ -207,6 +220,9 @@ public void updateContactDetails(final Context context, final ContactDetails con
 public RPCResult<Long> adjustCreditBalance(
         final Context context,
         final CreditAdjustment adjustment) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        throw new IllegalStateException("account is retired");
+    }
     if (adjustment.amount == 0) {
         throw new IllegalArgumentException("amount must not be zero");
     }
@@ -240,6 +256,9 @@ public adjustCreditBalance(
   context: Context,
   adjustment: CreditAdjustment,
 ): RPCResult<bigint> {
+  if (this.retired.get(context)) {
+    throw new Error("account is retired");
+  }
   if (adjustment.amount === 0) {
     throw new Error("amount must not be zero");
   }
@@ -261,6 +280,9 @@ fn adjust_credit_balance(
     context: &mut Context,
     adjustment: CreditAdjustment,
 ) -> HandlerResult<RpcResult<i64>> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Err(account_error("account is retired"));
+    }
     if adjustment.amount == 0 {
         return Err(account_error("amount must not be zero"));
     }
@@ -356,7 +378,9 @@ client.get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
 
 ### Retire the entity
 
-`RetireAccount` holds the same lock as `AdjustCreditBalance`. It checks the balance, then moves to `CloseAccountStep`. That Step returns `GracefulComplete`, and the Flow completes. The completed Flow stays readable with the Client until Dex purges it.
+`RetireAccount` holds the same lock as `AdjustCreditBalance`. It checks the balance, sets the `retired` Attribute, and moves to `CloseAccountStep`. That Step returns `GracefulComplete`, and the Flow completes. The completed Flow stays readable with the Client until Dex purges it.
+
+RPCs still run between `RetireAccount` and the end of the Flow. `AdjustCreditBalance` reads `retired` under the same lock and rejects new credits, so the account closes with a zero balance.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -370,6 +394,7 @@ class CloseAccountStep(Step[None]):
 def retire_account(self, context: Context) -> RPCResult[None]:
     if self.credit_balance.get(context) != 0:
         raise ValueError("spend or refund the credit balance before retiring")
+    self.retired.set(context, True)
     return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))
 ```
 
@@ -387,6 +412,9 @@ func (*CustomerAccountFlow) RetireAccount(
 	}
 	if balance != 0 {
 		return nil, errors.New("spend or refund the credit balance before retiring")
+	}
+	if err := Retired.Set(ctx, true); err != nil {
+		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{
 		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},
@@ -408,6 +436,7 @@ public RPCResult<Void> retireAccount(final Context context) {
         throw new IllegalArgumentException(
                 "spend or refund the credit balance before retiring");
     }
+    retired.set(context, true);
     return RPCResult.of((Void) null, StepMovement.of(CloseAccountStep.class, null));
 }
 
@@ -437,6 +466,7 @@ public retireAccount(context: Context): RPCResult<void> {
   if (this.creditBalance.get(context) !== 0n) {
     throw new Error("spend or refund the credit balance before retiring");
   }
+  this.retired.set(context, true);
   return {
     output: undefined,
     nextSteps: [StepMovement.of(CloseAccountStep, undefined)],
@@ -454,6 +484,7 @@ fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> 
             "spend or refund the credit balance before retiring",
         ));
     }
+    RETIRED.set(context, true)?;
     Ok(RpcResult::new(()).then(StepMovement::to(&CloseAccountStep, ())))
 }
 
