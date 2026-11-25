@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 
 from dex import (
+    Channel,
     Context,
     Flow,
     PersistenceSchema,
@@ -32,6 +33,7 @@ from dex import (
     StepMovement,
     Wait,
     dead_end,
+    go_to,
     go_to_many,
     rpc,
 )
@@ -127,3 +129,54 @@ class OfferResponseWindowProbeFlow(Flow[str]):
     @rpc
     def open_probe_gate(self, context: Context) -> None:
         PROBE_GATE_OPENED.publish(context, None)
+
+
+OFFER_DECISION_GATE_OPENED = Channel("offerDecisionGateOpened", type(None))
+
+
+class HoldOfferDecision(Step[str]):
+    """Starts AwaitOfferResponse only after the test opens the decision gate."""
+
+    def wait_for(self, context: Context, offer_id: str) -> Wait:
+        return Wait.until(OFFER_DECISION_GATE_OPENED.for_one())
+
+    def execute(self, context: Context, offer_id: str) -> StepDecision:
+        return go_to(AwaitOfferResponse, offer_id)
+
+
+class OfferResponseDoubleReplyProbeFlow(Flow[str]):
+    """Holds AwaitOfferResponse behind a gate, so both replies commit before any Execute."""
+
+    def __init__(self) -> None:
+        self.hold_offer_decision = HoldOfferDecision()
+        self.await_offer_response = AwaitOfferResponse()
+        self.fulfill_offer = FulfillOffer()
+        self.close_rejected_offer = CloseRejectedOffer()
+        self.route_response_before_expiry = RouteResponseBeforeExpiry()
+        self.expire_offer = ExpireOffer()
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.hold_offer_decision).other_steps(
+            self.await_offer_response,
+            self.fulfill_offer,
+            self.close_rejected_offer,
+            self.route_response_before_expiry,
+            self.expire_offer,
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(
+            OFFER_DECISION_GATE_OPENED, OFFER_ACCEPTED, OFFER_REJECTED, OFFER_RESPONSE_WINDOW
+        )
+
+    @rpc(lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),))
+    def accept_gated_offer(self, context: Context, note: str) -> RPCResult[str]:
+        return publish_while_window_open(context, OFFER_ACCEPTED, note)
+
+    @rpc(lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),))
+    def reject_gated_offer(self, context: Context, note: str) -> RPCResult[str]:
+        return publish_while_window_open(context, OFFER_REJECTED, note)
+
+    @rpc
+    def open_offer_decision_gate(self, context: Context) -> None:
+        OFFER_DECISION_GATE_OPENED.publish(context, None)

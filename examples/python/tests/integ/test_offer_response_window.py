@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -29,7 +28,6 @@ from dex import (
     BlobCacheConfig,
     ClientOptions,
     Registry,
-    RpcLockConflictError,
     StartFlowOptions,
     WorkerOptions,
     open_blob_cache,
@@ -47,6 +45,7 @@ from dex_examples.shared.worker_options import (
 from tests.integ.conftest import WAIT_TIMEOUT, server_address, wait_until
 from tests.integ.offer_response_window_probe_flow import (
     HELD_RESPONSE,
+    OfferResponseDoubleReplyProbeFlow,
     OfferResponseWindowProbeFlow,
 )
 from tests.integ.test_control_structure_patterns import (
@@ -58,13 +57,11 @@ from tests.integ.test_control_structure_patterns import (
 
 pytestmark = pytest.mark.integ
 
-LOCK_CONFLICT_ATTEMPTS = 10
-LOCK_CONFLICT_BACKOFF_SECONDS = 0.2
-
 
 @dataclass(frozen=True)
 class OfferResponseWindowProbe:
     flow: OfferResponseWindowProbeFlow
+    double_reply_flow: OfferResponseDoubleReplyProbeFlow
     client: AsyncClient
 
 
@@ -74,8 +71,9 @@ async def probe(
 ) -> AsyncIterator[OfferResponseWindowProbe]:
     """Serves the test-only probe Flow from its own Worker."""
     flow = OfferResponseWindowProbeFlow()
+    double_reply_flow = OfferResponseDoubleReplyProbeFlow()
     # The held response RPC is async, so it does not block the Worker's event loop.
-    registry = Registry((flow,), allow_async_handlers=True)
+    registry = Registry((flow, double_reply_flow), allow_async_handlers=True)
     cache_dir = tmp_path_factory.mktemp("offer-response-window-probe-cache")
     cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 << 20))
     worker = AsyncWorker(
@@ -91,7 +89,7 @@ async def probe(
     worker_task = asyncio.create_task(worker.start())
     try:
         await worker.wait_pull_registered(timeout=PULL_REGISTRATION_TIMEOUT_SECONDS)
-        yield OfferResponseWindowProbe(flow, probe_client)
+        yield OfferResponseWindowProbe(flow, double_reply_flow, probe_client)
     finally:
         await probe_client.close()
         await worker.close()
@@ -129,29 +127,19 @@ async def test_deferred_choice_response_after_the_decision_gets_window_closed(
 async def test_deferred_choice_only_the_first_of_two_responses_is_recorded(
     probe: OfferResponseWindowProbe, new_flow_id: Callable[[str], str]
 ) -> None:
-    flow, client = probe.flow, probe.client
-    flow_id = await start_probe(probe, new_flow_id("pattern-deferred-choice-double"), "offer-5")
-    # Both responses go out at once, before the decision; the first one closes the window.
-    first = await invoke_retrying_lock_conflicts(client, flow.accept_probe_offer, flow_id, "yes")
-    second = await invoke_retrying_lock_conflicts(client, flow.reject_probe_offer, flow_id, "no")
+    flow, client = probe.double_reply_flow, probe.client
+    flow_id = new_flow_id("pattern-deferred-choice-double")
+    await client.start_flow(flow, flow_id, "offer-5", StartFlowOptions())
+    # AwaitOfferResponse has not started, so only the first reply can close the window.
+    first = await client.invoke_rpc(flow.accept_gated_offer, flow_id, "yes")
+    second = await client.invoke_rpc(flow.reject_gated_offer, flow_id, "no")
     assert (first, second) == (OFFER_RESPONSE_RECORDED, OFFER_RESPONSE_WINDOW_CLOSED)
 
-    await client.invoke_rpc(flow.open_probe_gate, flow_id)
+    await client.invoke_rpc(flow.open_offer_decision_gate, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
     assert outputs_of(result, "FulfillOffer", str) == ["fulfilled offer-5"]
     assert outputs_of(result, "CloseRejectedOffer", str) == []
-
-
-async def invoke_retrying_lock_conflicts(
-    client: AsyncClient, rpc: Callable[..., Any], flow_id: str, note: str
-) -> str:
-    """Invokes a response RPC, retrying lock conflicts with the decision a bounded number of times."""
-    for _ in range(LOCK_CONFLICT_ATTEMPTS - 1):
-        try:
-            return await client.invoke_rpc(rpc, flow_id, note)
-        except RpcLockConflictError:
-            await asyncio.sleep(LOCK_CONFLICT_BACKOFF_SECONDS)
-    return await client.invoke_rpc(rpc, flow_id, note)
+    assert outputs_of(result, "ExpireOffer", str) == []
 
 
 async def is_execute_waiting_for_locks(client: AsyncClient, flow_id: str, step_type: str) -> bool:

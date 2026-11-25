@@ -168,7 +168,10 @@ async def test_deferred_choice_route_answers_window_closed_after_the_offer_close
         "/patterns/deferred-choice/accept",
         query_string={"workflowId": new_flow_id("pattern-deferred-choice-missing"), "note": "hi"},
     )
-    assert missing.status_code != 409, await missing.get_data(as_text=True)
+    assert (missing.status_code, await missing.get_data(as_text=True)) == (
+        404,
+        "offer response flow not found",
+    )
 
 
 async def test_critical_section_runs_one_edit_at_a_time(

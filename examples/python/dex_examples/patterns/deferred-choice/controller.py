@@ -74,14 +74,18 @@ def create_deferred_choice_blueprint(app_state: ExampleApp) -> Blueprint:
 async def send_customer_response(
     client: AsyncClient, rpc: OfferResponseRPC
 ) -> tuple[str, int]:
-    """Answers 409 when the response window is already closed."""
+    """Answers 409 when the response window is closed, and 404 when the Flow never existed."""
     flow_id = required_query("workflowId")
     try:
         outcome = await invoke_response_rpc(client, rpc, flow_id, required_query("note"))
     except FlowClosingError:
         return "offer response window closed", 409
     except (FlowNotActiveOrNotFoundError, FlowNotFoundError):
-        if await is_offer_closed(client, flow_id):
+        try:
+            closed = await is_offer_closed(client, flow_id)
+        except FlowNotFoundError:
+            return "offer response flow not found", 404
+        if closed:
             return "offer response window closed", 409
         raise
     if outcome == OFFER_RESPONSE_WINDOW_CLOSED:
