@@ -79,6 +79,7 @@ mappings:
   - skill: dex-app-builder/references/core/data-handling.md
     docs:
       - docs/content/components/your-database.mdx
+      - docs/content/components/production.mdx
 
   - skill: dex-app-builder/references/core/web.md
     docs:

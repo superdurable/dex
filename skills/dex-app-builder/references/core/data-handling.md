@@ -1,6 +1,6 @@
 # Data handling
 
-Read this when a Flow stores large documents, conversation history, model context, or API results, or when you are tempted to add a database.
+Read this when a Flow stores large documents, conversation history, model context, API results, or sensitive data, or when you are tempted to add a database.
 
 ## Dex-first state ownership
 
@@ -53,6 +53,22 @@ Null is an ordinary application value in inputs, Channel messages, and RPC value
 - Flow completion with null output stores no output.
 
 Return an explicit result object when "completed with null" must differ from "completed without output".
+
+## Sensitive data and payload encryption
+
+Payload encryption encrypts values in your Workers and Clients, with your codec and keys, before they reach Dex Server. Dex Server and its storage receive eligible values as ciphertext and never hold the keys.
+
+Rules:
+
+- Enable payload encryption when the application handles data that Dex Server, its storage, or its operators must not read. Keep TLS on as well; it protects the network, not the stored values.
+- Give every Worker and Client of the application the same codec, the same keys, and the same Attribute definitions, including plaintext declarations. Every one of them must use an SDK that supports payload encryption.
+- Make every reader able to decrypt before any writer starts writing ciphertext. A Worker that cannot decrypt a Step value fails that attempt. Rotate keys in the same order: every reader gets the new key before any writer uses it.
+- With a codec, the SDK encrypts eligible application payloads when it writes them, such as Step, Channel, Stream, and RPC values. Indexed and explicitly plaintext Attributes stay plaintext. Values stored before the codec was enabled stay plaintext.
+- Names and IDs are never encrypted. Examples: Flow IDs, Flow types, Step types, RPC names, Attribute keys, AttributeMap keys and instances, index keys, Channel and Stream names, Channel message IDs, Stream sources, request IDs, task queues, and the key ID. Never put sensitive data, such as email addresses or ID numbers, into them. Derive Flow IDs from opaque business identifiers.
+- Keep Attributes plaintext when Dex must compare or index their values, or project them into Attribute Store columns that require the decoded value. Attribute-match waits, Action conditions, and search compare values. Indexed writes are plaintext automatically; declare every other such Attribute plaintext. Keep sensitive values out of them and store those values in separate, encrypted Attributes.
+- With a codec, the Client rejects an Attribute-match wait on an Attribute it would encrypt, before it sends the wait request. Always declare the Attributes that Action conditions use plaintext; an SDK may detect an encrypted one only after the Flow has started.
+
+The [Payload encryption reference](https://docs.superdurable.io/reference/server/payload-encryption) has the setup for each SDK, the options, the key file, the envelope limits, rollout and key rotation, binary Attribute Store columns for encrypted Attributes, when each SDK checks Action conditions, and the full list of what is encrypted and what stays plaintext.
 
 ## Sticky routing and cache locality
 

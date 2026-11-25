@@ -81,7 +81,11 @@ Confirm:
 - cancellation, recovery, cleanup, and operator intervention;
 - searchable indexed fields and detailed display fields;
 - sensitive data that must stay out of IDs, logs, Streams, and generated
-  artifacts.
+  artifacts;
+- whether any data must stay unreadable to Dex Server, its storage, and its
+  operators. If so, plan payload encryption, and keep that data out of IDs,
+  names, and Attributes the server compares. See
+  [payload encryption](core/data-handling.md#sensitive-data-and-payload-encryption).
 
 For each outcome and comparison fact, record how the run will show it: a Step
 it enters, an Action, or a scalar Attribute. See

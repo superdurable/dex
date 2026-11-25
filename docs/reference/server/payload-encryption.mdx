@@ -267,10 +267,22 @@ export const ticketStatus = new Attribute("support-ticket-status", stringCodec).
 </SdkSnippet>
 </SdkTabs>
 
-With a codec, the SDK rejects an Attribute-match wait or an Action condition
-on an Attribute that it would encrypt. It rejects it before any request
-reaches the server. The Go SDK rejects such an Action when you create the
-Worker. A dynamic Attribute that the Registry does not define is rejected too.
+With a codec, the Client rejects an Attribute-match wait on an Attribute that
+it would encrypt. It rejects the wait before it sends the wait request. A
+dynamic Attribute that the Registry does not define is rejected too.
+
+An Action condition on an Attribute that the SDK would encrypt fails at a
+different point in each SDK:
+
+- Go and Python: creating the Worker fails.
+- TypeScript: the Worker starts. A Step or RPC handler fails when its result
+  writes that Attribute, because the SDK then builds the Action permission
+  mapping. The Worker reports the error to the server. The request that
+  started the Flow or invoked the RPC has already reached the server. Initial
+  Attributes that a Client sends with a Flow start are encrypted and stored.
+
+Declare every Attribute that an Action condition uses plaintext, so no SDK
+reaches these failures.
 
 ## Interfaces and the built-in codec {#interfaces}
 
@@ -403,7 +415,7 @@ off; without one they add one leading space.
 | String values, or integer, floating-point, and Boolean values, with their switch off | The SDK writes them in clear | Your choice |
 | Null values | Never encrypted | In an Attribute write, null deletes the Attribute, so the server must recognize it. Null carries no data |
 | Attribute-match waits | The SDK rejects the wait when the Attribute would be encrypted. Otherwise it sends the match operand in clear | The server compares the stored value with the operand |
-| Action conditions and permission mappings | The SDK rejects them when the Attribute would be encrypted. Otherwise the condition values are in clear | The server compares the Attribute value with the condition values to grant permissions |
+| Action conditions and permission mappings | The SDK rejects them when the Attribute would be encrypted; see [Plaintext Attributes](#plaintext-attributes) for when each SDK checks. Otherwise the condition values are in clear | The server compares the Attribute value with the condition values to grant permissions |
 | Attribute Store sync, including AttributeMap tables | Encrypted as usual. Sync an encrypted Attribute to a `bytea` column, then read and decrypt it with the same codec. An encrypted AttributeMap value is one envelope, so the server cannot spread its JSON over several columns. For a column of another type, the server logs an error and skips the value, and the writer sees no error | The server converts each value to its column type, and the SDK does not know the table's column types |
 | Values that the server writes: Work Queue permissions, built-in and indexed Attribute values in search results, and hard-delete placeholders | They never pass through a codec. Readers pass them through because they carry no `dex/1` marker | The server creates them |
 | Blob references | The reference is plaintext. The value it loads is still the envelope, which the SDK then decrypts | The server creates the reference |
