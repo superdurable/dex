@@ -252,6 +252,10 @@ export class Channel<T> {
    * const replies = new Channel("replies", stringCodec).publishesRequireAttributeLock(conversationLock);
    *
    * class ConversationFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "ConversationFlow";
+   *   }
+   *
    *   public getSteps() {
    *     return StepList.empty();
    *   }
@@ -431,6 +435,10 @@ export class ChannelMap<T> {
    * const roomEvents = new ChannelMap("room-events", stringCodec).publishesRequireAttributeLock(roomLock);
    *
    * class RoomFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "RoomFlow";
+   *   }
+   *
    *   public getSteps() {
    *     return StepList.empty();
    *   }

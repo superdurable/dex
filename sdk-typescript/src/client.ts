@@ -90,6 +90,7 @@ import {
 } from "./errors.js";
 import {
   registeredAttributeFlow,
+  registeredDefaultStepOptions,
   registeredFlow,
   registeredStepTarget,
   registeredRPC,
@@ -320,7 +321,7 @@ export class Client {
       request.startStepType = registered.startStep.name;
       request.stepInput = encodeValue(codecOrJson(registered.startStep.step.inputCodec), input);
       request.stepOptions = mapStepOptions(
-        registered.startStep.step.getStepOptions?.(),
+        registeredDefaultStepOptions(registered, registered.startStep),
         registered.startStep.step.waitFor === undefined,
         registered,
       );
@@ -1859,8 +1860,10 @@ function mapStepOptions(
   const executeFailureDefinition = executeFailureStep === undefined
     ? undefined
     : registeredStepTarget(flow, executeFailureStep);
-  const executeFailureOptions =
-    options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
+  const executeFailureOptions = options?.executeFailure?.options
+    ?? (executeFailureDefinition === undefined
+      ? undefined
+      : registeredDefaultStepOptions(flow, executeFailureDefinition));
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
     attributeMapInstances: options?.waitForLoadAttributeMapInstances,
@@ -1960,7 +1963,7 @@ function mapFlowTimeoutHandlerOptions(
     failureProceedStepOptions: failureDefinition === undefined
       ? undefined
       : mapStepOptions(
-          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
+          options.failure?.options ?? registeredDefaultStepOptions(flow, failureDefinition),
           failureDefinition.step.waitFor === undefined,
           flow,
         ),

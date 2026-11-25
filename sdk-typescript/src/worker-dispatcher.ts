@@ -49,6 +49,7 @@ import { actionPermissionMappingsForWrites, appendInitialWorkQueuePermissions } 
 import { requireRegisteredRPCLocks, requireRegisteredStepLocks } from "./attribute-lock-enforcement.js";
 import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
+  registeredDefaultStepOptions,
   registeredFlowByName,
   registeredFlow,
   registeredStepTarget,
@@ -910,7 +911,7 @@ function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoSt
     stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
     stepOptions: mapStepOptions(
       flow,
-      movement.options ?? target.step.getStepOptions?.(),
+      movement.options ?? registeredDefaultStepOptions(flow, target),
       target.step.waitFor === undefined,
     ),
   });
@@ -925,7 +926,8 @@ function mapStepOptions(
   const failureDefinition = failureTarget === undefined
     ? undefined
     : registeredStepTarget(flow, failureTarget);
-  const failureOptions = options?.executeFailure?.options ?? failureDefinition?.step.getStepOptions?.();
+  const failureOptions = options?.executeFailure?.options
+    ?? (failureDefinition === undefined ? undefined : registeredDefaultStepOptions(flow, failureDefinition));
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
     attributeMapInstances: options?.waitForLoadAttributeMapInstances,
@@ -1091,7 +1093,7 @@ class ConditionMapper {
           stepInput: encodeValue(codecOrJson(start.step.inputCodec), condition.subFlowInput),
           stepOptions: mapStepOptions(
             target,
-            start.step.getStepOptions?.(),
+            registeredDefaultStepOptions(target, start),
             start.step.waitFor === undefined,
           ),
           options: mapSubFlowOptions(target, options),
@@ -1226,7 +1228,7 @@ function mapFlowTimeoutHandlerOptions(
       ? undefined
       : mapStepOptions(
           flow,
-          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
+          options.failure?.options ?? registeredDefaultStepOptions(flow, failureDefinition),
           failureDefinition.step.waitFor === undefined,
         ),
     durabilityOverride: mapDurability(options.durability),

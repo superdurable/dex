@@ -226,6 +226,14 @@ export interface Step<Input> {
   getStepType(): string;
   /**
    * Returns this Step's static options.
+   *
+   * Registry construction reads it once, after the Flow's persistence schema. The
+   * `waitForLockAttributes` and `executeLockAttributes` it returns then are fixed: every start,
+   * movement, SubFlow start, and failure route that uses this Step's default options sends those
+   * locks, and the Worker checks declared lock requirements against the same locks. Options passed
+   * with a {@link StepMovement} or {@link ExecuteFailure} replace the defaults as before.
+   *
+   * Changed in 1.45.17: the lock fields come from the registration-time read instead of a new call.
    * @returns Static options, or `undefined` for Flow and server defaults.
    */
   getStepOptions?(): StepOptions | undefined;

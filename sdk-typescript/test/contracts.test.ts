@@ -26,6 +26,7 @@ import {
   FileCredential,
   ConditionCombination,
   FlowDefinitionError,
+  IndexType,
   InvalidStepResultError,
   Join,
   MissingAttributeLockError,
@@ -64,15 +65,20 @@ import {
   type RPCInvokeOptions,
   type Step,
   type StepDecision,
+  type StepOptions,
   type PullWorkerOptions,
   type WorkerOptions,
   type Worker,
   type SubFlowOptions,
 } from "../src/index.js";
 import {
+  isAttributeStoreSynced,
   mapAttributeStoreNames,
   mapAttributeStoreSync,
 } from "../src/attribute-store-sync.js";
+import { isHardDeleteOnNullDefinition } from "../src/attribute-hard-delete.js";
+import { lockRequirementOf } from "../src/attribute-lock-requirement.js";
+import { isPlaintextAttributeDefinition } from "../src/attribute-plaintext.js";
 import {
   Context as ProtoContext,
   StepAttemptProgress as ProtoStepAttemptProgress,
@@ -252,6 +258,67 @@ test("lock requirement declarations keep definition types", () => {
     'Flow "Orders" Step "Approve" execute wrote AttributeMap "items" instance "a" without the required lock of '
       + `AttributeMap "items" instance "a"; register the lock in the handler's StepOptions or RPCOptions`,
   );
+});
+
+test("lock requirements and other definition options chain in both directions", () => {
+  const lock = new Attribute("contract-chain-lock", booleanCodec);
+  const indexed = new Attribute("contract-chain-indexed", stringCodec, { type: IndexType.KEYWORD });
+  const lockFirst = indexed.writesRequireLock().syncToAttributeStore().plaintext();
+  const lockLast = indexed.syncToAttributeStore().plaintext().writesRequireAttributeLock(lock);
+  for (const definition of [lockFirst, lockLast]) {
+    assert.deepEqual(definition.index, { type: IndexType.KEYWORD });
+    assert.equal(isAttributeStoreSynced(definition), true);
+    assert.equal(isPlaintextAttributeDefinition(definition), true);
+  }
+  assert.deepEqual(lockRequirementOf(lockFirst), { kind: "ownKey" });
+  assert.deepEqual(lockRequirementOf(lockLast), { kind: "attribute", lockAttribute: lock });
+
+  const secrets = new AttributeMap("contract-chain-secrets", stringCodec);
+  const hardDeleteFirst = secrets.hardDeleteOnNull().plaintext().writesRequireLock();
+  const hardDeleteLast = secrets.writesRequireAttributeLock(lock).plaintext().hardDeleteOnNull();
+  for (const definition of [hardDeleteFirst, hardDeleteLast]) {
+    assert.equal(isHardDeleteOnNullDefinition(definition), true);
+    assert.equal(isPlaintextAttributeDefinition(definition), true);
+  }
+  assert.deepEqual(lockRequirementOf(hardDeleteFirst), { kind: "ownKey" });
+  assert.deepEqual(lockRequirementOf(hardDeleteLast), { kind: "attribute", lockAttribute: lock });
+
+  // Every option returns a copy and leaves the original unchanged.
+  for (const original of [indexed, secrets]) {
+    assert.equal(lockRequirementOf(original), undefined);
+    assert.equal(isAttributeStoreSynced(original), false);
+    assert.equal(isPlaintextAttributeDefinition(original), false);
+    assert.equal(isHardDeleteOnNullDefinition(original), false);
+  }
+});
+
+test("registry reads Step options once, after the persistence schema", () => {
+  let lock: Attribute<boolean> | undefined;
+  let optionReads = 0;
+  const step: Step<void> = new (class LateLockStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "LateLockStep";
+    }
+    public getStepOptions(): StepOptions {
+      optionReads += 1;
+      assert.ok(lock !== undefined, "Step options were read before the persistence schema");
+      return { executeLockAttributes: [lock.lock()] };
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const flow: Flow<void> = {
+    getFlowType: () => "LateLockFlow",
+    getSteps: () => StepList.startStep(step),
+    getPersistenceSchema: () => {
+      lock = new Attribute("contract-late-lock", booleanCodec);
+      return { attributes: [lock] };
+    },
+  };
+  new Registry([flow]);
+  assert.equal(optionReads, 1);
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {

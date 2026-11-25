@@ -439,6 +439,10 @@ export class Attribute<T> {
    * const cartTotal = new Attribute("cart-total", doubleCodec).writesRequireAttributeLock(cartLock);
    *
    * class CartFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "CartFlow";
+   *   }
+   *
    *   public getSteps() {
    *     return StepList.empty();
    *   }
@@ -794,6 +798,10 @@ export class AttributeMap<T> {
    * const quantities = new AttributeMap("quantities", doubleCodec).writesRequireLock();
    *
    * class InventoryFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "InventoryFlow";
+   *   }
+   *
    *   public getSteps() {
    *     return StepList.empty();
    *   }
@@ -846,6 +854,10 @@ export class AttributeMap<T> {
    * const cartItems = new AttributeMap("cart-items", doubleCodec).writesRequireAttributeLock(cartLock);
    *
    * class CartFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "CartFlow";
+   *   }
+   *
    *   public getSteps() {
    *     return StepList.empty();
    *   }

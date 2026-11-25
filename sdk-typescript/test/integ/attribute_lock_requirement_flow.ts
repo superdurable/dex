@@ -383,6 +383,18 @@ export class AttributeLockRequirementRPCFlow implements Flow {
     lockReqEvents.publish(context, instance, "event");
   }
 
+  @rpc({ inputCodec: stringCodec, lockAttributes: [lockReqCoordination.lock()] })
+  public publishEventLocked(context: Context, instance: string): void {
+    lockReqEvents.publish(context, instance, "event");
+  }
+
+  // Each missing lock appears in the error, writes first.
+  @rpc()
+  public publishAndWriteUnlocked(context: Context): void {
+    lockReqReplies.publish(context, "hi");
+    lockReqTotal.set(context, 2);
+  }
+
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public countEvents(context: Context, instance: string): RPCResult<number> {
     return { output: lockReqEvents.size(context, instance) };
@@ -421,6 +433,118 @@ export class AttributeLockRequirementTimeoutFlow implements Flow {
   public handleTimeout(context: Context): StepDecision {
     lockReqTotal.set(context, 5);
     return forceComplete("expired");
+  }
+}
+
+interface Deferred {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}
+
+function deferred(): Deferred {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+/** Lets a test hold a Step inside its locked execute while it invokes a conflicting RPC. */
+export const lockSnapshotGate = { entered: deferred(), release: deferred() };
+
+export function resetLockSnapshotGate(): void {
+  lockSnapshotGate.entered = deferred();
+  lockSnapshotGate.release = deferred();
+}
+
+/** Registers the RPC with this array; the test empties it after registration. */
+export const lockSnapshotRPCLocks: AttributeLock[] = [lockReqTotal.lock()];
+
+/** Names the required lock only in its first getStepOptions call, which Registry makes. */
+class LockSnapshotHoldStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+  public getStepOptionsCalls = 0;
+
+  public constructor(private readonly stepType: string) {}
+
+  public getStepType(): string {
+    return this.stepType;
+  }
+
+  public getStepOptions(): StepOptions {
+    this.getStepOptionsCalls += 1;
+    return this.getStepOptionsCalls === 1 ? { executeLockAttributes: [lockReqTotal.lock()] } : {};
+  }
+
+  public async execute(context: Context): Promise<StepDecision> {
+    lockSnapshotGate.entered.resolve();
+    await lockSnapshotGate.release.promise;
+    lockReqTotal.set(context, 1);
+    return gracefulComplete("written");
+  }
+}
+
+/** Starts at the holding Step, so the Client sends its default options. */
+export class LockSnapshotStartFlow implements Flow {
+  public readonly hold = new LockSnapshotHoldStep("LockSnapshotStartHoldStep");
+
+  public getFlowType(): string {
+    return "LockSnapshotStartFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.hold);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return lockReqSchema();
+  }
+
+  // A bounded timeout makes a missing lock fail the test instead of waiting on the held Step.
+  @rpc({ inputCodec: doubleCodec, lockAttributes: [lockReqTotal.lock()], timeoutMs: 10_000 })
+  public setTotalLocked(context: Context, value: number): void {
+    lockReqTotal.set(context, value);
+  }
+
+  @rpc({ inputCodec: doubleCodec, lockAttributes: lockSnapshotRPCLocks, timeoutMs: 10_000 })
+  public setTotalWithRegisteredArray(context: Context, value: number): void {
+    lockReqTotal.set(context, value);
+  }
+}
+
+class LockSnapshotDispatchStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public constructor(private readonly hold: LockSnapshotHoldStep) {}
+
+  public getStepType(): string {
+    return "LockSnapshotDispatchStep";
+  }
+
+  public execute(): StepDecision {
+    return goTo(this.hold, undefined);
+  }
+}
+
+/** Moves to the holding Step, so the Worker sends its default options. */
+export class LockSnapshotMovementFlow implements Flow {
+  public readonly hold = new LockSnapshotHoldStep("LockSnapshotMovedHoldStep");
+
+  public getFlowType(): string {
+    return "LockSnapshotMovementFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(new LockSnapshotDispatchStep(this.hold)).otherSteps(this.hold);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return lockReqSchema();
+  }
+
+  @rpc({ inputCodec: doubleCodec, lockAttributes: [lockReqTotal.lock()], timeoutMs: 10_000 })
+  public setMovedTotalLocked(context: Context, value: number): void {
+    lockReqTotal.set(context, value);
   }
 }
 

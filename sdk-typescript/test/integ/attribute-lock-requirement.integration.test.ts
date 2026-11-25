@@ -17,7 +17,9 @@ import {
   Channel,
   ChannelMap,
   FlowDefinitionError,
+  InitialAttribute,
   Registry,
+  RpcLockConflictError,
   WorkerInvocationError,
   booleanCodec,
   doubleCodec,
@@ -30,13 +32,18 @@ import {
   AttributeLockRequirementRPCFlow,
   AttributeLockRequirementStepFlow,
   AttributeLockRequirementTimeoutFlow,
+  LockSnapshotMovementFlow,
+  LockSnapshotStartFlow,
   lockReqFree,
   lockReqItems,
   lockReqShared,
   lockReqSpacedInstance,
   lockReqTotal,
+  lockSnapshotGate,
+  lockSnapshotRPCLocks,
+  resetLockSnapshotGate,
 } from "./attribute_lock_requirement_flow.js";
-import { flowId, withEnvironment } from "./environment.js";
+import { expectError, flowId, withEnvironment } from "./environment.js";
 
 const missingLockErrorType = "MissingAttributeLockError";
 
@@ -219,6 +226,25 @@ test("declared RPC writes and publishes need a registered lock", async () => {
       "the rejected publish is discarded");
     assert.equal(await isSet(client, eventsId, { attribute: lockReqFree }), false,
       "the other buffered write is discarded");
+    await client.invokeRPC(rpcFlow.publishEventLocked, eventsId, lockReqSpacedInstance);
+    assert.equal(await client.invokeRPC(rpcFlow.countEvents, eventsId, lockReqSpacedInstance), 1,
+      "the locked publish commits");
+
+    const accessesId = flowId("lock-req-several-accesses");
+    await client.startFlow(rpcFlow, accessesId, undefined, {
+      attributes: [InitialAttribute.of(lockReqTotal, 3)],
+    });
+    const [initialTotal] = await client.getAttributes(accessesId, lockReqTotal);
+    assert.equal(initialTotal, 3, "initial Attribute values are not checked");
+    await rejectsWithMissingLock(
+      client.invokeRPC(rpcFlow.publishAndWriteUnlocked, accessesId),
+      `RPC "publishAndWriteUnlocked" wrote Attribute "lock-req-total" without the required lock of `
+        + `Attribute "lock-req-total", published to Channel "lock-req-replies" without the required lock of `
+        + `Attribute "lock-req-coordination"`,
+    );
+    assert.equal(await client.invokeRPC(rpcFlow.countReplies, accessesId), 0);
+    const [unchangedTotal] = await client.getAttributes(accessesId, lockReqTotal);
+    assert.equal(unchangedTotal, 3);
 
     const deleteId = flowId("lock-req-delete-unlocked");
     await client.startFlow(rpcFlow, deleteId, undefined);
@@ -230,6 +256,55 @@ test("declared RPC writes and publishes need a registered lock", async () => {
     );
     const [total] = await client.getAttributes(deleteId, lockReqTotal);
     assert.equal(total, 7, "the rejected delete is discarded");
+  });
+});
+
+/** Waits for the holding Step to start, failing with a message instead of hanging. */
+async function holdingStepStarted(): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("the holding Step did not start")), 30_000);
+  });
+  try {
+    await Promise.race([lockSnapshotGate.entered.promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test("Dex acquires the registered locks that the Worker checks", async () => {
+  const startFlow = new LockSnapshotStartFlow();
+  const movementFlow = new LockSnapshotMovementFlow();
+  await withEnvironment([startFlow, movementFlow], async ({ client }) => {
+    assert.equal(startFlow.hold.getStepOptionsCalls, 1, "Registry reads the Step options once");
+    // Emptying the registered array must not drop the lock the Client sends.
+    lockSnapshotRPCLocks.pop();
+
+    resetLockSnapshotGate();
+    const startId = flowId("lock-snapshot-start");
+    await client.startFlow(startFlow, startId, undefined);
+    try {
+      await holdingStepStarted();
+      // The Step holds the total lock, so an RPC that sends the same lock conflicts.
+      await expectError(client.invokeRPC(startFlow.setTotalLocked, startId, 7), RpcLockConflictError);
+      await expectError(client.invokeRPC(startFlow.setTotalWithRegisteredArray, startId, 7), RpcLockConflictError);
+    } finally {
+      lockSnapshotGate.release.resolve();
+    }
+    assert.equal((await client.waitForFlow(startId, 30_000)).singleOutput(stringCodec), "written");
+    assert.deepEqual(await client.getAttributes(startId, lockReqTotal), [1]);
+
+    resetLockSnapshotGate();
+    const movementId = flowId("lock-snapshot-movement");
+    await client.startFlow(movementFlow, movementId, undefined);
+    try {
+      await holdingStepStarted();
+      await expectError(client.invokeRPC(movementFlow.setMovedTotalLocked, movementId, 7), RpcLockConflictError);
+    } finally {
+      lockSnapshotGate.release.resolve();
+    }
+    assert.equal((await client.waitForFlow(movementId, 30_000)).singleOutput(stringCodec), "written");
+    assert.deepEqual(await client.getAttributes(movementId, lockReqTotal), [1]);
   });
 });
 

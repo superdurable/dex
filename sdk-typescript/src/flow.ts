@@ -16,7 +16,7 @@ import { lockRequirementOf } from "./attribute-lock-requirement.js";
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { compileAction, WORK_QUEUE_PERMISSIONS_INDEX_KEY, type RegisteredAction } from "./action.js";
-import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
+import { frozenAttributeLocks, registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import {
   StepList, StepRef, type Step, type StepClass, type StepDecision,
   type StepOptions, type StepTarget,
@@ -142,6 +142,8 @@ export interface RegisteredFlow {
     Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown> | Stream<unknown>
   >;
   readonly streams: ReadonlySet<Stream<unknown>>;
+  /** Registration-time copies of each Step's lock fields; default Step options send these locks. */
+  readonly stepLocks: ReadonlyMap<string, RegisteredStepLocks>;
   /** Registration-time lock keys by Step type; declared lock requirements count only these. */
   readonly stepLockKeys: ReadonlyMap<string, RegisteredStepLockKeys>;
   /** Registration-time lock keys by RPC name; call-time locks never reach the Worker. */
@@ -151,6 +153,36 @@ export interface RegisteredFlow {
 export interface RegisteredStepLockKeys {
   readonly waitFor: ReadonlySet<string>;
   readonly execute: ReadonlySet<string>;
+}
+
+export interface RegisteredStepLocks {
+  readonly waitFor: readonly AttributeLock[] | undefined;
+  readonly execute: readonly AttributeLock[] | undefined;
+}
+
+/**
+ * Returns a Step's default options with the lock fields of its registration snapshot.
+ * The locks Dex acquires then match the locks the Worker checks, even when getStepOptions changes.
+ */
+export function registeredDefaultStepOptions(
+  flow: RegisteredFlow,
+  step: RegisteredStep,
+): StepOptions | undefined {
+  const options = step.step.getStepOptions?.();
+  const locks = flow.stepLocks.get(step.name);
+  if (locks === undefined) {
+    return options;
+  }
+  if (options === undefined && locks.waitFor === undefined && locks.execute === undefined) {
+    return undefined;
+  }
+  const { waitForLockAttributes: _currentWaitForLocks, executeLockAttributes: _currentExecuteLocks, ...others } =
+    options ?? {};
+  return {
+    ...others,
+    ...(locks.waitFor === undefined ? {} : { waitForLockAttributes: locks.waitFor }),
+    ...(locks.execute === undefined ? {} : { executeLockAttributes: locks.execute }),
+  };
 }
 
 interface RegistryMetadata {
@@ -400,13 +432,19 @@ function doRegisterFlow(
   validateRequiredLockAttributes(name, persistence);
   // Read once, so validation and lock enforcement see the same options.
   const stepOptions = new Map<RegisteredStep, StepOptions | undefined>();
+  const stepLocks = new Map<string, RegisteredStepLocks>();
   const stepLockKeys = new Map<string, RegisteredStepLockKeys>();
   for (const registeredStep of steps) {
     const options = registeredStep.step.getStepOptions?.();
     stepOptions.set(registeredStep, options);
+    const locks = {
+      waitFor: copiedLocks(options?.waitForLockAttributes),
+      execute: copiedLocks(options?.executeLockAttributes),
+    };
+    stepLocks.set(registeredStep.name, locks);
     stepLockKeys.set(registeredStep.name, {
-      waitFor: registeredLockKeys(options?.waitForLockAttributes),
-      execute: registeredLockKeys(options?.executeLockAttributes),
+      waitFor: registeredLockKeys(locks.waitFor),
+      execute: registeredLockKeys(locks.execute),
     });
     validateStepStateLoads(name, registeredStep, options, schema);
   }
@@ -453,6 +491,7 @@ function doRegisterFlow(
     actions: Object.freeze(actions),
     persistence,
     streams: new Set(schema.streams ?? []),
+    stepLocks,
     stepLockKeys,
     rpcLockKeys,
   });
@@ -504,6 +543,11 @@ function validateRequiredLockAttributes(
       );
     }
   }
+}
+
+/** Copies a registered lock list; a value that is not an array is kept, so mapping reports it as before. */
+function copiedLocks(locks: readonly AttributeLock[] | undefined): readonly AttributeLock[] | undefined {
+  return Array.isArray(locks) ? frozenAttributeLocks(locks) : locks;
 }
 
 /** Returns the physical lock keys of registered locks, skipping entries that fail to map. */
