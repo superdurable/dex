@@ -788,7 +788,10 @@ when the declaring method receives anything other than an **Attribute**.
 
 The Worker enforces the requirement; the server does not. The Worker compares
 writes with the registered locks, while Dex acquires the locks that each call
-sends. The check cannot see these cases:
+sends. For a Flow that declares a lock requirement, a Flow start, Step
+movement, failure route, or SubFlow start without a Step options override sends
+the target Step's registered locks, captured when the sender builds its
+Registry. The check cannot see these cases:
 
 - In Go, **StepOptions** passed with **WithStepOptions** replace a registered
   lock field only when that field is non-nil. A nil field keeps the registered
@@ -797,22 +800,25 @@ sends. The check cannot see these cases:
   the Step's whole options, including its lock fields. Options that leave out
   the lock run the Step without it. Rust **StepMovement::to_with_options** works
   the same way.
+- Failure routes follow the same rules. In Go, options passed to
+  **ProceedToOnExecuteFailure** or **ProceedToOnFlowTimeoutHandlerFailure**
+  replace a lock field of the target Step only when that field is non-nil. In
+  Python, options passed to **on_execute_failure_proceed_to** or
+  **on_failure_proceed_to** replace the target Step's whole options. Keep the
+  required lock in such options.
 - In Java, the **StepOptions** passed to **StepMovement.of**,
   **StepOptions.Builder.onExecuteFailureProceedTo**, or
   **FlowTimeoutHandlerOptions.Builder.onFailureProceedTo** replace the target
   Step's whole options, as in Python. Options that leave out the lock run the
-  Step without it. Without such options, in a Flow that declares a requirement,
-  each **Registry** reads each Step's **getStepOptions** once, when it is
-  built. A request sends the locks that the sender's **Registry** captured, and
-  the Worker checks against the locks that its own **Registry** captured. A
-  Client and a Worker with separate Registries must capture the same locks, so
-  **getStepOptions** must return the same locks every time.
+  Step without it. The Worker checks against the locks that its own
+  **Registry** captured. A Client and a Worker with separate Registries must
+  capture the same locks, so **getStepOptions** must return the same locks
+  every time.
 - In TypeScript, the **StepOptions** of an **ExecuteFailure** or of the
   **failure** of **FlowTimeoutHandlerOptions** also replace the target Step's
-  whole options. Without such options, in a Flow that declares a requirement,
-  each **Registry** reads each Step's **getStepOptions** once and copies its
-  lock fields and each RPC's **lockAttributes**. As in Java, the sender's and
-  the Worker's Registries must capture the same locks.
+  whole options. In a Flow that declares a requirement, each **Registry** also
+  copies each RPC's **lockAttributes**. As in Java, the sender's and the
+  Worker's Registries must capture the same locks.
 - Dex takes an RPC's locks from the Client's definition. A Client built
   without the lock runs the RPC without it.
 - A Worker built without the declaration does not check it.

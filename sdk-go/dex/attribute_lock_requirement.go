@@ -9,7 +9,6 @@
 package dex
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -37,34 +36,32 @@ type lockRequirement struct {
 	lockAttributeName string
 }
 
-// requiredLockHandler describes one handler invocation and the locks its registration declares.
+// requiredLockHandler describes one handler invocation and the lock keys its registration declares.
 type requiredLockHandler struct {
 	flowType string
 	stepType string
 	method   string
 	rpcName  string
-	locks    []AttributeLock
+	lockKeys []string
 }
 
 func stepRequiredLockHandler(flow *registeredFlow, step *registeredStep, method string) requiredLockHandler {
 	handler := requiredLockHandler{flowType: flow.flowType, stepType: step.stepType, method: method}
-	if step.options == nil {
-		return handler
-	}
 	if method == requiredLockMethodWaitFor {
-		handler.locks = step.options.WaitForLockAttributes
+		handler.lockKeys = step.waitForLockKeys
 	} else {
-		handler.locks = step.options.ExecuteLockAttributes
+		handler.lockKeys = step.executeLockKeys
 	}
 	return handler
 }
 
 func rpcRequiredLockHandler(flow *registeredFlow, rpc *registeredRPC) requiredLockHandler {
-	handler := requiredLockHandler{flowType: flow.flowType, method: requiredLockMethodRPC, rpcName: rpc.durableName}
-	if rpc.options != nil {
-		handler.locks = rpc.options.LockAttributes
+	return requiredLockHandler{
+		flowType: flow.flowType,
+		method:   requiredLockMethodRPC,
+		rpcName:  rpc.durableName,
+		lockKeys: rpc.lockKeys,
 	}
-	return handler
 }
 
 // requiredLockAccess is one buffered write or publish whose definition declares a required lock.
@@ -80,11 +77,7 @@ func checkRequiredAttributeLocks(handler requiredLockHandler, invocation *invoca
 	if len(accesses) == 0 {
 		return nil
 	}
-	lockKeys, err := mapAttributeLocks(handler.locks)
-	if err != nil {
-		return fmt.Errorf("dex: map registered Attribute locks: %w", err)
-	}
-	heldLocks := stringSet(lockKeys)
+	heldLocks := stringSet(handler.lockKeys)
 	var missing []MissingAttributeLockAccess
 	for _, access := range accesses {
 		if _, held := heldLocks[access.lockKey]; !held {

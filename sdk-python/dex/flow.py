@@ -387,6 +387,14 @@ class _RegisteredFlow:
     step_lock_keys: MappingProxyType[str, _StepLockKeys] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    # Options read once at registration; every send uses them, so sent locks match step_lock_keys.
+    step_options: MappingProxyType[str, StepOptions | None] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def registered_step_options(self, step: _RegisteredStep) -> StepOptions | None:
+        """Return the options of ``step`` read when the Registry was built."""
+        return self.step_options.get(step.name)
 
     def action_permission_mappings_for_writes(
         self, writes: Sequence[pb.AttributeWrite]
@@ -696,9 +704,11 @@ class Registry:
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
         step_lock_keys: dict[str, _StepLockKeys] = {}
+        registered_step_options: dict[str, StepOptions | None] = {}
         for registered_step in registered_steps.values():
             # Read once, so validation and lock enforcement see the same options.
             step_options = registered_step.step.get_step_options()
+            registered_step_options[registered_step.name] = step_options
             Registry._validate_step_targets(
                 registered_flow,
                 registered_step,
@@ -708,7 +718,11 @@ class Registry:
             step_lock_keys[registered_step.name] = Registry._step_lock_keys(
                 step_options
             )
-        return replace(registered_flow, step_lock_keys=MappingProxyType(step_lock_keys))
+        return replace(
+            registered_flow,
+            step_lock_keys=MappingProxyType(step_lock_keys),
+            step_options=MappingProxyType(registered_step_options),
+        )
 
     @staticmethod
     def _step_lock_keys(options: StepOptions | None) -> _StepLockKeys:

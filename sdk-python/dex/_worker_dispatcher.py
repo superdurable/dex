@@ -479,7 +479,7 @@ class WorkerDispatcher:
                 (
                     options._execute_failure_options
                     if options._execute_failure_options is not None
-                    else target.step.get_step_options()
+                    else flow.registered_step_options(target)
                 ),
             )
             if target_options is not None:
@@ -570,7 +570,7 @@ class WorkerDispatcher:
                 (
                     options._failure_options
                     if options._failure_options is not None
-                    else target.step.get_step_options()
+                    else flow.registered_step_options(target)
                 ),
             )
             if target_options is not None:
@@ -954,7 +954,7 @@ class WorkerDispatcher:
             (
                 movement.options
                 if movement.options is not None
-                else target.step.get_step_options()
+                else flow.registered_step_options(target)
             ),
         )
         if options is not None:
@@ -1104,7 +1104,7 @@ class _ConditionMapper:
                 sub_flow_index=len(self.sub_flows),
             )
             step_options = self._dispatcher.map_step_options(
-                target, target.start_step.step.get_step_options()
+                target, target.registered_step_options(target.start_step)
             )
             if step_options is not None:
                 mapped_sub_flow.step_options.CopyFrom(step_options)

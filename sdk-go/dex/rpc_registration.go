@@ -25,6 +25,8 @@ type registeredRPC struct {
 	output      reflect.Type
 	options     *RPCOptions
 	action      *registeredAction
+	// lockKeys are copied at registration; the lock check and every invocation use them, not options.
+	lockKeys []string
 }
 
 var (

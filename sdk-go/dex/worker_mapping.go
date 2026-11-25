@@ -12,6 +12,7 @@ package dex
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
@@ -242,7 +243,7 @@ func mapRegisteredMovement(
 	if err != nil {
 		return nil, err
 	}
-	options, err := mapRegisteredStepOptions(target, movement.options)
+	options, err := mapRegisteredStepOptions(flow, target, movement.options)
 	if err != nil {
 		return nil, err
 	}
@@ -253,21 +254,39 @@ func mapRegisteredMovement(
 	}, nil
 }
 
+// mapRegisteredStepOptions maps a movement to step of flow with optional per-movement overrides.
+// Lock keys come from the registration copy unless overrides set that lock field.
 func mapRegisteredStepOptions(
+	flow *registeredFlow,
 	step *registeredStep,
 	overrides *StepOptions,
 ) (*dexpb.StepOptions, error) {
-	options, err := mapStepOptions(mergeStepOptions(step.options, overrides))
+	return mapRegisteredStepOptionsRecursive(flow, step, overrides, make(map[*StepOptions]bool))
+}
+
+func mapRegisteredStepOptionsRecursive(
+	flow *registeredFlow,
+	step *registeredStep,
+	overrides *StepOptions,
+	active map[*StepOptions]bool,
+) (*dexpb.StepOptions, error) {
+	options, err := mapStepOptionsRecursive(flow, mergeStepOptions(step.options, overrides), active)
 	if err != nil {
 		return nil, err
 	}
-	if !step.skipWaitFor {
-		return options, nil
-	}
 	if options == nil {
+		if !step.skipWaitFor {
+			return nil, nil
+		}
 		options = &dexpb.StepOptions{}
 	}
-	options.SkipWaitFor = true
+	if overrides == nil || overrides.WaitForLockAttributes == nil {
+		options.WaitForLockAttributeKeys = slices.Clone(step.waitForLockKeys)
+	}
+	if overrides == nil || overrides.ExecuteLockAttributes == nil {
+		options.ExecuteLockAttributeKeys = slices.Clone(step.executeLockKeys)
+	}
+	options.SkipWaitFor = step.skipWaitFor
 	return options, nil
 }
 

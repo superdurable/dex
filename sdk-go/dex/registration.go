@@ -56,6 +56,9 @@ type registeredStep struct {
 	options     *StepOptions
 	starting    bool
 	skipWaitFor bool
+	// Lock keys copied at registration; the lock check and every send use them, not options.
+	waitForLockKeys []string
+	executeLockKeys []string
 }
 
 type registeredAttribute struct {
@@ -407,7 +410,28 @@ func (flow *registeredFlow) registerSteps(definitions []StepDef) error {
 		if err := flow.validateStepOptions(step.options, step.inputType); err != nil {
 			return fmt.Errorf("step %q options: %w", step.stepType, err)
 		}
+		if err := step.copyRegisteredLockKeys(); err != nil {
+			return fmt.Errorf("step %q options: %w", step.stepType, err)
+		}
 	}
+	return nil
+}
+
+// copyRegisteredLockKeys snapshots the lock keys, so later changes to the options pointer change nothing.
+func (step *registeredStep) copyRegisteredLockKeys() error {
+	if step.options == nil {
+		return nil
+	}
+	waitForLockKeys, err := mapAttributeLocks(step.options.WaitForLockAttributes)
+	if err != nil {
+		return err
+	}
+	executeLockKeys, err := mapAttributeLocks(step.options.ExecuteLockAttributes)
+	if err != nil {
+		return err
+	}
+	step.waitForLockKeys = waitForLockKeys
+	step.executeLockKeys = executeLockKeys
 	return nil
 }
 
@@ -468,6 +492,10 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		}
 		flow.actions = append(flow.actions, action)
 	}
+	_, lockKeys, err := mapRPCOptions(definition.rpcOptions())
+	if err != nil {
+		return fmt.Errorf("RPC %q options: %w", durableName, err)
+	}
 	registered := &registeredRPC{
 		handler:     definition,
 		durableName: durableName,
@@ -476,6 +504,7 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		output:      definition.rpcOutputType(),
 		options:     definition.rpcOptions(),
 		action:      action,
+		lockKeys:    lockKeys,
 	}
 	flow.rpcs[durableName] = registered
 	flow.rpcsByMethod[methodName] = registered
@@ -554,7 +583,7 @@ func (flow *registeredFlow) validateStepOptions(
 	); err != nil {
 		return err
 	}
-	if _, err := mapStepOptions(options); err != nil {
+	if _, err := mapStepOptions(flow, options); err != nil {
 		return err
 	}
 	return nil
@@ -649,7 +678,7 @@ func (flow *registeredFlow) validateFlowTimeoutHandlerOptions(
 			return err
 		}
 	}
-	if _, err := mapFlowTimeoutHandlerOptions(options); err != nil {
+	if _, err := mapFlowTimeoutHandlerOptions(flow, options); err != nil {
 		return err
 	}
 	return nil

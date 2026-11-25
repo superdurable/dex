@@ -92,6 +92,9 @@ type ExecuteFailure struct {
 
 // ProceedToOnExecuteFailure routes an Execute failure to step with the same typed input.
 // options override the recovery Step configuration for this movement; nil uses registered options.
+// Without an override, the movement sends the lock keys that step registered when the Registry was built.
+// A non-nil lock field in options replaces the registered locks for this movement. A declared lock
+// requirement still checks only the registered locks, so keep each required lock in such options.
 func ProceedToOnExecuteFailure[IN any](
 	step Step[IN],
 	options *StepOptions,
@@ -113,6 +116,9 @@ type FlowTimeoutHandlerFailure struct {
 // ProceedToOnFlowTimeoutHandlerFailure routes a timeout handler failure to a no-input Step.
 // options override the recovery Step configuration for this movement; nil uses registered options.
 // The recovery Step receives None and reads the final handler error from Context.
+// Without an override, the movement sends the lock keys that step registered when the Registry was built.
+// A non-nil lock field in options replaces the registered locks for this movement. A declared lock
+// requirement still checks only the registered locks, so keep each required lock in such options.
 func ProceedToOnFlowTimeoutHandlerFailure(
 	step Step[None],
 	options *StepOptions,

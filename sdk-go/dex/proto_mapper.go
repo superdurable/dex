@@ -105,6 +105,7 @@ func mapAttributeSyncConfig(enabled bool) *dexpb.AttributeSyncConfig {
 }
 
 func mapStartFlowOptions(
+	flow *registeredFlow,
 	options StartFlowOptions,
 ) (int32, dexpb.FlowTimeoutPolicy, *dexpb.FlowStartOptions, error) {
 	timeout, err := optionalDurationSeconds32(options.Timeout)
@@ -139,7 +140,7 @@ func mapStartFlowOptions(
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: options.TaskQueue}
-	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(flow, options.TimeoutHandlerOptions)
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
@@ -183,11 +184,14 @@ func mapAlreadyStartedOptions(
 	}
 }
 
-func mapStepOptions(options *StepOptions) (*dexpb.StepOptions, error) {
-	return mapStepOptionsRecursive(options, make(map[*StepOptions]bool))
+// mapStepOptions maps options that name failure targets of flow.
+// A nil flow is allowed only for options without failure targets.
+func mapStepOptions(flow *registeredFlow, options *StepOptions) (*dexpb.StepOptions, error) {
+	return mapStepOptionsRecursive(flow, options, make(map[*StepOptions]bool))
 }
 
 func mapStepOptionsRecursive(
+	flow *registeredFlow,
 	options *StepOptions,
 	active map[*StepOptions]bool,
 ) (*dexpb.StepOptions, error) {
@@ -233,7 +237,7 @@ func mapStepOptionsRecursive(
 		return nil, err
 	}
 	executeFailurePolicy, executeFailureStep, executeFailureOptions, err :=
-		mapExecuteFailure(options.ExecuteFailure, active)
+		mapExecuteFailure(flow, options.ExecuteFailure, active)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +317,7 @@ func timeoutHandlerStateLoads(options *FlowTimeoutHandlerOptions) stateLoads {
 }
 
 func mapFlowTimeoutHandlerOptions(
+	flow *registeredFlow,
 	options *FlowTimeoutHandlerOptions,
 ) (*dexpb.FlowTimeoutHandlerOptions, error) {
 	if options == nil {
@@ -345,7 +350,7 @@ func mapFlowTimeoutHandlerOptions(
 	if err != nil {
 		return nil, fmt.Errorf("dex: timeout handler state load: %w", err)
 	}
-	failurePolicy, failureStep, failureOptions, err := mapFlowTimeoutHandlerFailure(options.Failure)
+	failurePolicy, failureStep, failureOptions, err := mapFlowTimeoutHandlerFailure(flow, options.Failure)
 	if err != nil {
 		return nil, err
 	}
@@ -365,6 +370,7 @@ func mapFlowTimeoutHandlerOptions(
 }
 
 func mapFlowTimeoutHandlerFailure(
+	flow *registeredFlow,
 	failure *FlowTimeoutHandlerFailure,
 ) (dexpb.ExecuteMethodFailurePolicy, string, *dexpb.StepOptions, error) {
 	if failure == nil {
@@ -375,22 +381,22 @@ func mapFlowTimeoutHandlerFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: timeout handler failure target is invalid")
 	}
-	options, err := mapStepOptions(mergeStepOptions(failure.step.stepOptions(), failure.options))
+	target, err := resolveFailureTarget(flow, failure.step)
+	if err != nil {
+		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
+			"", nil, fmt.Errorf("dex: timeout handler failure target: %w", err)
+	}
+	options, err := mapRegisteredStepOptions(flow, target, failure.options)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
-	if failure.step.skipWaitFor() {
-		if options == nil {
-			options = &dexpb.StepOptions{}
-		}
-		options.SkipWaitFor = true
-	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		failure.step.stepType(), options, nil
+		target.stepType, options, nil
 }
 
 func mapExecuteFailure(
+	flow *registeredFlow,
 	failure *ExecuteFailure,
 	active map[*StepOptions]bool,
 ) (
@@ -407,22 +413,26 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
-	options, err := mapStepOptionsRecursive(
-		mergeStepOptions(failure.step.stepOptions(), failure.options),
-		active,
-	)
+	target, err := resolveFailureTarget(flow, failure.step)
+	if err != nil {
+		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
+			"", nil, fmt.Errorf("dex: Execute failure target: %w", err)
+	}
+	options, err := mapRegisteredStepOptionsRecursive(flow, target, failure.options, active)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
-	if failure.step.skipWaitFor() {
-		if options == nil {
-			options = &dexpb.StepOptions{}
-		}
-		options.SkipWaitFor = true
-	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		failure.step.stepType(), options, nil
+		target.stepType, options, nil
+}
+
+// resolveFailureTarget returns the registered Step, so a failure route sends its registered options.
+func resolveFailureTarget(flow *registeredFlow, step StepDef) (*registeredStep, error) {
+	if flow == nil {
+		return nil, fmt.Errorf("a failure target requires a registered Flow")
+	}
+	return flow.resolveStepReference(step)
 }
 
 func mapRetryPolicy(policy *RetryPolicy) (*dexpb.RetryPolicy, error) {
@@ -681,7 +691,7 @@ func (mapper *conditionMapper) add(
 		if inputErr != nil {
 			return "", inputErr
 		}
-		stepOptions, optionsErr := mapRegisteredStepOptions(target.startingStep, nil)
+		stepOptions, optionsErr := mapRegisteredStepOptions(target, target.startingStep, nil)
 		if optionsErr != nil {
 			return "", optionsErr
 		}
@@ -805,7 +815,7 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
-	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(target, options.TimeoutHandlerOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -858,85 +868,6 @@ func mapSubFlowReusePolicy(policy SubFlowReusePolicy) (dexpb.SubFlowReusePolicy,
 		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_UNSPECIFIED,
 			fmt.Errorf("dex: invalid SubFlow reuse policy %d", policy)
 	}
-}
-
-func mapStepDecision(decision *StepDecision) (*dexpb.StepDecision, error) {
-	if decision == nil {
-		return nil, fmt.Errorf("dex: step decision must not be nil")
-	}
-	switch decision.kind {
-	case decisionNext:
-		if len(decision.movements) == 0 {
-			return nil, fmt.Errorf("dex: GoToMany requires at least one movement")
-		}
-		movements, err := mapStepMovements(decision.movements)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{NextSteps: movements}, nil
-	case decisionClose:
-		if len(decision.movements) != 0 {
-			return nil, fmt.Errorf("dex: close decision cannot have next steps")
-		}
-		closeDecision, err := mapCloseDecision(decision.close, false)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{CloseDecision: closeDecision}, nil
-	case decisionConditionalClose:
-		if len(decision.movements) == 0 {
-			return nil, fmt.Errorf("dex: conditional close requires fallback movements")
-		}
-		movements, err := mapStepMovements(decision.movements)
-		if err != nil {
-			return nil, err
-		}
-		closeDecision, err := mapCloseDecision(decision.close, true)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{
-			NextSteps:     movements,
-			CloseDecision: closeDecision,
-		}, nil
-	default:
-		return nil, fmt.Errorf("dex: Execute returned an empty decision")
-	}
-}
-
-func mapStepMovements(
-	movements []StepMovement,
-) ([]*dexpb.StepMovement, error) {
-	mapped := make([]*dexpb.StepMovement, 0, len(movements))
-	for _, movement := range movements {
-		value, err := mapStepMovement(movement)
-		if err != nil {
-			return nil, err
-		}
-		mapped = append(mapped, value)
-	}
-	return mapped, nil
-}
-
-func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
-	if !validStepDef(movement.step) {
-		return nil, fmt.Errorf("dex: movement target is invalid")
-	}
-	input, err := encodeValue(movement.input)
-	if err != nil {
-		return nil, err
-	}
-	options, err := mapStepOptions(
-		mergeStepOptions(movement.step.stepOptions(), movement.options),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &dexpb.StepMovement{
-		StepType:    movement.step.stepType(),
-		StepInput:   input,
-		StepOptions: options,
-	}, nil
 }
 
 func mapCloseDecision(
@@ -1017,26 +948,6 @@ func mapUniqueChannels(channels []ChannelDef) ([]string, error) {
 		mapped = append(mapped, name)
 	}
 	return mapped, nil
-}
-
-func mapRPCResult[OUT any](result *RPCResult[OUT]) (*dexpb.InvokeWorkerRPCResponse, error) {
-	if result == nil {
-		return nil, fmt.Errorf("dex: RPC returned nil")
-	}
-	output, err := encodeValue(result.Output)
-	if err != nil {
-		return nil, err
-	}
-	response := &dexpb.InvokeWorkerRPCResponse{Output: output}
-	if len(result.NextSteps) == 0 {
-		return response, nil
-	}
-	nextSteps, err := mapStepMovements(result.NextSteps)
-	if err != nil {
-		return nil, err
-	}
-	response.StepDecision = &dexpb.StepDecision{NextSteps: nextSteps}
-	return response, nil
 }
 
 func mapFlowResult(
