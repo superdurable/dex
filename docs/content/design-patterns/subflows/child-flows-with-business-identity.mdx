@@ -20,14 +20,15 @@ The order starts each shipment as its own top-level Flow. The shipment number is
 
 ## How it works
 
-1. `StartShipments` checks the order: the reconcile interval is positive, no delivery delay is negative, and every shipment number is unique. An invalid order fails before it starts any shipment. The Step registers each number as `starting` in the order's records, then starts one branch per shipment.
-2. `StartShipment` starts a `ShipmentFlow` through the Client. Its Flow ID is the shipment number. Its request ID is a digest of the complete start request, so a retried Step repeats the same start. The shipment gets its own Flow timeout.
-3. `StartShipment` then claims the run: it records the run ID that the start returned. From then on, the order accepts reports and reads of that run only.
-4. The shipment delivers. `DeliverShipment` stores its outcome in the `shipmentOutcome` Attribute.
-5. `ReportShipmentOutcome` calls the order's report RPC with its own run ID. The RPC is `RecordShipmentOutcome` in Go, `record_shipment_outcome` in Python, and `recordShipmentOutcome` in Java, TypeScript, and Rust. It fills the outcome in the shipment's record.
-6. `AwaitShipment` reads the claimed run at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
+1. `StartShipments` starts one branch per shipment.
+2. `StartShipment` starts a `ShipmentFlow` through the Client. Its Flow ID is the shipment number. The shipment gets its own Flow timeout. `StartShipment` saves the run ID that the start returns.
+3. The shipment delivers. `DeliverShipment` stores its outcome in the `shipmentOutcome` Attribute.
+4. `ReportShipmentOutcome` calls the order's report RPC with its own run ID. The RPC is `RecordShipmentOutcome` in Go, `record_shipment_outcome` in Python, and `recordShipmentOutcome` in Java, TypeScript, and Rust. It fills the outcome in the shipment's record.
+5. `AwaitShipment` reads that run at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
 
-A shipment that fails or times out on its own never reports, because its report Step never runs. The interval read in step 6 covers it. A child can also route its terminal failure to a recovery Step, or its timeout to a timeout handler, that reports to the parent. Keep each shipment's Flow timeout longer than its retry budget.
+A shipment that fails or times out on its own never reports, because its report Step never runs. The interval read in step 5 covers it. A child can also route its terminal failure to a recovery Step, or its timeout to a timeout handler, that reports to the parent. Keep each shipment's Flow timeout longer than its retry budget.
+
+The [Production checklist](#production-checklist) covers the edge cases the example handles.
 
 <SdkTabs
   examples={{
@@ -1107,13 +1108,7 @@ impl Step for ReportShipmentOutcome {
 
 The order keeps one record per shipment in the `shipmentRecords` AttributeMap, keyed by the shipment number. The record holds the status, the claimed run ID, and the outcome as separate fields.
 
-Every writer of the records locks the singleton `shipmentRecordsLock` Attribute: the Steps that register, claim, and read shipments, and the report RPC. The lock Attribute stores no value; it only lets one writer at a time change the records. A report that meets the lock fails with a lock conflict, and the shipment retries it.
-
-The report RPC accepts a report only from the claimed run:
-
-- A shipment that is still `starting` has no claimed run yet. The RPC fails, and the shipment retries the report.
-- A report for an unknown or `rejected` number, from another run, or for a record that already has an outcome changes nothing.
-- Otherwise the RPC fills the outcome.
+The report RPC fills the outcome in the shipment's record. The [Production checklist](#production-checklist) lists which reports it accepts.
 
 <SdkTabs
   examples={{
@@ -1302,18 +1297,9 @@ fn rpcs(&self) -> RpcList<Self> {
 </SdkSnippet>
 </SdkTabs>
 
-`AwaitShipment` reads the claimed run in this order:
-
-1. Describe the shipment. A running claimed run is read again at the next interval, even after its report arrived.
-2. A closed claimed run: record its status, then read its outcome Attribute. An unset Attribute means the shipment ended without an outcome. The Attribute read sees the shipment's latest run, so the Step describes the shipment again. It keeps the outcome only when the claimed run is still the latest one.
-3. When the shipment cannot be found, or another run of the same number replaced the claimed one, the order records `unavailable`. That is a business policy.
-4. Any other error fails the Step, so Dex retries it.
-
-The order learns the terminal status of a claimed run while the order runs and the run stays the shipment's latest run. Once another caller reopens the number, or the run's data is deleted, the order can no longer read it.
+`AwaitShipment` describes the shipment at each interval. A running shipment is read again at the next interval, even after its report arrived. A closed shipment gets its status recorded, and its outcome when no report filled it.
 
 The support team can cancel a shipment by its number. A shipment canceled before its outcome commits has no outcome; the order records it as `canceled`. A shipment canceled after its outcome commits, or after it sent its report, can still have an outcome, and the order keeps it.
-
-A shipment number belongs to one order. When another request already used the number, the start fails with a typed already-started error. The example records that shipment as `rejected` and ignores reports for it. Give each business attempt its own shipment number.
 
 ## Look up a shipment by its number {#lookup}
 
@@ -1626,6 +1612,16 @@ Choose a top-level child Flow when the child needs its own identity:
 - It can outlive the parent, with its own Flow timeout.
 
 The cost is more code. The parent starts the child, claims its run, receives its report, and reads it until it ends.
+
+## Production checklist {#production-checklist}
+
+- **Claim the child run.** After the start returns, `StartShipment` records the run ID. From then on, the order accepts reports and reads of that run only. The order first registers each number as `starting`. Every writer of the records locks the singleton `shipmentRecordsLock` Attribute: the Steps that register, claim, and read shipments, and the report RPC. The lock Attribute stores no value; it lets one writer at a time change the records. A report that meets the lock fails with a lock conflict, and the shipment retries it.
+- **Accept reports only from the claimed run.** A shipment that is still `starting` has no claimed run yet. The RPC fails, and the shipment retries the report. A report for an unknown or `rejected` number, from another run, or for a record that already has an outcome changes nothing. Otherwise the RPC fills the outcome.
+- **Read the result, then confirm the run.** `AwaitShipment` calls `reconcileShipment` (`reconcile_shipment` in Python and Rust). Its first Describe records `unavailable` only when the Flow is not found or its run ID differs from the claimed one. After it reads a terminal status, it reads the outcome Attribute. An unset Attribute means the shipment ended without an outcome. When the Attribute read returns FlowNotFound, the function keeps the status and skips the second Describe. The Attribute read sees the shipment's latest run. When it succeeds, the function describes the shipment again to check the run ID. When the run is gone or replaced, the function keeps the status and drops this read's outcome. Reports the order already received stay in the record.
+- **Retry other read errors.** Any other error fails the `AwaitShipment` Step, so Dex retries it.
+- **Plan for a shipment number reused later.** When the shipment cannot be found, or another run of the same number replaced the claimed one, the order records `unavailable`. That is a business policy. The order learns the terminal status of a claimed run while the order runs and the run stays the shipment's latest run. Once another caller reopens the number, or the run's data is deleted, the order can no longer read it. A shipment number belongs to one order. When another request already used the number, the start fails with a typed already-started error. The example records that shipment as `rejected` and ignores reports for it. Give each business attempt its own shipment number.
+- **Reject duplicate numbers in one order.** `StartShipments` checks the order before it starts anything: the reconcile interval is positive, no delivery delay is negative, and every shipment number is unique.
+- **Hash the start request.** The request ID of the start is a digest of the complete start request, so a retried Step repeats the same start.
 
 ## Next
 

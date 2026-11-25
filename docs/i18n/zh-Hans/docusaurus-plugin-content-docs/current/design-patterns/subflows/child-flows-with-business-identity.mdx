@@ -20,14 +20,15 @@ import shipmentFlowDefinition from '@site/src/data/flow-definitions/design-patte
 
 ## 工作方式 {#how-it-works}
 
-1. `StartShipments` 先检查订单：对账间隔为正数，送达延迟不是负数，发货单号都不重复。无效的订单在启动任何发货单之前失败。然后这个 Step 在订单的记录里把每个单号登记为 `starting`，再为每个发货单启动一个分支。
-2. `StartShipment` 通过 Client 启动一个 `ShipmentFlow`。它的 Flow ID 是发货单号。它的 request ID 是完整启动请求的摘要，所以重试的 Step 重复的是同一次启动。发货单有自己的 Flow timeout。
-3. 接着 `StartShipment` 认领这个 run：它记录启动返回的 run ID。从这以后，订单只接受这个 run 的报告和读取。
-4. 发货单送达。`DeliverShipment` 把结果存进 `shipmentOutcome` Attribute。
-5. `ReportShipmentOutcome` 带着自己的 run ID 调用订单的报告 RPC。这个 RPC 在 Go 里是 `RecordShipmentOutcome`，在 Python 里是 `record_shipment_outcome`，在 Java、TypeScript 和 Rust 里是 `recordShipmentOutcome`。它把结果填进该发货单的记录。
-6. `AwaitShipment` 每隔一段时间读取一次被认领的 run。仍在运行的发货单稍后再读。发货单关闭后，它记录终止状态；如果报告还没有填入结果，它也记录已存储的结果。
+1. `StartShipments` 为每个发货单启动一个分支。
+2. `StartShipment` 通过 Client 启动一个 `ShipmentFlow`。它的 Flow ID 是发货单号。发货单有自己的 Flow timeout。`StartShipment` 保存启动返回的 run ID。
+3. 发货单送达。`DeliverShipment` 把结果存进 `shipmentOutcome` Attribute。
+4. `ReportShipmentOutcome` 带着自己的 run ID 调用订单的报告 RPC。这个 RPC 在 Go 里是 `RecordShipmentOutcome`，在 Python 里是 `record_shipment_outcome`，在 Java、TypeScript 和 Rust 里是 `recordShipmentOutcome`。它把结果填进该发货单的记录。
+5. `AwaitShipment` 每隔一段时间读取一次这个 run。仍在运行的发货单稍后再读。发货单关闭后，它记录终止状态；如果报告还没有填入结果，它也记录已存储的结果。
 
-自己失败或超时的发货单不会报告，因为它的报告 Step 不会运行。第 6 步的定时读取会处理它。子 Flow 也可以把最终失败转到一个恢复 Step，或把超时交给 timeout handler，由它们向父 Flow 报告。每个发货单的 Flow timeout 要长于它的重试预算。
+自己失败或超时的发货单不会报告，因为它的报告 Step 不会运行。第 5 步的定时读取会处理它。子 Flow 也可以把最终失败转到一个恢复 Step，或把超时交给 timeout handler，由它们向父 Flow 报告。每个发货单的 Flow timeout 要长于它的重试预算。
+
+示例处理的边界情况见[生产检查清单](#production-checklist)。
 
 <SdkTabs
   examples={{
@@ -1107,13 +1108,7 @@ impl Step for ReportShipmentOutcome {
 
 订单在 `shipmentRecords` AttributeMap 里为每个发货单保存一条记录，以发货单号为键。记录把状态、被认领的 run ID 和结果分成三个字段。
 
-所有写这些记录的地方都锁住单例 Attribute `shipmentRecordsLock`：登记、认领和读取发货单的 Step，以及报告 RPC。这个锁 Attribute 不存任何值，只让写入方一次一个地修改记录。报告遇到锁时会返回锁冲突错误，发货单会重试它。
-
-报告 RPC 只接受被认领的 run 发来的报告：
-
-- 状态仍是 `starting` 的发货单还没有被认领的 run。RPC 返回错误，发货单会重试报告。
-- 未知或 `rejected` 的单号、来自其他 run 的报告、或者记录里已经有结果时，报告都不会改变什么。
-- 其余情况下，RPC 填入结果。
+报告 RPC 把结果填进发货单的记录。它接受哪些报告，见[生产检查清单](#production-checklist)。
 
 <SdkTabs
   examples={{
@@ -1302,18 +1297,9 @@ fn rpcs(&self) -> RpcList<Self> {
 </SdkSnippet>
 </SdkTabs>
 
-`AwaitShipment` 按这个顺序读取被认领的 run：
-
-1. 描述发货单。被认领的 run 仍在运行时，在下一个间隔再读，即使它的报告已经到达。
-2. 被认领的 run 已关闭：先记录状态，再读它的结果 Attribute。Attribute 未设置表示发货单结束时没有结果。Attribute 读取看到的是发货单最新的 run，所以 Step 会再描述一次发货单。只有被认领的 run 仍是最新的 run 时，它才保留结果。
-3. 找不到发货单，或者同一单号的另一个 run 取代了被认领的 run 时，订单记录 `unavailable`。这是业务策略。
-4. 其他错误让 Step 失败，Dex 会重试它。
-
-订单运行期间，只要被认领的 run 仍是发货单最新的 run，订单就能知道它的终止状态。其他调用方重新使用这个单号，或者这个 run 的数据被删除之后，订单就读不到它了。
+`AwaitShipment` 每隔一段时间描述一次发货单。仍在运行的发货单在下一个间隔再读，即使它的报告已经到达。已关闭的发货单会记录状态；报告还没有填入结果时，也记录结果。
 
 客服团队可以按单号取消发货单。在结果提交之前被取消的发货单没有结果，订单把它记录为 `canceled`。在结果提交之后、或在报告发出之后被取消的发货单仍可能有结果，订单会保留它。
-
-一个发货单号只属于一个订单。另一个请求已经用过这个单号时，启动会返回带类型的 already-started 错误。示例把这个发货单记录为 `rejected`，并忽略发给它的报告。每次业务尝试都使用自己的发货单号。
 
 ## 按单号查找发货单 {#lookup}
 
@@ -1626,6 +1612,16 @@ async fn describe_shipment(
 - 它可以比父 Flow 活得更久，有自己的 Flow timeout。
 
 代价是更多代码。父 Flow 要启动子 Flow、认领它的 run、接收它的报告，并一直读取它，直到它结束。
+
+## 生产检查清单 {#production-checklist}
+
+- **认领子 run。** 启动返回后，`StartShipment` 记录 run ID。从这以后，订单只接受这个 run 的报告和读取。订单先把每个单号登记为 `starting`。所有写这些记录的地方都锁住单例 Attribute `shipmentRecordsLock`：登记、认领和读取发货单的 Step，以及报告 RPC。这个锁 Attribute 不存任何值，只让写入方一次一个地修改记录。报告遇到锁时会返回锁冲突错误，发货单会重试它。
+- **只接受被认领的 run 发来的报告。** 状态仍是 `starting` 的发货单还没有被认领的 run。RPC 返回错误，发货单会重试报告。未知或 `rejected` 的单号、来自其他 run 的报告、或者记录里已经有结果时，报告都不会改变什么。其余情况下，RPC 填入结果。
+- **先读结果，再确认 run。** `AwaitShipment` 调用 `reconcileShipment`（Python 和 Rust 里是 `reconcile_shipment`）。它的第一次 Describe 只在找不到 Flow，或 run ID 与被认领的不同时，才记录 `unavailable`。读到终止状态后，它读结果 Attribute。Attribute 未设置表示发货单结束时没有结果。Attribute 读取返回 FlowNotFound 时，函数保留这个状态，并跳过第二次 Describe。Attribute 读取看到的是发货单最新的 run。读取成功时，函数再描述一次发货单，检查 run ID。run 已消失或被取代时，函数保留状态，丢弃这次读取的结果。订单已经收到的报告仍保留在记录里。
+- **其他读取错误会重试。** 其他错误让 `AwaitShipment` 这个 Step 失败，Dex 会重试它。
+- **考虑发货单号以后被重新使用。** 找不到发货单，或者同一单号的另一个 run 取代了被认领的 run 时，订单记录 `unavailable`。这是业务策略。订单运行期间，只要被认领的 run 仍是发货单最新的 run，订单就能知道它的终止状态。其他调用方重新使用这个单号，或者这个 run 的数据被删除之后，订单就读不到它了。一个发货单号只属于一个订单。另一个请求已经用过这个单号时，启动会返回带类型的 already-started 错误。示例把这个发货单记录为 `rejected`，并忽略发给它的报告。每次业务尝试都使用自己的发货单号。
+- **拒绝同一订单里的重复单号。** `StartShipments` 在启动任何发货单之前先检查订单：对账间隔为正数，送达延迟不是负数，发货单号都不重复。
+- **对启动请求做摘要。** 启动的 request ID 是完整启动请求的摘要，所以重试的 Step 重复的是同一次启动。
 
 ## 下一步 {#next}
 
