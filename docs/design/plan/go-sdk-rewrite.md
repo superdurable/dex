@@ -576,7 +576,6 @@ type WorkerOptions struct {
 	GrpcMaxMessageBytes int
 	FlowDefinitionPaths []string
 	FlowDefinitions     []FlowDefinitionDocument
-	FailOnUnlockedAttributeReadModifyWrite bool
 }
 
 type FlowDefinitionDocument struct {
@@ -628,19 +627,7 @@ func NewWorker(
 func (worker *Worker) WaitPullRegistered(ctx context.Context) error
 func (worker *Worker) Start() error
 func (worker *Worker) Stop(ctx context.Context) error
-func (worker *Worker) UnlockedAttributeReadModifyWriteCount() uint64
 ```
-
-Go SDK 1.45.17 checks each successful WaitFor, Execute, and RPC invocation for
-an Attribute or AttributeMap instance that it read from its snapshot and then
-wrote without a registered lock. The Worker logs one warning per Flow type,
-handler, and Attribute and counts each detection. With
-`WorkerOptions.FailOnUnlockedAttributeReadModifyWrite`, the invocation returns
-`*UnlockedAttributeReadModifyWriteError` instead. `Attribute.DeclareSingleWriter`
-and `AttributeMap.DeclareSingleWriter` exempt one invocation when no other
-invocation, including another one of the same handler, can write the key at the
-same time. The doc comment of
-`FailOnUnlockedAttributeReadModifyWrite` states the exact rule.
 
 `NewWorker` requires the already validated Registry and BlobCache. Passing nil
 for either required dependency panics. It returns option errors before opening

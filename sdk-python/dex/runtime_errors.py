@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Sequence
+from typing import Literal
 
 import grpc
 
@@ -366,108 +365,6 @@ class InvalidStepResultError(FlowDefinitionError):
         self.step_type = step_type
         self.method = method
         self.detail = detail
-
-
-@dataclass(frozen=True)
-class UnlockedAttributeAccess:
-    """Name one Attribute, or one AttributeMap instance, read and then written without a lock.
-
-    Attributes:
-        attribute_name: The Attribute or AttributeMap name.
-        instance: The AttributeMap instance, or ``None`` for a singleton Attribute.
-
-    .. versionadded:: 1.45.18
-    """
-
-    attribute_name: str
-    instance: str | None = None
-
-
-class UnlockedAttributeReadModifyWriteError(RuntimeError):
-    """Report a handler invocation that read and then wrote an Attribute without a lock.
-
-    A Worker raises it only when
-    ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write`` is true. Dex
-    then discards the changes buffered for the invocation's result. Stream
-    writes that the Step already sent and external side effects stay. Dex
-    reports it like any other handler error: it retries a Step method under
-    the Step's retry policy and returns the failure to the RPC caller. Each
-    attempt is checked on its own, so an attempt that repeats the access fails
-    again.
-
-    Fix the handler. Lock the Attribute with :meth:`Attribute.lock` or
-    :meth:`AttributeMap.lock` in the handler's registered options. Call
-    :meth:`Attribute.declare_single_writer` or
-    :meth:`AttributeMap.declare_single_writer` only when no other invocation,
-    including another invocation of the same handler, can write it at the same
-    time. See ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write``
-    for the exact rule.
-
-    The exception exists only inside the Worker. A Client that invokes the RPC
-    receives a ``WorkerInvocationError`` whose ``worker_error_type`` is
-    ``"dex.runtime_errors.UnlockedAttributeReadModifyWriteError"`` and whose
-    ``worker_error_detail`` is this exception's message.
-
-    Attributes:
-        flow_type: The Flow type whose handler ran.
-        step_type: The Step type, or ``None`` for an RPC.
-        method: ``"wait_for"``, ``"execute"``, or ``"rpc"``.
-        rpc_name: The RPC name, or ``None`` for a Step method.
-        attributes: Every unlocked Attribute and AttributeMap instance, sorted
-            by stored key.
-
-    Examples:
-        >>> try:
-        ...     client.invoke_rpc(counter_flow.increment, "counter-1")
-        ... except WorkerInvocationError as error:
-        ...     if error.worker_error_type == (
-        ...         "dex.runtime_errors.UnlockedAttributeReadModifyWriteError"
-        ...     ):
-        ...         print(f"fix the RPC's Attribute locks: {error.worker_error_detail}")
-
-    .. versionadded:: 1.45.18
-    """
-
-    def __init__(
-        self,
-        flow_type: str,
-        step_type: str | None,
-        method: Literal["wait_for", "execute", "rpc"],
-        rpc_name: str | None,
-        attributes: Sequence[UnlockedAttributeAccess],
-    ) -> None:
-        """Create the error for one handler invocation.
-
-        Args:
-            flow_type: The Flow type whose handler ran.
-            step_type: The Step type, or ``None`` for an RPC.
-            method: ``"wait_for"``, ``"execute"``, or ``"rpc"``.
-            rpc_name: The RPC name, or ``None`` for a Step method.
-            attributes: Every unlocked Attribute and AttributeMap instance.
-        """
-        handler = (
-            f"Flow {flow_type!r} RPC {rpc_name!r}"
-            if method == "rpc"
-            else f"Flow {flow_type!r} Step {step_type!r} {method}"
-        )
-        accesses = ", ".join(
-            (
-                f"Attribute {access.attribute_name!r}"
-                if access.instance is None
-                else f"AttributeMap {access.attribute_name!r} instance {access.instance!r}"
-            )
-            for access in attributes
-        )
-        super().__init__(
-            f"{handler} read and then wrote {accesses} without a lock, so a "
-            "concurrent invocation can overwrite the update; lock it in the "
-            "handler's registered options"
-        )
-        self.flow_type = flow_type
-        self.step_type = step_type
-        self.method = method
-        self.rpc_name = rpc_name
-        self.attributes = tuple(attributes)
 
 
 class ValueMappingError(RuntimeError):

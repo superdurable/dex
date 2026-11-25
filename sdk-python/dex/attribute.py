@@ -323,62 +323,6 @@ class Attribute(Generic[ValueT]):
         """
         context._delete_attribute(cast(Attribute[object], self), None)
 
-    def declare_single_writer(self, context: Context) -> None:
-        """Tell the Worker that no other invocation can write the Attribute meanwhile.
-
-        A Worker checks every successful ``wait_for``, ``execute``, and RPC
-        invocation. When the invocation reads an Attribute with :meth:`get` and
-        later writes it with :meth:`set` or :meth:`delete`, and the handler's
-        registered options do not lock it, the Worker logs a warning once per
-        Flow type, handler, and Attribute. With
-        ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write``, the
-        invocation fails with ``UnlockedAttributeReadModifyWriteError`` instead.
-        See that option for the exact rule.
-
-        The declaration is a promise about every invocation of the Flow run,
-        not about the handler's code. Call this method only when no other
-        invocation can write the Attribute while this one runs. That includes
-        another execution of the same Step type and another call of the same
-        RPC: every RPC call can run in parallel with others, and a Flow can run
-        several executions of one Step type at once. One valid case is an
-        Attribute that only one Step writes, where the Flow's decisions never
-        schedule a second execution of that Step before the first one ends.
-        When the promise does not hold, lock the Attribute with :meth:`lock`.
-
-        Do not use the declaration to silence a report about a lock the Worker
-        cannot see, such as a lock in a ``StepMovement``'s options: a later call
-        that leaves out the lock would be accepted too. Move a fixed lock into
-        the handler's registered options instead, or keep the default warning
-        mode for that Worker.
-
-        The declaration applies to the current invocation only, and it may
-        come before or after the read and the write. It changes nothing that
-        Dex stores, and it does not lock the Attribute. It does nothing for a
-        Context that Dex did not create, such as an application's own test
-        fake.
-
-        Example::
-
-            class RecordAttempt(Step[None]):
-                def __init__(self, attempts: Attribute[int]) -> None:
-                    self._attempts = attempts
-
-                def execute(self, context: Context, input: None) -> StepDecision:
-                    self._attempts.declare_single_writer(context)
-                    self._attempts.set(context, self._attempts.get(context) + 1)
-                    return graceful_complete()
-
-        Args:
-            context: The current handler Context.
-
-        Raises:
-            ValueError: If this definition is not registered in the current
-                Flow's ``PersistenceSchema``.
-
-        .. versionadded:: 1.45.18
-        """
-        _declare_single_writer(context, cast(Attribute[object], self), None)
-
     def lock(self) -> AttributeLock:
         """Return a lock request for this Attribute.
 
@@ -628,48 +572,6 @@ class AttributeMap(Generic[ValueT]):
         """
         context._delete_attribute(cast(AttributeMap[object], self), instance)
 
-    def declare_single_writer(self, context: Context, instance: str) -> None:
-        """Tell the Worker that no other invocation can write one map instance meanwhile.
-
-        The Worker checks each AttributeMap instance on its own, the same way
-        :meth:`Attribute.declare_single_writer` describes for a singleton
-        Attribute. The same promise applies: no other invocation, including
-        another execution of the same Step type or another call of the same
-        RPC, writes the instance while this one runs. Do not use it to silence
-        a report about a per-call lock the Worker cannot see. When the promise
-        does not hold, lock the instance with :meth:`lock`.
-
-        The declaration covers only the given instance and only the current
-        invocation. It may come before or after the read and the write. It
-        changes nothing that Dex stores, and it does not lock the instance. It
-        does nothing for a Context that Dex did not create.
-
-        Example::
-
-            class CloseTicket(Step[str]):
-                def __init__(self, tickets: AttributeMap[Ticket]) -> None:
-                    self._tickets = tickets
-
-                def execute(self, context: Context, ticket_id: str) -> StepDecision:
-                    self._tickets.declare_single_writer(context, ticket_id)
-                    ticket = self._tickets.get(context, ticket_id)
-                    self._tickets.set(context, ticket_id, replace(ticket, status="closed"))
-                    return graceful_complete()
-
-        Args:
-            context: The current handler Context.
-            instance: The map instance. Slash is prohibited because it is a reserved character.
-
-        Raises:
-            ValueError: If ``instance`` is empty or contains ``/``, or if this
-                definition is not registered in the current Flow's
-                ``PersistenceSchema``.
-
-        .. versionadded:: 1.45.18
-        """
-        require_map_instance(instance)
-        _declare_single_writer(context, cast(AttributeMap[object], self), instance)
-
     def get_map_size(self, context: Context) -> int:
         """Return the number of existing instances, including buffered writes.
 
@@ -763,17 +665,6 @@ class AttributeLock:
     def __post_init__(self) -> None:
         if self.instance is not None:
             require_map_instance(self.instance)
-
-
-def _declare_single_writer(
-    context: Context,
-    definition: Attribute[object] | AttributeMap[object],
-    instance: str | None,
-) -> None:
-    # Not a Context member, so application Context implementations keep type-checking.
-    declare = getattr(context, "_declare_single_writer", None)
-    if callable(declare):
-        declare(definition, instance)
 
 
 def _apply_attribute_store_sync(

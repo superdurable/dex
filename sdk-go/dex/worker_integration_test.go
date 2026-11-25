@@ -2061,8 +2061,7 @@ func newWorkerClientForServerProtocol(
 	}
 	registered, err := NewRegistry(flows)
 	require.NoError(t, err)
-	return &workerDispatchTestClient{service: newWorkerService(registered, hydrator, nil, serverProtocol, newDisabledPayloadEncryption(),
-		newUnlockedAttributeReadModifyWriteCheck(false, nil))}, func() {}
+	return &workerDispatchTestClient{service: newWorkerService(registered, hydrator, nil, serverProtocol, newDisabledPayloadEncryption())}, func() {}
 }
 
 func invokeWaitForResult(

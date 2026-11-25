@@ -16,7 +16,6 @@ from google.protobuf import empty_pb2
 
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
-from dex._attribute_lock_check import UnlockedAttributeReadModifyWriteCheck
 from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._flow_definition_upload import (
     flow_definition_uploader,
@@ -121,15 +120,11 @@ class AsyncWorker:
         values = ValueMapper(registry.codec_registry)
         payloads = AsyncPayloadMessageCodec(self.options.payload_encryption, registry)
         payloads.transformer.require_plaintext_action_conditions()
-        self._attribute_lock_check = UnlockedAttributeReadModifyWriteCheck(
-            self.options.fail_on_unlocked_attribute_read_modify_write
-        )
         dispatcher = AsyncWorkerDispatcher(
             registry,
             values,
             AsyncValueHydrator(self._flow_service, blob_cache, payloads),
             self._server_protocol,
-            self._attribute_lock_check,
         )
         self._has_start_called = False
         self._pull = PullWorkerRuntime(
@@ -295,29 +290,6 @@ class AsyncWorker:
             >>> declines = worker.pull_reserved_rpc_declines
         """
         return self._pull.reserved_rpc_declines
-
-    @property
-    def unlocked_attribute_read_modify_write_count(self) -> int:
-        """Return how many unlocked Attribute read-modify-writes this Worker detected.
-
-        Each Attribute or AttributeMap instance that one invocation reads and
-        then writes without a lock adds one, whether the Worker only warned or
-        failed the invocation. A retry that repeats the access adds one again.
-        Export the value to your metrics system to watch for the pattern in
-        production, where the Worker logs only the first warning per Flow type,
-        handler, and Attribute. See
-        ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write`` for the
-        rule. It is safe to read from any thread.
-
-        Returns:
-            The number of detections since the Worker was constructed.
-
-        Examples:
-            >>> detections = worker.unlocked_attribute_read_modify_write_count
-
-        .. versionadded:: 1.45.18
-        """
-        return self._attribute_lock_check.detection_count
 
     def pull_registration_state(self) -> PullRegistrationState:
         """Return an immutable snapshot of execution slot kind registrations.

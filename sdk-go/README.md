@@ -696,24 +696,6 @@ func (RemoteOrderFlow) Cancel(dex.Context, string) (*dex.RPCResult[bool], error)
 }
 ```
 
-## Unlocked read-modify-write check
-
-A Worker reports a WaitFor, Execute, or RPC invocation that reads an Attribute
-and then writes it without a registered lock. It logs a warning by default and
-counts detections in `Worker.UnlockedAttributeReadModifyWriteCount`. Fail such
-invocations in tests and local development:
-
-```go
-worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-	FailOnUnlockedAttributeReadModifyWrite: true,
-})
-```
-
-Call `DeclareSingleWriter` instead of locking only when no other invocation,
-including another execution of the same Step type or another call of the same
-RPC, can write the Attribute at the same time. See the doc comment of
-`WorkerOptions.FailOnUnlockedAttributeReadModifyWrite` for the exact rule.
-
 ## Attribute Store synchronization
 
 Opt an Attribute or AttributeMap into the Flow's external latest-state

@@ -18,7 +18,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -56,11 +55,6 @@ type invocationContext struct {
 	attributes          map[string]*dexpb.Value
 	attributeWrites     map[string]*dexpb.AttributeWrite
 	attributeWriteOrder []string
-	// attributeAccessTrackingMu guards the two maps below; concurrent Gets in one handler are valid.
-	attributeAccessTrackingMu sync.Mutex
-	// attributeSnapshotReads holds keys read before this invocation wrote them.
-	attributeSnapshotReads            map[string]attributeAccessKey
-	attributeSingleWriterDeclarations map[string]struct{}
 
 	locals          map[string]*dexpb.Value
 	localWrites     map[string]*dexpb.KV
@@ -133,29 +127,27 @@ func newInvocationContext(
 		invocationHandlerContext, outputEmitter = newStepOutputEmitter(ctx, outputStream)
 	}
 	invocation := &invocationContext{
-		Context:                           invocationHandlerContext,
-		method:                            method,
-		flow:                              flow,
-		outputEmitter:                     outputEmitter,
-		active:                            true,
-		serverProtocol:                    serverProtocol,
-		payloadEncryption:                 payloadEncryption,
-		flowID:                            metadata.FlowId,
-		runID:                             metadata.RunId,
-		flowStartedAt:                     time.Unix(metadata.FlowStartedTimestamp, 0),
-		attributes:                        attributeValues,
-		attributeWrites:                   make(map[string]*dexpb.AttributeWrite),
-		attributeSnapshotReads:            make(map[string]attributeAccessKey),
-		attributeSingleWriterDeclarations: make(map[string]struct{}),
-		locals:                            localValues,
-		localWrites:                       make(map[string]*dexpb.KV),
-		events:                            make(map[string]struct{}),
-		conditionResults:                  conditionResults,
-		channelSizes:                      sizes,
-		loadedChannelMessages:             loadedChannelMessages,
-		loadedAttributeMapInstances:       stringSet(loadedAttributeMapInstances),
-		loadedChannelNames:                stringSet(loadedChannelNames),
-		loadedChannelMapInstances:         stringSet(loadedChannelMapInstances),
+		Context:                     invocationHandlerContext,
+		method:                      method,
+		flow:                        flow,
+		outputEmitter:               outputEmitter,
+		active:                      true,
+		serverProtocol:              serverProtocol,
+		payloadEncryption:           payloadEncryption,
+		flowID:                      metadata.FlowId,
+		runID:                       metadata.RunId,
+		flowStartedAt:               time.Unix(metadata.FlowStartedTimestamp, 0),
+		attributes:                  attributeValues,
+		attributeWrites:             make(map[string]*dexpb.AttributeWrite),
+		locals:                      localValues,
+		localWrites:                 make(map[string]*dexpb.KV),
+		events:                      make(map[string]struct{}),
+		conditionResults:            conditionResults,
+		channelSizes:                sizes,
+		loadedChannelMessages:       loadedChannelMessages,
+		loadedAttributeMapInstances: stringSet(loadedAttributeMapInstances),
+		loadedChannelNames:          stringSet(loadedChannelNames),
+		loadedChannelMapInstances:   stringSet(loadedChannelMapInstances),
 	}
 	if method != invocationRPC {
 		invocation.stepExecutionID = metadata.StepExecutionId
@@ -595,14 +587,6 @@ func (invocation *invocationContext) getAttributeValue(
 		}
 		return true, nil
 	}
-	invocation.attributeAccessTrackingMu.Lock()
-	invocation.attributeSnapshotReads[physical] = attributeAccessKey{
-		physical: physical,
-		name:     name,
-		instance: instance,
-		isMap:    isMap,
-	}
-	invocation.attributeAccessTrackingMu.Unlock()
 	value, found := invocation.attributes[physical]
 	if !found {
 		return false, nil
@@ -738,58 +722,6 @@ func (invocation *invocationContext) bufferAttributeWrite(
 		invocation.attributeWriteOrder = append(invocation.attributeWriteOrder, write.Key)
 	}
 	invocation.attributeWrites[write.Key] = write
-}
-
-// attributeAccessKey identifies one Attribute or AttributeMap instance read by an invocation.
-type attributeAccessKey struct {
-	physical string
-	name     string
-	instance string
-	isMap    bool
-}
-
-func (invocation *invocationContext) declareAttributeSingleWriter(
-	name string,
-	instance string,
-	isMap bool,
-) error {
-	if err := invocation.requireActive(
-		invocationWaitFor,
-		invocationExecute,
-		invocationRPC,
-	); err != nil {
-		return err
-	}
-	_, physical, err := invocation.resolveAttribute(name, instance, isMap)
-	if err != nil {
-		return err
-	}
-	invocation.attributeAccessTrackingMu.Lock()
-	defer invocation.attributeAccessTrackingMu.Unlock()
-	invocation.attributeSingleWriterDeclarations[physical] = struct{}{}
-	return nil
-}
-
-// attributeReadModifyWriteCandidates returns keys read from the snapshot and then written, sorted by key.
-// Keys declared with DeclareSingleWriter are excluded.
-func (invocation *invocationContext) attributeReadModifyWriteCandidates() []attributeAccessKey {
-	invocation.attributeAccessTrackingMu.Lock()
-	defer invocation.attributeAccessTrackingMu.Unlock()
-	var candidates []attributeAccessKey
-	for _, physical := range invocation.attributeWriteOrder {
-		read, found := invocation.attributeSnapshotReads[physical]
-		if !found {
-			continue
-		}
-		if _, declared := invocation.attributeSingleWriterDeclarations[physical]; declared {
-			continue
-		}
-		candidates = append(candidates, read)
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].physical < candidates[j].physical
-	})
-	return candidates
 }
 
 func (invocation *invocationContext) publishChannel(name string, value any) error {

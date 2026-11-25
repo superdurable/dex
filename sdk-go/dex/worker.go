@@ -90,59 +90,6 @@ type WorkerOptions struct {
 	//
 	// Since 1.45.16.
 	PayloadEncryption PayloadEncryptionOptions
-	// FailOnUnlockedAttributeReadModifyWrite fails a handler invocation that reads and then writes
-	// an Attribute without locking it. Default: false logs a warning instead.
-	//
-	// Two Steps or RPCs that read an Attribute and then write it can overwrite each other's update
-	// unless both lock it. The Worker checks every WaitFor, Execute, and RPC invocation that returns
-	// without an error. It reports an Attribute, or an AttributeMap instance, when all of these hold:
-	//   - The invocation read it with Get before the invocation wrote it. A read that finds no
-	//     value counts. A read after the invocation's own Set or Delete does not count, and
-	//     neither do AllInstanceKeys and MapSize.
-	//   - The invocation then wrote it with Set or Delete.
-	//   - The handler's registered options do not lock it: StepOptions.WaitForLockAttributes or
-	//     StepOptions.ExecuteLockAttributes for a Step method, and RPCOptions.LockAttributes for an
-	//     RPC.
-	//   - The handler did not call DeclareSingleWriter for it in this invocation.
-	//   - For an AttributeMap instance, the handler's registered options load it, either the
-	//     whole map or that instance.
-	//
-	// A Step that only reads, a Step that only writes, and a read of one Attribute that computes a
-	// write of another are not reported.
-	//
-	// The Worker sees only the locks that the handler registers. It cannot see locks chosen for
-	// one call: RPCInvokeOptions.LockAttributeMapInstances, the locks of a WithStepOptions movement,
-	// and FlowTimeoutHandlerOptions. This limits the check:
-	//   - The last condition skips an AttributeMap instance that only a per-call selection loads,
-	//     so the runtime-selected lock and load pattern is not reported. A call that loads the
-	//     instance but leaves out the lock is not reported either.
-	//   - A singleton Attribute locked only by WithStepOptions, or a registered map load combined
-	//     with a per-call instance lock, is reported. Move a fixed lock into the registered
-	//     options, or keep the default warning mode for that Worker.
-	//   - The Worker assumes that a Client sent the RPC's registered locks. A Client built from an
-	//     older definition without the lock is not reported, and neither is a movement that drops
-	//     a registered lock.
-	//   - Flow timeout handlers are not checked.
-	//   - Counting instances with MapSize or listing them with AllInstanceKeys and then writing a
-	//     new instance is not reported, and neither is an invariant across several keys.
-	//
-	// When this field is false, the Worker logs one warning per Flow type, handler, and Attribute
-	// name, and the invocation succeeds unchanged. When it is true, the invocation returns
-	// UnlockedAttributeReadModifyWriteError, and Dex discards the changes buffered for its result.
-	// Stream writes that the Step already sent and external side effects stay. Dex retries a failed
-	// Step method under its retry policy and returns the error to an RPC caller. Each attempt is
-	// checked on its own, so an attempt that repeats the access fails again. Either way,
-	// UnlockedAttributeReadModifyWriteCount counts each detection.
-	//
-	// Turn it on in tests and in local development with dexcli dev, so an unlocked
-	// read-modify-write fails before it reaches production.
-	//
-	//	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-	//		FailOnUnlockedAttributeReadModifyWrite: true,
-	//	})
-	//
-	// Since 1.45.17.
-	FailOnUnlockedAttributeReadModifyWrite bool
 }
 
 // PullWorkerOptions configures outbound execution slot streams.
@@ -426,7 +373,6 @@ type Worker struct {
 	logger                    Logger
 	pull                      *pullWorker
 	flowDefinitions           []FlowDefinitionDocument
-	attributeLockCheck        *unlockedAttributeReadModifyWriteCheck
 	// cancelFlowDefinitionUpload is set under lifecycleMu before Start uploads; Stop calls it when set.
 	cancelFlowDefinitionUpload context.CancelFunc
 
@@ -513,10 +459,6 @@ func newWorker(
 
 	flowService := dexpb.NewFlowServiceClient(flowConn)
 	serverProtocol := &negotiatedServerProtocol{}
-	attributeLockCheck := newUnlockedAttributeReadModifyWriteCheck(
-		options.FailOnUnlockedAttributeReadModifyWrite,
-		logger,
-	)
 	service := newWorkerService(
 		registry,
 		newValueHydrator(
@@ -528,7 +470,6 @@ func newWorker(
 		logger,
 		serverProtocol,
 		payloadEncryption,
-		attributeLockCheck,
 	)
 	pullOptions := PullWorkerOptions{}
 	if options.Pull != nil {
@@ -551,27 +492,9 @@ func newWorker(
 		logger:                    logger,
 		pull:                      pull,
 		flowDefinitions:           flowDefinitions,
-		attributeLockCheck:        attributeLockCheck,
 		state:                     workerCreated,
 		done:                      make(chan struct{}),
 	}, nil
-}
-
-// UnlockedAttributeReadModifyWriteCount returns how many unlocked Attribute read-modify-writes
-// this Worker has detected since NewWorker.
-//
-// Each Attribute or AttributeMap instance that one invocation reads and then writes without a lock
-// adds one, whether the Worker only warned or failed the invocation. A retry that repeats the
-// access adds one again. Export the value to your metrics system to watch for the pattern in
-// production, where the Worker logs only the first warning per Flow type, handler, and Attribute.
-// See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite for the rule. It is safe to call from
-// any goroutine.
-//
-//	unlockedWrites.Set(float64(worker.UnlockedAttributeReadModifyWriteCount()))
-//
-// Since 1.45.17.
-func (worker *Worker) UnlockedAttributeReadModifyWriteCount() uint64 {
-	return worker.attributeLockCheck.count()
 }
 
 func resolveWorkerOptions(

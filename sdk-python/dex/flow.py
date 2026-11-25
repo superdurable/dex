@@ -343,14 +343,6 @@ class Flow(Generic[StartT], ABC):
 
 
 @dataclass(frozen=True)
-class _AttributeLockScope:
-    """Registered lock keys and AttributeMap load keys of one Step method."""
-
-    lock_keys: frozenset[str] = frozenset()
-    map_load_keys: frozenset[str] = frozenset()
-
-
-@dataclass(frozen=True)
 class _RegisteredStep:
     name: str
     step: Step[Any]
@@ -358,9 +350,6 @@ class _RegisteredStep:
     input_codec: Codec[Any]
     starting: bool
     skips_wait_for: bool
-    # Snapshotted at registration, so a check never calls application code after a handler.
-    wait_for_lock_scope: _AttributeLockScope = _AttributeLockScope()
-    execute_lock_scope: _AttributeLockScope = _AttributeLockScope()
 
 
 @dataclass(frozen=True)
@@ -695,87 +684,14 @@ class Registry:
             attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
-        return Registry._with_step_attribute_lock_scopes(registered_flow)
-
-    @staticmethod
-    def _with_step_attribute_lock_scopes(
-        registered_flow: _RegisteredFlow,
-    ) -> _RegisteredFlow:
-        # Reads each Step's options once, for both validation and the lock check snapshot.
-        scoped_steps: dict[str, _RegisteredStep] = {}
-        for step_name, registered_step in registered_flow.steps.items():
-            options = registered_step.step.get_step_options()
+        for registered_step in registered_steps.values():
             Registry._validate_step_targets(
-                registered_flow, registered_step, options, set()
-            )
-            wait_for_lock_scope, execute_lock_scope = (
-                Registry._step_attribute_lock_scopes(options)
-            )
-            scoped_steps[step_name] = replace(
+                registered_flow,
                 registered_step,
-                wait_for_lock_scope=wait_for_lock_scope,
-                execute_lock_scope=execute_lock_scope,
+                registered_step.step.get_step_options(),
+                set(),
             )
-        start_step = registered_flow.start_step
-        return replace(
-            registered_flow,
-            steps=MappingProxyType(scoped_steps),
-            steps_by_class=MappingProxyType(
-                {
-                    step_class: tuple(scoped_steps[step.name] for step in steps)
-                    for step_class, steps in registered_flow.steps_by_class.items()
-                }
-            ),
-            start_step=None if start_step is None else scoped_steps[start_step.name],
-        )
-
-    @staticmethod
-    def _step_attribute_lock_scopes(
-        options: StepOptions | None,
-    ) -> tuple[_AttributeLockScope, _AttributeLockScope]:
-        if not isinstance(options, StepOptions):
-            return _AttributeLockScope(), _AttributeLockScope()
-        return (
-            Registry._attribute_lock_scope(
-                options.wait_for_lock_attributes,
-                options.wait_for_load_attribute_maps,
-                options.wait_for_load_attribute_map_instances,
-            ),
-            Registry._attribute_lock_scope(
-                options.execute_lock_attributes,
-                options.execute_load_attribute_maps,
-                options.execute_load_attribute_map_instances,
-            ),
-        )
-
-    @staticmethod
-    def _attribute_lock_scope(
-        locks: Sequence[AttributeLock],
-        map_loads: Sequence[AttributeMap[Any]],
-        instance_loads: Sequence[AttributeMapLoad],
-    ) -> _AttributeLockScope:
-        # Invalid entries are skipped here, so mapping the options reports them as before.
-        lock_keys: set[str] = set()
-        for lock in locks:
-            if not isinstance(lock, AttributeLock):
-                continue
-            try:
-                lock_keys.add(Registry._physical_lock(lock))
-            except ValueError:
-                continue
-        map_load_keys: set[str] = {
-            f"{attribute_map.name}/"
-            for attribute_map in map_loads
-            if isinstance(attribute_map, AttributeMap)
-        }
-        for load in instance_loads:
-            if not isinstance(load, AttributeMapLoad):
-                continue
-            try:
-                map_load_keys.add(load.physical_name)
-            except ValueError:
-                continue
-        return _AttributeLockScope(frozenset(lock_keys), frozenset(map_load_keys))
+        return registered_flow
 
     @staticmethod
     def _validate_step_targets(

@@ -11,9 +11,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from inspect import isawaitable, isgenerator
-from typing import Any, Callable, Generator, Literal, cast
+from typing import Any, Callable, Generator, cast
 
-from dex._attribute_lock_check import UnlockedAttributeReadModifyWriteCheck
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._server_protocol import NegotiatedServerProtocol
 from dex._value_hydrator import ValueHydrator
@@ -36,13 +35,7 @@ from dex.condition import (
     TimerCondition,
 )
 from dex.dexpb import dex_pb2 as pb
-from dex.flow import (
-    Registry,
-    RPCResult,
-    _RegisteredFlow,
-    _RegisteredRPC,
-    _RegisteredStep,
-)
+from dex.flow import Registry, RPCResult, _RegisteredFlow, _RegisteredStep
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_options import (
     FlowTimeoutHandlerOptions,
@@ -79,7 +72,6 @@ class WorkerDispatcher:
         values: ValueMapper,
         hydrator: ValueHydrator,
         server_protocol: NegotiatedServerProtocol,
-        attribute_lock_check: UnlockedAttributeReadModifyWriteCheck | None = None,
     ) -> None:
         if server_protocol is None:
             raise ValueError("WorkerDispatcher requires a NegotiatedServerProtocol")
@@ -87,27 +79,6 @@ class WorkerDispatcher:
         self._values = values
         self._hydrator = hydrator
         self._server_protocol = server_protocol
-        # None in a Client, which maps options but never runs handlers.
-        self._attribute_lock_check = attribute_lock_check
-
-    def _check_step_attribute_locks(
-        self,
-        flow: _RegisteredFlow,
-        step: _RegisteredStep,
-        method: Literal["wait_for", "execute"],
-        context: InvocationContext,
-    ) -> None:
-        if self._attribute_lock_check is not None:
-            self._attribute_lock_check.check_step(flow, step, method, context)
-
-    def _check_rpc_attribute_locks(
-        self,
-        flow: _RegisteredFlow,
-        rpc: _RegisteredRPC,
-        context: InvocationContext,
-    ) -> None:
-        if self._attribute_lock_check is not None:
-            self._attribute_lock_check.check_rpc(flow, rpc, context)
 
     def invoke_wait_for(
         self,
@@ -147,7 +118,6 @@ class WorkerDispatcher:
         try:
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
-            self._check_step_attribute_locks(flow, step, "wait_for", context)
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
                 action_permission_mappings=self._result_action_permission_mappings(
@@ -214,7 +184,6 @@ class WorkerDispatcher:
         try:
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
-            self._check_step_attribute_locks(flow, step, "execute", context)
             yield pb.InvokeExecuteMethodOutput(
                 result=pb.InvokeExecuteMethodResponse(
                     step_decision=self._map_decision(flow, decision),
@@ -368,7 +337,6 @@ class WorkerDispatcher:
                 response.output.CopyFrom(self._values.encode_dynamic(None))
             else:
                 raise TypeError("RPC must return RPCResult or None")
-            self._check_rpc_attribute_locks(flow, rpc, context)
             return response
         except ValueMappingError:
             raise

@@ -142,8 +142,6 @@ from dex.runtime_errors import (
     LongPollTimeoutError,
     RequestTimeoutError,
     RpcLockConflictError,
-    UnlockedAttributeAccess,
-    UnlockedAttributeReadModifyWriteError,
     ValueMappingError,
     WorkerInvocationError,
 )
@@ -319,8 +317,6 @@ __all__ = [
     "StopType",
     "Timer",
     "TimerId",
-    "UnlockedAttributeAccess",
-    "UnlockedAttributeReadModifyWriteError",
     "Value",
     "ValueMappingError",
     "Wait",

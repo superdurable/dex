@@ -41,8 +41,6 @@ from dex import (
     StreamMessage,
     StreamMessagesPage,
     SubFlowOptions,
-    UnlockedAttributeAccess,
-    UnlockedAttributeReadModifyWriteError,
     Worker,
     WorkerOptions,
     graceful_complete,
@@ -209,22 +207,6 @@ def compile_lifecycle(client: Client, worker: Worker) -> None:
 pull_worker_options: WorkerOptions = WorkerOptions(
     pull=PullWorkerOptions(max_concurrent_tasks=8, idle_streams_per_queue=1)
 )
-strict_lock_check_options: WorkerOptions = WorkerOptions(
-    fail_on_unlocked_attribute_read_modify_write=True
-)
-
-
-def compile_unlocked_read_modify_write_check(
-    context: Context, worker: Worker, error: UnlockedAttributeReadModifyWriteError
-) -> None:
-    status.declare_single_writer(context)
-    items.declare_single_writer(context, "order-1")
-    assert_type(worker.unlocked_attribute_read_modify_write_count, int)
-    access: UnlockedAttributeAccess = error.attributes[0]
-    assert_type(access.instance, str | None)
-    assert_type(error.rpc_name, str | None)
-
-
 pull_start_options: StartFlowOptions = StartFlowOptions(
     config_override=FlowConfig(step_durability=StepDurability.SYNC)
 )

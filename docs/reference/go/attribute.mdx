@@ -23,7 +23,6 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Count AttributeMap instances and list their keys | **AttributeMap.MapSize** and **AttributeMap.AllInstanceKeys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Load AttributeMap values for a method | **AttributeMap.Load**, with the load fields of **StepOptions** or **RPCOptions** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Lock a value for a read-modify-write | **LockAttribute** and **LockAttributeMap**, with the lock fields of **StepOptions** or **LockAttributes** of **RPCOptions** | [Locks](/reference/server/runtime-data#attribute-locks) |
-| Detect an unlocked read-modify-write (since 1.45.17) | **WorkerOptions.FailOnUnlockedAttributeReadModifyWrite**, **Worker.UnlockedAttributeReadModifyWriteCount**, **UnlockedAttributeReadModifyWriteError**, and **DeclareSingleWriter** to exempt this invocation when no other invocation can write the same key concurrently | [Unlocked read-modify-write check](/reference/server/runtime-data#unlocked-read-modify-write-check) |
 | Index a value for search | **Indexed**, with **AttributeIndex** and **IndexType** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
 | Project writes to an Attribute Store | **SyncToAttributeStore** | [Attribute sync](/reference/server/attribute-store-sync) |
 | Store a value that can be erased | **HardDeleteOnNull** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |

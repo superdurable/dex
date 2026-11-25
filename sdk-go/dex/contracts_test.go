@@ -671,16 +671,6 @@ var _ = dex.ClientOptions{PayloadEncryption: dex.PayloadEncryptionOptions{
 	MaxPlaintextBytes:        1 << 22,
 }}
 var _ = dex.WorkerOptions{PayloadEncryption: dex.PayloadEncryptionOptions{}}
-var _ = dex.WorkerOptions{FailOnUnlockedAttributeReadModifyWrite: true}
-var _ func(*dex.Worker) uint64 = (*dex.Worker).UnlockedAttributeReadModifyWriteCount
-var _ func(dex.Attribute[int], dex.Context) error = dex.Attribute[int].DeclareSingleWriter
-var _ func(dex.AttributeMap[int], dex.Context, string) error = dex.AttributeMap[int].DeclareSingleWriter
-var _ error = &dex.UnlockedAttributeReadModifyWriteError{
-	FlowType:   "OrderFlow",
-	StepType:   "ApproveStep",
-	Method:     "Execute",
-	Attributes: []dex.UnlockedAttributeAccess{{AttributeName: "orders", Instance: "order-1"}},
-}
 var _ = dex.PayloadContext{FlowType: "OrderFlow", FlowID: "order-1"}
 var _ error = &dex.PayloadDecodeError{Category: dex.PayloadErrorUnknownKey, KeyID: "k1"}
 var _ = dex.ErrPayloadCodecNotConfigured
