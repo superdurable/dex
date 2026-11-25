@@ -105,15 +105,24 @@ class NonRetryableError(Exception):
     also non-retryable.
 
     It may wrap or be wrapped by a :class:`RetryAfterError`; the non-retryable
-    request wins and no retry runs. Raised from an RPC handler, it has no
-    effect, because RPC handlers never retry.
+    request wins and no retry runs. The marker also counts when it is the
+    explicit cause of the raised exception (``raise Other() from marked``) or a
+    member of an exception group, such as the group Dex raises when a buffered
+    Stream finalizer also fails. Dex then reports the outer exception. Raised
+    from an RPC handler, it has no effect, because RPC handlers never retry.
 
     It needs server-zd 0.1.38 or later. An older server ignores the request
     and retries the attempt under the retry policy.
 
     Example::
 
-        from dex import NonRetryableError, graceful_complete
+        from dex import (
+            Context,
+            NonRetryableError,
+            Step,
+            StepDecision,
+            graceful_complete,
+        )
 
         class ChargeStep(Step[Order]):
             def execute(self, context: Context, input: Order) -> StepDecision:
@@ -153,21 +162,46 @@ class NonRetryableError(Exception):
 def _unwrap_worker_failure(
     error: BaseException,
 ) -> tuple[BaseException, RetryAfterError | None, bool]:
-    """Return the failure to report, the retry-after request or None, and whether it is non-retryable."""
+    """Return the failure to report, the outermost retry-after request or None, and whether it is non-retryable.
+
+    The reported failure is the first one under the RetryAfterError and NonRetryableError
+    wrappers. A marker anywhere in the explicit cause chains and exception group members,
+    such as the group Dex builds when a buffered Stream finalizer also fails, makes it
+    non-retryable.
+    """
     reported = error
     retry_after_error: RetryAfterError | None = None
-    is_non_retryable = False
-    while True:
-        if isinstance(reported, RetryAfterError) and retry_after_error is None:
-            retry_after_error = reported
+    unwrapped: set[int] = set()
+    while id(reported) not in unwrapped:
+        unwrapped.add(id(reported))
+        if isinstance(reported, RetryAfterError):
+            retry_after_error = retry_after_error or reported
             reported = reported.cause
-        elif isinstance(reported, NonRetryableError) and not is_non_retryable:
-            is_non_retryable = True
-            if reported.cause is None:
-                return reported, retry_after_error, is_non_retryable
+        elif isinstance(reported, NonRetryableError) and reported.cause is not None:
             reported = reported.cause
         else:
-            return reported, retry_after_error, is_non_retryable
+            break
+    return reported, retry_after_error, _has_non_retryable_marker(error)
+
+
+def _has_non_retryable_marker(error: BaseException) -> bool:
+    """Return whether a NonRetryableError appears in the explicit causes or group members."""
+    pending: list[BaseException] = [error]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        if isinstance(current, NonRetryableError):
+            return True
+        if isinstance(current, RetryAfterError):
+            pending.append(current.cause)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(current.exceptions)
+    return False
 
 
 _HAS_DEX_ERROR_DETAILS = "_has_dex_error_details"

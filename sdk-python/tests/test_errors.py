@@ -7,6 +7,7 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any, cast
 
 import grpc
@@ -35,6 +36,7 @@ from dex._grpc_errors import (
     _worker_error_status,
     translate_rpc_error,
 )
+from dex._invocation_context import InvocationContext
 from dex.dexpb import dex_pb2 as pb
 
 
@@ -156,6 +158,66 @@ def test_worker_error_status_marks_non_retryable_and_reports_the_cause(
     assert worker_error.non_retryable
     assert worker_error.error_type == "builtins.KeyError"
     assert worker_error.detail == str(cause)
+
+
+class _FailingFinalizer:
+    def _finalize_step_output(self) -> None:
+        raise RuntimeError("finalizer failed")
+
+
+def _unpacked_worker_error(failure: BaseException) -> pb.WorkerErrorResponse:
+    worker_error = pb.WorkerErrorResponse()
+    _worker_error_status(failure).details[0].Unpack(worker_error)
+    return worker_error
+
+
+def test_worker_error_status_finds_the_marker_in_the_sdk_finalizer_group() -> None:
+    context = SimpleNamespace(
+        _step_outputs_finalized=False,
+        _step_output_finalizers=[_FailingFinalizer()],
+    )
+    marked = retry_after(7, NonRetryableError(KeyError("card rejected")))
+    group = InvocationContext._finalize_step_outputs(cast(Any, context), marked)
+    assert isinstance(group, BaseExceptionGroup)
+
+    worker_error = _unpacked_worker_error(group)
+
+    assert worker_error.non_retryable
+    assert "finalization failed" in worker_error.detail
+
+
+def test_worker_error_status_finds_the_marker_through_explicit_causes() -> None:
+    marked = NonRetryableError(KeyError("card rejected"))
+    try:
+        raise RuntimeError("charge failed") from marked
+    except RuntimeError as wrapper:
+        worker_error = _unpacked_worker_error(wrapper)
+
+    assert worker_error.non_retryable
+    assert worker_error.error_type == "builtins.RuntimeError"
+    assert worker_error.detail == "charge failed"
+
+
+def test_worker_error_status_keeps_the_outer_retry_after_through_repeated_wrappers() -> (
+    None
+):
+    cause = KeyError("card rejected")
+    failure = retry_after(7, NonRetryableError(retry_after(8, cause)))
+
+    worker_error = _unpacked_worker_error(failure)
+
+    assert worker_error.non_retryable
+    assert worker_error.retry_after_seconds == 7
+    assert worker_error.error_type == "builtins.KeyError"
+
+
+def test_worker_error_status_stops_on_cause_cycles() -> None:
+    first = RuntimeError("first")
+    second = RuntimeError("second")
+    first.__cause__ = second
+    second.__cause__ = first
+
+    assert not _unpacked_worker_error(first).non_retryable
 
 
 def test_worker_error_status_reports_a_message_non_retryable_error_itself() -> None:
