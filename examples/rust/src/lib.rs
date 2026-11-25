@@ -74,7 +74,7 @@ pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 5] = [
     "ContractEditFlow",
     "CreditCheckFlow",
     "LoanApplicationFlow",
-    "SupportTicketFlow",
+    "SupportTicketConversationFlow",
 ];
 
 /// Workflow Patterns Flows, in `examples/workflow-patterns-mapping.md` group order.

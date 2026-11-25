@@ -21,6 +21,7 @@ import { StepExecutionId, TimerId, stringCodec } from "@superdurable/dex";
 
 import {
   CURRENT_TRANSCRIPT_CHUNK,
+  MAX_REPLY_LENGTH,
   supportTicketFlow,
   transcriptChunks,
 } from "../../src/patterns/inbound-event-loop/support-ticket-flow.js";
@@ -93,6 +94,22 @@ test("inbound event loop records replies before the resolution", async () => {
     "printer is offline",
     "restarted it, still offline",
   ]);
+});
+
+test("inbound event loop counts reply length in characters", async () => {
+  const flowId = await startSupportTicket("inbound-event-loop-length");
+  // Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+  const longestReply = "😀".repeat(MAX_REPLY_LENGTH);
+
+  await assert.rejects(
+    environment.client.invokeRPC(supportTicketFlow.sendTicketReply, flowId, `${longestReply}😀`),
+    /reply text exceeds 4000 characters/,
+  );
+  await environment.client.invokeRPC(supportTicketFlow.sendTicketReply, flowId, longestReply);
+  await environment.client.invokeRPC(supportTicketFlow.resolveTicket, flowId, "answered");
+
+  assert.equal(await completedOutput(flowId), "resolved: answered");
+  assert.deepEqual(await transcriptTexts(flowId), [longestReply]);
 });
 
 test("inbound event loop closes a quiet ticket", async () => {

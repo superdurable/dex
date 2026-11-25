@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -51,14 +52,14 @@ var (
 	TranscriptChunks  = dex.DefineAttributeMap[TranscriptChunk]("transcriptChunks")
 )
 
-// SupportTicketFlow records ticket replies until a resolution arrives or the ticket goes quiet.
-type SupportTicketFlow struct{ dex.FlowDefaults }
+// SupportTicketConversationFlow records ticket replies until a resolution arrives or the ticket goes quiet.
+type SupportTicketConversationFlow struct{ dex.FlowDefaults }
 
-func NewSupportTicketFlow() *SupportTicketFlow {
-	return &SupportTicketFlow{}
+func NewSupportTicketConversationFlow() *SupportTicketConversationFlow {
+	return &SupportTicketConversationFlow{}
 }
 
-func (*SupportTicketFlow) GetSteps() []dex.StepDef {
+func (*SupportTicketConversationFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(AwaitTicketMessage{}),
 		dex.DefineStep(CloseResolvedTicket{}),
@@ -66,14 +67,14 @@ func (*SupportTicketFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (flow *SupportTicketFlow) GetRPCs() []dex.RPCDef {
+func (flow *SupportTicketConversationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.SendTicketReply, nil),
 		dex.DefineRPC(flow.ResolveTicket, nil),
 	}
 }
 
-func (*SupportTicketFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*SupportTicketConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels:   []dex.ChannelDef{TicketReplies, TicketResolutions},
 		Attributes: []dex.AttributeDef{TranscriptChunks},
@@ -81,11 +82,11 @@ func (*SupportTicketFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 // SendTicketReply validates one reply and queues it for the waiting Step.
-func (*SupportTicketFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RPCResult[dex.None], error) {
+func (*SupportTicketConversationFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RPCResult[dex.None], error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("reply text is required")
 	}
-	if len(text) > MaxReplyLength {
+	if utf8.RuneCountInString(text) > MaxReplyLength {
 		return nil, fmt.Errorf("reply text exceeds %d characters", MaxReplyLength)
 	}
 	if err := TicketReplies.Publish(ctx, text); err != nil {
@@ -95,7 +96,7 @@ func (*SupportTicketFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RP
 }
 
 // ResolveTicket queues the resolution; an empty reason would mean no resolution.
-func (*SupportTicketFlow) ResolveTicket(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+func (*SupportTicketConversationFlow) ResolveTicket(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
 	if strings.TrimSpace(reason) == "" {
 		return nil, fmt.Errorf("resolution reason is required")
 	}
@@ -216,7 +217,7 @@ func appendToTranscript(ctx dex.Context, texts []string) error {
 }
 
 var (
-	_ dex.Flow                  = (*SupportTicketFlow)(nil)
-	_ dex.RPC[string, dex.None] = (*SupportTicketFlow)(nil).SendTicketReply
-	_ dex.RPC[string, dex.None] = (*SupportTicketFlow)(nil).ResolveTicket
+	_ dex.Flow                  = (*SupportTicketConversationFlow)(nil)
+	_ dex.RPC[string, dex.None] = (*SupportTicketConversationFlow)(nil).SendTicketReply
+	_ dex.RPC[string, dex.None] = (*SupportTicketConversationFlow)(nil).ResolveTicket
 )

@@ -39,6 +39,7 @@ from tests.integ.flow_smoke_helper import (
     FlowSmokeHttpClient,
     assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step,
+    assert_inbound_event_loop_timers,
     parse_flow_trigger_response,
 )
 
@@ -190,6 +191,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 "/patterns/inbound-event-loop/start",
                 {"workflowId": new_id("inbound-event-loop")},
             ),
+            verify_after_trigger=assert_inbound_event_loop_timers,
         ),
         FlowSmokeEntry(
             "patterns/parallel/static",
@@ -638,6 +640,8 @@ async def test_flow_smoke_all_registered_flows_via_controller(
     assert flow_id, f"{entry.name}: controller response did not include flowID"
     await assert_flow_smoke_start_step(entry, flow_id, run_id)
     await assert_flow_smoke_no_unexpected_failures(entry, flow_id, run_id)
+    if entry.verify_after_trigger is not None:
+        await entry.verify_after_trigger(flow_id)
 
 
 @pytest.mark.integ

@@ -21,8 +21,6 @@
 package inboundeventloop
 
 import (
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
@@ -30,10 +28,10 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *SupportTicketFlow
+	flow   *SupportTicketConversationFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *SupportTicketFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *SupportTicketConversationFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/patterns/inbound-event-loop")
 	group.GET("/start", controller.start)
@@ -47,13 +45,13 @@ func (controller *controller) start(request *gin.Context) {
 	if !found {
 		return
 	}
-	timeout := time.Hour
+	// No Flow timeout: the 24-hour inactivity Timer closes a quiet ticket.
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
 		controller.flow,
 		flowID,
 		"",
-		sdk.StartFlowOptions{Timeout: &timeout},
+		sdk.StartFlowOptions{},
 	)
 	httputil.RespondString(request, runID, err)
 }

@@ -39,7 +39,8 @@ use dex_examples_rust::control_patterns::deferred_choice::{
     ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
 };
 use dex_examples_rust::control_patterns::inbound_event_loop::{
-    AwaitTicketMessage, GET_TICKET_TRANSCRIPT, RESOLVE_TICKET, SEND_TICKET_REPLY, SupportTicketFlow,
+    AwaitTicketMessage, CURRENT_TRANSCRIPT_CHUNK, MAX_REPLY_LENGTH, RESOLVE_TICKET,
+    SEND_TICKET_REPLY, SupportTicketConversationFlow, TRANSCRIPT_CHUNKS,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
@@ -323,7 +324,7 @@ fn deferred_choice_consumes_only_the_winning_response() {
 fn inbound_event_loop_records_replies_before_the_resolution() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
-        &SupportTicketFlow::default(),
+        &SupportTicketConversationFlow::default(),
         "inbound-event-loop",
         String::new(),
     );
@@ -362,6 +363,40 @@ fn inbound_event_loop_records_replies_before_the_resolution() {
         single_output(&result),
         "resolved: replaced the network cable"
     );
+    assert_eq!(ticket_transcript_texts(&environment, &flow_id), replies);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_counts_reply_length_in_characters() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop-length",
+        String::new(),
+    );
+    // Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+    let longest_reply = "😀".repeat(MAX_REPLY_LENGTH);
+
+    let too_long = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, format!("{longest_reply}😀"))
+        .expect_err("a reply over the limit is rejected");
+    assert!(
+        too_long
+            .to_string()
+            .contains("reply text exceeds 4000 characters"),
+        "{too_long}"
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, longest_reply.clone());
+    environment.invoke(&flow_id, RESOLVE_TICKET, "answered".to_string());
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "resolved: answered");
+    assert_eq!(
+        ticket_transcript_texts(&environment, &flow_id),
+        [longest_reply.as_str()]
+    );
 }
 
 #[test]
@@ -369,7 +404,7 @@ fn inbound_event_loop_records_replies_before_the_resolution() {
 fn inbound_event_loop_closes_a_quiet_ticket() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
-        &SupportTicketFlow::default(),
+        &SupportTicketConversationFlow::default(),
         "inbound-event-loop-inactive",
         String::new(),
     );
@@ -397,7 +432,24 @@ fn inbound_event_loop_closes_a_quiet_ticket() {
     assert_eq!(single_output(&result), "closed after inactivity");
 }
 
-/// Polls the transcript RPC until it holds exactly `expected`.
+/// Reads the reply texts of the current transcript chunk with a Client Attribute read.
+fn ticket_transcript_texts(environment: &ControlPatternsEnvironment, flow_id: &str) -> Vec<String> {
+    let (chunk,) = environment
+        .client
+        .get_attributes(
+            flow_id,
+            (&TRANSCRIPT_CHUNKS.instance(CURRENT_TRANSCRIPT_CHUNK),),
+        )
+        .unwrap_or_else(|error| panic!("read the transcript of {flow_id}: {error}"));
+    chunk
+        .unwrap_or_default()
+        .replies
+        .into_iter()
+        .map(|reply| reply.text)
+        .collect()
+}
+
+/// Polls the current transcript chunk until it holds exactly `expected`.
 fn wait_for_ticket_transcript(
     environment: &ControlPatternsEnvironment,
     flow_id: &str,
@@ -405,15 +457,7 @@ fn wait_for_ticket_transcript(
 ) {
     let deadline = Instant::now() + WAIT_TIMEOUT;
     loop {
-        let transcript = environment
-            .client
-            .invoke_rpc_without_input(flow_id, GET_TICKET_TRANSCRIPT)
-            .unwrap_or_else(|error| panic!("read the transcript of {flow_id}: {error}"));
-        let texts = transcript
-            .replies
-            .iter()
-            .map(|reply| reply.text.as_str())
-            .collect::<Vec<_>>();
+        let texts = ticket_transcript_texts(environment, flow_id);
         if texts == expected {
             return;
         }

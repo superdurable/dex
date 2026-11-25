@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -78,7 +77,17 @@ class AwaitTicketMessage(Step[str]):
     def execute(self, context: Context, pending_resolution: str) -> StepDecision:
         replies = TICKET_REPLIES.results(context)
         if replies:
-            append_to_transcript(context, replies)
+            # Appends replies to the current chunk and archives each full chunk.
+            chunk = TRANSCRIPT_CHUNKS.get(context, CURRENT_TRANSCRIPT_CHUNK) or TranscriptChunk()
+            next_sequence = chunk.replies[-1].sequence + 1 if chunk.replies else 1
+            for text in replies:
+                if len(chunk.replies) == TRANSCRIPT_CHUNK_SIZE:
+                    archive_token = archive_chunk_token(chunk.replies[0].sequence)
+                    TRANSCRIPT_CHUNKS.set(context, archive_token, chunk)
+                    chunk = TranscriptChunk()
+                chunk.replies.append(TicketReply(next_sequence, text))
+                next_sequence += 1
+            TRANSCRIPT_CHUNKS.set(context, CURRENT_TRANSCRIPT_CHUNK, chunk)
             if pending_resolution:
                 return go_to(CloseResolvedTicket, pending_resolution)
             # A new execution registers a new wait, so the Timer restarts.
@@ -121,7 +130,7 @@ class CloseInactiveTicket(Step[None]):
         )
 
 
-class SupportTicketFlow(Flow[str]):
+class SupportTicketConversationFlow(Flow[str]):
     """Records ticket replies until a resolution arrives or the ticket goes quiet."""
 
     def __init__(self) -> None:
@@ -152,20 +161,6 @@ class SupportTicketFlow(Flow[str]):
         if not reason.strip():
             raise ValueError("resolution reason is required")
         TICKET_RESOLUTIONS.publish(context, reason)
-
-
-def append_to_transcript(context: Context, texts: Sequence[str]) -> None:
-    """Appends replies to the current chunk and archives each full chunk."""
-    chunk = TRANSCRIPT_CHUNKS.get(context, CURRENT_TRANSCRIPT_CHUNK) or TranscriptChunk()
-    next_sequence = chunk.replies[-1].sequence + 1 if chunk.replies else 1
-    for text in texts:
-        if len(chunk.replies) == TRANSCRIPT_CHUNK_SIZE:
-            archive_token = archive_chunk_token(chunk.replies[0].sequence)
-            TRANSCRIPT_CHUNKS.set(context, archive_token, chunk)
-            chunk = TranscriptChunk()
-        chunk.replies.append(TicketReply(next_sequence, text))
-        next_sequence += 1
-    TRANSCRIPT_CHUNKS.set(context, CURRENT_TRANSCRIPT_CHUNK, chunk)
 
 
 def archive_chunk_token(first_sequence: int) -> str:

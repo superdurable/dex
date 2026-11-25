@@ -272,6 +272,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 					nil,
 				)
 			},
+			verifyAfterTrigger: requireInboundEventLoopSmokeTimers,
 		},
 		{
 			name: "patterns/parallel/static",

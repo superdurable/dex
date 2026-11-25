@@ -25,8 +25,8 @@ import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.TimerId;
 import io.superdurable.dex.exceptions.DexServiceException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
-import io.superdurable.dex.patterns.inboundeventloop.SupportTicketFlow;
-import io.superdurable.dex.patterns.inboundeventloop.SupportTicketFlow.TranscriptChunk;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketConversationFlow;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketConversationFlow.TranscriptChunk;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -46,7 +46,7 @@ public class InboundEventLoopIntegTest {
     @Test
     void recordsRepliesBeforeTheResolution() {
         final String flowId = startSupportTicket("inbound-event-loop");
-        final SupportTicketFlow stub = ticketStub(flowId);
+        final SupportTicketConversationFlow stub = ticketStub(flowId);
 
         final WorkerInvocationException blankReply = assertThrows(
                 WorkerInvocationException.class,
@@ -67,6 +67,26 @@ public class InboundEventLoopIntegTest {
         assertEquals(
                 List.of("printer is offline", "restarted it, still offline"),
                 transcriptTexts(flowId));
+    }
+
+    @Test
+    void countsReplyLengthInCharacters() {
+        final String flowId = startSupportTicket("inbound-event-loop-length");
+        final SupportTicketConversationFlow stub = ticketStub(flowId);
+        // Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+        final String longestReply = "😀".repeat(SupportTicketConversationFlow.MAX_REPLY_LENGTH);
+
+        final WorkerInvocationException tooLong = assertThrows(
+                WorkerInvocationException.class,
+                () -> client().invokeRPC(stub::sendTicketReply, longestReply + "😀"));
+        assertTrue(
+                tooLong.getMessage().contains("reply text exceeds 4000 characters"),
+                tooLong.getMessage());
+        client().invokeRPC(stub::sendTicketReply, longestReply);
+        client().invokeRPC(stub::resolveTicket, "answered");
+
+        assertEquals("resolved: answered", completedOutput(flowId));
+        assertEquals(List.of(longestReply), transcriptTexts(flowId));
     }
 
     @Test
@@ -94,7 +114,7 @@ public class InboundEventLoopIntegTest {
     private static String startSupportTicket(final String prefix) {
         final String flowId = environment().newFlowId("pattern-" + prefix);
         client().startFlow(
-                environment().workflowPatternFlow(SupportTicketFlow.class),
+                environment().workflowPatternFlow(SupportTicketConversationFlow.class),
                 flowId,
                 "",
                 environment().startOptions());
@@ -113,16 +133,16 @@ public class InboundEventLoopIntegTest {
 
     private static List<String> transcriptTexts(final String flowId) {
         final AttributeMapInstance<TranscriptChunk> currentChunk =
-                SupportTicketFlow.transcriptChunks.instance(
-                        SupportTicketFlow.CURRENT_TRANSCRIPT_CHUNK);
+                SupportTicketConversationFlow.transcriptChunks.instance(
+                        SupportTicketConversationFlow.CURRENT_TRANSCRIPT_CHUNK);
         return client().getAttributes(flowId, currentChunk)
                 .get(currentChunk)
                 .map(chunk -> chunk.replies.stream().map(reply -> reply.text).toList())
                 .orElse(List.of());
     }
 
-    private static SupportTicketFlow ticketStub(final String flowId) {
-        return client().newRpcStub(SupportTicketFlow.class, flowId);
+    private static SupportTicketConversationFlow ticketStub(final String flowId) {
+        return client().newRpcStub(SupportTicketConversationFlow.class, flowId);
     }
 
     private static IntegEnvironment environment() {

@@ -97,7 +97,7 @@ from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow 
     InactivenessTrackerFlow,
 )
 from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
-    SupportTicketFlow,
+    SupportTicketConversationFlow,
 )
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
@@ -213,7 +213,7 @@ class ExampleApp:
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
-        self.support_ticket = SupportTicketFlow()
+        self.support_ticket = SupportTicketConversationFlow()
         self.user_profile = UserProfileFlow()
         self.chunked_subscriber = ChunkedSubscriberFlow()
         self.customer_directory = CustomerDirectoryFlow()

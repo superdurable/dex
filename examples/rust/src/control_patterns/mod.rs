@@ -43,5 +43,5 @@ fn register_with_loan_application(
         .register(critical_section::ContractEditFlow::default())?
         .register(cancel_case::CreditCheckFlow::default())?
         .register(loan_application)?
-        .register(inbound_event_loop::SupportTicketFlow::default())
+        .register(inbound_event_loop::SupportTicketConversationFlow::default())
 }

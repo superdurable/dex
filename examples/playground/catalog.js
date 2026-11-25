@@ -412,7 +412,7 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "patterns",
     id: "inbound-event-loop",
-    title: "Inbound Event Loop",
+    title: "Idle Timer with Resolution",
     flowIdPrefix: "inbound-event-loop",
     endpoints: [
       endpoint("GET", "/patterns/inbound-event-loop/start", "Start", [flowId()]),
@@ -424,7 +424,7 @@ window.PLAYGROUND_CATALOG = [
         flowId(),
         query("reason", { default: "replaced the network cable" }),
       ]),
-      endpoint("GET", "/patterns/inbound-event-loop/transcript", "Get transcript", [flowId()]),
+      endpoint("GET", "/patterns/inbound-event-loop/transcript", "Get current transcript chunk", [flowId()]),
     ],
   },
   {

@@ -103,7 +103,7 @@ var (
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
-	SupportTicket         *inboundeventloop.SupportTicketFlow
+	SupportTicket         *inboundeventloop.SupportTicketConversationFlow
 	StaticParallel        *parallel.StaticParallelStepsFlow
 	DynamicParallel       *parallel.DynamicParallelStepsFlow
 	AwaitParallel         *parallel.AwaitParallelStepsFlow
@@ -189,7 +189,7 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
-	SupportTicket = inboundeventloop.NewSupportTicketFlow()
+	SupportTicket = inboundeventloop.NewSupportTicketConversationFlow()
 	StaticParallel = parallel.NewStaticParallelStepsFlow()
 	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()

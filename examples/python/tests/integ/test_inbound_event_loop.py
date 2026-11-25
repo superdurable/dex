@@ -16,14 +16,17 @@
 
 from __future__ import annotations
 
-from typing import Callable
+import asyncio
+from typing import Any, Callable
 
 import pytest
 from dex import (
     AsyncClient,
+    Context,
     DexServiceError,
     FlowStatus,
     StartFlowOptions,
+    Step,
     StepExecutionId,
     TimerId,
     WorkerInvocationError,
@@ -32,7 +35,10 @@ from dex import (
 from dex_examples.app import ExampleApp
 from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
     CURRENT_TRANSCRIPT_CHUNK,
+    MAX_REPLY_LENGTH,
+    TRANSCRIPT_CHUNK_SIZE,
     TRANSCRIPT_CHUNKS,
+    archive_chunk_token,
 )
 from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
@@ -107,6 +113,98 @@ async def test_inbound_event_loop_closes_a_quiet_ticket(
 
     await wait_until("the inactivity Timer to be skipped", is_timer_skipped)
     assert await completed_output(client, flow_id) == "closed after inactivity"
+
+
+async def test_inbound_event_loop_counts_reply_length_in_characters(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow = app.support_ticket
+    flow_id = new_flow_id("inbound-event-loop-length")
+    await client.start_flow(flow, flow_id, "", StartFlowOptions())
+    # Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+    longest_reply = "😀" * MAX_REPLY_LENGTH
+
+    with pytest.raises(WorkerInvocationError, match="reply text exceeds 4000 characters"):
+        await client.invoke_rpc(flow.send_ticket_reply, flow_id, longest_reply + "😀")
+    await client.invoke_rpc(flow.send_ticket_reply, flow_id, longest_reply)
+    await client.invoke_rpc(flow.resolve_ticket, flow_id, "answered")
+
+    assert await completed_output(client, flow_id) == "resolved: answered"
+    assert await transcript_texts(client, flow_id) == [longest_reply]
+
+
+class CloseStepGate:
+    """Holds the first execution of a close Step of one Flow until the test releases it."""
+
+    def __init__(self, flow_id: str, step: Step[Any]) -> None:
+        self.flow_id = flow_id
+        self.entered = asyncio.Event()
+        self.released = asyncio.Event()
+        self._original_execute = step.execute
+
+    def execute(self, context: Context, input: Any) -> Any:
+        if context.flow_id != self.flow_id or self.entered.is_set():
+            return self._original_execute(context, input)
+        self.entered.set()
+        return self._execute_after_release(context, input)
+
+    async def _execute_after_release(self, context: Context, input: Any) -> Any:
+        await asyncio.wait_for(self.released.wait(), WAIT_TIMEOUT.total_seconds())
+        return self._original_execute(context, input)
+
+
+async def test_inbound_event_loop_falls_back_for_messages_sent_during_each_close(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.support_ticket
+    flow_id = new_flow_id("inbound-event-loop-close-fallback")
+    inactive_gate = CloseStepGate(flow_id, flow.close_inactive_ticket)
+    resolved_gate = CloseStepGate(flow_id, flow.close_resolved_ticket)
+    monkeypatch.setattr(flow.close_inactive_ticket, "execute", inactive_gate.execute)
+    monkeypatch.setattr(flow.close_resolved_ticket, "execute", resolved_gate.execute)
+    await client.start_flow(flow, flow_id, "", StartFlowOptions())
+
+    async def is_timer_skipped() -> bool:
+        try:
+            await client.skip_timer(
+                flow_id,
+                StepExecutionId("AwaitTicketMessage", 1),
+                TimerId(condition_index=0),
+            )
+        except DexServiceError:
+            return False
+        return True
+
+    await wait_until("the inactivity Timer to be skipped", is_timer_skipped)
+    await asyncio.wait_for(inactive_gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+    # The resolution commits before the inactivity close checks its Channels.
+    await client.invoke_rpc(flow.resolve_ticket, flow_id, "replaced the network cable")
+    inactive_gate.released.set()
+
+    await asyncio.wait_for(resolved_gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+    reply_count = TRANSCRIPT_CHUNK_SIZE + 1
+    replies = [f"reply {sequence}" for sequence in range(1, reply_count + 1)]
+    for reply in replies:
+        await client.invoke_rpc(flow.send_ticket_reply, flow_id, reply)
+    resolved_gate.released.set()
+
+    assert await completed_output(client, flow_id) == "resolved: replaced the network cable"
+    archived_chunk = TRANSCRIPT_CHUNKS.instance(archive_chunk_token(1))
+    current_chunk = TRANSCRIPT_CHUNKS.instance(CURRENT_TRANSCRIPT_CHUNK)
+    values = await client.get_attributes(flow_id, archived_chunk, current_chunk)
+    archived = values.get(archived_chunk)
+    current = values.get(current_chunk)
+    assert archived is not None and current is not None
+    assert [reply.sequence for reply in archived.replies] == list(
+        range(1, TRANSCRIPT_CHUNK_SIZE + 1)
+    )
+    assert [reply.sequence for reply in current.replies] == [reply_count]
+    assert [reply.text for reply in archived.replies + current.replies] == replies
 
 
 async def _has_transcript(

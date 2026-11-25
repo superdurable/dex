@@ -139,13 +139,13 @@ class CloseInactiveTicket implements Step<void> {
 }
 
 /** Records ticket replies until a resolution arrives or the ticket goes quiet. */
-export class SupportTicketFlow implements Flow<string> {
+export class SupportTicketConversationFlow implements Flow<string> {
   private readonly awaitTicketMessage = new AwaitTicketMessage();
   private readonly closeResolvedTicket = new CloseResolvedTicket();
   private readonly closeInactiveTicket = new CloseInactiveTicket();
 
   public getFlowType(): string {
-    return "SupportTicketFlow";
+    return "SupportTicketConversationFlow";
   }
 
   public getSteps() {
@@ -168,7 +168,7 @@ export class SupportTicketFlow implements Flow<string> {
     if (text.trim() === "") {
       throw new Error("reply text is required");
     }
-    if (text.length > MAX_REPLY_LENGTH) {
+    if (Array.from(text).length > MAX_REPLY_LENGTH) {
       throw new Error(`reply text exceeds ${MAX_REPLY_LENGTH} characters`);
     }
     ticketReplies.publish(context, text);
@@ -205,4 +205,4 @@ function archiveChunkToken(firstSequence: number): string {
   return String(firstSequence).padStart(20, "0");
 }
 
-export const supportTicketFlow = new SupportTicketFlow();
+export const supportTicketFlow = new SupportTicketConversationFlow();

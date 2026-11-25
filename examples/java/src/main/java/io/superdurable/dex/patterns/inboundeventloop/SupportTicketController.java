@@ -18,9 +18,9 @@ package io.superdurable.dex.patterns.inboundeventloop;
 
 import io.superdurable.dex.AttributeMapInstance;
 import io.superdurable.dex.Client;
-import io.superdurable.dex.patterns.inboundeventloop.SupportTicketFlow.TicketReply;
-import io.superdurable.dex.patterns.inboundeventloop.SupportTicketFlow.TranscriptChunk;
-import io.superdurable.dex.shared.ExampleFlows;
+import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketConversationFlow.TicketReply;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketConversationFlow.TranscriptChunk;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,22 +34,23 @@ import java.util.Map;
 @RequestMapping("/patterns/inbound-event-loop")
 public class SupportTicketController {
     private final Client client;
-    private final SupportTicketFlow supportTicketFlow;
+    private final SupportTicketConversationFlow supportTicketFlow;
 
     public SupportTicketController(
             final Client client,
-            final SupportTicketFlow supportTicketFlow) {
+            final SupportTicketConversationFlow supportTicketFlow) {
         this.client = client;
         this.supportTicketFlow = supportTicketFlow;
     }
 
     @GetMapping("/start")
     ResponseEntity<String> startSupportTicket(@RequestParam final String workflowId) {
+        // No Flow timeout: the 24-hour inactivity Timer closes a quiet ticket.
         final String runId = client.startFlow(
                 supportTicketFlow,
                 workflowId,
                 "",
-                ExampleFlows.startOptions());
+                StartFlowOptions.newBuilder().build());
         return ResponseEntity.ok(runId);
     }
 
@@ -57,7 +58,8 @@ public class SupportTicketController {
     ResponseEntity<String> sendTicketReply(
             @RequestParam final String workflowId,
             @RequestParam final String text) {
-        final SupportTicketFlow stub = client.newRpcStub(SupportTicketFlow.class, workflowId);
+        final SupportTicketConversationFlow stub =
+                client.newRpcStub(SupportTicketConversationFlow.class, workflowId);
         client.invokeRPC(stub::sendTicketReply, text);
         return ResponseEntity.ok("reply accepted");
     }
@@ -66,7 +68,8 @@ public class SupportTicketController {
     ResponseEntity<String> resolveTicket(
             @RequestParam final String workflowId,
             @RequestParam final String reason) {
-        final SupportTicketFlow stub = client.newRpcStub(SupportTicketFlow.class, workflowId);
+        final SupportTicketConversationFlow stub =
+                client.newRpcStub(SupportTicketConversationFlow.class, workflowId);
         client.invokeRPC(stub::resolveTicket, reason);
         return ResponseEntity.ok("resolution accepted");
     }
@@ -75,8 +78,8 @@ public class SupportTicketController {
     ResponseEntity<Map<String, List<TicketReply>>> getTicketTranscript(
             @RequestParam final String workflowId) {
         final AttributeMapInstance<TranscriptChunk> currentChunk =
-                SupportTicketFlow.transcriptChunks.instance(
-                        SupportTicketFlow.CURRENT_TRANSCRIPT_CHUNK);
+                SupportTicketConversationFlow.transcriptChunks.instance(
+                        SupportTicketConversationFlow.CURRENT_TRANSCRIPT_CHUNK);
         final List<TicketReply> replies = client.getAttributes(workflowId, currentChunk)
                 .get(currentChunk)
                 .map(chunk -> chunk.replies)

@@ -18,7 +18,6 @@ import { Router } from "express";
 
 import type { Client } from "@superdurable/dex";
 
-import { startOptions } from "../../config/env.js";
 import {
   CURRENT_TRANSCRIPT_CHUNK,
   supportTicketFlow,
@@ -30,7 +29,8 @@ export function createInboundEventLoopRouter(client: Client): Router {
 
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    const runId = await client.startFlow(supportTicketFlow, workflowId, "", startOptions());
+    // No Flow timeout: the 24-hour inactivity Timer closes a quiet ticket.
+    const runId = await client.startFlow(supportTicketFlow, workflowId, "", {});
     response.send(runId);
   });
 

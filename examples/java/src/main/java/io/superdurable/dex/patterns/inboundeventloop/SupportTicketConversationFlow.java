@@ -37,7 +37,7 @@ import java.util.List;
 
 /** Records ticket replies until a resolution arrives or the ticket goes quiet. */
 @Component
-public class SupportTicketFlow implements Flow<String> {
+public class SupportTicketConversationFlow implements Flow<String> {
     public static final Duration INACTIVITY_TIMEOUT = Duration.ofHours(24);
     public static final int MAX_REPLY_LENGTH = 4000;
     public static final String CURRENT_TRANSCRIPT_CHUNK = "current";
@@ -71,7 +71,7 @@ public class SupportTicketFlow implements Flow<String> {
         if (text == null || text.isBlank()) {
             throw new IllegalArgumentException("reply text is required");
         }
-        if (text.length() > MAX_REPLY_LENGTH) {
+        if (text.codePointCount(0, text.length()) > MAX_REPLY_LENGTH) {
             throw new IllegalArgumentException(
                     "reply text exceeds " + MAX_REPLY_LENGTH + " characters");
         }

@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from dex import StartFlowOptions
 from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
-from dex_examples.config import start_options
 from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
     CURRENT_TRANSCRIPT_CHUNK,
     TRANSCRIPT_CHUNKS,
@@ -36,11 +36,12 @@ def create_inbound_event_loop_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/start")
     async def start_support_ticket() -> str:
+        # No Flow timeout: the 24-hour inactivity Timer closes a quiet ticket.
         return await app_state.client.start_flow(
             app_state.support_ticket,
             required_query("workflowId"),
             "",
-            start_options(),
+            StartFlowOptions(),
         )
 
     @blueprint.get("/reply")

@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use dex_sdk::{
     AttributeMap, Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
-    RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, StepOptions, Timer, Wait,
+    RpcList, Step, StepDecision, StepList, StepMovement, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,6 @@ pub const TRANSCRIPT_CHUNK_SIZE: usize = 50;
 
 pub const SEND_TICKET_REPLY: Rpc<String, ()> = Rpc::new("send_ticket_reply");
 pub const RESOLVE_TICKET: Rpc<String, ()> = Rpc::new("resolve_ticket");
-pub const GET_TICKET_TRANSCRIPT: Rpc<(), TranscriptChunk> = Rpc::new("get_ticket_transcript");
 
 pub static TICKET_REPLIES: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("ticketReplies"));
@@ -52,24 +51,24 @@ pub struct TranscriptChunk {
 
 /// Records ticket replies until a resolution arrives or the ticket goes quiet.
 #[derive(Default)]
-pub struct SupportTicketFlow {
+pub struct SupportTicketConversationFlow {
     await_ticket_message: AwaitTicketMessage,
     close_resolved_ticket: CloseResolvedTicket,
     close_inactive_ticket: CloseInactiveTicket,
 }
 
-impl SupportTicketFlow {
+impl SupportTicketConversationFlow {
     /// Validates one reply and queues it for the waiting Step.
     fn send_ticket_reply(&self, context: &mut Context, text: String) -> HandlerResult<()> {
         if text.trim().is_empty() {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 "reply text is required",
             ));
         }
         if text.chars().count() > MAX_REPLY_LENGTH {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 format!("reply text exceeds {MAX_REPLY_LENGTH} characters"),
             ));
         }
@@ -80,26 +79,15 @@ impl SupportTicketFlow {
     fn resolve_ticket(&self, context: &mut Context, reason: String) -> HandlerResult<()> {
         if reason.trim().is_empty() {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 "resolution reason is required",
             ));
         }
         TICKET_RESOLUTIONS.publish(context, reason)
     }
-
-    /// Returns the current transcript chunk while the ticket is open.
-    fn get_ticket_transcript(
-        &self,
-        context: &mut Context,
-    ) -> HandlerResult<RpcResult<TranscriptChunk>> {
-        let chunk = TRANSCRIPT_CHUNKS
-            .get(context, CURRENT_TRANSCRIPT_CHUNK)?
-            .unwrap_or_default();
-        Ok(RpcResult::new(chunk))
-    }
 }
 
-impl Flow for SupportTicketFlow {
+impl Flow for SupportTicketConversationFlow {
     type StartInput = String;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
@@ -119,11 +107,6 @@ impl Flow for SupportTicketFlow {
         RpcList::new()
             .procedure(SEND_TICKET_REPLY, Self::send_ticket_reply)
             .procedure(RESOLVE_TICKET, Self::resolve_ticket)
-            .function_without_input(
-                GET_TICKET_TRANSCRIPT
-                    .load_attribute_map_instance(TRANSCRIPT_CHUNKS.load(CURRENT_TRANSCRIPT_CHUNK)),
-                Self::get_ticket_transcript,
-            )
     }
 }
 

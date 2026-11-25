@@ -22,6 +22,7 @@ package integ
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,24 @@ func TestInboundEventLoopRecordsRepliesBeforeTheResolution(t *testing.T) {
 	require.Equal(t, []string{"printer is offline", "restarted it, still offline"}, ticketTranscriptTexts(t, flowID))
 }
 
+func TestInboundEventLoopCountsReplyLengthInCharacters(t *testing.T) {
+	flow := registry.SupportTicket
+	flowID := startWorkflowPattern(t, flow, "pattern-inbound-event-loop-length", "")
+	// Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+	longestReply := strings.Repeat("😀", inboundeventloop.MaxReplyLength)
+
+	require.ErrorContains(
+		t,
+		integClient.InvokeRPC(integrationContext(t), flowID, flow.SendTicketReply, longestReply+"😀", nil),
+		"reply text exceeds 4000 characters",
+	)
+	invokeWorkflowPatternRPC(t, flowID, flow.SendTicketReply, longestReply, nil)
+	invokeWorkflowPatternRPC(t, flowID, flow.ResolveTicket, "answered", nil)
+
+	waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{longestReply}, ticketTranscriptTexts(t, flowID))
+}
+
 func TestInboundEventLoopClosesAQuietTicket(t *testing.T) {
 	flow := registry.SupportTicket
 	flowID := startWorkflowPattern(t, flow, "pattern-inbound-event-loop-inactive", "")
@@ -67,6 +86,37 @@ func TestInboundEventLoopClosesAQuietTicket(t *testing.T) {
 
 	result := waitForCompletedWorkflowPattern(t, flowID)
 	require.Equal(t, []string{"closed after inactivity"}, decodeStepOutputs[string](t, result, "CloseInactiveTicket"))
+}
+
+// requireInboundEventLoopSmokeTimers checks that the HTTP start sets no Flow timeout and waits on the 24-hour Timer.
+func requireInboundEventLoopSmokeTimers(t *testing.T, flowID string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		history := runDexcliFlowHistory(t, flowID, "")
+		var timerDurations []string
+		for _, event := range history.Events {
+			switch {
+			case event.Type == "FlowStartedOrContinued":
+				require.NotContains(t, event.Payload, "flowTimeout", "the HTTP start must not set a Flow timeout")
+			case event.Type == "StepWaitForCompleted" && historyEventStepType(event.Payload) == "AwaitTicketMessage":
+				timerDurations = append(timerDurations, waitForTimerDurations(event.Payload)...)
+			}
+		}
+		return slices.Equal([]string{"86400"}, timerDurations)
+	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "AwaitTicketMessage must wait on one 24-hour Timer")
+}
+
+func waitForTimerDurations(payload map[string]any) []string {
+	output, _ := payload["output"].(map[string]any)
+	condition, _ := output["waitForCondition"].(map[string]any)
+	timers, _ := condition["timerConditions"].([]any)
+	durations := []string{}
+	for _, timer := range timers {
+		fields, _ := timer.(map[string]any)
+		duration, _ := fields["durationSeconds"].(string)
+		durations = append(durations, duration)
+	}
+	return durations
 }
 
 func ticketTranscriptTexts(t *testing.T, flowID string) []string {

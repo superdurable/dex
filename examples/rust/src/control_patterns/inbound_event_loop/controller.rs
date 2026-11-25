@@ -21,7 +21,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::control_patterns::inbound_event_loop::flow::{
-    GET_TICKET_TRANSCRIPT, RESOLVE_TICKET, SEND_TICKET_REPLY, SupportTicketFlow,
+    CURRENT_TRANSCRIPT_CHUNK, RESOLVE_TICKET, SEND_TICKET_REPLY, SupportTicketConversationFlow,
+    TRANSCRIPT_CHUNKS,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
@@ -71,7 +72,7 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = SupportTicketFlow::default();
+        let flow = SupportTicketConversationFlow::default();
         client
             .start_flow(&flow, &flow_id, String::new())
             .map(|run_id| StartResponse { flow_id, run_id })
@@ -108,9 +109,12 @@ async fn get_ticket_transcript(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     match run_blocking(move || {
-        client.invoke_rpc_without_input(&query.workflow_id, GET_TICKET_TRANSCRIPT)
+        client.get_attributes(
+            &query.workflow_id,
+            (&TRANSCRIPT_CHUNKS.instance(CURRENT_TRANSCRIPT_CHUNK),),
+        )
     }) {
-        Ok(value) => ok_json(value),
+        Ok((chunk,)) => ok_json(chunk.unwrap_or_default()),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
