@@ -76,7 +76,8 @@ func (controller *controller) rejectCustomerOffer(request *gin.Context) {
 	controller.sendCustomerResponse(request, controller.flow.RejectCustomerOffer)
 }
 
-// sendCustomerResponse answers 409 when the response window is already closed.
+// sendCustomerResponse answers 409 when the response window is already closed,
+// and 404 when the offer Flow never existed.
 func (controller *controller) sendCustomerResponse(request *gin.Context, rpc any) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
@@ -88,27 +89,52 @@ func (controller *controller) sendCustomerResponse(request *gin.Context, rpc any
 	}
 	ctx := request.Request.Context()
 	outcome, err := invokeResponseRPC(ctx, controller.client, flowID, rpc, note)
-	if (err == nil && outcome == OfferResponseWindowClosed) || isClosedOffer(ctx, controller.client, flowID, err) {
+	if err == nil && outcome == OfferResponseWindowClosed {
 		request.String(http.StatusConflict, "offer response window closed")
+		return
+	}
+	switch classifyInactiveOffer(ctx, controller.client, flowID, err) {
+	case offerFlowClosed:
+		request.String(http.StatusConflict, "offer response window closed")
+		return
+	case offerFlowMissing:
+		request.String(http.StatusNotFound, "offer response flow not found")
 		return
 	}
 	httputil.RespondString(request, "offer response recorded", err)
 }
 
-// isClosedOffer reports whether err rejected the reply because the offer Flow already closed.
-// Dex rejects an RPC to a closed Flow before the handler runs, so the retained Flow tells closed from never started.
-func isClosedOffer(ctx context.Context, client *sdk.Client, flowID string, err error) bool {
+type inactiveOfferState int
+
+const (
+	offerFlowUnknown inactiveOfferState = iota
+	offerFlowClosed
+	offerFlowMissing
+)
+
+// classifyInactiveOffer tells a closed offer Flow from one that never existed.
+// Dex rejects an RPC to a closed Flow before the handler runs, so the retained Flow decides.
+// It returns offerFlowUnknown for every other error, which keeps its original response.
+func classifyInactiveOffer(ctx context.Context, client *sdk.Client, flowID string, err error) inactiveOfferState {
 	var closing *sdk.FlowClosingError
 	if errors.As(err, &closing) {
-		return true
+		return offerFlowClosed
 	}
 	var notActive *sdk.FlowNotActiveOrNotFoundError
 	var notFound *sdk.FlowNotFoundError
 	if !errors.As(err, &notActive) && !errors.As(err, &notFound) {
-		return false
+		return offerFlowUnknown
 	}
 	info, describeErr := client.DescribeFlow(ctx, flowID)
-	return describeErr == nil && info.Status != sdk.FlowRunning
+	var missing *sdk.FlowNotFoundError
+	switch {
+	case errors.As(describeErr, &missing):
+		return offerFlowMissing
+	case describeErr == nil && info.Status != sdk.FlowRunning:
+		return offerFlowClosed
+	default:
+		return offerFlowUnknown
+	}
 }
 
 // invokeResponseRPC retries a lock conflict with bounded backoff. Retrying is safe:

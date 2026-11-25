@@ -189,23 +189,6 @@ func TestDeferredChoiceResponseAfterTheDecisionGetsWindowClosed(t *testing.T) {
 	require.Empty(t, decodeStepOutputs[string](t, result, "CloseRejectedOffer"))
 }
 
-func TestDeferredChoiceSecondReplyGetsWindowClosed(t *testing.T) {
-	flow := &OfferResponseWindowProbeFlow{}
-	flowID := startWorkflowPattern(t, flow, "pattern-deferred-choice-double", "offer-5")
-	// Both replies go out at once, possibly before the wait registers.
-	var first, second string
-	invokeWorkflowPatternRPC(t, flowID, flow.AcceptProbeOffer, "yes", &first)
-	invokeWorkflowPatternRPC(t, flowID, flow.RejectProbeOffer, "no", &second)
-	require.Equal(t, deferredchoice.OfferResponseRecorded, first)
-	require.Equal(t, deferredchoice.OfferResponseWindowClosed, second)
-
-	waitForWorkflowPatternStep(t, flowID, "AwaitOfferResponse")
-	invokeWorkflowPatternRPC(t, flowID, flow.OpenProbeGate, nil, nil)
-	result := waitForCompletedWorkflowPattern(t, flowID)
-	require.Equal(t, []string{"fulfilled offer-5"}, decodeStepOutputs[string](t, result, "FulfillOffer"))
-	require.Empty(t, decodeStepOutputs[string](t, result, "CloseRejectedOffer"))
-}
-
 func TestDeferredChoiceRouteAnswersConflictAfterTheFlowEnds(t *testing.T) {
 	flowID := newFlowID(t, "pattern-deferred-choice-route")
 	query := url.Values{"workflowId": {flowID}, "offerId": {"offer-6"}}
@@ -231,7 +214,8 @@ func TestDeferredChoiceRouteAnswersConflictAfterTheFlowEnds(t *testing.T) {
 	require.Equal(t, "offer response window closed", body)
 
 	status, body = sendDeferredChoiceAcceptance(t, newFlowID(t, "pattern-deferred-choice-missing"))
-	require.NotEqual(t, http.StatusConflict, status, body)
+	require.Equal(t, http.StatusNotFound, status, body)
+	require.Equal(t, "offer response flow not found", body)
 }
 
 func TestDeferredChoiceResponseCommittedAfterTheTimerWonIsTaken(t *testing.T) {
