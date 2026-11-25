@@ -26,7 +26,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 func flowSmokeCatalog() []flowSmokeEntry {
@@ -529,7 +531,7 @@ func parallelSmokeEntry(kind string) flowSmokeEntry {
 }
 
 func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
-	return flowSmokeEntry{
+	entry := flowSmokeEntry{
 		name: "patterns/parallel-subflows/" + kind,
 		trigger: func(t *testing.T) (string, string) {
 			query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-subflows-"+kind)}}
@@ -542,6 +544,17 @@ func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
 			)
 		},
 	}
+	if kind == "wait-for-half" {
+		entry.verifyAfterTrigger = verifyWaitForHalfParentCompletes
+	}
+	return entry
+}
+
+func verifyWaitForHalfParentCompletes(t *testing.T, flowID string) {
+	t.Helper()
+	result, err := integClient.WaitForFlow(integrationContext(t), flowID, dex.WaitForFlowOptions{})
+	require.NoError(t, err)
+	require.Equal(t, dex.FlowCompleted, result.Status)
 }
 
 func TestFlowSmokeCatalogSize(t *testing.T) {
