@@ -442,9 +442,11 @@ class UnlockedAttributeReadModifyWriteError(RuntimeError):
             else f"Flow {flow_type!r} Step {step_type!r} {method}"
         )
         accesses = ", ".join(
-            f"Attribute {access.attribute_name!r}"
-            if access.instance is None
-            else f"AttributeMap {access.attribute_name!r} instance {access.instance!r}"
+            (
+                f"Attribute {access.attribute_name!r}"
+                if access.instance is None
+                else f"AttributeMap {access.attribute_name!r} instance {access.instance!r}"
+            )
             for access in attributes
         )
         super().__init__(
