@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 
 use dex_protocol::dex::{AttributeSyncConfig, AttributeWrite, IndexConfig, value};
 
+use crate::attribute_lock_requirement::LockRequirement;
 use crate::{Context, HandlerError, HandlerResult, Value};
 
 /// Selects one AttributeMap instance to load for a handler invocation.
@@ -106,6 +107,7 @@ pub struct Attribute<T> {
     sync_to_attribute_store: bool,
     is_hard_delete_on_null: bool,
     numeric_or_boolean_type_name: Option<&'static str>,
+    write_lock: Option<LockRequirement>,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -120,8 +122,121 @@ impl<T> Attribute<T> {
             sync_to_attribute_store: false,
             is_hard_delete_on_null: false,
             numeric_or_boolean_type_name: None,
+            write_lock: None,
             marker: PhantomData,
         }
+    }
+
+    /// Declares that every write of this Attribute requires holding its own lock, [`Self::lock`].
+    ///
+    /// Two Steps or RPCs that read a value and then write it can overwrite each other's update
+    /// unless both hold the same lock. Declare the requirement on the definition, and the Worker
+    /// enforces it. A `wait_for`, `execute`, or RPC invocation that writes the Attribute with
+    /// [`Self::set`] or [`Self::delete`] without holding the lock fails with
+    /// [`MissingAttributeLockError`](crate::MissingAttributeLockError). Dex then discards the
+    /// changes buffered for its result. The check is not a warning; declaring it opts in.
+    /// Use [`Self::writes_require_attribute_lock`] instead to require one shared lock. When both
+    /// methods are called, the last call wins.
+    ///
+    /// Only the locks a handler registers count: [`StepOptions::wait_for_lock`] or
+    /// [`StepOptions::execute_lock`] for a Step method, and [`RpcDefinition::lock`] for an RPC.
+    /// Locks added for one call do not count, so
+    /// [`RpcInvokeOptions::lock_attribute_map_instance`] and the options of
+    /// [`StepMovement::to_with_options`] cannot satisfy the requirement. Register the lock
+    /// instead. A Flow timeout handler is not checked, because its locks come from
+    /// [`StartFlowOptions`](crate::StartFlowOptions). Initial Attributes of a Flow start and
+    /// reads are not checked. Every Client and Worker must register the same definition; a
+    /// Worker built without the requirement does not check it.
+    ///
+    /// In a Flow that declares a requirement, the SDK saves each Step's `wait_for` and `execute`
+    /// lock fields at registration. Default dispatch sends those saved locks but still calls
+    /// [`Step::options`](crate::Step::options) for the other fields. The check compares writes
+    /// with the saved locks, not with the locks Dex acquires for the call. Options passed to
+    /// [`StepMovement::to_with_options`] replace the registered options, and an RPC takes its
+    /// locks from the Client's definition. Keep the required lock in such options.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::{
+    ///     Attribute, Context, HandlerResult, PersistenceSchema, Step, StepDecision, StepOptions,
+    /// };
+    /// use std::sync::LazyLock;
+    ///
+    /// static ORDER_TOTAL: LazyLock<Attribute<u64>> =
+    ///     LazyLock::new(|| Attribute::new("order-total").writes_require_lock());
+    ///
+    /// // Flow::persistence registers the same definition.
+    /// let schema = PersistenceSchema::new().attribute(&ORDER_TOTAL);
+    /// # let _ = schema;
+    ///
+    /// struct AddItemStep;
+    ///
+    /// impl Step for AddItemStep {
+    ///     type Input = u64;
+    ///
+    ///     fn execute(&self, context: &mut Context, price: u64) -> HandlerResult<StepDecision> {
+    ///         let total = ORDER_TOTAL.get(context)?.unwrap_or(0);
+    ///         ORDER_TOTAL.set(context, total + price)?;
+    ///         Ok(StepDecision::dead_end())
+    ///     }
+    ///
+    ///     fn options(&self) -> StepOptions<u64> {
+    ///         StepOptions::new().execute_lock(ORDER_TOTAL.lock())
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Since 1.45.9.
+    ///
+    /// [`StepOptions::wait_for_lock`]: crate::StepOptions::wait_for_lock
+    /// [`StepOptions::execute_lock`]: crate::StepOptions::execute_lock
+    /// [`RpcDefinition::lock`]: crate::RpcDefinition::lock
+    /// [`RpcInvokeOptions::lock_attribute_map_instance`]: crate::RpcInvokeOptions::lock_attribute_map_instance
+    /// [`StepMovement::to_with_options`]: crate::StepMovement::to_with_options
+    #[must_use]
+    pub fn writes_require_lock(mut self) -> Self {
+        self.write_lock = Some(LockRequirement::OwnKey);
+        self
+    }
+
+    /// Declares that every write of this Attribute requires holding the lock of the singleton
+    /// Attribute `lock_attribute`.
+    ///
+    /// Use it when several values share one invariant that a coordination Attribute protects.
+    /// The rules of [`Self::writes_require_lock`] apply: only locks that the handler registers
+    /// count, and a write without the lock fails the invocation with
+    /// [`MissingAttributeLockError`](crate::MissingAttributeLockError). The handler must register
+    /// `lock_attribute.lock()`. When both write-lock methods are called, the last call wins.
+    ///
+    /// `lock_attribute` must be in the same Flow's [`PersistenceSchema`](crate::PersistenceSchema).
+    /// [`Registry::register`](crate::Registry::register) returns
+    /// [`SdkError::FlowDefinition`](crate::SdkError::FlowDefinition) when it is missing there, is
+    /// not a singleton Attribute, or has an empty name. The coordination Attribute needs no
+    /// stored value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::{Attribute, AttributeMap, StepOptions};
+    /// use std::sync::LazyLock;
+    ///
+    /// static CART_LOCK: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("cart-lock"));
+    /// static CART_TOTAL: LazyLock<Attribute<u64>> =
+    ///     LazyLock::new(|| Attribute::new("cart-total").writes_require_attribute_lock(&CART_LOCK));
+    /// static CART_ITEMS: LazyLock<AttributeMap<u32>> =
+    ///     LazyLock::new(|| AttributeMap::new("cart-items").writes_require_attribute_lock(&CART_LOCK));
+    ///
+    /// // The Step or RPC that writes CART_TOTAL or CART_ITEMS registers the coordination lock.
+    /// let options = StepOptions::<()>::new().execute_lock(CART_LOCK.lock());
+    /// # let _ = options;
+    /// ```
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn writes_require_attribute_lock<L>(mut self, lock_attribute: &Attribute<L>) -> Self {
+        self.write_lock = Some(LockRequirement::Attribute(lock_attribute.name.clone()));
+        self
     }
 
     /// Enables Flow-search indexing with the selected index type.
@@ -346,6 +461,10 @@ impl<T> Attribute<T> {
             is_hard_delete_on_null: self.is_hard_delete_on_null,
         }
     }
+
+    pub(crate) fn write_lock(&self) -> Option<&LockRequirement> {
+        self.write_lock.as_ref()
+    }
 }
 
 impl<T> Clone for Attribute<T> {
@@ -356,6 +475,7 @@ impl<T> Clone for Attribute<T> {
             sync_to_attribute_store: self.sync_to_attribute_store,
             is_hard_delete_on_null: self.is_hard_delete_on_null,
             numeric_or_boolean_type_name: self.numeric_or_boolean_type_name,
+            write_lock: self.write_lock.clone(),
             marker: PhantomData,
         }
     }
@@ -372,6 +492,7 @@ pub struct AttributeMap<T> {
     sync_to_attribute_store: bool,
     is_hard_delete_on_null: bool,
     numeric_or_boolean_type_name: Option<&'static str>,
+    write_lock: Option<LockRequirement>,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -386,8 +507,41 @@ impl<T> AttributeMap<T> {
             sync_to_attribute_store: false,
             is_hard_delete_on_null: false,
             numeric_or_boolean_type_name: None,
+            write_lock: None,
             marker: PhantomData,
         }
+    }
+
+    /// Declares that every write of an instance requires holding that instance's own lock,
+    /// [`Self::lock`] with the same instance.
+    ///
+    /// A write of instance `"line-1"` without `lock("line-1")` among the handler's registered
+    /// locks fails the invocation with
+    /// [`MissingAttributeLockError`](crate::MissingAttributeLockError), and Dex discards the
+    /// changes buffered for its result. The lock of another instance does not count. When both
+    /// write-lock methods are called, the last call wins. The other rules, and an example, are in
+    /// [`Attribute::writes_require_lock`]. Read that method before declaring a requirement.
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn writes_require_lock(mut self) -> Self {
+        self.write_lock = Some(LockRequirement::OwnKey);
+        self
+    }
+
+    /// Declares that every write of any instance requires holding the lock of the singleton
+    /// Attribute `lock_attribute`.
+    ///
+    /// Use it when a coordination Attribute protects an invariant across the whole map. The
+    /// handler must register `lock_attribute.lock()`; instance locks do not count. When both
+    /// write-lock methods are called, the last call wins. The other rules, the registration
+    /// checks, and an example are in [`Attribute::writes_require_attribute_lock`].
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn writes_require_attribute_lock<L>(mut self, lock_attribute: &Attribute<L>) -> Self {
+        self.write_lock = Some(LockRequirement::Attribute(lock_attribute.name.clone()));
+        self
     }
 
     /// Enables search indexing for every instance using the selected index type.
@@ -596,6 +750,10 @@ impl<T> AttributeMap<T> {
             is_hard_delete_on_null: self.is_hard_delete_on_null,
         }
     }
+
+    pub(crate) fn write_lock(&self) -> Option<&LockRequirement> {
+        self.write_lock.as_ref()
+    }
 }
 
 impl<T> Clone for AttributeMap<T> {
@@ -606,6 +764,7 @@ impl<T> Clone for AttributeMap<T> {
             sync_to_attribute_store: self.sync_to_attribute_store,
             is_hard_delete_on_null: self.is_hard_delete_on_null,
             numeric_or_boolean_type_name: self.numeric_or_boolean_type_name,
+            write_lock: self.write_lock.clone(),
             marker: PhantomData,
         }
     }
@@ -840,26 +999,5 @@ impl AttributeLock {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Attribute, AttributeMap};
-
-    #[test]
-    fn sync_configuration_is_opt_in_and_survives_clone() {
-        let plain = Attribute::<String>::new("plain");
-        let synced = Attribute::<String>::new("synced").sync_to_attribute_store();
-        let synced_map = AttributeMap::<String>::new("synced_map").sync_to_attribute_store();
-
-        assert!(plain.sync_config().is_none());
-        assert_eq!(
-            synced.sync_config().map(|config| config.enabled),
-            Some(true)
-        );
-        assert_eq!(
-            synced_map
-                .clone()
-                .sync_config()
-                .map(|config| config.enabled),
-            Some(true)
-        );
-    }
-}
+#[path = "attribute_tests.rs"]
+mod tests;

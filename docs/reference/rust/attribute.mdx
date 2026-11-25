@@ -23,6 +23,7 @@ them in the [Rust SDK API reference](./index.mdx#api-reference).
 | Count AttributeMap instances and list their keys | **AttributeMap::map_size** and **AttributeMap::all_instance_keys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Load AttributeMap values for a method | **AttributeMap::load**, with the load methods of **StepOptions** or **Rpc** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Lock a value for a read-modify-write | **lock**, with **wait_for_lock** or **execute_lock** of **StepOptions**, or **lock** of **Rpc** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Require a lock for every write (since 1.45.9) | **writes_require_lock** and **writes_require_attribute_lock** of **Attribute** and **AttributeMap**; a write without the lock fails with **MissingAttributeLockError** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Index a value for search | **indexed**, with an **AttributeIndex** such as **AttributeIndex::keyword** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
 | Project writes to an Attribute Store | **sync_to_attribute_store** | [Attribute sync](/reference/server/attribute-store-sync) |
 | Store a value that can be erased | **hard_delete_on_null** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |

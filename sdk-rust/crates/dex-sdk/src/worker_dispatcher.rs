@@ -30,6 +30,7 @@ use dex_protocol::dex::{
 use tokio::sync::mpsc;
 
 use crate::attribute::AttributeMapLoad;
+use crate::attribute_lock_requirement::CheckedInvocation;
 use crate::channel::{ChannelLoad, ChannelMapLoad};
 use crate::context::{Context, ContextInput, InvocationCancellation, InvocationMethod};
 use crate::persistence::PersistenceKind;
@@ -183,6 +184,9 @@ impl WorkerDispatcher {
         run_handler(cancellation, move || {
             let handler_result = catch_handler_panic(|| {
                 let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
+                let invocation = CheckedInvocation::WaitFor(step.name);
+                flow.lock_requirements
+                    .require_registered_locks(flow.name, invocation, &context)?;
                 map_wait(&registry, &flow, &negotiated_protocol_version, wait)
                     .map(|condition| warn_dashed_sub_flow_step_type(step.name, condition))
                     .map_err(|error| {
@@ -287,6 +291,9 @@ impl WorkerDispatcher {
         run_handler(cancellation, move || {
             let handler_result = catch_handler_panic(|| {
                 let decision = flow.handler.execute(step.name, &mut context, &input)?;
+                let invocation = CheckedInvocation::Execute(step.name);
+                flow.lock_requirements
+                    .require_registered_locks(flow.name, invocation, &context)?;
                 map_decision(&flow, decision).map_err(|error| {
                     HandlerError::invalid_step_result(flow.name, Some(step.name), "execute", error)
                 })
@@ -420,6 +427,9 @@ impl WorkerDispatcher {
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let result = rpc.handler.invoke(&mut context, &input)?;
+            let invocation = CheckedInvocation::Rpc(&rpc);
+            flow.lock_requirements
+                .require_registered_locks(flow.name, invocation, &context)?;
             let output = encode_rpc_output(result.output.as_ref()).map_err(handler_error)?;
             let cancel_step_types = map_cancellation_step_types(&flow, result.cancel_step_types)?;
             let decision = if result.next_steps.is_empty() && cancel_step_types.is_empty() {
@@ -703,7 +713,10 @@ pub(crate) fn map_step_options(
             })?;
             Ok((
                 target.name,
-                map_step_options_without_recovery(flow, flow.handler.step_options(target.name)?)?,
+                map_step_options_without_recovery(
+                    flow,
+                    flow.registered_step_options(target.name)?,
+                )?,
             ))
         })
         .transpose()?;
@@ -828,7 +841,7 @@ pub(crate) fn map_flow_timeout_handler_options(
             let step_options = failure
                 .options
                 .clone()
-                .map_or_else(|| flow.handler.step_options(target.name), Ok)?;
+                .map_or_else(|| flow.registered_step_options(target.name), Ok)?;
             (
                 ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
                 target.name.to_string(),
@@ -1204,7 +1217,7 @@ fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<
     let step_input = movement.encode_input().map_err(handler_error)?;
     let options = movement
         .options_override
-        .map_or_else(|| flow.handler.step_options(target.name), Ok)?;
+        .map_or_else(|| flow.registered_step_options(target.name), Ok)?;
     Ok(ProtoStepMovement {
         step_type: target.name.to_string(),
         step_input: Some(step_input),
@@ -1342,7 +1355,7 @@ impl<'a> ConditionMapper<'a> {
                     )
                 })?;
                 let step_options =
-                    map_step_options(target, target.handler.step_options(start.name)?)?;
+                    map_step_options(target, target.registered_step_options(start.name)?)?;
                 let options = map_sub_flow_options(
                     target,
                     &definition.options,

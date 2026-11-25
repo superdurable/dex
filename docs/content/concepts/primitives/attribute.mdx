@@ -361,7 +361,7 @@ its lock. An RPC that cannot get a lock fails, and you retry it.
 
 Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
 then write. Dex does not guess which lock a Step or RPC is missing from what it
-reads and writes. Instead, with the Go, Python, and Java SDKs, declare the rule on the
+reads and writes. Instead, with the Go, Python, Java, and Rust SDKs, declare the rule on the
 Attribute: every write must hold a lock. The lock is the Attribute's own lock or the lock of a shared
 coordination Attribute. A Worker then fails any Step method or RPC that writes
 the Attribute without registering that lock, and Dex discards the method's

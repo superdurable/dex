@@ -19,6 +19,7 @@ them in the [Rust SDK API reference](./index.mdx#api-reference).
 | Define a ChannelMap | **ChannelMap** | [ChannelMap](/reference/server/runtime-data#channelmap) |
 | Declare it in the Flow | **PersistenceSchema::channel** and **PersistenceSchema::channel_map**, returned from **Flow::persistence** | [Flow definition](./flow.mdx#flow-definition) |
 | Publish a message from a Step or RPC | **publish** | [Commits](./step.mdx#commit-boundary) |
+| Require a lock for every publish (since 1.45.9) | **publishes_require_attribute_lock** of **Channel** and **ChannelMap**; a publish without the lock fails with **MissingAttributeLockError** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Wait for messages | **for_one**, **for_n**, **at_least**, **at_most**, and **range** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
 | Read the messages a wait consumed | **condition_results** | [Channel results](./waits.mdx#channel-results) |
 | Load pending messages for a method | **ChannelMap::load_messages**, with the load methods of **StepOptions** or **Rpc** | [Selective state loading](./step-options.mdx#selective-state-loading) |

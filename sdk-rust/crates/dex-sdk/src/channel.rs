@@ -8,7 +8,8 @@
 
 use std::marker::PhantomData;
 
-use crate::{Condition, Context, HandlerResult, Value};
+use crate::attribute_lock_requirement::LockRequirement;
+use crate::{Attribute, Condition, Context, HandlerResult, Value};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ChannelLoad {
@@ -60,6 +61,7 @@ pub struct ChannelMessage<T> {
 /// ```
 pub struct Channel<T> {
     name: String,
+    publish_lock: Option<LockRequirement>,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -70,8 +72,84 @@ impl<T> Channel<T> {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            publish_lock: None,
             marker: PhantomData,
         }
+    }
+
+    /// Declares that every publish to this Channel requires holding the lock of the singleton
+    /// Attribute `lock_attribute`.
+    ///
+    /// Use it when the messages of a Channel must follow from a state change that a lock
+    /// protects, for example a reply Channel that only the holder of a conversation lock may
+    /// publish to. The Worker enforces the requirement. A `wait_for`, `execute`, or RPC invocation
+    /// that publishes with [`Self::publish`] without holding the lock fails with
+    /// [`MissingAttributeLockError`](crate::MissingAttributeLockError). Dex then discards the
+    /// changes buffered for its result. Waiting on the Channel, reading its messages, and
+    /// deleting messages are not affected.
+    ///
+    /// Only the locks a handler registers count:
+    /// [`StepOptions::wait_for_lock`](crate::StepOptions::wait_for_lock) or
+    /// [`StepOptions::execute_lock`](crate::StepOptions::execute_lock) for a Step method, and
+    /// [`RpcDefinition::lock`](crate::RpcDefinition::lock) for an RPC. Locks added for one call,
+    /// such as
+    /// [`RpcInvokeOptions::lock_attribute_map_instance`](crate::RpcInvokeOptions::lock_attribute_map_instance)
+    /// and the options of [`StepMovement::to_with_options`](crate::StepMovement::to_with_options),
+    /// do not count. A Flow timeout handler is not checked.
+    ///
+    /// `lock_attribute` must be a named singleton Attribute in the same Flow's
+    /// [`PersistenceSchema`](crate::PersistenceSchema).
+    /// [`Registry::register`](crate::Registry::register) returns
+    /// [`SdkError::FlowDefinition`](crate::SdkError::FlowDefinition) otherwise. See
+    /// [`Attribute::writes_require_lock`](crate::Attribute::writes_require_lock) for the full
+    /// rules of declared lock requirements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::{Attribute, Channel, Context, Flow, HandlerResult, Rpc, RpcList, StepList};
+    /// use std::sync::LazyLock;
+    ///
+    /// static CONVERSATION_LOCK: LazyLock<Attribute<bool>> =
+    ///     LazyLock::new(|| Attribute::new("conversation-lock"));
+    /// static REPLIES: LazyLock<Channel<String>> = LazyLock::new(|| {
+    ///     Channel::new("replies").publishes_require_attribute_lock(&CONVERSATION_LOCK)
+    /// });
+    ///
+    /// struct ChatFlow;
+    ///
+    /// impl ChatFlow {
+    ///     const REPLY: Rpc<String, ()> = Rpc::new("reply");
+    ///
+    ///     fn reply(&self, context: &mut Context, reply: String) -> HandlerResult<()> {
+    ///         REPLIES.publish(context, reply)
+    ///     }
+    /// }
+    ///
+    /// impl Flow for ChatFlow {
+    ///     type StartInput = ();
+    ///
+    ///     fn steps(&self) -> StepList<'_, ()> {
+    ///         StepList::empty()
+    ///     }
+    ///
+    ///     fn persistence(&self) -> dex_sdk::PersistenceSchema {
+    ///         dex_sdk::PersistenceSchema::new()
+    ///             .attribute(&CONVERSATION_LOCK)
+    ///             .channel(&REPLIES)
+    ///     }
+    ///
+    ///     fn rpcs(&self) -> RpcList<Self> {
+    ///         RpcList::new().procedure(Self::REPLY.lock(CONVERSATION_LOCK.lock()), Self::reply)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn publishes_require_attribute_lock<L>(mut self, lock_attribute: &Attribute<L>) -> Self {
+        self.publish_lock = Some(LockRequirement::Attribute(lock_attribute.name().to_owned()));
+        self
     }
 
     /// Stages one message from the current Step or RPC invocation.
@@ -184,12 +262,17 @@ impl<T> Channel<T> {
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
+
+    pub(crate) fn publish_lock(&self) -> Option<&LockRequirement> {
+        self.publish_lock.as_ref()
+    }
 }
 
 impl<T> Clone for Channel<T> {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
+            publish_lock: self.publish_lock.clone(),
             marker: PhantomData,
         }
     }
@@ -203,6 +286,7 @@ impl<T> Clone for Channel<T> {
 /// To wait for parallel branches by round, use [`crate::Join`], which is built on a Channel map.
 pub struct ChannelMap<T> {
     name: String,
+    publish_lock: Option<LockRequirement>,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -213,8 +297,25 @@ impl<T> ChannelMap<T> {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            publish_lock: None,
             marker: PhantomData,
         }
+    }
+
+    /// Declares that every publish to any instance of this Channel map requires holding the lock
+    /// of the singleton Attribute `lock_attribute`.
+    ///
+    /// A publish with [`Self::publish`] without that lock among the handler's registered locks
+    /// fails the invocation with [`MissingAttributeLockError`](crate::MissingAttributeLockError),
+    /// and Dex discards the changes buffered for its result. Attribute instance locks do not
+    /// count. The other rules, the registration checks, and an example are in
+    /// [`Channel::publishes_require_attribute_lock`].
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn publishes_require_attribute_lock<L>(mut self, lock_attribute: &Attribute<L>) -> Self {
+        self.publish_lock = Some(LockRequirement::Attribute(lock_attribute.name().to_owned()));
+        self
     }
 
     /// Selects one slash-free map `instance`'s pending messages for a handler Context.
@@ -367,12 +468,17 @@ impl<T> ChannelMap<T> {
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
+
+    pub(crate) fn publish_lock(&self) -> Option<&LockRequirement> {
+        self.publish_lock.as_ref()
+    }
 }
 
 impl<T> Clone for ChannelMap<T> {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
+            publish_lock: self.publish_lock.clone(),
             marker: PhantomData,
         }
     }
