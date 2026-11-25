@@ -31,7 +31,8 @@ Use a Client at the boundary between your application and its Flows:
 
 ## The Flow owns decisions {#flow-owns-decisions}
 
-A Client never writes Flow state directly. Within that boundary, prefer that
+The Flow writes its own state; a Client starts Flows, calls RPCs, and reads,
+and has no direct write. Within that boundary, prefer that
 the Flow owns the decisions and status of its process. The caller passes
 business facts as start input or initial Attributes. The Flow's Steps and RPC
 handlers apply the business rules and write the resulting state. When an

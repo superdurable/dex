@@ -1,0 +1,12 @@
+---
+bump: minor
+---
+- **dex-app-builder** now holds every Dex rule once, including the Core and language references. It routes each request first: product work takes the stage workflow; SDK-only work skips discovery and goes straight to the Flow and SDK rules.
+- **Migration**: **dex-sdk** is now a transition skill for explicit invocation only. Invoking it by name still works and loads **dex-app-builder** on its SDK-only route. A later release removes it. Update all three skills together as before.
+- **dex-connector-contributor** loads the Core and Go guidance from **dex-app-builder**. The skill-local version file moved to **dex-app-builder/VERSION**.
+- Deadlines use durable Timers, not clock comparisons. Idempotency keys and business IDs never derive from the current time; reading the time to record a timestamp is fine.
+- A waiting Step checks which Condition fired. When a Timer and a Channel are ready at once, the Timer wins and the message stays queued; Channels rank by declaration order.
+- Each Channel has at most one active consumer at a time; different Step types may consume it in different phases. The Flow owning decisions and status is now design guidance, not a hard rule.
+- Growing collections bound their total by chunk count or age, archiving first when the business must keep old records. Size limits are linked in the Server configuration reference.
+- A parent reconciles a stopped or late child only when its result or a follow-up action depends on how that child ended; otherwise it stops the child and moves on.
+- Compensation after exhausted retries starts with the failed Step itself, because it may still have taken effect. Testing guidance links to skipping the Flow timeout instead of shortening it.

@@ -13,15 +13,15 @@ publisher, while the stable plugin ID remains `superdurable-dex`.
 
 | Skill | Responsibility |
 | --- | --- |
-| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a backend in Go, Python, TypeScript, Java, or Rust and a UI, and verify locally with source-available Dex. |
-| `dex-sdk` | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a backend in Go, Python, TypeScript, Java, or Rust and a UI, and verify locally with source-available Dex. Also implement, debug, test, and operate existing Dex applications through its SDK-only route. |
 | `dex-connector-contributor` | Create, verify, and upstream official connector operations, Triggers, and configuration UI units. |
+| `dex-sdk` | Transition name for explicit invocation only. Its guidance merged into `dex-app-builder`, and it tells the agent to load that skill. A later release removes it. |
 
-Start with `dex-app-builder` for Dex product, application, and process work.
-The three Skills can each be selected from a matching natural-language request;
-their descriptions keep standalone SDK and official connector-library work in
-the appropriate specialist. Install the complete plugin so all three skills
-and their sibling links are present.
+Start with `dex-app-builder` for Dex product, application, process, and SDK
+work. `dex-app-builder` and `dex-connector-contributor` can each be selected
+from a matching natural-language request; their descriptions keep official
+connector-library work in the specialist. Install the complete plugin so all
+three skills and their sibling links are present.
 
 ## Requires a coding workspace
 
@@ -115,7 +115,7 @@ Or run the slash-command equivalents inside an interactive Claude Code session:
 /plugin install superdurable-dex@superdurable
 ```
 
-Invoke `/superdurable-dex:dex-sdk`, `/superdurable-dex:dex-app-builder`, or
+Invoke `/superdurable-dex:dex-app-builder` or
 `/superdurable-dex:dex-connector-contributor`. For example:
 
 ```text
@@ -263,7 +263,8 @@ import; manage that installation through **Customize** instead of guessing one.
 ## Migrating from the old plugin
 
 The former Plugin ID `dex` and Skill name `dex-developer` were replaced by
-`superdurable-dex` and `dex-sdk`. Remove or update the old marketplace install,
+`superdurable-dex` and `dex-sdk`, and `dex-sdk` has since merged into
+`dex-app-builder`. Invoking `dex-sdk` by name still loads `dex-app-builder`. Remove or update the old marketplace install,
 choose either the current Plugin or standalone bundle, and start a new task so
 the new Skill names are discovered.
 
@@ -274,13 +275,14 @@ guidance and can shadow the current installation. Remove
 it with the tool that installed it, install exactly one current distribution,
 and start a new task.
 
-## Dex SDK
+## SDK guidance
 
-`dex-sdk` is the coding-agent version of the Dex stable layer: the same scope
-as the docs Concepts, Components, and Design patterns, written as mental
-models, decision tables, rules, anti-patterns, code skeletons, and a
+`dex-app-builder` holds the coding-agent version of the Dex stable layer: the
+same scope as the docs Concepts, Components, and Design patterns, written as
+mental models, decision tables, rules, anti-patterns, code skeletons, and a
 self-check list. It uses progressive disclosure. Shared semantics live under
-`dex-sdk/references/core/`, and each supported language has its own folder.
+`dex-app-builder/references/core/`, and each supported language has its own
+folder. Its SDK-only route skips product discovery for focused SDK work.
 
 The skill contains no Dex version numbers. Exact APIs, defaults, limits, and
 configuration live in the versioned docs
@@ -368,7 +370,7 @@ manifest authoring, generated contracts, configuration guidance, provider
 behavior, examples, testing, release ordering, and upstream contribution
 details.
 
-The bootstrap loads `dex-sdk` Core and Go guidance when the connector change
+The bootstrap loads the `dex-app-builder` Core and Go guidance when the connector change
 touches Dex application semantics. It does not carry a snapshot of connector
 implementation rules, so a contribution always follows the target checkout's
 current contract.

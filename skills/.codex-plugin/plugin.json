@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Dex",
     "shortDescription": "Build Dex apps in a coding workspace",
-    "longDescription": "Developer skills for a coding-agent host with a writable repository or project workspace. Dex App Builder owns end-to-end product work, while Dex SDK and Dex Connector Contributor handle matching standalone specialist requests. Without repository and command access, the plugin supports planning and handoff only.",
+    "longDescription": "Developer skills for a coding-agent host with a writable repository or project workspace. Dex App Builder owns end-to-end product work and SDK work, while Dex Connector Contributor handles official connector-library requests. Dex SDK is a transition name that loads Dex App Builder. Without repository and command access, the plugin supports planning and handoff only.",
     "developerName": "Super Durable",
     "category": "Productivity",
     "capabilities": [

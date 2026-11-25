@@ -121,7 +121,7 @@ A stable skills content change adds a fragment: run
 write the change-log bullets in the new `changelog.d/skills/` file. A typo,
 link, or wording-only change needs no fragment; its pull request description
 contains a line `skills-release: no bump needed: <reason>`. Never edit
-`skills/VERSION`, `skills/dex-sdk/VERSION`, the plugin and marketplace
+`skills/VERSION`, `skills/dex-app-builder/VERSION`, the plugin and marketplace
 manifests, or `skills/CHANGELOG.md` by hand. Only the release-prep pull
 request writes them. Check Gate CI rejects other edits unless the description
 contains a line `changelog: correction: <reason>`. See
@@ -256,8 +256,8 @@ still not describe downstream products.
 
 - Before changing or reviewing `examples/**`, application code snippets in
   product docs, or documented Flow application patterns, load the installed
-  `dex-sdk` skill through the host's native skill mechanism and follow its
-  routed references. Use the invocation syntax for the host's Plugin or
+  `dex-app-builder` skill through the host's native skill mechanism and
+  follow its SDK-only route and routed references. Use the invocation syntax for the host's Plugin or
   standalone installation.
 - Do not load it for pure Server, IDL, or SDK implementation work. When a
   change includes both an SDK API and examples, current source and API decisions

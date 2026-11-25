@@ -99,7 +99,7 @@ and credential flags.
 Every Worker is a pull Worker. It opens only outbound connections to Dex
 Server, and the Server never calls in. Set the Server address on both the
 Worker and the Client. There is no Worker address to configure. Give each
-process start a unique app Worker ID. The Dex SDK skill holds the Worker
+process start a unique app Worker ID. [application.md](core/application.md) holds the Worker
 lifecycle rules: startup registration, readiness, capacity, drain on stop,
 and heartbeats. The Workers page of the language's SDK reference, such as the
 [Go Worker reference](https://docs.superdurable.io/reference/go/workers),

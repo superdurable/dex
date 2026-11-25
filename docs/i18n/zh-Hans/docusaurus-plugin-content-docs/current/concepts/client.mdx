@@ -21,7 +21,7 @@ slug: /concepts/client
 
 ## 由 Flow 做决定 {#flow-owns-decisions}
 
-Client 从不直接写 Flow 的状态。在这个边界内，建议让这个流程的决定和状态归 Flow 所有。调用方把业务事实作为 start input 或初始 Attribute 传入。Flow 的 Step 和 RPC handler 执行业务规则，并写入得出的状态。初始状态依赖这些规则时，在第一个 Step 里计算。这样规则只在一处，状态变化也和 Flow 的进度一起提交。Dex Web 和之后的读取使用已提交的状态。
+Flow 自己写它的状态；Client 启动 Flow、调用 RPC 和读取，没有直接写入的接口。在这个边界内，建议让这个流程的决定和状态归 Flow 所有。调用方把业务事实作为 start input 或初始 Attribute 传入。Flow 的 Step 和 RPC handler 执行业务规则，并写入得出的状态。初始状态依赖这些规则时，在第一个 Step 里计算。这样规则只在一处，状态变化也和 Flow 的进度一起提交。Dex Web 和之后的读取使用已提交的状态。
 
 ## 保证
 
