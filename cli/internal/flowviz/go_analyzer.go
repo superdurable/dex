@@ -156,6 +156,7 @@ func analyzeGo(ctx context.Context, sourcePath string, source []byte, flowType s
 		sourcePath,
 		isApplicationLint,
 	)
+	graph.decisionAnalysisComplete = true
 	analyzer.Analyze(flowType)
 	return graph, nil
 }
@@ -853,11 +854,14 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 	}
 	localMovements := analyzer.collectLocalMovements(method.Body)
 	outcomes := make([]goDecisionOutcome, 0)
+	recognizedResults := make(map[ast.Expr]bool)
+	defer analyzer.markUnrecognizedDecisionReturns(method, recognizedResults)
 	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) bool {
 		decisionType := analyzer.decisionType(expression, phase == "rpc")
 		if decisionType == "" {
 			return false
 		}
+		recognizedResults[expression] = true
 		outcomes = append(outcomes, goDecisionOutcome{
 			decisionType:    decisionType,
 			condition:       condition,
@@ -927,6 +931,24 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 			})
 		}
 	}
+}
+
+// A return whose decision the graph does not draw may close the Flow, so the graph cannot prove no_completion_path.
+func (analyzer *goAnalyzer) markUnrecognizedDecisionReturns(method *ast.FuncDecl, recognizedResults map[ast.Expr]bool) {
+	ast.Inspect(method.Body, func(current ast.Node) bool {
+		if _, isFunction := current.(*ast.FuncLit); isFunction {
+			return false
+		}
+		returnStatement, ok := current.(*ast.ReturnStmt)
+		if !ok || len(returnStatement.Results) == 0 {
+			return true
+		}
+		result := returnStatement.Results[0]
+		if !isNilIdentifier(result) && !recognizedResults[result] {
+			analyzer.graph.decisionAnalysisComplete = false
+		}
+		return false
+	})
 }
 
 func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, method *ast.FuncDecl) {

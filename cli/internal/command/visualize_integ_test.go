@@ -304,6 +304,8 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)
 	require.NotEmpty(t, sources)
+	// Cleanup runs after the parallel subtests finish.
+	t.Cleanup(func() { requireEveryExampleGraphLintKeyObserved(t) })
 	warmVisualizeRustAnalyzer(t, repositoryRoot)
 	for _, source := range sources {
 		relative, err := filepath.Rel(repositoryRoot, source)

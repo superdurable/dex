@@ -24,6 +24,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.path = path
         self.source = source
         self.flow_type = flow_type
+        self.decision_analysis_complete = True
         self.graph = {
             "schemaVersion": "2.0",
             "valid": True,
@@ -798,7 +799,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         attribute_nodes = [node for node in self.graph["nodes"] if node["kind"] == "attribute"]
         attribute_nodes.sort(key=lambda node: (node["span"]["startLine"], node["span"]["startColumn"]))
         attributes = [self.attribute_fact(node) for node in attribute_nodes]
-        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors, "persistenceResourceIds": self.persistence_resource_ids, "diagnosticResourceIds": self.diagnostic_resource_ids, "viewRPCs": self.view_rpcs, "startInput": self.start_input}
+        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors, "persistenceResourceIds": self.persistence_resource_ids, "diagnosticResourceIds": self.diagnostic_resource_ids, "viewRPCs": self.view_rpcs, "startInput": self.start_input, "decisionAnalysisComplete": self.decision_analysis_complete}
 
     def attribute_fact(self, node):
         resource = node["resource"]
@@ -922,13 +923,18 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)
         outcomes = []
+        recognized_returns = set()
 
         def collect_decisions(expression, condition):
             found = self.decision_outcomes(expression, condition, rpc, locals_map)
             outcomes.extend(found)
+            if self.is_recognized_decision(expression, rpc):
+                recognized_returns.add(id(expression))
             return bool(found)
 
         self.walk_statements(method.body, "", collect_decisions)
+        if any(id(statement.value) not in recognized_returns for statement in self.method_returns(method) if statement.value is not None):
+            self.decision_analysis_complete = False
         if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
             for outcome in outcomes:
                 if not outcome.get("condition"):
@@ -1031,6 +1037,22 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if isinstance(node, ast.Raise):
                 has_raise = True
         return has_raise
+
+    def is_recognized_decision(self, expression, rpc):
+        if isinstance(expression, ast.IfExp):
+            return self.is_recognized_decision(expression.body, rpc) and self.is_recognized_decision(expression.orelse, rpc)
+        return bool(self.decision_type(expression, rpc))
+
+    # Returns of the method itself, excluding nested functions and classes.
+    def method_returns(self, method):
+        pending = list(method.body)
+        while pending:
+            node = pending.pop()
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(node, ast.Return):
+                yield node
+            pending.extend(ast.iter_child_nodes(node))
 
     def decision_outcomes(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):

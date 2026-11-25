@@ -500,20 +500,21 @@ The analysis does not track paths: a load declared on one movement into a Step c
 
 ## Graph lints {#graph-lints}
 
-Every analyzer adds these warnings from the finished graph. They apply to Go, Python, TypeScript, Java, and Rust sources. Warnings do not make the graph invalid.
+The analyzers add these warnings from the finished graph. Warnings do not make the graph invalid.
 
 - **unreachable_step**: a registered Step cannot be reached from the start Step, an RPC, or the timeout handler.
 - **unused_resource**: an Attribute, Channel, or Stream has no direct access in the source file.
-- **channel_without_consumer**: since dexcli 1.48.1. A Step or RPC publishes to a Channel, but no Step waits on it, and no Step or RPC reads or deletes its messages. Unread messages stay in the Channel. A read in a helper that the analyzer does not follow, such as a Python helper, adds no edge and can produce this warning; write the read in the handler. The check is skipped when a Wait cannot be analyzed, or when a Step is declared outside the source file.
-- **no_completion_path**: since dexcli 1.48.1. No Step, RPC, or timeout handler reaches a **GracefulComplete**, **ForceComplete**, **ForceCompleteIfChannelsEmpty**, or **ForceFail** decision. **DeadEnd** does not close the Flow. Only a stop request or the Flow timeout can close such a Flow. A long-lived Flow can be designed this way. The check is skipped when the graph could hide a decision or a movement:
-  - it has an Unknown node, such as a dynamic or unregistered Step target;
-  - it has a **hidden_dex_decision** error;
-  - it has an unreachable Step;
+- **no_completion_path**: since dexcli 1.48.1, for Go and Python sources. No path from the start Step, an RPC, or the timeout handler reaches a **GracefulComplete**, **ForceComplete**, **ForceCompleteIfChannelsEmpty**, or **ForceFail** decision in the analyzed source. **DeadEnd** does not close the Flow. Such a Flow still closes when a client stops it, when its Flow timeout fires, when a Step fails after its retries, or when a new run with **IDReuseTerminateIfRunning** replaces it. A long-lived Flow can be designed this way. The check is skipped when the graph could hide a decision or a movement:
+  - a decision handler has a successful return that the analyzer cannot draw, such as a helper call or a variable;
+  - the graph has an Unknown node, such as a dynamic or unregistered Step target;
+  - the graph has a **hidden_dex_decision** error, or a Step, RPC, or Flow method declared outside the source file;
+  - the graph has an unreachable Step;
   - or a reachable Step has no decision or transition that the analyzer can draw.
 
-Two checks are not reported, because the source file cannot prove them:
+These checks are not reported, because a client outside the source file can make them correct:
 
 - A Channel that a Step waits on but no Step or RPC publishes to. A client can publish with the FlowService **PublishToChannel** request. See [Client](/concepts/client#inbound-commands).
+- A Channel that a Step or RPC publishes to but no Step or RPC consumes. A client can read and delete its messages with the **GetChannelMessages** and **DeleteChannelMessage** requests.
 - An Attribute that is read but never written. A client can set it with initial Attributes at start, and an operator can set it with the **SetAttributes** request.
 
 ## Application lints {#application-lints}

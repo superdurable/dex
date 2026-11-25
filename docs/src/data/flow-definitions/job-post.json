@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-23T07:47:03Z",
+  "generatedAt": "2026-11-23T07:06:25Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -604,19 +604,7 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "no_completion_path",
-      "message": "Flow JobPostingFlow has no reachable decision that completes or fails it; only a stop request or a Flow timeout can close it",
-      "span": {
-        "startLine": 107,
-        "startColumn": 1,
-        "endLine": 178,
-        "endColumn": 10
-      }
-    }
-  ],
+  "diagnostics": [],
   "groups": [
     {
       "id": "linkedin",

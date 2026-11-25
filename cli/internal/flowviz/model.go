@@ -27,6 +27,8 @@ type Graph struct {
 	Diagnostics   []Diagnostic  `json:"diagnostics"`
 	Groups        []StepGroup   `json:"groups,omitempty"`
 	V2            *V2Definition `json:"v2,omitempty"`
+	// True only when the analyzer drew every successful return of every decision handler.
+	decisionAnalysisComplete bool
 }
 
 type StepGroup struct {
@@ -293,7 +295,6 @@ func (graph *Graph) Normalize() {
 	graph.addUnknownTargets()
 	graph.addUnreachableWarnings()
 	graph.addUnusedResourceWarnings()
-	graph.addChannelWithoutConsumerWarnings()
 	graph.addNoCompletionPathWarning()
 	sort.SliceStable(graph.Nodes, func(left int, right int) bool {
 		return graph.Nodes[left].ID < graph.Nodes[right].ID
@@ -427,47 +428,9 @@ func (graph *Graph) controlReachableNodeIDs() map[string]bool {
 	return reachable
 }
 
-// Waits must be static, so a missing Wait edge is real unless Wait analysis is incomplete.
-func (graph *Graph) addChannelWithoutConsumerWarnings() {
-	if graph.hasIncompleteStepAnalysis() || graph.hasIncompleteWaitAnalysis() {
-		return
-	}
-	published := make(map[string]bool)
-	consumed := make(map[string]bool)
-	for _, edge := range graph.Edges {
-		switch edge.Kind {
-		case "resource_publish":
-			published[edge.To] = true
-		case "resource_read", "wait_condition":
-			consumed[edge.From] = true
-		case "resource_write":
-			// Deleting a Channel message consumes it.
-			consumed[edge.To] = true
-		}
-	}
-	for _, node := range graph.Nodes {
-		if node.Decision != nil {
-			for _, channelID := range node.Decision.CheckedChannels {
-				consumed[channelID] = true
-			}
-		}
-		if node.Wait != nil {
-			for _, condition := range node.Wait.Conditions {
-				consumed[condition.ResourceID] = true
-			}
-		}
-	}
-	for _, node := range graph.Nodes {
-		if node.Kind == "channel" && published[node.ID] && !consumed[node.ID] {
-			message := fmt.Sprintf("Channel %s has publishers, but no Step waits on it or reads it", node.Name)
-			graph.AddDiagnostic("warning", "channel_without_consumer", message, node.Span)
-		}
-	}
-}
-
-// Silent whenever the graph may hide a decision or a transition, so it has no false positives.
+// Silent whenever the graph may hide a decision or a transition.
 func (graph *Graph) addNoCompletionPathWarning() {
-	if graph.Flow.StartStepID == "" || graph.hasIncompleteStepAnalysis() {
+	if graph.Flow.StartStepID == "" || !graph.decisionAnalysisComplete || graph.hasIncompleteStepAnalysis() {
 		return
 	}
 	for _, node := range graph.Nodes {
@@ -477,7 +440,8 @@ func (graph *Graph) addNoCompletionPathWarning() {
 	}
 	for _, diagnostic := range graph.Diagnostics {
 		switch diagnostic.Code {
-		case "hidden_dex_decision", "unknown_step_target", "dynamic_step_target", "multiple_flows", "flow_not_found":
+		case "hidden_dex_decision", "unknown_step_target", "dynamic_step_target", "multiple_flows", "flow_not_found",
+			"step_outside_flow_file", "rpc_outside_flow_file", "flow_method_outside_flow_file", "flow_outside_flow_file":
 			return
 		}
 	}
@@ -510,36 +474,13 @@ func (graph *Graph) addNoCompletionPathWarning() {
 		}
 	}
 	graph.AddDiagnostic("warning", "no_completion_path",
-		fmt.Sprintf("Flow %s has no reachable decision that completes or fails it; only a stop request or a Flow timeout can close it", graph.Flow.Name), graph.Flow.Span)
+		fmt.Sprintf("Flow %s: no decision that completes or fails the Flow was found on a reachable path in the analyzed source", graph.Flow.Name), graph.Flow.Span)
 }
 
 // hasIncompleteStepAnalysis reports whether a registered Step was not analyzed.
 func (graph *Graph) hasIncompleteStepAnalysis() bool {
 	for _, node := range graph.Nodes {
 		if node.Kind == "step" && node.External {
-			return true
-		}
-	}
-	return false
-}
-
-// hasIncompleteWaitAnalysis reports whether some Wait condition has no known resource or kind.
-func (graph *Graph) hasIncompleteWaitAnalysis() bool {
-	for _, node := range graph.Nodes {
-		if node.Kind == "unknown" && node.Name == "Dynamic WaitFor" {
-			return true
-		}
-		if node.Wait == nil {
-			continue
-		}
-		for _, condition := range node.Wait.Conditions {
-			if condition.Kind == "unknown" || (condition.Kind == "channel" && condition.ResourceID == "") {
-				return true
-			}
-		}
-	}
-	for _, diagnostic := range graph.Diagnostics {
-		if diagnostic.Code == "hidden_dex_wait" || diagnostic.Code == "dynamic_wait_condition" {
 			return true
 		}
 	}

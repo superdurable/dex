@@ -31,6 +31,8 @@ type scriptAnalysis struct {
 	StartInput             *v2StartInputFact    `json:"startInput,omitempty"`
 	PersistenceResourceIDs []string             `json:"persistenceResourceIds"`
 	DiagnosticResourceIDs  map[int]string       `json:"diagnosticResourceIds"`
+	// Only analyzers that check every decision return set this field.
+	DecisionAnalysisComplete bool `json:"decisionAnalysisComplete"`
 }
 
 type scriptStepAnnotations struct {
@@ -113,6 +115,7 @@ var scriptConnectorJSONPointerPattern = regexp.MustCompile(`^(?:/(?:[^~/]|~[01])
 
 func (analysis *scriptAnalysis) definition() *Graph {
 	graph := &analysis.Graph
+	graph.decisionAnalysisComplete = analysis.DecisionAnalysisComplete
 	for _, use := range analysis.Factories {
 		analysis.applyConnectorFactory(use)
 	}

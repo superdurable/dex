@@ -52,6 +52,7 @@ func TestVisualizeScansEveryTypeScriptExampleFlowSource(t *testing.T) {
 			second, err := flowviz.MarshalJSON(again)
 			require.NoError(t, err)
 			require.Equal(t, string(first), string(second))
+			requireExampleGraphLintWarnings(t, graph, source)
 			hasUnsupportedFeature := false
 			hasHiddenDecision := false
 			hasMissingAnnotations := false
