@@ -1,6 +1,6 @@
 ---
-title: Performance and Resource Use
-sidebar_label: Performance and Resource Use
+title: Performance
+sidebar_label: Performance
 slug: /intro/compared-to-temporal/performance
 description: A Temporal Worker caches Workflow state in memory, while a Dex Worker reads saved state from Dex Server and caches large values on disk. A measured Worker memory benchmark with both engines, and the write and read path of each server.
 ---
@@ -9,7 +9,7 @@ import TemporalWorkerCacheDiagram from '@site/src/components/diagrams/TemporalWo
 import TemporalWorkerMemoryChart from '@site/src/components/diagrams/TemporalWorkerMemoryChart';
 import TemporalServerPathDiagram from '@site/src/components/diagrams/TemporalServerPathDiagram';
 
-# Performance and Resource Use
+# Performance
 
 A Temporal Worker caches Workflow state in memory, while a Dex Worker reads saved state from Dex Server and caches large values on disk. Dex Server writes to a log in object storage and serves reads from local disk, while the Temporal services read and write a database.
 

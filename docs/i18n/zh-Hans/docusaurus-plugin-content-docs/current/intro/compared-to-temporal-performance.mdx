@@ -1,6 +1,6 @@
 ---
-title: 性能和资源用量
-sidebar_label: 性能和资源用量
+title: 性能
+sidebar_label: 性能
 slug: /intro/compared-to-temporal/performance
 description: Temporal 的 Worker 把 Workflow 状态缓存在内存里，Dex 的 Worker 从 Dex Server 读取已保存的状态，并把大的值缓存在磁盘上。本页有两个引擎的 Worker 内存实测，以及两边服务器的读写路径。
 ---
@@ -9,7 +9,7 @@ import TemporalWorkerCacheDiagram from '@site/src/components/diagrams/TemporalWo
 import TemporalWorkerMemoryChart from '@site/src/components/diagrams/TemporalWorkerMemoryChart';
 import TemporalServerPathDiagram from '@site/src/components/diagrams/TemporalServerPathDiagram';
 
-# 性能和资源用量
+# 性能
 
 Temporal 的 Worker 把 Workflow 状态缓存在内存里，Dex 的 Worker 从 Dex Server 读取已保存的状态，并把大的值缓存在磁盘上。Dex Server 把写入记到对象存储里的日志，从本地磁盘提供读取；Temporal 的各个服务读写一个数据库。
 

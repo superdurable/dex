@@ -20,14 +20,14 @@ A self-hosted Temporal Service runs four services on a database, and Temporal ap
 | | Temporal Service | Dex Server |
 | --- | --- | --- |
 | Processes | Frontend, History, Matching, and Worker services. They can share a process. Temporal recommends separate processes in production. | One binary. One active node holds a lease in object storage. See [Dex Server](/components/server). |
-| Required storage | A database: Cassandra, MySQL, or PostgreSQL. SQLite for development and testing only. | Object storage, such as Amazon S3, or [db9](/reference/server/object-storage#db9) in its place. |
+| Required storage | A database: Cassandra, MySQL, or PostgreSQL. SQLite for development and testing only. | [Object storage](/reference/server/object-storage): Amazon S3, Google Cloud Storage, Azure Blob Storage, Aliyun OSS, Tencent COS, or an S3-compatible store such as MinIO. [db9](/reference/server/object-storage#db9) can take its place. |
 | Search storage | A Visibility store: Elasticsearch, OpenSearch, MySQL, PostgreSQL, or SQLite. Temporal recommends Elasticsearch in production. Custom Search Attributes are not supported on Cassandra. | Built in by default. PostgreSQL or ParadeDB optional. |
 
 The Temporal facts come from [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server), [Persistence](https://docs.temporal.io/temporal-service/persistence), [Visibility](https://docs.temporal.io/self-hosted-guide/visibility), and the [production checklist](https://docs.temporal.io/self-hosted-guide/production-checklist).
 
 A Dex standby node takes over after the active node's [lease](/reference/server/high-availability#lease) ends, 10 seconds by default. See [Failover and Deploys](/concepts/failover-and-deploys).
 
-## What you tune and code around {#tune-and-code-around}
+## Limits {#limits}
 
 | Item | Temporal | Dex |
 | --- | --- | --- |
@@ -38,13 +38,13 @@ A Dex standby node takes over after the active node's [lease](/reference/server/
 | Deploying new code | Patching APIs keep new code compatible with open runs. [Worker Versioning](https://docs.temporal.io/worker-versioning) is Generally Available since 2026-03-30 ([announcement](https://temporal.io/blog/ga-worker-versioning-public-preview-upgrade-on-continue-as-new)). Auto-Upgrade Workflows still need patching. | Each Step runs the code of the Worker that takes it. See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
 | Messages per execution | 10,000 Signals, 10 in-flight and 2,000 total Updates ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)), and 2,000 pending Child Workflows by default ([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). | Channel messages and RPCs have no per-run total. See [Operating and Recovering Flows](/intro/compared-to-temporal/experience#channel). |
 
-## The history limit {#history-limit}
+### The history limit {#history-limit}
 
 [Watch at 15:02](https://youtu.be/fzl88JWt734?t=902)
 
 The demos ran a local development server with the default limits in the table above. Temporal writes the limits in MB and KB. The measured byte counts below are exact, and the payload limit the server applied was 2 MiB, 2,097,152 bytes. Every number comes from a script in the [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going) repository. The AI reply is a local mock, not a real model. The repository lists the [versions used](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below).
 
-### The conversation that keeps going {#history-limit-flood}
+#### The conversation that keeps going {#history-limit-flood}
 
 The load test sends follow-up messages at 8 per second, about 200 bytes each, and gets one AI reply per message. The workflow has no Continue-As-New.
 
@@ -52,7 +52,7 @@ The load test sends follow-up messages at 8 per second, about 200 bytes each, an
 - The server terminated the workflow at 51,201 history events: `Workflow history count exceeds limit.` The history size was 9 MB, far below 50 MB.
 - Each customer message adds 12 history events: 1 Signal, 2 workflow tasks of 3 events each, 1 activity of 3 events, 1 timer canceled, and 1 timer started.
 
-### Continue-As-New {#continue-as-new}
+#### Continue-As-New {#continue-as-new}
 
 [Continue-As-New](https://docs.temporal.io/develop/python/workflows/continue-as-new) ends the run and starts a new one with fresh history. The new run keeps the Workflow ID and gets a new Run ID. The workflow code does this itself:
 
@@ -73,7 +73,7 @@ The workflow stayed Running and kept accepting Signals, and it stopped replying.
 
 Temporal's answer for large payloads is [External Storage](https://docs.temporal.io/external-storage), in Public Preview. It stores a payload outside the Event History and records a reference token in its place. With a local directory as the store, the demo answered 10,000 messages, each once. The stored objects stayed after the workflow completed. Temporal documents that it "does not automatically delete payloads from your external store".
 
-### The conversation context in each activity {#context-in-activity}
+#### The conversation context in each activity {#context-in-activity}
 
 `ConversationWithContextWorkflow` passes the whole transcript to each reply activity as a regular input, with no Continue-As-New and no External Storage. Temporal records each activity's input in its `ActivityTaskScheduled` event. So each reply copies the transcript into the history again, and the history grows with the square of the message count.
 
@@ -84,7 +84,7 @@ Temporal's answer for large payloads is [External Storage](https://docs.temporal
 
 Both runs ended with `Workflow history size exceeds limit.` The 50 MB history size limit was reached first. The 2 MB payload limit was not. No workflow task failed, and the Worker logged no error before the termination. These numbers hold for a regular activity that receives the full transcript on each call. The demo did not measure other designs.
 
-### Dex {#history-limit-dex}
+#### Dex {#history-limit-dex}
 
 The Dex Flow ran the same load for 30 minutes. It answered all 14,138 follow-up messages that were sent and kept running, with no backlog at the end. The load driver dropped 262 of 14,400 planned sends by back-pressure during a slow period of about three minutes.
 
@@ -92,7 +92,7 @@ Dex keeps a window of each run's newest events and prunes older ones, so the Flo
 
 The Flow keeps the transcript in an AttributeMap of chunks, within 32 MiB of the run's 64 MiB state budget. When an append does not fit, `TrimTranscriptStep` folds the oldest chunks into a summary and deletes them. With 8 KiB messages, the transcript reached 33.2 MB and stayed under the budget. 64 chunks went into the summary, and the Flow kept running.
 
-## Data size {#data-size}
+### Data size {#data-size}
 
 The Temporal payload limit covers an activity input and a Continue-As-New snapshot. A Dex value is an Attribute value or a Channel message. The history and the superseded values kept for Time Travel do not count toward a Flow run's 64 MiB of active state. See [Limits](/reference/server/configuration#limits) and [Flow state budget](/reference/server/configuration#flow-state-budget).
 
@@ -107,4 +107,4 @@ When a Flow has parallel branches, Dex runs their Steps in parallel, on one Work
 - [Features Only in Dex](/intro/compared-to-temporal/features): Flow design, generated forms, Clone fork, Connectors, and more.
 - [Operating and Recovering Flows](/intro/compared-to-temporal/experience): Time Travel, SubFlows, RPCs, Channels, and Streams.
 - [Run Dex in Production](/components/production): the settings to change before launch and how to size a node.
-- [Performance and Resource Use](/intro/compared-to-temporal/performance): Worker memory and server throughput.
+- [Performance](/intro/compared-to-temporal/performance): Worker memory and server throughput.
