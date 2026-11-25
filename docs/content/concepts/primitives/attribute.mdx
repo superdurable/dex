@@ -360,8 +360,14 @@ the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
 Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
-then write. Dex does not detect an unlocked read-then-write. Test it by running
-both writers concurrently and checking the final value.
+then write. A Worker reports a Step method or RPC that reads an Attribute and
+then writes it without a lock. By default it logs a warning. A Worker option
+makes the method fail instead; turn it on in tests and local development. When
+only one method ever writes the Attribute, that method declares itself its
+single writer, and the Worker accepts it without a lock. The Worker sees only
+the locks a method registers, so also test by running both writers
+concurrently and checking the final value. See
+[Unlocked read-modify-write check](/reference/server/runtime-data#unlocked-read-modify-write-check).
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute.
