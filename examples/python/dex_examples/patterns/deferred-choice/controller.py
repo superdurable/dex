@@ -17,7 +17,16 @@ from __future__ import annotations
 import asyncio
 from typing import Callable
 
-from dex import AsyncClient, Context, RPCResult, RpcLockConflictError
+from dex import (
+    AsyncClient,
+    Context,
+    FlowClosingError,
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
+    FlowStatus,
+    RPCResult,
+    RpcLockConflictError,
+)
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
@@ -66,12 +75,27 @@ async def send_customer_response(
     client: AsyncClient, rpc: OfferResponseRPC
 ) -> tuple[str, int]:
     """Answers 409 when the response window is already closed."""
-    outcome = await invoke_response_rpc(
-        client, rpc, required_query("workflowId"), required_query("note")
-    )
+    flow_id = required_query("workflowId")
+    try:
+        outcome = await invoke_response_rpc(client, rpc, flow_id, required_query("note"))
+    except FlowClosingError:
+        return "offer response window closed", 409
+    except (FlowNotActiveOrNotFoundError, FlowNotFoundError):
+        if await is_offer_closed(client, flow_id):
+            return "offer response window closed", 409
+        raise
     if outcome == OFFER_RESPONSE_WINDOW_CLOSED:
         return "offer response window closed", 409
     return "offer response recorded", 200
+
+
+async def is_offer_closed(client: AsyncClient, flow_id: str) -> bool:
+    """Returns whether the offer Flow exists and has closed, which also closes its window.
+
+    Raises FlowNotFoundError when the Flow never existed.
+    """
+    info = await client.describe_flow(flow_id)
+    return info.status is not FlowStatus.RUNNING
 
 
 async def invoke_response_rpc(

@@ -22,6 +22,7 @@ from dex import (
     Context,
     Flow,
     PersistenceSchema,
+    RetryPolicy,
     RPCResult,
     Step,
     StepDecision,
@@ -37,7 +38,7 @@ from dex import (
 # How long the customer has to respond.
 OFFER_EXPIRY = timedelta(days=3)
 
-# The response window is open until AwaitOfferResponse decides. Unset reads as open.
+# The first response or AwaitOfferResponse closes the response window. Unset reads as open.
 RESPONSE_WINDOW_OPEN = "open"
 RESPONSE_WINDOW_CLOSED = "closed"
 
@@ -50,6 +51,14 @@ OFFER_REJECTED = Channel("offerRejected", str)
 # Locked by both response RPCs and by AwaitOfferResponse.execute.
 OFFER_RESPONSE_WINDOW = Attribute("offerResponseWindow", str)
 
+# A short retry budget for the execute that holds the window lock.
+WINDOW_CLOSE_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_attempts=3,
+    total_duration=timedelta(minutes=1),
+)
+WINDOW_CLOSE_ATTEMPT_TIMEOUT = timedelta(seconds=10)
+
 
 def read_response_window(context: Context) -> str:
     """Returns RESPONSE_WINDOW_OPEN while the window was never closed."""
@@ -59,13 +68,15 @@ def read_response_window(context: Context) -> str:
 def publish_while_window_open(
     context: Context, response: Channel[str], note: str
 ) -> RPCResult[str]:
-    """Publishes the response unless the window is closed.
+    """Publishes the first response and closes the window; later responses get window closed.
 
-    The publish commits together with this check, because the RPC holds the window lock.
+    The check, the publish, and the close commit together, because the RPC holds the window lock.
     """
     if read_response_window(context) == RESPONSE_WINDOW_CLOSED:
         return RPCResult(OFFER_RESPONSE_WINDOW_CLOSED)
     response.publish(context, note)
+    # The first reply closes the window, so a second reply cannot also be recorded.
+    OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED)
     return RPCResult(OFFER_RESPONSE_RECORDED)
 
 
@@ -74,7 +85,12 @@ def publish_while_window_open(
 class AwaitOfferResponse(Step[str]):
     def get_step_options(self) -> StepOptions:
         """Locks the response window in execute, the same lock as the response RPCs."""
-        return StepOptions(execute_lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),))
+        return StepOptions(
+            execute_lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),),
+            # Responses get lock conflicts while this execute retries, so keep the budget short.
+            execute_retry=WINDOW_CLOSE_RETRY,
+            execute_method_timeout=WINDOW_CLOSE_ATTEMPT_TIMEOUT,
+        )
 
     def wait_for(self, context: Context, offer_id: str) -> Wait:
         return Wait.any_of(
@@ -154,7 +170,7 @@ class OfferResponseFlow(Flow[str]):
     def accept_customer_offer(self, context: Context, note: str) -> RPCResult[str]:
         """Records that the customer accepted the offer.
 
-        Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+        Returns OFFER_RESPONSE_WINDOW_CLOSED once a response was recorded or the offer decided.
         """
         return publish_while_window_open(context, OFFER_ACCEPTED, note)
 
@@ -162,6 +178,6 @@ class OfferResponseFlow(Flow[str]):
     def reject_customer_offer(self, context: Context, note: str) -> RPCResult[str]:
         """Records that the customer rejected the offer.
 
-        Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+        Returns OFFER_RESPONSE_WINDOW_CLOSED once a response was recorded or the offer decided.
         """
         return publish_while_window_open(context, OFFER_REJECTED, note)

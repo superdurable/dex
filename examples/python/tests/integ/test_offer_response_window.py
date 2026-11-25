@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -28,10 +29,12 @@ from dex import (
     BlobCacheConfig,
     ClientOptions,
     Registry,
+    RpcLockConflictError,
     StartFlowOptions,
     WorkerOptions,
     open_blob_cache,
 )
+from dex.flow_state import StepMethodName, StepMethodPendingReason
 
 from dex_examples.patterns.deferred_choice.offer_response_flow import (
     OFFER_RESPONSE_RECORDED,
@@ -41,7 +44,7 @@ from dex_examples.shared.worker_options import (
     PULL_REGISTRATION_TIMEOUT_SECONDS,
     new_example_pull_worker_options,
 )
-from tests.integ.conftest import WAIT_TIMEOUT, server_address
+from tests.integ.conftest import WAIT_TIMEOUT, server_address, wait_until
 from tests.integ.offer_response_window_probe_flow import (
     HELD_RESPONSE,
     OfferResponseWindowProbeFlow,
@@ -54,6 +57,9 @@ from tests.integ.test_control_structure_patterns import (
 )
 
 pytestmark = pytest.mark.integ
+
+LOCK_CONFLICT_ATTEMPTS = 10
+LOCK_CONFLICT_BACKOFF_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -120,6 +126,45 @@ async def test_deferred_choice_response_after_the_decision_gets_window_closed(
     assert outputs_of(result, "CloseRejectedOffer", str) == []
 
 
+async def test_deferred_choice_only_the_first_of_two_responses_is_recorded(
+    probe: OfferResponseWindowProbe, new_flow_id: Callable[[str], str]
+) -> None:
+    flow, client = probe.flow, probe.client
+    flow_id = await start_probe(probe, new_flow_id("pattern-deferred-choice-double"), "offer-5")
+    # Both responses go out at once, before the decision; the first one closes the window.
+    first = await invoke_retrying_lock_conflicts(client, flow.accept_probe_offer, flow_id, "yes")
+    second = await invoke_retrying_lock_conflicts(client, flow.reject_probe_offer, flow_id, "no")
+    assert (first, second) == (OFFER_RESPONSE_RECORDED, OFFER_RESPONSE_WINDOW_CLOSED)
+
+    await client.invoke_rpc(flow.open_probe_gate, flow_id)
+    result = await wait_for_completed_flow(client, flow_id)
+    assert outputs_of(result, "FulfillOffer", str) == ["fulfilled offer-5"]
+    assert outputs_of(result, "CloseRejectedOffer", str) == []
+
+
+async def invoke_retrying_lock_conflicts(
+    client: AsyncClient, rpc: Callable[..., Any], flow_id: str, note: str
+) -> str:
+    """Invokes a response RPC, retrying lock conflicts with the decision a bounded number of times."""
+    for _ in range(LOCK_CONFLICT_ATTEMPTS - 1):
+        try:
+            return await client.invoke_rpc(rpc, flow_id, note)
+        except RpcLockConflictError:
+            await asyncio.sleep(LOCK_CONFLICT_BACKOFF_SECONDS)
+    return await client.invoke_rpc(rpc, flow_id, note)
+
+
+async def is_execute_waiting_for_locks(client: AsyncClient, flow_id: str, step_type: str) -> bool:
+    state = await client.get_flow_state(flow_id)
+    return any(
+        execution.step_type == step_type
+        and execution.invocation is not None
+        and execution.invocation.method is StepMethodName.EXECUTE
+        and execution.invocation.pending_reason is StepMethodPendingReason.WAITING_FOR_LOCKS
+        for execution in state.active_step_executions
+    )
+
+
 async def test_deferred_choice_response_committed_after_the_timer_won_is_taken(
     probe: OfferResponseWindowProbe, new_flow_id: Callable[[str], str]
 ) -> None:
@@ -134,6 +179,10 @@ async def test_deferred_choice_response_committed_after_the_timer_won_is_taken(
         await asyncio.wait_for(HELD_RESPONSE.entered.wait(), WAIT_TIMEOUT.total_seconds())
         # The Timer wins while the RPC holds the window lock, so Execute waits for the RPC.
         await skip_offer_expiry(client, flow_id)
+        await wait_until(
+            "AwaitOfferResponse execute to wait for the window lock",
+            lambda: is_execute_waiting_for_locks(client, flow_id, "AwaitOfferResponse"),
+        )
     finally:
         HELD_RESPONSE.released.set()
     assert await held == OFFER_RESPONSE_RECORDED
