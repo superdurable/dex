@@ -18,8 +18,9 @@ import (
 	"strings"
 )
 
-// declaredLockMissingSeverity is the severity of declared_lock_missing for every analyzer; owner decision D17 may change it.
-const declaredLockMissingSeverity = "error"
+// declaredLockMissingSeverity is the severity of declared_lock_missing for every analyzer.
+// It is a warning because the Worker enforces declared requirements at run time.
+const declaredLockMissingSeverity = "warning"
 
 // goLockRequirement is the lock that a resource declaration requires for every write or publish.
 type goLockRequirement struct {
@@ -284,7 +285,7 @@ func (checker *goDeclaredLockChecker) stepOptionsAreLiteral(stepValueType types.
 }
 
 // unprovenWriteReason returns why dexcli cannot prove that the write runs on the declared resource, or "".
-// Graph edges resolve receivers loosely; a blocking diagnostic needs the strict facts below.
+// Graph edges resolve receivers loosely; declared_lock_missing needs the strict facts below.
 func (checker *goDeclaredLockChecker) unprovenWriteReason(handler goHandlerSummary, access goResourceAccess) string {
 	selector, isSelector := unwrapCallFun(ast.Unparen(access.call.Fun)).(*ast.SelectorExpr)
 	if !isSelector {

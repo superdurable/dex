@@ -58,7 +58,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.actions = []
         self.rpc_lock_errors = []
         self.lock_handlers = []
-        self.declared_lock_missing_severity = "error"
+        self.declared_lock_missing_severity = "warning"
         self.view_rpcs = []
         self.start_input = None
         self.initialize_connectors()
@@ -2342,7 +2342,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 def main():
     request = json.load(sys.stdin)
     analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
-    analyzer.declared_lock_missing_severity = request.get("declaredLockMissingSeverity", "error")
+    analyzer.declared_lock_missing_severity = request.get("declaredLockMissingSeverity", "warning")
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.metadata_analysis_result())

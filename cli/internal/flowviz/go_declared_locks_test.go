@@ -170,29 +170,29 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"step without options": {
 			source:          goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "_ = total.Set(ctx, 1)"},
-			diagnostics:     []string{"error declared_lock_missing"},
+			diagnostics:     []string{"warning declared_lock_missing"},
 			messageFragment: "Step AddItemStep Execute writes attribute total without the lock its declaration requires; add dex.LockAttribute(total) to ExecuteLockAttributes",
 		},
 		"rpc with nil options": {
 			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", rpcBody: "_ = total.Set(ctx, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"lock on another attribute": {
 			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), rpcBody: "_ = total.Set(ctx, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"map lock on another instance": {
 			source:          goDeclaredLocksCase{itemsOptions: "dex.WritesRequireLock()", rpcOptions: goRPCLocks(`dex.LockAttributeMap(items, "pear")`), rpcBody: `_ = items.Set(ctx, "apple", 1)`},
-			diagnostics:     []string{"error declared_lock_missing"},
+			diagnostics:     []string{"warning declared_lock_missing"},
 			messageFragment: `dex.LockAttributeMap(items, "apple")`,
 		},
 		"map write with dynamic key and no map lock": {
 			source:      goDeclaredLocksCase{itemsOptions: "dex.WritesRequireLock()", rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), rpcBody: "_ = items.Set(ctx, input, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"channel publish without lock": {
 			source:      goDeclaredLocksCase{repliesOptions: "dex.PublishesRequireAttributeLock(cartLock)", rpcBody: `_ = replies.Publish(ctx, "hi")`},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"movement lock does not count": {
 			source: goDeclaredLocksCase{
@@ -200,7 +200,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 				moveOptions:  ", dex.WithStepOptions(&dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(total)}})",
 				executeBody:  "_ = total.Set(ctx, 1)",
 			},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"dynamic registration locks": {
 			source: goDeclaredLocksCase{
@@ -259,7 +259,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"unrelated option after a lock option": {
 			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock(), dex.Plaintext()", executeBody: "_ = total.Set(ctx, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"local receiver that shadows the resource": {
 			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "total := unguarded()\n\t_ = total.Set(ctx, 1)"},
@@ -283,7 +283,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"channel map publish without lock": {
 			source:      goDeclaredLocksCase{rpcBody: `_ = rooms.Publish(ctx, "lobby", "hi")`},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"unreadable attribute options are neither checked nor nudged": {
 			source: goDeclaredLocksCase{totalOptions: "attributeOptions()...", rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)", executeBody: "_ = total.Set(ctx, 2)"},

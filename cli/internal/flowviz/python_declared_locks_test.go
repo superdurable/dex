@@ -136,29 +136,29 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"step without options": {
 			source:          pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "CartFlow.total.set(context, 1)"},
-			diagnostics:     []string{"error declared_lock_missing"},
+			diagnostics:     []string{"warning declared_lock_missing"},
 			messageFragment: "Step AddItemStep execute writes attribute total without the lock its declaration requires; add total.lock() to execute_lock_attributes",
 		},
 		"rpc without locks": {
 			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "self.total.set(context, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"lock on another attribute": {
 			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"map lock on another instance": {
 			source:          pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: `items.lock("pear")`, rpcBody: `self.items.set(context, "apple", 1)`},
-			diagnostics:     []string{"error declared_lock_missing"},
+			diagnostics:     []string{"warning declared_lock_missing"},
 			messageFragment: `items.lock('apple')`,
 		},
 		"map write with dynamic key and no map lock": {
 			source:      pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: "cart_lock.lock()", rpcBody: "self.items.set(context, input, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"channel publish without lock": {
 			source:      pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=cart_lock", rpcBody: `self.replies.publish(context, "hi")`},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"movement lock does not count": {
 			source: pythonDeclaredLocksCase{
@@ -166,7 +166,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				moveOptions:  ", options=StepOptions(execute_lock_attributes=(CartFlow.total.lock(),))",
 				executeBody:  "CartFlow.total.set(context, 1)",
 			},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"dynamic registration locks": {
 			source: pythonDeclaredLocksCase{
@@ -234,7 +234,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"outer rpc decorator replaces the inner registration": {
 			source:      pythonDeclaredLocksCase{outerDecorator: "@rpc(name=\"Reply\")\n    ", totalOptions: "writes_require_lock=True", rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)"},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"unknown outer decorator": {
 			source:        pythonDeclaredLocksCase{outerDecorator: "@locked_rpc\n    ", totalOptions: "writes_require_lock=True", rpcBody: "self.total.set(context, 1)"},
@@ -243,7 +243,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"positional publish lock": {
 			source:      pythonDeclaredLocksCase{repliesOptions: "cart_lock", rpcBody: `self.replies.publish(context, "hi")`},
-			diagnostics: []string{"error declared_lock_missing"},
+			diagnostics: []string{"warning declared_lock_missing"},
 		},
 		"explicit None publish lock": {
 			source: pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=None", rpcBody: `self.replies.publish(context, "hi")`},
