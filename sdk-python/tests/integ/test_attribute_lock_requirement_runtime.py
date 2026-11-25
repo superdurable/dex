@@ -992,44 +992,53 @@ def _start_snapshot_flow(
     )
 
 
-def test_every_send_path_uses_the_registered_step_locks() -> None:
+@pytest.mark.parametrize(
+    "send_path",
+    ["start", "movement", "execute-failure", "sub-flow", "timeout-handler-failure"],
+)
+def test_every_send_path_uses_the_registered_step_locks(send_path: str) -> None:
     with _snapshot_harness(is_async=False) as (client, task_queue):
-        # Flow start.
-        _assert_step_holds_registered_lock(
-            client,
-            SNAPSHOT_START_FLOW.set_total_locked,
-            _start_snapshot_flow(client, SNAPSHOT_START_FLOW, task_queue, None),
-        )
-        for route in ("movement", "execute-failure"):
+        if send_path == "start":
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_START_FLOW.set_total_locked,
+                _start_snapshot_flow(client, SNAPSHOT_START_FLOW, task_queue, None),
+            )
+        elif send_path == "sub-flow":
+            # The paused Step runs in the child Flow.
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_START_FLOW.set_total_locked,
+                _start_snapshot_flow(
+                    client, SNAPSHOT_ROUTE_FLOW, task_queue, send_path
+                ),
+            )
+        elif send_path == "timeout-handler-failure":
+            timeout_options = StartFlowOptions(
+                task_queue=task_queue,
+                timeout=timedelta(seconds=1),
+                timeout_handler_options=FlowTimeoutHandlerOptions(
+                    retry=RetryPolicy(maximum_attempts=1)
+                ).on_failure_proceed_to(SNAPSHOT_ROUTE_FLOW.gated),
+            )
             _assert_step_holds_registered_lock(
                 client,
                 SNAPSHOT_ROUTE_FLOW.set_total_locked,
-                _start_snapshot_flow(client, SNAPSHOT_ROUTE_FLOW, task_queue, route),
+                lambda: client.start_flow(
+                    SNAPSHOT_ROUTE_FLOW,
+                    unique_id("py-lock-snap-timeout"),
+                    "timeout",
+                    timeout_options,
+                ),
             )
-        # SubFlow start; the paused Step runs in the child Flow.
-        _assert_step_holds_registered_lock(
-            client,
-            SNAPSHOT_START_FLOW.set_total_locked,
-            _start_snapshot_flow(client, SNAPSHOT_ROUTE_FLOW, task_queue, "sub-flow"),
-        )
-        # Timeout handler failure route.
-        timeout_options = StartFlowOptions(
-            task_queue=task_queue,
-            timeout=timedelta(seconds=1),
-            timeout_handler_options=FlowTimeoutHandlerOptions(
-                retry=RetryPolicy(maximum_attempts=1)
-            ).on_failure_proceed_to(SNAPSHOT_ROUTE_FLOW.gated),
-        )
-        _assert_step_holds_registered_lock(
-            client,
-            SNAPSHOT_ROUTE_FLOW.set_total_locked,
-            lambda: client.start_flow(
-                SNAPSHOT_ROUTE_FLOW,
-                unique_id("py-lock-snap-timeout"),
-                "timeout",
-                timeout_options,
-            ),
-        )
+        else:
+            _assert_step_holds_registered_lock(
+                client,
+                SNAPSHOT_ROUTE_FLOW.set_total_locked,
+                _start_snapshot_flow(
+                    client, SNAPSHOT_ROUTE_FLOW, task_queue, send_path
+                ),
+            )
 
 
 def test_async_worker_movement_uses_the_registered_step_locks() -> None:
