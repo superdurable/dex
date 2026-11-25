@@ -322,6 +322,7 @@ func (flow attributeLockRequirementRPCFlow) GetRPCs() []dex.RPCDef {
 		}),
 		dex.DefineRPC(flow.PublishEventUnlocked, nil),
 		dex.DefineRPC(flow.CountEvents, nil),
+		dex.DefineRPC(flow.CountReplies, nil),
 		dex.DefineRPC(flow.SetTotalLocked, &dex.RPCOptions{
 			LockAttributes: []dex.AttributeLock{dex.LockAttribute(lockReqTotal)},
 		}),
@@ -372,11 +373,19 @@ func (attributeLockRequirementTimeoutFlow) HandleTimeout(ctx dex.Context) (*dex.
 	return dex.ForceComplete("expired"), nil
 }
 
+// PublishReplyUnlocked also writes an undeclared Attribute, which the failure must discard too.
 func (attributeLockRequirementRPCFlow) PublishReplyUnlocked(
 	ctx dex.Context,
 	reply string,
 ) (*dex.RPCResult[dex.None], error) {
+	if err := lockReqFree.Set(ctx, 1); err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[dex.None]{}, lockReqReplies.Publish(ctx, reply)
+}
+
+func (attributeLockRequirementRPCFlow) CountReplies(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: lockReqReplies.Size(ctx)}, nil
 }
 
 func (attributeLockRequirementRPCFlow) PublishReplyLocked(
@@ -600,16 +609,20 @@ func TestAttributeLockRequirementRPCs(t *testing.T) {
 		require.Contains(t, invocationErr.Worker.Detail, fragment)
 	}
 
-	t.Run("publish-unlocked", func(t *testing.T) {
+	t.Run("publish-locked-then-unlocked", func(t *testing.T) {
 		flowID := harness.startFlow(t, flow, nil)
+		replyCount := func() int {
+			var size int
+			require.NoError(t, harness.client.InvokeRPC(integrationContext(t), flowID, flow.CountReplies, nil, &size))
+			return size
+		}
+		require.NoError(t, harness.client.InvokeRPC(integrationContext(t), flowID, flow.PublishReplyLocked, "hi", new(dex.None)))
+		require.Equal(t, 1, replyCount(), "the locked publish commits")
 		err := harness.client.InvokeRPC(integrationContext(t), flowID, flow.PublishReplyUnlocked, "hi", new(dex.None))
 		requireMissingLock(t, err,
 			`RPC "PublishReplyUnlocked" published to Channel "lock-req-replies" without the required lock of Attribute "lock-req-coordination"`)
-	})
-	t.Run("publish-locked", func(t *testing.T) {
-		flowID := harness.startFlow(t, flow, nil)
-		err := harness.client.InvokeRPC(integrationContext(t), flowID, flow.PublishReplyLocked, "hi", new(dex.None))
-		require.NoError(t, err)
+		require.Equal(t, 1, replyCount(), "the rejected publish is discarded")
+		require.False(t, harness.isSet(t, flowID, lockReqFree, ""), "the other buffered write is discarded")
 	})
 	t.Run("write-unlocked", func(t *testing.T) {
 		flowID := harness.startFlow(t, flow, nil)
