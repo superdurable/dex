@@ -9,6 +9,7 @@
 import ast
 import json
 import sys
+from collections import deque
 
 # Each of these builtins can run code or read and write attributes by computed name.
 DYNAMIC_BUILTIN_CALLS = {"getattr", "setattr", "delattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}
@@ -1014,7 +1015,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             source_span = self.span(call)
             wait_id = f"wait:{step_name}:{source_span['startLine']}:{source_span['startColumn']}:{index}"
             wait_type = self.wait_type(call)
-            conditions = self.wait_conditions(owner_id, wait_id, call, outcome.get("resourceOverride"))
+            conditions = self.wait_conditions(owner_id, wait_id, outcome["conditionExpressions"], outcome.get("resourceOverride"))
             self.add_node({
                 "id": wait_id, "kind": "wait", "name": wait_type, "parentId": owner_id,
                 "condition": outcome.get("condition", ""), "phase": "wait_for", "span": source_span,
@@ -1095,17 +1096,19 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             )
         if not isinstance(expression, ast.Call) or not self.wait_type(expression):
             return []
-        conditional_resource = self.conditional_wait_resource(expression)
+        condition_expressions = list(self.wait_condition_expressions(expression))
+        outcome = {"call": expression, "condition": condition, "conditionExpressions": condition_expressions}
+        conditional_resource = self.conditional_wait_resource(condition_expressions)
         if conditional_resource is None:
-            return [{"call": expression, "condition": condition}]
+            return [outcome]
         return [
             {
-                "call": expression,
+                **outcome,
                 "condition": self.combine(condition, self.unparse(conditional_resource.test)),
                 "resourceOverride": conditional_resource.body,
             },
             {
-                "call": expression,
+                **outcome,
                 "condition": self.combine(condition, self.negate(self.unparse(conditional_resource.test))),
                 "resourceOverride": conditional_resource.orelse,
             },
@@ -1122,24 +1125,30 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             "any_combination_of": "anyComboOf",
         }.get(call.func.attr)
 
-    def conditional_wait_resource(self, wait_call):
-        for node in ast.walk(wait_call):
+    def conditional_wait_resource(self, condition_expressions):
+        for node in condition_expressions:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.IfExp):
                 if node.func.attr in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
                     return node.func.value
         return None
 
-    def wait_conditions(self, owner_id, wait_id, wait_call, resource_override):
+    def wait_conditions(self, owner_id, wait_id, condition_expressions, resource_override):
         conditions = []
-        for call in [node for node in ast.walk(wait_call) if isinstance(node, ast.Call) and node is not wait_call]:
-            if isinstance(call.func, ast.Attribute) and call.func.attr == "by_duration" and self.is_dex_reference(call.func.value, "Timer"):
+        for call in condition_expressions:
+            if isinstance(call, ast.Starred):
+                span = self.span(call)
+                expression = self.unparse(call)
+                self.error("dynamic_wait_condition", "Unpacked Wait conditions must come from a comprehension of SubFlow.run calls with a fixed child Flow", span)
+                conditions.append({"kind": "unknown", "label": expression, "expression": expression, "span": span})
+                continue
+            if self.is_dex_method_call(call, "Timer", "by_duration"):
                 expression = self.unparse(call.args[0]) if call.args else "duration"
                 conditions.append({
                     "kind": "timer", "label": f"{self.humanize_duration(call.args[0] if call.args else None)} timer",
                     "expression": expression, "span": self.span(call),
                 })
                 continue
-            if isinstance(call.func, ast.Attribute) and call.func.attr == "run" and self.is_dex_reference(call.func.value, "SubFlow"):
+            if self.is_dex_method_call(call, "SubFlow", "run"):
                 name = self.unparse(call.args[0]) if call.args else "SubFlow"
                 subflow_id = f"subflow:{name}:{call.lineno}"
                 self.add_node({"id": subflow_id, "kind": "subflow", "name": name, "external": True, "span": self.span(call)})
@@ -1159,6 +1168,94 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             })
             self.add_edge("wait_condition", resource_id, wait_id, label=label, span=self.span(call))
         return conditions
+
+    def wait_condition_expressions(self, wait_call):
+        accepts_subflow_unpacking = self.wait_type(wait_call) in {"allOf", "anyOf"}
+        pending = deque(ast.iter_child_nodes(wait_call))
+        while pending:
+            node = pending.popleft()
+            if isinstance(node, ast.Starred):
+                parent = self.parents[node]
+                if parent is wait_call:
+                    subflow_run = self.comprehension_subflow_run(node.value) if accepts_subflow_unpacking else None
+                    yield subflow_run if subflow_run is not None else node
+                    continue
+                if self.is_dex_method_call(parent, "ConditionCombination", "of"):
+                    yield node
+                    continue
+            if isinstance(node, ast.Call):
+                yield node
+            pending.extend(ast.iter_child_nodes(node))
+
+    def comprehension_subflow_run(self, expression):
+        if isinstance(expression, ast.Name):
+            expression = self.local_wait_list_comprehension(expression)
+        if not isinstance(expression, (ast.ListComp, ast.GeneratorExp)) or len(expression.generators) != 1:
+            return None
+        generator = expression.generators[0]
+        if generator.is_async or generator.ifs or not isinstance(generator.target, ast.Name):
+            return None
+        subflow_run = expression.elt
+        if not self.is_dex_method_call(subflow_run, "SubFlow", "run") or not subflow_run.args:
+            return None
+        if any(isinstance(argument, ast.Starred) for argument in subflow_run.args) or any(keyword.arg is None for keyword in subflow_run.keywords):
+            return None
+        if any(isinstance(node, ast.NamedExpr) for node in ast.walk(expression)):
+            return None
+        flow_reference = subflow_run.args[0]
+        for reference in (flow_reference, subflow_run.func.value):
+            while isinstance(reference, ast.Attribute):
+                reference = reference.value
+            if not isinstance(reference, ast.Name) or reference.id == generator.target.id:
+                return None
+        return subflow_run if self.is_fixed_subflow_reference(flow_reference) else None
+
+    def local_wait_list_comprehension(self, reference):
+        scope = self.binding_scope(reference)
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return None
+        binding = self.static_binding(scope, reference.id)
+        assignment = self.assignment_statement(scope, binding)
+        if assignment is None or self.is_used_before_binding(reference, assignment, scope) or not isinstance(assignment.value, ast.ListComp):
+            return None
+        # Another load could mutate the list or let it escape.
+        if any(
+            isinstance(node, ast.Name) and node is not reference and node.id == reference.id and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(scope)
+        ):
+            return None
+        return assignment.value
+
+    def is_fixed_subflow_reference(self, reference):
+        value, frame = self.resolved_value(reference, self.current_frame)
+        if self.is_external_flow_import(value):
+            return True
+        if isinstance(value, ast.Call):
+            declaration = self.constructed_class(value, frame)
+            return self.is_local_flow_declaration(declaration) and self.has_modeled_construction(declaration, "Flow")
+        if not isinstance(value, ast.Name) or value is reference:
+            return False
+        constructor = self.binding_scope(value)
+        if constructor is not self.method(self.flow_class, "__init__"):
+            return False
+        parameter = self.static_binding(constructor, value.id)
+        if not isinstance(parameter, ast.arg) or parameter in (constructor.args.vararg, constructor.args.kwarg):
+            return False
+        declared_type, _ = self.resolved_value(parameter.annotation, EvaluationFrame())
+        return self.is_local_flow_declaration(declared_type) or self.is_external_flow_import(declared_type)
+
+    def is_local_flow_declaration(self, declaration):
+        return isinstance(declaration, ast.ClassDef) and self.flow_classes.get(declaration.name) is declaration
+
+    def is_external_flow_import(self, declaration):
+        statement = self.parents.get(declaration)
+        return isinstance(declaration, ast.alias) and isinstance(statement, ast.ImportFrom) and statement.module != "dex"
+
+    def is_dex_method_call(self, call, owner, method):
+        return (
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == method
+            and self.is_dex_reference(call.func.value, owner)
+        )
 
     def channel_condition_label(self, resource_id, call):
         resource = next((node for node in self.graph["nodes"] if node["id"] == resource_id), {})
