@@ -103,6 +103,7 @@ mappings:
       - docs/content/design-patterns/external-interaction/idle-timer.mdx
       - docs/content/design-patterns/failure-handling.mdx
       - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
+      - docs/content/design-patterns/failure-handling/fail-fast-on-permanent-errors.mdx
       - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
       - docs/content/design-patterns/failure-handling/manual-recovery.mdx
       - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
