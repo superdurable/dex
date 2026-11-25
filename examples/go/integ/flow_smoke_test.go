@@ -301,6 +301,20 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "patterns/inbound-event-loop",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "inbound-event-loop")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/inbound-event-loop/start",
+					query,
+					nil,
+				)
+			},
+			verifyAfterTrigger: requireInboundEventLoopSmokeTimers,
+		},
+		{
 			name: "patterns/parallel/static",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-static")}}

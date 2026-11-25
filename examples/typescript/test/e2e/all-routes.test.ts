@@ -436,6 +436,20 @@ test("design-pattern inactiveness tracker timer start activity", async () => {
   );
 });
 
+test("design-pattern inbound event loop start reply resolve transcript", async () => {
+  const workflowId = id("inbound-event-loop");
+  requireOk(await get("/patterns/inbound-event-loop/start", { workflowId }), "ticket start");
+  requireOk(
+    await get("/patterns/inbound-event-loop/reply", { workflowId, text: "printer is offline" }),
+    "send reply",
+  );
+  requireOk(
+    await get("/patterns/inbound-event-loop/resolve", { workflowId, reason: "cable replaced" }),
+    "resolve ticket",
+  );
+  requireOk(await get("/patterns/inbound-event-loop/transcript", { workflowId }), "transcript");
+});
+
 test("design-pattern parallel step variants", async () => {
   requireOk(
     await get("/patterns/parallel/start/static", { workflowId: id("par-static") }),

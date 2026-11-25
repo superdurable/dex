@@ -118,6 +118,7 @@ remain split so their orchestration boundaries are visible.
 | Fail fast on permanent errors | [`ExpenseReimbursementFlow`](src/control_patterns/fail_fast/flow.rs) | Retry a provider timeout; route a confirmed rejection to a failure Step at once |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |
+| Idle Timer with Resolution | [`SupportTicketConversationFlow`](src/control_patterns/inbound_event_loop/flow.rs) | Replies loop back and restart the inactivity Timer; resolution or inactivity closes after the reply Channel drains |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |

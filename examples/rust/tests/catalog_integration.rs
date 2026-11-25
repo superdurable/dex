@@ -21,6 +21,7 @@ use dex_examples_rust::control_patterns::{
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
     fail_fast::ExpenseReimbursementFlow,
+    inbound_event_loop::SupportTicketConversationFlow,
 };
 use dex_examples_rust::data_storage::entity_flow::CustomerAccountFlow;
 use dex_examples_rust::patterns::{
@@ -222,6 +223,7 @@ fn control_pattern_catalog_matches_every_flow() {
         OrderFulfillmentFlow::default().flow_type(),
         ShipmentFlow::default().flow_type(),
         ExpenseReimbursementFlow::default().flow_type(),
+        SupportTicketConversationFlow::default().flow_type(),
     ];
 
     assert_eq!(control_pattern_flows, CONTROL_PATTERN_FLOW_TYPES);

@@ -42,6 +42,8 @@ class FlowSmokeEntry:
     name: str
     trigger: Callable[["FlowSmokeHttpClient"], Awaitable[tuple[str, str]]]
     flags: FlowSmokeFlags = field(default_factory=FlowSmokeFlags)
+    # Runs extra sample-specific assertions on the Flow ID after the common smoke checks.
+    verify_after_trigger: Callable[[str], Awaitable[None]] | None = None
 
 
 class FlowSmokeHttpClient:
@@ -278,6 +280,50 @@ async def assert_flow_smoke_no_unexpected_failures(
                 raise AssertionError(
                     f"unexpected terminal flow closure for {entry.name}: {payload}"
                 )
+
+
+async def assert_inbound_event_loop_timers(flow_id: str) -> None:
+    """Checks that the HTTP start sets no Flow timeout and waits on the 24-hour Timer."""
+    deadline = time.monotonic() + 30
+    timer_durations: list[str] = []
+    while time.monotonic() < deadline:
+        history = await asyncio.to_thread(
+            run_dexcli_json,
+            [
+                dexcli_path(),
+                "flow",
+                "history",
+                flow_id,
+                "--server",
+                flow_service_address(),
+                "--output",
+                "json",
+                "--page-size",
+                "50",
+            ],
+        )
+        timer_durations = []
+        for event in history.get("events", []):
+            payload = event.get("payload") or {}
+            if event.get("type") == "FlowStartedOrContinued":
+                assert "flowTimeout" not in payload, (
+                    f"the HTTP start must not set a Flow timeout: {payload}"
+                )
+            elif (
+                event.get("type") == "StepWaitForCompleted"
+                and _history_event_step_type(payload) == "AwaitTicketMessage"
+            ):
+                condition = (payload.get("output") or {}).get("waitForCondition") or {}
+                timer_durations += [
+                    timer.get("durationSeconds", "")
+                    for timer in condition.get("timerConditions", [])
+                ]
+        if timer_durations == ["86400"]:
+            return
+        await asyncio.sleep(0.2)
+    raise AssertionError(
+        f"AwaitTicketMessage of {flow_id} must wait on one 24-hour Timer: {timer_durations}"
+    )
 
 
 def _flow_started_start_step_type(events: list[dict[str, Any]]) -> str:

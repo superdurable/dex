@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the Deferred Choice, Critical Section, and Cancel
-//! Case control-structure pattern Flows, and Child Flows with Business Identity.
+//! Integration tests for the Deferred Choice, Critical Section, Cancel Case,
+//! and Idle Timer with Resolution control-structure pattern Flows, and Child
+//! Flows with Business Identity.
 
 mod condition_order_probes;
 mod worker_harness;
@@ -45,6 +46,10 @@ use dex_examples_rust::control_patterns::deferred_choice::{
 };
 use dex_examples_rust::control_patterns::fail_fast::{
     ExpenseClaim, ExpenseReimbursementFlow, PAYOUT_OUTCOME, PayoutOutcome,
+};
+use dex_examples_rust::control_patterns::inbound_event_loop::{
+    AwaitTicketMessage, CURRENT_TRANSCRIPT_CHUNK, MAX_REPLY_LENGTH, RESOLVE_TICKET,
+    SEND_TICKET_REPLY, SupportTicketConversationFlow, TRANSCRIPT_CHUNKS,
 };
 use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::patterns::polling::FakeJobService;
@@ -387,6 +392,170 @@ fn deferred_choice_consumes_only_the_winning_response() {
         ["FulfillOffer", "CloseRejectedOffer"].contains(&step_types[0].as_str()),
         "{step_types:?}"
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_records_replies_before_the_resolution() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop",
+        String::new(),
+    );
+    let blank_reply = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, "  ".to_string())
+        .expect_err("a blank reply is rejected");
+    assert!(
+        blank_reply.to_string().contains("reply text is required"),
+        "{blank_reply}"
+    );
+    let blank_reason = environment
+        .client
+        .invoke_rpc(&flow_id, RESOLVE_TICKET, " ".to_string())
+        .expect_err("a blank resolution is rejected");
+    assert!(
+        blank_reason
+            .to_string()
+            .contains("resolution reason is required"),
+        "{blank_reason}"
+    );
+
+    let replies = ["printer is offline", "restarted it, still offline"];
+    for reply in replies {
+        environment.invoke(&flow_id, SEND_TICKET_REPLY, reply.to_string());
+    }
+    wait_for_ticket_transcript(&environment, &flow_id, &replies);
+    environment.invoke(
+        &flow_id,
+        RESOLVE_TICKET,
+        "replaced the network cable".to_string(),
+    );
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        single_output(&result),
+        "resolved: replaced the network cable"
+    );
+    assert_eq!(ticket_transcript_texts(&environment, &flow_id), replies);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_counts_reply_length_in_characters() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop-length",
+        String::new(),
+    );
+    // Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+    let longest_reply = "😀".repeat(MAX_REPLY_LENGTH);
+
+    let too_long = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, format!("{longest_reply}😀"))
+        .expect_err("a reply over the limit is rejected");
+    assert!(
+        too_long
+            .to_string()
+            .contains("reply text exceeds 4000 characters"),
+        "{too_long}"
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, longest_reply.clone());
+    environment.invoke(&flow_id, RESOLVE_TICKET, "answered".to_string());
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "resolved: answered");
+    assert_eq!(
+        ticket_transcript_texts(&environment, &flow_id),
+        [longest_reply.as_str()]
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_closes_a_quiet_ticket() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop-inactive",
+        String::new(),
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, "is anyone there?".to_string());
+    wait_for_ticket_transcript(&environment, &flow_id, &["is anyone there?"]);
+
+    // The reply ended execution 1, so execution 2 holds the inactivity Timer.
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        match environment.client.skip_timer(
+            &flow_id,
+            StepExecutionId::of(&AwaitTicketMessage).execution_number(2),
+            TimerId::by_condition_index(0),
+        ) {
+            Ok(()) => break,
+            Err(error) => assert!(
+                Instant::now() < deadline,
+                "skip the inactivity Timer of {flow_id}: {error}"
+            ),
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "closed after inactivity");
+}
+
+/// Reads the reply texts of the current transcript chunk with a Client Attribute read.
+fn ticket_transcript_texts(environment: &ControlPatternsEnvironment, flow_id: &str) -> Vec<String> {
+    let (chunk,) = environment
+        .client
+        .get_attributes(
+            flow_id,
+            (&TRANSCRIPT_CHUNKS.instance(CURRENT_TRANSCRIPT_CHUNK),),
+        )
+        .unwrap_or_else(|error| panic!("read the transcript of {flow_id}: {error}"));
+    chunk
+        .unwrap_or_default()
+        .replies
+        .into_iter()
+        .map(|reply| reply.text)
+        .collect()
+}
+
+/// Polls the current transcript chunk until it holds exactly `expected`.
+fn wait_for_ticket_transcript(
+    environment: &ControlPatternsEnvironment,
+    flow_id: &str,
+    expected: &[&str],
+) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let texts = ticket_transcript_texts(environment, flow_id);
+        if texts == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{flow_id} transcript is {texts:?}, expected {expected:?}"
+        );
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn single_output(result: &FlowResult) -> String {
+    let outputs = result
+        .completions()
+        .iter()
+        .map(|completion| {
+            completion
+                .decode::<String>()
+                .unwrap_or_else(|error| panic!("decode the ticket outcome: {error}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 1, "{outputs:?}");
+    outputs[0].clone()
 }
 
 #[test]

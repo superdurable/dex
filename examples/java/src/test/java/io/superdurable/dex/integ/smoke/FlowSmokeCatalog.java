@@ -103,6 +103,10 @@ final class FlowSmokeCatalog {
                         "/patterns/inactiveness-tracker-timer/start",
                         Map.of("workflowId", environment.newFlowId("inactiveness-tracker-timer"))),
                 FlowSmokeEntry.get(
+                        "patterns/inbound-event-loop",
+                        "/patterns/inbound-event-loop/start",
+                        Map.of("workflowId", environment.newFlowId("inbound-event-loop"))),
+                FlowSmokeEntry.get(
                         "patterns/parallel/static",
                         "/patterns/parallel/start/static",
                         Map.of("workflowId", environment.newFlowId("parallel-static"))),

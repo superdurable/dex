@@ -249,6 +249,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "patterns/inbound-event-loop",
+            path: "/patterns/inbound-event-loop/start",
+            query: query(&client.new_flow_id("inbound-event-loop")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/parallel/static",
             path: "/patterns/parallel/start/static",
             query: query(&client.new_flow_id("parallel-static")),
