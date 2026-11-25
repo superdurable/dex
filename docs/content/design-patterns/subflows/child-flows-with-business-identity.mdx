@@ -20,11 +20,12 @@ The order starts each shipment as its own top-level Flow. The shipment number is
 
 ## How it works
 
-1. `StartShipments` checks that every shipment number in the order is unique, then starts one branch per shipment. An order that repeats a number fails before it starts any shipment.
+1. `StartShipments` checks that every shipment number in the order is unique. It registers each number as `starting` in the order's records, then starts one branch per shipment. An order that repeats a number fails before it starts any shipment.
 2. `StartShipment` starts a `ShipmentFlow` through the Client. Its Flow ID is the shipment number. Its request ID is a digest of the complete start request, so a retried Step repeats the same start. The shipment gets its own Flow timeout.
-3. The shipment delivers. `DeliverShipment` stores its outcome in the `shipmentOutcome` Attribute.
-4. `ReportShipmentOutcome` calls the order's `recordShipmentOutcome` RPC. The RPC fills the outcome in the shipment's record.
-5. `AwaitShipment` reads the shipment at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
+3. `StartShipment` then claims the run: it records the run ID that the start returned. From then on, the order accepts reports and reads of that run only.
+4. The shipment delivers. `DeliverShipment` stores its outcome in the `shipmentOutcome` Attribute.
+5. `ReportShipmentOutcome` calls the order's `recordShipmentOutcome` RPC with its own run ID. The RPC fills the outcome in the shipment's record.
+6. `AwaitShipment` reads the claimed run at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
 
 <SdkTabs
   examples={{
@@ -37,35 +38,10 @@ The order starts each shipment as its own top-level Flow. The shipment number is
 <SdkSnippet lang="python">
 
 ```python
-def shipment_start_request_id(order_flow_id: str, shipment: Shipment) -> str:
-    """Derives the start request ID from the complete start request.
-
-    A retried Execute sends the same ID, so it repeats the same start. Any
-    other request for the same shipment number sends another ID, so Dex
-    rejects it as already started.
-
-    Returns:
-        ``start:`` followed by the hex SHA-256 digest of the encoded request.
-    """
-    request = json.dumps(
-        [
-            SHIPMENT_FLOW_TYPE,
-            shipment.shipment_number,
-            order_flow_id,
-            shipment.destination,
-            shipment.delivery_delay_seconds,
-            int(SHIPMENT_TIMEOUT.total_seconds()),
-            "disallow",
-        ],
-        separators=(",", ":"),
-    )
-    return "start:" + hashlib.sha256(request.encode("utf-8")).hexdigest()
-
-
 # dex:group group-id:start group-label:"Start shipments"
-# dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+# dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 class StartShipment(Step[TrackedShipment]):
-    """Starts ShipmentFlow with the shipment number as its Flow ID."""
+    """Starts ShipmentFlow with the shipment number as its Flow ID and claims its run."""
 
     def __init__(
         self,
@@ -75,12 +51,16 @@ class StartShipment(Step[TrackedShipment]):
         self.client_provider = client_provider
         self.shipment_flow = shipment_flow
 
+    def get_step_options(self) -> StepOptions:
+        """Takes the records lock, so the claim and the rejection never race a report."""
+        return StepOptions(execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),))
+
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, tracked: TrackedShipment
     ) -> StepDecision:
         number = tracked.shipment.shipment_number
         try:
-            await self.client_provider().start_flow(
+            run_id = await self.client_provider().start_flow(
                 self.shipment_flow,
                 number,
                 ShipmentRequest(order_flow_id=context.flow_id, shipment=tracked.shipment),
@@ -95,13 +75,17 @@ class StartShipment(Step[TrackedShipment]):
             # Another request owns this shipment number; this order does not track it.
             SHIPMENT_RECORDS.set(context, number, ShipmentRecord(status=SHIPMENT_REJECTED))
             return graceful_complete()
-        return go_to(AwaitShipment, tracked)
+        # Claim the run: reports and reads of any other run of this number are ignored.
+        SHIPMENT_RECORDS.set(
+            context, number, ShipmentRecord(status=SHIPMENT_STARTED, run_id=run_id)
+        )
+        return go_to(AwaitShipment, dataclasses.replace(tracked, shipment_run_id=run_id))
 
 
 # dex:group group-id:track group-label:"Track shipment"
-# dex:explanation text:"Reads the shipment at each interval and records how it ended."
+# dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 class AwaitShipment(Step[TrackedShipment]):
-    """Reads the shipment at each interval until it ends, then records it."""
+    """Reads the claimed shipment run at each interval until it ends, then records it."""
 
     def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.client_provider = client_provider
@@ -122,45 +106,44 @@ class AwaitShipment(Step[TrackedShipment]):
         self, context: AsyncContext, tracked: TrackedShipment
     ) -> StepDecision:
         number = tracked.shipment.shipment_number
-        reading = await reconcile_shipment(self.client_provider(), number)
+        reading = await reconcile_shipment(
+            self.client_provider(), number, tracked.shipment_run_id
+        )
         if reading.status == FlowStatus.RUNNING.value:
             return go_to(AwaitShipment, tracked)
         # Merge with the record, which may already hold the reported outcome.
-        record = load_shipment_record(context, number)
+        record, _ = load_shipment_record(context, number)
         SHIPMENT_RECORDS.set(
             context,
             number,
             ShipmentRecord(
                 status=reading.status,
+                run_id=tracked.shipment_run_id,
                 outcome=record.outcome or reading.outcome,
             ),
         )
         return graceful_complete()
 
+async def reconcile_shipment(client: AsyncClient, number: str, run_id: str) -> ShipmentRecord:
+    """Reads the claimed run of a shipment: its status first, then its outcome.
 
-def load_shipment_record(context: Context, number: str) -> ShipmentRecord:
-    """Returns the loaded record of a shipment, or an empty record when it has none."""
-    # A missing instance reads as None.
-    record: ShipmentRecord | None = SHIPMENT_RECORDS.get(context, number)
-    return record if record is not None else ShipmentRecord()
-
-
-async def reconcile_shipment(client: AsyncClient, number: str) -> ShipmentRecord:
-    """Reads a shipment: its status first, then its outcome.
-
-    Returns a "running" record while the shipment runs and an "unavailable"
-    record when the shipment does not exist. Any other failure raises, so the
-    Step retries.
+    Returns a "running" record while that run runs, and an "unavailable" record
+    when that run no longer exists or another run replaced it. Keeps an outcome
+    only when the run is still the claimed one after the read. Any other failure
+    raises, so the Step retries.
     """
-    try:
-        info = await client.describe_flow(number)
-    except FlowNotFoundError:
+    info, found = await describe_claimed_run(client, number, run_id)
+    if info is None or not found:
         return ShipmentRecord(status=SHIPMENT_UNAVAILABLE)
     if info.status is FlowStatus.RUNNING:
         return ShipmentRecord(status=info.status.value)
     try:
         values = await client.get_attributes(number, SHIPMENT_OUTCOME)
     except FlowNotFoundError:
+        return ShipmentRecord(status=info.status.value)
+    # The Attribute read targets the latest run, so confirm it is still the claimed one.
+    _, still_claimed = await describe_claimed_run(client, number, run_id)
+    if not still_claimed:
         return ShipmentRecord(status=info.status.value)
     # An unset outcome Attribute leaves the outcome empty: the shipment ended without one.
     return ShipmentRecord(
@@ -172,28 +155,17 @@ async def reconcile_shipment(client: AsyncClient, number: str) -> ShipmentRecord
 <SdkSnippet lang="go">
 
 ```go
-// ShipmentStartRequestID derives the start request ID from the complete start request.
-// A retried Execute sends the same ID, so it repeats the same start. Any other request for
-// the same shipment number sends another ID, so Dex rejects it as already started.
-// It returns an error only when the request cannot be encoded.
-func ShipmentStartRequestID(orderFlowID string, shipment Shipment) (string, error) {
-	request, err := json.Marshal([]any{
-		shipmentFlowType, shipment.ShipmentNumber, orderFlowID, shipment.Destination,
-		shipment.DeliveryDelaySeconds, int64(ShipmentTimeout / time.Second), "disallow",
-	})
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(request)
-	return "start:" + hex.EncodeToString(digest[:]), nil
-}
-
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 type StartShipment struct {
 	dex.StepDefaultsNoWaitFor[TrackedShipment]
 	getClient    func() *dex.Client
 	shipmentFlow *ShipmentFlow
+}
+
+// GetStepOptions takes the records lock, so the claim and the rejection never race a report.
+func (StartShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)}}
 }
 
 func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
@@ -207,7 +179,7 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, err
 	}
 	timeout := ShipmentTimeout
-	_, err = client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
+	runID, err := client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
 		OrderFlowID: ctx.FlowID(),
 		Shipment:    tracked.Shipment,
 	}, dex.StartFlowOptions{
@@ -227,11 +199,16 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	if err != nil {
 		return nil, err
 	}
+	// Claim the run: reports and reads of any other run of this number are ignored.
+	if err := ShipmentRecords.Set(ctx, number, ShipmentRecord{Status: ShipmentStarted, RunID: runID}); err != nil {
+		return nil, err
+	}
+	tracked.ShipmentRunID = runID
 	return dex.GoTo(AwaitShipment{}, tracked), nil
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the shipment at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 type AwaitShipment struct {
 	dex.StepDefaults
 	getClient func() *dex.Client
@@ -255,7 +232,7 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, errClientUnavailable
 	}
 	number := tracked.Shipment.ShipmentNumber
-	reading, err := reconcileShipment(ctx, client, number)
+	reading, err := reconcileShipment(ctx, client, number, tracked.ShipmentRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -263,11 +240,12 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return dex.GoTo(AwaitShipment{}, tracked), nil
 	}
 	// Merge with the record, which may already hold the reported outcome.
-	record, err := loadShipmentRecord(ctx, number)
+	record, _, err := loadShipmentRecord(ctx, number)
 	if err != nil {
 		return nil, err
 	}
 	record.Status = reading.Status
+	record.RunID = tracked.ShipmentRunID
 	if record.Outcome == "" {
 		record.Outcome = reading.Outcome
 	}
@@ -277,39 +255,38 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	return dex.GracefulComplete(nil), nil
 }
 
-// loadShipmentRecord returns the loaded record of a shipment, or an empty record when it has none.
-// It returns an error when the record cannot be read.
-func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, error) {
-	record, err := ShipmentRecords.Get(ctx, number)
-	var notFound *dex.AttributeNotFoundError
-	if errors.As(err, &notFound) {
-		return ShipmentRecord{}, nil
-	}
-	return record, err
-}
-
-// reconcileShipment reads a shipment: its status first, then its outcome.
-// It returns a "running" record while the shipment runs, an "unavailable" record when the
-// shipment does not exist, and an error for any other failure so the Step retries.
-func reconcileShipment(ctx context.Context, client *dex.Client, number string) (ShipmentRecord, error) {
-	info, err := client.DescribeFlow(ctx, number)
-	var notFound *dex.FlowNotFoundError
-	if errors.As(err, &notFound) {
-		return ShipmentRecord{Status: ShipmentUnavailable}, nil
-	}
-	if err != nil {
-		return ShipmentRecord{}, err
+// reconcileShipment reads the claimed run of a shipment: its status first, then its outcome.
+// It returns a "running" record while that run runs, and an "unavailable" record when that
+// run no longer exists or another run replaced it. It keeps an outcome only when the run
+// is still the claimed one after the read. It returns an error for any other failure so the Step retries.
+func reconcileShipment(ctx context.Context, client *dex.Client, number string, runID string) (ShipmentRecord, error) {
+	info, found, err := describeClaimedRun(ctx, client, number, runID)
+	if err != nil || !found {
+		return ShipmentRecord{Status: ShipmentUnavailable}, err
 	}
 	record := ShipmentRecord{Status: info.Status.String()}
 	if info.Status == dex.FlowRunning {
 		return record, nil
 	}
 	// An unset outcome Attribute leaves Outcome empty: the shipment ended without one.
-	_, err = client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &record.Outcome))
+	var outcome string
+	_, err = client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &outcome))
+	var notFound *dex.FlowNotFoundError
 	if errors.As(err, &notFound) {
 		return record, nil
 	}
-	return record, err
+	if err != nil {
+		return ShipmentRecord{}, err
+	}
+	// The Attribute read targets the latest run, so confirm it is still the claimed one.
+	_, stillClaimed, err := describeClaimedRun(ctx, client, number, runID)
+	if err != nil {
+		return ShipmentRecord{}, err
+	}
+	if stillClaimed {
+		record.Outcome = outcome
+	}
+	return record, nil
 }
 ```
 
@@ -317,48 +294,8 @@ func reconcileShipment(ctx context.Context, client *dex.Client, number string) (
 <SdkSnippet lang="java">
 
 ```java
-/**
- * Derives the start request ID from the complete start request. A retried Execute sends the
- * same ID, so it repeats the same start. Any other request for the same shipment number sends
- * another ID, so Dex rejects it as already started.
- *
- * @param orderFlowId the Flow ID of the order that starts the shipment
- * @param shipment the shipment to start
- * @return "start:" followed by the lowercase hex SHA-256 of the encoded start request
- */
-public static String shipmentStartRequestId(final String orderFlowId, final Shipment shipment) {
-    final List<Object> request = List.of(
-            SHIPMENT_FLOW_TYPE,
-            shipment.shipmentNumber(),
-            orderFlowId,
-            shipment.destination(),
-            shipment.deliveryDelaySeconds(),
-            SHIPMENT_TIMEOUT.toSeconds(),
-            "disallow");
-    try {
-        final byte[] encoded = START_REQUEST_MAPPER.writeValueAsString(request)
-                .getBytes(StandardCharsets.UTF_8);
-        return "start:" + HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256").digest(encoded));
-    } catch (final JsonProcessingException | NoSuchAlgorithmException failure) {
-        throw new IllegalStateException("cannot derive the shipment start request ID", failure);
-    }
-}
-
-/**
- * Returns the loaded record of a shipment, or an empty record when it has none.
- *
- * @param context a context that loaded the shipmentRecords AttributeMap
- * @param number the shipment number
- * @return the shipment's record, or a record with no status and no outcome
- */
-private static ShipmentRecord loadShipmentRecord(final Context context, final String number) {
-    final ShipmentRecord record = shipmentRecords.get(context, number);
-    return record == null ? new ShipmentRecord(null, null) : record;
-}
-
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 static final class StartShipment implements Step<TrackedShipment> {
     private final ObjectProvider<Client> clientProvider;
     private final ShipmentFlow shipmentFlow;
@@ -373,13 +310,20 @@ static final class StartShipment implements Step<TrackedShipment> {
         return TrackedShipment.class;
     }
 
+    /** Takes the records lock, so the claim and the rejection never race a report. */
+    @Override
+    public StepOptions getStepOptions() {
+        return lockShipmentRecords();
+    }
+
     @Override
     public StepDecision execute(final Context context, final TrackedShipment tracked) {
         final Client client = clientProvider.getObject();
         final String number = tracked.shipment().shipmentNumber();
         final String requestId = shipmentStartRequestId(context.getFlowId(), tracked.shipment());
+        final String runId;
         try {
-            client.startFlow(
+            runId = client.startFlow(
                     shipmentFlow,
                     number,
                     new ShipmentRequest(context.getFlowId(), tracked.shipment()),
@@ -391,15 +335,19 @@ static final class StartShipment implements Step<TrackedShipment> {
                             .build());
         } catch (final FlowAlreadyStartedException alreadyStarted) {
             // Another request owns this shipment number; this order does not track it.
-            shipmentRecords.set(context, number, new ShipmentRecord(SHIPMENT_REJECTED, null));
+            shipmentRecords.set(
+                    context, number, new ShipmentRecord(SHIPMENT_REJECTED, null, null));
             return StepDecision.gracefulComplete();
         }
-        return StepDecision.goTo(AwaitShipment.class, tracked);
+        // Claim the run: reports and reads of any other run of this number are ignored.
+        shipmentRecords.set(context, number, new ShipmentRecord(SHIPMENT_STARTED, runId, null));
+        return StepDecision.goTo(AwaitShipment.class, new TrackedShipment(
+                tracked.shipment(), tracked.reconcileIntervalSeconds(), runId));
     }
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the shipment at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 static final class AwaitShipment implements Step<TrackedShipment> {
     private final ObjectProvider<Client> clientProvider;
 
@@ -430,44 +378,71 @@ static final class AwaitShipment implements Step<TrackedShipment> {
     @Override
     public StepDecision execute(final Context context, final TrackedShipment tracked) {
         final String number = tracked.shipment().shipmentNumber();
-        final ShipmentRecord reading = reconcileShipment(clientProvider.getObject(), number);
+        final ShipmentRecord reading = reconcileShipment(
+                clientProvider.getObject(), number, tracked.shipmentRunId());
         if (statusName(FlowStatus.RUNNING).equals(reading.status())) {
             return StepDecision.goTo(AwaitShipment.class, tracked);
         }
         // Merge with the record, which may already hold the reported outcome.
-        final ShipmentRecord stored = loadShipmentRecord(context, number);
-        final String outcome = stored.outcome() != null ? stored.outcome() : reading.outcome();
-        shipmentRecords.set(context, number, new ShipmentRecord(reading.status(), outcome));
+        final String storedOutcome = loadShipmentRecord(context, number)
+                .map(ShipmentRecord::outcome)
+                .orElse(null);
+        final String outcome = storedOutcome != null ? storedOutcome : reading.outcome();
+        shipmentRecords.set(context, number,
+                new ShipmentRecord(reading.status(), tracked.shipmentRunId(), outcome));
         return StepDecision.gracefulComplete();
     }
 
     /**
-     * Reads a shipment: its status first, then its outcome.
+     * Reads the claimed run of a shipment: its status first, then its outcome. It keeps an
+     * outcome only when the run is still the claimed one after the read.
      *
-     * @return a "running" record while the shipment runs, an "unavailable" record when the
-     *     shipment does not exist, or the terminal status with the stored outcome; any other
-     *     failure throws so the Step retries
+     * @return a "running" record while that run runs, an "unavailable" record when that run no
+     *     longer exists or another run replaced it, or the terminal status with the stored
+     *     outcome; any other failure throws so the Step retries
      */
-    private static ShipmentRecord reconcileShipment(final Client client, final String number) {
+    private static ShipmentRecord reconcileShipment(
+            final Client client, final String number, final String runId) {
+        final Optional<FlowInfo> claimed = describeClaimedRun(client, number, runId);
+        if (claimed.isEmpty()) {
+            return new ShipmentRecord(SHIPMENT_UNAVAILABLE, null, null);
+        }
+        final FlowInfo info = claimed.get();
+        final String status = statusName(info.getStatus());
+        if (info.getStatus() == FlowStatus.RUNNING) {
+            return new ShipmentRecord(status, null, null);
+        }
+        final String outcome;
+        try {
+            // An unset outcome Attribute leaves the outcome empty: the shipment ended without one.
+            outcome = client.getAttributes(number, ShipmentFlow.shipmentOutcome)
+                    .get(ShipmentFlow.shipmentOutcome)
+                    .orElse(null);
+        } catch (final FlowNotFoundException notFound) {
+            return new ShipmentRecord(status, null, null);
+        }
+        // The Attribute read targets the latest run, so confirm it is still the claimed one.
+        final boolean stillClaimed = describeClaimedRun(client, number, runId).isPresent();
+        return new ShipmentRecord(status, null, stillClaimed ? outcome : null);
+    }
+
+    /**
+     * Describes the latest run of a shipment.
+     *
+     * @return the run's Flow info, or empty when the shipment does not exist or its latest run
+     *     is not {@code runId}; any other failure throws
+     */
+    private static Optional<FlowInfo> describeClaimedRun(
+            final Client client, final String number, final String runId) {
         final FlowInfo info;
         try {
             info = client.describeFlow(number);
         } catch (final FlowNotFoundException notFound) {
-            return new ShipmentRecord(SHIPMENT_UNAVAILABLE, null);
+            return Optional.empty();
         }
-        final String status = statusName(info.getStatus());
-        if (info.getStatus() == FlowStatus.RUNNING) {
-            return new ShipmentRecord(status, null);
-        }
-        try {
-            // An unset outcome Attribute leaves the outcome empty: the shipment ended without one.
-            final String outcome = client.getAttributes(number, ShipmentFlow.shipmentOutcome)
-                    .get(ShipmentFlow.shipmentOutcome)
-                    .orElse(null);
-            return new ShipmentRecord(status, outcome);
-        } catch (final FlowNotFoundException notFound) {
-            return new ShipmentRecord(status, null);
-        }
+        return runId != null && runId.equals(info.getRunId())
+                ? Optional.of(info)
+                : Optional.empty();
     }
 }
 ```
@@ -476,30 +451,8 @@ static final class AwaitShipment implements Step<TrackedShipment> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-/**
- * Derives the start request ID from the complete start request.
- *
- * A retried Execute sends the same ID, so it repeats the same start. Any other
- * request for the same shipment number sends another ID, so Dex rejects it as
- * already started.
- *
- * @returns `start:` followed by the hex SHA-256 of the encoded start request.
- */
-export function shipmentStartRequestId(orderFlowId: string, shipment: Shipment): string {
-  const request = JSON.stringify([
-    SHIPMENT_FLOW_TYPE,
-    shipment.shipmentNumber,
-    orderFlowId,
-    shipment.destination,
-    shipment.deliveryDelaySeconds,
-    SHIPMENT_TIMEOUT_MS / 1000,
-    "disallow",
-  ]);
-  return `start:${createHash("sha256").update(request).digest("hex")}`;
-}
-
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 class StartShipment implements Step<TrackedShipment> {
   public constructor(
     private readonly getClient: () => Client,
@@ -510,13 +463,19 @@ class StartShipment implements Step<TrackedShipment> {
     return "StartShipment";
   }
 
+  /** Takes the records lock, so the claim and the rejection never race a report. */
+  public getStepOptions(): StepOptions {
+    return { executeLockAttributes: [shipmentRecordsLock.lock()] };
+  }
+
   public async execute(context: Context, tracked: TrackedShipment): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
     const requestId = shipmentStartRequestId(context.flowId, tracked.shipment);
+    let runId: string;
     try {
-      await getClient().startFlow(
+      runId = await getClient().startFlow(
         this.shipmentFlow,
         number,
         { orderFlowId: context.flowId, shipment: tracked.shipment },
@@ -535,12 +494,14 @@ class StartShipment implements Step<TrackedShipment> {
       shipmentRecords.set(context, number, { status: SHIPMENT_REJECTED });
       return gracefulComplete();
     }
-    return goTo(AwaitShipment, tracked);
+    // Claim the run: reports and reads of any other run of this number are ignored.
+    shipmentRecords.set(context, number, { status: SHIPMENT_STARTED, runId });
+    return goTo(AwaitShipment, { ...tracked, shipmentRunId: runId });
   }
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the shipment at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 class AwaitShipment implements Step<TrackedShipment> {
   public constructor(private readonly getClient: () => Client) {}
 
@@ -564,14 +525,16 @@ class AwaitShipment implements Step<TrackedShipment> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
-    const reading = await reconcileShipment(getClient(), number);
+    const runId = tracked.shipmentRunId ?? "";
+    const reading = await reconcileShipment(getClient(), number, runId);
     if (reading.status === "running") {
       return goTo(AwaitShipment, tracked);
     }
     // Merge with the record, which may already hold the reported outcome.
-    const record = loadShipmentRecord(context, number);
+    const { record } = loadShipmentRecord(context, number);
     shipmentRecords.set(context, number, {
       status: reading.status,
+      runId,
       outcome: record.outcome ?? reading.outcome,
     });
     return gracefulComplete();
@@ -579,45 +542,35 @@ class AwaitShipment implements Step<TrackedShipment> {
 }
 
 /**
- * Returns the loaded record of a shipment, or an empty record when it has none.
+ * Reads the claimed run of a shipment: its status first, then its outcome.
  *
- * @returns The stored record, or `{}` when the shipment has no record yet.
+ * @returns A "running" record while that run runs, an "unavailable" record
+ * when that run no longer exists or another run replaced it, or the terminal
+ * status. It keeps an outcome only when the run is still the claimed one after
+ * the read. It throws any other failure so the Step retries.
  */
-function loadShipmentRecord(context: Context, number: string): ShipmentRecord {
-  return (shipmentRecords.get(context, number) as ShipmentRecord | undefined) ?? {};
-}
-
-/**
- * Reads a shipment: its status first, then its outcome.
- *
- * @returns A "running" record while the shipment runs, an "unavailable" record
- * when the shipment does not exist, or the terminal status with the stored
- * outcome. It throws any other failure so the Step retries.
- */
-async function reconcileShipment(client: Client, number: string): Promise<ShipmentRecord> {
-  let status: FlowStatus;
-  try {
-    status = (await client.describeFlow(number)).status;
-  } catch (error) {
-    if (error instanceof FlowNotFoundError) {
-      return { status: SHIPMENT_UNAVAILABLE };
-    }
-    throw error;
+async function reconcileShipment(client: Client, number: string, runId: string): Promise<ShipmentRecord> {
+  const { info, found } = await describeClaimedRun(client, number, runId);
+  if (info === undefined || !found) {
+    return { status: SHIPMENT_UNAVAILABLE };
   }
-  const record = { status: shipmentStatusOf(status) };
-  if (status === "running") {
+  const record = { status: shipmentStatusOf(info.status) };
+  if (info.status === "running") {
     return record;
   }
+  let outcome: string | undefined;
   try {
     // An unset outcome Attribute leaves outcome empty: the shipment ended without one.
-    const [outcome] = await client.getAttributes(number, shipmentOutcome);
-    return outcome === undefined ? record : { ...record, outcome };
+    [outcome] = await client.getAttributes(number, shipmentOutcome);
   } catch (error) {
     if (error instanceof FlowNotFoundError) {
       return record;
     }
     throw error;
   }
+  // The Attribute read targets the latest run, so confirm it is still the claimed one.
+  const { found: stillClaimed } = await describeClaimedRun(client, number, runId);
+  return stillClaimed && outcome !== undefined ? { ...record, outcome } : record;
 }
 ```
 
@@ -625,27 +578,8 @@ async function reconcileShipment(client: Client, number: string): Promise<Shipme
 <SdkSnippet lang="rust">
 
 ```rust
-/// Derives the start request ID from the complete start request.
-///
-/// A retried Execute sends the same ID, so it repeats the same start. Any other
-/// request for the same shipment number sends another ID, so Dex rejects it as
-/// already started.
-pub fn shipment_start_request_id(order_flow_id: &str, shipment: &Shipment) -> String {
-    let request = serde_json::to_vec(&(
-        ShipmentFlow::default().flow_type(),
-        &shipment.shipment_number,
-        order_flow_id,
-        &shipment.destination,
-        shipment.delivery_delay_seconds,
-        SHIPMENT_TIMEOUT.as_secs(),
-        "disallow",
-    ))
-    .expect("a tuple of strings and integers always encodes as JSON");
-    format!("start:{:x}", Sha256::digest(&request))
-}
-
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
 #[derive(Default)]
 struct StartShipment {
     client: Option<Arc<Client>>,
@@ -654,7 +588,16 @@ struct StartShipment {
 impl Step for StartShipment {
     type Input = TrackedShipment;
 
-    fn execute(&self, context: &mut Context, tracked: Self::Input) -> HandlerResult<StepDecision> {
+    /// Takes the records lock, so the claim and the rejection never race a report.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_lock(SHIPMENT_RECORDS_LOCK.lock())
+    }
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        mut tracked: Self::Input,
+    ) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let order_flow_id = context.flow_id().to_string();
         let number = tracked.shipment.shipment_number.clone();
@@ -669,12 +612,22 @@ impl Step for StartShipment {
             .request_id(request_id)
             .ignore_already_started(true);
         match client.start_flow_with_options(&ShipmentFlow::default(), &number, request, options) {
-            Ok(_run_id) => Ok(StepDecision::go_to(&AwaitShipment::default(), tracked)),
+            Ok(run_id) => {
+                // Claim the run: reports and reads of any other run of this number are ignored.
+                let record = ShipmentRecord {
+                    status: Some(SHIPMENT_STARTED.to_string()),
+                    run_id: Some(run_id.clone()),
+                    outcome: None,
+                };
+                SHIPMENT_RECORDS.set(context, &number, record)?;
+                tracked.shipment_run_id = Some(run_id);
+                Ok(StepDecision::go_to(&AwaitShipment::default(), tracked))
+            }
             Err(SdkError::FlowAlreadyStarted { .. }) => {
                 // Another request owns this shipment number; this order does not track it.
                 let record = ShipmentRecord {
                     status: Some(SHIPMENT_REJECTED.to_string()),
-                    outcome: None,
+                    ..ShipmentRecord::default()
                 };
                 SHIPMENT_RECORDS.set(context, &number, record)?;
                 Ok(StepDecision::graceful_complete(()))
@@ -685,7 +638,7 @@ impl Step for StartShipment {
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the shipment at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
 #[derive(Default)]
 struct AwaitShipment {
     client: Option<Arc<Client>>,
@@ -710,15 +663,17 @@ impl Step for AwaitShipment {
     fn execute(&self, context: &mut Context, tracked: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let number = tracked.shipment.shipment_number.clone();
-        let reading = match reconcile_shipment(client, &number)? {
+        let run_id = tracked.shipment_run_id.clone().unwrap_or_default();
+        let reading = match reconcile_shipment(client, &number, &run_id)? {
             ShipmentReading::Running => {
                 return Ok(StepDecision::go_to(&AwaitShipment::default(), tracked));
             }
             ShipmentReading::Closed(reading) => reading,
         };
         // Merge with the record, which may already hold the reported outcome.
-        let mut record = load_shipment_record(context, &number)?;
+        let mut record = load_shipment_record(context, &number)?.unwrap_or_default();
         record.status = reading.status;
+        record.run_id = tracked.shipment_run_id;
         if record.outcome.is_none() {
             record.outcome = reading.outcome;
         }
@@ -727,47 +682,41 @@ impl Step for AwaitShipment {
     }
 }
 
-/// Returns the loaded record of a shipment, or an empty record when it has none.
+/// Reads the claimed run of a shipment: its status first, then its outcome.
 ///
-/// Returns an error when the record cannot be read.
-fn load_shipment_record(context: &Context, number: &str) -> HandlerResult<ShipmentRecord> {
-    Ok(SHIPMENT_RECORDS.get(context, number)?.unwrap_or_default())
-}
-
-/// What a reconcile read found.
-enum ShipmentReading {
-    Running,
-    Closed(ShipmentRecord),
-}
-
-/// Reads a shipment: its status first, then its outcome.
-///
-/// Returns `Running` while the shipment runs, an "unavailable" record when the
-/// shipment does not exist, and an error for any other failure so the Step retries.
-fn reconcile_shipment(client: &Client, number: &str) -> HandlerResult<ShipmentReading> {
-    let status = match client.describe_flow(number) {
-        Ok(info) => info.status,
-        Err(SdkError::FlowNotFound { .. }) => {
-            return Ok(ShipmentReading::Closed(ShipmentRecord {
-                status: Some(SHIPMENT_UNAVAILABLE.to_string()),
-                outcome: None,
-            }));
-        }
-        Err(error) => return Err(HandlerError::from_error(error)),
+/// Returns `Running` while that run runs, and an "unavailable" record when that
+/// run no longer exists or another run replaced it. Keeps an outcome only when
+/// the run is still the claimed one after the read. Returns an error for any
+/// other failure so the Step retries.
+fn reconcile_shipment(
+    client: &Client,
+    number: &str,
+    run_id: &str,
+) -> HandlerResult<ShipmentReading> {
+    let Some(info) = describe_claimed_run(client, number, run_id)? else {
+        return Ok(ShipmentReading::Closed(ShipmentRecord {
+            status: Some(SHIPMENT_UNAVAILABLE.to_string()),
+            ..ShipmentRecord::default()
+        }));
     };
-    if status == FlowStatus::Running {
+    if info.status == FlowStatus::Running {
         return Ok(ShipmentReading::Running);
     }
+    let mut record = ShipmentRecord {
+        status: Some(flow_status_name(info.status).to_string()),
+        ..ShipmentRecord::default()
+    };
     // An unset outcome Attribute leaves the outcome empty: the shipment ended without one.
     let outcome = match client.get_attributes(number, (&*SHIPMENT_OUTCOME,)) {
         Ok((outcome,)) => outcome,
-        Err(SdkError::FlowNotFound { .. }) => None,
+        Err(SdkError::FlowNotFound { .. }) => return Ok(ShipmentReading::Closed(record)),
         Err(error) => return Err(HandlerError::from_error(error)),
     };
-    Ok(ShipmentReading::Closed(ShipmentRecord {
-        status: Some(flow_status_name(status).to_string()),
-        outcome,
-    }))
+    // The Attribute read targets the latest run, so confirm it is still the claimed one.
+    if describe_claimed_run(client, number, run_id)?.is_some() {
+        record.outcome = outcome;
+    }
+    Ok(ShipmentReading::Closed(record))
 }
 ```
 
@@ -778,14 +727,14 @@ fn reconcile_shipment(client: &Client, number: &str) -> HandlerResult<ShipmentRe
 
 The shipment commits its outcome in one Step and reports in the next. Both Steps declare SYNC durability for `Execute`. The report Step then starts only after the outcome is stored, even when the Flow defaults to ASYNC.
 
-The report RPC keeps the first outcome it receives, so a repeated report changes nothing. When the Client accepts an RPC request ID, the report also carries a stable one: `report:` followed by the shipment number.
+The report carries the shipment's own run ID. When the Client accepts an RPC request ID, the report also carries a stable one: `report:` followed by the shipment number.
 
 When the order has already closed, the report fails with a typed error. The shipment ends its attempts there. Its outcome stays readable through the Client.
 
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',
-    go: 'examples/go/patterns/child-flows-business-identity/shipment_flow.go',
+    go: 'examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity/ShipmentFlow.java',
     typescript: 'examples/typescript/src/patterns/child-flows-business-identity/shipment-flow.ts',
     rust: 'examples/rust/src/control_patterns/child_flows_business_identity/shipment_flow.rs',
@@ -815,7 +764,9 @@ class DeliverShipment(Step[ShipmentRequest]):
             PendingReport(
                 order_flow_id=request.order_flow_id,
                 report=ShipmentReport(
-                    shipment_number=request.shipment.shipment_number, outcome=outcome
+                    shipment_number=request.shipment.shipment_number,
+                    shipment_run_id=context.run_id,
+                    outcome=outcome,
                 ),
             ),
         )
@@ -879,7 +830,11 @@ func (DeliverShipment) Execute(ctx dex.Context, request ShipmentRequest) (*dex.S
 	}
 	return dex.GoTo(ReportShipmentOutcome{}, PendingReport{
 		OrderFlowID: request.OrderFlowID,
-		Report:      ShipmentReport{ShipmentNumber: request.Shipment.ShipmentNumber, Outcome: outcome},
+		Report: ShipmentReport{
+			ShipmentNumber: request.Shipment.ShipmentNumber,
+			ShipmentRunID:  ctx.RunID(),
+			Outcome:        outcome,
+		},
 	}), nil
 }
 
@@ -952,7 +907,8 @@ static final class DeliverShipment implements Step<ShipmentRequest> {
         shipmentOutcome.set(context, outcome);
         return StepDecision.goTo(ReportShipmentOutcome.class, new PendingReport(
                 request.orderFlowId(),
-                new ShipmentReport(request.shipment().shipmentNumber(), outcome)));
+                new ShipmentReport(
+                        request.shipment().shipmentNumber(), context.getRunId(), outcome)));
     }
 }
 
@@ -1019,7 +975,7 @@ class DeliverShipment implements Step<ShipmentRequest> {
     shipmentOutcome.set(context, outcome);
     const pending: PendingReport = {
       orderFlowId: request.orderFlowId,
-      report: { shipmentNumber: request.shipment.shipmentNumber, outcome },
+      report: { shipmentNumber: request.shipment.shipmentNumber, shipmentRunId: context.runId, outcome },
     };
     return goTo(ReportShipmentOutcome, pending);
   }
@@ -1028,7 +984,10 @@ class DeliverShipment implements Step<ShipmentRequest> {
 // dex:group group-id:report group-label:"Report"
 // dex:explanation text:"Reports the committed outcome to the order that started this shipment."
 class ReportShipmentOutcome implements Step<PendingReport> {
-  public constructor(private readonly getClient: () => Client) {}
+  public constructor(
+    private readonly getClient: () => Client,
+    private readonly getOrderFlow: () => OrderFulfillmentFlow,
+  ) {}
 
   public getStepType(): string {
     return "ReportShipmentOutcome";
@@ -1042,11 +1001,12 @@ class ReportShipmentOutcome implements Step<PendingReport> {
   public async execute(context: Context, pending: PendingReport): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
+    const getOrderFlow = this.getOrderFlow;
     // Stable per shipment, so a retried report changes the order once.
     const requestId = `report:${context.flowId}`;
     try {
       await getClient().invokeRPCWithOptions(
-        OrderFulfillmentFlow.prototype.recordShipmentOutcome,
+        getOrderFlow().recordShipmentOutcome,
         pending.orderFlowId,
         pending.report,
         { requestId },
@@ -1094,6 +1054,7 @@ impl Step for DeliverShipment {
                 order_flow_id: request.order_flow_id,
                 report: ShipmentReport {
                     shipment_number: request.shipment.shipment_number,
+                    shipment_run_id: context.run_id().to_string(),
                     outcome,
                 },
             },
@@ -1142,9 +1103,15 @@ impl Step for ReportShipmentOutcome {
 
 ## One record per shipment {#records}
 
-The order keeps one record per shipment in the `shipmentRecords` AttributeMap, keyed by the shipment number. The record holds the outcome and the terminal status as separate fields. The report RPC fills the outcome. `AwaitShipment` fills the status, and the outcome when the record has none.
+The order keeps one record per shipment in the `shipmentRecords` AttributeMap, keyed by the shipment number. The record holds the status, the claimed run ID, and the outcome as separate fields.
 
-Both writers lock the singleton `shipmentRecordsLock` Attribute and load the records. A report and a reconcile write therefore never overwrite each other. The lock Attribute stores no value; it only serializes the two writers. A report that meets the lock fails with a lock conflict, and the shipment retries it.
+Every writer of the records locks the singleton `shipmentRecordsLock` Attribute: the Steps that register, claim, and read shipments, and the report RPC. The lock Attribute stores no value; it only lets one writer at a time change the records. A report that meets the lock fails with a lock conflict, and the shipment retries it.
+
+The report RPC accepts a report only from the claimed run:
+
+- A shipment that is still `starting` has no claimed run yet. The RPC fails, and the shipment retries the report.
+- A report for an unknown or `rejected` number, from another run, or for a record that already has an outcome changes nothing.
+- Otherwise the RPC fills the outcome.
 
 <SdkTabs
   examples={{
@@ -1164,15 +1131,27 @@ Both writers lock the singleton `shipmentRecordsLock` Attribute and load the rec
 def record_shipment_outcome(self, context: Context, report: ShipmentReport) -> None:
     """Fills the outcome of a shipment's record.
 
-    The first report wins; a repeated or late report changes nothing.
+    It accepts only the run this order claimed. The first report wins, and
+    any other report changes nothing.
+
+    Raises:
+        ShipmentNotClaimedError: The order is still starting that shipment.
     """
-    record = load_shipment_record(context, report.shipment_number)
-    if record.outcome:
+    record, found = load_shipment_record(context, report.shipment_number)
+    if found and record.status == SHIPMENT_STARTING:
+        raise ShipmentNotClaimedError()
+    # Ignore an unknown or rejected shipment, another run, and a repeated report.
+    if (
+        not found
+        or not record.run_id
+        or record.run_id != report.shipment_run_id
+        or record.outcome
+    ):
         return
     SHIPMENT_RECORDS.set(
         context,
         report.shipment_number,
-        ShipmentRecord(status=record.status, outcome=report.outcome),
+        dataclasses.replace(record, outcome=report.outcome),
     )
 ```
 
@@ -1181,26 +1160,29 @@ def record_shipment_outcome(self, context: Context, report: ShipmentReport) -> N
 
 ```go
 func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
-		LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
-		LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
-	})}
-}
-
-func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{ShipmentRecords, ShipmentRecordsLock},
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
+			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+		}),
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
 	}
 }
 
-// RecordShipmentOutcome fills the outcome of a shipment's record. The first report
-// wins; a repeated or late report changes nothing.
+// RecordShipmentOutcome fills the outcome of a shipment's record. It accepts only the run
+// this order claimed; the first report wins, and any other report changes nothing.
+// It returns ErrShipmentNotClaimed while the order is still starting that shipment.
 func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report ShipmentReport) (*dex.RPCResult[dex.None], error) {
-	record, err := loadShipmentRecord(ctx, report.ShipmentNumber)
+	record, found, err := loadShipmentRecord(ctx, report.ShipmentNumber)
 	if err != nil {
 		return nil, err
 	}
-	if record.Outcome != "" {
+	if found && record.Status == ShipmentStarting {
+		return nil, ErrShipmentNotClaimed
+	}
+	// Ignore an unknown or rejected shipment, another run, and a repeated report.
+	if !found || record.RunID == "" || record.RunID != report.ShipmentRunID || record.Outcome != "" {
 		return &dex.RPCResult[dex.None]{}, nil
 	}
 	record.Outcome = report.Outcome
@@ -1216,20 +1198,29 @@ func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report Shipm
 
 ```java
 /**
- * Fills the outcome of a shipment's record. The first report wins; a repeated or late report
- * changes nothing.
+ * Fills the outcome of a shipment's record. It accepts only the run this order claimed; the
+ * first report wins, and any other report changes nothing.
  *
  * @param context the RPC context
- * @param report the shipment's report
+ * @param report the shipment run's report
+ * @throws ShipmentNotClaimedException while the order is still starting that shipment
  */
 @RPC(lockAttributes = {"shipmentRecordsLock"}, loadAttributeMaps = {"shipmentRecords"})
 public void recordShipmentOutcome(final Context context, final ShipmentReport report) {
-    final ShipmentRecord record = loadShipmentRecord(context, report.shipmentNumber());
-    if (record.outcome() != null) {
+    final Optional<ShipmentRecord> found = loadShipmentRecord(context, report.shipmentNumber());
+    if (found.isPresent() && SHIPMENT_STARTING.equals(found.get().status())) {
+        throw new ShipmentNotClaimedException();
+    }
+    // Ignore an unknown or rejected shipment, another run, and a repeated report.
+    if (found.isEmpty()
+            || found.get().runId() == null
+            || !found.get().runId().equals(report.shipmentRunId())
+            || found.get().outcome() != null) {
         return;
     }
+    final ShipmentRecord record = found.get();
     shipmentRecords.set(context, report.shipmentNumber(),
-            new ShipmentRecord(record.status(), report.outcome()));
+            new ShipmentRecord(record.status(), record.runId(), report.outcome()));
 }
 ```
 
@@ -1238,13 +1229,24 @@ public void recordShipmentOutcome(final Context context, final ShipmentReport re
 
 ```typescript
 /**
- * Fills the outcome of a shipment's record. The first report wins; a
- * repeated or late report changes nothing.
+ * Fills the outcome of a shipment's record. It accepts only the run this
+ * order claimed; the first report wins, and any other report changes nothing.
+ *
+ * @throws ShipmentNotClaimedError while the order is still starting that shipment.
  */
 @rpc({ lockAttributes: [shipmentRecordsLock.lock()], loadAttributeMaps: [shipmentRecords] })
 public recordShipmentOutcome(context: Context, report: ShipmentReport): void {
-  const record = loadShipmentRecord(context, report.shipmentNumber);
-  if (record.outcome !== undefined) {
+  const { record, found } = loadShipmentRecord(context, report.shipmentNumber);
+  if (found && record.status === SHIPMENT_STARTING) {
+    throw new ShipmentNotClaimedError();
+  }
+  // Ignore an unknown or rejected shipment, another run, and a repeated report.
+  if (
+    !found ||
+    record.runId === undefined ||
+    record.runId !== report.shipmentRunId ||
+    record.outcome !== undefined
+  ) {
     return;
   }
   shipmentRecords.set(context, report.shipmentNumber, { ...record, outcome: report.outcome });
@@ -1255,17 +1257,32 @@ public recordShipmentOutcome(context: Context, report: ShipmentReport): void {
 <SdkSnippet lang="rust">
 
 ```rust
-/// Fills the outcome of a shipment's record. The first report wins; a
-/// repeated or late report changes nothing.
+/// Fills the outcome of a shipment's record. It accepts only the run this
+/// order claimed; the first report wins, and any other report changes nothing.
+///
+/// Returns a `ShipmentNotClaimed` error while the order is still starting
+/// that shipment, so the shipment retries its report.
 fn record_shipment_outcome(
     &self,
     context: &mut Context,
     report: ShipmentReport,
 ) -> HandlerResult<()> {
-    let mut record = load_shipment_record(context, &report.shipment_number)?;
-    if record.outcome.is_some() {
-        return Ok(());
+    let loaded = load_shipment_record(context, &report.shipment_number)?;
+    if let Some(record) = &loaded
+        && record.status.as_deref() == Some(SHIPMENT_STARTING)
+    {
+        return Err(HandlerError::new(
+            SHIPMENT_NOT_CLAIMED_ERROR_TYPE,
+            SHIPMENT_NOT_CLAIMED_MESSAGE,
+        ));
     }
+    // Ignore an unknown or rejected shipment, another run, and a repeated report.
+    let Some(mut record) = loaded.filter(|record| {
+        record.run_id.as_deref() == Some(report.shipment_run_id.as_str())
+            && record.outcome.is_none()
+    }) else {
+        return Ok(());
+    };
     record.outcome = Some(report.outcome);
     SHIPMENT_RECORDS.set(context, &report.shipment_number, record)
 }
@@ -1283,16 +1300,18 @@ fn rpcs(&self) -> RpcList<Self> {
 </SdkSnippet>
 </SdkTabs>
 
-`AwaitShipment` reads a shipment in this order:
+`AwaitShipment` reads the claimed run in this order:
 
-1. Describe the shipment. A running shipment is read again at the next interval, even after its report arrived.
-2. A closed shipment: record its status, then read its outcome Attribute. An unset Attribute means the shipment ended without an outcome.
-3. A shipment that cannot be found is recorded as `unavailable`. That is a business policy.
+1. Describe the shipment. A running claimed run is read again at the next interval, even after its report arrived.
+2. A closed claimed run: record its status, then read its outcome Attribute. An unset Attribute means the shipment ended without an outcome. The Attribute read sees the shipment's latest run, so the Step describes the shipment again. It keeps the outcome only when the claimed run is still the latest one.
+3. When the shipment cannot be found, or another run of the same number replaced the claimed one, the order records `unavailable`. That is a business policy.
 4. Any other error fails the Step, so Dex retries it.
+
+The order learns the terminal status of a claimed run while the order runs and the run stays the shipment's latest run. Once another caller reopens the number, or the run's data is deleted, the order can no longer read it.
 
 The support team can cancel a shipment by its number. A shipment canceled before its outcome commits has no outcome; the order records it as `canceled`. A shipment canceled after its outcome commits, or after it sent its report, can still have an outcome, and the order keeps it.
 
-A shipment number belongs to one order. When another request already used the number, the start fails with a typed already-started error. The example records that shipment as `rejected` and does not track it. Give each business attempt its own shipment number.
+A shipment number belongs to one order. When another request already used the number, the start fails with a typed already-started error. The example records that shipment as `rejected` and ignores reports for it. Give each business attempt its own shipment number.
 
 ## Look up a shipment by its number {#lookup}
 
@@ -1604,7 +1623,7 @@ Choose a top-level child Flow when the child needs its own identity:
 - Something other than the parent can start it.
 - It can outlive the parent, with its own Flow timeout.
 
-The cost is more code. The parent starts the child, receives its report, and reads it until it ends.
+The cost is more code. The parent starts the child, claims its run, receives its report, and reads it until it ends.
 
 ## Next
 
