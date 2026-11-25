@@ -92,8 +92,8 @@ impl Step for AwaitApproval {
 - `wait_for` defaults to `Wait::skip_immediately()`; omit it when the Step
   needs no wait.
 - `wait_for` declares durable readiness. It may write Attributes, publish, and
-  set Step execution local values, but it never calls an external system.
-  External effects belong in `execute`. See the
+  set Step execution local values. External effects belong in `execute`. See
+  the
   [WaitFor rule](../core/step.md#waitfor-versus-execute).
 - `execute` returns one `StepDecision`. Returning `Err(HandlerError)` fails the
   attempt and discards everything the attempt staged.

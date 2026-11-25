@@ -82,8 +82,8 @@ public class OrderFlow implements Flow<OrderRequest> {
   immediately without a WaitFor invocation. `Wait.skipImmediately()` is the
   explicit form.
 - `waitFor` declares durable readiness. It may write Attributes, publish, and
-  set Step execution local values, but it never calls an external system.
-  External effects belong in `execute`. See the
+  set Step execution local values. External effects belong in `execute`. See
+  the
   [WaitFor rule](../core/step.md#waitfor-versus-execute).
 - `execute` returns exactly one `StepDecision`. Throwing an exception fails the
   attempt and discards everything the attempt staged.

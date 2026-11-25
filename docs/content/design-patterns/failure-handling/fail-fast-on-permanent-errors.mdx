@@ -16,7 +16,7 @@ Step retry retries every error that Step code raises, under the Step's retry pol
 
 ## How it works
 
-- Call the provider in `Execute`. `Execute` sees the provider's error and decides what it means.
+- Make provider writes in `Execute`. `Execute` sees the provider's error and decides what it means. A read-only call in `WaitFor` hands a permanent error to `Execute` instead; see [WaitFor and Execute](/concepts/step#waitfor-and-execute).
 - Let a transient error fail the attempt. Throw it or return it. Step retry runs the call again under the Step's own retry policy.
 - Catch a permanent error and return a Step decision. Go to a failure-handling Step that records the business failure. Return `ForceFail` instead when the whole Flow must be marked failed at once.
 - Treat an error as permanent only when the provider confirms it, such as rejected input or an invalid request. Leave an unknown error transient, so retry still covers it.

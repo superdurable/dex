@@ -8,7 +8,9 @@ hold the Primitive rules, design patterns, error handling, testing, and
 Worker lifecycle. Do not restate them in the application.
 
 The product constraints take precedence over the general SDK rules: external effects
-only in `Execute`, no provider or Dex mutation in `WaitFor`, and strict FDG 2.0
+only in `Execute`, no provider or Dex mutation in `WaitFor` except Step
+execution local values (read-only, idempotent, time-bounded provider calls
+are allowed there), and strict FDG 2.0
 rendering with the directives the Flow visualization reference lists for the
 language.
 
@@ -119,8 +121,10 @@ permission model.
 
 - Keep external effects in `Execute`, with a stable idempotency identity, a
   bounded timeout, and query-first reconciliation of uncertain outcomes.
-- `WaitFor` only declares durable conditions. It never queries or mutates
-  providers or Dex state, and it never computes or persists a deadline.
+- `WaitFor` sets up a durable wait. It may use a read-only, idempotent,
+  time-bounded call to get a deadline and return a Timer for it. Its only Dex
+  state writes are Step execution local values. Provider writes run in
+  `Execute`.
 - Handle a deterministic, non-retryable condition in `Execute`: route to the
   failure Step with an ordinary decision. Use the SDK's force-fail decision
   (`dex.ForceFail` in Go) only when the whole Flow must end at once. A

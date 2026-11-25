@@ -41,7 +41,14 @@ A Step has one or two methods.
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
 Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
-system. If `WaitFor` must call a provider and gets a permanent error, it
+system. Every provider change, including a Connector write operation, runs in
+`Execute`. `WaitFor` may make read-only, idempotent calls with a timeout. For
+example, it can read a due date from a provider and return a Timer for it. The
+Timer is durable once the result of `WaitFor` commits. When the deadline must
+be auditable or visible, or needs its own failure route, read it in the
+previous Step's `Execute` and pass it as the next Step's input instead.
+
+If a read in `WaitFor` gets a permanent error, it
 records the error in a Step execution local value and returns a wait that is
 ready at once. `Execute` then routes on that error. When a provider confirms a
 permanent error, `Execute` routes to a failure-handling Step or fails the Flow

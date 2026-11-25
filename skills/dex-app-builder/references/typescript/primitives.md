@@ -142,7 +142,7 @@ class AwaitApproval implements Step<Order> {
 }
 ```
 
-- `waitFor` returns a `Wait`. It never awaits or sleeps.
+- `waitFor` returns a `Wait` or a `Promise<Wait>`. It may await a read-only, idempotent, time-bounded call, as the [WaitFor rule](../core/step.md#waitfor-versus-execute) allows. Never sleep for business time; return a Timer Condition.
 - In `execute`, find the `anyOf` winner with `context.hasTimerFired(index?)`,
   `channel.results(context)`, or `SubFlow.getConditionResults(context, i)`.
 - `Wait.anyCombinationOf(ConditionCombination.of(...))` requires a non-empty,

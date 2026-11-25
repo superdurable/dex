@@ -16,7 +16,7 @@ Step 重试会按 Step 的重试策略重试 Step 代码抛出的每一个错误
 
 ## 工作方式 {#how-it-works}
 
-- 在 `Execute` 中调用服务商。`Execute` 看到服务商的错误，并决定它的含义。
+- 对服务商的写操作放在 `Execute` 中。`Execute` 看到服务商的错误，并决定它的含义。`WaitFor` 中的只读调用遇到永久错误时，会把它交给 `Execute` 处理；见 [WaitFor 和 Execute](/concepts/step#waitfor-and-execute)。
 - 让暂时错误使这次尝试失败：抛出或返回这个错误。Step 重试按 Step 自己的重试策略再次调用。
 - 捕获永久错误，并返回一个 Step decision。转到一个失败处理 Step，由它记录业务失败。如果需要立即把整个 Flow 标记为失败，则改为返回 `ForceFail`。
 - 只有服务商确认的错误才算永久错误，例如输入被拒绝或请求无效。未知错误仍按暂时错误处理，让重试继续覆盖它。

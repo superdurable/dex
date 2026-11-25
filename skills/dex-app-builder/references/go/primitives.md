@@ -172,8 +172,7 @@ func (step shipOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, 
   `ctx.HasTimerFiredByIndex(i)`, `channel.GetConditionResults(ctx)`, and
   `dex.SubFlowResult(ctx)`.
 - `WaitFor` decides what to wait for. It may write Attributes, publish, and
-  set Step execution local values, but it never calls an external system.
-  It may retry. See the [WaitFor rule](../core/step.md#waitfor-versus-execute).
+  set Step execution local values. It may retry. See the [WaitFor rule](../core/step.md#waitfor-versus-execute).
 - A Timer is a durable condition. It survives Worker loss. Never use
   `time.Sleep` for business time.
 
