@@ -15,20 +15,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from dex import (
     Attribute,
     Context,
     Flow,
     PersistenceSchema,
+    RetryPolicy,
     RPCResult,
     Step,
     StepDecision,
     StepList,
     StepMovement,
+    StepOptions,
     graceful_complete,
     rpc,
 )
+
+from dex_examples.patterns.entity_flow.account_archive import FakeAccountArchive
 
 
 def customer_account_flow_id(account_id: str) -> str:
@@ -53,9 +58,21 @@ class CreditAdjustment:
 
 
 # dex:group group-id:account-retirement group-label:"Account retirement"
-# dex:explanation text:"Complete the account Flow after the retire request passes its checks."
+# dex:explanation text:"Archive the retired account, then complete its Flow."
 class CloseAccountStep(Step[None]):
+    def __init__(self, archive: FakeAccountArchive) -> None:
+        self.archive = archive
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=1),
+            )
+        )
+
     def execute(self, context: Context, input: None) -> StepDecision:
+        self.archive.archive_account(context.flow_id)
         return graceful_complete()
 
 
@@ -65,16 +82,20 @@ class CustomerAccountFlow(Flow[None]):
     credit_balance = Attribute("credit_balance", int)
     retired = Attribute("retired", bool)
 
+    def __init__(self, archive: FakeAccountArchive) -> None:
+        self.close_account = CloseAccountStep(archive)
+
     def get_steps(self) -> StepList[None]:
-        return StepList.empty().other_steps(CloseAccountStep())
+        return StepList.empty().other_steps(self.close_account)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
             self.display_name, self.email, self.credit_balance, self.retired
         )
 
-    @rpc(name="UpdateContactDetails")
+    @rpc(name="UpdateContactDetails", lock_attributes=(credit_balance.lock(),))
     def update_contact_details(self, context: Context, input: ContactDetails) -> None:
+        self.require_open_account(context)
         input.validate()
         self.display_name.set(context, input.display_name)
         self.email.set(context, input.email)
@@ -83,8 +104,7 @@ class CustomerAccountFlow(Flow[None]):
     def adjust_credit_balance(
         self, context: Context, input: CreditAdjustment
     ) -> RPCResult[int]:
-        if self.retired.get(context):
-            raise ValueError("account is retired")
+        self.require_open_account(context)
         if input.amount == 0:
             raise ValueError("amount must not be zero")
         balance = self.credit_balance.get(context) + input.amount
@@ -95,7 +115,13 @@ class CustomerAccountFlow(Flow[None]):
 
     @rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
     def retire_account(self, context: Context) -> RPCResult[None]:
+        if self.retired.get(context):
+            return RPCResult(None)
         if self.credit_balance.get(context) != 0:
             raise ValueError("spend or refund the credit balance before retiring")
         self.retired.set(context, True)
         return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))
+
+    def require_open_account(self, context: Context) -> None:
+        if self.retired.get(context):
+            raise ValueError("account is retired")

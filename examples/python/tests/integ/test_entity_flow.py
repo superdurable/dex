@@ -15,14 +15,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import Callable
 
 import pytest
 from dex import (
     AsyncClient,
-    DexServiceError,
     FlowAlreadyStartedError,
     FlowStatus,
+    IdReusePolicy,
     RpcLockConflictError,
     StartFlowOptions,
     WorkerInvocationError,
@@ -34,11 +35,11 @@ from dex_examples.patterns.entity_flow.customer_account_flow import (
     CreditAdjustment,
     customer_account_flow_id,
 )
-from tests.integ.conftest import WAIT_TIMEOUT
 
 pytestmark = pytest.mark.integ
 
 CONCURRENT_DEPOSITS = 8
+CLOSE_TIMEOUT = timedelta(seconds=45)
 
 
 async def test_customer_account_entity_flow_lifecycle(
@@ -49,7 +50,7 @@ async def test_customer_account_entity_flow_lifecycle(
     flow = app.customer_account
     flow_id = customer_account_flow_id(new_flow_id("entity-flow"))
     options = (
-        StartFlowOptions()
+        StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
         .with_attribute(flow.display_name, "Ada")
         .with_attribute(flow.email, "ada@example.com")
         .with_attribute(flow.credit_balance, 0)
@@ -95,13 +96,35 @@ async def test_customer_account_entity_flow_lifecycle(
         flow_id,
         CreditAdjustment(-5 * CONCURRENT_DEPOSITS),
     )
+    app.account_archive.make_unavailable(flow_id)
     await client.invoke_rpc(flow.retire_account, flow_id)
-    with pytest.raises(DexServiceError):
+    assert (await client.describe_flow(flow_id)).status == FlowStatus.RUNNING
+    with pytest.raises(WorkerInvocationError, match="account is retired"):
         await client.invoke_rpc(
             flow.adjust_credit_balance, flow_id, CreditAdjustment(10)
         )
-    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    with pytest.raises(WorkerInvocationError, match="account is retired"):
+        await client.invoke_rpc(
+            flow.update_contact_details,
+            flow_id,
+            ContactDetails("Ada Byron", "ada@byron.example"),
+        )
+    await client.invoke_rpc(flow.retire_account, flow_id)
+    assert (await client.describe_flow(flow_id)).status == FlowStatus.RUNNING
+
+    app.account_archive.make_available(flow_id)
+    result = await client.wait_for_flow(flow_id, CLOSE_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
+    assert app.account_archive.archive_count(flow_id) == 1
+    closed = await client.get_attributes(
+        flow_id, flow.display_name, flow.credit_balance, flow.retired
+    )
+    assert closed[flow.display_name] == "Ada Lovelace"
+    assert closed[flow.credit_balance] == 0
+    assert closed[flow.retired] is True
+
+    with pytest.raises(FlowAlreadyStartedError):
+        await client.start_flow(flow, flow_id, None, options)
 
 
 async def _deposit_with_retry(

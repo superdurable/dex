@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dex import StartFlowOptions
+from dex import IdReusePolicy, StartFlowOptions
 from quart import Blueprint, Response, abort, jsonify
 
 from dex_examples.app import ExampleApp
@@ -45,7 +45,7 @@ def create_entity_flow_blueprint(app_state: ExampleApp) -> Blueprint:
         contact = await required_contact_details()
         flow_id = customer_account_flow_id(account_id)
         options = (
-            StartFlowOptions()
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
             .with_attribute(flow.display_name, contact.display_name)
             .with_attribute(flow.email, contact.email)
             .with_attribute(flow.credit_balance, 0)
