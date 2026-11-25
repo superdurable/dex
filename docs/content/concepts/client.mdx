@@ -52,9 +52,10 @@ the first Step. Dex Web and later reads use the committed state.
   for the Flow. Keep a report in an Attribute when it must survive a failure
   or be readable while the Flow runs.
 - A stop that cancels, fails, or terminates a Flow closes it when the stop is
-  saved. Its Steps get a cancellation signal and run no further decisions, so
-  the stopped Flow sends no report of its own. Read its terminal state
-  instead.
+  saved. It starts no new code in that Flow: no later decision, failure
+  route, or cleanup runs. Its Steps get a cancellation signal, and code
+  already running can finish its current call. A Flow waiting for the stopped
+  one reads its terminal state, and accepts an earlier report only once.
 - An error that says the Flow is closing does not prove that an earlier request
   succeeded. Read the Flow's stored state before you act again.
 

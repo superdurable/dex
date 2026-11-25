@@ -613,9 +613,9 @@ impl Step for WaitSubFlows {
 
 ## 在阈值时刻结束的子 Flow {#late-finishers}
 
-子 Flow 可能恰好在停止消息到达时结束。两者同时就绪时，Channel condition 优先于 SubFlow condition，所以 Step 会去停止一个已经结束的子 Flow。停止被拒绝，比如 "not found"、"not active" 或 "closing"，说明子 Flow 已经结束。通过 Client 读取它的结果并记录下来，让报告计入每个已经结束的子 Flow。
+子 Flow 可能恰好在停止消息到达时结束。两者同时就绪时，Channel condition 优先于 SubFlow condition，所以 Step 可能去停止一个已经结束的子 Flow。停止被拒绝，比如 "not found"、"not active" 或 "closing"，只是读取子 Flow 状态的理由，不能证明它已经结束。记录已关闭子 Flow 的状态和结果，让报告计入每个已经结束的子 Flow。仍在运行或正在关闭的子 Flow 稍后再读。其他错误直接返回，让 Step 重试。示例遇到任何 StopFlow 错误都直接返回，所以它的 Step 会重试；需要计入晚结束子 Flow 的 Step 按上面的方式区分这些错误。
 
-如果每个子 Flow 都需要自己的业务身份，就把它作为[顶层 Flow](/concepts/flow#child-flows) 启动。法定数量 Step 停止每个还没报告的子 Flow。停止被拒绝的子 Flow 已经结束，父 Flow 读取它的终态和结果。被 cancel 或 terminate 停止的子 Flow 不会报告，父 Flow 把它记为已停止。
+如果每个子 Flow 都需要自己的业务身份，就把它作为[顶层 Flow](/concepts/flow#child-flows) 启动。法定数量 Step 停止每个还没报告的子 Flow，并按那一页的规则对账。正常报告和对账得到的结果写进同一份记录，以子 Flow ID 为键。
 
 ## 下一步
 

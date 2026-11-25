@@ -90,22 +90,31 @@ StartChildJob.execute(job)                    // Client injected through the Flo
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
 AwaitChildJob.execute(job)
-    if a report was consumed: record it; continue
-    else: read the child's state with the Client (DescribeFlow, then its outcome Attribute)
-          still running: goTo(AwaitChildJob, job)
-          closed: record its outcome, or "stopped" when it has none; continue
-rpc recordChildOutcome(number, outcome) -> ChildReports[number].publish(outcome)
+    if a report was consumed: record it under job.number unless already recorded; continue
+    else: reconcile(job.number)               // see the rules below
+          known: record it; continue
+          unknown: goTo(AwaitChildJob, job)   // read again at the next interval
+rpc recordChildOutcome(childFlowId, outcome) -> ChildReports[childFlowId].publish(outcome)
 
-ChildJobFlow last Step -> write its outcome Attribute; call the parent's recordChildOutcome RPC
-                          (a closed parent counts as delivered); complete
+ChildJobFlow:
+    RecordChildOutcome.execute -> write the outcome Attribute; goTo(ReportChildOutcome)
+    ReportChildOutcome.execute -> call the parent's recordChildOutcome RPC,
+                                  Request ID = the child Flow ID; a closed parent ends the attempts
+                                  gracefulComplete()
 ```
 
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
+- When several entry points can start the same child, they all derive the same Flow ID and Request ID from the same complete request. Otherwise catch the typed already-started error, read the existing run, and track it only after its business identity matches. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
-- The child writes its outcome to an Attribute before it reports, so the parent can still read it after the child closes.
+- The child commits its outcome Attribute in one Step and reports in the next, so a report always has a committed outcome behind it. The report carries a stable Request ID, and the parent records each child at most once, keyed by its Flow ID, so a repeated report is harmless.
 - Give every child its own Flow timeout. A closing parent never stops its children.
-- A child closed by StopFlow (cancel, fail, or terminate) runs no more application code, so it never reports. The parent then reconciles: when it stops a child, it records the stopped outcome itself; when StopFlow says not found, not active, or closing, the child already ended, so it reads the child's terminal state and outcome. A parent that waits for every child also needs a reconcile Timer, for children that someone else stopped. To let a child finish its own report, give the child a stop RPC that ends it through its own Steps.
-- Children that finish after a quorum, or while the parent stops the rest, still count. Record their reports or terminal outcomes before the parent completes.
+- StopFlow (cancel, fail, or terminate) starts no new application code in the child: no later decision, failure route, or cleanup runs. Code already running can finish its current call, so a report sent just before the stop can still arrive. The parent reconciles instead of waiting for a report:
+  - After a successful stop, it reads the child's terminal status and its outcome Attribute, and records both.
+  - When StopFlow returns not found, not active, or closing, or when the reconcile Timer fires, it reads the child with DescribeFlow and a Client Attribute read. A closed child records its terminal status, plus its outcome when one was committed. A running or closing child is still unknown: read it again later. A child that is not found has no record; the business policy decides, for example "unavailable".
+  - Any other error, such as a permission or transport error, proves nothing. Return it so the Step retries.
+  - Keep the terminal status and the outcome apart: a completed child without an outcome is not a stopped one.
+- To let a child finish its own report when it is stopped, give the child a stop RPC that ends it through its own Steps.
+- Children that finish after a quorum, or while the parent stops the rest, still count. Normal reports and reconciled outcomes go into the same record, keyed by the child Flow ID. The exact StopFlow and DescribeFlow errors are in the [Client reference](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow).
 
 ## Flow options
 
@@ -143,7 +152,7 @@ The timeout handler is the Flow's last chance to record a business outcome and c
 
 - Configure its method timeout, heartbeat timeout, retry, failure route, durability, locks, and state loads in its timeout handler options. These need a positive Flow timeout and the handler policy.
 - Its timing starts after the deadline fires, so it can run past the original deadline.
-- Active Steps, including Steps that wait on a Channel or Timer, keep running while it runs. To end the Flow at the deadline, it returns ForceComplete or ForceFail. GracefulComplete, or a GoTo to a Step that completes gracefully, closes the Flow only after every active Step ends.
+- Active Steps, including Steps that wait on a Channel or Timer, keep running while it runs. When it commits ForceComplete or ForceFail, Dex starts closing the Flow and cancels the other Steps. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. The handler can commit well after the deadline, because it waits for a Worker and may retry. To start closing the Flow when the Timer fires, use the fail or cancel timeout policy.
 - It runs once per run. There is no Flow-level retry.
 - It may stage Attribute writes, Channel deletions, and Channel publications with its decision.
 - It receives ordinary Attributes and Channel sizes. AttributeMap values and pending messages need explicit selections in its options.

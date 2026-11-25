@@ -562,9 +562,23 @@ impl Step for ShortLiveHandleSubFlow {
 
 ## 空批次和提前到达的请求 {#early-requests}
 
-Flow 一启动，RPC 就能发布请求，这可能早于第一个 Step 运行。所以即使启动批次为空，第一个 Step 也用 `ForceCompleteIfChannelsEmpty` 结束，并以 worker 作为 fallback。直接完成会丢掉先到的请求。如果业务要求第一批不能为空，在启动前拒绝空批次。
+示例的接收逻辑很简单：Flow 一启动，它的 RPC 就能发布请求，而且只检查排队数量。父 Flow 如果必须限制队列，并且不接受处理不了的请求，就加一个接收 lock：
 
-第一个 Step 接收启动批次时不经过接收 RPC 的大小检查。在启动 Flow 的地方对启动批次应用同样的上限。
+- RPC、第一个 Step，以及两个修改子 Flow 计数的 Step 声明同一个 `admission` lock。调用方遇到 lock 冲突时重试。
+- 只有第一个 Step 把启动批次排进队列后，接收才开放。在那之前的 RPC 被拒绝。于是空的启动批次可以直接完成，因为不可能有请求在等待。
+- 启动批次和 RPC 请求加起来保持在上限以内。在启动 Flow 的地方用上限检查启动批次。
+- 一个请求要么在最后一个 worker 的空检查之前提交，由 worker 领取；要么在关闭之后到达，被 Dex 拒绝。
+- Channel 大小只计算排队中的请求。如果容量还包括运行中的子 Flow，把活跃数量也加进检查。
+
+```pseudocode
+AdmitBatch.execute(requests)                     // locks admission
+    if requests is empty: gracefulComplete()     // the intake never opened
+    publish each to Requests; admission = { open: true, activeChildren: 0 }
+    goToMany(HandleRequest x N)
+rpc sendRequest(request)                         // locks admission
+    if not admission.open or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+```
 
 ## 下一步
 

@@ -179,7 +179,7 @@ Flow 在以下情况下关闭：
 - client 停止它；
 - 用同一个 Flow ID 的新启动终止它；见[新启动关闭 Flow](/reference/server/runtime-data#flow-close-by-new-start)。
 
-timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。handler 运行时，活跃的 Step 继续运行。handler 要在截止时间结束 Flow，就返回 force-complete 或 force-fail 决策。Flow 运行期间，client 通过它的 RPC 读取和修改它。
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。handler 运行时，活跃的 Step 继续运行。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow。handler 的提交可能晚于截止时间。Flow 运行期间，client 通过它的 RPC 读取和修改它。
 
 ## 有自己身份的子 Flow {#child-flows}
 
@@ -187,9 +187,10 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 父 Flow 持久地接收每个子 Flow 的结果：
 
-- 子 Flow 先把结果写入 Attribute，再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
+- 子 Flow 在一个 Step 里把结果提交到 Attribute，下一个 Step 再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。报告带一个稳定的 request ID，父 Flow 以子 Flow ID 为键，每个子 Flow 只记录一次。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
+- 多个入口可能启动同一个子 Flow 时，它们从同一个请求推导出相同的 Flow ID 和 request ID。否则启动会报告 Flow 已经启动：读取那个 run，只有业务身份匹配时才跟踪它。
 - 每个子 Flow 有自己的 Flow timeout。父 Flow 关闭时不会停止它的子 Flow。
-- 被 client 停止的子 Flow 不再运行任何代码，所以它不会报告。父 Flow 要对账：记录它停止的子 Flow，读取停止被拒绝的子 Flow 的终态，并用定时器检查还没报告的子 Flow。
+- client 停止子 Flow 时，子 Flow 不会再启动新的代码，所以不会运行报告或清理路径。已经在运行的代码可以完成当前调用，所以更早发出的报告仍可能到达。父 Flow 根据子 Flow 存储的状态对账：停止成功后记录终态和已存储的结果。停止被拒绝，或用于检查未报告子 Flow 的定时器触发时，读取子 Flow。已关闭的子 Flow 记录下来。仍在运行的子 Flow 状态未知，稍后再读。其他错误什么也不能证明。
 - 在达到法定数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，仍然计入父 Flow 的结果。
 
 ## 标识符 {#identifiers}

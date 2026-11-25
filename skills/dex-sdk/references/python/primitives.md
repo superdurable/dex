@@ -276,7 +276,8 @@ class ChargeInBatches(Step[OrderRequest]):
   `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
   heartbeats from a loop of short calls. It also sets
   `execute_retry=RetryPolicy(maximum_attempts=n, total_duration=d)` with `d`
-  covering `n` times `execute_method_timeout` plus backoff. The defaults are in
+  sized as in [step.md](../core/step.md#time-bounds), such as about `n` times
+  `execute_method_timeout` plus backoff. The defaults are in
   the [StepOptions reference](https://docs.superdurable.io/reference/python/step-options#defaults).
 - Durability: `StepDurability.DEFAULT`, `SYNC`, or `ASYNC` per method; a Flow
   default goes in `StartFlowOptions(config_override=FlowConfig(step_durability=...))`.

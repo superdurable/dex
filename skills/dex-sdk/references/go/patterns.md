@@ -175,10 +175,10 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 
 - Bound each call with `context.WithTimeout(ctx, ...)`. Do not `select` on
   `ctx.Done()` around `time.Sleep`; Dex cancels `ctx` on expiry.
-- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`. With the
-  one-minute default and a 10-second call timeout, `pollInterval` is at most
-  40 seconds. Keep the one-minute default unless a healthy call is silent
-  longer.
+- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`, against
+  the `HeartbeatTimeout` the Step sets. Raise it only when a healthy call is
+  silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - `MaximumAttempts` stays small, such as 3 to 5. `TotalDuration` bounds the
   time; never use a large attempt count as a time bound.
 - `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
@@ -195,6 +195,8 @@ var (
 	Replies     = dex.DefineChannel[string]("replies")
 	Resolutions = dex.DefineChannel[string]("resolutions")
 	Transcript  = dex.DefineAttribute[[]string]("transcript")
+	// CloseLock is never written. SendReply and the closing Steps lock it.
+	CloseLock = dex.DefineAttribute[bool]("close-lock")
 )
 
 const inactivityWindow = 24 * time.Hour
@@ -213,14 +215,16 @@ func (*ConversationFlow) GetSteps() []dex.StepDef {
 
 func (*ConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{Transcript},
+		Attributes: []dex.AttributeDef{Transcript, CloseLock},
 		Channels:   []dex.ChannelDef{Replies, Resolutions},
 	}
 }
 
 func (flow *ConversationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.SendReply, nil),
+		dex.DefineRPC(flow.SendReply, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(CloseLock)},
+		}),
 		dex.DefineRPC(flow.ResolveConversation, nil),
 	}
 }
@@ -237,6 +241,10 @@ func (*ConversationFlow) SendReply(ctx dex.Context, text string) (*dex.RPCResult
 }
 
 func (*ConversationFlow) ResolveConversation(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	// An empty pending resolution means "none", so an empty reason is invalid.
+	if strings.TrimSpace(reason) == "" {
+		return nil, errors.New("resolution reason is empty")
+	}
 	if err := Resolutions.Publish(ctx, reason); err != nil {
 		return nil, err
 	}
@@ -294,6 +302,10 @@ type resolveConversation struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
+func (resolveConversation) GetStepOptions() *dex.StepOptions {
+	return closeLockOptions()
+}
+
 func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
 	return dex.ForceCompleteIfChannelsEmpty(
 		"resolved: "+reason,
@@ -306,6 +318,15 @@ type closeInactiveConversation struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
+func (closeInactiveConversation) GetStepOptions() *dex.StepOptions {
+	return closeLockOptions()
+}
+
+// closeLockOptions holds CloseLock so no reply commits between the empty check and the close.
+func closeLockOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CloseLock)}}
+}
+
 func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
 	// A reply accepted at the deadline reopens the conversation.
 	return dex.ForceCompleteIfChannelsEmpty(
@@ -316,13 +337,18 @@ func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDe
 }
 ```
 
-- The Step locks nothing, because it is the only writer of `Transcript`. If
-  an RPC wrote `Transcript`, both would need its lock, and replies would fail
-  with lock conflicts while the Step runs.
+- The waiting Step locks nothing, because it is the only writer of
+  `Transcript`. If an RPC wrote `Transcript`, both would need its lock, and
+  replies would fail with lock conflicts while the Step runs.
 - `Replies.AtLeast(1)` takes every queued reply in one execution.
 - Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
   a reply accepted after the resolution is still recorded. The fallback
-  returns to `awaitInbound` with the pending resolution.
+  returns to `awaitInbound` with the pending resolution; the inactivity
+  fallback reopens the wait.
+- `SendReply` and the closing Steps share `CloseLock`, so a reply commits
+  before the empty check or is rejected after the close. Callers retry a
+  `*dex.RPCLockConflictError`.
+- Start the Flow with `""` as its input: no pending resolution.
 
 ## Durable Timer
 

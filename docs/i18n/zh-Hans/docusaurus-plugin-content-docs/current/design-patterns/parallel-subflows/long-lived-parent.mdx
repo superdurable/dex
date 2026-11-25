@@ -605,20 +605,25 @@ impl Step for LongLiveHandleSubFlow {
 示例在运行中的子 Flow 结束后停止。如果父 Flow 要永久关闭接收，还要结束空闲的 worker，并交还排队中的请求：
 
 - 关闭 RPC 把接收标记为已关闭，并发布一条关闭消息。此后接收 RPC 拒绝新请求，调用方可以把请求重新提交给新的父 Flow run。
-- 一个关闭 Step 等待这条消息。它的 `Execute` 加载请求 Channel，通过幂等的路径交还每个排队的请求，删除这些消息，然后 graceful complete。
-- 每个 worker 等待请求 Channel 或 graceful completion condition。关闭 Step 请求完成时，空闲的 worker 被唤醒并结束自己的分支。有运行中子 Flow 的 worker 先等它结束。
-- 两者同时就绪时，Channel condition 优先于 graceful completion condition，所以关闭 Step 在同一次提交里删除排队的请求并做出决策。
+- 两个 RPC 和 worker 的 `Execute` 声明同一个 `intakeClosed` lock。
+- 每个 worker 负责自己消费的请求。在这个 lock 下，它要么启动子 Flow，要么在关闭后通过幂等的路径把请求记为已交还，比如回复提交方。排队的请求不会被丢掉，也不会被交还两次。
+- 一个关闭 Step 等待关闭消息，然后 graceful complete。
+- Channel condition 仍然优先于 graceful completion condition，所以关闭后 worker 继续领取并交还排队的请求。队列清空后，空闲的 worker 通过 graceful completion condition 被唤醒并结束自己的分支。有运行中子 Flow 的 worker 先等它结束。
 - 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。
+- graceful completion condition 需要 SDK 和 server 支持；见 [Graceful completion requests](/reference/go/waits#graceful-completion-requests)（英文）。没有它时，关闭 Step 给每个 worker 发布一条唤醒消息，每个 worker 同时等待这个唤醒 Channel，它声明在请求 Channel 之后。
 
 ```pseudocode
 HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
-HandleRequest.execute -> if a request was consumed: goTo(HandleChild, request)
-                         else: deadEnd()
-rpc sendRequest(request) -> if intakeClosed or Requests.size >= buffer limit: return false
-                            Requests.publish(request); return true
-rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()
+HandleRequest.execute                            // locks intakeClosed
+    if no request was consumed: deadEnd()
+    if intakeClosed: record the request as returned; goTo(HandleRequest)
+    goTo(HandleChild, request)
+rpc sendRequest(request)                         // locks intakeClosed
+    if intakeClosed or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()   // locks intakeClosed
 CloseIntake.waitFor -> Until(CloseRequests.ForOne())
-CloseIntake.execute -> hand back each queued request; delete them from Requests; gracefulComplete()
+CloseIntake.execute -> gracefulComplete()
 ```
 
 ## 下一步

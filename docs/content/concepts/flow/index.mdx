@@ -199,9 +199,9 @@ A Flow closes in one of these ways:
   [Flow close by a new start](/reference/server/runtime-data#flow-close-by-new-start).
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
-decides the outcome. Active Steps keep running while the handler runs. A
-handler that must end the Flow at the deadline returns a force-complete or
-force-fail decision. While the Flow runs, clients read and change it through
+decides the outcome. Active Steps keep running while the handler runs. When
+the handler commits a force-complete or force-fail decision, Dex starts
+closing the Flow. The handler can commit after the deadline. While the Flow runs, clients read and change it through
 its RPCs.
 
 ## Child Flows with their own identity {#child-flows}
@@ -214,15 +214,24 @@ fit here, because Dex derives a SubFlow's ID from its parent.
 
 The parent receives each child's result durably:
 
-- The child writes its outcome to an Attribute, then reports to the parent
-  through an RPC that publishes to a Channel. Or a polling Step of the parent
-  waits for the child's terminal state.
+- The child commits its outcome to an Attribute in one Step. A next Step
+  reports to the parent through an RPC that publishes to a Channel. The
+  report carries a stable request ID, and the parent records each child once,
+  keyed by its Flow ID. Or a polling Step of the parent waits for the child's
+  terminal state.
+- When several entry points can start the same child, they derive the same
+  Flow ID and request ID from the same request. Otherwise the start reports
+  that the Flow already started: read that run and track it only when its
+  business identity matches.
 - Each child has its own Flow timeout. A closing parent never stops its
   children.
-- A child closed by a client stop runs no more code, so it never reports.
-  The parent reconciles: it records the children it stopped, reads the
-  terminal state of a child whose stop was refused, and checks unreported
-  children on a timer.
+- A client stop starts no new code in the child, so no report or cleanup
+  path runs. Code already running can finish its current call, so an
+  earlier report can still arrive. The parent reconciles from the child's
+  stored state: after a stop it records the terminal status and the stored
+  outcome. A refused stop, or a timer for unreported children, leads to a
+  read. A closed child is recorded. A running child stays unknown and is
+  read again later. Any other error proves nothing.
 - Children that finish after a quorum, or while the parent stops the rest,
   still count in the parent's result.
 

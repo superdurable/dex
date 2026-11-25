@@ -18,7 +18,7 @@ application types.
 | Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
 | Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
 | Inactivity tracker | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step, and share one close lock with the reply RPC; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
 | Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
 | WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
@@ -104,9 +104,10 @@ class RecordJobWaitFailure implements Step<string> {
 - `executeMethodTimeoutMs`, `executeRetry.totalDurationMs`, and
   `heartbeatTimeoutMs` bound the wait. `ExecuteFailure.proceedTo` routes
   expiry to the recording Step.
-- Keep `poll interval + call timeout <= heartbeatTimeoutMs - 10 s`. With the
-  one-minute default and a 10-second call timeout, the interval is at most 40
-  seconds. Keep the one-minute default unless a healthy call is silent longer.
+- Keep `poll interval + call timeout <= heartbeatTimeoutMs - 10 s`, against
+  the `heartbeatTimeoutMs` the Step sets. Raise it only when a healthy call is
+  silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/typescript/step-options#defaults).
 - `maximumAttempts` stays small, such as 3 to 5. `totalDurationMs` bounds the
   time; never use a large attempt count as a time bound.
 

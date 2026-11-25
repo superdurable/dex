@@ -16,7 +16,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
 | Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies` under a close lock shared with the reply RPC; see below | closest: the inactivity example |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
@@ -112,10 +112,10 @@ class AwaitJob(Step[str]):
 
 - Bound each provider call with `asyncio.wait_for`; never block the event
   loop with a sync client.
-- Keep `POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10 s`. With
-  the one-minute default and a 10-second call timeout, the interval is at most
-  40 seconds. Keep the one-minute default unless a healthy call is silent
-  longer.
+- Keep `POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10 s`,
+  against the `heartbeat_timeout` the Step sets. Raise it only when a healthy
+  call is silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/python/step-options#defaults).
 - `maximum_attempts` stays small, such as 3 to 5. `total_duration` bounds the
   time; never use a large attempt count as a time bound.
 - Read the checkpoint with `context.get_last_heartbeat_value(T)` and write it
@@ -134,7 +134,7 @@ from datetime import timedelta
 
 from dex import (
     Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult, Step,
-    StepDecision, StepList, StepMovement, Timer, Wait,
+    StepDecision, StepList, StepMovement, StepOptions, Timer, Wait,
     force_complete_if_channels_empty, go_to, rpc,
 )
 
@@ -143,9 +143,16 @@ INACTIVITY_WINDOW = timedelta(hours=24)
 REPLIES = Channel("replies", str)
 RESOLUTIONS = Channel("resolutions", str)
 TRANSCRIPT = Attribute("transcript", list[str])
+# Never written. send_reply and the closing Steps lock it.
+CLOSE_LOCK = Attribute("close-lock", bool)
+# Holds CLOSE_LOCK so no reply commits between the empty check and the close.
+CLOSE_LOCK_OPTIONS = StepOptions(execute_lock_attributes=(CLOSE_LOCK.lock(),))
 
 
 class ResolveConversation(Step[str]):
+    def get_step_options(self) -> StepOptions:
+        return CLOSE_LOCK_OPTIONS
+
     def execute(self, context: Context, input: str) -> StepDecision:
         return force_complete_if_channels_empty(
             f"resolved: {input}", StepMovement.of(AwaitInbound, input), REPLIES
@@ -153,6 +160,9 @@ class ResolveConversation(Step[str]):
 
 
 class CloseInactiveConversation(Step[None]):
+    def get_step_options(self) -> StepOptions:
+        return CLOSE_LOCK_OPTIONS
+
     def execute(self, context: Context, input: None) -> StepDecision:
         # A reply accepted at the deadline reopens the conversation.
         return force_complete_if_channels_empty(
@@ -200,9 +210,9 @@ class ConversationFlow(Flow[str]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(TRANSCRIPT, REPLIES, RESOLUTIONS)
+        return PersistenceSchema.of(TRANSCRIPT, CLOSE_LOCK, REPLIES, RESOLUTIONS)
 
-    @rpc
+    @rpc(lock_attributes=(CLOSE_LOCK.lock(),))
     def send_reply(self, context: Context, text: str) -> RPCResult[bool]:
         if not text.strip():
             return RPCResult(False)
@@ -210,17 +220,25 @@ class ConversationFlow(Flow[str]):
         return RPCResult(True)
 
     @rpc
-    def resolve(self, context: Context, reason: str) -> None:
+    def resolve(self, context: Context, reason: str) -> RPCResult[bool]:
+        # An empty pending resolution means "none", so an empty reason is invalid.
+        if not reason.strip():
+            return RPCResult(False)
         RESOLUTIONS.publish(context, reason)
+        return RPCResult(True)
 ```
 
-- The Step locks nothing, because it is the only writer of `TRANSCRIPT`. If an
-  RPC wrote `TRANSCRIPT`, both would need its lock, and replies would fail
-  with `RpcLockConflictError` while the Step runs.
+- The waiting Step locks nothing, because it is the only writer of
+  `TRANSCRIPT`. If an RPC wrote `TRANSCRIPT`, both would need its lock, and
+  replies would fail with `RpcLockConflictError` while the Step runs.
 - `REPLIES.at_least(1)` takes every queued reply in one execution.
 - Both closing Steps use `force_complete_if_channels_empty` on `REPLIES`, so a
   reply accepted after the resolution is still recorded. The fallback returns
-  to `AwaitInbound` with the pending resolution. Start the Flow with `""`.
+  to `AwaitInbound` with the pending resolution; the inactivity fallback
+  reopens the wait. Start the Flow with `""`.
+- `send_reply` and the closing Steps share `CLOSE_LOCK`, so a reply commits
+  before the empty check or is rejected after the close. Callers retry an
+  `RpcLockConflictError`.
 
 ## Python notes for the other patterns
 

@@ -203,8 +203,9 @@ class RecordChargeFailure implements Step<Order> {
 - A Step whose provider call can stay silent for minutes sets
   `heartbeatTimeoutMs` to at least that call's `executeMethodTimeoutMs`, or
   heartbeats from a loop of short calls. It also sets
-  `executeRetry: { maximumAttempts: n, totalDurationMs: d }` with `d` covering
-  `n` times `executeMethodTimeoutMs` plus backoff.
+  `executeRetry: { maximumAttempts: n, totalDurationMs: d }` with `d` sized as
+  in [step.md](../core/step.md#time-bounds), such as about `n` times
+  `executeMethodTimeoutMs` plus backoff.
 
 ## Heartbeat and cancellation
 

@@ -164,7 +164,8 @@ public StepOptions getStepOptions() {
 - A Step whose provider call can stay silent for minutes sets
   `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
   heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
-  `totalDuration(d)` on `executeRetry`, with `d` covering `n` times
+  `totalDuration(d)` on `executeRetry`, with `d` sized as in
+  [step.md](../core/step.md#time-bounds), such as about `n` times
   `executeMethodTimeout` plus backoff. The defaults are in the
   [StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults).
 - Failure routes: `onExecuteFailureProceedTo(Recovery.class)` and
@@ -491,7 +492,7 @@ building blocks:
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step, and share one close lock with the reply RPC ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
@@ -536,9 +537,10 @@ ready" inside the loop, throws only transient errors, writes a Stream message
 or `recordHeartbeat` each round, then `Thread.sleep(interval)`. Restore the
 interrupt flag on `InterruptedException`. Bound the whole wait with
 `executeMethodTimeout`, `RetryPolicy.totalDuration`, and a failure route. Keep
-`interval + call timeout <= heartbeatTimeout - 10 s`: with the one-minute
-default and a 10-second call timeout, the interval is at most 40 seconds. Keep
-the one-minute default unless a healthy call is silent longer. Keep
+`interval + call timeout <= heartbeatTimeout - 10 s`, against the
+`heartbeatTimeout` the Step sets. Raise it only when a healthy call is silent
+longer; the default is in the
+[StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults). Keep
 `maximumAttempts` small, such as 3 to 5; `totalDuration` bounds the time, never
 a large attempt count. Never loop through a
 WaitFor Timer, `RetryAfterException`, or a hand-written deadline. Copy the

@@ -324,10 +324,13 @@ defaults are the same in every SDK; see
 The defaults fit short calls. A Step whose provider call can stay silent for
 minutes sets two options itself:
 
-- a heartbeat timeout of at least that call's method timeout, unless it
-  heartbeats from a loop of short calls;
-- a retry total duration that covers every attempt it allows: the maximum
-  attempts times the method timeout, plus the backoff between them.
+- a heartbeat timeout of at least that call's method timeout. A loop of short
+  calls that heartbeats between them keeps its longest silent interval below
+  the heartbeat timeout instead.
+- a retry total duration chosen for what it bounds. For a business limit on
+  the whole wait, use that limit. To allow several near-full attempts, size it
+  at about the maximum attempts times the method timeout, plus backoff. That
+  is an estimate: retry delays and queue time also use the budget.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

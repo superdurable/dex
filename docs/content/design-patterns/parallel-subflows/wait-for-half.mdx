@@ -613,9 +613,9 @@ impl Step for WaitSubFlows {
 
 ## Children that finish at the threshold {#late-finishers}
 
-A child can finish at the same moment its stop message arrives. A Channel condition wins over a SubFlow condition when both are ready, so the Step then stops a child that already ended. A refused stop, such as "not found", "not active", or "closing", means the child finished. Read its result through the Client and record it, so the report counts every child that finished.
+A child can finish at the same moment its stop message arrives. A Channel condition wins over a SubFlow condition when both are ready, so the Step may stop a child that already ended. A refused stop, such as "not found", "not active", or "closing", is a reason to read the child's state, not proof that it finished. Record a closed child's status and result, so the report counts every child that finished. Read a child that is still running or closing again later. Return any other error so the Step retries. The example returns every StopFlow error, so its Step retries; a Step that must count late finishers classifies the errors this way.
 
-When each child needs its own business identity, start it as a [top-level Flow](/concepts/flow#child-flows) instead. The quorum Step stops each child that has not reported. A child whose stop is refused already ended, so the parent reads its terminal state and outcome. A child stopped with cancel or terminate never reports, so the parent records it as stopped.
+When each child needs its own business identity, start it as a [top-level Flow](/concepts/flow#child-flows) instead. The quorum Step stops each child that has not reported and reconciles it by the rules on that page. Normal reports and reconciled outcomes go into one record, keyed by the child Flow ID.
 
 ## Next
 

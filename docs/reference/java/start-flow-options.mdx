@@ -92,13 +92,16 @@ with its decision, the handler can write Attributes, delete Channel messages,
 and publish to Channels.
 
 Active Steps keep running while the handler runs, including Steps that wait
-on a Channel, a Timer, or a SubFlow. To end the Flow at the deadline, the
-handler returns **ForceComplete** or **ForceFail**, which closes the Flow and
-cancels the other Steps. **GracefulComplete**, or a **GoTo** to a Step that
-completes gracefully, closes the Flow only after every active Step ends.
+on a Channel, a Timer, or a SubFlow. When the handler commits
+**ForceComplete** or **ForceFail**, Dex starts closing the Flow and cancels
+the other Steps. **GracefulComplete**, or a **GoTo** to a Step that completes
+gracefully, waits until every other active Step ends. The handler can commit
+after the deadline, because it waits for a Worker and may retry. To start
+closing the Flow when the timeout fires, use **FAIL** or **CANCEL**.
 
 With the **HANDLER** policy, Dex runs this code when the timeout fires. It
-records why the Flow ended, then fails the Flow with an application reason.
+records why the Flow ended. This example then fails the Flow with an
+application reason.
 
 ```java
 @Override

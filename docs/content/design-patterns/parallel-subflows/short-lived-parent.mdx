@@ -561,9 +561,23 @@ impl Step for ShortLiveHandleSubFlow {
 
 ## Empty batches and early requests {#early-requests}
 
-RPCs can publish requests as soon as the Flow starts, before its first Step runs. So the first Step closes an empty start batch with `ForceCompleteIfChannelsEmpty` too, with the workers as its fallback. A plain completion would drop a request that arrived first. When the business needs a non-empty first batch, reject an empty one before the start.
+The example keeps admission simple: its RPC can publish as soon as the Flow starts, and it checks only the queued count. A parent that must bound its queue and never accept a request it cannot handle adds an admission lock:
 
-The first Step admits the start batch without the admission RPC's size check. Apply the same limit to the start batch where the Flow is started.
+- The RPC, the first Step, and both Steps that change the child count declare the same `admission` lock. Callers retry a lock conflict.
+- The intake opens only when the first Step has queued the start batch. An RPC before that is rejected. An empty start batch then completes at once, because no request can be waiting.
+- The start batch and the RPC requests together stay within the limit. Check the start batch against the limit where the Flow is started.
+- A request commits either before the last worker's empty check, so a worker takes it, or after the close, which Dex rejects.
+- The Channel size counts only queued requests. When the capacity also covers running children, add the active count to the check.
+
+```pseudocode
+AdmitBatch.execute(requests)                     // locks admission
+    if requests is empty: gracefulComplete()     // the intake never opened
+    publish each to Requests; admission = { open: true, activeChildren: 0 }
+    goToMany(HandleRequest x N)
+rpc sendRequest(request)                         // locks admission
+    if not admission.open or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+```
 
 ## Next
 

@@ -604,20 +604,25 @@ impl Step for LongLiveHandleSubFlow {
 The example stops after the running children finish. A parent that closes its intake for good also ends its idle workers and hands back its queued requests:
 
 - A close RPC marks the intake closed and publishes a close message. From then on, the admission RPC rejects new requests, so callers can resubmit to a new parent run.
-- A close Step waits for that message. Its `Execute` loads the request Channel, hands back each queued request through an idempotent path, deletes those messages, and completes gracefully.
-- Each worker waits on the request Channel or the graceful completion condition. When the close Step requests completion, idle workers wake and end their branch. Workers with a running child finish it first.
-- Channel conditions win over the graceful completion condition when both are ready, so the close Step deletes the queued requests in the same commit as its decision.
+- Both RPCs and the worker's `Execute` declare the same `intakeClosed` lock.
+- Each worker owns the request it consumed. Under that lock it either starts the child or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never dropped or handed back twice.
+- A close Step waits for the close message and completes gracefully.
+- Channel conditions still win over the graceful completion condition, so after the close, workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion condition and end their branch. Workers with a running child finish it first.
 - The admission RPC checks the Channel size for its limit. Every RPC receives Channel sizes, so the parent keeps no separate waiting counter.
+- The graceful completion condition needs SDK and server support; see [Graceful completion requests](/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one wake message per worker, and each worker also waits for that wake Channel, declared after the request Channel.
 
 ```pseudocode
 HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
-HandleRequest.execute -> if a request was consumed: goTo(HandleChild, request)
-                         else: deadEnd()
-rpc sendRequest(request) -> if intakeClosed or Requests.size >= buffer limit: return false
-                            Requests.publish(request); return true
-rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()
+HandleRequest.execute                            // locks intakeClosed
+    if no request was consumed: deadEnd()
+    if intakeClosed: record the request as returned; goTo(HandleRequest)
+    goTo(HandleChild, request)
+rpc sendRequest(request)                         // locks intakeClosed
+    if intakeClosed or Requests.size >= buffer limit: return false
+    Requests.publish(request); return true
+rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()   // locks intakeClosed
 CloseIntake.waitFor -> Until(CloseRequests.ForOne())
-CloseIntake.execute -> hand back each queued request; delete them from Requests; gracefulComplete()
+CloseIntake.execute -> gracefulComplete()
 ```
 
 ## Next

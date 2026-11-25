@@ -23,9 +23,13 @@ overrides.
 
 ## Stop a Flow {#stop-a-flow}
 
-**StopFlow** closes an active Flow. By default, it asks the Flow to cancel and
-lets the Flow handle the cancellation. You can instead terminate it
-immediately, or fail it with a reason.
+**StopFlow** closes an active Flow. By default, it cancels the Flow. You can
+instead terminate it, or fail it with a reason. Each of these closes the run
+when the stop commits and starts no new application code: no later Step
+decision, failure route, or cleanup runs. Running Steps get a cancellation
+signal, and code already running can finish its current call. A Flow that
+waits for the stopped one reads its terminal state instead of waiting for a
+report.
 
 StopFlow can also complete a Flow, with an optional output that becomes a Flow
 result. Since 0.1.34.
