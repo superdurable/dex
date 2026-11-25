@@ -96,7 +96,6 @@ otherwise miss:
 - Skill content has no Dex version numbers, release tags, or dependency pins,
   including Developer reference notes such as "Since 1.35".
   Standards and toolchain versions, such as FDG 2.0 or Node 22, are allowed.
-  The two App Builder n8n references may cite n8n releases and node versions.
 
 It does not check exact file lists or sentences.
 

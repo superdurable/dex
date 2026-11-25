@@ -1,6 +1,6 @@
 ---
 name: dex-app-builder
-description: Primary skill for all Dex work with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow; for requests to learn, get started with, set up, or understand Dex; and for standalone SDK work that implements, debugs, tests, or operates code using the Dex SDK in Go, Python, TypeScript, Java, or Rust. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, the backend with released connectors, and local verification with dexcli dev. Not for official connector-library work.
+description: Primary skill for all Dex work with source-available Dex. Use for Dex product, application, or workflow requests; for requests to learn, get started with, set up, or understand Dex; and for standalone SDK work that implements, debugs, tests, or operates code using the Dex SDK in Go, Python, TypeScript, Java, or Rust. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, the backend with released connectors, and local verification with dexcli dev. Not for official connector-library work.
 ---
 
 # Dex App Builder
@@ -61,7 +61,6 @@ and do not reread a reference once its facts are recorded.
 | Stage | Goal | Reference |
 | --- | --- | --- |
 | 0. Workspace | Classify the repository, choose or keep the language, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
-| 0'. Import | Convert an exported workflow, such as n8n JSON, before the normal stages | [Workflow import](references/workflow-import.md) and [n8n semantics](references/n8n-semantics.md) |
 | 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, Connectors, management mapping | [Product discovery](references/product-discovery.md) |
 | 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web](references/dex-web-v2.md) |
 | 3. Backend | Flow design, Dex-first storage, Actions, Workers, API contract | [Backend implementation](references/backend-implementation.md) |
