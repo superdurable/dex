@@ -146,7 +146,7 @@ Temporal 把 workflow 代码切成一个个 [workflow task](https://docs.tempora
 
 一个 Step 写明它等什么，以及接下来去哪。`WaitForCustomerStep` 等待两个条件中的任意一个：`CustomerMessages` Channel 上的一条消息，或者一个空闲时长的 Timer。Timer 触发了，Flow 就转到 `NudgeCustomerStep`。否则转到 `GenerateReplyStep`，它回复之后再转回 `WaitForCustomerStep`。`WaitForCustomerStep` 每次开始时都启动一个新的 Timer。`post_message` RPC 把每条客户消息发布到 Channel。见 [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py)。
 
-[Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) 模式在每种 SDK 里都是同样的形状。注意 `WaitFor` 里的两个条件，以及 `Execute` 里的决定：有活动时，Step 转到它自己：
+[空闲定时器](/design-patterns/external-interaction/idle-timer)模式在每种 SDK 里都是同样的形状。注意 `WaitFor` 里的两个条件，以及 `Execute` 里的决定：有活动时，Step 转到它自己：
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py', go: 'examples/go/patterns/inactiveness-tracker-timer/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inactivenesstracker/InactivenessTrackerFlow.java', typescript: 'examples/typescript/src/patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts', rust: 'examples/rust/src/patterns/inactiveness_tracker/flow.rs'}}>
 
@@ -328,7 +328,7 @@ impl Step for Tracker {
 | 读取聊天记录 | Query `get_transcript_page` | RPC `get_transcript_page` |
 | 控制流 | 隐含在代码产生的 workflow task 里 | 显式的 Step 和跳转 |
 
-因为跳转是显式的，Dex 能直接从源码画出 Flow design。`dexcli visualize` 生成这张图，Dex Web 把它画出来。在 Dex Web 里，一次运行的页面显示会话正在等哪个 Step。演示的 [flow-definitions](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/flow-definitions) 目录保存了它各个 Flow 版本的图。下面是上文 Inactiveness Tracker Timer 模式的图：
+因为跳转是显式的，Dex 能直接从源码画出 Flow design。`dexcli visualize` 生成这张图，Dex Web 把它画出来。在 Dex Web 里，一次运行的页面显示会话正在等哪个 Step。演示的 [flow-definitions](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/flow-definitions) 目录保存了它各个 Flow 版本的图。下面是上文空闲定时器模式的图：
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

@@ -146,7 +146,7 @@ See [conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-d
 
 A Step says what it waits for and where it goes next. `WaitForCustomerStep` waits for any of two conditions: a message on the `CustomerMessages` Channel, or a Timer for the idle window. If the Timer fired, the Flow moves to `NudgeCustomerStep`. Otherwise it moves to `GenerateReplyStep`, which replies and moves back to `WaitForCustomerStep`. Each time `WaitForCustomerStep` starts, it starts a new Timer. The `post_message` RPC publishes each customer message to the Channel. See [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py).
 
-The [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) pattern has the same shape in every SDK. Notice the two conditions in `WaitFor` and the decision in `Execute`, which moves the Step to itself on activity:
+The [Idle Timer](/design-patterns/external-interaction/idle-timer) pattern has the same shape in every SDK. Notice the two conditions in `WaitFor` and the decision in `Execute`, which moves the Step to itself on activity:
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py', go: 'examples/go/patterns/inactiveness-tracker-timer/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inactivenesstracker/InactivenessTrackerFlow.java', typescript: 'examples/typescript/src/patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts', rust: 'examples/rust/src/patterns/inactiveness_tracker/flow.rs'}}>
 
@@ -328,7 +328,7 @@ Queries to conversation A fail too. A conversation started on version 2 works. T
 | Read the transcript | Query `get_transcript_page` | RPC `get_transcript_page` |
 | Control flow | Implicit in the workflow tasks that the code produces | Explicit Steps and transitions |
 
-Because the transitions are explicit, Dex draws the Flow design from the source code. `dexcli visualize` produces the graph, and Dex Web draws it. A run's page in Dex Web shows the Step that the conversation waits in. The demo's [flow-definitions](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/flow-definitions) folder holds the graphs of its Flow versions. This is the graph of the Inactiveness Tracker Timer pattern above:
+Because the transitions are explicit, Dex draws the Flow design from the source code. `dexcli visualize` produces the graph, and Dex Web draws it. A run's page in Dex Web shows the Step that the conversation waits in. The demo's [flow-definitions](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/flow-definitions) folder holds the graphs of its Flow versions. This is the graph of the Idle Timer pattern above:
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
