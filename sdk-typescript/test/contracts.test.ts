@@ -42,6 +42,7 @@ import {
   bytesCodec,
   declareRPCMethod,
   gracefulComplete,
+  goTo,
   int64Codec,
   joinRoundCodec,
   jsonCodec,
@@ -49,6 +50,7 @@ import {
   rpc,
   stringCodec,
   voidCodec,
+  type AttributeLock,
   type AttributeMapLoad,
   type MissingAttributeLockAccess,
   type AttributeRead,
@@ -319,6 +321,104 @@ test("registry reads Step options once, after the persistence schema", () => {
   };
   new Registry([flow]);
   assert.equal(optionReads, 1);
+});
+
+/** Builds a Flow whose start Step moves to `target`, and returns the options the Worker sends for it. */
+async function movementStepOptions(
+  flowType: string,
+  attributes: readonly (Attribute<unknown> | AttributeMap<unknown>)[],
+  target: Step<void>,
+) {
+  class MoveStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "MoveStep";
+    }
+    public execute(): StepDecision {
+      return goTo(target, undefined);
+    }
+  }
+  const flow: Flow<void> = {
+    getFlowType: () => flowType,
+    getSteps: () => StepList.startStep(new MoveStep()).otherSteps(target),
+    getPersistenceSchema: () => ({ attributes }),
+  };
+  const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+  const registry = new Registry([flow]);
+  return async () => {
+    const response = await new WorkerDispatcher(registry, hydrator, () => 3).invokeExecute(
+      InvokeExecuteMethodRequest.create({
+        context: ProtoContext.create(),
+        flowType,
+        stepType: "MoveStep",
+        stepInput: encodeValue(voidCodec, undefined),
+        attributes: [],
+        stepExeLocals: [],
+      }),
+    );
+    return response.stepDecision?.nextSteps[0]?.stepOptions;
+  };
+}
+
+test("a Flow that declares a lock requirement sends registered locks and keeps option accessors", async () => {
+  const total = new Attribute("contract-snapshot-total", int64Codec).writesRequireLock();
+  class AccessorLock implements AttributeLock {
+    public get attribute(): Attribute<unknown> {
+      return total as Attribute<unknown>;
+    }
+  }
+  let lockReads = 0;
+  class AccessorOptions implements StepOptions {
+    public get executeMethodTimeoutMs(): number {
+      return 13_000;
+    }
+    public get executeLockAttributes(): readonly AttributeLock[] {
+      lockReads += 1;
+      if (lockReads > 1) {
+        throw new Error("the lock field was read after registration");
+      }
+      return [new AccessorLock()];
+    }
+  }
+  const target = new (class AccessorStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "AccessorStep";
+    }
+    public getStepOptions(): StepOptions {
+      return new AccessorOptions();
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const sendMovement = await movementStepOptions("ContractSnapshotFlow", [total], target);
+  const options = await sendMovement();
+  assert.equal(options?.executeTimeoutSeconds, 13);
+  assert.deepEqual(options?.executeLockAttributeKeys, ["contract-snapshot-total"]);
+  assert.equal(lockReads, 1);
+});
+
+test("a Flow without a declared lock requirement reads Step locks when it sends them", async () => {
+  const total = new Attribute("contract-live-total", int64Codec);
+  let lockOptions: StepOptions = {};
+  const target = new (class LiveStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "LiveStep";
+    }
+    public getStepOptions(): StepOptions {
+      return lockOptions;
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const sendMovement = await movementStepOptions("ContractLiveFlow", [total], target);
+  lockOptions = { executeLockAttributes: [total.lock()] };
+  assert.deepEqual((await sendMovement())?.executeLockAttributeKeys, ["contract-live-total"]);
+  lockOptions = {};
+  assert.deepEqual((await sendMovement())?.executeLockAttributeKeys, []);
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {

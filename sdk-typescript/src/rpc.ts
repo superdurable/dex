@@ -75,8 +75,10 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   /**
    * Attribute locks held for the entire invocation.
    *
-   * The declaration copies the array, so later changes to it do not change the locks the Client
-   * sends or the locks the Worker checks. Changed in 1.45.17: the array is copied when declared.
+   * In a Flow whose PersistenceSchema declares a lock requirement, Registry construction copies
+   * this list. The Client then sends, and the Worker checks, that copy. Other Flows read the list
+   * when the Client sends each call. Changed in 1.45.17: the copy for Flows that declare a lock
+   * requirement.
    */
   readonly lockAttributes?: readonly AttributeLock[];
   /** Requests transactional reads and writes even when no Attribute lock is configured. */
@@ -507,18 +509,7 @@ function validatedImmutableRPCOptions(options: RPCOptions<any, any>): RPCOptions
   if (options.timeoutMs !== undefined && options.timeoutMs < 0) {
     throw new RangeError("RPC timeout must be non-negative");
   }
-  const lockAttributes = options.lockAttributes;
-  // The Client sends and the Worker checks this copy, so later edits to the caller's array change neither.
-  return Object.freeze({
-    ...options,
-    ...(Array.isArray(lockAttributes) ? { lockAttributes: frozenAttributeLocks(lockAttributes) } : {}),
-  });
-}
-
-/** Returns a frozen copy of a lock list and of each lock object in it. */
-export function frozenAttributeLocks(locks: readonly AttributeLock[]): readonly AttributeLock[] {
-  return Object.freeze(locks.map((lock) =>
-    typeof lock === "object" && lock !== null ? Object.freeze({ ...lock }) : lock));
+  return Object.freeze({ ...options });
 }
 
 function prototypeRPCMethod(flowClass: Function, methodName: string): Function {

@@ -460,12 +460,17 @@ export function resetLockSnapshotGate(): void {
 /** Registers the RPC with this array; the test empties it after registration. */
 export const lockSnapshotRPCLocks: AttributeLock[] = [lockReqTotal.lock()];
 
-/** Names the required lock only in its first getStepOptions call, which Registry makes. */
+/** Holds the Step in execute; getStepOptions returns `registered` first, which Registry reads, then `later`. */
 class LockSnapshotHoldStep implements Step<void> {
   public readonly inputCodec = voidCodec;
   public getStepOptionsCalls = 0;
 
-  public constructor(private readonly stepType: string) {}
+  public constructor(
+    private readonly stepType: string,
+    private readonly written: Attribute<number>,
+    private readonly registered: StepOptions,
+    private readonly later: StepOptions,
+  ) {}
 
   public getStepType(): string {
     return this.stepType;
@@ -473,20 +478,22 @@ class LockSnapshotHoldStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     this.getStepOptionsCalls += 1;
-    return this.getStepOptionsCalls === 1 ? { executeLockAttributes: [lockReqTotal.lock()] } : {};
+    return this.getStepOptionsCalls === 1 ? this.registered : this.later;
   }
 
   public async execute(context: Context): Promise<StepDecision> {
     lockSnapshotGate.entered.resolve();
     await lockSnapshotGate.release.promise;
-    lockReqTotal.set(context, 1);
+    this.written.set(context, 1);
     return gracefulComplete("written");
   }
 }
 
 /** Starts at the holding Step, so the Client sends its default options. */
 export class LockSnapshotStartFlow implements Flow {
-  public readonly hold = new LockSnapshotHoldStep("LockSnapshotStartHoldStep");
+  public readonly hold = new LockSnapshotHoldStep(
+    "LockSnapshotStartHoldStep", lockReqTotal, { executeLockAttributes: [lockReqTotal.lock()] }, {},
+  );
 
   public getFlowType(): string {
     return "LockSnapshotStartFlow";
@@ -528,7 +535,9 @@ class LockSnapshotDispatchStep implements Step<void> {
 
 /** Moves to the holding Step, so the Worker sends its default options. */
 export class LockSnapshotMovementFlow implements Flow {
-  public readonly hold = new LockSnapshotHoldStep("LockSnapshotMovedHoldStep");
+  public readonly hold = new LockSnapshotHoldStep(
+    "LockSnapshotMovedHoldStep", lockReqTotal, { executeLockAttributes: [lockReqTotal.lock()] }, {},
+  );
 
   public getFlowType(): string {
     return "LockSnapshotMovementFlow";
@@ -545,6 +554,36 @@ export class LockSnapshotMovementFlow implements Flow {
   @rpc({ inputCodec: doubleCodec, lockAttributes: [lockReqTotal.lock()], timeoutMs: 10_000 })
   public setMovedTotalLocked(context: Context, value: number): void {
     lockReqTotal.set(context, value);
+  }
+}
+
+// A Flow without a lock requirement declaration keeps reading its locks when it sends them.
+export const lockLiveTotal = new Attribute("lock-live-total", doubleCodec);
+
+/** Registers the RPC with this empty array; the test adds the lock after registration. */
+export const lockLiveRPCLocks: AttributeLock[] = [];
+
+/** Declares no lock requirement; its Step names the lock only after registration. */
+export class LockLiveFlow implements Flow {
+  public readonly hold = new LockSnapshotHoldStep(
+    "LockLiveHoldStep", lockLiveTotal, {}, { executeLockAttributes: [lockLiveTotal.lock()] },
+  );
+
+  public getFlowType(): string {
+    return "LockLiveFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.hold);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [lockLiveTotal] };
+  }
+
+  @rpc({ inputCodec: doubleCodec, lockAttributes: lockLiveRPCLocks, timeoutMs: 10_000 })
+  public setLiveTotalWithLaterArray(context: Context, value: number): void {
+    lockLiveTotal.set(context, value);
   }
 }
 

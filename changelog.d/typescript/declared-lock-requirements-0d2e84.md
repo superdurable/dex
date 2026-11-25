@@ -1,4 +1,4 @@
 ---
 section: Changed
 ---
-- A Step's default lock fields come from the **getStepOptions** call that **Registry** makes, and **RPCOptions.lockAttributes** is copied when the RPC is declared. The locks Dex acquires then always match the locks the Worker checks.
+- In a Flow that declares a lock requirement, Registry copies each Step's default lock fields and each RPC's **lockAttributes**. Default Step options and RPC calls send those copies, which the Worker checks. Explicit movement and failure options replace them as before; other Flows are unchanged.

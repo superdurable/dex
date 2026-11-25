@@ -32,12 +32,15 @@ import {
   AttributeLockRequirementRPCFlow,
   AttributeLockRequirementStepFlow,
   AttributeLockRequirementTimeoutFlow,
+  LockLiveFlow,
   LockSnapshotMovementFlow,
   LockSnapshotStartFlow,
   lockReqFree,
   lockReqItems,
   lockReqShared,
   lockReqSpacedInstance,
+  lockLiveRPCLocks,
+  lockLiveTotal,
   lockReqTotal,
   lockSnapshotGate,
   lockSnapshotRPCLocks,
@@ -282,8 +285,8 @@ test("Dex acquires the registered locks that the Worker checks", async () => {
 
     resetLockSnapshotGate();
     const startId = flowId("lock-snapshot-start");
-    await client.startFlow(startFlow, startId, undefined);
     try {
+      await client.startFlow(startFlow, startId, undefined);
       await holdingStepStarted();
       // The Step holds the total lock, so an RPC that sends the same lock conflicts.
       await expectError(client.invokeRPC(startFlow.setTotalLocked, startId, 7), RpcLockConflictError);
@@ -296,8 +299,8 @@ test("Dex acquires the registered locks that the Worker checks", async () => {
 
     resetLockSnapshotGate();
     const movementId = flowId("lock-snapshot-movement");
-    await client.startFlow(movementFlow, movementId, undefined);
     try {
+      await client.startFlow(movementFlow, movementId, undefined);
       await holdingStepStarted();
       await expectError(client.invokeRPC(movementFlow.setMovedTotalLocked, movementId, 7), RpcLockConflictError);
     } finally {
@@ -305,6 +308,26 @@ test("Dex acquires the registered locks that the Worker checks", async () => {
     }
     assert.equal((await client.waitForFlow(movementId, 30_000)).singleOutput(stringCodec), "written");
     assert.deepEqual(await client.getAttributes(movementId, lockReqTotal), [1]);
+  });
+});
+
+test("a Flow without a lock requirement declaration reads its locks when it sends them", async () => {
+  const liveFlow = new LockLiveFlow();
+  await withEnvironment([liveFlow], async ({ client }) => {
+    // The lock is added after registration; the Client still sends it.
+    lockLiveRPCLocks.push(lockLiveTotal.lock());
+    resetLockSnapshotGate();
+    const id = flowId("lock-live");
+    try {
+      // The Step's getStepOptions names the lock only after registration; the start still sends it.
+      await client.startFlow(liveFlow, id, undefined);
+      await holdingStepStarted();
+      await expectError(client.invokeRPC(liveFlow.setLiveTotalWithLaterArray, id, 7), RpcLockConflictError);
+    } finally {
+      lockSnapshotGate.release.resolve();
+    }
+    assert.equal((await client.waitForFlow(id, 30_000)).singleOutput(stringCodec), "written");
+    assert.deepEqual(await client.getAttributes(id, lockLiveTotal), [1]);
   });
 });
 
