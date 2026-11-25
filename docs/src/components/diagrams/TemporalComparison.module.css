@@ -1,0 +1,178 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Shared look of the Dex vs. Temporal figures: blue is Temporal, green is Dex, amber is a limit or a crash. */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+@media (min-width: 620px) {
+  .layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.lane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 16px;
+}
+
+.external {
+  background: var(--cd-external-tint);
+}
+
+.dex {
+  background: var(--cd-accent-tint);
+}
+
+.row {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 0.45rem;
+}
+
+.box {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: var(--cd-tile);
+  box-shadow: var(--cd-raise);
+}
+
+.external .box {
+  color: var(--cd-external);
+}
+
+.dex .box {
+  color: var(--cd-accent);
+}
+
+.box span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.box b {
+  color: var(--cd-ink);
+  font-size: 0.85rem;
+}
+
+.box small {
+  color: var(--cd-subtle);
+  font-size: 0.74rem;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--cd-text);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+/* ---------- Line chart ---------- */
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart text {
+  font-family: var(--ifm-font-family-base);
+}
+
+.grid {
+  stroke: var(--cd-line);
+  stroke-opacity: 0.45;
+  stroke-width: 1;
+}
+
+.axis {
+  stroke: var(--cd-line);
+  stroke-width: 1;
+}
+
+.tick {
+  fill: var(--cd-subtle);
+  font-size: 11px;
+}
+
+.axisTitle {
+  fill: var(--cd-subtle);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.limit {
+  stroke: var(--cd-wait);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.5;
+}
+
+.limitLabel {
+  fill: var(--cd-wait);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.seriesTemporal,
+.seriesDex {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-width: 2.25;
+}
+
+.seriesTemporal {
+  stroke: var(--cd-external);
+}
+
+.seriesDex {
+  stroke: var(--cd-accent);
+}
+
+.labelTemporal,
+.labelDex {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.labelTemporal {
+  fill: var(--cd-external);
+}
+
+.labelDex {
+  fill: var(--cd-accent);
+}
+
+.oomLine {
+  stroke: var(--cd-wait);
+  stroke-dasharray: 2 3;
+  stroke-width: 1.5;
+}
+
+.oomDot {
+  fill: var(--cd-wait);
+}

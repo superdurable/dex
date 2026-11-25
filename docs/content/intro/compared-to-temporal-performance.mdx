@@ -2,16 +2,75 @@
 title: Performance and Resource Use
 sidebar_label: Performance and Resource Use
 slug: /intro/compared-to-temporal/performance
-description: Placeholder.
+description: A Temporal Worker caches Workflow state in memory, while a Dex Worker reads saved state from Dex Server and caches large values on disk. A measured Worker memory benchmark with both engines, and the write and read path of each server.
 ---
+
+import TemporalWorkerCacheDiagram from '@site/src/components/diagrams/TemporalWorkerCacheDiagram';
+import TemporalWorkerMemoryChart from '@site/src/components/diagrams/TemporalWorkerMemoryChart';
+import TemporalServerPathDiagram from '@site/src/components/diagrams/TemporalServerPathDiagram';
 
 # Performance and Resource Use
 
-## worker {#worker}
+A Temporal Worker caches Workflow state in memory, while a Dex Worker reads saved state from Dex Server and caches large values on disk. Dex Server writes to a log in object storage and serves reads from local disk, while the Temporal services read and write a database.
 
-Placeholder.
+## Worker memory and CPU {#worker}
 
-## server {#server}
+<YouTubeVideo videoId="qjeMoeRau7M" title="Why Temporal Workers run out of memory and Dex Workers do not" poster="/img/videos/dex-vs-temporal-short3.jpg" orientation="vertical" />
 
-Placeholder.
+<TemporalWorkerCacheDiagram
+  markdownDescription="Where each Worker keeps its cache, what limits it, and what a miss costs."
+  markdownTable={{
+    header: ['', 'Temporal Worker', 'Dex Worker'],
+    rows: [
+      ['Cache', 'Workflow cache in memory: the state of each cached Workflow Execution', 'Blob cache on disk: copies of large values'],
+      ['Limit', 'A count of Workflow Executions, 1,000 by default in Python', 'Bytes, 1 GiB in the benchmark'],
+      ['On a miss', 'The evicted Workflow Execution is replayed from its Event History', 'The value is downloaded again; state is saved in Dex Server'],
+    ],
+  }}
+/>
 
+**Temporal.** With [Sticky Execution](https://docs.temporal.io/sticky-execution), "the Worker caches the Workflow state in memory". Every SDK limits the cache by a count of Workflow Executions. The defaults are 10,000 in Go and .NET, 600 in Java, and 1,000 in Python, and TypeScript derives its default from the heap size ([Worker tuning reference](https://docs.temporal.io/develop/worker-tuning-reference)). No SDK option limits the cache by bytes or puts it on disk. An evicted Workflow Execution is replayed from its Event History on its next task.
+
+**Dex.** Dex saves Attributes with each Step, so a Worker needs no history cache to continue a Flow. Dex sends a large value as a reference, and the SDK reads it through the [blob cache](/components/application#blob-cache), a local directory with a byte limit. [Sticky routing](/reference/server/workers#routing-and-availability) offers a Flow's next task to the Worker that served it before, for up to 5 seconds.
+
+<TemporalWorkerMemoryChart markdownDescription="Worker working set in MiB over the seconds after the customers start to return, with a 512 MiB container limit. Temporal with the default cache climbs to the limit within about 90 seconds, stays there, and is killed for running out of memory at 330 seconds; after the restart it climbs back to the limit. Dex peaks at 85.5 MiB and answers all 3,000 follow-up messages." />
+
+The benchmark first filled 1,200 conversations, each with 40 exchanges of 8 KiB messages. Then 1,000 of them came back at 4 per second, and each sent 3 follow-up messages, 3,000 in all. The Worker ran in a container with 2 CPUs and no swap, with the Python SDK on both sides. Memory is the container's working set, as `docker stats` shows it. Each configuration ran once. The data of every run is in [bench/results](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results).
+
+| Configuration | Peak working set | Mean CPU (100% is one CPU) | Follow-up messages answered |
+| --- | --- | --- | --- |
+| Temporal, default cache (1,000), 512 MiB limit | 512.0 MiB, 1 OOM kill | 176.2% | 1,042 of 1,757 sent |
+| Temporal, cache of 50, 512 MiB limit | 511.8 MiB, 2 OOM kills | 180.8% | 1,493 of 2,130 sent |
+| Temporal, cache of 50, 2 GiB limit | 581.6 MiB | 36.3% | 3,000 of 3,000 |
+| Dex, 1 GiB blob cache, 512 MiB limit | 85.5 MiB | 17.7% | 3,000 of 3,000 |
+| Dex, 1 GiB blob cache, 2 GiB limit | 79.8 MiB | 17.4% | 3,000 of 3,000 |
+
+With the default cache, the Temporal Worker hit the limit and was killed. A cache of 50 still hit the limit, with 1,186 cache misses and 2,497 forced evictions. Temporal answered every message only with a 2 GiB limit, and its cache of 50 then had 1,980 misses. The Dex Worker stayed under 100 MiB at both limits.
+
+## Server throughput {#server}
+
+<YouTubeVideo videoId="xZtFv4mOS04" title="How Dex works internally" poster="/img/videos/dex-vs-temporal-short4.jpg" orientation="vertical" />
+
+<TemporalServerPathDiagram markdownDescription="Temporal: Workers and Clients call the Frontend, History, and Matching services, which read and write a database (Cassandra, MySQL, or PostgreSQL); the History service keeps in-memory caches. Dex: Workers and Clients call the active Dex Server node, which batches the writes of many Flows, writes them to a log in object storage before it acknowledges them, and applies them to a local store that serves reads from local disk. A hot standby follows the log." />
+
+**Temporal.** The [History service](https://docs.temporal.io/temporal-service/temporal-server) persists Workflow state and events in the [database](https://docs.temporal.io/temporal-service/persistence), Cassandra, MySQL, or PostgreSQL, and keeps in-memory caches.
+
+**Dex.** [Dex Server](/components/server#how-it-works) writes every change to a log in object storage before it acknowledges it, then applies it to a local store. Reads of current state come from local disk. The writes of many Flows share one log write: a busy node made 23 to 98 log PUTs per second in the benchmark. History moves to object storage by default ([History offload](/reference/server/configuration#history-offload)). A [hot standby](/reference/server/high-availability#hot-standby) follows the log and takes over after the lease ends, 10 seconds by default.
+
+Peak throughput of one Dex Server node on AWS, with its log in S3 Standard. [Performance](/intro/performance) gives the conditions and the latency.
+
+| Operation | c7gd.large (2 vCPU) | c7gd.4xlarge (16 vCPU) |
+| --- | ---: | ---: |
+| SYNC Steps | 1,772/s | 8,403/s |
+| ASYNC Steps | 2,105/s | 10.1k/s |
+| Flows started and completed, one Step each | 1,111/s | 5,626/s |
+| RPCs that read one Attribute | 15,392/s | 67.3k/s |
+| RPCs that lock and update one Attribute | 2,165/s | 13.8k/s |
+| Reads of ten 16 KiB Attributes, without a Worker | 5,941/s | 11.3k/s |
+
+Temporal Cloud limits a Namespace to 500 actions per second by default ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)). For a self-hosted Temporal Service, no published throughput figure was found.
+
+## Next
+
+- [Operations](/intro/compared-to-temporal/operations): what you deploy, size, and code around on each side.
+- [Performance](/intro/performance): how the Dex Server benchmark ran, its latency, and what it costs to run.

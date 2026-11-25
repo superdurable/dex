@@ -2,16 +2,79 @@
 title: 性能和资源用量
 sidebar_label: 性能和资源用量
 slug: /intro/compared-to-temporal/performance
-description: Placeholder.
+description: Temporal 的 Worker 把 Workflow 状态缓存在内存里，Dex 的 Worker 从 Dex Server 读取已保存的状态，并把大的值缓存在磁盘上。本页有两个引擎的 Worker 内存实测，以及两边服务器的读写路径。
 ---
+
+import TemporalWorkerCacheDiagram from '@site/src/components/diagrams/TemporalWorkerCacheDiagram';
+import TemporalWorkerMemoryChart from '@site/src/components/diagrams/TemporalWorkerMemoryChart';
+import TemporalServerPathDiagram from '@site/src/components/diagrams/TemporalServerPathDiagram';
 
 # 性能和资源用量
 
-## worker {#worker}
+Temporal 的 Worker 把 Workflow 状态缓存在内存里，Dex 的 Worker 从 Dex Server 读取已保存的状态，并把大的值缓存在磁盘上。Dex Server 把写入记到对象存储里的日志，从本地磁盘提供读取；Temporal 的各个服务读写一个数据库。
 
-Placeholder.
+## Worker 的内存和 CPU {#worker}
 
-## server {#server}
+<YouTubeVideo videoId="qjeMoeRau7M" title="Why Temporal Workers run out of memory and Dex Workers do not" poster="/img/videos/dex-vs-temporal-short3.jpg" orientation="vertical" />
 
-Placeholder.
+视频是英文的。
 
+<TemporalWorkerCacheDiagram
+  markdownDescription="每个 Worker 把缓存放在哪里、受什么限制、未命中时要付出什么。"
+  markdownTable={{
+    header: ['', 'Temporal Worker', 'Dex Worker'],
+    rows: [
+      ['缓存', '内存里的 Workflow 缓存：每个被缓存的 Workflow Execution 的状态', '磁盘上的 blob cache：大值的副本'],
+      ['限制', 'Workflow Execution 的个数，Python 默认 1,000', '字节数，基准测试里是 1 GiB'],
+      ['未命中时', '被逐出的 Workflow Execution 按 Event History 重放', '重新下载这个值；状态保存在 Dex Server 里'],
+    ],
+  }}
+/>
+
+**Temporal。** 在 [Sticky Execution](https://docs.temporal.io/sticky-execution) 下，Worker 把 Workflow 状态缓存在内存里。每个 SDK 都按 Workflow Execution 的个数限制这个缓存。默认值是 Go 和 .NET 10,000、Java 600、Python 1,000，TypeScript 按堆大小推算（[Worker tuning reference](https://docs.temporal.io/develop/worker-tuning-reference)）。没有一个 SDK 能按字节限制缓存，或把缓存放到磁盘上。被逐出的 Workflow Execution 在下一个任务时按 Event History 重放。
+
+**Dex。** Dex 随每个 Step 保存 Attribute，所以 Worker 继续一个 Flow 时不需要 history 缓存。大的值以引用的形式发给 Worker，SDK 通过 [blob cache](/components/application#blob-cache) 读取它。blob cache 是一个有字节上限的本地目录。[Sticky 路由](/reference/server/workers#routing-and-availability)（英文）把 Flow 的下一个任务先交给上次服务它的 Worker，最多等 5 秒。
+
+<TemporalWorkerMemoryChart markdownDescription="客户开始回来之后各秒的 Worker 工作集（MiB），容器内存上限 512 MiB。使用默认缓存的 Temporal 在大约 90 秒内升到上限并一直停在那里，第 330 秒因内存不足被杀掉；重启之后又升回上限。Dex 的峰值是 85.5 MiB，3,000 条追问全部得到回复。" />
+
+基准测试先填充 1,200 个会话，每个会话 40 轮对话，每条消息 8 KiB。然后其中 1,000 个会话以每秒 4 个的速度回来，每个发 3 条追问，一共 3,000 条。Worker 运行在一个 2 CPU、不带 swap 的容器里，两边都用 Python SDK。内存指容器的工作集（working set），也就是 `docker stats` 显示的值。每种配置运行一次。每次运行的数据都在 [bench/results](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results)（英文）里。
+
+| 配置 | 工作集峰值 | 平均 CPU（100% 为一个 CPU） | 得到回复的追问 |
+| --- | --- | --- | --- |
+| Temporal，默认缓存（1,000），512 MiB 上限 | 512.0 MiB，OOM kill 1 次 | 176.2% | 发出 1,757 条，回复 1,042 条 |
+| Temporal，缓存 50，512 MiB 上限 | 511.8 MiB，OOM kill 2 次 | 180.8% | 发出 2,130 条，回复 1,493 条 |
+| Temporal，缓存 50，2 GiB 上限 | 581.6 MiB | 36.3% | 3,000 条全部回复 |
+| Dex，1 GiB blob cache，512 MiB 上限 | 85.5 MiB | 17.7% | 3,000 条全部回复 |
+| Dex，1 GiB blob cache，2 GiB 上限 | 79.8 MiB | 17.4% | 3,000 条全部回复 |
+
+使用默认缓存时，Temporal 的 Worker 碰到上限后被杀掉。把缓存减到 50 仍然碰到上限，还出现了 1,186 次缓存未命中和 2,497 次强制逐出。Temporal 要到 2 GiB 上限才回复了全部消息，这时缓存 50 有 1,980 次未命中。Dex 的 Worker 在两种上限下都保持在 100 MiB 以下。
+
+## 服务器吞吐 {#server}
+
+<YouTubeVideo videoId="xZtFv4mOS04" title="How Dex works internally" poster="/img/videos/dex-vs-temporal-short4.jpg" orientation="vertical" />
+
+视频是英文的。
+
+<TemporalServerPathDiagram markdownDescription="Temporal：Worker 和 Client 调用 Frontend、History 和 Matching 服务，这些服务读写一个数据库（Cassandra、MySQL 或 PostgreSQL）；History 服务带有内存缓存。Dex：Worker 和 Client 调用活跃的 Dex Server 节点，节点把许多 Flow 的写入合成一批，先写进对象存储里的日志再确认，然后应用到本地存储，读取由本地磁盘提供。热备节点跟随日志。" />
+
+**Temporal。** [History 服务](https://docs.temporal.io/temporal-service/temporal-server)把 Workflow 的状态和事件持久化到[数据库](https://docs.temporal.io/temporal-service/persistence)（Cassandra、MySQL 或 PostgreSQL），并带有内存缓存。
+
+**Dex。** [Dex Server](/components/server#how-it-works) 先把每个变更写进对象存储里的日志，再确认，然后把它应用到本地存储。当前状态的读取来自本地磁盘。许多 Flow 的写入共用一次日志写入：基准测试里，一个繁忙的节点每秒发出 23 到 98 次日志 PUT。history 默认转存到对象存储（[History offload](/reference/server/configuration#history-offload)，英文）。[热备节点](/reference/server/high-availability#hot-standby)（英文）跟随日志，在 lease 到期后接管，lease 默认 10 秒。
+
+下表是单个 Dex Server 节点在 AWS 上的峰值吞吐，日志写在 S3 Standard。测试条件和延迟见[性能](/intro/performance)。
+
+| 操作 | c7gd.large（2 vCPU） | c7gd.4xlarge（16 vCPU） |
+| --- | ---: | ---: |
+| SYNC Step | 每秒 1,772 个 | 每秒 8,403 个 |
+| ASYNC Step | 每秒 2,105 个 | 每秒 10.1k 个 |
+| 启动并完成的 Flow，每个一个 Step | 每秒 1,111 个 | 每秒 5,626 个 |
+| 读取一个 Attribute 的 RPC | 每秒 15,392 个 | 每秒 67.3k 个 |
+| 加锁并更新一个 Attribute 的 RPC | 每秒 2,165 个 | 每秒 13.8k 个 |
+| 读取十个 16 KiB 的 Attribute，不经过 Worker | 每秒 5,941 次 | 每秒 11.3k 次 |
+
+Temporal Cloud 默认把一个 Namespace 限制在每秒 500 个 action（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)）。自托管的 Temporal Service 没有找到公开的吞吐数据。
+
+## 下一步 {#next}
+
+- [运维](/intro/compared-to-temporal/operations)：两边各要部署什么、调什么、在代码里绕开什么。
+- [性能](/intro/performance)：Dex Server 基准测试怎么跑的、延迟，以及运行成本。
