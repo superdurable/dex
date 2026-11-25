@@ -566,7 +566,7 @@ The example is simplified: its RPC can publish as soon as the Flow starts, and i
 - The intake opens only when the first Step has queued the start batch. The RPC reads the gate and rejects a request before that. An empty start batch then completes at once, because no request can be waiting.
 - The Steps that change the child count lock the gate's Attribute. Keep the RPC free of locks.
 - The buffer limit is approximate. Concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken. Check the start batch against the limit where the Flow is started.
-- A request that commits while the close waits is not handled; see [Inbound Event Loop](/design-patterns/inbound-event-loop). A caller that must not lose a request confirms it from the child's result.
+- A request that commits while the close waits may have no consumer; see [Inbound Event Loop](/design-patterns/inbound-event-loop). A caller that must not lose a request confirms it from a record of handled request IDs, not from the RPC reply.
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission

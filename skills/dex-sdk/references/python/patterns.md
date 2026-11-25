@@ -154,7 +154,7 @@ class ResolveConversation(Step[str]):
 
 class CloseInactiveConversation(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        # A reply or resolution accepted at the deadline reopens the wait.
+        # A reply or resolution committed before the empty check reopens the wait.
         return force_complete_if_channels_empty(
             "inactive", StepMovement.of(AwaitInbound, ""), REPLIES, RESOLUTIONS
         )
@@ -223,11 +223,12 @@ class ConversationFlow(Flow[str]):
   replies would fail with `RpcLockConflictError` while the Step runs.
 - `REPLIES.at_least(1)` takes every queued reply in one execution.
 - Both closing Steps use `force_complete_if_channels_empty` on `REPLIES`, so a
-  reply accepted after the resolution is still recorded. The fallback returns
-  to `AwaitInbound` with the pending resolution. The inactivity close also
-  checks `RESOLUTIONS` and reopens the wait. Start the Flow with `""`.
-- Keep `send_reply` free of locks. A caller that must not lose a reply
-  confirms it from `TRANSCRIPT`; see [the rules](../core/patterns.md#inbound-event-loop).
+  reply committed before the empty check is still recorded. The fallback
+  returns to `AwaitInbound` with the pending resolution. The inactivity close
+  also checks `RESOLUTIONS` and reopens the wait. Start the Flow with `""`.
+- A reply that commits while the close waits may have no consumer. A caller
+  that must not lose a reply gives it a stable ID and confirms it from a
+  record of handled IDs; see [the rules](../core/patterns.md#inbound-event-loop).
 
 ## Python notes for the other patterns
 

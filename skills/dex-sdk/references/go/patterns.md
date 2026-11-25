@@ -311,7 +311,7 @@ type closeInactiveConversation struct {
 }
 
 func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	// A reply or resolution accepted at the deadline reopens the wait.
+	// A reply or resolution committed before the empty check reopens the wait.
 	return dex.ForceCompleteIfChannelsEmpty(
 		"inactive",
 		[]dex.ChannelDef{Replies, Resolutions},
@@ -325,11 +325,12 @@ func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDe
   replies would fail with lock conflicts while the Step runs.
 - `Replies.AtLeast(1)` takes every queued reply in one execution.
 - Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
-  a reply accepted after the resolution is still recorded. The fallback
+  a reply committed before the empty check is still recorded. The fallback
   returns to `awaitInbound` with the pending resolution. The inactivity close
   also checks `Resolutions` and reopens the wait.
-- Keep `SendReply` free of locks. A caller that must not lose a reply confirms
-  it from `Transcript`; see [the rules](../core/patterns.md#inbound-event-loop).
+- A reply that commits while the close waits may have no consumer. A caller
+  that must not lose a reply gives it a stable ID and confirms it from a
+  record of handled IDs; see [the rules](../core/patterns.md#inbound-event-loop).
 - Start the Flow with `""` as its input: no pending resolution.
 
 ## Durable Timer

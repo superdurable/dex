@@ -567,7 +567,7 @@ impl Step for ShortLiveHandleSubFlow {
 - 只有第一个 Step 把启动批次排进队列后，接收才开放。RPC 读取这个开关，在那之前拒绝请求。于是空的启动批次可以直接完成，因为不可能有请求在等待。
 - 修改子 Flow 计数的 Step 锁住开关所在的 Attribute。RPC 不加 lock。
 - 缓冲上限是近似的。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。在启动 Flow 的地方用上限检查启动批次。
-- 关闭等待期间提交的请求不会被处理；见[入站事件循环](/design-patterns/inbound-event-loop)。不能丢请求的调用方，从子 Flow 的结果确认请求。
+- 关闭等待期间提交的请求可能没有消费者；见[入站事件循环](/design-patterns/inbound-event-loop)。不能丢请求的调用方，从已处理请求 ID 的记录确认请求，而不是看 RPC 的返回。
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission

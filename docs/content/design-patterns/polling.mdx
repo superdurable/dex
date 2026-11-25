@@ -38,9 +38,10 @@ A plain sleep is enough. The loop does not need to watch for cancellation. When 
   tens of seconds for long jobs such as builds.
 - <a id="limits"></a>Use one maximum-wait value for both `ExecuteMethodTimeout`
   and `TotalDuration`. Dex enforces both, so the Step computes no deadline of
-  its own. `TotalDuration` decides only whether another attempt starts, so the
-  whole wait can run past it by up to one method timeout; a hard business
-  deadline uses the watchdog below. Give `ExecuteRetry` a few attempts with backoff for transient errors
+  its own. After a failure, `TotalDuration` decides only whether to schedule
+  another attempt. Queueing can start a scheduled attempt late, and a running
+  attempt is never cut short, so the whole wait can end well after it. A
+  business deadline for the Flow uses the watchdog below. Give `ExecuteRetry` a few attempts with backoff for transient errors
   and Worker crashes. See
   [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration).
   The polling Step can use either durability.
