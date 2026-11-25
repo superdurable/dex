@@ -196,7 +196,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"two writers without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute, at least one of which also reads it",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute, at least one of them reads it, and no registration lock is held by every writer",
 		},
 		"blind writers are not nudged": {
 			source: pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
@@ -204,7 +204,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written by RPC Reply, and dexcli cannot prove that one exact registration lock covers it",
+			messageFragment: "is both read and written by RPC Reply without a registration lock",
 		},
 		"read then write under own lock without declaration": {
 			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
@@ -215,7 +215,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"one unlocked writer of two without declaration": {
 			source:          pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is held by every writer",
+			messageFragment: "and no registration lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: pythonDeclaredLocksCase{waitBody: "CartFlow.total.set(context, 1)", executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)"},
@@ -233,7 +233,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"writers hold different locks": {
 			source:          pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is held by every writer",
+			messageFragment: "and no registration lock is held by every writer",
 		},
 		"read in a helper counts as a read": {
 			source: pythonDeclaredLocksCase{
@@ -304,6 +304,50 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"movement options through a Step alias": {
 			source: pythonDeclaredLocksCase{
 				moduleExtra: "ALIAS = AddItemStep\n\n\ndef move(value):\n    return StepMovement.of(ALIAS, value, options=StepOptions())",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"positional-only context passed to a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def read_total(context):\n    return CartFlow.total.get(context)",
+				classExtra:    "@rpc(name=\"Bump\")\n    def bump(self, context: Context, /, input: str) -> RPCResult[str]:\n        self.total.set(context, read_total(context) + 1)\n        return RPCResult(input)",
+				rpcBody:       "self.total.set(context, 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"positional-only context with SDK calls under one lock": {
+			source: pythonDeclaredLocksCase{
+				classExtra: "@rpc(name=\"Bump\", lock_attributes=(cart_lock.lock(),))\n    def bump(self, context: Context, /, input: str) -> RPCResult[str]:\n        self.total.set(context, self.total.get(context) + 1)\n        return RPCResult(input)",
+				rpcLocks:   "cart_lock.lock()",
+				rpcBody:    "self.total.set(context, self.total.get(context) + 2)",
+			},
+		},
+		"movement options from a call": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "def move(value):\n    return StepMovement.of(AddItemStep, value, options=AddItemStep().get_step_options())",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"failure route inside get_step_options": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=(CartFlow.cart_lock.lock(),)).on_execute_failure_proceed_to(AddItemStep, StepOptions())\n",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"StepOptions alias": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "MovementOptions = StepOptions",
 				rpcLocks:    "cart_lock.lock()",
 				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
 				rpcBody:     "self.total.set(context, 1)",

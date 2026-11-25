@@ -1016,9 +1016,10 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     # Reading an Attribute needs the context. The handler's reads are fully known only when the context appears
     # solely as the first argument of a resource method call or in an attribute lookup such as context.flow_id.
     def context_reaches_other_code(self, owner_id, method):
-        context_name = method.args.args[1].arg if len(method.args.args) > 1 else None
-        if context_name is None:
-            return False
+        positional = [*method.args.posonlyargs, *method.args.args]
+        if len(positional) < 2 or method.args.vararg is not None or method.args.kwarg is not None:
+            return True
+        context_name = positional[1].arg
         allowed = set()
         for node in ast.walk(method):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args and self.resource_for(node.func.value, owner_id):
@@ -1232,6 +1233,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         rpc_read_writers = {}
         common_locks = {}
         blocked_exemptions = set()
+        cross_phase_reads = set()
         for handler, facts, writes in zip(self.lock_handlers, handler_reads, handler_writes):
             sibling = phase_facts.get(handler["ownerId"], {}).get(other_phase.get(handler["phase"], ""))
             # Only writes that can overlap count: an RPC can run beside any handler, while Steps alone may run in sequence.
@@ -1247,21 +1249,30 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     rpc_writers.add(resource_id)
                     if reads_here:
                         rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                if reads_in_other_phase:
+                    cross_phase_reads.add(resource_id)
                 if not facts["isFullyAnalyzed"] or reads_in_other_phase or (sibling is not None and not sibling["isFullyAnalyzed"]):
                     blocked_exemptions.add(resource_id)
                     continue
                 common_locks[resource_id] = common_locks[resource_id] & facts["held"] if resource_id in common_locks else set(facts["held"])
+
+        # States why the nudge fires; it claims a missing lock only when every writer was fully analyzed.
+        def cause(resource_id, proven_cause):
+            if resource_id in cross_phase_reads:
+                return ", and a Step reads it in its other phase, which holds its locks separately"
+            if resource_id in blocked_exemptions:
+                return ", and dexcli cannot prove that the writes are blind or share one exact registration lock"
+            return proven_cause
+
         for resource_id in sorted(writers):
             if resource_id in requirements or not readable.get(resource_id, False):
                 continue
             if resource_id not in blocked_exemptions and common_locks.get(resource_id):
                 continue
-            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in read_writers:
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", at least one of which also reads it, and no lock is held by every writer"
-            elif len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in blocked_exemptions:
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and dexcli cannot prove that these writes are blind or share one lock"
+            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and (resource_id in read_writers or resource_id in blocked_exemptions):
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + cause(resource_id, ", at least one of them reads it, and no registration lock is held by every writer")
             elif resource_id in rpc_read_writers:
-                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + ", and dexcli cannot prove that one exact registration lock covers it"
+                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + cause(resource_id, " without a registration lock")
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
@@ -1284,17 +1295,46 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 held.add(f"{resource_id}\x00{instance}")
         return held
 
-    # Any StepOptions built outside get_step_options may override some Step's options, through a movement or a
-    # failure route, so no Step's registration locks prove anything.
+    # Fails closed: Step registration locks prove something only when every movement in the file has the one
+    # allowed form, StepMovement.of(target, input) with no options, no failure route is configured, and no
+    # StepOptions is built outside get_step_options.
     def has_step_option_overrides(self):
         registration_nodes = set()
         for node in ast.walk(self.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_step_options":
                 registration_nodes.update(ast.walk(node))
-        return any(
-            isinstance(node, ast.Call) and self.is_dex_reference(node.func, "StepOptions") and node not in registration_nodes
-            for node in ast.walk(self.tree)
-        )
+        annotation_nodes = set()
+        for node in ast.walk(self.tree):
+            annotations = []
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                annotations.append(node.returns)
+                arguments = node.args
+                annotations.extend(argument.annotation for argument in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs, arguments.vararg, arguments.kwarg] if argument is not None)
+            elif isinstance(node, ast.AnnAssign):
+                annotations.append(node.annotation)
+            for annotation in annotations:
+                if annotation is not None:
+                    annotation_nodes.update(ast.walk(annotation))
+        allowed_movement_references = set(annotation_nodes)
+        allowed_option_references = set(annotation_nodes)
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (isinstance(node.func, ast.Attribute) and node.func.attr == "of"
+                    and self.is_dex_reference(node.func.value, "StepMovement") and len(node.args) == 2 and not node.keywords):
+                allowed_movement_references.add(node.func.value)
+            if node in registration_nodes and self.is_dex_reference(node.func, "StepOptions"):
+                allowed_option_references.add(node.func)
+        for node in ast.walk(self.tree):
+            if not isinstance(node, (ast.Name, ast.Attribute)):
+                continue
+            if self.is_dex_reference(node, "StepOptions") and node not in allowed_option_references:
+                return True
+            if self.is_dex_reference(node, "StepMovement") and node not in allowed_movement_references:
+                return True
+            if isinstance(node, ast.Attribute) and node.attr in {"on_execute_failure_proceed_to", "on_failure_proceed_to"}:
+                return True
+        return False
 
     def node_name(self, node_id):
         for node in self.graph["nodes"]:

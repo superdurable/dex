@@ -222,7 +222,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"two writers without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of which also reads it",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of them reads it, and no registration lock is held by every writer",
 		},
 		"blind writers are not nudged": {
 			source: goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
@@ -230,7 +230,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written by RPC Reply, and dexcli cannot prove that one exact registration lock covers it",
+			messageFragment: "is both read and written by RPC Reply without a registration lock",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -241,7 +241,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"one unlocked writer of two without declaration": {
 			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is held by every writer",
+			messageFragment: "and no registration lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: goDeclaredLocksCase{waitBody: "_ = total.Set(ctx, 1)", executeBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -259,7 +259,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"writers hold different locks": {
 			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no lock is held by every writer",
+			messageFragment: "and no registration lock is held by every writer",
 		},
 		"read in a helper counts as a read": {
 			source: goDeclaredLocksCase{
@@ -357,6 +357,28 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 				executeBody: goReadThenWriteTotal,
 			},
 			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc registered through a DefineRPC function value": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var defineReply = dex.DefineRPC[string, string]\n\nfunc (flow *CartFlow) unlockedRPCs() []dex.RPCDef {\n\treturn []dex.RPCDef{defineReply(flow.Reply, nil)}\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)",
+				executeBody: "_ = total.Set(ctx, 2)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "dexcli cannot prove that the writes are blind or share one exact registration lock",
+		},
+		"cross-phase read is named in the warning": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{\n\t\tWaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t\tExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t}\n}",
+				waitBody:    "value, _ := total.Get(ctx)\n\t_ = spare.Set(ctx, value)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "snapshot, _ := spare.Get(ctx)\n\t_ = total.Set(ctx, snapshot+1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "a Step reads it in its other phase, which holds its locks separately",
 		},
 		"context passed to a helper keeps the warning": {
 			source: goDeclaredLocksCase{

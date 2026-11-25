@@ -53,6 +53,8 @@ type goDeclaredLockChecker struct {
 	sources   *goStateLoadSources
 	reported  map[string]bool
 	rebound   map[types.Object]bool
+	// indirectRPCRegistration caches hasIndirectRPCRegistration; nil means not computed yet.
+	indirectRPCRegistration *bool
 }
 
 func newGoDeclaredLockChecker(analyzer *goAnalyzer, evaluator *goOptionsEvaluator, sources *goStateLoadSources) *goDeclaredLockChecker {
@@ -685,6 +687,7 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 	rpcReadWriters := make(map[string]map[string]bool)
 	commonLocks := make(map[string]map[string]bool)
 	isExemptionBlocked := make(map[string]bool)
+	hasCrossPhaseRead := make(map[string]bool)
 	for index, handler := range checker.analyzer.handlerSummaries {
 		current := &facts[index]
 		if len(current.writes) == 0 {
@@ -708,6 +711,9 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 				if readsHere {
 					addHandlerLabel(rpcReadWriters, resourceID, label)
 				}
+			}
+			if readsInOtherPhase {
+				hasCrossPhaseRead[resourceID] = true
 			}
 			if !current.isFullyAnalyzed || readsInOtherPhase || (sibling != nil && !sibling.isFullyAnalyzed) {
 				isExemptionBlocked[resourceID] = true
@@ -735,12 +741,12 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		resource := checker.analyzer.node(resourceID)
 		var reason string
 		switch {
-		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && readWriters[resourceID]:
-			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") + ", at least one of which also reads it, and no lock is held by every writer"
-		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && isExemptionBlocked[resourceID]:
-			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") + ", and dexcli cannot prove that these writes are blind or share one lock"
+		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && (readWriters[resourceID] || isExemptionBlocked[resourceID]):
+			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") +
+				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], ", at least one of them reads it, and no registration lock is held by every writer")
 		case len(rpcReadWriters[resourceID]) > 0:
-			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") + ", and dexcli cannot prove that one exact registration lock covers it"
+			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") +
+				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], " without a registration lock")
 		default:
 			continue
 		}
@@ -748,6 +754,17 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 			"attribute %s %s; its definition declares no lock requirement. If these writes can run concurrently, declare dex.WritesRequireLock() or dex.WritesRequireAttributeLock and register that lock",
 			resource.Name, reason), resource.Span)
 	}
+}
+
+// goLockNudgeCause states why the nudge fires; it claims a missing lock only when every writer was fully analyzed.
+func goLockNudgeCause(hasCrossPhaseRead bool, isExemptionBlocked bool, provenCause string) string {
+	switch {
+	case hasCrossPhaseRead:
+		return ", and a Step reads it in its other phase, which holds its locks separately"
+	case isExemptionBlocked:
+		return ", and dexcli cannot prove that the writes are blind or share one exact registration lock"
+	}
+	return provenCause
 }
 
 func intersectLockSets(left map[string]bool, right map[string]bool) map[string]bool {
@@ -781,7 +798,7 @@ func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) m
 		return checker.exactLockKeys(locks.locks)
 	case "rpc":
 		registrations, isRegistered := sources.rpcOptions[strings.TrimPrefix(handler.ownerID, "rpc:")]
-		if !isRegistered || sources.hasUnattributedRPCRegistration {
+		if !isRegistered || sources.hasUnattributedRPCRegistration || checker.hasIndirectRPCRegistration() {
 			return nil
 		}
 		var held map[string]bool
@@ -806,6 +823,41 @@ func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) m
 		return held
 	}
 	return nil
+}
+
+// hasIndirectRPCRegistration reports whether the package uses dex.DefineRPC other than as the callee of a call
+// inside a function body, such as through a function value, whose registrations the collector cannot see.
+func (checker *goDeclaredLockChecker) hasIndirectRPCRegistration() bool {
+	if checker.indirectRPCRegistration != nil {
+		return *checker.indirectRPCRegistration
+	}
+	directCallees := make(map[*ast.Ident]bool)
+	for _, declaration := range checker.evaluator.functions.declarations {
+		if declaration.Body == nil {
+			continue
+		}
+		ast.Inspect(declaration.Body, func(node ast.Node) bool {
+			if call, isCall := node.(*ast.CallExpr); isCall {
+				switch callee := unwrapCallFun(ast.Unparen(call.Fun)).(type) {
+				case *ast.Ident:
+					directCallees[callee] = true
+				case *ast.SelectorExpr:
+					directCallees[callee.Sel] = true
+				}
+			}
+			return true
+		})
+	}
+	isIndirect := false
+	for identifier, object := range checker.analyzer.typeInfo.Uses {
+		function, isFunction := object.(*types.Func)
+		if isFunction && function.Name() == "DefineRPC" && function.Pkg() != nil && function.Pkg().Path() == goSDKPackage && !directCallees[identifier] {
+			isIndirect = true
+			break
+		}
+	}
+	checker.indirectRPCRegistration = &isIndirect
+	return isIndirect
 }
 
 // contextReachesNonSDKCode reports whether the handler's dex.Context is used other than as an SDK call argument or
