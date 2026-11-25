@@ -774,9 +774,19 @@ Flow's **PersistenceSchema**. Registry construction fails otherwise: Go
 **FlowDefinitionError**. In Python, the lock Attribute must be the same object
 that the schema registers.
 
-The Worker enforces the requirement; the server does not. Build every Worker
-and Client from the same definitions. A Worker built without the declaration
-does not check it. Attribute values set when a Flow starts are not checked.
+The Worker enforces the requirement; the server does not. The Worker compares
+writes with the registered locks, while Dex acquires the locks that each call
+sends. These can differ in three cases, and the check cannot see any of them:
+
+- Options of one Step movement replace the Step's registered lock fields. A
+  movement that leaves out the lock runs the Step without it.
+- Dex takes an RPC's locks from the Client's definition. A Client built
+  without the lock runs the RPC without it.
+- A Worker built without the declaration does not check it.
+
+Build every Worker and Client from the same definitions, and keep required
+locks in movement options. Attribute values set when a Flow starts are not
+checked.
 
 The API names are in the [Go Attribute](/reference/go/attribute#api-names),
 [Go Channel](/reference/go/channel#api-names),

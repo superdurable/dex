@@ -221,7 +221,11 @@ class Attribute(Generic[ValueT]):
             Attribute must be the same definition object registered in the
             Flow's ``PersistenceSchema``; ``Registry`` raises
             ``FlowDefinitionError`` otherwise. Every Client and Worker must
-            register the same definition.
+            register the same definition. The check compares writes with the
+            registered locks, not with the locks Dex acquires for the call:
+            the options of a ``StepMovement`` replace the Step's options, and
+            an RPC takes its locks from the Client's definition. Keep the
+            required lock in such options.
 
             .. versionadded:: 1.45.18
 

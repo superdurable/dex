@@ -458,6 +458,10 @@ func Plaintext() AttributeOption {
 // StartFlowOptions. Reads are not checked. Every Client and Worker must register the same
 // definition; a Worker built without the option does not check the requirement.
 //
+// The check compares writes with the registered locks, not with the locks Dex acquires for the
+// call. StepOptions passed with WithStepOptions replace a registered lock field when set, and an
+// RPC takes its locks from the Client's definition. Keep the required lock in such options.
+//
 // Example:
 //
 //	var orderTotal = dex.DefineAttribute[int]("order-total", dex.WritesRequireLock())
