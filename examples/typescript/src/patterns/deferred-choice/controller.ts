@@ -20,6 +20,7 @@ import { Router, type Request, type Response } from "express";
 
 import { RpcLockConflictError, type Client } from "@superdurable/dex";
 
+import { startOptions } from "../../config/env.js";
 import { OFFER_RESPONSE_WINDOW_CLOSED, offerResponseFlow } from "./offer-response-flow.js";
 
 const RESPONSE_LOCK_CONFLICT_ATTEMPTS = 5;
@@ -33,7 +34,11 @@ export function createDeferredChoiceRouter(client: Client): Router {
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const offerId = String(request.query.offerId ?? "");
-    const runId = await client.startFlow(offerResponseFlow, workflowId, offerId, {});
+    if (!workflowId || !offerId) {
+      response.status(400).json({ error: "workflowId and offerId are required" });
+      return;
+    }
+    const runId = await client.startFlow(offerResponseFlow, workflowId, offerId, startOptions());
     response.send(runId);
   });
 
@@ -57,6 +62,10 @@ async function sendCustomerResponse(
 ): Promise<void> {
   const workflowId = String(request.query.workflowId ?? "");
   const note = String(request.query.note ?? "");
+  if (!workflowId || !note) {
+    response.status(400).json({ error: "workflowId and note are required" });
+    return;
+  }
   const outcome = await invokeResponseRPC(client, rpc, workflowId, note);
   if (outcome === OFFER_RESPONSE_WINDOW_CLOSED) {
     response.status(409).send("offer response window closed");
@@ -68,6 +77,9 @@ async function sendCustomerResponse(
 /**
  * Retries a lock conflict with bounded backoff. Retrying is safe: a
  * conflicting call committed nothing.
+ *
+ * @returns The RPC outcome.
+ * @throws {RpcLockConflictError} When every attempt conflicts.
  */
 async function invokeResponseRPC(
   client: Client,

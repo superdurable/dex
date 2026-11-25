@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { Client, Registry, StepExecutionId, Worker, rpc, type Context } from "@superdurable/dex";
+import { Client, Registry, StepExecutionId, Worker, rpc, stringCodec, type Context } from "@superdurable/dex";
 
 import { loadEnv } from "../../src/config/env.js";
 import type { SampleServer } from "../../src/main.js";
@@ -139,6 +139,18 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
         triggerGet(context, "/patterns/polling/start", {
           workflowId: newFlowId("pattern-polling"),
         }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/deferred-choice",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/deferred-choice/start", {
+          workflowId: newFlowId("deferred-choice"),
+          offerId: "offer-smoke",
+        });
+        await verifyDeferredChoiceAcceptance(result.flowId);
+        return result;
+      },
       flags: defaultFlags(),
     },
     {
@@ -792,6 +804,24 @@ async function refundRoute(
 }
 
 // The order's second shipment runs for a day, so its lookup by number reports running.
+// Accepts the offer over HTTP and waits for the fulfillment.
+async function verifyDeferredChoiceAcceptance(flowId: string): Promise<void> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/accept?${new URLSearchParams({ workflowId: flowId, note: "looks good" })}`,
+  );
+  const body = await response.text();
+  assert.equal(response.status, 200, body);
+  assert.equal(body, "offer response recorded");
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+  assert.deepEqual(
+    result.completions
+      .filter((completion) => completion.stepType === "FulfillOffer")
+      .map((completion) => completion.decode(stringCodec)),
+    ["fulfilled offer-smoke"],
+  );
+}
+
 async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
   const shipmentNumber = `${orderId}-2`;
   await pollUntil(

@@ -16,6 +16,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   StepExecutionId,
@@ -31,13 +32,21 @@ import {
   type ContractEdit,
   type ContractEditRecord,
 } from "../../src/patterns/critical-section/contract-edit-flow.js";
-import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
+import {
+  OFFER_RESPONSE_RECORDED,
+  OFFER_RESPONSE_WINDOW_CLOSED,
+  offerResponseFlow,
+} from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import {
   acquireIntegEnvironment,
   awaitCondition,
   releaseIntegEnvironment,
   type IntegEnvironment,
 } from "./environment.js";
+import {
+  holdNextOfferResponse,
+  offerResponseWindowProbeFlow,
+} from "./offer-response-window-probe-flow.js";
 
 const WAIT_TIMEOUT_MS = 45_000;
 
@@ -126,13 +135,64 @@ for (const testCase of deferredChoiceCases) {
   });
 }
 
-test("deferred choice consumes only the winning response", async () => {
-  const flowId = await startPatternFlow(offerResponseFlow, "pattern-deferred-choice-race", "offer-2");
-  await environment.client.invokeRPC(offerResponseFlow.acceptCustomerOffer, flowId, "yes");
-  await environment.client.invokeRPC(offerResponseFlow.rejectCustomerOffer, flowId, "no");
+function completionOutputs(result: FlowResult, stepType: string): string[] {
+  return result.completions
+    .filter((completion) => completion.stepType === stepType)
+    .map((completion) => completion.decode(stringCodec));
+}
+
+test("deferred choice answers window closed to a response after the decision", async () => {
+  const flow = offerResponseWindowProbeFlow;
+  const flowId = await startPatternFlow(flow, "pattern-deferred-choice-window", "offer-3");
+  assert.equal(
+    await environment.client.invokeRPC(flow.acceptProbeOffer, flowId, "yes"),
+    OFFER_RESPONSE_RECORDED,
+  );
+  await waitForStep(flowId, "AwaitOfferResponse");
+
+  assert.equal(
+    await environment.client.invokeRPC(flow.rejectProbeOffer, flowId, "changed my mind"),
+    OFFER_RESPONSE_WINDOW_CLOSED,
+  );
+
+  await environment.client.invokeRPC(flow.openProbeGate, flowId);
   const result = await waitForCompletedFlow(flowId);
-  assert.equal(result.completions.length, 1);
-  assert.ok(["FulfillOffer", "CloseRejectedOffer"].includes(result.completions[0]!.stepType));
+  assert.deepEqual(completionOutputs(result, "FulfillOffer"), ["fulfilled offer-3"]);
+  assert.deepEqual(completionOutputs(result, "CloseRejectedOffer"), []);
+});
+
+test("deferred choice takes a response committed after the Timer won", async () => {
+  const held = holdNextOfferResponse();
+  const flow = offerResponseWindowProbeFlow;
+  const flowId = await startPatternFlow(flow, "pattern-deferred-choice-late", "offer-4");
+  await waitForStep(flowId, "OpenOfferProbe");
+
+  const heldResponse = environment.client.invokeRPC(
+    flow.acceptProbeOfferWhenReleased,
+    flowId,
+    "yes, just in time",
+  );
+  const enteredTimeout = new AbortController();
+  try {
+    await Promise.race([
+      held.entered,
+      delay(WAIT_TIMEOUT_MS, undefined, { signal: enteredTimeout.signal }).then(() => {
+        throw new Error(`${flowId}: the held response RPC never ran`);
+      }),
+    ]);
+  } finally {
+    enteredTimeout.abort();
+  }
+  // The Timer wins while the RPC holds the window lock, so execute waits for the RPC.
+  await skipOfferExpiry(flowId);
+  held.release();
+  assert.equal(await heldResponse, OFFER_RESPONSE_RECORDED);
+
+  await waitForStep(flowId, "RouteResponseBeforeExpiry");
+  await environment.client.invokeRPC(flow.openProbeGate, flowId);
+  const result = await waitForCompletedFlow(flowId);
+  assert.deepEqual(completionOutputs(result, "FulfillOffer"), ["fulfilled offer-4"]);
+  assert.deepEqual(completionOutputs(result, "ExpireOffer"), []);
 });
 
 test("critical section runs one edit at a time", async () => {

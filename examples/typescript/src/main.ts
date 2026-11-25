@@ -34,6 +34,7 @@ import { createControlLongRunningWorkRouter } from "./patterns/control-long-runn
 import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
 import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/controller.js";
+import { createDeferredChoiceRouter } from "./patterns/deferred-choice/controller.js";
 import { createFailFastRouter } from "./patterns/fail-fast/controller.js";
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
@@ -136,6 +137,7 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
   app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
+  app.use("/patterns/deferred-choice", createDeferredChoiceRouter(client));
   app.use("/patterns/fail-fast", createFailFastRouter(client, expenseReimbursementFlow));
   app.use("/patterns/control-long-running-work", createControlLongRunningWorkRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
