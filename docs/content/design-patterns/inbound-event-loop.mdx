@@ -20,7 +20,7 @@ One waiting Step returns `AnyOf` over the reply Channel, the resolution Channel,
 - The resolution won: it moves to the Step that closes the resolved ticket.
 - The Timer won: it moves to the Step that closes the quiet ticket.
 
-Each closing Step completes the Flow with `ForceCompleteIfChannelsEmpty`. When a message is still waiting, the Flow does not close. Dex moves back to the waiting Step instead.
+Each closing Step completes the Flow with `ForceCompleteIfChannelsEmpty`. The close decision checks the Channels the Step names and accepts the close in one atomic commit. When a message committed before that check is still queued in a checked Channel, Dex moves back to the waiting Step instead of closing.
 
 ## Rules
 
@@ -41,25 +41,25 @@ If the RPC appended to the transcript, the waiting Step would have to lock the t
 
 Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). Its fallback moves back to the waiting Step.
 
-- The resolution closes only when no reply is waiting. Otherwise the fallback carries the resolution back to the waiting Step. That Step waits only for replies, records them, and moves to the resolution close again.
-- The inactivity close also checks the resolution Channel. A reply or a resolution can arrive together with the deadline. The Timer wins that race, so the inactivity close runs first. Its check finds the message, and the fallback reopens the wait. The message is recorded, not lost.
+- The resolution closes only when the reply Channel is empty at the atomic check. A reply committed before that check triggers the fallback, which carries the resolution back to the waiting Step. That Step waits only for replies, writes them to the transcript, and moves to the resolution close again.
+- The inactivity close also checks the resolution Channel. A reply or a resolution can be committed together with the deadline. The Timer wins that race, so the inactivity close runs first. Its check finds the message, and the fallback reopens the wait. A reply is then written to the transcript, and a resolution moves to the resolution close.
 - Keep the waiting Step the only consumer of the reply Channel.
 
 The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
 
-A request that arrives while the Flow closes follows [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
+A message committed after the check, while the close is pending, is stored but no Step consumes it. A request that arrives while the Flow closes follows [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
 
-When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
+A successful RPC confirms that the message was published. Confirming that it was handled is a separate step. When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit, and the caller reads that record. To retry the same delivery, reuse its RPC request ID. Before a new delivery of a reply, check that record for its business ID. See [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
 ## Example
 
-`SupportTicketFlow` takes replies to a support ticket. `sendTicketReply` rejects empty and overlong replies. `resolveTicket` rejects an empty reason. `AwaitTicketMessage` records replies, or moves to `CloseResolvedTicket` or `CloseInactiveTicket`. Its input is the pending resolution, which is empty until a resolution close falls back. The inactivity Timer is 24 hours. The tests skip it with the Client `SkipTimer` instead of shortening it.
+`SupportTicketConversationFlow` takes replies to a support ticket. `sendTicketReply` rejects empty and overlong replies. `resolveTicket` rejects an empty reason. `AwaitTicketMessage` records replies, or moves to `CloseResolvedTicket` or `CloseInactiveTicket`. Its input is the pending resolution, which is empty until a resolution close falls back. The inactivity Timer is 24 hours. The tests skip it with the Client `SkipTimer` instead of shortening it.
 
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py',
     go: 'examples/go/patterns/inbound-event-loop/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop/SupportTicketFlow.java',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop/SupportTicketConversationFlow.java',
     typescript: 'examples/typescript/src/patterns/inbound-event-loop/support-ticket-flow.ts',
     rust: 'examples/rust/src/control_patterns/inbound_event_loop/flow.rs',
   }}>
@@ -87,7 +87,17 @@ class AwaitTicketMessage(Step[str]):
     def execute(self, context: Context, pending_resolution: str) -> StepDecision:
         replies = TICKET_REPLIES.results(context)
         if replies:
-            append_to_transcript(context, replies)
+            # Appends replies to the current chunk and archives each full chunk.
+            chunk = TRANSCRIPT_CHUNKS.get(context, CURRENT_TRANSCRIPT_CHUNK) or TranscriptChunk()
+            next_sequence = chunk.replies[-1].sequence + 1 if chunk.replies else 1
+            for text in replies:
+                if len(chunk.replies) == TRANSCRIPT_CHUNK_SIZE:
+                    archive_token = archive_chunk_token(chunk.replies[0].sequence)
+                    TRANSCRIPT_CHUNKS.set(context, archive_token, chunk)
+                    chunk = TranscriptChunk()
+                chunk.replies.append(TicketReply(next_sequence, text))
+                next_sequence += 1
+            TRANSCRIPT_CHUNKS.set(context, CURRENT_TRANSCRIPT_CHUNK, chunk)
             if pending_resolution:
                 return go_to(CloseResolvedTicket, pending_resolution)
             # A new execution registers a new wait, so the Timer restarts.
@@ -126,7 +136,7 @@ class CloseInactiveTicket(Step[None]):
         )
 
 
-class SupportTicketFlow(Flow[str]):
+class SupportTicketConversationFlow(Flow[str]):
     @rpc
     def send_ticket_reply(self, context: Context, text: str) -> None:
         """Validates one reply and queues it for the waiting Step."""
@@ -155,11 +165,11 @@ var (
 )
 
 // SendTicketReply validates one reply and queues it for the waiting Step.
-func (*SupportTicketFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RPCResult[dex.None], error) {
+func (*SupportTicketConversationFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RPCResult[dex.None], error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("reply text is required")
 	}
-	if len(text) > MaxReplyLength {
+	if utf8.RuneCountInString(text) > MaxReplyLength {
 		return nil, fmt.Errorf("reply text exceeds %d characters", MaxReplyLength)
 	}
 	if err := TicketReplies.Publish(ctx, text); err != nil {
@@ -169,7 +179,7 @@ func (*SupportTicketFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RP
 }
 
 // ResolveTicket queues the resolution; an empty reason would mean no resolution.
-func (*SupportTicketFlow) ResolveTicket(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+func (*SupportTicketConversationFlow) ResolveTicket(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
 	if strings.TrimSpace(reason) == "" {
 		return nil, fmt.Errorf("resolution reason is required")
 	}
@@ -248,113 +258,113 @@ func (CloseInactiveTicket) Execute(dex.Context, dex.None) (*dex.StepDecision, er
 <SdkSnippet lang="java">
 
 ```java
-public static final Channel<String> ticketReplies =
-        Channel.define("ticketReplies", String.class);
-public static final Channel<String> ticketResolutions =
-        Channel.define("ticketResolutions", String.class);
-public static final AttributeMap<TranscriptChunk> transcriptChunks =
-        AttributeMap.define("transcriptChunks", TranscriptChunk.class);
+    public static final Channel<String> ticketReplies =
+            Channel.define("ticketReplies", String.class);
+    public static final Channel<String> ticketResolutions =
+            Channel.define("ticketResolutions", String.class);
+    public static final AttributeMap<TranscriptChunk> transcriptChunks =
+            AttributeMap.define("transcriptChunks", TranscriptChunk.class);
 
-/** Validates one reply and queues it for the waiting Step. */
-@RPC
-public void sendTicketReply(final Context context, final String text) {
-    if (text == null || text.isBlank()) {
-        throw new IllegalArgumentException("reply text is required");
-    }
-    if (text.length() > MAX_REPLY_LENGTH) {
-        throw new IllegalArgumentException(
-                "reply text exceeds " + MAX_REPLY_LENGTH + " characters");
-    }
-    ticketReplies.publish(context, text);
-}
-
-/** Queues the resolution; an empty reason would mean no resolution. */
-@RPC
-public void resolveTicket(final Context context, final String reason) {
-    if (reason == null || reason.isBlank()) {
-        throw new IllegalArgumentException("resolution reason is required");
-    }
-    ticketResolutions.publish(context, reason);
-}
-
-/** Waits for replies, a resolution, or inactivity; the input is a pending resolution. */
-static final class AwaitTicketMessage implements Step<String> {
-    @Override
-    public Class<String> getInputType() {
-        return String.class;
-    }
-
-    @Override
-    public Wait waitFor(final Context context, final String pendingResolution) {
-        if (!pendingResolution.isEmpty()) {
-            return Wait.until(ticketReplies.atLeast(1));
+    /** Validates one reply and queues it for the waiting Step. */
+    @RPC
+    public void sendTicketReply(final Context context, final String text) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("reply text is required");
         }
-        // Replies come before the resolution, so earlier replies are recorded first.
-        return Wait.anyOf(
-                ticketReplies.atLeast(1),
-                ticketResolutions.forOne(),
-                Timer.byDuration(INACTIVITY_TIMEOUT));
+        if (text.codePointCount(0, text.length()) > MAX_REPLY_LENGTH) {
+            throw new IllegalArgumentException(
+                    "reply text exceeds " + MAX_REPLY_LENGTH + " characters");
+        }
+        ticketReplies.publish(context, text);
     }
 
-    @Override
-    public StepDecision execute(final Context context, final String pendingResolution) {
-        final List<String> replies = ticketReplies.getConditionResults(context);
-        if (!replies.isEmpty()) {
-            appendToTranscript(context, replies);
+    /** Queues the resolution; an empty reason would mean no resolution. */
+    @RPC
+    public void resolveTicket(final Context context, final String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("resolution reason is required");
+        }
+        ticketResolutions.publish(context, reason);
+    }
+
+    /** Waits for replies, a resolution, or inactivity; the input is a pending resolution. */
+    static final class AwaitTicketMessage implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String pendingResolution) {
             if (!pendingResolution.isEmpty()) {
-                return StepDecision.goTo(CloseResolvedTicket.class, pendingResolution);
+                return Wait.until(ticketReplies.atLeast(1));
             }
-            // A new execution registers a new wait, so the Timer restarts.
-            return StepDecision.goTo(AwaitTicketMessage.class, "");
+            // Replies come before the resolution, so earlier replies are recorded first.
+            return Wait.anyOf(
+                    ticketReplies.atLeast(1),
+                    ticketResolutions.forOne(),
+                    Timer.byDuration(INACTIVITY_TIMEOUT));
         }
-        final List<String> resolutions = ticketResolutions.getConditionResults(context);
-        if (!resolutions.isEmpty()) {
-            return StepDecision.goTo(CloseResolvedTicket.class, resolutions.get(0));
+
+        @Override
+        public StepDecision execute(final Context context, final String pendingResolution) {
+            final List<String> replies = ticketReplies.getConditionResults(context);
+            if (!replies.isEmpty()) {
+                appendToTranscript(context, replies);
+                if (!pendingResolution.isEmpty()) {
+                    return StepDecision.goTo(CloseResolvedTicket.class, pendingResolution);
+                }
+                // A new execution registers a new wait, so the Timer restarts.
+                return StepDecision.goTo(AwaitTicketMessage.class, "");
+            }
+            final List<String> resolutions = ticketResolutions.getConditionResults(context);
+            if (!resolutions.isEmpty()) {
+                return StepDecision.goTo(CloseResolvedTicket.class, resolutions.get(0));
+            }
+            if (context.hasTimerFired()) {
+                return StepDecision.goTo(CloseInactiveTicket.class, null);
+            }
+            throw new IllegalStateException("no Condition of the ticket wait completed");
         }
-        if (context.hasTimerFired()) {
-            return StepDecision.goTo(CloseInactiveTicket.class, null);
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLoadAttributeMapInstance(transcriptChunks, CURRENT_TRANSCRIPT_CHUNK)
+                    .build();
         }
-        throw new IllegalStateException("no Condition of the ticket wait completed");
     }
 
-    @Override
-    public StepOptions getStepOptions() {
-        return StepOptions.newBuilder()
-                .addExecuteLoadAttributeMapInstance(transcriptChunks, CURRENT_TRANSCRIPT_CHUNK)
-                .build();
-    }
-}
+    static final class CloseResolvedTicket implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
 
-static final class CloseResolvedTicket implements Step<String> {
-    @Override
-    public Class<String> getInputType() {
-        return String.class;
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final String reason) {
-        return StepDecision.forceCompleteIfChannelsEmpty(
-                "resolved: " + reason,
-                StepMovement.of(AwaitTicketMessage.class, reason),
-                ticketReplies);
-    }
-}
-
-static final class CloseInactiveTicket implements Step<Void> {
-    @Override
-    public Class<Void> getInputType() {
-        return Void.class;
+        @Override
+        public StepDecision execute(final Context context, final String reason) {
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    "resolved: " + reason,
+                    StepMovement.of(AwaitTicketMessage.class, reason),
+                    ticketReplies);
+        }
     }
 
-    @Override
-    public StepDecision execute(final Context context, final Void input) {
-        return StepDecision.forceCompleteIfChannelsEmpty(
-                "closed after inactivity",
-                StepMovement.of(AwaitTicketMessage.class, ""),
-                ticketReplies,
-                ticketResolutions);
+    static final class CloseInactiveTicket implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    "closed after inactivity",
+                    StepMovement.of(AwaitTicketMessage.class, ""),
+                    ticketReplies,
+                    ticketResolutions);
+        }
     }
-}
 ```
 
 </SdkSnippet>
@@ -445,14 +455,14 @@ class CloseInactiveTicket implements Step<void> {
   }
 }
 
-export class SupportTicketFlow implements Flow<string> {
+export class SupportTicketConversationFlow implements Flow<string> {
   /** Validates one reply and queues it for the waiting Step. */
   @rpc({ inputCodec: stringCodec })
   public sendTicketReply(context: Context, text: string): void {
     if (text.trim() === "") {
       throw new Error("reply text is required");
     }
-    if (text.length > MAX_REPLY_LENGTH) {
+    if (Array.from(text).length > MAX_REPLY_LENGTH) {
       throw new Error(`reply text exceeds ${MAX_REPLY_LENGTH} characters`);
     }
     ticketReplies.publish(context, text);
@@ -480,18 +490,18 @@ pub static TICKET_RESOLUTIONS: LazyLock<Channel<String>> =
 pub static TRANSCRIPT_CHUNKS: LazyLock<AttributeMap<TranscriptChunk>> =
     LazyLock::new(|| AttributeMap::new("transcriptChunks"));
 
-impl SupportTicketFlow {
+impl SupportTicketConversationFlow {
     /// Validates one reply and queues it for the waiting Step.
     fn send_ticket_reply(&self, context: &mut Context, text: String) -> HandlerResult<()> {
         if text.trim().is_empty() {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 "reply text is required",
             ));
         }
         if text.chars().count() > MAX_REPLY_LENGTH {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 format!("reply text exceeds {MAX_REPLY_LENGTH} characters"),
             ));
         }
@@ -502,7 +512,7 @@ impl SupportTicketFlow {
     fn resolve_ticket(&self, context: &mut Context, reason: String) -> HandlerResult<()> {
         if reason.trim().is_empty() {
             return Err(HandlerError::new(
-                "SupportTicketFlow",
+                "SupportTicketConversationFlow",
                 "resolution reason is required",
             ));
         }
