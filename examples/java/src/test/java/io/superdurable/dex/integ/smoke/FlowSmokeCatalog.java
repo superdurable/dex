@@ -16,11 +16,17 @@
 
 package io.superdurable.dex.integ.smoke;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 final class FlowSmokeCatalog {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private FlowSmokeCatalog() {
     }
 
@@ -115,6 +121,7 @@ final class FlowSmokeCatalog {
                 parallelSubFlows(environment, "wait-for-half"),
                 parallelSubFlows(environment, "long-lived-parent"),
                 parallelSubFlows(environment, "short-lived-parent"),
+                childFlowsBusinessIdentity(),
                 FlowSmokeEntry.get(
                         "patterns/drain-channels/internal",
                         "/patterns/drain-channels/internal/start",
@@ -239,6 +246,41 @@ final class FlowSmokeCatalog {
                 "patterns/parallel-subflows/" + kind,
                 "/patterns/parallel-subflows/start/" + kind,
                 Map.of("workflowId", environment.newFlowId("parallel-subflows-" + kind)));
+    }
+
+    // Starts an order, then finds its day-long shipment by shipment number.
+    private static FlowSmokeEntry childFlowsBusinessIdentity() {
+        return FlowSmokeEntry.custom(
+                "patterns/child-flows-business-identity",
+                FlowSmokeFlags.none(),
+                env -> {
+                    final String orderId = env.newFlowId("child-flows-order");
+                    final FlowSmokeTriggerResult result = env.triggerHttp(
+                            "GET",
+                            "/patterns/child-flows-business-identity/start",
+                            Map.of("workflowId", orderId),
+                            null);
+                    verifyShipmentLookupByNumber(env, orderId + "-2");
+                    return result;
+                });
+    }
+
+    private static void verifyShipmentLookupByNumber(
+            final FlowSmokeEnvironment environment, final String shipmentNumber) throws Exception {
+        final long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        String lastBody = "";
+        while (System.nanoTime() < deadline) {
+            final HttpResponse<String> response = environment.get(
+                    "/patterns/child-flows-business-identity/shipment",
+                    Map.of("shipmentNumber", shipmentNumber));
+            lastBody = response.body();
+            if (response.statusCode() == 200
+                    && "running".equals(OBJECT_MAPPER.readTree(lastBody).path("status").asText())) {
+                return;
+            }
+            Thread.sleep(200L);
+        }
+        throw new AssertionError("shipment lookup for " + shipmentNumber + " last=" + lastBody);
     }
 
     private static Map<String, String> signupQuery(final FlowSmokeEnvironment environment) {

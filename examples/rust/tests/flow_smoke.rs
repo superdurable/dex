@@ -275,6 +275,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             "/patterns/parallel-subflows/start/short-lived-parent",
         ),
         FlowSmokeEntry {
+            name: "patterns/child-flows-business-identity",
+            path: "/patterns/child-flows-business-identity/start",
+            query: query(&client.new_flow_id("child-flows-order")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/drain-channels/internal",
             path: "/patterns/drain-channels/internal/start",
             query: query(&client.new_flow_id("drain-internal")),
@@ -536,6 +542,52 @@ fn flow_smoke_all_registered_flows_via_controller() {
         );
         assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_finds_a_shipment_by_its_number() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let order_id = http_client.new_flow_id("child-flows-order");
+    let started = http_client.trigger_get(
+        "/patterns/child-flows-business-identity/start",
+        &query(&order_id),
+    );
+    assert_eq!(started.flow_id, order_id);
+
+    let shipment_number = format!("{order_id}-2");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, body) = get_shipment(&http_client, &shipment_number);
+        if status == 200 && body["status"] == "running" {
+            assert_eq!(body["shipmentNumber"], shipment_number.as_str(), "{body}");
+            assert_eq!(body["outcome"], "", "{body}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} lookup returned {status}: {body}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    let (status, body) = get_shipment(&http_client, &format!("{order_id}-missing"));
+    assert_eq!(status, 404, "{body}");
+}
+
+fn get_shipment(http_client: &FlowSmokeHttpClient, shipment_number: &str) -> (u16, Value) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/patterns/child-flows-business-identity/shipment",
+            http_client.base_url
+        ))
+        .query(&[("shipmentNumber", shipment_number)])
+        .send()
+        .expect("GET a shipment by its number");
+    let status = response.status().as_u16();
+    let body = response.json().expect("decode shipment response");
+    (status, body)
 }
 
 #[test]

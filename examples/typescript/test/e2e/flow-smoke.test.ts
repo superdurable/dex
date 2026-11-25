@@ -255,6 +255,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     parallelSubFlowsSmokeEntry("long-lived-parent"),
     parallelSubFlowsSmokeEntry("short-lived-parent"),
     {
+      name: "patterns/child-flows-business-identity",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/child-flows-business-identity/start", {
+          workflowId: newFlowId("child-flows-order"),
+        });
+        await verifyShipmentLookupByNumber(result.flowId);
+        return result;
+      },
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/drain-channels/internal",
       trigger: () =>
         triggerGet(context, "/patterns/drain-channels/internal/start", {
@@ -748,6 +759,27 @@ async function refundRoute(
   const response = await fetch(url);
   const text = await response.text();
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+// The order's second shipment runs for a day, so its lookup by number reports running.
+async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
+  const lookupUrl = `${context.baseUrl}/patterns/child-flows-business-identity/shipment?${new URLSearchParams({
+    shipmentNumber: `${orderId}-2`,
+  })}`;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const response = await fetch(lookupUrl);
+    if (response.ok) {
+      const shipment = (await response.json()) as { status?: string };
+      if (shipment.status === "running") {
+        return;
+      }
+    } else {
+      await response.body?.cancel();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`shipment lookup for order ${orderId} never reported running`);
 }
 
 function attributeReadUrl(query: Record<string, string>): string {

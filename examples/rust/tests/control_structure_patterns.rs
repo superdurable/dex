@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Integration tests for the Deferred Choice, Critical Section, and Cancel
-//! Case control-structure pattern Flows.
+//! Case control-structure pattern Flows, and Child Flows with Business Identity.
 
 mod condition_order_probes;
 mod worker_harness;
@@ -32,6 +32,10 @@ use dex_examples_rust::control_patterns::cancel_case::{
     CANCEL_APPLICATION, DECIDE_APPLICATION, LoanApplication, LoanApplicationFlow, RunCreditCheck,
     STOPPED_CREDIT_CHECK_FLOW_ID,
 };
+use dex_examples_rust::control_patterns::child_flows_business_identity::{
+    Order, OrderFulfillmentFlow, SHIPMENT_OUTCOME, SHIPMENT_RECORDS, SHIPMENT_REJECTED, Shipment,
+    ShipmentRecord,
+};
 use dex_examples_rust::control_patterns::critical_section::{
     ContractEdit, ContractEditFlow, ContractEditRecord,
 };
@@ -43,8 +47,8 @@ use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, Flow, FlowResult, FlowStatus, Rpc,
-    SdkResult, Step, StepExecutionId, TimerId, Value, WaitForStepCompletionOptions, Worker,
-    WorkerOptions,
+    SdkResult, Step, StepExecutionId, StopFlowOptions, TimerId, Value,
+    WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 use worker_harness::{await_pull_registration, new_temporary_refund_flow};
@@ -498,6 +502,128 @@ fn cancel_case_cancel_wins_when_both_are_pending() {
         outputs_of::<ConditionOrderOutcome>(&result, "AwaitProbeDecision"),
         [ConditionOrderOutcome::new("canceled", 1)]
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_records_reported_and_canceled_shipments() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let delivered = format!("{order_id}-1");
+    let canceled = format!("{order_id}-2");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![
+                shipment(&delivered, "Seattle", 1),
+                shipment(&canceled, "Portland", 3600),
+            ],
+            reconcile_interval_seconds: 2,
+        },
+    );
+    environment.wait_for_shipment_status(&canceled, FlowStatus::Running);
+    environment
+        .client
+        .stop_flow(
+            &canceled,
+            StopFlowOptions::cancel().reason("customer canceled the parcel"),
+        )
+        .expect("cancel the shipment");
+
+    environment.wait_for_completed_flow(&order_id);
+    assert_eq!(
+        environment.shipment_record(&order_id, &delivered).outcome,
+        Some("delivered to Seattle".to_string())
+    );
+    assert_eq!(
+        environment.shipment_record(&order_id, &canceled),
+        ShipmentRecord {
+            status: Some("canceled".to_string()),
+            outcome: None,
+        }
+    );
+
+    environment.wait_for_shipment_status(&delivered, FlowStatus::Completed);
+    let (outcome,) = environment
+        .client
+        .get_attributes(&delivered, (&*SHIPMENT_OUTCOME,))
+        .expect("read the shipment outcome");
+    assert_eq!(outcome, Some("delivered to Seattle".to_string()));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_rejects_a_shipment_number_owned_by_another_order() {
+    let environment = ControlPatternsEnvironment::start();
+    let first_order_id = unique_flow_id("order");
+    let shared = format!("{first_order_id}-1");
+    let order = Order {
+        shipments: vec![shipment(&shared, "Boise", 3600)],
+        reconcile_interval_seconds: 3600,
+    };
+    environment.start_order(&first_order_id, order.clone());
+    environment.wait_for_shipment_status(&shared, FlowStatus::Running);
+
+    let second_order_id = unique_flow_id("order");
+    environment.start_order(&second_order_id, order);
+    environment.wait_for_completed_flow(&second_order_id);
+    assert_eq!(
+        environment.shipment_record(&second_order_id, &shared),
+        ShipmentRecord {
+            status: Some(SHIPMENT_REJECTED.to_string()),
+            outcome: None,
+        }
+    );
+
+    for flow_id in [&shared, &first_order_id] {
+        environment
+            .client
+            .stop_flow(flow_id, StopFlowOptions::terminate())
+            .unwrap_or_else(|error| panic!("terminate {flow_id}: {error}"));
+    }
+}
+
+impl ControlPatternsEnvironment {
+    fn start_order(&self, order_id: &str, order: Order) {
+        self.client
+            .start_flow(&OrderFulfillmentFlow::default(), order_id, order)
+            .unwrap_or_else(|error| panic!("start order {order_id}: {error}"));
+    }
+
+    /// Polls until the shipment exists and has `expected` status.
+    fn wait_for_shipment_status(&self, shipment_number: &str, expected: FlowStatus) {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            let status = self
+                .client
+                .describe_flow(shipment_number)
+                .map(|info| info.status);
+            if matches!(status, Ok(status) if status == expected) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "shipment {shipment_number} is {status:?}, expected {expected:?}"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    fn shipment_record(&self, order_id: &str, shipment_number: &str) -> ShipmentRecord {
+        let (record,) = self
+            .client
+            .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+            .unwrap_or_else(|error| panic!("read the record of {shipment_number}: {error}"));
+        record.unwrap_or_else(|| panic!("{order_id} has no record of {shipment_number}"))
+    }
+}
+
+fn shipment(shipment_number: &str, destination: &str, delivery_delay_seconds: u64) -> Shipment {
+    Shipment {
+        shipment_number: shipment_number.to_string(),
+        destination: destination.to_string(),
+        delivery_delay_seconds,
+    }
 }
 
 fn unique_flow_id(prefix: &str) -> String {

@@ -28,6 +28,8 @@ import {
 } from "../../src/config/worker.js";
 import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flow.js";
 import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
+import { OrderFulfillmentFlow } from "../../src/patterns/child-flows-business-identity/order-fulfillment-flow.js";
+import { ShipmentFlow } from "../../src/patterns/child-flows-business-identity/shipment-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
@@ -51,6 +53,8 @@ import {
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const shipmentFlow = new ShipmentFlow(getClient);
+const orderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 
 export interface IntegEnvironment {
   readonly client: Client;
@@ -67,6 +71,7 @@ export interface IntegEnvironment {
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
   readonly loanApplicationFlow: typeof loanApplicationFlow;
+  readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -111,6 +116,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,
+    shipmentFlow,
+    orderFulfillmentFlow,
     deferredChoiceOrderProbeFlow,
     cancelCaseOrderProbeFlow,
   ];
@@ -145,6 +152,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     loanApplicationFlow,
+    orderFulfillmentFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

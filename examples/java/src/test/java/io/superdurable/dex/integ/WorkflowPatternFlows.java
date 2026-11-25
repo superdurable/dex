@@ -20,6 +20,8 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.patterns.cancelcase.CreditCheckFlow;
 import io.superdurable.dex.patterns.cancelcase.LoanApplicationFlow;
+import io.superdurable.dex.patterns.childflows.OrderFulfillmentFlow;
+import io.superdurable.dex.patterns.childflows.ShipmentFlow;
 import io.superdurable.dex.patterns.criticalsection.ContractEditFlow;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BackgroundCheckFlow;
@@ -73,6 +75,7 @@ final class WorkflowPatternFlows {
     private final Map<Class<?>, Flow<?>> flowsByClass = new LinkedHashMap<Class<?>, Flow<?>>();
 
     WorkflowPatternFlows(final ObjectProvider<Client> clientProvider) {
+        final ShipmentFlow shipmentFlow = new ShipmentFlow(clientProvider);
         for (final Flow<?> flow : List.<Flow<?>>of(
                 new SequenceFlow(),
                 new ParallelSplitSynchronizationFlow(),
@@ -113,7 +116,9 @@ final class WorkflowPatternFlows {
                 new OfferResponseFlow(),
                 new ContractEditFlow(),
                 new LoanApplicationFlow(clientProvider),
-                new CreditCheckFlow())) {
+                new CreditCheckFlow(),
+                new OrderFulfillmentFlow(clientProvider, shipmentFlow),
+                shipmentFlow)) {
             flowsByClass.put(flow.getClass(), flow);
         }
     }

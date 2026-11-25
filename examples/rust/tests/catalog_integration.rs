@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use dex_examples_rust::control_patterns::{
     cancel_case::{CreditCheckFlow, LoanApplicationFlow},
+    child_flows_business_identity::{OrderFulfillmentFlow, ShipmentFlow},
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
 };
@@ -216,6 +217,8 @@ fn control_pattern_catalog_matches_every_flow() {
         ContractEditFlow::default().flow_type(),
         CreditCheckFlow::default().flow_type(),
         LoanApplicationFlow::default().flow_type(),
+        OrderFulfillmentFlow::default().flow_type(),
+        ShipmentFlow::default().flow_type(),
     ];
 
     assert_eq!(control_pattern_flows, CONTROL_PATTERN_FLOW_TYPES);

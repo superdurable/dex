@@ -229,6 +229,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         parallel_subflows_entry("long-lived-parent"),
         parallel_subflows_entry("short-lived-parent"),
         FlowSmokeEntry(
+            "patterns/child-flows-business-identity",
+            lambda c: _child_flows_business_identity_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
             "patterns/drain-channels/internal",
             lambda c: trigger_get(
                 "/patterns/drain-channels/internal/start",
@@ -423,6 +427,32 @@ async def _signup_trigger(
     )
     parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
+
+
+async def _child_flows_business_identity_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    """Starts an order, then finds its long shipment by shipment number."""
+    order_id = new_id("child-flows-order")
+    flow_id, run_id, _ = await client.get(
+        "/patterns/child-flows-business-identity/start", {"workflowId": order_id}
+    )
+    deadline = asyncio.get_running_loop().time() + 30
+    while True:
+        try:
+            _, _, body = await client.get(
+                "/patterns/child-flows-business-identity/shipment",
+                {"shipmentNumber": f"{order_id}-2"},
+            )
+            if json.loads(body)["status"] == "running":
+                return flow_id, run_id
+        except AssertionError:
+            # The lookup returns 404 until the order starts the shipment.
+            pass
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"shipment lookup for order {order_id}")
+        await asyncio.sleep(0.2)
 
 
 async def _rpc_only_pattern_trigger(

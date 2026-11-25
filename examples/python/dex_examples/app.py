@@ -35,6 +35,12 @@ from dex_examples.patterns.cancel_case.credit_check_flow import CreditCheckFlow
 from dex_examples.patterns.cancel_case.loan_application_flow import (
     LoanApplicationFlow,
 )
+from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow import (
+    OrderFulfillmentFlow,
+)
+from dex_examples.patterns.child_flows_business_identity.shipment_flow import (
+    ShipmentFlow,
+)
 from dex_examples.patterns.critical_section.contract_edit_flow import (
     ContractEditFlow,
 )
@@ -222,6 +228,8 @@ class ExampleApp:
         self.loan_application = LoanApplicationFlow(
             client_provider, self.credit_check
         )
+        self.shipment = ShipmentFlow(client_provider, lambda: self.order_fulfillment)
+        self.order_fulfillment = OrderFulfillmentFlow(client_provider, self.shipment)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -294,6 +302,8 @@ class ExampleApp:
             self.contract_edit,
             self.credit_check,
             self.loan_application,
+            self.shipment,
+            self.order_fulfillment,
             self.example_flow,
             self.step,
             self.step_retry,
