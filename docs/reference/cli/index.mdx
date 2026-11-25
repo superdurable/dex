@@ -349,6 +349,60 @@ dexcli flow-definition list --server dex.example.com:8801
 Workers can upload the same files when they start. See
 [Go Workers](/reference/go/workers#flow-definitions).
 
+### Compare Flow definitions before a deploy {#flow-definition-diff}
+
+**flow-definition diff** compares new Flow Definition Graph 2.0 JSON with the
+old definitions and reports each change with a severity. Since 1.48.1.
+
+Generate the new definitions from source with **dexcli visualize --json**, then
+compare them with the definitions stored on the server:
+
+```bash
+dexcli visualize ./app --flow OrderFlow --json --out build/flow-definitions/OrderFlow
+dexcli flow-definition diff build/flow-definitions --server dex.example.com:8801
+```
+
+Pass **--old** to compare with files instead, such as the definitions generated
+from the last release. It accepts a file or a directory and may be repeated.
+
+```bash
+dexcli flow-definition diff build/flow-definitions --old release/flow-definitions
+```
+
+Both sides are read with the same rules as **flow-definition upload**. Without
+**--old**, the command fetches the stored definition of each new Flow type.
+
+| Flag | Default and meaning |
+| --- | --- |
+| **--old** | Empty; an old FDG file or directory. Repeatable. Without it, the old definitions come from **--server**. |
+| **--json** | **false**; writes the report as JSON instead of a table. |
+| **--allow-breaking** | **false**; exits 0 even when breaking changes are found. |
+
+Each Flow type is matched by name, and each element in it by its registered
+name, so source positions and analyzer node IDs do not matter.
+
+| Severity | Changes |
+| --- | --- |
+| **breaking** | A Flow type, Step type, RPC, Attribute, AttributeMap, Channel, or Stream is removed or renamed. An Attribute, Channel, or Stream value type changes, or an Attribute becomes an AttributeMap. The start Step changes. A start input field is removed or its kind changes. An Action input field is removed or its value type changes, or the Action input kind changes. |
+| **risky** | A Step gains or loses its **WaitFor** phase, or its wait conditions change. The start input or an Action input gains a required field, a field becomes required, a value range narrows, an enum value is removed, or **null** is no longer accepted. An Action is removed or its required permission changes. An indexed Attribute is removed or its index changes. The Summary or Display RPC changes. The new definition has blocking diagnostics, or the source language changed. |
+| **compatible** | A Flow type, Step type, RPC, Attribute, AttributeMap, Channel, Stream, Action, optional input field, enum value, or indexed Attribute is added. |
+
+A rename is reported as a removal and an addition. Value types are the type
+names written in the source, so moving a type to another package also counts
+as a change. When the source language differs, value types are not compared.
+
+The definitions record only part of each contract. They do not record the
+input of Step types other than the start Step, the input or output of RPCs
+outside Dex Web Actions, or which Step follows which. Review those by hand.
+With the server as the old side, the command compares only the Flow types you
+pass, so it cannot report a Flow type you removed; compare with files to see
+removed Flow types.
+
+The JSON report has **comparedFlowTypes**, a **summary** with the count of each
+severity, and **changes**. Each change has **flowType**, **severity**, **code**,
+**element**, **name**, and **message**. The command exits 3 when it finds a
+breaking change, unless **--allow-breaking** is set.
+
 ## Friendly Flow operations
 
 **flow search**, **summary**, **state**, **history**, and **inspect** return JSON
@@ -567,4 +621,5 @@ The deadline does not apply to **flow watch**.
 Errors are JSON on stderr. They include **kind**, **operation**, **message**, and,
 when they apply, **grpcCode**, **grpcCodeName**, and structured status details.
 Exit status 2 means invalid usage or a missing confirmation. Status 1 means the
-request failed.
+request failed. Status 3 means **flow-definition diff** found a breaking
+change. Since 1.48.1.

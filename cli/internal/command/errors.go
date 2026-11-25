@@ -60,6 +60,9 @@ func ExitCode(err error) int {
 		if commandError.kind == "usage" || commandError.kind == "confirmation_required" {
 			return 2
 		}
+		if commandError.kind == breakingChangesErrorKind {
+			return 3
+		}
 	}
 	return 1
 }

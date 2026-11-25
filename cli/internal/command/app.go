@@ -133,7 +133,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout, "  health    Check Dex FlowService health")
 	fmt.Fprintln(a.stdout, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(a.stdout, "  flow      Start, operate, inspect, or watch Flows")
-	fmt.Fprintln(a.stdout, "  flow-definition  Upload or list the Flow definitions that Dex Web draws")
+	fmt.Fprintln(a.stdout, "  flow-definition  Upload, list, or compare the Flow definitions that Dex Web draws")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout, "  version   Check dexcli and Server protocol compatibility")
 	fmt.Fprintln(a.stdout, "  admin     Describe or step down the active server process (admin credential)")

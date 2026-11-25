@@ -127,10 +127,23 @@ To test a new Worker build against open Flows, run these checks:
    dexcli flow search --query 'FlowType = "OrderFlow" AND ActiveStepTypes = "Ship"'
    ~~~
 
-2. **Confirm the new build registers every Step type and RPC those Flows can
+2. **Compare the new Flow definitions with the deployed ones.**
+   `dexcli flow-definition diff` reads the definitions that `dexcli visualize`
+   generates from source. It reports each removed or renamed Step type, RPC, Attribute,
+   and Channel, each changed value type, and each changed wait condition. It
+   marks each change breaking, risky, or compatible. It exits with an error on
+   a breaking change, so a CI job can run it. See
+   [Compare Flow definitions](/reference/cli#flow-definition-diff).
+
+   ~~~bash
+   dexcli flow-definition diff build/flow-definitions --server dex.example.com:8801
+   ~~~
+
+3. **Confirm the new build registers every Step type and RPC those Flows can
    reach.** A Worker that lacks one hands the call to another Worker. If none has
-   it, a Step waits in the queue and an RPC fails.
-3. **Run the integration tests of the new build against Flows started by the old
+   it, a Step waits in the queue and an RPC fails. The diff covers the Step
+   types and RPCs that the definitions record.
+4. **Run the integration tests of the new build against Flows started by the old
    one.** [Test Your Flows](/components/testing) shows the setup. The Quick
    Start's restart test is the shape to copy: it stops one Worker in the middle
    of a Flow and finishes the Flow with another. For a version check:

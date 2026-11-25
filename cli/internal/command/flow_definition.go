@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	flowDefinitionUsage       = "Usage: dexcli flow-definition <upload|list> [flags]"
+	flowDefinitionUsage       = "Usage: dexcli flow-definition <upload|list|diff> [flags]"
 	flowDefinitionUploadUsage = "Usage: dexcli flow-definition upload <path>... [--force] [global flags]"
 	flowDefinitionListUsage   = "Usage: dexcli flow-definition list [global flags]"
+	flowDefinitionDiffUsage   = "Usage: dexcli flow-definition diff <new-path>... [--old <path>]... [--json] [--allow-breaking] [global flags]"
 	// maxFlowDefinitionUploadItems matches the server's per-request item limit.
 	maxFlowDefinitionUploadItems = 256
 	// maxFlowDefinitionUploadBytes keeps each request below the default 32 MiB gRPC message limit.
@@ -36,19 +37,22 @@ const (
 
 func (a *App) executeFlowDefinition(ctx context.Context, args []string, options options) error {
 	if len(args) == 0 {
-		return newUsageError("flow-definition", errors.New("expected subcommand upload or list"))
+		return newUsageError("flow-definition", errors.New("expected subcommand upload, list, or diff"))
 	}
 	switch args[0] {
 	case "upload":
 		return a.executeFlowDefinitionUpload(ctx, args[1:], options)
 	case "list":
 		return a.executeFlowDefinitionList(ctx, args[1:], options)
+	case "diff":
+		return a.executeFlowDefinitionDiff(ctx, args[1:], options)
 	case "help", "--help", "-h":
 		fmt.Fprintln(a.stdout, flowDefinitionUsage)
 		fmt.Fprintln(a.stdout)
 		fmt.Fprintln(a.stdout, "Subcommands:")
 		fmt.Fprintln(a.stdout, "  upload  Store Flow Definition Graph 2.0 JSON files or directories on the server")
 		fmt.Fprintln(a.stdout, "  list    List the Flow types that have a stored Flow definition")
+		fmt.Fprintln(a.stdout, "  diff    Report breaking, risky, and compatible changes between old and new Flow definitions")
 		return nil
 	default:
 		return newUsageError("flow-definition", fmt.Errorf("unknown subcommand %q", args[0]))
