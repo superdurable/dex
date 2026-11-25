@@ -53,6 +53,7 @@ type goAnalyzer struct {
 	registeredStepNodeIDs map[string]string
 	resources             map[types.Object]string
 	resourceVars          map[string]string
+	resourceDefinitions   map[string]*ast.CallExpr
 	connectorFactories    map[string]goConnectorFactoryStep
 	isApplicationLint     bool
 	registeredSteps       []string
@@ -201,6 +202,7 @@ func newGoAnalyzer(
 		registeredStepNodeIDs: make(map[string]string),
 		resources:             make(map[types.Object]string),
 		resourceVars:          make(map[string]string),
+		resourceDefinitions:   make(map[string]*ast.CallExpr),
 		connectorFactories:    make(map[string]goConnectorFactoryStep),
 		isApplicationLint:     isApplicationLint,
 		registeredSteps:       make([]string, 0),
@@ -275,6 +277,7 @@ func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.Fu
 		analyzer.analyzeVisualizationV2(flowName)
 	}
 	rpcLocks.reportUnresolved()
+	newGoDeclaredLockChecker(analyzer, evaluator, checker.sources).report()
 	newGoStartFlowInputChecker(analyzer).report()
 	if analyzer.isApplicationLint {
 		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
@@ -508,6 +511,7 @@ func (analyzer *goAnalyzer) analyzeResources() {
 				}
 				analyzer.graph.AddNode(Node{ID: nodeID, Kind: kind, Name: resourceName, Span: analyzer.span(valueSpec), Resource: &resource})
 				analyzer.resourceVars[name.Name] = nodeID
+				analyzer.resourceDefinitions[nodeID] = call
 				if object := analyzer.typeInfo.Defs[name]; object != nil {
 					analyzer.resources[object] = nodeID
 				}

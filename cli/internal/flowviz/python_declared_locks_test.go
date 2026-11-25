@@ -1,0 +1,281 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package flowviz
+
+import (
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const pythonDeclaredLocksSource = `from dex import Attribute, AttributeMap, Channel, Context, Flow, PersistenceSchema, RPCResult, Step, StepDecision, StepList, StepMovement, StepOptions, Wait, force_fail, go_to_many, graceful_complete, rpc
+
+LOCK_TABLE = {"total": (Attribute("unused", int).lock(),)}
+
+
+def attribute_options():
+    return {}
+
+
+class CartFlow(Flow[str]):
+    cart_lock = Attribute("cart-lock", bool)
+    total = Attribute("total", int, TOTAL_OPTIONS)
+    items = AttributeMap("items", int, ITEMS_OPTIONS)
+    replies = Channel("replies", str, REPLIES_OPTIONS)
+
+    def __init__(self):
+        self.start = StartStep()
+        self.add_item = AddItemStep()
+
+    def get_steps(self):
+        return StepList.start_step(self.start).other_steps(self.add_item)
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(self.cart_lock, self.total, self.items, self.replies)
+
+    @rpc(name="Reply"RPC_OPTIONS)
+    def reply(self, context: Context, input: str) -> RPCResult[str]:
+        RPC_BODY
+        return RPCResult(input)
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        TIMEOUT_BODY
+        return force_fail("timeout")
+
+
+# dex:group group-id:cart group-label:"Cart"
+# dex:explanation text:"Start the cart."
+class StartStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return go_to_many(StepMovement.of(AddItemStep, input MOVE_OPTIONS))
+
+
+# dex:group group-id:cart group-label:"Cart"
+# dex:explanation text:"Add one item to the cart."
+class AddItemStep(Step[str]):
+STEP_OPTIONS
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        WAIT_BODY
+        return Wait.skip_immediately()
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        EXECUTE_BODY
+        return graceful_complete(input)
+`
+
+type pythonDeclaredLocksCase struct {
+	totalOptions   string
+	itemsOptions   string
+	repliesOptions string
+	rpcLocks       string
+	moveOptions    string
+	stepOptions    string
+	rpcBody        string
+	timeoutBody    string
+	waitBody       string
+	executeBody    string
+}
+
+func pythonStepLocks(field string, locks string) string {
+	return "    def get_step_options(self):\n        return StepOptions(" + field + "=(" + locks + ",))\n"
+}
+
+func TestPythonDeclaredLockDiagnostics(t *testing.T) {
+	testCases := map[string]struct {
+		source pythonDeclaredLocksCase
+		// diagnostics lists "severity code" for the three declared-lock codes, in report order.
+		diagnostics []string
+		// messageFragment, when set, appears in the first listed diagnostic.
+		messageFragment string
+	}{
+		"execute holds own lock": {
+			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), executeBody: "CartFlow.total.set(context, 1)"},
+		},
+		"wait for holds own lock": {
+			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", stepOptions: pythonStepLocks("wait_for_lock_attributes", "CartFlow.total.lock()"), waitBody: "CartFlow.total.set(context, 1)"},
+		},
+		"rpc holds own lock": {
+			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcLocks: "total.lock()", rpcBody: "self.total.delete(context)"},
+		},
+		"map instance lock held": {
+			source: pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: `items.lock("apple")`, rpcBody: `self.items.set(context, "apple", 1)`},
+		},
+		"shared attribute lock held": {
+			source: pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=cart_lock", rpcLocks: "cart_lock.lock()", rpcBody: "self.items.set(context, input, 1)"},
+		},
+		"channel publish lock held": {
+			source: pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=cart_lock", rpcLocks: "cart_lock.lock()", rpcBody: `self.replies.publish(context, "hi")`},
+		},
+		"reads are not checked": {
+			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "self.total.get(context)"},
+		},
+		"timeout handler is not checked": {
+			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", timeoutBody: "self.total.set(context, 1)"},
+		},
+		"step without options": {
+			source:          pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "CartFlow.total.set(context, 1)"},
+			diagnostics:     []string{"error declared_lock_missing"},
+			messageFragment: "Step AddItemStep execute writes attribute total without the lock its declaration requires; add total.lock() to execute_lock_attributes",
+		},
+		"rpc without locks": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "self.total.set(context, 1)"},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"lock on another attribute": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, 1)"},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"map lock on another instance": {
+			source:          pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: `items.lock("pear")`, rpcBody: `self.items.set(context, "apple", 1)`},
+			diagnostics:     []string{"error declared_lock_missing"},
+			messageFragment: `items.lock('apple')`,
+		},
+		"map write with dynamic key and no map lock": {
+			source:      pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: "cart_lock.lock()", rpcBody: "self.items.set(context, input, 1)"},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"channel publish without lock": {
+			source:      pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=cart_lock", rpcBody: `self.replies.publish(context, "hi")`},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"movement lock does not count": {
+			source: pythonDeclaredLocksCase{
+				totalOptions: "writes_require_lock=True",
+				moveOptions:  ", options=StepOptions(execute_lock_attributes=(CartFlow.total.lock(),))",
+				executeBody:  "CartFlow.total.set(context, 1)",
+			},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"dynamic registration locks": {
+			source: pythonDeclaredLocksCase{
+				totalOptions: "writes_require_lock=True",
+				stepOptions:  "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCK_TABLE[\"total\"])\n",
+				executeBody:  "CartFlow.total.set(context, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"map write with dynamic key under map lock": {
+			source:      pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: `items.lock("apple")`, rpcBody: "self.items.set(context, input, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"two writers without declaration": {
+			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute",
+		},
+		"read then write without declaration": {
+			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "is read and then written without its lock by RPC Reply",
+		},
+		"read then write under own lock without declaration": {
+			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
+		},
+		"two locked writers without declaration": {
+			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+		},
+		"one unlocked writer of two without declaration": {
+			source:          pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "and Step AddItemStep execute registers no lock of it",
+		},
+		"step writers alone are not nudged": {
+			source: pythonDeclaredLocksCase{waitBody: "CartFlow.total.set(context, 1)", executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)"},
+		},
+		"dynamic locks count as held for the nudge": {
+			source: pythonDeclaredLocksCase{
+				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCK_TABLE[\"total\"])\n",
+				executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)",
+			},
+		},
+		"unreadable attribute options are neither checked nor nudged": {
+			source: pythonDeclaredLocksCase{totalOptions: "**attribute_options()", rpcBody: "self.total.set(context, self.total.get(context) + 1)", executeBody: "CartFlow.total.set(context, 2)"},
+		},
+		"single blind writer": {
+			source: pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)"},
+		},
+		"two writers with declaration": {
+			source: pythonDeclaredLocksCase{
+				totalOptions: "writes_require_lock=True",
+				rpcLocks:     "total.lock()",
+				stepOptions:  pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"),
+				rpcBody:      "self.total.set(context, 1)",
+				executeBody:  "CartFlow.total.set(context, 2)",
+			},
+		},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			graph := analyzePythonDeclaredLocksSource(t, testCase.source)
+			var diagnostics []string
+			var messages []string
+			for _, diagnostic := range graph.Diagnostics {
+				switch diagnostic.Code {
+				case "declared_lock_missing", "declared_lock_unresolved", "lock_requirement_not_declared":
+					diagnostics = append(diagnostics, diagnostic.Severity+" "+diagnostic.Code)
+					messages = append(messages, diagnostic.Message)
+				}
+			}
+			require.Equal(t, testCase.diagnostics, diagnostics, "%+v", graph.Diagnostics)
+			if testCase.messageFragment != "" {
+				require.Contains(t, messages[0], testCase.messageFragment)
+			}
+			hasError := slices.ContainsFunc(testCase.diagnostics, func(diagnostic string) bool { return strings.HasPrefix(diagnostic, "error ") })
+			require.Equal(t, !hasError, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func analyzePythonDeclaredLocksSource(t *testing.T, source pythonDeclaredLocksCase) *Graph {
+	t.Helper()
+	rpcOptions := ""
+	if source.rpcLocks != "" {
+		rpcOptions = ", lock_attributes=(" + source.rpcLocks + ",)"
+	}
+	resourceOptions := func(options string) string {
+		if options == "" {
+			return ""
+		}
+		return ", " + options
+	}
+	stepOptions := source.stepOptions
+	if stepOptions == "" {
+		stepOptions = "    pass\n"
+	}
+	statement := func(body string) string {
+		if body == "" {
+			return "pass"
+		}
+		return body
+	}
+	replacer := strings.NewReplacer(
+		", TOTAL_OPTIONS", resourceOptions(source.totalOptions),
+		", ITEMS_OPTIONS", resourceOptions(source.itemsOptions),
+		", REPLIES_OPTIONS", resourceOptions(source.repliesOptions),
+		"RPC_OPTIONS", rpcOptions,
+		" MOVE_OPTIONS", source.moveOptions,
+		"STEP_OPTIONS\n", stepOptions,
+		"RPC_BODY", statement(source.rpcBody),
+		"TIMEOUT_BODY", statement(source.timeoutBody),
+		"WAIT_BODY", statement(source.waitBody),
+		"EXECUTE_BODY", statement(source.executeBody),
+	)
+	sourcePath := filepath.Join(t.TempDir(), "workflow.py")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(pythonDeclaredLocksSource)), 0o644))
+	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "CartFlow"})
+	require.NoError(t, err)
+	return graph
+}

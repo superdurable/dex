@@ -145,7 +145,8 @@ func TestVisualizeApplicationLints(t *testing.T) {
 	source := stateLoadsFixture(t, "lints/workflow.go")
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
-	require.Empty(t, diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics))
+	// A Step writes draft-status without the lock that RPC RejectDraft registers.
+	require.Equal(t, []string{"lock_requirement_not_declared"}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 
 	graph, err = flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{Lint: flowviz.LintApplication})
 	require.NoError(t, err)
@@ -153,6 +154,7 @@ func TestVisualizeApplicationLints(t *testing.T) {
 	require.Equal(t, []string{
 		"action_state_not_rechecked",
 		"cross_flow_read_not_found_unhandled",
+		"lock_requirement_not_declared",
 		"start_flow_request_id_missing",
 	}, sortedDiagnosticCodes(diagnosticsWithoutMissingVisualizationMetadata(t, source, graph.Diagnostics)))
 
