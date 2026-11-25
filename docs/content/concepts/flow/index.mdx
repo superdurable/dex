@@ -231,19 +231,23 @@ The parent receives each child's result durably:
   business identity matches.
 - Each child has its own Flow timeout. A closing parent never stops its
   children.
+- A client stop starts no new handlers in the child, so the child may never
+  report. A running handler can ignore cancellation, so a report already sent
+  can still arrive.
+- When the parent does not need to know how a stopped child ended, it stops
+  the child and moves on. A parent that needs only a quorum stops the
+  remaining children this way.
 - When the parent's result or a follow-up action depends on how a stopped
   child ended, such as counting its result, undoing its side effects, or
   showing its outcome, the parent reconciles it from the child's stored state.
-  Otherwise the parent stops the child and moves on. A client stop starts no new handlers in the child, so the child may never
-  report. A running handler can ignore cancellation, so a report already sent
-  can still arrive. After a stop, a refused stop, or a timer for unreported
-  children, the parent describes the child first. It records a closed child's
-  terminal status and stored outcome. It reads a running child again later.
-  A child that does not exist is recorded by business policy, such as
-  "unavailable". It returns any other error, so the Step retries.
-- A report that still arrives after the stop fills the same record. Children
-  that finish after a quorum, or while the parent stops the rest, still count
-  in the parent's result.
+  After a stop, a refused stop, or a timer for unreported children, the
+  parent describes the child first. It records a closed child's terminal
+  status and stored outcome. It reads a running child again later. A child
+  that does not exist is recorded by business policy, such as "unavailable".
+  It returns any other error, so the Step retries. A report that still
+  arrives after the stop fills the same record. Children that finish after a
+  quorum, or while the parent stops the rest, still count in the parent's
+  result.
 
 ## Identifiers {#identifiers}
 

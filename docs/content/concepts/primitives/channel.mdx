@@ -30,6 +30,10 @@ To wait for parallel branches to finish, use a **Join**; see
 - Dex stores every message durably with the Flow.
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
+  So let at most one waiting Step consume a Channel at any moment; then which
+  Step receives a message never depends on timing. Different Step types may
+  consume the same Channel in different phases of the Flow. For an event that
+  every waiter must receive, use one ChannelMap key per waiter.
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - Dex publishes a message only when the Step method or RPC that published it
