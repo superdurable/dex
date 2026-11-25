@@ -91,10 +91,10 @@ and Server overrides are in the
 Before handoff, ask the user whether they want to try two optional Dex
 checks. Offer them; do not recommend them strongly or require them.
 
-- Static lock check: `dexcli visualize` warns when a handler writes an
-  Attribute or publishes to a Channel without the lock the resource declares,
-  or when concurrent writers share an Attribute that declares no lock
-  requirement. The warnings leave the graph valid. See
+- Static lock check: for supported source, `dexcli visualize` can flag
+  missing or unresolved required locks on writes and publishes, and Attribute
+  writes that may lose updates without a declared lock requirement. The
+  warnings leave the graph valid. See
   [Declared lock requirements](https://docs.superdurable.io/reference/web/flow-visualization#declared-lock-requirements).
 - Lost-result test run: `dexcli dev` can drop finished Step and RPC results.
   A Step then runs again as after a Worker crash, and an RPC caller sees a
