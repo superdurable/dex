@@ -97,28 +97,12 @@ func (*OfferResponseFlow) RejectCustomerOffer(ctx dex.Context, note string) (*de
 	return publishWhileWindowOpen(ctx, OfferRejected, note)
 }
 
-// GetDexSummary returns the response window state for Dex Web.
-// It returns an error when the window cannot be read.
-func (*OfferResponseFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	window, err := readResponseWindow(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{"responseWindow": window}}, nil
+func (*OfferResponseFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
-// GetDexDisplay returns the response window and the queued responses for Dex Web.
-// It returns an error when the window cannot be read.
-func (*OfferResponseFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	window, err := readResponseWindow(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{
-		"responseWindow":    window,
-		"queuedAcceptances": OfferAccepted.Size(ctx),
-		"queuedRejections":  OfferRejected.Size(ctx),
-	}}, nil
+func (*OfferResponseFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
 // publishWhileWindowOpen publishes the response unless the window is closed.

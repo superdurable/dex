@@ -1081,6 +1081,10 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 			if entry.IsDir() && multiFlowExampleDirectories[entry.Name()] {
 				return filepath.SkipDir
 			}
+			// Test probe Flows reuse example Steps from other modules; they are not examples.
+			if entry.IsDir() && filepath.Dir(path) == root.directory && entry.Name() == "tests" {
+				return filepath.SkipDir
+			}
 			if entry.IsDir() || filepath.Ext(path) != root.extension ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "Test.java") {
 				return nil
