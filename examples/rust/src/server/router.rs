@@ -55,6 +55,9 @@ pub fn build_router(
         .merge(control_patterns::fail_fast::controller::mount(
             client.clone(),
         ))
+        .merge(control_patterns::deferred_choice::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::control_long_running_work::controller::mount(
             client.clone(),
         ))

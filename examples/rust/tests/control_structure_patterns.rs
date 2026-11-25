@@ -17,6 +17,7 @@
 //! Flows with Business Identity.
 
 mod condition_order_probes;
+mod offer_response_window_probe;
 mod worker_harness;
 
 use std::collections::BTreeMap;
@@ -42,7 +43,9 @@ use dex_examples_rust::control_patterns::critical_section::{
     ContractEdit, ContractEditFlow, ContractEditRecord,
 };
 use dex_examples_rust::control_patterns::deferred_choice::{
-    ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
+    ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OFFER_RESPONSE_RECORDED,
+    OFFER_RESPONSE_WINDOW_CLOSED, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
+    RouteResponseBeforeExpiry,
 };
 use dex_examples_rust::control_patterns::fail_fast::{
     ExpenseClaim, ExpenseReimbursementFlow, PAYOUT_OUTCOME, PayoutOutcome,
@@ -63,6 +66,11 @@ use dex_sdk::{
     IdReusePolicy, Rpc, SdkError, SdkResult, StartFlowOptions, Step, StepDurability,
     StepExecutionId, StopFlowOptions, TimerId, Value, WaitForStepCompletionOptions, Worker,
     WorkerOptions,
+};
+use offer_response_window_probe::{
+    ACCEPT_WINDOW_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED, HELD_RESPONSE_GATE,
+    OPEN_WINDOW_PROBE_GATE, OfferResponseWindowProbeFlow, REJECT_WINDOW_PROBE_OFFER,
+    register_offer_response_window_probe,
 };
 use tempfile::TempDir;
 use worker_harness::{await_pull_registration, new_temporary_refund_flow};
@@ -100,6 +108,7 @@ impl ControlPatternsEnvironment {
             Client::try_new(
                 create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
                     .and_then(register_condition_order_probes)
+                    .and_then(register_offer_response_window_probe)
                     .expect("register Rust examples"),
                 Arc::clone(&cache),
                 ClientOptions::new().server_address(server_address.clone()),
@@ -113,6 +122,7 @@ impl ControlPatternsEnvironment {
             Arc::new(FakeAccountArchive::default()),
         )
         .and_then(register_condition_order_probes)
+        .and_then(register_offer_response_window_probe)
         .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
@@ -379,22 +389,75 @@ fn fail_fast_retries_a_provider_timeout() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn deferred_choice_consumes_only_the_winning_response() {
+fn deferred_choice_response_after_the_decision_gets_window_closed() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
-        &OfferResponseFlow::default(),
-        "deferred-choice-race",
-        "offer-2".to_string(),
+        &OfferResponseWindowProbeFlow::default(),
+        "deferred-choice-window",
+        "offer-3".to_string(),
     );
-    environment.invoke(&flow_id, ACCEPT_CUSTOMER_OFFER, "yes".to_string());
-    environment.invoke(&flow_id, REJECT_CUSTOMER_OFFER, "no".to_string());
+    let outcome = environment.invoke(&flow_id, ACCEPT_WINDOW_PROBE_OFFER, "yes".to_string());
+    assert_eq!(outcome, OFFER_RESPONSE_RECORDED);
+    environment.wait_for_step(&flow_id, &AwaitOfferResponse);
+
+    let outcome = environment.invoke(
+        &flow_id,
+        REJECT_WINDOW_PROBE_OFFER,
+        "changed my mind".to_string(),
+    );
+    assert_eq!(outcome, OFFER_RESPONSE_WINDOW_CLOSED);
+
+    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
     let result = environment.wait_for_completed_flow(&flow_id);
-    let step_types = completion_step_types(&result);
-    assert_eq!(step_types.len(), 1, "{step_types:?}");
-    assert!(
-        ["FulfillOffer", "CloseRejectedOffer"].contains(&step_types[0].as_str()),
-        "{step_types:?}"
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-3"]
     );
+    assert!(outputs_of::<String>(&result, "CloseRejectedOffer").is_empty());
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_response_committed_after_the_timer_won_is_taken() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &OfferResponseWindowProbeFlow::default(),
+        "deferred-choice-late",
+        "offer-4".to_string(),
+    );
+    // The Worker runs on its own thread, so the held RPC does not block this test.
+    let held_response = {
+        let client = Arc::clone(&environment.client);
+        let flow_id = flow_id.clone();
+        thread::spawn(move || {
+            client.invoke_rpc(
+                &flow_id,
+                ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED,
+                "yes, just in time".to_string(),
+            )
+        })
+    };
+    assert!(
+        HELD_RESPONSE_GATE.wait_until_entered(WAIT_TIMEOUT),
+        "{flow_id}: the held response RPC never ran"
+    );
+    // The Timer wins while the RPC holds the window lock, so Execute waits for the RPC.
+    environment.skip_offer_expiry(&flow_id);
+    HELD_RESPONSE_GATE.release();
+    let outcome = held_response
+        .join()
+        .expect("join the held response RPC")
+        .unwrap_or_else(|error| panic!("held response RPC on {flow_id}: {error}"));
+    assert_eq!(outcome, OFFER_RESPONSE_RECORDED);
+
+    environment.wait_for_step(&flow_id, &RouteResponseBeforeExpiry);
+    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-4"]
+    );
+    assert!(outputs_of::<String>(&result, "ExpireOffer").is_empty());
 }
 
 /// At the default batch size the backfill needs 100 seconds, longer than the wait timeout.
