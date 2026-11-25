@@ -188,7 +188,7 @@ at every external boundary.
 
 | Application need | Capability | Composition |
 | --- | --- | --- |
-| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step; never low-level Connector SDK wire types instead |
+| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step; never low-level Connector SDK wire types instead. To wait on a provider deadline with a suitable Query, read it in a preceding Connector Step's Execute and pass it on; an application Step's own read-only call follows the [WaitFor rule](core/step.md#waitfor-versus-execute) |
 | External event starts work | Trigger | `NewDexFlowTriggerTarget` with a typed Flow, filter, Flow ID resolver, and input mapper |
 | External event updates existing work | Trigger | `NewDexRPCTriggerTarget` with a registered typed RPC, filter, Flow ID resolver, and input mapper |
 | User or API RPC requests provider work | Query or Mutation plus an application RPC | the RPC validates and commits state, then returns a movement to a Connector Step |
