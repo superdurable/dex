@@ -411,6 +411,24 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "inbound-event-loop",
+    title: "Inbound Event Loop",
+    flowIdPrefix: "inbound-event-loop",
+    endpoints: [
+      endpoint("GET", "/patterns/inbound-event-loop/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/inbound-event-loop/reply", "Send reply", [
+        flowId(),
+        query("text", { default: "printer is offline" }),
+      ]),
+      endpoint("GET", "/patterns/inbound-event-loop/resolve", "Resolve", [
+        flowId(),
+        query("reason", { default: "replaced the network cable" }),
+      ]),
+      endpoint("GET", "/patterns/inbound-event-loop/transcript", "Get transcript", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "resource-control",
     title: "Resource control",
     flowIdPrefix: "controller_flow",

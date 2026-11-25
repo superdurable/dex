@@ -1,0 +1,586 @@
+{
+  "schemaVersion": "2.0",
+  "generatedAt": "2026-11-25T05:35:53Z",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py"
+  },
+  "flow": {
+    "name": "SupportTicketFlow",
+    "startStepId": "step:AwaitTicketMessage",
+    "span": {
+      "startLine": 124,
+      "startColumn": 1,
+      "endLine": 154,
+      "endColumn": 52
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AwaitTicketMessage",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitTicketMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 78,
+        "startColumn": 5,
+        "endLine": 91,
+        "endColumn": 72
+      }
+    },
+    {
+      "id": "decision:step:AwaitTicketMessage:83:24",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "replies and pending_resolution",
+      "phase": "execute",
+      "span": {
+        "startLine": 83,
+        "startColumn": 24,
+        "endLine": 83,
+        "endColumn": 70
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitTicketMessage:85:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "replies and not (pending_resolution)",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 20,
+        "endLine": 85,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitTicketMessage:88:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "not (replies) and resolutions",
+      "phase": "execute",
+      "span": {
+        "startLine": 88,
+        "startColumn": 20,
+        "endLine": 88,
+        "endColumn": 62
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitTicketMessage:90:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "not (replies) and not (resolutions) and context.has_timer_fired()",
+      "phase": "execute",
+      "span": {
+        "startLine": 90,
+        "startColumn": 20,
+        "endLine": 90,
+        "endColumn": 52
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CloseInactiveTicket:116:16",
+      "kind": "decision",
+      "name": "forceCompleteIfChannelsEmpty",
+      "parentId": "step:CloseInactiveTicket",
+      "phase": "execute",
+      "span": {
+        "startLine": 116,
+        "startColumn": 16,
+        "endLine": 121,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "forceCompleteIfChannelsEmpty",
+        "checkedChannels": [
+          "resource:channel:TICKET_REPLIES",
+          "resource:channel:TICKET_RESOLUTIONS"
+        ]
+      }
+    },
+    {
+      "id": "decision:step:CloseResolvedTicket:105:16",
+      "kind": "decision",
+      "name": "forceCompleteIfChannelsEmpty",
+      "parentId": "step:CloseResolvedTicket",
+      "phase": "execute",
+      "span": {
+        "startLine": 105,
+        "startColumn": 16,
+        "endLine": 109,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "forceCompleteIfChannelsEmpty",
+        "checkedChannels": [
+          "resource:channel:TICKET_REPLIES"
+        ]
+      }
+    },
+    {
+      "id": "resource:attribute:TRANSCRIPT_CHUNKS",
+      "kind": "attribute",
+      "name": "transcriptChunks",
+      "span": {
+        "startLine": 60,
+        "startColumn": 1,
+        "endLine": 60,
+        "endColumn": 70
+      },
+      "resource": {
+        "valueType": "TranscriptChunk",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:TICKET_REPLIES",
+      "kind": "channel",
+      "name": "ticketReplies",
+      "span": {
+        "startLine": 58,
+        "startColumn": 1,
+        "endLine": 58,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:TICKET_RESOLUTIONS",
+      "kind": "channel",
+      "name": "ticketResolutions",
+      "span": {
+        "startLine": 59,
+        "startColumn": 1,
+        "endLine": 59,
+        "endColumn": 55
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:resolve_ticket",
+      "kind": "rpc",
+      "name": "resolve_ticket",
+      "span": {
+        "startLine": 150,
+        "startColumn": 5,
+        "endLine": 154,
+        "endColumn": 52
+      }
+    },
+    {
+      "id": "rpc:send_ticket_reply",
+      "kind": "rpc",
+      "name": "send_ticket_reply",
+      "span": {
+        "startLine": 141,
+        "startColumn": 5,
+        "endLine": 147,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "step:AwaitTicketMessage",
+      "kind": "step",
+      "name": "AwaitTicketMessage",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 133,
+        "startColumn": 36,
+        "endLine": 133,
+        "endColumn": 61
+      },
+      "metadata": {
+        "explanation": "Record each batch of replies, or route on the resolution or the inactivity Timer."
+      }
+    },
+    {
+      "id": "step:CloseInactiveTicket",
+      "kind": "step",
+      "name": "CloseInactiveTicket",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 41,
+        "endLine": 134,
+        "endColumn": 67
+      },
+      "metadata": {
+        "explanation": "Close the quiet ticket once no reply or resolution is waiting."
+      }
+    },
+    {
+      "id": "step:CloseResolvedTicket",
+      "kind": "step",
+      "name": "CloseResolvedTicket",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 13,
+        "endLine": 134,
+        "endColumn": 39
+      },
+      "metadata": {
+        "explanation": "Close the resolved ticket once no reply is left to record."
+      }
+    },
+    {
+      "id": "wait-dispatch:AwaitTicketMessage",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:AwaitTicketMessage",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 68,
+        "startColumn": 5,
+        "endLine": 76,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "wait:AwaitTicketMessage:70:20:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "pending_resolution",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 70,
+        "startColumn": 20,
+        "endLine": 70,
+        "endColumn": 58
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "ticketReplies.at least 1",
+            "resourceId": "resource:channel:TICKET_REPLIES",
+            "expression": "1",
+            "span": {
+              "startLine": 70,
+              "startColumn": 31,
+              "endLine": 70,
+              "endColumn": 57
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AwaitTicketMessage:72:16:1",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitTicketMessage",
+      "condition": "not (pending_resolution)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 72,
+        "startColumn": 16,
+        "endLine": 76,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "ticketReplies.at least 1",
+            "resourceId": "resource:channel:TICKET_REPLIES",
+            "expression": "1",
+            "span": {
+              "startLine": 73,
+              "startColumn": 13,
+              "endLine": 73,
+              "endColumn": 39
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "ticketResolutions.for 1",
+            "resourceId": "resource:channel:TICKET_RESOLUTIONS",
+            "span": {
+              "startLine": 74,
+              "startColumn": 13,
+              "endLine": 74,
+              "endColumn": 41
+            }
+          },
+          {
+            "kind": "timer",
+            "label": "INACTIVITY_TIMEOUT timer",
+            "expression": "INACTIVITY_TIMEOUT",
+            "span": {
+              "startLine": 75,
+              "startColumn": 13,
+              "endLine": 75,
+              "endColumn": 50
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:AwaitTicketMessage:83:24",
+      "to": "step:CloseResolvedTicket",
+      "label": "go_to",
+      "span": {
+        "startLine": 83,
+        "startColumn": 24,
+        "endLine": 83,
+        "endColumn": 70
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:AwaitTicketMessage:85:20",
+      "to": "step:AwaitTicketMessage",
+      "label": "go_to",
+      "span": {
+        "startLine": 85,
+        "startColumn": 20,
+        "endLine": 85,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:AwaitTicketMessage:88:20",
+      "to": "step:CloseResolvedTicket",
+      "label": "go_to",
+      "span": {
+        "startLine": 88,
+        "startColumn": 20,
+        "endLine": 88,
+        "endColumn": 62
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:AwaitTicketMessage:90:20",
+      "to": "step:CloseInactiveTicket",
+      "label": "go_to",
+      "span": {
+        "startLine": 90,
+        "startColumn": 20,
+        "endLine": 90,
+        "endColumn": 52
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:CloseInactiveTicket:116:16",
+      "to": "step:AwaitTicketMessage",
+      "label": "fan-out",
+      "span": {
+        "startLine": 118,
+        "startColumn": 13,
+        "endLine": 118,
+        "endColumn": 52
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:CloseResolvedTicket:105:16",
+      "to": "step:AwaitTicketMessage",
+      "label": "fan-out",
+      "span": {
+        "startLine": 107,
+        "startColumn": 13,
+        "endLine": 107,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:channel:TICKET_REPLIES",
+      "to": "step:AwaitTicketMessage",
+      "label": "results",
+      "span": {
+        "startLine": 79,
+        "startColumn": 19,
+        "endLine": 79,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "wait_condition",
+      "from": "resource:channel:TICKET_REPLIES",
+      "to": "wait:AwaitTicketMessage:70:20:0",
+      "label": "ticketReplies.at least 1",
+      "span": {
+        "startLine": 70,
+        "startColumn": 31,
+        "endLine": 70,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "wait_condition",
+      "from": "resource:channel:TICKET_REPLIES",
+      "to": "wait:AwaitTicketMessage:72:16:1",
+      "label": "ticketReplies.at least 1",
+      "span": {
+        "startLine": 73,
+        "startColumn": 13,
+        "endLine": 73,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:channel:TICKET_RESOLUTIONS",
+      "to": "step:AwaitTicketMessage",
+      "label": "results",
+      "span": {
+        "startLine": 86,
+        "startColumn": 23,
+        "endLine": 86,
+        "endColumn": 58
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "wait_condition",
+      "from": "resource:channel:TICKET_RESOLUTIONS",
+      "to": "wait:AwaitTicketMessage:72:16:1",
+      "label": "ticketResolutions.for 1",
+      "span": {
+        "startLine": 74,
+        "startColumn": 13,
+        "endLine": 74,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_publish",
+      "from": "rpc:resolve_ticket",
+      "to": "resource:channel:TICKET_RESOLUTIONS",
+      "label": "publish",
+      "span": {
+        "startLine": 154,
+        "startColumn": 9,
+        "endLine": 154,
+        "endColumn": 52
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_publish",
+      "from": "rpc:send_ticket_reply",
+      "to": "resource:channel:TICKET_REPLIES",
+      "label": "publish",
+      "span": {
+        "startLine": 147,
+        "startColumn": 9,
+        "endLine": 147,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "attribute transcriptChunks has no direct access in the source file",
+      "span": {
+        "startLine": 60,
+        "startColumn": 1,
+        "endLine": 60,
+        "endColumn": 70
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "resolution",
+      "label": "Resolution",
+      "stepIds": [
+        "step:CloseResolvedTicket"
+      ]
+    },
+    {
+      "id": "inactivity",
+      "label": "Inactivity",
+      "stepIds": [
+        "step:CloseInactiveTicket"
+      ]
+    },
+    {
+      "id": "inbound",
+      "label": "Inbound messages",
+      "stepIds": [
+        "step:AwaitTicketMessage"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [],
+    "start": {
+      "stepType": "AwaitTicketMessage",
+      "input": {
+        "kind": "string"
+      }
+    }
+  }
+}

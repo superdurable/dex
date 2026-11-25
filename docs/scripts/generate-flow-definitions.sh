@@ -44,6 +44,7 @@ generate_flow_definition examples/python/dex_examples/patterns/drain-channels/in
 generate_flow_definition examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py design-patterns/draining-external-channel
 generate_flow_definition examples/python/dex_examples/patterns/cron/cron_schedule_flow.py design-patterns/cron
 generate_flow_definition examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py design-patterns/inactiveness-tracker
+generate_flow_definition examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py design-patterns/inbound-event-loop
 generate_flow_definition examples/python/dex_examples/patterns/reminders/reminder_flow.py design-patterns/reminder
 generate_flow_definition examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py design-patterns/execute-failure-recovery
 generate_flow_definition examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py design-patterns/manual-recovery
