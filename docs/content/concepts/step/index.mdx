@@ -40,6 +40,14 @@ A Step has one or two methods.
 
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
+Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
+system. If `WaitFor` must call a provider and gets a permanent error, it
+records the error in a Step execution local value and returns a wait that is
+ready at once. `Execute` then routes on that error. When a provider confirms a
+permanent error, `Execute` routes to a failure-handling Step or fails the Flow
+with `ForceFail`. Retrying a permanent error only repeats it. See
+[Step execution local](/reference/python/step#step-execution-local).
+
 <StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait, and Dex evaluates its Timer, Channel, or SubFlow condition. When the condition is satisfied, Execute returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or ForceFail." />
 
 This Step waits for an approval message, then moves to a second Step that

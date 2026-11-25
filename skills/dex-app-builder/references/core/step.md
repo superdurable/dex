@@ -23,8 +23,9 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 
 Use Execute for work and WaitFor for durable waiting. One rule holds in every SDK:
 
-- WaitFor declares the Wait. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
-- WaitFor never calls an external system. No provider query, no provider mutation, and no irreversible side effect. Put every provider call in Execute, and keep it idempotent or compensatable there.
+- Prefer calls that can fail in Execute. WaitFor returns the Conditions to wait on. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
+- WaitFor never mutates an external system and has no irreversible side effect. Put every provider mutation in Execute, and keep it idempotent or compensatable there.
+- If WaitFor must call a provider and gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
 - WaitFor may run more than once, because a failed WaitFor retries. Keep it cheap, deterministic, and safe to repeat.
 - Never poll a provider from WaitFor or with a Timer loop. Waiting for an external system uses the [Polling pattern](patterns.md#polling): one long-running Execute that loops and heartbeats.
 - Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
@@ -168,7 +169,8 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 ### Retry and failure policy
 
-- Retry policy re-runs the same method on the same Step execution, with backoff.
+- Retry policy re-runs the same method on the same Step execution, with backoff. It is for errors that can succeed on a later attempt.
+- When a provider confirms a permanent error, Execute routes to a failure-handling Step or returns ForceFail instead of throwing into Step retry.
 - RetryAfter from a handler overrides the next retry delay. It is for recovery from a failed attempt, never a loop for waiting on an external system.
 - After WaitFor retries are exhausted: fail the Flow (default), or proceed to the same Step's Execute with unchanged input. Execute then sees that WaitFor failed and can read the recovery error.
 - After Execute retries are exhausted: fail the Flow (default), or proceed to a registered recovery Step with the same input. The recovery Step reads the recovery error.

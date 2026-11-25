@@ -29,6 +29,8 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。�
 
 Step 没有 `WaitFor` 时，`Execute` 立即运行。
 
+可能失败的调用尽量放在 `Execute` 里。`WaitFor` 从不修改外部系统。如果 `WaitFor` 必须调用 provider 并遇到永久性错误，就把错误记在 Step execution local value 里，并返回一个立即就绪的等待，再由 `Execute` 根据这个错误路由。provider 确认是永久性错误时，`Execute` 转到处理失败的 Step，或用 `ForceFail` 让 Flow 失败。重试永久性错误只会重复失败。见 [Step execution local](/reference/python/step#step-execution-local)（英文）。
+
 <StepWaitExecuteDiagram markdownDescription="ExampleStep 的 WaitFor 返回一个 Wait，Dex 评估其中的 Timer、Channel 或 SubFlow 条件。条件满足后，Execute 返回 GoTo(Complete Flow, input + 1)。StepDecision 可以是 GoTo、GracefulComplete 或 ForceFail。" />
 
 下面这个 Step 等待一条审批消息，然后进入第二个 Step，由它完成 Flow。
