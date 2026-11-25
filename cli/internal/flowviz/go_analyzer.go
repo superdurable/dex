@@ -1756,7 +1756,8 @@ func unwrapCallFun(expression ast.Expr) ast.Expr {
 func (analyzer *goAnalyzer) resourceDetails(call *ast.CallExpr) ResourceDetails {
 	details := ResourceDetails{ValueType: "unknown"}
 	name := analyzer.callName(call)
-	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap" || name == "DefineJoin"
+	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap" ||
+		name == "DefineChannelMapWithOptions" || name == "DefineJoin"
 	switch function := call.Fun.(type) {
 	case *ast.IndexExpr:
 		details.ValueType = analyzer.expressionString(function.Index)
@@ -1850,7 +1851,7 @@ func goResourceKind(name string) string {
 	switch name {
 	case "DefineAttribute", "DefineAttributeMap":
 		return "attribute"
-	case "DefineChannel", "DefineChannelMap", "DefineJoin":
+	case "DefineChannel", "DefineChannelMap", "DefineChannelWithOptions", "DefineChannelMapWithOptions", "DefineJoin":
 		return "channel"
 	case "DefineStream":
 		return "stream"

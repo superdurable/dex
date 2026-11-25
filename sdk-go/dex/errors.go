@@ -13,6 +13,7 @@ package dex
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -119,6 +120,104 @@ func (e *InvalidStepResultError) Error() string {
 // Unwrap returns the underlying result-contract violation.
 func (e *InvalidStepResultError) Unwrap() error {
 	return e.Err
+}
+
+// MissingAttributeLockError reports a handler invocation that wrote a declared Attribute, or
+// published to a declared Channel, without registering the lock that the definition requires.
+//
+// A definition declares its lock requirement with WritesRequireLock, WritesRequireAttributeLock,
+// or PublishesRequireAttributeLock. After a WaitFor, Execute, or RPC handler returns, the Worker
+// compares each such write and publish with the locks that the handler registered. When a required
+// lock is missing, the Worker fails the invocation with this error. Dex then discards the
+// Attribute writes, Channel publications, and other changes buffered for the invocation's result.
+// Stream writes that the Step already sent and external side effects stay.
+//
+// Dex reports it like any other handler error. It retries a Step method under the Step's retry
+// policy and returns the failure to the RPC caller. A retry runs the same handler with the same
+// registered locks, so it fails again unless the handler takes another path.
+//
+// Fix the handler registration. Add the lock to StepOptions.WaitForLockAttributes,
+// StepOptions.ExecuteLockAttributes, or RPCOptions.LockAttributes. Locks added for one call, such
+// as RPCInvokeOptions.LockAttributeMapInstances or StepOptions passed with WithStepOptions, do not
+// satisfy the requirement.
+//
+// The value exists only inside the Worker. A Client that invokes the RPC receives a
+// *WorkerInvocationError whose Worker.Type is "*dex.MissingAttributeLockError" and whose
+// Worker.Detail is this error's message.
+//
+// Example:
+//
+//	err := client.InvokeRPC(ctx, flowID, flow.AddItem, item, new(dex.None))
+//	var invocationErr *dex.WorkerInvocationError
+//	if errors.As(err, &invocationErr) && invocationErr.Worker != nil &&
+//		invocationErr.Worker.Type == "*dex.MissingAttributeLockError" {
+//		log.Printf("register the required lock on the RPC: %s", invocationErr.Worker.Detail)
+//	}
+//
+// Since 1.45.17.
+type MissingAttributeLockError struct {
+	// FlowType identifies the Flow whose handler ran.
+	FlowType string
+	// StepType identifies the Step, or is empty for an RPC.
+	StepType string
+	// Method is "WaitFor", "Execute", or "RPC".
+	Method string
+	// RPCName is the RPC name for an RPC invocation, or empty for a Step method.
+	RPCName string
+	// Accesses lists every write and publish whose required lock was missing. Attribute writes
+	// come first in the order the handler first wrote each key, then Channel publishes in the order
+	// the handler first published to each Channel or ChannelMap instance.
+	Accesses []MissingAttributeLockAccess
+}
+
+// MissingAttributeLockAccess names one write or publish whose required lock the handler did not
+// register.
+//
+// Since 1.45.17.
+type MissingAttributeLockAccess struct {
+	// Kind is "Attribute", "AttributeMap", "Channel", or "ChannelMap".
+	Kind string
+	// Name is the Attribute, AttributeMap, Channel, or ChannelMap name.
+	Name string
+	// Instance is the AttributeMap or ChannelMap instance, or empty for a singleton definition.
+	Instance string
+	// LockAttributeName is the name of the Attribute or AttributeMap whose lock is required.
+	LockAttributeName string
+	// LockInstance is the AttributeMap instance whose lock is required, or empty when the required
+	// lock is a singleton Attribute's lock.
+	LockInstance string
+}
+
+// Error names the handler, each access with its required lock, and how to fix the registration.
+func (e *MissingAttributeLockError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	handler := fmt.Sprintf("flow %q step %q %s", e.FlowType, e.StepType, e.Method)
+	if e.Method == requiredLockMethodRPC {
+		handler = fmt.Sprintf("flow %q RPC %q", e.FlowType, e.RPCName)
+	}
+	accesses := make([]string, 0, len(e.Accesses))
+	for _, access := range e.Accesses {
+		operation := "wrote"
+		if access.Kind == "Channel" || access.Kind == "ChannelMap" {
+			operation = "published to"
+		}
+		target := fmt.Sprintf("%s %q", access.Kind, access.Name)
+		if access.Instance != "" {
+			target += fmt.Sprintf(" instance %q", access.Instance)
+		}
+		lock := fmt.Sprintf("Attribute %q", access.LockAttributeName)
+		if access.LockInstance != "" {
+			lock = fmt.Sprintf("AttributeMap %q instance %q", access.LockAttributeName, access.LockInstance)
+		}
+		accesses = append(accesses, fmt.Sprintf("%s %s without the required lock of %s", operation, target, lock))
+	}
+	return fmt.Sprintf(
+		"dex: %s %s; register the lock in the handler's StepOptions or RPCOptions",
+		handler,
+		strings.Join(accesses, ", "),
+	)
 }
 
 // HardDeleteAttributeUnsupportedError reports a hard-delete Attribute write to a Server that cannot keep it out of history.

@@ -19,6 +19,7 @@ from dex._utils import (
     require_name,
     require_persistence_definition_name,
 )
+from dex.attribute import Attribute
 from dex.condition import ChannelCondition, Condition
 from dex.context import Context
 
@@ -81,18 +82,43 @@ class Channel(Generic[ValueT]):
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.
         value_type: The Python type of every published value.
+        publishes_require_lock: A singleton ``Attribute`` whose lock every
+            publish requires, or ``None``, the default, for no requirement.
+            The Worker enforces it: a ``wait_for``, ``execute``, or RPC
+            invocation that publishes without holding the lock raises
+            ``MissingAttributeLockError``, and Dex discards the changes
+            buffered for its result. Waiting on the Channel and reading its
+            messages are not affected. Only the locks a handler registers
+            count: ``StepOptions.wait_for_lock_attributes`` or
+            ``StepOptions.execute_lock_attributes`` for a Step method, and
+            ``@rpc(lock_attributes=...)`` for an RPC. Locks added for one call,
+            ``RPCInvokeOptions.lock_attribute_map_instances`` and the options
+            of a ``StepMovement``, do not count. A Flow timeout handler is not
+            checked. The lock Attribute must be the same definition object
+            registered in the Flow's ``PersistenceSchema``; ``Registry``
+            raises ``FlowDefinitionError`` otherwise.
+
+            .. versionadded:: 1.45.18
+
+    Raises:
+        TypeError: If ``publishes_require_lock`` is neither ``None`` nor an
+            ``Attribute``.
 
     Examples:
         >>> approvals = Channel("approvals", str)
         >>> wait = Wait.until(approvals.for_n(2, condition_id="two-approvals"))
         >>> approvals.publish(context, "reviewer@example.com")
+        >>> conversation_lock = Attribute("conversation-lock", bool)
+        >>> replies = Channel("replies", str, publishes_require_lock=conversation_lock)
     """
 
     name: str
     value_type: type[ValueT]
+    publishes_require_lock: Attribute[Any] | None = None
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
+        _validate_publishes_require_lock(self.publishes_require_lock)
 
     def publish(self, context: Context, value: ValueT) -> None:
         """Stage one value to append with the current handler decision.
@@ -293,6 +319,16 @@ class ChannelMap(Generic[ValueT]):
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.
         value_type: The Python type of every published value.
+        publishes_require_lock: A singleton ``Attribute`` whose lock every
+            publish to any instance requires, or ``None``, the default, for no
+            requirement. The rule is the same as for
+            ``Channel.publishes_require_lock``.
+
+            .. versionadded:: 1.45.18
+
+    Raises:
+        TypeError: If ``publishes_require_lock`` is neither ``None`` nor an
+            ``Attribute``.
 
     Examples:
         >>> events = ChannelMap("events", dict[str, str])
@@ -302,9 +338,11 @@ class ChannelMap(Generic[ValueT]):
 
     name: str
     value_type: type[ValueT]
+    publishes_require_lock: Attribute[Any] | None = None
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
+        _validate_publishes_require_lock(self.publishes_require_lock)
 
     def load_messages(self, instance: str) -> ChannelMapLoad:
         """Select one instance's pending messages for an RPC snapshot.
@@ -559,3 +597,9 @@ class ChannelMap(Generic[ValueT]):
             at_least=at_least,
             at_most=at_most,
         )
+
+
+def _validate_publishes_require_lock(requirement: object) -> None:
+    if requirement is None or isinstance(requirement, Attribute):
+        return
+    raise TypeError("publishes_require_lock must be None or an Attribute")

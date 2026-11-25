@@ -19,6 +19,7 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Define a ChannelMap | **DefineChannelMap**, which returns a **ChannelMap** | [ChannelMap](/reference/server/runtime-data#channelmap) |
 | Declare it in the Flow | **Channels** of **PersistenceSchema**, returned from **GetPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
 | Publish a message from a Step or RPC | **Publish** | [Commits](./step.mdx#commit-boundary) |
+| Require a lock for every publish (since 1.45.17) | **PublishesRequireAttributeLock**, passed to **DefineChannelWithOptions** or **DefineChannelMapWithOptions**; a publish without the lock fails with **MissingAttributeLockError** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Wait for messages | **ForOne**, **ForN**, **AtLeast**, **AtMost**, and **AtLeastAtMost** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
 | Read the messages a wait consumed | **GetConditionResults** | [Channel results](./waits.mdx#channel-results) |
 | Load pending messages for a method | **ChannelMap.LoadMessages**, with the load fields of **StepOptions** or **RPCOptions** | [Selective state loading](./step-options.mdx#selective-state-loading) |
