@@ -25,6 +25,8 @@ type registeredRPC struct {
 	output      reflect.Type
 	options     *RPCOptions
 	action      *registeredAction
+	// lockKeys are copied at registration in a Flow that declares a lock requirement.
+	lockKeys []string
 }
 
 var (

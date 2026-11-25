@@ -23,6 +23,7 @@ them in the [TypeScript SDK API reference](./index.mdx#api-reference).
 | Count AttributeMap instances and list their keys | **AttributeMap.getMapSize** and **AttributeMap.getAllInstanceKeys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Load AttributeMap values for a method | **AttributeMap.load**, with the load fields of **StepOptions** or **RPCOptions** | [Selective state loading](./step-options.mdx#selective-state-loading) |
 | Lock a value for a read-modify-write | **lock**, with the lock fields of **StepOptions** or **lockAttributes** of **RPCOptions** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Require a lock for every write (since 1.45.17) | **writesRequireLock** and **writesRequireAttributeLock** of **Attribute** and **AttributeMap**; a write without the lock fails with **MissingAttributeLockError** | [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements) |
 | Index a value for search | **AttributeIndex** and **IndexType** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
 | Project writes to an Attribute Store | **syncToAttributeStore** | [Attribute sync](/reference/server/attribute-store-sync) |
 | Store a value that can be erased | **hardDeleteOnNull** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |

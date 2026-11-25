@@ -619,6 +619,26 @@ values inline, and the SDK never stores them in the local blob cache.
   or until the Flow is removed by retention and blob cleanup. Blob store
   backups or bucket versioning can retain copies.
 
+### Declared lock requirements
+
+Declare the lock that every write of an Attribute, or every publish to a
+Channel, must hold. A `waitFor`, `execute`, or RPC handler that writes or
+publishes without registering that lock fails with `MissingAttributeLockError`,
+and Dex discards its buffered changes:
+
+```typescript
+const cartLock = new Attribute("cart-lock", booleanCodec);
+const cartTotal = new Attribute("cart-total", doubleCodec).writesRequireLock();
+const cartItems = new AttributeMap("cart-items", doubleCodec)
+  .writesRequireAttributeLock(cartLock);
+const cartEvents = new Channel("cart-events", stringCodec)
+  .publishesRequireAttributeLock(cartLock);
+```
+
+Only locks in `StepOptions` and `RPCOptions` count; locks chosen for one call
+do not. See
+[Declared lock requirements](https://docs.superdurable.io/reference/server/runtime-data#declared-lock-requirements).
+
 ### Waiting and map inspection
 
 `Wait.until`, `Wait.allOf`, and `Wait.anyOf` use unnamed Conditions by default.

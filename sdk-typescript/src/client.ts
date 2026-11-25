@@ -91,12 +91,16 @@ import {
 import {
   registeredAttributeFlow,
   registeredFlow,
+  registeredRPCLockAttributes,
+  registeredStepLockSnapshot,
   registeredStepTarget,
   registeredRPC,
   registeredRPCFlow,
   registeredStream,
   type Flow,
   type RegisteredFlow,
+  type RegisteredStep,
+  type RegisteredStepLocks,
   type Registry,
 } from "./flow.js";
 import {
@@ -323,6 +327,7 @@ export class Client {
         registered.startStep.step.getStepOptions?.(),
         registered.startStep.step.waitFor === undefined,
         registered,
+        registeredStepLockSnapshot(registered, registered.startStep),
       );
     }
     await this.requireHardDeleteAttributeWriteSupport(initialAttributeWrites);
@@ -721,7 +726,7 @@ export class Client {
           input: encodedInput,
           timeoutSeconds: seconds(rpc.options.timeoutMs),
           lockAttributeKeys: uniqueSorted([
-            ...(rpc.options.lockAttributes ?? []).map((lock) =>
+            ...(registeredRPCLockAttributes(flow, rpc) ?? []).map((lock) =>
               physicalName(lock.attribute.name, lock.instance),
             ),
             ...invocationLocks,
@@ -1850,17 +1855,46 @@ export class Client {
   }
 }
 
+/**
+ * Maps explicit options, or the target's default options when `explicit` is nullish.
+ * Only default options use the target's registered lock snapshot; `explicit` is read once.
+ */
+function mapDefaultableStepOptions(
+  explicit: StepOptions | undefined,
+  target: RegisteredStep,
+  flow: RegisteredFlow,
+): ProtoStepOptions {
+  const usesDefault = explicit === undefined || explicit === null;
+  return mapStepOptions(
+    explicit ?? target.step.getStepOptions?.(),
+    target.step.waitFor === undefined,
+    flow,
+    usesDefault ? registeredStepLockSnapshot(flow, target) : undefined,
+  );
+}
+
+/**
+ * Maps Step options for a start.
+ * A registered lock snapshot, when given, supplies both lock fields instead of `options`.
+ */
 function mapStepOptions(
   options: StepOptions | undefined,
   skipWaitFor: boolean,
   flow: RegisteredFlow,
+  lockSnapshot?: RegisteredStepLocks,
 ): ProtoStepOptions {
   const executeFailureStep = options?.executeFailure?.step;
   const executeFailureDefinition = executeFailureStep === undefined
     ? undefined
     : registeredStepTarget(flow, executeFailureStep);
+  const explicitExecuteFailureOptions = options?.executeFailure?.options;
   const executeFailureOptions =
-    options?.executeFailure?.options ?? executeFailureDefinition?.step.getStepOptions?.();
+    explicitExecuteFailureOptions ?? executeFailureDefinition?.step.getStepOptions?.();
+  const executeFailureLockSnapshot =
+    (explicitExecuteFailureOptions === undefined || explicitExecuteFailureOptions === null)
+      && executeFailureDefinition !== undefined
+      ? registeredStepLockSnapshot(flow, executeFailureDefinition)
+      : undefined;
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
     attributeMapInstances: options?.waitForLoadAttributeMapInstances,
@@ -1899,14 +1933,18 @@ function mapStepOptions(
             executeFailureOptions,
             executeFailureDefinition.step.waitFor === undefined,
             flow,
+            executeFailureLockSnapshot,
           ),
     skipWaitFor,
     waitForDurabilityOverride: mapDurability(options?.waitForDurability),
     executeDurabilityOverride: mapDurability(options?.executeDurability),
-    waitForLockAttributeKeys: (options?.waitForLockAttributes ?? []).map((lock) =>
+    // Locks are read here, in their original order relative to the other fields.
+    waitForLockAttributeKeys: ((lockSnapshot === undefined ? options?.waitForLockAttributes : lockSnapshot.waitFor)
+      ?? []).map((lock) =>
       physicalName(lock.attribute.name, lock.instance),
     ),
-    executeLockAttributeKeys: (options?.executeLockAttributes ?? []).map((lock) =>
+    executeLockAttributeKeys: ((lockSnapshot === undefined ? options?.executeLockAttributes : lockSnapshot.execute)
+      ?? []).map((lock) =>
       physicalName(lock.attribute.name, lock.instance),
     ),
     waitForLoadAttributeMapInstances: waitForLoads.attributeMaps,
@@ -1959,11 +1997,7 @@ function mapFlowTimeoutHandlerOptions(
     failureProceedStepType: failureDefinition?.name ?? "",
     failureProceedStepOptions: failureDefinition === undefined
       ? undefined
-      : mapStepOptions(
-          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
-          failureDefinition.step.waitFor === undefined,
-          flow,
-        ),
+      : mapDefaultableStepOptions(options.failure?.options, failureDefinition, flow),
     durabilityOverride: mapDurability(options.durability),
     lockAttributeKeys: mapAttributeLocks(flow, options.lockAttributes ?? [], "timeout handler"),
     loadAttributeMapInstances: loads.attributeMaps,

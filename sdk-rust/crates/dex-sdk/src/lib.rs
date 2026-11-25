@@ -15,6 +15,7 @@
 #![deny(missing_docs)]
 
 mod attribute;
+mod attribute_lock_requirement;
 mod attribute_match;
 mod channel;
 mod client;
@@ -59,6 +60,10 @@ mod worker_pull;
 
 pub use attribute::{
     Attribute, AttributeIndex, AttributeLock, AttributeMap, AttributeMapInstance, AttributeMapLoad,
+};
+pub use attribute_lock_requirement::{
+    MissingAttributeLockAccess, MissingAttributeLockAccessKind, MissingAttributeLockError,
+    MissingAttributeLockInvocation,
 };
 pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};

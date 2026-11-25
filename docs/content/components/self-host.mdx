@@ -15,7 +15,7 @@ The [Sustainable Use License](/intro/limits#license) lets you run Dex for your o
 
 | Dependency | Required | What it gives you |
 | --- | --- | --- |
-| Object storage, such as Amazon S3 or an S3-compatible store | Yes, or db9 in its place | The record of every Flow |
+| Object storage: Amazon S3, Google Cloud Storage, Azure Blob Storage, Aliyun OSS, Tencent COS, or an S3-compatible store such as MinIO. See [Object storage](/reference/server/object-storage). | Yes, or db9 in its place | The record of every Flow |
 | A PostgreSQL or ParadeDB search backend | No | Large or frequent searches served from SQL. See [Search backends](/reference/server/search). |
 | A PostgreSQL Attribute Store | No | Copies of selected Attributes in your own tables. See [Dex and Your Database](/components/your-database). |
 | A metrics listener | No | Prometheus metrics. See [Metrics](/reference/server/metrics). |

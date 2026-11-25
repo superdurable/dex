@@ -27,7 +27,7 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 
 | 依赖 | 是否必需 | 没有它会少什么 |
 | --- | --- | --- |
-| 对象存储，例如 Amazon S3 或兼容 S3 的存储 | 必需，或用 db9 代替 | Dex Server 无法运行：每个 Flow 的记录都在这里 |
+| 对象存储：Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO）。见 [Object storage](/reference/server/object-storage)（英文）。 | 必需，或用 db9 代替 | Dex Server 无法运行：每个 Flow 的记录都在这里 |
 | db9，代替对象存储 | 否 | 不少什么，它只是另一种存储 |
 | PostgreSQL 或 ParadeDB 搜索后端 | 否 | 默认的内置搜索会在预算内扫描每个分区的搜索文档。外部后端用 SQL 处理大量或频繁的搜索。见英文的 [Search backends](/reference/server/search)。 |
 | PostgreSQL Attribute Store | 否 | 把选定的 Attribute 复制到你自己的表里。见 [在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。 |

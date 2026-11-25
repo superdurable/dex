@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use crate::attribute_lock_requirement::{DeclaredLockRequirement, LockRequirement};
 use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, Join, Stream};
 
 #[derive(Clone, Debug, Default)]
@@ -25,6 +26,7 @@ use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, Join, 
 /// ```
 pub struct PersistenceSchema {
     definitions: Vec<PersistenceDefinition>,
+    lock_requirements: Vec<DeclaredLockRequirement>,
 }
 
 // Schema equality predates value type tracking, so it keeps ignoring value types.
@@ -133,6 +135,11 @@ impl PersistenceSchema {
     pub fn attribute<T>(mut self, attribute: &Attribute<T>) -> Self {
         self.definitions
             .push(PersistenceDefinition::for_attribute(attribute));
+        self.declare_lock_requirement(
+            attribute.name(),
+            PersistenceKind::Attribute,
+            attribute.write_lock(),
+        );
         self
     }
 
@@ -140,6 +147,11 @@ impl PersistenceSchema {
     pub fn attribute_map<T>(mut self, attribute: &AttributeMap<T>) -> Self {
         self.definitions
             .push(PersistenceDefinition::for_attribute_map(attribute));
+        self.declare_lock_requirement(
+            attribute.name(),
+            PersistenceKind::AttributeMap,
+            attribute.write_lock(),
+        );
         self
     }
 
@@ -149,6 +161,11 @@ impl PersistenceSchema {
             channel.name(),
             PersistenceKind::Channel,
         ));
+        self.declare_lock_requirement(
+            channel.name(),
+            PersistenceKind::Channel,
+            channel.publish_lock(),
+        );
         self
     }
 
@@ -158,6 +175,11 @@ impl PersistenceSchema {
             channel.name(),
             PersistenceKind::ChannelMap,
         ));
+        self.declare_lock_requirement(
+            channel.name(),
+            PersistenceKind::ChannelMap,
+            channel.publish_lock(),
+        );
         self
     }
 
@@ -188,6 +210,25 @@ impl PersistenceSchema {
 
     pub(crate) fn definitions(&self) -> &[PersistenceDefinition] {
         &self.definitions
+    }
+
+    pub(crate) fn lock_requirements(&self) -> &[DeclaredLockRequirement] {
+        &self.lock_requirements
+    }
+
+    fn declare_lock_requirement(
+        &mut self,
+        definition_name: &str,
+        kind: PersistenceKind,
+        requirement: Option<&LockRequirement>,
+    ) {
+        if let Some(requirement) = requirement {
+            self.lock_requirements.push(DeclaredLockRequirement {
+                definition_name: definition_name.to_owned(),
+                kind,
+                requirement: requirement.clone(),
+            });
+        }
     }
 }
 

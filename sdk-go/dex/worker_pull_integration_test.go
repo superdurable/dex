@@ -343,7 +343,7 @@ func TestWorkerPullGeneratedIdentityAndDefaultRouting(t *testing.T) {
 	require.Error(t, validateAppWorkerID("bad/id"))
 	_, err = newWorkerForTest(t, []Flow{workerFlow}, WorkerOptions{Pull: &PullWorkerOptions{StopDrainTimeout: -time.Second}})
 	require.ErrorContains(t, err, "StopDrainTimeout")
-	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{})
+	_, _, startOptions, err := mapStartFlowOptions(nil, StartFlowOptions{})
 	require.NoError(t, err)
 	require.True(t, startOptions.FlowConfigOverride.WorkerTarget.IsPullMode)
 	registry, err := NewRegistry([]Flow{workerFlow})

@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -424,8 +426,14 @@ type lockReqHarness struct {
 
 func startLockReqHarness(t *testing.T) lockReqHarness {
 	t.Helper()
+	return startLockHarness(t, lockReqRegistry)
+}
+
+// startLockHarness builds the Worker registry, then the Client registry, with newRegistry.
+func startLockHarness(t *testing.T, newRegistry func(*testing.T) *dex.Registry) lockReqHarness {
+	t.Helper()
 	taskQueue := "lock-req-" + uuid.NewString()[:8]
-	worker, err := dex.NewWorker(lockReqRegistry(t), newPullSDKCache(t), dex.WorkerOptions{
+	worker, err := dex.NewWorker(newRegistry(t), newPullSDKCache(t), dex.WorkerOptions{
 		FlowServiceAddress: flowServiceAddress(),
 		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 4, TaskQueue: taskQueue},
 	})
@@ -439,7 +447,7 @@ func startLockReqHarness(t *testing.T) lockReqHarness {
 		require.NoError(t, <-result)
 	})
 	require.NoError(t, worker.WaitPullRegistered(integrationContext(t)))
-	client, err := dex.NewClient(lockReqRegistry(t), newPullSDKCache(t), dex.ClientOptions{
+	client, err := dex.NewClient(newRegistry(t), newPullSDKCache(t), dex.ClientOptions{
 		FlowServiceAddress: flowServiceAddress(),
 	})
 	require.NoError(t, err)
@@ -670,6 +678,609 @@ func TestAttributeLockRequirementRPCs(t *testing.T) {
 		require.True(t, values.IsSet(lockReqTotal), "the rejected delete is discarded")
 		require.Equal(t, 7, total)
 	})
+}
+
+var (
+	// Shared options pointers that tests change after registration or during a call.
+	lockSnapSharedStepOptions = &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
+	lockSnapSharedRPCOptions  = &dex.RPCOptions{}
+	// lockSnapFreshOptionsChanged drops the lock from the options lockSnapFreshStep builds on each call.
+	lockSnapFreshOptionsChanged atomic.Bool
+	lockSnapCurrentGate         atomic.Pointer[lockSnapGate]
+)
+
+func lockSnapTotalLocks() []dex.AttributeLock {
+	return []dex.AttributeLock{dex.LockAttribute(lockReqTotal)}
+}
+
+// resetLockSnapOptions makes every snapshot option hold the total lock, now and after the test.
+func resetLockSnapOptions(t *testing.T) {
+	t.Helper()
+	restore := func() {
+		lockSnapSharedStepOptions.ExecuteLockAttributes = lockSnapTotalLocks()
+		lockSnapSharedRPCOptions.LockAttributes = lockSnapTotalLocks()
+		lockSnapFreshOptionsChanged.Store(false)
+	}
+	restore()
+	t.Cleanup(restore)
+}
+
+// lockSnapGate pauses one handler until the test opens it.
+type lockSnapGate struct {
+	entered     chan string
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func armLockSnapGate(t *testing.T) *lockSnapGate {
+	t.Helper()
+	gate := &lockSnapGate{entered: make(chan string, 1), release: make(chan struct{})}
+	lockSnapCurrentGate.Store(gate)
+	t.Cleanup(gate.open)
+	return gate
+}
+
+func (gate *lockSnapGate) open() {
+	gate.releaseOnce.Do(func() { close(gate.release) })
+}
+
+// awaitEntered returns the Flow ID of the paused handler.
+func (gate *lockSnapGate) awaitEntered(t *testing.T) string {
+	t.Helper()
+	select {
+	case flowID := <-gate.entered:
+		return flowID
+	case <-time.After(30 * time.Second):
+		t.Fatal("the gated handler did not start")
+		return ""
+	}
+}
+
+func pauseAtLockSnapGate(ctx dex.Context) error {
+	gate := lockSnapCurrentGate.Load()
+	if gate == nil {
+		return errors.New("no lock snapshot gate is armed")
+	}
+	gate.entered <- ctx.FlowID()
+	select {
+	case <-gate.release:
+		return nil
+	case <-time.After(45 * time.Second):
+		return errors.New("the gated handler was not released")
+	}
+}
+
+func lockSnapGatedWrite(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := pauseAtLockSnapGate(ctx); err != nil {
+		return nil, err
+	}
+	if err := lockReqTotal.Set(ctx, 1); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("written"), nil
+}
+
+// lockSnapSharedStep returns one shared options pointer.
+type lockSnapSharedStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapSharedStep) GetStepOptions() *dex.StepOptions {
+	return lockSnapSharedStepOptions
+}
+
+func (lockSnapSharedStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return lockSnapGatedWrite(ctx)
+}
+
+// lockSnapFreshStep builds new options on each call; later calls lose the lock.
+type lockSnapFreshStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapFreshStep) GetStepOptions() *dex.StepOptions {
+	options := &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}
+	if !lockSnapFreshOptionsChanged.Load() {
+		options.ExecuteLockAttributes = lockSnapTotalLocks()
+	}
+	return options
+}
+
+func (lockSnapFreshStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return lockSnapGatedWrite(ctx)
+}
+
+// lockSnapFailToSharedStep fails once, so its Execute failure route moves to lockSnapSharedStep.
+type lockSnapFailToSharedStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapFailToSharedStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSharedStep{}, nil),
+	}
+}
+
+func (lockSnapFailToSharedStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return nil, errors.New("route to the Execute failure target")
+}
+
+// lockSnapFailToFreshStep fails once, so its Execute failure route moves to lockSnapFreshStep.
+type lockSnapFailToFreshStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapFailToFreshStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapFreshStep{}, nil),
+	}
+}
+
+func (lockSnapFailToFreshStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return nil, errors.New("route to the Execute failure target")
+}
+
+type lockSnapSubFlowStep struct {
+	dex.StepDefaults
+}
+
+func (lockSnapSubFlowStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(lockSnapStartFlow{}, nil)), nil
+}
+
+func (lockSnapSubFlowStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("sub-flow done"), nil
+}
+
+type lockSnapDispatchStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (lockSnapDispatchStep) Execute(_ dex.Context, route string) (*dex.StepDecision, error) {
+	switch route {
+	case "shared-movement":
+		return dex.GoTo[dex.None](lockSnapSharedStep{}, nil), nil
+	case "shared-execute-failure":
+		return dex.GoTo[dex.None](lockSnapFailToSharedStep{}, nil), nil
+	case "fresh-execute-failure":
+		return dex.GoTo[dex.None](lockSnapFailToFreshStep{}, nil), nil
+	case "sub-flow":
+		return dex.GoTo[dex.None](lockSnapSubFlowStep{}, nil), nil
+	case "timeout":
+		// The Flow stays open until its timeout handler runs.
+		return dex.DeadEnd(), nil
+	default:
+		return nil, fmt.Errorf("unknown lock snapshot route %q", route)
+	}
+}
+
+// lockSnapStartFlow starts in lockSnapSharedStep, as a Flow or as a SubFlow.
+type lockSnapStartFlow struct {
+	dex.FlowDefaults
+}
+
+func (lockSnapStartFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(lockSnapSharedStep{})}
+}
+
+func (lockSnapStartFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+func (flow lockSnapStartFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.SetTotalLocked, &dex.RPCOptions{LockAttributes: lockSnapTotalLocks()})}
+}
+
+func (lockSnapStartFlow) SetTotalLocked(ctx dex.Context, value int) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Set(ctx, value)
+}
+
+// lockSnapRouteFlow reaches the gated Steps by movement, failure routes, and SubFlow.
+type lockSnapRouteFlow struct {
+	dex.FlowDefaults
+}
+
+func (lockSnapRouteFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(lockSnapDispatchStep{}),
+		dex.DefineStep(lockSnapSharedStep{}),
+		dex.DefineStep(lockSnapFreshStep{}),
+		dex.DefineStep(lockSnapFailToSharedStep{}),
+		dex.DefineStep(lockSnapFailToFreshStep{}),
+		dex.DefineStep(lockSnapSubFlowStep{}),
+	}
+}
+
+func (lockSnapRouteFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+func (lockSnapRouteFlow) HandleTimeout(dex.Context) (*dex.StepDecision, error) {
+	return nil, errors.New("route to the timeout handler failure target")
+}
+
+func (flow lockSnapRouteFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.SetTotalLocked, &dex.RPCOptions{LockAttributes: lockSnapTotalLocks()})}
+}
+
+func (lockSnapRouteFlow) SetTotalLocked(ctx dex.Context, value int) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Set(ctx, value)
+}
+
+// lockSnapRPCFlow has no Steps; SetTotalGated registers the shared RPC options pointer.
+type lockSnapRPCFlow struct {
+	dex.FlowDefaults
+}
+
+func (lockSnapRPCFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
+func (lockSnapRPCFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+func (flow lockSnapRPCFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SetTotalLocked, &dex.RPCOptions{LockAttributes: lockSnapTotalLocks()}),
+		dex.DefineRPC(flow.SetTotalGated, lockSnapSharedRPCOptions),
+	}
+}
+
+func (lockSnapRPCFlow) SetTotalLocked(ctx dex.Context, value int) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Set(ctx, value)
+}
+
+func (lockSnapRPCFlow) SetTotalGated(ctx dex.Context, value int) (*dex.RPCResult[dex.None], error) {
+	if err := pauseAtLockSnapGate(ctx); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, lockReqTotal.Set(ctx, value)
+}
+
+func lockSnapRegistry(t *testing.T) *dex.Registry {
+	t.Helper()
+	registry, err := dex.NewRegistry([]dex.Flow{lockSnapStartFlow{}, lockSnapRouteFlow{}, lockSnapRPCFlow{}})
+	require.NoError(t, err)
+	return registry
+}
+
+// requireGatedStepHoldsLock expects a lock conflict while the Step is paused, then its committed write.
+func (harness lockReqHarness) requireGatedStepHoldsLock(
+	t *testing.T,
+	gate *lockSnapGate,
+	conflictingRPC any,
+	changeWhilePaused func(),
+) {
+	t.Helper()
+	pausedFlowID := gate.awaitEntered(t)
+	if changeWhilePaused != nil {
+		changeWhilePaused()
+	}
+	err := harness.client.InvokeRPC(integrationContext(t), pausedFlowID, conflictingRPC, 2, new(dex.None))
+	var conflict *dex.RPCLockConflictError
+	require.ErrorAs(t, err, &conflict, "the paused Step holds its registered lock")
+	gate.open()
+	result := harness.waitForFlow(t, pausedFlowID)
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+	var output string
+	require.NoError(t, result.DecodeSingleOutput(&output))
+	require.Equal(t, "written", output)
+	total := -1
+	values, err := harness.client.GetAttributes(integrationContext(t), pausedFlowID, dex.ReadAttribute(lockReqTotal, &total))
+	require.NoError(t, err)
+	require.Equal(t, 1, total, "the paused Step's write commits")
+	require.True(t, values.IsSet(lockReqTotal))
+}
+
+// TestAttributeLockRequirementRegisteredLockSnapshot checks that every send path and the check use registered locks.
+func TestAttributeLockRequirementRegisteredLockSnapshot(t *testing.T) {
+	startFlow := lockSnapStartFlow{}
+	routeFlow := lockSnapRouteFlow{}
+	clearSharedStepLocks := func() { lockSnapSharedStepOptions.ExecuteLockAttributes = nil }
+	// A nil entry is invalid, so mapping the original field would fail the send.
+	setInvalidSharedStepLock := func() { lockSnapSharedStepOptions.ExecuteLockAttributes = []dex.AttributeLock{nil} }
+	cases := []struct {
+		name string
+		// changeAfterRegistration runs after both registries exist and before the Flow starts.
+		changeAfterRegistration func()
+		changeWhilePaused       func()
+		flow                    dex.Flow
+		input                   any
+		conflictingRPC          any
+	}{
+		{
+			name:                    "start-shared-options-cleared-after-registration",
+			changeAfterRegistration: clearSharedStepLocks,
+			flow:                    startFlow, input: nil, conflictingRPC: startFlow.SetTotalLocked,
+		},
+		{
+			name:                    "start-shared-options-invalid-lock-after-registration",
+			changeAfterRegistration: setInvalidSharedStepLock,
+			flow:                    startFlow, input: nil, conflictingRPC: startFlow.SetTotalLocked,
+		},
+		{
+			name:                    "movement-shared-options-invalid-lock-after-registration",
+			changeAfterRegistration: setInvalidSharedStepLock,
+			flow:                    routeFlow, input: "shared-movement", conflictingRPC: routeFlow.SetTotalLocked,
+		},
+		{
+			name:              "start-shared-options-cleared-during-call",
+			changeWhilePaused: clearSharedStepLocks,
+			flow:              startFlow, input: nil, conflictingRPC: startFlow.SetTotalLocked,
+		},
+		{
+			name:                    "movement-shared-options-cleared-after-registration",
+			changeAfterRegistration: clearSharedStepLocks,
+			flow:                    routeFlow, input: "shared-movement", conflictingRPC: routeFlow.SetTotalLocked,
+		},
+		{
+			name:                    "execute-failure-shared-options-cleared-after-registration",
+			changeAfterRegistration: clearSharedStepLocks,
+			flow:                    routeFlow, input: "shared-execute-failure", conflictingRPC: routeFlow.SetTotalLocked,
+		},
+		{
+			name:                    "execute-failure-fresh-options-changed-after-registration",
+			changeAfterRegistration: func() { lockSnapFreshOptionsChanged.Store(true) },
+			flow:                    routeFlow, input: "fresh-execute-failure", conflictingRPC: routeFlow.SetTotalLocked,
+		},
+		{
+			// The paused Step runs in the child Flow.
+			name:                    "sub-flow-start-shared-options-cleared-after-registration",
+			changeAfterRegistration: clearSharedStepLocks,
+			flow:                    routeFlow, input: "sub-flow", conflictingRPC: startFlow.SetTotalLocked,
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetLockSnapOptions(t)
+			harness := startLockHarness(t, lockSnapRegistry)
+			if testCase.changeAfterRegistration != nil {
+				testCase.changeAfterRegistration()
+			}
+			gate := armLockSnapGate(t)
+			harness.startFlow(t, testCase.flow, testCase.input)
+			harness.requireGatedStepHoldsLock(t, gate, testCase.conflictingRPC, testCase.changeWhilePaused)
+		})
+	}
+
+	t.Run("timeout-handler-failure-fresh-options-changed-after-registration", func(t *testing.T) {
+		resetLockSnapOptions(t)
+		harness := startLockHarness(t, lockSnapRegistry)
+		lockSnapFreshOptionsChanged.Store(true)
+		gate := armLockSnapGate(t)
+		timeout := time.Second
+		_, err := harness.client.StartFlow(integrationContext(t), routeFlow, newFlowID(t, "lock-snap-timeout"), "timeout",
+			dex.StartFlowOptions{
+				TaskQueue:     harness.taskQueue,
+				Timeout:       &timeout,
+				TimeoutPolicy: dex.TimeoutHandler,
+				TimeoutHandlerOptions: &dex.FlowTimeoutHandlerOptions{
+					Retry:   &dex.RetryPolicy{MaximumAttempts: 1},
+					Failure: dex.ProceedToOnFlowTimeoutHandlerFailure(lockSnapFreshStep{}, nil),
+				},
+			})
+		require.NoError(t, err)
+		harness.requireGatedStepHoldsLock(t, gate, routeFlow.SetTotalLocked, nil)
+	})
+}
+
+// lockSnapSelfRecoveryStep routes an Execute failure to a recovery value of its own type with nil options.
+type lockSnapSelfRecoveryStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	recovery bool
+}
+
+func (step lockSnapSelfRecoveryStep) GetStepOptions() *dex.StepOptions {
+	if step.recovery {
+		return nil
+	}
+	return &dex.StepOptions{
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSelfRecoveryStep{recovery: true}, nil),
+	}
+}
+
+func (lockSnapSelfRecoveryStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if ctx.RecoveryError() != nil {
+		return dex.GracefulComplete("recovered"), nil
+	}
+	return nil, errors.New("route to the recovery value")
+}
+
+// lockSnapSelfRouteStep returns new options on each call that route an Execute failure to itself with an override.
+type lockSnapSelfRouteStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapSelfRouteStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSelfRouteStep{},
+			&dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}),
+	}
+}
+
+func (lockSnapSelfRouteStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("done"), nil
+}
+
+// TestAttributeLockRequirementUnboundedFailureRoute returns an error instead of recursing without end.
+func TestAttributeLockRequirementUnboundedFailureRoute(t *testing.T) {
+	_, err := dex.NewRegistry([]dex.Flow{lockSnapStepFlow{
+		flowType: "lockSnapDeclaredSelfRouteFlow",
+		start:    dex.DefineStartStep(lockSnapSelfRouteStep{}),
+		schema:   lockReqSchema(),
+	}})
+	require.ErrorContains(t, err, `failure routes nest deeper than 32 Steps at step "lockSnapSelfRouteStep"`)
+}
+
+// lockSnapChainStep routes an Execute failure to the next Step of an acyclic chain.
+type lockSnapChainStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	index  int
+	routes int
+}
+
+func (step lockSnapChainStep) GetStepType() string {
+	return fmt.Sprintf("lockSnapChainStep%d", step.index)
+}
+
+func (step lockSnapChainStep) GetStepOptions() *dex.StepOptions {
+	if step.index == step.routes {
+		return nil
+	}
+	next := lockSnapChainStep{index: step.index + 1, routes: step.routes}
+	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](next, nil)}
+}
+
+func (lockSnapChainStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("done"), nil
+}
+
+// lockSnapChainFlow starts a chain of routes failure routes in a Flow that declares a lock requirement.
+type lockSnapChainFlow struct {
+	dex.FlowDefaults
+	flowType string
+	routes   int
+}
+
+func (flow lockSnapChainFlow) GetFlowType() string {
+	return flow.flowType
+}
+
+func (flow lockSnapChainFlow) GetSteps() []dex.StepDef {
+	steps := []dex.StepDef{dex.DefineStartStep(lockSnapChainStep{routes: flow.routes})}
+	for index := 1; index <= flow.routes; index++ {
+		steps = append(steps, dex.DefineStep(lockSnapChainStep{index: index, routes: flow.routes}))
+	}
+	return steps
+}
+
+func (lockSnapChainFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+// TestAttributeLockRequirementFailureRouteDepthBoundary accepts 32 nested failure routes and rejects 33.
+func TestAttributeLockRequirementFailureRouteDepthBoundary(t *testing.T) {
+	_, err := dex.NewRegistry([]dex.Flow{lockSnapChainFlow{flowType: "lockSnapChain33Flow", routes: 33}})
+	require.ErrorContains(t, err, `failure routes nest deeper than 32 Steps at step "lockSnapChainStep33"`)
+
+	// The Server must also decode the 32 nested options that the Flow start sends.
+	flow := lockSnapChainFlow{flowType: "lockSnapChain32Flow", routes: 32}
+	harness := startLockHarness(t, func(t *testing.T) *dex.Registry {
+		t.Helper()
+		registry, err := dex.NewRegistry([]dex.Flow{flow})
+		require.NoError(t, err)
+		return registry
+	})
+	result := harness.waitForFlow(t, harness.startFlow(t, flow, nil))
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+}
+
+// lockSnapStepFlow registers one start Step under a schema with or without lock requirements.
+type lockSnapStepFlow struct {
+	dex.FlowDefaults
+	flowType string
+	start    dex.StepDef
+	schema   dex.PersistenceSchema
+}
+
+func (flow lockSnapStepFlow) GetFlowType() string {
+	return flow.flowType
+}
+
+func (flow lockSnapStepFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{flow.start}
+}
+
+func (flow lockSnapStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return flow.schema
+}
+
+// TestAttributeLockRequirementSelfRecovery runs a bounded self-recovery route with and without declarations.
+func TestAttributeLockRequirementSelfRecovery(t *testing.T) {
+	cases := []struct {
+		name   string
+		schema dex.PersistenceSchema
+	}{
+		{name: "lockSnapUndeclaredSelfRecoveryFlow", schema: dex.PersistenceSchema{Attributes: []dex.AttributeDef{lockReqFree}}},
+		{name: "lockSnapDeclaredSelfRecoveryFlow", schema: lockReqSchema()},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			flow := lockSnapStepFlow{
+				flowType: testCase.name,
+				start:    dex.DefineStartStep(lockSnapSelfRecoveryStep{}),
+				schema:   testCase.schema,
+			}
+			harness := startLockHarness(t, func(t *testing.T) *dex.Registry {
+				t.Helper()
+				registry, err := dex.NewRegistry([]dex.Flow{flow})
+				require.NoError(t, err)
+				return registry
+			})
+			result := harness.waitForFlow(t, harness.startFlow(t, flow, nil))
+			require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+			var output string
+			require.NoError(t, result.DecodeSingleOutput(&output))
+			require.Equal(t, "recovered", output)
+		})
+	}
+}
+
+// TestAttributeLockRequirementRegisteredRPCLockSnapshot checks that a shared RPCOptions change affects neither send nor check.
+func TestAttributeLockRequirementRegisteredRPCLockSnapshot(t *testing.T) {
+	flow := lockSnapRPCFlow{}
+	clearSharedRPCLocks := func() { lockSnapSharedRPCOptions.LockAttributes = nil }
+	cases := []struct {
+		name                    string
+		changeAfterRegistration func()
+		changeWhilePaused       func()
+	}{
+		{name: "cleared-after-registration", changeAfterRegistration: clearSharedRPCLocks},
+		{
+			name: "invalid-lock-after-registration",
+			changeAfterRegistration: func() {
+				lockSnapSharedRPCOptions.LockAttributes = []dex.AttributeLock{nil}
+			},
+		},
+		{name: "cleared-during-call", changeWhilePaused: clearSharedRPCLocks},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetLockSnapOptions(t)
+			harness := startLockHarness(t, lockSnapRegistry)
+			if testCase.changeAfterRegistration != nil {
+				testCase.changeAfterRegistration()
+			}
+			flowID := harness.startFlow(t, flow, nil)
+			gate := armLockSnapGate(t)
+			gatedResult := make(chan error, 1)
+			go func() {
+				gatedResult <- harness.client.InvokeRPC(context.Background(), flowID, flow.SetTotalGated, 7, new(dex.None))
+			}()
+			gate.awaitEntered(t)
+			if testCase.changeWhilePaused != nil {
+				testCase.changeWhilePaused()
+			}
+			err := harness.client.InvokeRPC(integrationContext(t), flowID, flow.SetTotalLocked, 2, new(dex.None))
+			var conflict *dex.RPCLockConflictError
+			require.ErrorAs(t, err, &conflict, "the paused RPC holds its registered lock")
+			gate.open()
+			select {
+			case err := <-gatedResult:
+				require.NoError(t, err, "the paused RPC passes the check with its registered lock")
+			case <-time.After(30 * time.Second):
+				t.Fatal("the paused RPC did not return")
+			}
+			total := -1
+			_, err = harness.client.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(lockReqTotal, &total))
+			require.NoError(t, err)
+			require.Equal(t, 7, total, "the paused RPC's write commits")
+		})
+	}
 }
 
 type lockReqInvalidFlow struct {

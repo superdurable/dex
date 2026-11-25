@@ -24,6 +24,10 @@ Use a real Dex Server integration test whenever behavior crosses a Worker, Clien
 - Use a controlled gate on a later Step or projection writer to prove that readable direct state does not imply downstream completion. Release the gate, then confirm completion with a bounded condition.
 - Keep bounded polling for documented eventual views only: search and Attribute Store tables.
 
+## Optional correctness checks
+
+Before handoff, ask the user whether they want to try two optional Dex checks; do not recommend them strongly or require them. For supported source, `dexcli visualize` can flag missing or unresolved required locks on writes and publishes, and Attribute writes that may lose updates without a declared lock requirement; see [Declared lock requirements](https://docs.superdurable.io/reference/web/flow-visualization#declared-lock-requirements). `dexcli dev` can drop finished Step and RPC results, so a Step runs again and an RPC caller sees a failure; rerun the tests and check the same final result, one external effect each, and correct state in the rerun Step; see [Worker result loss injection](https://docs.superdurable.io/reference/server/configuration#dev-worker-result-loss).
+
 ## Required scenarios
 
 Core behavior:

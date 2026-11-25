@@ -6,10 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { markLockRequirement } from "./attribute-lock-requirement.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
 import type { Join } from "./join.js";
+import { Attribute } from "./persistence.js";
 import type { SubFlowOptions } from "./subflow.js";
 import {
   requireConditionId,
@@ -221,6 +223,67 @@ export class Channel<T> {
   }
 
   /**
+   * Returns an immutable Channel definition whose every publish must hold one Attribute's lock.
+   *
+   * Use it when every publisher must coordinate, for example when RPCs that publish replies must
+   * not run while a Step closes the reply window. Each publisher then registers the same lock, and
+   * a publisher that forgets it fails instead of racing. The lock Attribute only names the lock; its
+   * value is not used. Waiting on the Channel, reading its messages, and deleting pending messages
+   * are not affected.
+   *
+   * The Worker enforces the requirement. After a Step's `waitFor` or `execute`, or an RPC, returns,
+   * the Worker compares each {@link Channel.publish} with the locks that the handler registered.
+   * When the lock is missing, the invocation fails with {@link MissingAttributeLockError}, and Dex
+   * discards every change buffered for its result, including the publications.
+   *
+   * Only locks registered in the Step's own {@link StepOptions} or the RPC's {@link RPCOptions}
+   * count. `lockAttributeMapInstances` of {@link RPCInvokeOptions} and the options of one
+   * {@link StepMovement} do not count. A Flow timeout handler is not checked. The declaration is
+   * local to the SDK and is never sent to the Server.
+   *
+   * Register `lockAttribute` in the same Flow's PersistenceSchema, as the same definition object.
+   * Registry construction throws {@link FlowDefinitionError} when it is missing, when it is a
+   * different object with the same name, or when that name belongs to an AttributeMap. A later
+   * call replaces an earlier requirement.
+   *
+   * @example
+   * ```ts
+   * const conversationLock = new Attribute("conversation-lock", booleanCodec);
+   * const replies = new Channel("replies", stringCodec).publishesRequireAttributeLock(conversationLock);
+   *
+   * class ConversationFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "ConversationFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [conversationLock], channels: [replies] };
+   *   }
+   *
+   *   @rpc({ inputCodec: stringCodec, lockAttributes: [conversationLock.lock()] })
+   *   public reply(context: Context, text: string): void {
+   *     replies.publish(context, text);
+   *   }
+   * }
+   * ```
+   * @param lockAttribute - Singleton Attribute whose lock every publish requires.
+   * @returns A new definition with the same name and codec that requires `lockAttribute`'s lock
+   *   for every publish; this definition remains unchanged.
+   * @throws {TypeError} When `lockAttribute` is not a singleton {@link Attribute}.
+   * @since 1.45.17
+   */
+  public publishesRequireAttributeLock(lockAttribute: Attribute<unknown>): Channel<T> {
+    return markLockRequirement(new Channel(this.name, this.codec), {
+      kind: "attribute",
+      lockAttribute: requirePublishLockAttribute(lockAttribute),
+    });
+  }
+
+  /**
    * Stages one value to append with the current decision.
    * @param context - Current Step or RPC Context.
    * @param value - Typed value to append.
@@ -356,6 +419,51 @@ export class ChannelMap<T> {
     public readonly codec: Codec<T>,
   ) {
     requirePersistenceDefinitionName(name);
+  }
+
+  /**
+   * Returns an immutable ChannelMap definition whose every publish must hold one Attribute's lock.
+   *
+   * The rule and its enforcement are the same as for {@link Channel.publishesRequireAttributeLock}.
+   * A publish to any instance without `lockAttribute.lock()` among the handler's registered locks
+   * fails the `waitFor`, `execute`, or RPC invocation with {@link MissingAttributeLockError}, and
+   * Dex discards every change buffered for its result. A {@link Join} carries no requirement.
+   *
+   * @example
+   * ```ts
+   * const roomLock = new Attribute("room-lock", booleanCodec);
+   * const roomEvents = new ChannelMap("room-events", stringCodec).publishesRequireAttributeLock(roomLock);
+   *
+   * class RoomFlow implements Flow<void> {
+   *   public getFlowType(): string {
+   *     return "RoomFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.empty();
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { attributes: [roomLock], channels: [roomEvents] };
+   *   }
+   *
+   *   @rpc({ inputCodec: stringCodec, lockAttributes: [roomLock.lock()] })
+   *   public announce(context: Context, room: string): void {
+   *     roomEvents.publish(context, room, "joined");
+   *   }
+   * }
+   * ```
+   * @param lockAttribute - Singleton Attribute whose lock every publish requires.
+   * @returns A new definition with the same name and codec that requires `lockAttribute`'s lock
+   *   for every publish; this definition remains unchanged.
+   * @throws {TypeError} When `lockAttribute` is not a singleton {@link Attribute}.
+   * @since 1.45.17
+   */
+  public publishesRequireAttributeLock(lockAttribute: Attribute<unknown>): ChannelMap<T> {
+    return markLockRequirement(new ChannelMap(this.name, this.codec), {
+      kind: "attribute",
+      lockAttribute: requirePublishLockAttribute(lockAttribute),
+    });
   }
 
   /**
@@ -608,3 +716,10 @@ export const Wait = Object.freeze({
     return { kind: "anyCombinationOf", conditions: [], combinations };
   },
 });
+
+function requirePublishLockAttribute(lockAttribute: unknown): Attribute<unknown> {
+  if (!(lockAttribute instanceof Attribute)) {
+    throw new TypeError("publishesRequireAttributeLock requires a singleton Attribute");
+  }
+  return lockAttribute as Attribute<unknown>;
+}

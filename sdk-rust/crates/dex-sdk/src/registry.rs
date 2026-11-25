@@ -10,6 +10,7 @@ use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::attribute_lock_requirement::RegisteredLockRequirements;
 use crate::persistence::{PersistenceDefinition, PersistenceKind};
 use crate::rpc::RegisteredRpc;
 use crate::step::RegisteredStep;
@@ -54,7 +55,24 @@ pub(crate) struct RegisteredFlow {
     pub(crate) start_step: Option<RegisteredStep>,
     pub(crate) rpcs: HashMap<&'static str, RegisteredRpc>,
     pub(crate) persistence: HashMap<String, PersistenceDefinition>,
+    pub(crate) lock_requirements: RegisteredLockRequirements,
     pub(crate) handler: Arc<dyn ErasedFlow>,
+}
+
+impl RegisteredFlow {
+    /// Returns a Step's options for default dispatch.
+    ///
+    /// A Flow with declared lock requirements sends the lock fields read at registration, which
+    /// the Worker check also uses.
+    pub(crate) fn registered_step_options(
+        &self,
+        step_type: &str,
+    ) -> HandlerResult<ErasedStepOptions> {
+        let mut options = self.handler.step_options(step_type)?;
+        self.lock_requirements
+            .apply_registered_step_locks(step_type, &mut options);
+        Ok(options)
+    }
 }
 
 impl Registry {
@@ -240,7 +258,9 @@ fn assemble_flow<SomeFlow: Flow>(
         }
     }
 
-    let persistence = assemble_persistence(name, flow.persistence().definitions())?;
+    let schema = flow.persistence();
+    let persistence = assemble_persistence(name, schema.definitions())?;
+    let mut step_options = Vec::with_capacity(steps.len());
     for step in steps.values() {
         let options = flow
             .steps()
@@ -248,7 +268,16 @@ fn assemble_flow<SomeFlow: Flow>(
             .ok_or_else(|| definition_error(format!("Flow {name} Step disappeared")))?
             .options();
         validate_step_state_loads(name, step.name, &options, &persistence)?;
+        step_options.push((step.name, options));
     }
+    let lock_requirements = RegisteredLockRequirements::assemble(
+        name,
+        schema.lock_requirements(),
+        &persistence,
+        step_options
+            .iter()
+            .map(|(step_type, options)| (*step_type, options)),
+    )?;
     let mut rpcs = HashMap::new();
     for rpc in flow.rpcs().bind(Arc::clone(&flow)) {
         require_static_name(rpc.name, "RPC name")?;
@@ -264,6 +293,7 @@ fn assemble_flow<SomeFlow: Flow>(
         start_step,
         rpcs,
         persistence,
+        lock_requirements,
         handler: Arc::new(TypedFlow {
             flow,
             timeout_handler,

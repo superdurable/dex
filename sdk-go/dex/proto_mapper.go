@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,6 +106,7 @@ func mapAttributeSyncConfig(enabled bool) *dexpb.AttributeSyncConfig {
 }
 
 func mapStartFlowOptions(
+	flow *registeredFlow,
 	options StartFlowOptions,
 ) (int32, dexpb.FlowTimeoutPolicy, *dexpb.FlowStartOptions, error) {
 	timeout, err := optionalDurationSeconds32(options.Timeout)
@@ -139,7 +141,7 @@ func mapStartFlowOptions(
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	config.WorkerTarget = &dexpb.WorkerTarget{IsPullMode: true, TaskQueue: options.TaskQueue}
-	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(flow, options.TimeoutHandlerOptions)
 	if err != nil {
 		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
@@ -183,22 +185,48 @@ func mapAlreadyStartedOptions(
 	}
 }
 
-func mapStepOptions(options *StepOptions) (*dexpb.StepOptions, error) {
-	return mapStepOptionsRecursive(options, make(map[*StepOptions]bool))
+func mapStepOptions(flow *registeredFlow, options *StepOptions) (*dexpb.StepOptions, error) {
+	return newStepOptionsMapper(flow).mapStepOptions(options)
 }
 
-func mapStepOptionsRecursive(
+// stepOptionsMapper maps StepOptions and the options of their failure targets.
+// A Flow that declares a lock requirement sends registered lock keys.
+type stepOptionsMapper struct {
+	flow *registeredFlow
+	// activeOptions detects cycles by the identity of the options a Step value returned.
+	activeOptions map[*StepOptions]bool
+	// failureRouteDepth counts nested failure routes in a Flow that declares a lock requirement.
+	failureRouteDepth int
+}
+
+// maxDeclaredFailureRouteDepth keeps nested StepOptions well under the Server's 100-message decode limit.
+const maxDeclaredFailureRouteDepth = 32
+
+func newStepOptionsMapper(flow *registeredFlow) *stepOptionsMapper {
+	return &stepOptionsMapper{flow: flow, activeOptions: make(map[*StepOptions]bool)}
+}
+
+func (mapper *stepOptionsMapper) usesLockSnapshots() bool {
+	return mapper.flow != nil && mapper.flow.declaresLockRequirement
+}
+
+func (mapper *stepOptionsMapper) mapStepOptions(options *StepOptions) (*dexpb.StepOptions, error) {
+	return mapper.doMapStepOptions(options, options)
+}
+
+// doMapStepOptions maps options; identity is the value that cycle detection tracks for them.
+func (mapper *stepOptionsMapper) doMapStepOptions(
+	identity *StepOptions,
 	options *StepOptions,
-	active map[*StepOptions]bool,
 ) (*dexpb.StepOptions, error) {
 	if options == nil {
 		return nil, nil
 	}
-	if active[options] {
+	if mapper.activeOptions[identity] {
 		return nil, fmt.Errorf("dex: step options contain a cycle")
 	}
-	active[options] = true
-	defer delete(active, options)
+	mapper.activeOptions[identity] = true
+	defer delete(mapper.activeOptions, identity)
 
 	waitForMethodTimeout, err := durationSeconds32(options.WaitForMethodTimeout)
 	if err != nil {
@@ -233,7 +261,7 @@ func mapStepOptionsRecursive(
 		return nil, err
 	}
 	executeFailurePolicy, executeFailureStep, executeFailureOptions, err :=
-		mapExecuteFailure(options.ExecuteFailure, active)
+		mapper.mapExecuteFailure(options.ExecuteFailure)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +341,7 @@ func timeoutHandlerStateLoads(options *FlowTimeoutHandlerOptions) stateLoads {
 }
 
 func mapFlowTimeoutHandlerOptions(
+	flow *registeredFlow,
 	options *FlowTimeoutHandlerOptions,
 ) (*dexpb.FlowTimeoutHandlerOptions, error) {
 	if options == nil {
@@ -345,7 +374,7 @@ func mapFlowTimeoutHandlerOptions(
 	if err != nil {
 		return nil, fmt.Errorf("dex: timeout handler state load: %w", err)
 	}
-	failurePolicy, failureStep, failureOptions, err := mapFlowTimeoutHandlerFailure(options.Failure)
+	failurePolicy, failureStep, failureOptions, err := mapFlowTimeoutHandlerFailure(flow, options.Failure)
 	if err != nil {
 		return nil, err
 	}
@@ -365,6 +394,7 @@ func mapFlowTimeoutHandlerOptions(
 }
 
 func mapFlowTimeoutHandlerFailure(
+	flow *registeredFlow,
 	failure *FlowTimeoutHandlerFailure,
 ) (dexpb.ExecuteMethodFailurePolicy, string, *dexpb.StepOptions, error) {
 	if failure == nil {
@@ -375,24 +405,17 @@ func mapFlowTimeoutHandlerFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: timeout handler failure target is invalid")
 	}
-	options, err := mapStepOptions(mergeStepOptions(failure.step.stepOptions(), failure.options))
+	stepType, options, err := newStepOptionsMapper(flow).mapFailureTarget(failure.step, failure.options)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
-	if failure.step.skipWaitFor() {
-		if options == nil {
-			options = &dexpb.StepOptions{}
-		}
-		options.SkipWaitFor = true
-	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		failure.step.stepType(), options, nil
+		stepType, options, nil
 }
 
-func mapExecuteFailure(
+func (mapper *stepOptionsMapper) mapExecuteFailure(
 	failure *ExecuteFailure,
-	active map[*StepOptions]bool,
 ) (
 	dexpb.ExecuteMethodFailurePolicy,
 	string,
@@ -407,22 +430,156 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
-	options, err := mapStepOptionsRecursive(
-		mergeStepOptions(failure.step.stepOptions(), failure.options),
-		active,
-	)
+	stepType, options, err := mapper.mapFailureTarget(failure.step, failure.options)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
-	if failure.step.skipWaitFor() {
-		if options == nil {
-			options = &dexpb.StepOptions{}
-		}
-		options.SkipWaitFor = true
-	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		failure.step.stepType(), options, nil
+		stepType, options, nil
+}
+
+// mapFailureTarget returns the Step type and options a failure route sends to step.
+// The non-lock options come from the step value of the route, as before declarations existed.
+func (mapper *stepOptionsMapper) mapFailureTarget(
+	step StepDef,
+	overrides *StepOptions,
+) (string, *dexpb.StepOptions, error) {
+	if !mapper.usesLockSnapshots() {
+		options, err := mapper.mapStepOptions(mergeStepOptions(step.stepOptions(), overrides))
+		if err != nil {
+			return "", nil, err
+		}
+		return step.stepType(), withSkipWaitFor(options, step.skipWaitFor()), nil
+	}
+	target, err := mapper.flow.resolveStepReference(step)
+	if err != nil {
+		return "", nil, fmt.Errorf("dex: failure target: %w", err)
+	}
+	if target.lockSnapshot == nil {
+		return "", nil, fmt.Errorf("dex: step %q has no registration snapshot", target.stepType)
+	}
+	if mapper.failureRouteDepth >= maxDeclaredFailureRouteDepth {
+		return "", nil, fmt.Errorf(
+			"dex: failure routes nest deeper than %d Steps at step %q; a route may lead back to a Step on it",
+			maxDeclaredFailureRouteDepth,
+			target.stepType,
+		)
+	}
+	mapper.failureRouteDepth++
+	defer func() { mapper.failureRouteDepth-- }()
+	routeOptions := step.stepOptions()
+	options, err := mapper.doMapStepOptions(
+		mergedStepOptionsIdentity(routeOptions, overrides),
+		mergeStepOptions(stepOptionsWithoutLocks(routeOptions), overrides),
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	options = withRegisteredLockKeys(options, target.lockSnapshot, overrides)
+	return step.stepType(), withSkipWaitFor(options, step.skipWaitFor()), nil
+}
+
+// mergedStepOptionsIdentity returns the value that mergeStepOptions(defaults, overrides) would return
+// when it returns an input, so cycle detection matches Flows without declarations.
+func mergedStepOptionsIdentity(defaults *StepOptions, overrides *StepOptions) *StepOptions {
+	if defaults == nil {
+		return overrides
+	}
+	if overrides == nil {
+		return defaults
+	}
+	// mergeStepOptions returns a new value here, which never repeats.
+	return &StepOptions{}
+}
+
+// mapRegisteredStepOptions maps a move to a registered step with optional per-move overrides.
+func (mapper *stepOptionsMapper) mapRegisteredStepOptions(
+	step *registeredStep,
+	overrides *StepOptions,
+) (*dexpb.StepOptions, error) {
+	if !mapper.usesLockSnapshots() {
+		options, err := mapper.mapStepOptions(mergeStepOptions(step.options, overrides))
+		if err != nil {
+			return nil, err
+		}
+		return withSkipWaitFor(options, step.skipWaitFor), nil
+	}
+	snapshot := step.lockSnapshot
+	if snapshot == nil {
+		return nil, fmt.Errorf("dex: step %q has no registration snapshot", step.stepType)
+	}
+	// The snapshot has no lock fields, so only an explicit override maps locks here.
+	options, err := mapper.mapStepOptions(mergeStepOptions(snapshot.options, overrides))
+	if err != nil {
+		return nil, err
+	}
+	options = withRegisteredLockKeys(options, snapshot, overrides)
+	return withSkipWaitFor(options, step.skipWaitFor), nil
+}
+
+// withRegisteredLockKeys sets each lock field that overrides leave nil to the registered keys.
+func withRegisteredLockKeys(
+	options *dexpb.StepOptions,
+	snapshot *stepLockSnapshot,
+	overrides *StepOptions,
+) *dexpb.StepOptions {
+	useWaitForKeys := overrides == nil || overrides.WaitForLockAttributes == nil
+	useExecuteKeys := overrides == nil || overrides.ExecuteLockAttributes == nil
+	if options == nil {
+		hasWaitForKeys := useWaitForKeys && len(snapshot.waitForLockKeys) > 0
+		hasExecuteKeys := useExecuteKeys && len(snapshot.executeLockKeys) > 0
+		if !hasWaitForKeys && !hasExecuteKeys {
+			return nil
+		}
+		options = &dexpb.StepOptions{}
+	}
+	if useWaitForKeys {
+		options.WaitForLockAttributeKeys = slices.Clone(snapshot.waitForLockKeys)
+	}
+	if useExecuteKeys {
+		options.ExecuteLockAttributeKeys = slices.Clone(snapshot.executeLockKeys)
+	}
+	return options
+}
+
+// stepOptionsWithoutLocks copies every field except the lock fields, which it never reads.
+func stepOptionsWithoutLocks(options *StepOptions) *StepOptions {
+	if options == nil {
+		return nil
+	}
+	return &StepOptions{
+		WaitForMethodTimeout:             options.WaitForMethodTimeout,
+		ExecuteMethodTimeout:             options.ExecuteMethodTimeout,
+		HeartbeatTimeout:                 options.HeartbeatTimeout,
+		WaitForRetry:                     options.WaitForRetry,
+		ExecuteRetry:                     options.ExecuteRetry,
+		WaitForFailure:                   options.WaitForFailure,
+		ExecuteFailure:                   options.ExecuteFailure,
+		WaitForDurability:                options.WaitForDurability,
+		ExecuteDurability:                options.ExecuteDurability,
+		WaitForLoadAttributeMaps:         options.WaitForLoadAttributeMaps,
+		WaitForLoadAttributeMapInstances: options.WaitForLoadAttributeMapInstances,
+		WaitForLoadChannels:              options.WaitForLoadChannels,
+		WaitForLoadChannelMaps:           options.WaitForLoadChannelMaps,
+		WaitForLoadChannelMapInstances:   options.WaitForLoadChannelMapInstances,
+		ExecuteLoadAttributeMaps:         options.ExecuteLoadAttributeMaps,
+		ExecuteLoadAttributeMapInstances: options.ExecuteLoadAttributeMapInstances,
+		ExecuteLoadChannels:              options.ExecuteLoadChannels,
+		ExecuteLoadChannelMaps:           options.ExecuteLoadChannelMaps,
+		ExecuteLoadChannelMapInstances:   options.ExecuteLoadChannelMapInstances,
+	}
+}
+
+func withSkipWaitFor(options *dexpb.StepOptions, skipWaitFor bool) *dexpb.StepOptions {
+	if !skipWaitFor {
+		return options
+	}
+	if options == nil {
+		options = &dexpb.StepOptions{}
+	}
+	options.SkipWaitFor = true
+	return options
 }
 
 func mapRetryPolicy(policy *RetryPolicy) (*dexpb.RetryPolicy, error) {
@@ -681,7 +838,7 @@ func (mapper *conditionMapper) add(
 		if inputErr != nil {
 			return "", inputErr
 		}
-		stepOptions, optionsErr := mapRegisteredStepOptions(target.startingStep, nil)
+		stepOptions, optionsErr := mapRegisteredStepOptions(target, target.startingStep, nil)
 		if optionsErr != nil {
 			return "", optionsErr
 		}
@@ -805,7 +962,7 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
-	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(options.TimeoutHandlerOptions)
+	timeoutHandlerOptions, err := mapFlowTimeoutHandlerOptions(target, options.TimeoutHandlerOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -858,85 +1015,6 @@ func mapSubFlowReusePolicy(policy SubFlowReusePolicy) (dexpb.SubFlowReusePolicy,
 		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_UNSPECIFIED,
 			fmt.Errorf("dex: invalid SubFlow reuse policy %d", policy)
 	}
-}
-
-func mapStepDecision(decision *StepDecision) (*dexpb.StepDecision, error) {
-	if decision == nil {
-		return nil, fmt.Errorf("dex: step decision must not be nil")
-	}
-	switch decision.kind {
-	case decisionNext:
-		if len(decision.movements) == 0 {
-			return nil, fmt.Errorf("dex: GoToMany requires at least one movement")
-		}
-		movements, err := mapStepMovements(decision.movements)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{NextSteps: movements}, nil
-	case decisionClose:
-		if len(decision.movements) != 0 {
-			return nil, fmt.Errorf("dex: close decision cannot have next steps")
-		}
-		closeDecision, err := mapCloseDecision(decision.close, false)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{CloseDecision: closeDecision}, nil
-	case decisionConditionalClose:
-		if len(decision.movements) == 0 {
-			return nil, fmt.Errorf("dex: conditional close requires fallback movements")
-		}
-		movements, err := mapStepMovements(decision.movements)
-		if err != nil {
-			return nil, err
-		}
-		closeDecision, err := mapCloseDecision(decision.close, true)
-		if err != nil {
-			return nil, err
-		}
-		return &dexpb.StepDecision{
-			NextSteps:     movements,
-			CloseDecision: closeDecision,
-		}, nil
-	default:
-		return nil, fmt.Errorf("dex: Execute returned an empty decision")
-	}
-}
-
-func mapStepMovements(
-	movements []StepMovement,
-) ([]*dexpb.StepMovement, error) {
-	mapped := make([]*dexpb.StepMovement, 0, len(movements))
-	for _, movement := range movements {
-		value, err := mapStepMovement(movement)
-		if err != nil {
-			return nil, err
-		}
-		mapped = append(mapped, value)
-	}
-	return mapped, nil
-}
-
-func mapStepMovement(movement StepMovement) (*dexpb.StepMovement, error) {
-	if !validStepDef(movement.step) {
-		return nil, fmt.Errorf("dex: movement target is invalid")
-	}
-	input, err := encodeValue(movement.input)
-	if err != nil {
-		return nil, err
-	}
-	options, err := mapStepOptions(
-		mergeStepOptions(movement.step.stepOptions(), movement.options),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &dexpb.StepMovement{
-		StepType:    movement.step.stepType(),
-		StepInput:   input,
-		StepOptions: options,
-	}, nil
 }
 
 func mapCloseDecision(
@@ -1017,26 +1095,6 @@ func mapUniqueChannels(channels []ChannelDef) ([]string, error) {
 		mapped = append(mapped, name)
 	}
 	return mapped, nil
-}
-
-func mapRPCResult[OUT any](result *RPCResult[OUT]) (*dexpb.InvokeWorkerRPCResponse, error) {
-	if result == nil {
-		return nil, fmt.Errorf("dex: RPC returned nil")
-	}
-	output, err := encodeValue(result.Output)
-	if err != nil {
-		return nil, err
-	}
-	response := &dexpb.InvokeWorkerRPCResponse{Output: output}
-	if len(result.NextSteps) == 0 {
-		return response, nil
-	}
-	nextSteps, err := mapStepMovements(result.NextSteps)
-	if err != nil {
-		return nil, err
-	}
-	response.StepDecision = &dexpb.StepDecision{NextSteps: nextSteps}
-	return response, nil
 }
 
 func mapFlowResult(
@@ -1451,6 +1509,22 @@ func mapCloneForkFlowResult(response *dexpb.CloneForkFlowResponse) (CloneForkFlo
 
 func mapWaitForFlowOptions(options WaitForFlowOptions) bool {
 	return options.NeedsResults
+}
+
+// mapRegisteredRPCOptions returns the timeout and the lock keys an invocation of rpc sends.
+// A Flow that declares a lock requirement sends the lock keys copied at registration.
+func mapRegisteredRPCOptions(flow *registeredFlow, rpc *registeredRPC) (int32, []string, error) {
+	if !flow.declaresLockRequirement {
+		return mapRPCOptions(rpc.options)
+	}
+	if rpc.options == nil {
+		return 0, rpc.lockKeys, nil
+	}
+	timeout, err := durationSeconds32(rpc.options.Timeout)
+	if err != nil {
+		return 0, nil, err
+	}
+	return timeout, rpc.lockKeys, nil
 }
 
 func mapRPCOptions(

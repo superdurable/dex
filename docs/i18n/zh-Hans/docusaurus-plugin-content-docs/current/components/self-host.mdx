@@ -15,7 +15,7 @@ description: 在你自己的对象存储上，把 dex-server-zd 运行在 Worker
 
 | 依赖 | 是否必需 | 它提供什么 |
 | --- | --- | --- |
-| 对象存储，比如 Amazon S3 或兼容 S3 的存储 | 是，或者用 db9 代替 | 每个 Flow 的记录 |
+| 对象存储：Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO）。见 [Object storage](/reference/server/object-storage)（英文）。 | 是，或者用 db9 代替 | 每个 Flow 的记录 |
 | PostgreSQL 或 ParadeDB 搜索后端 | 否 | 用 SQL 处理大量或频繁的搜索。见 [Search backends](/reference/server/search)（英文）。 |
 | PostgreSQL Attribute Store | 否 | 把选定的 Attribute 复制到你自己的表中。见 [Dex 和你的数据库](/components/your-database)。 |
 | 指标监听端口 | 否 | Prometheus 指标。见 [Metrics](/reference/server/metrics)（英文）。 |

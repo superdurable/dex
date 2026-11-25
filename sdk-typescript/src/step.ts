@@ -226,6 +226,17 @@ export interface Step<Input> {
   getStepType(): string;
   /**
    * Returns this Step's static options.
+   *
+   * When the Flow's persistence schema declares a lock requirement, Registry construction reads it
+   * once, after the schema, and copies the `waitForLockAttributes` and `executeLockAttributes` of
+   * that read. Every start, movement, SubFlow start, and failure route that uses this Step's
+   * default options then sends those copied locks, and the Worker checks declared lock requirements
+   * against them. The other fields are still read from a new call. Options passed with a
+   * {@link StepMovement} or {@link ExecuteFailure} replace the defaults, including their locks, as
+   * before. Flows without a declared lock requirement keep their earlier behavior: every field is
+   * read from a new call.
+   *
+   * Changed in 1.45.17: Flows that declare a lock requirement send the registration-time locks.
    * @returns Static options, or `undefined` for Flow and server defaults.
    */
   getStepOptions?(): StepOptions | undefined;

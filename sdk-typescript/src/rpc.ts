@@ -72,7 +72,14 @@ export interface RPCOptions<Input = unknown, Output = unknown> {
   readonly outputCodec?: Codec<Output>;
   /** Non-negative handler timeout in milliseconds. */
   readonly timeoutMs?: number;
-  /** Attribute locks held for the entire invocation. */
+  /**
+   * Attribute locks held for the entire invocation.
+   *
+   * In a Flow whose PersistenceSchema declares a lock requirement, Registry construction copies
+   * this list. The Client then sends, and the Worker checks, that copy. Other Flows read the list
+   * when the Client sends each call. Changed in 1.45.17: the copy for Flows that declare a lock
+   * requirement.
+   */
   readonly lockAttributes?: readonly AttributeLock[];
   /** Requests transactional reads and writes even when no Attribute lock is configured. */
   readonly isTransactional?: boolean;

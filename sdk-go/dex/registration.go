@@ -47,6 +47,8 @@ type registeredFlow struct {
 	channels       map[string]registeredChannel
 	streams        map[string]registeredStream
 	isClientOnly   bool
+	// declaresLockRequirement selects registration snapshots for Step and RPC locks.
+	declaresLockRequirement bool
 }
 
 type registeredStep struct {
@@ -56,6 +58,28 @@ type registeredStep struct {
 	options     *StepOptions
 	starting    bool
 	skipWaitFor bool
+	// lockSnapshot is set only in a Flow that declares a lock requirement.
+	lockSnapshot *stepLockSnapshot
+}
+
+// stepLockSnapshot holds registration-time options; the lock check and every default send use it.
+type stepLockSnapshot struct {
+	// options copies the non-lock fields, or is nil when the Step returned nil options.
+	options         *StepOptions
+	waitForLockKeys []string
+	executeLockKeys []string
+}
+
+func newStepLockSnapshot(options *StepOptions) *stepLockSnapshot {
+	if options == nil {
+		return &stepLockSnapshot{}
+	}
+	snapshot := &stepLockSnapshot{}
+	// Invalid locks fail the options validation that follows registration, so errors are dropped here.
+	snapshot.waitForLockKeys, _ = mapAttributeLocks(options.WaitForLockAttributes)
+	snapshot.executeLockKeys, _ = mapAttributeLocks(options.ExecuteLockAttributes)
+	snapshot.options = stepOptionsWithoutLocks(options)
+	return snapshot
 }
 
 type registeredAttribute struct {
@@ -233,7 +257,22 @@ func (flow *registeredFlow) registerPersistence(
 			return err
 		}
 	}
+	flow.declaresLockRequirement = flow.hasDeclaredLockRequirement()
 	return flow.validateRequiredLockAttributes()
+}
+
+func (flow *registeredFlow) hasDeclaredLockRequirement() bool {
+	for _, attribute := range flow.attributes {
+		if attribute.writeLock.mode != lockRequirementNone {
+			return true
+		}
+	}
+	for _, channel := range flow.channels {
+		if channel.publishLock.mode != lockRequirementNone {
+			return true
+		}
+	}
+	return false
 }
 
 func (flow *registeredFlow) registerAttribute(
@@ -468,6 +507,11 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		}
 		flow.actions = append(flow.actions, action)
 	}
+	var lockKeys []string
+	if flow.declaresLockRequirement {
+		// validateRPCOptions already mapped these options without error.
+		_, lockKeys, _ = mapRPCOptions(definition.rpcOptions())
+	}
 	registered := &registeredRPC{
 		handler:     definition,
 		durableName: durableName,
@@ -476,6 +520,7 @@ func (flow *registeredFlow) registerRPC(definition RPCDef, index int) error {
 		output:      definition.rpcOutputType(),
 		options:     definition.rpcOptions(),
 		action:      action,
+		lockKeys:    lockKeys,
 	}
 	flow.rpcs[durableName] = registered
 	flow.rpcsByMethod[methodName] = registered
@@ -529,6 +574,9 @@ func (flow *registeredFlow) registerStep(
 		starting:    definition.isStarting(),
 		skipWaitFor: definition.skipWaitFor(),
 	}
+	if flow.declaresLockRequirement {
+		registered.lockSnapshot = newStepLockSnapshot(registered.options)
+	}
 	if definition.isStarting() {
 		if flow.startingStep != nil {
 			return fmt.Errorf(
@@ -554,7 +602,7 @@ func (flow *registeredFlow) validateStepOptions(
 	); err != nil {
 		return err
 	}
-	if _, err := mapStepOptions(options); err != nil {
+	if _, err := mapStepOptions(flow, options); err != nil {
 		return err
 	}
 	return nil
@@ -649,7 +697,7 @@ func (flow *registeredFlow) validateFlowTimeoutHandlerOptions(
 			return err
 		}
 	}
-	if _, err := mapFlowTimeoutHandlerOptions(options); err != nil {
+	if _, err := mapFlowTimeoutHandlerOptions(flow, options); err != nil {
 		return err
 	}
 	return nil

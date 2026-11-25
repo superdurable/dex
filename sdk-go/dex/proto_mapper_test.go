@@ -11,6 +11,7 @@
 package dex
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -134,26 +135,57 @@ func TestWaitMappingRejectsInvalidConditions(t *testing.T) {
 	require.ErrorContains(t, err, "map instance must not contain '/'")
 }
 
-func TestStepDecisionAndOptionsMapping(t *testing.T) {
-	_, err := mapStepDecision(nil)
-	require.ErrorContains(t, err, "must not be nil")
+var (
+	mapperStatus   = DefineAttribute[string]("status")
+	mapperCommands = DefineChannel[string]("commands")
+)
 
-	status := DefineAttribute[string]("status")
+// mapperFlow registers the Steps that mapping tests move to.
+type mapperFlow struct {
+	FlowDefaults
+	steps []StepDef
+}
+
+func (flow mapperFlow) GetSteps() []StepDef {
+	return flow.steps
+}
+
+func (mapperFlow) GetPersistenceSchema() PersistenceSchema {
+	return PersistenceSchema{
+		Attributes: []AttributeDef{mapperStatus},
+		Channels:   []ChannelDef{mapperCommands},
+	}
+}
+
+func registerMapperFlow(t *testing.T, steps ...StepDef) *registeredFlow {
+	t.Helper()
+	registry, err := NewRegistry([]Flow{mapperFlow{steps: steps}})
+	require.NoError(t, err)
+	flow, found := registry.lookupFlow(GetFinalFlowType(mapperFlow{}))
+	require.True(t, found)
+	return flow
+}
+
+func TestStepDecisionAndOptionsMapping(t *testing.T) {
 	defaults := &StepOptions{
 		ExecuteMethodTimeout: 5 * time.Second,
 		ExecuteDurability:    StepDurabilitySync,
 	}
 	target := mapperStep{name: "target", options: defaults}
+	flow := registerMapperFlow(t, DefineStep(target))
+	_, err := mapRegisteredDecision(flow, nil)
+	require.ErrorContains(t, err, "returned nil")
+
 	decision := GoTo(
 		target,
 		42,
 		WithStepOptions(&StepOptions{
 			ExecuteMethodTimeout:  time.Second + time.Nanosecond,
-			ExecuteLockAttributes: []AttributeLock{LockAttribute(status)},
+			ExecuteLockAttributes: []AttributeLock{LockAttribute(mapperStatus)},
 		}),
 	)
 
-	mapped, err := mapStepDecision(decision)
+	mapped, err := mapRegisteredDecision(flow, decision)
 	require.NoError(t, err)
 	require.Len(t, mapped.NextSteps, 1)
 	require.Equal(t, "target", mapped.NextSteps[0].StepType)
@@ -170,13 +202,13 @@ func TestStepDecisionAndOptionsMapping(t *testing.T) {
 		mapped.NextSteps[0].StepOptions.ExecuteLockAttributeKeys,
 	)
 
-	_, err = mapStepDecision(GoToMany())
+	_, err = mapRegisteredDecision(flow, GoToMany())
 	require.ErrorContains(t, err, "at least one")
 
 	items := DefineAttributeMap[string]("items")
 	commands := DefineChannel[string]("commands")
 	commandsByTenant := DefineChannelMap[string]("commands-by-tenant")
-	stateOptions, err := mapStepOptions(&StepOptions{
+	stateOptions, err := mapStepOptions(nil, &StepOptions{
 		WaitForLoadAttributeMaps:         []AttributeDef{items},
 		WaitForLoadAttributeMapInstances: []AttributeMapLoad{items.Load("tenant-a")},
 		WaitForLoadChannels:              []ChannelDef{commands},
@@ -202,7 +234,8 @@ func TestFlowTimeoutHandlerOptionsMapping(t *testing.T) {
 	commands := DefineChannel[string]("commands")
 	commandsByTenant := DefineChannelMap[string]("commands-by-tenant")
 	recovery := mapperNoneStep{name: "recovery"}
-	mapped, err := mapFlowTimeoutHandlerOptions(&FlowTimeoutHandlerOptions{
+	flow := registerMapperFlow(t, DefineStep(recovery))
+	mapped, err := mapFlowTimeoutHandlerOptions(flow, &FlowTimeoutHandlerOptions{
 		MethodTimeout:     5 * time.Second,
 		HeartbeatTimeout:  10 * time.Second,
 		Retry:             &RetryPolicy{MaximumAttempts: 3},
@@ -230,15 +263,16 @@ func TestFlowTimeoutHandlerOptionsMapping(t *testing.T) {
 }
 
 func TestCloseDecisionMapping(t *testing.T) {
-	channel := DefineChannel[string]("commands")
+	channel := mapperCommands
 	target := mapperStep{name: "fallback"}
+	flow := registerMapperFlow(t, DefineStep(target))
 	decision := ForceCompleteIfChannelsEmpty(
 		"done",
 		[]ChannelDef{channel},
 		MovementOf(target, 1),
 	)
 
-	mapped, err := mapStepDecision(decision)
+	mapped, err := mapRegisteredDecision(flow, decision)
 	require.NoError(t, err)
 	require.Equal(
 		t,
@@ -248,7 +282,7 @@ func TestCloseDecisionMapping(t *testing.T) {
 	require.Equal(t, []string{"commands"}, mapped.CloseDecision.ConditionalChannelNames)
 	require.Equal(t, "done", mapped.CloseDecision.CloseInput.GetStringValue())
 
-	_, err = mapStepDecision(ForceCompleteIfChannelsEmpty(
+	_, err = mapRegisteredDecision(flow, ForceCompleteIfChannelsEmpty(
 		nil,
 		[]ChannelDef{channel, channel},
 		MovementOf(target, 1),
@@ -269,7 +303,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NoError(t, err)
 	_, err = InitialAttributeMapValue(attributeMap, "tenant/order", "ready")
 	require.ErrorContains(t, err, "map instance must not contain '/'")
-	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(StartFlowOptions{
+	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(nil, StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: TimeoutFail,
 		StartDelay:    &delay,
@@ -293,16 +327,46 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.Equal(t, []string{"reporting", "audit"}, options.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 	require.NotNil(t, options.FlowConfigOverride.AttributeStoreNames)
 
-	_, _, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
+	_, _, disabledOptions, err := mapStartFlowOptions(nil, StartFlowOptions{
 		ConfigOverride: &FlowConfig{AttributeStoreNames: []string{}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeStoreNames)
 	require.Empty(t, disabledOptions.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 
-	_, _, empty, err := mapStartFlowOptions(StartFlowOptions{})
+	_, _, empty, err := mapStartFlowOptions(nil, StartFlowOptions{})
 	require.NoError(t, err)
 	require.Equal(t, &dexpb.WorkerTarget{IsPullMode: true}, empty.FlowConfigOverride.WorkerTarget)
+}
+
+// TestStepOptionsWithoutLocksCopiesEveryOtherField fails when a new StepOptions field is not copied.
+func TestStepOptionsWithoutLocksCopiesEveryOtherField(t *testing.T) {
+	source := &StepOptions{}
+	value := reflect.ValueOf(source).Elem()
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		switch field.Kind() {
+		case reflect.Int64:
+			field.SetInt(1)
+		case reflect.Uint8:
+			field.SetUint(1)
+		case reflect.Pointer:
+			field.Set(reflect.New(field.Type().Elem()))
+		case reflect.Slice:
+			field.Set(reflect.MakeSlice(field.Type(), 1, 1))
+		default:
+			t.Fatalf("StepOptions.%s has unhandled kind %s", value.Type().Field(index).Name, field.Kind())
+		}
+	}
+	copied := reflect.ValueOf(stepOptionsWithoutLocks(source)).Elem()
+	for index := 0; index < value.NumField(); index++ {
+		name := value.Type().Field(index).Name
+		if name == "WaitForLockAttributes" || name == "ExecuteLockAttributes" {
+			require.True(t, copied.Field(index).IsZero(), "StepOptions.%s must not be copied", name)
+			continue
+		}
+		require.Equal(t, value.Field(index).Interface(), copied.Field(index).Interface(), "StepOptions.%s", name)
+	}
 }
 
 func TestClientOptionMapping(t *testing.T) {
@@ -639,7 +703,7 @@ func TestFlowConfigMappingCarriesHistoryWindowEvents(t *testing.T) {
 	require.NotNil(t, updated.HistoryWindowEvents)
 	require.Equal(t, windowEvents, updated.GetHistoryWindowEvents())
 
-	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
+	_, _, startOptions, err := mapStartFlowOptions(nil, StartFlowOptions{ConfigOverride: config})
 	require.NoError(t, err)
 	require.Equal(t, windowEvents, startOptions.FlowConfigOverride.GetHistoryWindowEvents())
 
@@ -664,7 +728,7 @@ func TestFlowConfigMappingCarriesOffloadHistory(t *testing.T) {
 	require.NotNil(t, updated.OffloadHistory)
 	require.False(t, updated.GetOffloadHistory())
 
-	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
+	_, _, startOptions, err := mapStartFlowOptions(nil, StartFlowOptions{ConfigOverride: config})
 	require.NoError(t, err)
 	require.NotNil(t, startOptions.FlowConfigOverride.OffloadHistory)
 	require.False(t, startOptions.FlowConfigOverride.GetOffloadHistory())
@@ -690,7 +754,7 @@ func TestFlowConfigMappingDropsDeleteExpiredHistoryObjects(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, updated.DeleteExpiredHistoryObjects)
 
-	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
+	_, _, startOptions, err := mapStartFlowOptions(nil, StartFlowOptions{ConfigOverride: config})
 	require.NoError(t, err)
 	require.Nil(t, startOptions.FlowConfigOverride.DeleteExpiredHistoryObjects)
 
