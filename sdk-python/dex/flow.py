@@ -744,15 +744,16 @@ class Registry:
                 step_options,
                 set(),
             )
-            snapshot: _StepOptionsSnapshot | None = None
+            # Without a declaration no write needs a lock, so registration maps no locks.
             if declares_lock_requirement:
                 snapshot = Registry._step_options_snapshot(
-                    registered_flow.name, registered_step.name, step_options
+                    registered_flow, registered_step.name, step_options
                 )
                 step_options_snapshots[registered_step.name] = snapshot
-            step_lock_keys[registered_step.name] = Registry._step_lock_keys(
-                step_options, snapshot
-            )
+                step_lock_keys[registered_step.name] = _StepLockKeys(
+                    frozenset(snapshot.wait_for_lock_keys),
+                    frozenset(snapshot.execute_lock_keys),
+                )
         return replace(
             registered_flow,
             step_lock_keys=MappingProxyType(step_lock_keys),
@@ -761,27 +762,25 @@ class Registry:
 
     @staticmethod
     def _step_options_snapshot(
-        flow_name: str, step_name: str, options: StepOptions | None
+        flow: _RegisteredFlow, step_name: str, options: StepOptions | None
     ) -> _StepOptionsSnapshot:
         """Capture the options and ordered lock keys that every default send uses.
 
         Raises:
-            FlowDefinitionError: A lock field is not a sequence of valid
-                ``AttributeLock`` values.
+            FlowDefinitionError: A lock field is not a sequence of locks on
+                definitions that ``flow`` registers.
         """
         if not isinstance(options, StepOptions):
             # Mapping a value that is not StepOptions reports the error at send time, as before.
             return _StepOptionsSnapshot(options)
         wait_for_lock_keys = Registry._ordered_lock_keys(
-            flow_name,
-            step_name,
-            "wait_for_lock_attributes",
+            flow,
+            f"Flow {flow.name} Step {step_name} wait_for_lock_attributes",
             options.wait_for_lock_attributes,
         )
         execute_lock_keys = Registry._ordered_lock_keys(
-            flow_name,
-            step_name,
-            "execute_lock_attributes",
+            flow,
+            f"Flow {flow.name} Step {step_name} execute_lock_attributes",
             options.execute_lock_attributes,
         )
         return _StepOptionsSnapshot(
@@ -792,67 +791,65 @@ class Registry:
 
     @staticmethod
     def _ordered_lock_keys(
-        flow_name: str, step_name: str, field_name: str, locks: Sequence[AttributeLock]
+        flow: _RegisteredFlow, field: str, locks: Sequence[AttributeLock]
     ) -> tuple[str, ...]:
-        """Return the lock keys in order.
+        """Return the lock keys of the lock field ``field`` in order.
 
         Raises:
-            FlowDefinitionError: ``locks`` is not a sequence of valid ``AttributeLock`` values.
+            FlowDefinitionError: ``locks`` is not a sequence of locks on
+                definitions that ``flow`` registers.
         """
         try:
             entries = tuple(locks)
         except TypeError as error:
-            raise FlowDefinitionError(
-                f"Flow {flow_name} Step {step_name} {field_name} is not a sequence"
-            ) from error
-        keys: list[str] = []
-        for index, lock in enumerate(entries):
-            if not isinstance(lock, AttributeLock):
-                raise FlowDefinitionError(
-                    f"Flow {flow_name} Step {step_name} {field_name}[{index}] "
-                    f"is {type(lock).__name__}, not an AttributeLock"
-                )
-            try:
-                keys.append(Registry._physical_lock(lock))
-            except ValueError as error:
-                raise FlowDefinitionError(
-                    f"Flow {flow_name} Step {step_name} {field_name}[{index}]: {error}"
-                ) from error
-        return tuple(keys)
-
-    @staticmethod
-    def _step_lock_keys(
-        options: StepOptions | None, snapshot: _StepOptionsSnapshot | None
-    ) -> _StepLockKeys:
-        """Return the ``wait_for`` and ``execute`` lock keys a Step registers."""
-        if snapshot is not None:
-            return _StepLockKeys(
-                frozenset(snapshot.wait_for_lock_keys),
-                frozenset(snapshot.execute_lock_keys),
-            )
-        if not isinstance(options, StepOptions):
-            return _StepLockKeys()
-        return _StepLockKeys(
-            Registry._valid_lock_keys(options.wait_for_lock_attributes),
-            Registry._valid_lock_keys(options.execute_lock_attributes),
+            raise FlowDefinitionError(f"{field} is not a sequence") from error
+        return tuple(
+            Registry._registered_lock_key(flow, f"{field}[{index}]", lock)
+            for index, lock in enumerate(entries)
         )
 
     @staticmethod
-    def _valid_lock_keys(locks: Sequence[AttributeLock]) -> frozenset[str]:
-        # Invalid entries are skipped; mapping the options reports them as before.
-        keys: set[str] = set()
+    def _registered_lock_key(flow: _RegisteredFlow, location: str, lock: object) -> str:
+        """Return the key of ``lock`` after checking it against ``flow``'s schema.
+
+        Raises:
+            FlowDefinitionError: ``lock`` is not an ``AttributeLock`` on a
+                registered definition with a matching instance.
+        """
+        if not isinstance(lock, AttributeLock):
+            raise FlowDefinitionError(
+                f"{location} is {type(lock).__name__}, not an AttributeLock"
+            )
+        attribute: object = lock.attribute
+        if not isinstance(attribute, (Attribute, AttributeMap)):
+            raise FlowDefinitionError(
+                f"{location} locks {type(attribute).__name__}, "
+                "not an Attribute or AttributeMap"
+            )
+        is_map = isinstance(attribute, AttributeMap)
+        kind = "AttributeMap" if is_map else "Attribute"
+        registered = flow.persistence.get(attribute.name)
+        if not isinstance(registered, AttributeMap if is_map else Attribute):
+            raise FlowDefinitionError(
+                f"{location} locks {kind} {attribute.name!r}, "
+                f"which Flow {flow.name} does not register as an {kind}"
+            )
+        if not is_map:
+            if lock.instance is not None:
+                raise FlowDefinitionError(
+                    f"{location} locks singleton Attribute {attribute.name!r} "
+                    f"with instance {lock.instance!r}; a singleton lock has no instance"
+                )
+            return attribute.name
+        if not isinstance(lock.instance, str):
+            raise FlowDefinitionError(
+                f"{location} locks AttributeMap {attribute.name!r} without an instance"
+            )
         try:
-            entries = tuple(locks)
-        except TypeError:
-            return frozenset()
-        for lock in entries:
-            if not isinstance(lock, AttributeLock):
-                continue
-            try:
-                keys.add(Registry._physical_lock(lock))
-            except ValueError:
-                continue
-        return frozenset(keys)
+            require_map_instance(lock.instance)
+        except ValueError as error:
+            raise FlowDefinitionError(f"{location}: {error}") from error
+        return Registry.physical_name(attribute.name, lock.instance)
 
     @staticmethod
     def _validate_step_targets(

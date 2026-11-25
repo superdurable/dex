@@ -1129,19 +1129,25 @@ def test_registration_rejects_an_unregistered_lock_attribute() -> None:
 
 
 class _InvalidLockEntryStep(Step[None]):
-    """Registers a valid lock followed by ``None`` in a list it could clear later."""
+    """Registers a valid lock followed by one invalid lock entry."""
+
+    def __init__(self, invalid_lock: object) -> None:
+        self._invalid_lock = invalid_lock
 
     def get_step_options(self) -> StepOptions | None:
-        return StepOptions(execute_lock_attributes=cast(Any, [TOTAL.lock(), None]))
+        # A list, so the test also covers a lock sequence the Step could clear later.
+        return StepOptions(
+            execute_lock_attributes=cast(Any, [TOTAL.lock(), self._invalid_lock])
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         return graceful_complete()
 
 
 class _InvalidLockEntryFlow(Flow[None]):
-    def __init__(self, schema: PersistenceSchema) -> None:
+    def __init__(self, schema: PersistenceSchema, invalid_lock: object) -> None:
         self._schema = schema
-        self.step = _InvalidLockEntryStep()
+        self.step = _InvalidLockEntryStep(invalid_lock)
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.step)
@@ -1150,11 +1156,45 @@ class _InvalidLockEntryFlow(Flow[None]):
         return self._schema
 
 
-def test_registration_rejects_an_invalid_step_lock_only_with_declarations() -> None:
-    with pytest.raises(FlowDefinitionError, match=r"execute_lock_attributes\[1\]"):
-        Registry((_InvalidLockEntryFlow(SCHEMA),))
+@pytest.mark.parametrize(
+    ("invalid_lock", "message"),
+    [
+        (None, r"execute_lock_attributes\[1\] is NoneType, not an AttributeLock"),
+        (
+            AttributeLock(cast(Any, object())),
+            r"execute_lock_attributes\[1\] locks object, not an Attribute or AttributeMap",
+        ),
+        (
+            AttributeLock(Attribute("py-lock-req-unregistered", int)),
+            r"execute_lock_attributes\[1\] locks Attribute 'py-lock-req-unregistered', "
+            r"which Flow \S+ does not register as an Attribute",
+        ),
+        (
+            AttributeLock(TOTAL, "child"),
+            r"execute_lock_attributes\[1\] locks singleton Attribute 'py-lock-req-total' "
+            r"with instance 'child'",
+        ),
+        (
+            AttributeLock(ITEMS),
+            r"execute_lock_attributes\[1\] locks AttributeMap 'py-lock-req-items' "
+            r"without an instance",
+        ),
+    ],
+    ids=[
+        "none",
+        "not-a-definition",
+        "unregistered",
+        "singleton-instance",
+        "map-no-instance",
+    ],
+)
+def test_registration_rejects_an_invalid_step_lock_only_with_declarations(
+    invalid_lock: object, message: str
+) -> None:
+    with pytest.raises(FlowDefinitionError, match=message):
+        Registry((_InvalidLockEntryFlow(SCHEMA, invalid_lock),))
     # Without a declaration, registration does not map the locks, as before.
-    Registry((_InvalidLockEntryFlow(PersistenceSchema.of(FREE)),))
+    Registry((_InvalidLockEntryFlow(PersistenceSchema.of(FREE), invalid_lock),))
 
 
 class _LateLockStep(Step[None]):

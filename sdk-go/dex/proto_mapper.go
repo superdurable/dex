@@ -195,7 +195,12 @@ type stepOptionsMapper struct {
 	flow *registeredFlow
 	// activeOptions detects cycles by the identity of the options a Step value returned.
 	activeOptions map[*StepOptions]bool
+	// failureRouteDepth counts nested failure routes in a Flow that declares a lock requirement.
+	failureRouteDepth int
 }
+
+// maxDeclaredFailureRouteDepth keeps nested StepOptions well under the Server's 100-message decode limit.
+const maxDeclaredFailureRouteDepth = 32
 
 func newStepOptionsMapper(flow *registeredFlow) *stepOptionsMapper {
 	return &stepOptionsMapper{flow: flow, activeOptions: make(map[*StepOptions]bool)}
@@ -454,6 +459,15 @@ func (mapper *stepOptionsMapper) mapFailureTarget(
 	if target.lockSnapshot == nil {
 		return "", nil, fmt.Errorf("dex: step %q has no registration snapshot", target.stepType)
 	}
+	if mapper.failureRouteDepth >= maxDeclaredFailureRouteDepth {
+		return "", nil, fmt.Errorf(
+			"dex: failure routes nest deeper than %d Steps at step %q; a route may lead back to a Step on it",
+			maxDeclaredFailureRouteDepth,
+			target.stepType,
+		)
+	}
+	mapper.failureRouteDepth++
+	defer func() { mapper.failureRouteDepth-- }()
 	routeOptions := step.stepOptions()
 	options, err := mapper.doMapStepOptions(
 		mergedStepOptionsIdentity(routeOptions, overrides),

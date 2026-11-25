@@ -1090,6 +1090,32 @@ func (lockSnapSelfRecoveryStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepD
 	return nil, errors.New("route to the recovery value")
 }
 
+// lockSnapSelfRouteStep returns new options on each call that route an Execute failure to itself with an override.
+type lockSnapSelfRouteStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapSelfRouteStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSelfRouteStep{},
+			&dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}),
+	}
+}
+
+func (lockSnapSelfRouteStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("done"), nil
+}
+
+// TestAttributeLockRequirementUnboundedFailureRoute returns an error instead of recursing without end.
+func TestAttributeLockRequirementUnboundedFailureRoute(t *testing.T) {
+	_, err := dex.NewRegistry([]dex.Flow{lockSnapStepFlow{
+		flowType: "lockSnapDeclaredSelfRouteFlow",
+		start:    dex.DefineStartStep(lockSnapSelfRouteStep{}),
+		schema:   lockReqSchema(),
+	}})
+	require.ErrorContains(t, err, `failure routes nest deeper than 32 Steps at step "lockSnapSelfRouteStep"`)
+}
+
 // lockSnapStepFlow registers one start Step under a schema with or without lock requirements.
 type lockSnapStepFlow struct {
 	dex.FlowDefaults
