@@ -28,7 +28,7 @@ from dex._credential_transport import (
     async_credential_metadata,
 )
 from dex._flow_service_tls import FlowServiceTransport
-from dex._grpc_errors import RetryAfterError, _worker_error_status
+from dex._grpc_errors import _unwrap_worker_failure, _worker_error_status
 from dex._message_size import grpc_message_size_channel_options
 from dex._payload_message_codec import (
     WORKER_ERROR_DETAIL_FIELD,
@@ -1012,8 +1012,10 @@ class PullStream:
                 error_type=_PAYLOAD_FAILURE_ERROR_TYPE,
                 grpc_status=grpc.StatusCode.UNKNOWN.value[0],
             )
-            if type(failure) is RetryAfterError:
-                worker_error.retry_after_seconds = failure.after_seconds
+            _, retry_after_error, is_non_retryable = _unwrap_worker_failure(failure)
+            if retry_after_error is not None:
+                worker_error.retry_after_seconds = retry_after_error.after_seconds
+            worker_error.non_retryable = is_non_retryable
         if status is not None:
             worker_error.grpc_status = status.value[0]
         frame = pb.PollWorkerTaskFrame(task_id=task_id, worker_error=worker_error)
@@ -1041,6 +1043,7 @@ class PullStream:
                     error_type=worker_error.error_type,
                     grpc_status=worker_error.grpc_status,
                     retry_after_seconds=worker_error.retry_after_seconds,
+                    non_retryable=worker_error.non_retryable,
                 ),
             )
         try:
@@ -1221,9 +1224,7 @@ _PAYLOAD_FAILURE_ERROR_TYPE = "dex.payload_encryption.PayloadEncryptionError"
 
 def _payload_failure_detail(failure: BaseException) -> str | None:
     """Return a fixed detail for a payload failure, or ``None`` for other failures."""
-    reported: object = failure
-    if type(failure) is RetryAfterError:
-        reported = failure.cause
+    reported, _, _ = _unwrap_worker_failure(failure)
     if not issubclass(type(reported), PayloadEncryptionError):
         return None
     category = untrusted_payload_error_fields(reported)[0]

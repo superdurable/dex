@@ -123,6 +123,27 @@ if context.attempt < ready_after_attempt:
 
 Example: [examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py)
 
+## NonRetryableError {#non-retryable}
+
+Raise **NonRetryableError** from **wait_for** or **execute** when a later
+attempt cannot succeed, such as rejected input or a request that a provider
+reports as permanent. Dex skips the remaining attempts of the retry policy.
+The failure policy then runs at once: the default fails the Flow, **wait_for**
+can run **execute**, and **execute** can go to a recovery Step.
+
+- Pass the original exception, as in `NonRetryableError(error)`, to report it
+  as the Worker error. The recovery Step's **recovery_error** then shows its
+  type and message. Pass a message to report **NonRetryableError** itself.
+  Subclasses are non-retryable too.
+- **NonRetryableError** wins over **retry_after** in either nesting order.
+- An RPC handler never retries, so **NonRetryableError** changes nothing there.
+- Tests can reach the failure route at once while the retry policy keeps its
+  real business intervals.
+
+Since 1.45.18. It needs server-zd 0.1.38 or later. An older server ignores it
+and retries under the retry policy. See **NonRetryableError** in the
+[API reference](./index.mdx#api-reference) for an example.
+
 ## Failure and redelivery {#failure-and-redelivery}
 
 Some failures leave Dex unable to tell whether the work ran. A Step with an

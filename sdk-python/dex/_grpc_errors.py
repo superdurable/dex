@@ -89,6 +89,87 @@ def retry_after(after_seconds: int, cause: BaseException) -> RetryAfterError:
     return RetryAfterError(after_seconds=after_seconds, cause=cause)
 
 
+class NonRetryableError(Exception):
+    """Fails the current Step method attempt without further retries.
+
+    Raise it from ``wait_for`` or ``execute`` when a later attempt cannot
+    succeed, such as rejected input or a request that a provider reports as
+    permanent. Dex skips the remaining attempts of the method's retry policy
+    and applies the Step's failure policy at once. By default the Flow fails.
+    A ``wait_for`` configured to proceed on failure runs ``execute``, and an
+    ``execute`` configured to proceed to a recovery Step starts that Step.
+
+    Pass the original exception to report it as the Worker error, so the
+    recovery Step's ``RecoveryErrorInfo`` shows its type, message, and stack
+    trace. Pass a message instead to report this error itself. Subclasses are
+    also non-retryable.
+
+    It may wrap or be wrapped by a :class:`RetryAfterError`; the non-retryable
+    request wins and no retry runs. Raised from an RPC handler, it has no
+    effect, because RPC handlers never retry.
+
+    It needs server-zd 0.1.38 or later. An older server ignores the request
+    and retries the attempt under the retry policy.
+
+    Example::
+
+        from dex import NonRetryableError, graceful_complete
+
+        class ChargeStep(Step[Order]):
+            def execute(self, context: Context, input: Order) -> StepDecision:
+                try:
+                    receipt = payments.charge(input)
+                except CardRejectedError as error:
+                    raise NonRetryableError(error) from error
+                return graceful_complete(receipt)
+
+    .. versionadded:: 1.45.18
+
+    Attributes:
+        cause (BaseException | None): Failure reported to Dex, or None when
+            this error was created from a message.
+    """
+
+    def __init__(self, cause: BaseException | str) -> None:
+        """Creates a non-retryable failure.
+
+        Args:
+            cause (BaseException | str): The failure to report to Dex, or a
+                message that describes it.
+
+        Raises:
+            ValueError: If **cause** is None.
+        """
+        if cause is None:
+            raise ValueError("cause is required")
+        if isinstance(cause, BaseException):
+            super().__init__(str(cause))
+            self.cause: BaseException | None = cause
+        else:
+            super().__init__(cause)
+            self.cause = None
+
+
+def _unwrap_worker_failure(
+    error: BaseException,
+) -> tuple[BaseException, RetryAfterError | None, bool]:
+    """Return the failure to report, the retry-after request or None, and whether it is non-retryable."""
+    reported = error
+    retry_after_error: RetryAfterError | None = None
+    is_non_retryable = False
+    while True:
+        if isinstance(reported, RetryAfterError) and retry_after_error is None:
+            retry_after_error = reported
+            reported = reported.cause
+        elif isinstance(reported, NonRetryableError) and not is_non_retryable:
+            is_non_retryable = True
+            if reported.cause is None:
+                return reported, retry_after_error, is_non_retryable
+            reported = reported.cause
+        else:
+            return reported, retry_after_error, is_non_retryable
+
+
 _HAS_DEX_ERROR_DETAILS = "_has_dex_error_details"
 
 
@@ -241,18 +322,16 @@ def _worker_code(details: pb.ServiceErrorResponse | None) -> grpc.StatusCode | N
 
 
 def _worker_error_status(error: BaseException) -> status_pb2.Status:
-    retry_after_error: RetryAfterError | None = None
-    reported = error
-    if isinstance(error, RetryAfterError):
-        retry_after_error = error
-        reported = error.cause
+    reported, retry_after_error, is_non_retryable = _unwrap_worker_failure(error)
 
     message = _truncate_worker_failure_field(
         str(reported) or type(reported).__name__,
         MAX_WORKER_ERROR_DETAIL_BYTES,
         _ERROR_DETAIL_TRUNCATION_MARKER,
     )
-    stack_trace_source = error if retry_after_error is not None else reported
+    stack_trace_source = reported
+    if retry_after_error is not None or reported.__traceback__ is None:
+        stack_trace_source = error
     worker_error = pb.WorkerErrorResponse(
         detail=message,
         error_type=_truncate_worker_failure_field(
@@ -262,6 +341,7 @@ def _worker_error_status(error: BaseException) -> status_pb2.Status:
         ),
         stack_trace=_worker_stack_trace(stack_trace_source),
         grpc_status=grpc.StatusCode.UNKNOWN.value[0],
+        non_retryable=is_non_retryable,
     )
     if retry_after_error is not None:
         worker_error.retry_after_seconds = retry_after_error.after_seconds

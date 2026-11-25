@@ -6,9 +6,11 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+from collections.abc import Callable
 from typing import Any, cast
 
 import grpc
+import pytest
 from google.protobuf import any_pb2
 from google.rpc import status_pb2
 
@@ -19,6 +21,7 @@ from dex import (
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
     LongPollTimeoutError,
+    NonRetryableError,
     RetryAfterError,
     RpcLockConflictError,
     RequestTimeoutError,
@@ -132,6 +135,36 @@ def test_retry_after_is_available_from_the_sdk_package() -> None:
     assert isinstance(result, RetryAfterError)
     assert result.after_seconds == 1
     assert result.cause is cause
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda cause: NonRetryableError(cause),
+        lambda cause: retry_after(7, NonRetryableError(cause)),
+        lambda cause: NonRetryableError(retry_after(7, cause)),
+    ],
+)
+def test_worker_error_status_marks_non_retryable_and_reports_the_cause(
+    wrap: Callable[[BaseException], BaseException],
+) -> None:
+    cause = KeyError("card rejected")
+
+    worker_error = pb.WorkerErrorResponse()
+    _worker_error_status(wrap(cause)).details[0].Unpack(worker_error)
+
+    assert worker_error.non_retryable
+    assert worker_error.error_type == "builtins.KeyError"
+    assert worker_error.detail == str(cause)
+
+
+def test_worker_error_status_reports_a_message_non_retryable_error_itself() -> None:
+    worker_error = pb.WorkerErrorResponse()
+    _worker_error_status(NonRetryableError("bad input")).details[0].Unpack(worker_error)
+
+    assert worker_error.non_retryable
+    assert worker_error.error_type == "dex._grpc_errors.NonRetryableError"
+    assert worker_error.detail == "bad input"
 
 
 def test_worker_error_status_bounds_all_text_fields_at_utf8_boundaries() -> None:

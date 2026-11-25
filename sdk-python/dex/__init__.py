@@ -8,7 +8,7 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex._grpc_errors import RetryAfterError, retry_after
+from dex._grpc_errors import NonRetryableError, RetryAfterError, retry_after
 from dex.action import (
     WORK_QUEUE_PERMISSIONS_INDEX_KEY,
     Action,
@@ -281,6 +281,7 @@ __all__ = [
     "RPCInvokeOptions",
     "RecoveryErrorInfo",
     "StepAttemptProgress",
+    "NonRetryableError",
     "RetryAfterError",
     "RpcLockConflictError",
     "Registry",
