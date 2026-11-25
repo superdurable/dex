@@ -17,10 +17,12 @@ mod object_stores;
 mod registry_committed_command_sink;
 mod server_logging;
 mod server_node;
+mod worker_result_loss;
 mod worker_rpc_invoker;
 
 pub use command_line_options::{
-    CommandLineOptions, DevCommandOptions, ServeCommandOptions, ServerCommand,
+    CommandLineOptions, DevCommandOptions, DevServerCommandOptions, ServeCommandOptions,
+    ServerCommand, WorkerResultLossOptions,
 };
 pub use server_node::RunningServer;
 
@@ -232,12 +234,16 @@ pub enum ServerError {
 pub fn run_from_command_line() -> Result<(), ServerError> {
     let options = CommandLineOptions::parse();
     match options.command {
-        ServerCommand::Dev(options) => {
-            serve_single_node_until_terminated(&options, config::SingleNodeProfile::Dev)
-        }
-        ServerCommand::Local(options) => {
-            serve_single_node_until_terminated(&options, config::SingleNodeProfile::Local)
-        }
+        ServerCommand::Dev(options) => serve_single_node_until_terminated(
+            &options.single_node,
+            config::SingleNodeProfile::Dev,
+            options.worker_result_loss.worker_result_loss_config(),
+        ),
+        ServerCommand::Local(options) => serve_single_node_until_terminated(
+            &options,
+            config::SingleNodeProfile::Local,
+            config::WorkerResultLossConfig::default(),
+        ),
         ServerCommand::Serve(options) => {
             let configuration = config::Config::load_file(&options.config)?;
             serve_until_terminated(None, move |mut cancellation| async move {
@@ -255,12 +261,15 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
     }
 }
 
-/// Runs `dev` or `local`, selected by `profile`, until SIGINT or SIGTERM.
+/// Runs `dev` or `local`, selected by `profile`, until SIGINT or SIGTERM. Only `dev` passes an
+/// enabled `worker_result_loss`.
 fn serve_single_node_until_terminated(
     options: &DevCommandOptions,
     profile: config::SingleNodeProfile,
+    worker_result_loss: config::WorkerResultLossConfig,
 ) -> Result<(), ServerError> {
-    let configuration = config::Config::load_single_node(options, profile)?;
+    let mut configuration = config::Config::load_single_node(options, profile)?;
+    configuration.dev.worker_result_loss = worker_result_loss;
     let log_directory = configuration.dev.log_directory.clone();
     serve_until_terminated(
         log_directory.as_deref(),
@@ -356,6 +365,7 @@ async fn start_single_node_server_with_config(
 ) -> Result<Option<RunningServer>, ServerError> {
     warn_about_unauthenticated_non_loopback_listen(&configuration);
     configuration.warn_about_deprecated_keys();
+    worker_result_loss::warn_when_enabled(configuration.dev.worker_result_loss);
     let data_directory_lock = DataDirectoryLock::acquire(&configuration.dev).await?;
     // The emulator binds port 0, so a caller's just-freed --listen port must be taken first.
     let listener = server_node::bind_public_api_listener(configuration.api.listen).await?;

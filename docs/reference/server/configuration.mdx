@@ -409,10 +409,63 @@ needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 | Default partition count | 32 | 32 | 1024 |
 | Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
+| Worker result loss injection | Flags. Since 0.1.38. | None. | None. |
 
 **dev** and **local** use the same data directory layout. Either command can
 serve a data directory that the other one wrote. Stop one before you start the
 other.
+
+### Worker result loss injection {#dev-worker-result-loss}
+
+Since 0.1.38. **dev** can drop a share of Worker results on purpose, for
+tests. A dropped result looks like a Worker that crashed after its handler
+ran and before the server received the result. The handler's external calls
+happened, but its result is lost. Tests use it to find external calls that
+are not idempotent, and Steps that read stale state when they run again.
+
+~~~bash
+dex-server-zd dev --data-dir <dir> --inject-step-result-loss 0.3 --inject-result-loss-seed 7
+~~~
+
+| Flag | Default and behavior |
+| --- | --- |
+| **--inject-step-result-loss** | **0**; the fraction, from 0 to 1, of WaitFor and Execute results to drop. |
+| **--inject-rpc-result-loss** | **0**; the fraction, from 0 to 1, of RPC results to drop. |
+| **--inject-result-loss-seed** | **0**; the seed of the drop decisions. |
+
+Only these **dev** flags turn it on. The **--config** file has no keys for
+it, and **local** and **serve** reject the flags. At startup, server-zd logs
+one warning with the fractions and the seed.
+
+A dropped Step result fails its attempt the way a Worker disconnect does.
+The attempt's failure detail starts with **WORKER_DISCONNECTED** and names
+the fault injection. The attempt counts against the Step's retry policy, and
+the next attempt starts after the policy's backoff. Nothing the result
+carried takes effect: its Attribute writes, Channel publications, and Step
+decision are discarded. When the retry policy runs out, the Step fails as it
+would after a real crash. Only results are dropped. A Worker error, such as
+an exception in the handler, arrives unchanged.
+
+A dropped RPC result answers the RPC caller with **UNAVAILABLE**. Nothing
+commits, so a transactional RPC can be retried with the same request ID and
+runs its handler again. The SDK Clients do not retry RPCs by themselves; the
+caller decides whether to retry.
+
+The decisions are reproducible. The same seed drops the same results:
+
+- A Step result is identified by its Flow ID, Step execution ID, method,
+  run attempt, and attempt number. The decision does not depend on timing,
+  concurrency, other Flows, or the server-generated run ID.
+- An RPC result is identified by its Flow ID, RPC name, and its position
+  among the RPC results of that Flow ID and RPC name since the server
+  started. The same seed and the same sequence of RPC calls drop the same
+  calls. Concurrent calls of one RPC on one Flow can arrive in a different
+  order.
+
+Give the Flows in such a test fixed Flow IDs to reproduce a run. A unique
+Flow ID per run gives each run a different drop pattern. A real crash can
+lose more than one result, and it also closes the Worker's connection; this
+injection drops one result at a time and keeps the Worker connected.
 
 ## Retention
 

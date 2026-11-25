@@ -53,6 +53,7 @@ use crate::config::{Config, LifecycleConfig, SearchBackend as SearchBackendKind}
 use crate::embedded_s3::EmbeddedS3;
 use crate::metrics_server::MetricsServer;
 use crate::registry_committed_command_sink::RegistryCommittedCommandSink;
+use crate::worker_result_loss;
 use crate::worker_rpc_invoker::PullWorkerRpcInvoker;
 
 pub(crate) use search_projection::SearchOutboxWatermarks;
@@ -517,7 +518,10 @@ impl ServerNode {
                 &components.effects,
                 EffectDependencies {
                     metrics: metrics.clone(),
-                    dispatcher: Arc::new(dispatch.clone()),
+                    dispatcher: worker_result_loss::method_dispatcher(
+                        Arc::new(dispatch.clone()),
+                        config.dev.worker_result_loss,
+                    ),
                     hard_delete_objects: hard_delete_objects.clone(),
                     history_object_store: object_stores.primary.clone(),
                     partition_hasher: partition_hasher.clone(),
@@ -542,7 +546,10 @@ impl ServerNode {
                     committer: Arc::new(services.committer),
                     applier: applier.clone(),
                     effects: Arc::new(effect_runner.clone()),
-                    rpc_invoker: Arc::new(PullWorkerRpcInvoker::new(dispatch.clone())),
+                    rpc_invoker: worker_result_loss::rpc_invoker(
+                        Arc::new(PullWorkerRpcInvoker::new(dispatch.clone())),
+                        config.dev.worker_result_loss,
+                    ),
                     step_queue_status: Arc::new(dispatch.clone()),
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),

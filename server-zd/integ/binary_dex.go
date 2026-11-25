@@ -94,7 +94,7 @@ func startBinaryDexServiceInDirectory(
 			}
 		}
 	})
-	address, process := startBinaryDexProcessOnFreePort(t, dataDirectory, configurationPath, outputFile)
+	address, process := startBinaryDexProcessOnFreePort(t, dataDirectory, configurationPath, testConfig.DevFlags, outputFile)
 	var connection *grpc.ClientConn
 	if testConfig.Credential != "" {
 		connection = newDexClientConnectionWithCredential(t, address, testConfig.Credential, testconfig.DefaultGrpcMaxMessageBytes)
@@ -374,6 +374,7 @@ func startBinaryDexProcessOnFreePort(
 	t *testing.T,
 	dataDirectory string,
 	configurationPath string,
+	devFlags []string,
 	outputFile *os.File,
 ) (string, *binaryDexProcess) {
 	t.Helper()
@@ -383,6 +384,7 @@ func startBinaryDexProcessOnFreePort(
 		outputInfo, err := outputFile.Stat()
 		require.NoError(t, err)
 		arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
+		arguments = append(arguments, devFlags...)
 		process := startBinaryDexProcess(t, arguments, outputFile)
 		waitErr := waitForBinaryDex(address, process, 15*time.Second)
 		if waitErr == nil {

@@ -437,6 +437,45 @@ recovery Step after the real retry budget is spent. That is Dex behavior, so
 a test does not re-test it by shortening attempts or durations. See
 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy).
 
+## Test with lost Worker results {#lost-worker-results}
+
+A Worker can crash after a Step method ran and before the server received its
+result. Dex then runs the method again. Its external calls happen a second
+time, and it reads the state from before the lost run. **dexcli dev** can cause
+this on purpose, so a test finds the problem before production does:
+
+```bash
+dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
+  -zd-data-dir "$(mktemp -d)" -zd-config zd-overrides.yaml \
+  -inject-step-result-loss 0.3 -inject-result-loss-seed 7 &
+```
+
+The server now drops about 30% of the Step method results. Each dropped
+result fails its attempt like a Worker crash, and the Step retries under its
+retry policy. The application code stays the same.
+
+Run the usual tests against this server and check three things:
+
+- **The Flow still reaches the same result.** Lost results only add retries.
+- **Each external effect still happens once.** A fake that records every call
+  shows the repeats. A fake payment API must still see one charge per order,
+  so the Step needs an idempotency key.
+- **A Step that runs again still sees correct state.** The lost run's
+  Attribute writes never took effect.
+
+A Step whose retry policy allows one attempt fails here, as it would after a
+real crash.
+
+The seed and the Flow IDs decide which results are dropped. To reproduce a
+failing run, run the failing test again with the same seed and the Flow ID it
+used.
+
+**-inject-rpc-result-loss** drops RPC results the same way. The RPC caller
+gets **UNAVAILABLE** and decides whether to retry.
+
+[Worker result loss injection](/reference/server/configuration#dev-worker-result-loss)
+lists the exact rules.
+
 ## Next
 
 - [Build with AI](/build-with-ai/dex-developer-skill): install Dex Skills and let a coding agent write and test the code.

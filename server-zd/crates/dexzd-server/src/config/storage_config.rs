@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials, VersionDiscovery};
 use serde::{Deserialize, Serialize};
 
+use super::result_loss_config::WorkerResultLossConfig;
+
 /// Chooses how S3 credentials are supplied without putting secrets in YAML.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -407,6 +409,11 @@ pub struct DevConfig {
     /// `--application-s3-bucket` set it; YAML cannot.
     #[serde(skip)]
     pub application_s3: Option<ApplicationS3Config>,
+    /// Defaults to dropping no Worker result. Only the `dex-server-zd dev` flags
+    /// `--inject-step-result-loss`, `--inject-rpc-result-loss`, and `--inject-result-loss-seed`
+    /// set it; YAML cannot, so `local` and `serve` never drop results.
+    #[serde(skip)]
+    pub worker_result_loss: WorkerResultLossConfig,
 }
 
 impl Default for DevConfig {
@@ -417,6 +424,7 @@ impl Default for DevConfig {
             durability_mode: DevDurabilityMode::default(),
             log_directory: None,
             application_s3: None,
+            worker_result_loss: WorkerResultLossConfig::default(),
         }
     }
 }

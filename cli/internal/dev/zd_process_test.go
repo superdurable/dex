@@ -155,6 +155,41 @@ func TestZDDurabilityIsPassedOnlyWhenSet(t *testing.T) {
 	}
 }
 
+func TestZDResultLossIsPassedOnlyWhenSet(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "dex-server-zd")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEX_SERVER_ZD_BINARY", binary)
+	config, err := parseConfig(nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801"}
+	if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("arguments without result loss flags = %q, want %q", actual, expected)
+	}
+	config, err = parseConfig([]string{
+		"--inject-step-result-loss", "0.3", "--inject-rpc-result-loss", "1", "--inject-result-loss-seed", "42",
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected = []string{
+		"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801",
+		"--inject-step-result-loss", "0.3", "--inject-rpc-result-loss", "1", "--inject-result-loss-seed", "42",
+	}
+	if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("arguments with result loss flags = %q, want %q", actual, expected)
+	}
+	for _, fraction := range []string{"-0.1", "1.5", "NaN"} {
+		_, err := parseConfig([]string{"--inject-step-result-loss", fraction}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "must be a number from 0 to 1") {
+			t.Fatalf("-inject-step-result-loss %q: expected a validation error, got %v", fraction, err)
+		}
+	}
+}
+
 func TestZDBinaryPrecedence(t *testing.T) {
 	flagBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")
 	environmentBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")

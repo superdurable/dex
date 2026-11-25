@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::config::DevDurabilityMode;
+use crate::config::{DevDurabilityMode, ResultLossShare, WorkerResultLossConfig};
 
 /// Command line of `dex-server-zd`.
 #[derive(Debug, Parser)]
@@ -30,7 +30,7 @@ pub struct CommandLineOptions {
 #[derive(Debug, Subcommand)]
 pub enum ServerCommand {
     /// Runs a single-node development Server with an embedded S3 emulator.
-    Dev(DevCommandOptions),
+    Dev(DevServerCommandOptions),
     /// Runs a single-node production Server with an embedded local object store on --data-dir.
     ///
     /// It takes the flags and data directory of `dev`, with production defaults such as a
@@ -40,8 +40,49 @@ pub enum ServerCommand {
     Serve(ServeCommandOptions),
 }
 
-/// Options of `dex-server-zd dev`. `dexcli dev -engine zd` depends on these exact flags.
-/// `dex-server-zd local` takes the same flags.
+/// Options of `dex-server-zd dev`: the single-node flags and the development-only fault injection.
+#[derive(Debug, Args)]
+pub struct DevServerCommandOptions {
+    /// The flags that `dev` shares with `local`.
+    #[command(flatten)]
+    pub single_node: DevCommandOptions,
+    /// Development-only Worker result loss; `local` and `serve` have no such flags.
+    #[command(flatten)]
+    pub worker_result_loss: WorkerResultLossOptions,
+}
+
+/// Flags of `dex-server-zd dev` that drop Worker results, as if the Worker crashed after its
+/// method or RPC handler ran and before its result reached the server.
+#[derive(Debug, Args)]
+pub struct WorkerResultLossOptions {
+    /// Development only: the fraction, from 0 to 1, of Worker WaitFor and Execute results to
+    /// drop. A dropped result fails its attempt like a Worker disconnect, and the Step retries
+    /// under its retry policy. Defaults to 0, which drops none.
+    #[arg(long, value_name = "FRACTION", default_value = "0", value_parser = ResultLossShare::parse_fraction)]
+    pub inject_step_result_loss: ResultLossShare,
+    /// Development only: the fraction, from 0 to 1, of Worker RPC results to drop. The RPC
+    /// caller gets `UNAVAILABLE`, and nothing commits. Defaults to 0, which drops none.
+    #[arg(long, value_name = "FRACTION", default_value = "0", value_parser = ResultLossShare::parse_fraction)]
+    pub inject_rpc_result_loss: ResultLossShare,
+    /// Development only: the seed of the drop decisions. The same seed drops the same results.
+    /// Defaults to 0.
+    #[arg(long, value_name = "SEED", default_value_t = 0)]
+    pub inject_result_loss_seed: u64,
+}
+
+impl WorkerResultLossOptions {
+    /// Returns the configuration that these flags select.
+    pub fn worker_result_loss_config(&self) -> WorkerResultLossConfig {
+        WorkerResultLossConfig {
+            step_results: self.inject_step_result_loss,
+            rpc_results: self.inject_rpc_result_loss,
+            seed: self.inject_result_loss_seed,
+        }
+    }
+}
+
+/// Options that `dex-server-zd dev` and `dex-server-zd local` share. `dexcli dev -engine zd`
+/// depends on these exact flags.
 #[derive(Debug, Args)]
 pub struct DevCommandOptions {
     /// Directory for all local state: the embedded S3 emulator data and the local state store.
@@ -92,7 +133,7 @@ pub struct ServeCommandOptions {
 mod tests {
     use clap::Parser;
 
-    use super::{CommandLineOptions, ServerCommand};
+    use super::{CommandLineOptions, DevServerCommandOptions, ServerCommand};
     use crate::config::DevDurabilityMode;
 
     #[test]
@@ -118,7 +159,10 @@ mod tests {
             "dex-dev-media",
         ])
         .unwrap();
-        let ServerCommand::Dev(dev) = options.command else {
+        let ServerCommand::Dev(DevServerCommandOptions {
+            single_node: dev, ..
+        }) = options.command
+        else {
             panic!("dev parses as the dev command");
         };
         assert_eq!(dev.data_dir.to_str(), Some("/tmp/zd"));
@@ -177,7 +221,10 @@ mod tests {
                 value,
             ])
             .unwrap();
-            let ServerCommand::Dev(dev) = options.command else {
+            let ServerCommand::Dev(DevServerCommandOptions {
+                single_node: dev, ..
+            }) = options.command
+            else {
                 panic!("dev parses as the dev command");
             };
             assert_eq!(dev.durability, Some(expected));
@@ -203,7 +250,11 @@ mod tests {
         let options =
             CommandLineOptions::try_parse_from(["dex-server-zd", "dev", "--data-dir", "/tmp/zd"])
                 .unwrap();
-        let ServerCommand::Dev(dev) = options.command else {
+        let ServerCommand::Dev(DevServerCommandOptions {
+            single_node: dev,
+            worker_result_loss,
+        }) = options.command
+        else {
             panic!("dev parses as the dev command");
         };
         assert!(
@@ -212,6 +263,61 @@ mod tests {
         );
         assert!(dev.log_dir.is_none());
         assert!(dev.durability.is_none());
+        assert!(!worker_result_loss.worker_result_loss_config().is_enabled());
+    }
+
+    #[test]
+    fn only_dev_accepts_the_result_loss_flags() {
+        let options = CommandLineOptions::try_parse_from([
+            "dex-server-zd",
+            "dev",
+            "--data-dir",
+            "/tmp/zd",
+            "--inject-step-result-loss",
+            "0.25",
+            "--inject-rpc-result-loss",
+            "1",
+            "--inject-result-loss-seed",
+            "42",
+        ])
+        .unwrap();
+        let ServerCommand::Dev(dev) = options.command else {
+            panic!("dev parses as the dev command");
+        };
+        let config = dev.worker_result_loss.worker_result_loss_config();
+        assert!((config.step_results.fraction() - 0.25).abs() < f64::EPSILON);
+        assert!((config.rpc_results.fraction() - 1.0).abs() < f64::EPSILON);
+        assert_eq!(config.seed, 42);
+        for value in ["-0.1", "1.5", "NaN", "half"] {
+            assert!(
+                CommandLineOptions::try_parse_from([
+                    "dex-server-zd",
+                    "dev",
+                    "--data-dir",
+                    "/tmp/zd",
+                    "--inject-step-result-loss",
+                    value,
+                ])
+                .is_err(),
+                "--inject-step-result-loss {value:?} must be rejected"
+            );
+        }
+        for command in ["local", "serve"] {
+            assert!(
+                CommandLineOptions::try_parse_from([
+                    "dex-server-zd",
+                    command,
+                    "--data-dir",
+                    "/tmp/zd",
+                    "--config",
+                    "/tmp/zd.yaml",
+                    "--inject-step-result-loss",
+                    "0.5",
+                ])
+                .is_err(),
+                "{command} must reject --inject-step-result-loss"
+            );
+        }
     }
 
     #[test]

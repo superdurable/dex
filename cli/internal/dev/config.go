@@ -51,6 +51,9 @@ var flagOrder = []string{
 	"durability",
 	"engine",
 	"flow-rendering-dir",
+	"inject-result-loss-seed",
+	"inject-rpc-result-loss",
+	"inject-step-result-loss",
 	"open",
 	"server-log-folder",
 	"server-log-level",
@@ -72,6 +75,14 @@ type Config struct {
 	ZDConfigPath string
 	// Durability defaults to strict; dexcli passes it to dex-server-zd dev as --durability only when set.
 	Durability string
+	// StepResultLoss defaults to 0. A fraction from 0 to 1 of Worker WaitFor and Execute results that server-zd drops
+	// for testing, as if the Worker crashed after the method ran; passed as --inject-step-result-loss only when set.
+	StepResultLoss float64
+	// RPCResultLoss defaults to 0. A fraction from 0 to 1 of Worker RPC results that server-zd drops for testing; the
+	// caller gets UNAVAILABLE. Passed as --inject-rpc-result-loss only when set.
+	RPCResultLoss float64
+	// ResultLossSeed defaults to 0 and seeds the result loss decisions; passed as --inject-result-loss-seed only when set.
+	ResultLossSeed uint64
 	// BindAddress defaults to 127.0.0.1 for all owned listeners.
 	BindAddress string
 	// DexPort defaults to 8801 for the Dex gRPC server.
@@ -160,6 +171,20 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"embedded object store durability: strict fsyncs before acknowledging, process-crash-safe survives "+
 			"only a process kill, relaxed can lose writes on any crash; overrides dev.durabilityMode in the zd config file",
 	)
+	flags.Float64Var(
+		&cfg.StepResultLoss,
+		"inject-step-result-loss",
+		0,
+		"testing only: fraction from 0 to 1 of Worker WaitFor and Execute results to drop, as if the Worker crashed "+
+			"after the method ran; the Step retries",
+	)
+	flags.Float64Var(
+		&cfg.RPCResultLoss,
+		"inject-rpc-result-loss",
+		0,
+		"testing only: fraction from 0 to 1 of Worker RPC results to drop; the caller gets UNAVAILABLE",
+	)
+	flags.Uint64Var(&cfg.ResultLossSeed, "inject-result-loss-seed", 0, "seed of the result loss; the same seed drops the same results")
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
 	flags.StringVar(&cfg.AllowedHosts, "allowed-hosts", "", "comma-separated extra host names that Dex Web /api requests may use")
 	flags.StringVar(
@@ -223,7 +248,8 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability", "open":
+		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability", "open",
+			"inject-step-result-loss", "inject-rpc-result-loss", "inject-result-loss-seed":
 			cfg.explicitLocalFlags[item.Name] = true
 		}
 	})
@@ -310,6 +336,14 @@ func (c *Config) validate() error {
 		c.Durability = strings.TrimSpace(c.Durability)
 		if !slices.Contains(zdDurabilities, c.Durability) {
 			return fmt.Errorf("durability must be one of %s: %q", strings.Join(zdDurabilities, ", "), c.Durability)
+		}
+	}
+	for name, fraction := range map[string]float64{
+		"inject-step-result-loss": c.StepResultLoss,
+		"inject-rpc-result-loss":  c.RPCResultLoss,
+	} {
+		if !(fraction >= 0 && fraction <= 1) {
+			return fmt.Errorf("%s must be a number from 0 to 1: %v", name, fraction)
 		}
 	}
 	c.ServerLogLevel = strings.ToLower(strings.TrimSpace(c.ServerLogLevel))
