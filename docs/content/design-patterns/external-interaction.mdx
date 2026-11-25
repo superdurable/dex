@@ -1,0 +1,14 @@
+---
+title: External Interaction
+---
+
+# External Interaction
+
+These patterns cover how a Flow interacts with people and systems outside it. The Flow waits for a decision, notices inactivity, takes a stream of messages, or stops its work on request. The pages go from simple to complex.
+
+- [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline) — Wait for one of several outside decisions, or a deadline, and let the first one decide what happens next.
+- [Idle Timer](/design-patterns/external-interaction/idle-timer) — Reset the inactivity window whenever new activity arrives.
+- [Idle Timer with Resolution](/design-patterns/external-interaction/idle-timer-with-resolution) — Record every incoming message until someone resolves the conversation or it goes quiet.
+- [Interruptible execution](/design-patterns/interruptible) — Stop long-running work cleanly when a user asks for it.
+
+When a caller waits for the Flow instead, see [Responsive Update](/design-patterns/responsive-update).

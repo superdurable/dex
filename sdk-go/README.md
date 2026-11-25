@@ -88,8 +88,8 @@ Runnable applications use this API in the
 [sequential chunking](../examples/go/patterns/sequentially-chunked-attribute-map)
 and [hash partitioning](../examples/go/patterns/hash-partitioned-attribute-map)
 patterns. The product guides explain the
-[ordered append layout](../docs/content/design-patterns/sequentially-chunked-attribute-map.mdx)
-and [stable-key lookup layout](../docs/content/design-patterns/hash-partitioned-attribute-map.mdx).
+[ordered append layout](../docs/content/design-patterns/data-storage/sequentially-chunked-attribute-map.mdx)
+and [stable-key lookup layout](../docs/content/design-patterns/data-storage/hash-partitioned-attribute-map.mdx).
 
 ## Action permission projection
 

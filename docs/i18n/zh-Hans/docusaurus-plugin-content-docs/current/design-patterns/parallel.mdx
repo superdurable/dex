@@ -5,7 +5,7 @@ sidebar_label: 并行 Step
 
 # 并行 Step
 
-选择启动和协调并发 Step execution 的四种方式。
+选择启动和协调并发 Step execution 的四种方式，以及让它们轮流执行的一种方式。
 
 ## 问题与做法
 
@@ -16,6 +16,8 @@ sidebar_label: 并行 Step
 - [等待并行 Step](/design-patterns/parallel/await)：等待所有动态 execution 向 Join 上报结果。
 - [首个获胜的并行 Step](/design-patterns/parallel/first-win)：用第一个完成的 execution 取消其 sibling。
 
+[临界区](/design-patterns/parallel/critical-section)通过 Channel 传递一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
+
 ## 下一步
 
-- [并行 SubFlow](/design-patterns/parallel-subflows)
+- [子 Flow](/design-patterns/subflows)

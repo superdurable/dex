@@ -4,7 +4,7 @@ title: Parallel Steps
 
 # Parallel Steps
 
-Choose one of four ways to start and coordinate concurrent Step executions.
+Choose one of four ways to start and coordinate concurrent Step executions, and one way to let them take turns.
 
 ## Problem and approach
 
@@ -15,6 +15,8 @@ Each pattern starts concurrent Step executions with `GoToMany`. They differ in w
 - [Await parallel Steps](/design-patterns/parallel/await) — Wait until every dynamic execution has reported its result to a Join.
 - [First-win parallel Steps](/design-patterns/parallel/first-win) — Let the first completed execution cancel its siblings.
 
+[Critical Section](/design-patterns/parallel/critical-section) lets parallel branches take turns on a sequence of Steps by passing a token through a Channel.
+
 ## Next
 
-- [Parallel SubFlows](/design-patterns/parallel-subflows)
+- [SubFlows](/design-patterns/subflows)

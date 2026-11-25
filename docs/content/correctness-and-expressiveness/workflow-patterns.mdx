@@ -304,7 +304,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **Rating:** **+**. `AnyOf` decides the race, and only one branch ever starts.
 
-**Design pattern:** [Deferred Choice](/design-patterns/deferred-choice).
+**Design pattern:** [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline).
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -346,7 +346,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **Rating:** **+/-**. Client `StopFlow` alone leaves a running SubFlow alive, so the example composes a cancel Channel, an explicit stop, and `ForceFail`.
 
-**Design pattern:** [Cancel with Child Flows](/design-patterns/cancel-case).
+**Design pattern:** [Cancel with Child Flows](/design-patterns/subflows/cancel-case).
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -538,7 +538,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **Rating:** **+/-**. An Attribute lock covers one Step method only, so a section of several Steps uses a one-message Channel as a token.
 
-**Design pattern:** [Critical Section](/design-patterns/critical-section).
+**Design pattern:** [Critical Section](/design-patterns/parallel/critical-section).
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 

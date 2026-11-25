@@ -6,8 +6,10 @@ slug: /design-patterns/durable-timer
 
 # Durable Timer
 
-A Timer keeps its schedule when Workers restart. Use these patterns for recurring work, reminders, or an action that should happen after activity stops.
+A Timer keeps its schedule when Workers restart. Use these patterns for recurring work, reminders, or a wait on an external system.
 
 - [Cron schedule](/design-patterns/durable-timer/cron) — Run fixed-interval work in one Flow.
 - [Reminder](/design-patterns/durable-timer/reminder) — Send periodic reminders until the recipient opts out.
-- [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) — Reset the inactivity window whenever new activity arrives.
+- [Polling](/design-patterns/durable-timer/polling) — Wait for an external system in one long-running Step.
+
+To act after a period of inactivity, see [Idle Timer](/design-patterns/external-interaction/idle-timer).

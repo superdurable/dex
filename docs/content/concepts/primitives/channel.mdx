@@ -39,7 +39,7 @@ To wait for parallel branches to finish, use a **Join**; see
 - Drain a Channel before the Flow closes when its late messages must still be
   handled. A cancel or withdrawal Channel stays undrained once the decision is
   final, so a late cancel cannot override the decision. See
-  [Cancel a case](/design-patterns/cancel-case).
+  [Cancel a case](/design-patterns/subflows/cancel-case).
 
 A canceled Step can return its consumed messages to the Channel, so a message
 can reach `Execute` twice; a Flow close drops them instead. Waits for one and

@@ -1155,9 +1155,9 @@ RpcInvokeOptions::new()
 </SdkSnippet>
 </SdkTabs>
 
-See [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)
+See [Hash-Partitioned AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map)
 for the complete lookup and upsert example, and
-[Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+[Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
 for dynamic pagination loads.
 
 ### Transactional RPCs {#transactional-reads-and-writes}
@@ -1461,7 +1461,7 @@ A direct Step write has these semantics:
 - A later Step failure does not roll the message back.
 - One method invocation can write any number of messages to the same or
   different Streams. Each write also counts as a heartbeat, and keeps the last
-  explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses
+  explicit heartbeat value. The [Polling](/design-patterns/durable-timer/polling) pattern uses
   these writes to report progress.
 - The SDK confirms only that it encoded the message and handed it to the Worker
   output stream. If the Stream Store is disabled, unavailable, full, or rejects

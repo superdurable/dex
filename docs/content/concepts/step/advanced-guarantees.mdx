@@ -116,7 +116,7 @@ its failure route does not run. The Step or RPC that cancels it cannot publish
 on its behalf either. Dex decides which Steps to cancel only when it saves the
 result that cancels them. By then the canceled Step may already have
 published. So do not cancel a Step whose publications other Steps depend on,
-such as the token holder in a [Critical Section](/design-patterns/critical-section).
+such as the token holder in a [Critical Section](/design-patterns/parallel/critical-section).
 To stop such a Step early, send it a stop request that it checks, such as an
 Attribute that an RPC sets.
 
