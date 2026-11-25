@@ -248,16 +248,22 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
      *
      * <p>Only the locks a handler registers count: {@link StepOptions.Builder#addWaitForLock} or
      * {@link StepOptions.Builder#addExecuteLock} in the options that {@link Step#getStepOptions()}
-     * returns, and {@link RPC#lockAttributes} for an RPC. The Worker reads a Step's options once,
-     * when the {@link Registry} is built. Locks added for one call do not count:
+     * returns, and {@link RPC#lockAttributes} for an RPC. In a Flow whose schema declares any lock
+     * requirement, the {@link Registry} calls each Step's {@code getStepOptions()} once, after the
+     * schema is assembled. Both the check and every request that uses the Step's default options
+     * use that one value, so the Step holds exactly the locks the check counts. In other Flows the
+     * SDK keeps calling {@code getStepOptions()} each time it builds a request, as before. Locks
+     * added for one call do not count:
      * {@link RPCInvokeOptions.Builder#addLockAttributeMapInstance} and the options passed to
      * {@link StepMovement#of(Class, Object, StepOptions)} cannot satisfy the requirement. Register
      * the lock instead. A Flow timeout handler is not checked, because its locks come from
      * {@link StartFlowOptions}. Attribute values set when a Flow starts are not checked either.
      *
      * <p>The check compares writes with the registered locks, not with the locks Dex acquires for
-     * the call. Options passed with a {@link StepMovement} replace the target Step's whole options,
-     * and Dex takes an RPC's locks from the Client's definition. Keep the required lock in such
+     * the call. Options passed with a {@link StepMovement}, with
+     * {@link StepOptions.Builder#onExecuteFailureProceedTo(Class, StepOptions)}, or with
+     * {@link FlowTimeoutHandlerOptions.Builder#onFailureProceedTo} replace the target Step's whole
+     * options, and Dex takes an RPC's locks from the Client's definition. Keep the required lock in such
      * options, and build every Client and Worker from the same definitions. A Worker built without
      * this declaration does not check it.
      *
@@ -288,6 +294,11 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
      *
      *     AddItem(final Attribute<Integer> orderTotal) {
      *         this.orderTotal = orderTotal;
+     *     }
+     *
+     *     @Override
+     *     public Class<Integer> getInputType() {
+     *         return Integer.class;
      *     }
      *
      *     @Override

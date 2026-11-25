@@ -224,7 +224,19 @@ public final class Registry {
         }
         final Map<String, PersistenceDefinition> persistence =
                 assemblePersistence(flowType, schema, attributeIndexes);
-        validateRequiredLockAttributes(flowType, persistence);
+        final boolean hasLockRequirements =
+                validateRequiredLockAttributes(flowType, persistence);
+        if (hasLockRequirements) {
+            // The check and every default request must use one read of each Step's options.
+            for (Map.Entry<String, RegisteredStep> entry : steps.entrySet()) {
+                final RegisteredStep captured = entry.getValue().withCapturedOptions();
+                entry.setValue(captured);
+                stepsByClass.put(captured.getStep().getClass(), captured);
+                if (captured.isStarting()) {
+                    startStep = captured;
+                }
+            }
+        }
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
         return new RegisteredFlow(
                 flowType,
@@ -234,7 +246,8 @@ public final class Registry {
                 stepsByClass,
                 startStep,
                 rpcs,
-                persistence);
+                persistence,
+                hasLockRequirements);
     }
 
     private static boolean overridesTimeoutHandler(final Flow<?> flow) {
@@ -267,12 +280,18 @@ public final class Registry {
         return persistence;
     }
 
-    // Every declared coordination lock must name a singleton Attribute of the same Flow.
-    private static void validateRequiredLockAttributes(
+    /**
+     * Checks that every declared coordination lock names a singleton Attribute of the same Flow.
+     *
+     * @return {@code true} when any definition of the Flow declares a lock requirement
+     */
+    private static boolean validateRequiredLockAttributes(
             final String flowType,
             final Map<String, PersistenceDefinition> persistence) {
+        boolean hasLockRequirements = false;
         for (PersistenceDefinition definition : persistence.values()) {
             final LockRequirement requirement = definition.getLockRequirement();
+            hasLockRequirements |= requirement != null;
             if (requirement == null || requirement.getMode() != LockRequirement.Mode.ATTRIBUTE) {
                 continue;
             }
@@ -293,6 +312,7 @@ public final class Registry {
                                 + " is not in the PersistenceSchema");
             }
         }
+        return hasLockRequirements;
     }
 
     private static void addPersistence(
@@ -677,6 +697,7 @@ public final class Registry {
         private final RegisteredStep startStep;
         private final Map<String, RegisteredRpc> rpcs;
         private final Map<String, PersistenceDefinition> persistence;
+        private final boolean hasLockRequirements;
 
         RegisteredFlow(
                 final String name,
@@ -686,7 +707,9 @@ public final class Registry {
                 final Map<Class<?>, RegisteredStep> stepsByClass,
                 final RegisteredStep startStep,
                 final Map<String, RegisteredRpc> rpcs,
-                final Map<String, PersistenceDefinition> persistence) {
+                final Map<String, PersistenceDefinition> persistence,
+                final boolean hasLockRequirements) {
+            this.hasLockRequirements = hasLockRequirements;
             this.name = name;
             this.flow = flow;
             this.hasTimeoutHandler = hasTimeoutHandler;
@@ -717,6 +740,8 @@ public final class Registry {
         RegisteredStep getStartStep() { return startStep; }
         Map<String, RegisteredRpc> getRpcs() { return rpcs; }
         Map<String, PersistenceDefinition> getPersistence() { return persistence; }
+        /** Reports whether any definition declares a write or publish lock requirement. */
+        boolean hasLockRequirements() { return hasLockRequirements; }
 
         RegisteredStep getStep(final String name) {
             final RegisteredStep step = steps.get(name);
@@ -752,29 +777,59 @@ public final class Registry {
         private final Step<?> step;
         private final boolean starting;
         private final boolean skipWaitFor;
+        private final boolean optionsCaptured;
+        private final StepOptions capturedOptions;
         private final Set<String> waitForLockKeys;
         private final Set<String> executeLockKeys;
 
         RegisteredStep(final String name, final Step<?> step, final boolean starting) {
+            this(name, step, starting, Registry.skipsWaitFor(step), false, null);
+        }
+
+        private RegisteredStep(
+                final String name,
+                final Step<?> step,
+                final boolean starting,
+                final boolean skipWaitFor,
+                final boolean optionsCaptured,
+                final StepOptions capturedOptions) {
             this.name = name;
             this.step = step;
             this.starting = starting;
-            this.skipWaitFor = Registry.skipsWaitFor(step);
-            // Read once: declared lock requirements count only registration-time locks.
-            final StepOptions options = step.getStepOptions();
-            this.waitForLockKeys = options == null
+            this.skipWaitFor = skipWaitFor;
+            this.optionsCaptured = optionsCaptured;
+            this.capturedOptions = capturedOptions;
+            this.waitForLockKeys = capturedOptions == null
                     ? Collections.<String>emptySet()
-                    : lockKeys(options.getWaitForLocks());
-            this.executeLockKeys = options == null
+                    : lockKeys(capturedOptions.getWaitForLocks());
+            this.executeLockKeys = capturedOptions == null
                     ? Collections.<String>emptySet()
-                    : lockKeys(options.getExecuteLocks());
+                    : lockKeys(capturedOptions.getExecuteLocks());
+        }
+
+        /** Returns this Step with its options read once, for a Flow with lock requirements. */
+        RegisteredStep withCapturedOptions() {
+            return new RegisteredStep(
+                    name, step, starting, skipWaitFor, true, step.getStepOptions());
         }
 
         String getName() { return name; }
         Step<?> getStep() { return step; }
         boolean isStarting() { return starting; }
         boolean skipsWaitFor() { return skipWaitFor; }
+
+        /**
+         * Returns the options a request uses when no movement overrides them: the captured value
+         * in a Flow with lock requirements, otherwise a fresh {@link Step#getStepOptions()} call.
+         */
+        StepOptions getDefaultStepOptions() {
+            return optionsCaptured ? capturedOptions : step.getStepOptions();
+        }
+
+        /** Returns the captured waitFor lock keys; empty when options were not captured. */
         Set<String> getWaitForLockKeys() { return waitForLockKeys; }
+
+        /** Returns the captured execute lock keys; empty when options were not captured. */
         Set<String> getExecuteLockKeys() { return executeLockKeys; }
 
         private static Set<String> lockKeys(final List<AttributeLock> locks) {

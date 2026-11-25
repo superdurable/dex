@@ -245,10 +245,12 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      *         .addExecuteLock(AttributeLock.of(regionTotals, "us"))
      *         .build();
      *
-     * // An RPC that writes the "eu" instance registers that instance's lock:
-     * @RPC(lockAttributeMaps = {
-     *     @RPCAttributeMapLock(attribute = "region-totals", instance = "eu")
-     * })
+     * // An RPC that reads and writes the "eu" instance loads it and registers its lock:
+     * @RPC(
+     *     lockAttributeMaps = {
+     *         @RPCAttributeMapLock(attribute = "region-totals", instance = "eu")
+     *     },
+     *     loadAttributeMapInstances = {"region-totals/eu"})
      * public void addEuSale(final Context context, final Integer amount) {
      *     regionTotals.set(context, "eu", regionTotals.get(context, "eu") + amount);
      * }

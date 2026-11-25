@@ -18,6 +18,7 @@ import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.RPCInvokeOptions;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.MissingAttributeLockException;
+import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
@@ -28,6 +29,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static io.superdurable.dex.integ.AttributeLockRequirementStepWorkflow.EVENTS;
 import static io.superdurable.dex.integ.AttributeLockRequirementStepWorkflow.FREE;
@@ -83,6 +85,33 @@ public final class AttributeLockRequirementTest {
             assertStepCase(environment, "locked-item", null, ITEMS.instance(SPACED_INSTANCE));
             assertStepCase(environment, "locked-shared", null, SHARED.instance("x"));
             assertStepCase(environment, "undeclared", null, FREE);
+        }
+    }
+
+    /** The started Step holds the checked lock even when later getStepOptions() calls drop it. */
+    @Test
+    void testStartedStepHoldsTheCapturedLock() throws Exception {
+        final AttributeLockRequirementChangingOptionsWorkflow flow =
+                new AttributeLockRequirementChangingOptionsWorkflow();
+        try (DexDevTestEnvironment environment =
+                DexDevTestEnvironment.start(cacheDirectory, flow)) {
+            assertEquals(1, flow.optionsReads.get());
+            final String flowId = "lock-req-changing-options-" + UUID.randomUUID();
+            environment.client().startFlow(flow, flowId, "start");
+            assertTrue(flow.executeEntered.await(60, TimeUnit.SECONDS));
+            final AttributeLockRequirementChangingOptionsWorkflow stub = environment.client()
+                    .newRpcStub(AttributeLockRequirementChangingOptionsWorkflow.class, flowId);
+            assertThrows(RpcLockConflictException.class,
+                    () -> environment.client().invokeRPC(stub::setTotalLocked, 7),
+                    "the running Step must hold the lock-req-total lock");
+            flow.releaseExecute.countDown();
+            final FlowResult result = environment.client().waitForFlow(flowId, WAIT);
+            assertEquals(FlowStatus.COMPLETED, result.getStatus(), result.getErrorMessage());
+            assertEquals(WRITTEN, result.getSingleOutput(String.class));
+            assertEquals(Optional.of(1), read(environment, flowId, TOTAL));
+            assertEquals(1, flow.optionsReads.get());
+        } finally {
+            flow.releaseExecute.countDown();
         }
     }
 

@@ -107,6 +107,7 @@ public final class MissingAttributeLockException extends RuntimeException {
      *     described by {@link #getAccesses()}
      * @throws NullPointerException if {@code flowType}, {@code method}, {@code accesses}, or an
      *     access is {@code null}
+     * @throws IllegalArgumentException if {@code accesses} is empty
      */
     public MissingAttributeLockException(
             final String flowType,
@@ -181,6 +182,9 @@ public final class MissingAttributeLockException extends RuntimeException {
         Objects.requireNonNull(flowType, "flowType");
         Objects.requireNonNull(method, "method");
         Objects.requireNonNull(accesses, "accesses");
+        if (accesses.isEmpty()) {
+            throw new IllegalArgumentException("accesses must not be empty");
+        }
         final StringBuilder message = new StringBuilder("Flow \"").append(flowType).append('"');
         if (method == HandlerMethod.RPC) {
             message.append(" RPC \"").append(rpcName).append('"');

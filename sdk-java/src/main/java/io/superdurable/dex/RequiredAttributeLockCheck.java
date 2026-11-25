@@ -41,11 +41,14 @@ final class RequiredAttributeLockCheck {
             final HandlerMethod method,
             final String rpcName,
             final Set<String> heldLockKeys,
-            final List<AttributeWrite> attributeWrites,
-            final List<ChannelMessage> publications) {
+            final InvocationContext.BufferedChanges changes) {
+        if (!flow.hasLockRequirements()
+                || (changes.attributeWrites.isEmpty() && changes.publications.isEmpty())) {
+            return;
+        }
         final Map<String, PersistenceDefinition> persistence = flow.getPersistence();
         final List<MissingAttributeLockAccess> missing = new ArrayList<MissingAttributeLockAccess>();
-        for (AttributeWrite write : attributeWrites) {
+        for (AttributeWrite write : changes.attributeWrites) {
             final String physical = write.getKey();
             final String name = definitionName(physical);
             final PersistenceDefinition definition = persistence.get(name);
@@ -70,7 +73,7 @@ final class RequiredAttributeLockCheck {
                     ownKey ? instance : null));
         }
         final Set<String> published = new HashSet<String>();
-        for (ChannelMessage publication : publications) {
+        for (ChannelMessage publication : changes.publications) {
             final String physical = publication.getChannelName();
             if (!published.add(physical)) {
                 continue;

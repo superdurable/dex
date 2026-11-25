@@ -584,6 +584,42 @@ final class InvocationContext implements Context {
         }
     }
 
+    /** Copies the buffered writes, publications, and message deletions at one instant. */
+    BufferedChanges snapshotBufferedChanges() {
+        synchronized (bufferedChangesLock) {
+            return new BufferedChanges(
+                    attributeWrites.isEmpty()
+                            ? Collections.<AttributeWrite>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<AttributeWrite>(attributeWrites.values())),
+                    publications.isEmpty()
+                            ? Collections.<io.superdurable.gen.ChannelMessage>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<io.superdurable.gen.ChannelMessage>(
+                                            publications)),
+                    channelDeletions.isEmpty()
+                            ? Collections.<ChannelMessageDeletion>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<ChannelMessageDeletion>(channelDeletions)));
+        }
+    }
+
+    /** One consistent copy of an invocation's buffered changes, shared by the check and result. */
+    static final class BufferedChanges {
+        final List<AttributeWrite> attributeWrites;
+        final List<io.superdurable.gen.ChannelMessage> publications;
+        final List<ChannelMessageDeletion> channelDeletions;
+
+        BufferedChanges(
+                final List<AttributeWrite> attributeWrites,
+                final List<io.superdurable.gen.ChannelMessage> publications,
+                final List<ChannelMessageDeletion> channelDeletions) {
+            this.attributeWrites = attributeWrites;
+            this.publications = publications;
+            this.channelDeletions = channelDeletions;
+        }
+    }
+
     List<String> attributeMapKeys(final AttributeMap<?> attribute) {
         requireRegistered(attribute);
         if (!loadedAttributeMapInstances.contains(attribute.getName() + "/")) {
