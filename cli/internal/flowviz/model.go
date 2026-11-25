@@ -293,6 +293,8 @@ func (graph *Graph) Normalize() {
 	graph.addUnknownTargets()
 	graph.addUnreachableWarnings()
 	graph.addUnusedResourceWarnings()
+	graph.addChannelWithoutConsumerWarnings()
+	graph.addNoCompletionPathWarning()
 	sort.SliceStable(graph.Nodes, func(left int, right int) bool {
 		return graph.Nodes[left].ID < graph.Nodes[right].ID
 	})
@@ -385,6 +387,17 @@ func (graph *Graph) addUnreachableWarnings() {
 	if graph.Flow.StartStepID == "" {
 		return
 	}
+	reachable := graph.controlReachableNodeIDs()
+	for _, node := range graph.Nodes {
+		if node.Kind == "step" && !reachable[node.ID] {
+			graph.AddDiagnostic("warning", "unreachable_step", fmt.Sprintf("Step %s is not reachable from the start Step or an RPC", node.Name), node.Span)
+		}
+	}
+}
+
+// controlReachableNodeIDs returns the IDs of nodes reachable from the start Step, every RPC, and the
+// timeout handler through child nodes and transition edges. The caller must check that the graph has a start Step.
+func (graph *Graph) controlReachableNodeIDs() map[string]bool {
 	reachable := map[string]bool{graph.Flow.StartStepID: true}
 	for _, node := range graph.Nodes {
 		if node.Kind == "rpc" || node.Kind == "timeout_handler" {
@@ -411,11 +424,134 @@ func (graph *Graph) addUnreachableWarnings() {
 			changed = true
 		}
 	}
-	for _, node := range graph.Nodes {
-		if node.Kind == "step" && !reachable[node.ID] {
-			graph.AddDiagnostic("warning", "unreachable_step", fmt.Sprintf("Step %s is not reachable from the start Step or an RPC", node.Name), node.Span)
+	return reachable
+}
+
+// Waits must be static, so a missing Wait edge is real unless Wait analysis is incomplete.
+func (graph *Graph) addChannelWithoutConsumerWarnings() {
+	if graph.hasIncompleteStepAnalysis() || graph.hasIncompleteWaitAnalysis() {
+		return
+	}
+	published := make(map[string]bool)
+	consumed := make(map[string]bool)
+	for _, edge := range graph.Edges {
+		switch edge.Kind {
+		case "resource_publish":
+			published[edge.To] = true
+		case "resource_read", "wait_condition":
+			consumed[edge.From] = true
+		case "resource_write":
+			// Deleting a Channel message consumes it.
+			consumed[edge.To] = true
 		}
 	}
+	for _, node := range graph.Nodes {
+		if node.Decision != nil {
+			for _, channelID := range node.Decision.CheckedChannels {
+				consumed[channelID] = true
+			}
+		}
+		if node.Wait != nil {
+			for _, condition := range node.Wait.Conditions {
+				consumed[condition.ResourceID] = true
+			}
+		}
+	}
+	for _, node := range graph.Nodes {
+		if node.Kind == "channel" && published[node.ID] && !consumed[node.ID] {
+			message := fmt.Sprintf("Channel %s has publishers, but no Step waits on it or reads it", node.Name)
+			graph.AddDiagnostic("warning", "channel_without_consumer", message, node.Span)
+		}
+	}
+}
+
+// Silent whenever the graph may hide a decision or a transition, so it has no false positives.
+func (graph *Graph) addNoCompletionPathWarning() {
+	if graph.Flow.StartStepID == "" || graph.hasIncompleteStepAnalysis() {
+		return
+	}
+	for _, node := range graph.Nodes {
+		if node.Kind == "unknown" {
+			return
+		}
+	}
+	for _, diagnostic := range graph.Diagnostics {
+		switch diagnostic.Code {
+		case "hidden_dex_decision", "unknown_step_target", "dynamic_step_target", "multiple_flows", "flow_not_found":
+			return
+		}
+	}
+	reachable := graph.controlReachableNodeIDs()
+	decidingOwners := make(map[string]bool)
+	for _, node := range graph.Nodes {
+		if node.Kind == "decision" {
+			decidingOwners[node.ParentID] = true
+		}
+	}
+	for _, edge := range graph.Edges {
+		if isControlEdge(edge.Kind) {
+			decidingOwners[edge.From] = true
+		}
+	}
+	for _, node := range graph.Nodes {
+		if !reachable[node.ID] {
+			// A Step outside the reached set may be reached through a movement the analyzer could not draw.
+			if node.Kind == "step" {
+				return
+			}
+			continue
+		}
+		if node.Kind == "decision" && node.Decision != nil && isFlowClosingDecision(node.Decision.Type) {
+			return
+		}
+		// A Step with no drawn decision or transition is opaque, so it may close the Flow.
+		if node.Kind == "step" && !decidingOwners[node.ID] {
+			return
+		}
+	}
+	graph.AddDiagnostic("warning", "no_completion_path",
+		fmt.Sprintf("Flow %s has no reachable decision that completes or fails it; only a stop request or a Flow timeout can close it", graph.Flow.Name), graph.Flow.Span)
+}
+
+// hasIncompleteStepAnalysis reports whether a registered Step was not analyzed.
+func (graph *Graph) hasIncompleteStepAnalysis() bool {
+	for _, node := range graph.Nodes {
+		if node.Kind == "step" && node.External {
+			return true
+		}
+	}
+	return false
+}
+
+// hasIncompleteWaitAnalysis reports whether some Wait condition has no known resource or kind.
+func (graph *Graph) hasIncompleteWaitAnalysis() bool {
+	for _, node := range graph.Nodes {
+		if node.Kind == "unknown" && node.Name == "Dynamic WaitFor" {
+			return true
+		}
+		if node.Wait == nil {
+			continue
+		}
+		for _, condition := range node.Wait.Conditions {
+			if condition.Kind == "unknown" || (condition.Kind == "channel" && condition.ResourceID == "") {
+				return true
+			}
+		}
+	}
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "hidden_dex_wait" || diagnostic.Code == "dynamic_wait_condition" {
+			return true
+		}
+	}
+	return false
+}
+
+func isFlowClosingDecision(decisionType string) bool {
+	switch decisionType {
+	case "gracefulComplete", "forceComplete", "forceFail", "forceCompleteIfChannelsEmpty":
+		return true
+	}
+	return false
 }
 
 func (graph *Graph) addUnusedResourceWarnings() {

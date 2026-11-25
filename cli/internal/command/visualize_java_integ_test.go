@@ -314,6 +314,7 @@ func requireJavaExampleGraph(t *testing.T, source string, graph *flowviz.Graph) 
 		}
 		require.NotEqual(t, "error", diagnostic.Severity, "%s: %s", diagnostic.Code, diagnostic.Message)
 	}
+	requireExampleGraphLintWarnings(t, graph, source)
 }
 
 func javaVisualizationExecutable(t *testing.T) string {

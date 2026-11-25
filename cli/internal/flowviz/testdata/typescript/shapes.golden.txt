@@ -493,6 +493,7 @@ edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:review
 node decision:step:Work:18:75 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource attribute Status has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
@@ -501,6 +502,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:81 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-contextDestructure valid=false
@@ -511,6 +513,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:86 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-flowConstructorReassign valid=false
@@ -527,6 +530,7 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:18:68 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource attribute Status has no direct access in the source file
 warning unused_resource channel Second has no direct access in the source file
@@ -544,12 +548,14 @@ warning unused_resource channel Second has no direct access in the source file
 node decision:step:Work:17:81 condition=""
 node wait:Work:16:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-parameterAliasField valid=true
 node decision:step:Work:18:81 condition=""
 node wait:Work:17:34 condition=""
 edge resource_publish step:Work -> resource:channel:first publish
+warning channel_without_consumer Channel First has publishers, but no Step waits on it or reads it
 warning start_input_unresolved Start Step Work input cannot drive a form: execute must declare an input type in this file
 warning unused_resource channel Second has no direct access in the source file
 == review3-propertyReflect valid=false
@@ -791,6 +797,7 @@ edge resource_write step:AwaitApproval -> resource:attribute:status set
 edge resource_write step:AwaitApproval -> resource:stream:progress write
 edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status set
 edge subflow wait:ReviewBounds:87:12 -> subflow:wait:ReviewBounds:87:12:4:reviewFlow:92:7 start
+warning channel_without_consumer Channel OwnApprovals has publishers, but no Step waits on it or reads it
 warning unused_resource channel AlternateApprovals has no direct access in the source file
 == typedAlias valid=false
 == unconditionalPush valid=false

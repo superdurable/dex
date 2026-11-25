@@ -616,6 +616,8 @@ class FlowvizJavaAnalyzer {
         }
         var variable = scope.variable(expression);
         if (variable == null || !visited.add(variable)) return null;
+        var bound = scope.parameterResources.get(variable);
+        if (bound != null) return bound;
         var direct = resources.get(variable);
         return direct == null ? resource(variable.getInitializer(), scope, visited) : direct;
     }
@@ -633,7 +635,10 @@ class FlowvizJavaAnalyzer {
             var method = callName(call);
             if (resource == null) {
                 var helper = scope.helperScope(call);
-                if (helper != null) analyzeAccess(owner, phase, helper, visited, accesses);
+                if (helper != null) {
+                    bindParameterResources(helper, call, scope);
+                    analyzeAccess(owner, phase, helper, visited, accesses);
+                }
                 return;
             }
             var kind = switch (method) {
@@ -652,6 +657,16 @@ class FlowvizJavaAnalyzer {
             }
             edge(kind, read ? retain(resource) : owner, read ? owner : retain(resource), method, call, "metadata", metadata);
         });
+    }
+
+    // A resource passed to a helper makes the helper's accesses through that parameter count for the caller.
+    private void bindParameterResources(MethodScope helper, MethodInvocationTree call, MethodScope caller) {
+        var parameters = helper.method.getParameters();
+        if (parameters.size() != call.getArguments().size()) return;
+        for (int index = 0; index < parameters.size(); index++) {
+            var resource = resource(call.getArguments().get(index), caller);
+            if (resource != null) helper.parameterResources.put(parameters.get(index), resource);
+        }
     }
 
     private void diagnoseStreamOutsideStep(Resource resource, String phase, MethodInvocationTree call) {
@@ -1055,6 +1070,7 @@ class FlowvizJavaAnalyzer {
         final MethodTree method;
         final List<LocalBinding> locals = new ArrayList<>();
         final Map<VariableTree, List<ExpressionTree>> mutations = new IdentityHashMap<>();
+        final Map<VariableTree, Resource> parameterResources = new IdentityHashMap<>();
 
         MethodScope(Declaration owner, MethodTree method) {
             this.owner = owner;

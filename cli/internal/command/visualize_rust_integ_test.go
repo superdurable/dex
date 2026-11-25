@@ -185,6 +185,32 @@ func requireScannedExampleDiagnostics(t *testing.T, source string, graph *flowvi
 		}
 	}
 	requireVisualizeExampleDiagnostics(t, graph, source, hiddenSteps, additionalErrors)
+	requireExampleGraphLintWarnings(t, graph, source)
+}
+
+// Long-lived Flows that only a stop request or a Flow timeout closes.
+var exampleGraphLintWarnings = map[string][]string{
+	"examples/go/products/ai-agent/workflow.go:AIAgentFlow":                                               {"no_completion_path"},
+	"examples/go/products/job-post/workflow.go:JobPostingFlow":                                            {"no_completion_path"},
+	"examples/python/dex_examples/products/job-post/job_post_flow.py:JobPostingFlow":                      {"no_completion_path"},
+	"examples/python/sync-python/sync_examples/patterns/parent_child/parent_flow.py:ParentFlowV2":         {"no_completion_path"},
+	"examples/rust/src/products/job_post/flow.rs:JobPostingFlow":                                          {"no_completion_path"},
+	"examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingFlow.java:JobPostingFlow": {"no_completion_path"},
+}
+
+func requireExampleGraphLintWarnings(t *testing.T, graph *flowviz.Graph, source string) {
+	t.Helper()
+	relative := filepath.ToSlash(source)
+	if index := strings.LastIndex(relative, "/examples/"); index >= 0 {
+		relative = relative[index+1:]
+	}
+	var actual []string
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "channel_without_consumer" || diagnostic.Code == "no_completion_path" {
+			actual = append(actual, diagnostic.Code)
+		}
+	}
+	require.ElementsMatch(t, exampleGraphLintWarnings[relative+":"+graph.Flow.Name], actual, "%+v", graph.Diagnostics)
 }
 
 func visualizeWorkflowPatternSources(t *testing.T, directory string, extension string) map[string]string {
