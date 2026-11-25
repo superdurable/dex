@@ -115,10 +115,12 @@ Under [`src/patterns/`](./src/patterns):
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - [Polling an external job in one long-running Step](./src/patterns/polling)
+- [Failing fast on a permanent provider error](./src/patterns/fail-fast)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
 - [Idle Timer with Resolution](./src/patterns/inbound-event-loop)
+- [Entity Flow customer accounts](./src/patterns/entity-flow)
 - [Entity Store user profiles](./src/patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

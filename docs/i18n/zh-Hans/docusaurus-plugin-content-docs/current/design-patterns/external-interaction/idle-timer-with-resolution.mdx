@@ -1,0 +1,616 @@
+---
+title: 带结论的空闲定时器
+sidebar_label: 带结论的空闲定时器
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inbound-event-loop.json';
+
+# 带结论的空闲定时器
+
+记录每一条到达的消息，在有人给出结论或一段时间内没有新消息时结束（以前叫作入站事件循环，Inbound Event Loop）。
+
+当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [空闲定时器](/design-patterns/external-interaction/idle-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 工作方式 {#how-it-works}
+
+1. 一个 RPC 校验每条回复，然后把它发布到回复 Channel。另一个 RPC 校验结论，然后把它发布到结论 Channel。
+2. 一个等待中的 Step 返回 `AnyOf`，等待回复 Channel、结论 Channel 和不活跃 Timer。
+3. 回复胜出时，它的 `Execute` 把回复追加到 transcript，然后回到同一个 Step。新的执行会注册新的等待，所以不活跃 Timer 重新开始计时。
+4. 结论胜出时，`Execute` 进入关闭已解决工单的 Step。Timer 胜出时，进入关闭长时间没有动静的工单的 Step。
+5. 每个结束 Step 都用 `ForceCompleteIfChannelsEmpty` 结束 Flow。关闭决策检查这个 Step 指定的 Channel，并在同一次原子提交里接受关闭。在这次检查之前已提交、并且仍在受检 Channel 里的消息，会让 Dex 回到等待中的 Step，而不是关闭 Flow。
+
+## 规则 {#rules}
+
+- RPC 只校验输入，然后把它发布到 Channel。它不写入等待中的 Step 会读取或加锁的 Attribute。
+- 只有一个等待中的 Step。它用 `AnyOf` 等待回复 Channel、结论 Channel 和不活跃 Timer。
+- 先声明回复 Channel，再声明结论 Channel。多个 Channel Condition 同时就绪时，先声明的那个胜出，并且只消费胜出者的消息。所以在结论之前收到的回复总会先被记录。
+- Channel Condition 只有胜出时才消费消息。`Execute` 运行期间到达的回复会留在队列里，由下一次执行处理，不会丢失。
+- `Execute` 把消费到的消息追加到一个 Attribute，例如 transcript。等待中的 Step 是这个 Attribute 唯一的写入者。
+- 然后 `Execute` 回到同一个 Step。新的执行会注册新的等待，所以每条消息之后不活跃 Timer 都会重新开始。
+- 要一次取走所有排队的回复，用“至少一条”的 Channel Condition。也可以每次执行只取一条。
+- 让 transcript 保持有界。长对话把消息存放在 [sequentially chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map) 中。示例中等待中的 Step 只加载当前分块。
+
+## 为什么由 Step 负责 transcript {#why-the-rpc-does-not-write-the-transcript}
+
+如果由 RPC 追加 transcript，等待中的 Step 就必须锁住 transcript，RPC 为了读取再修改也必须加锁。锁不会排队。只要 Step 或另一个 RPC 持有这把锁，新到的 RPC 都会因为锁冲突被拒绝，客户端只能重试。发布到 Channel 不需要锁，所以并发的回复不会冲突。
+
+## 关闭时到达的消息 {#messages-at-the-close}
+
+每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow，做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。它的 fallback 回到等待中的 Step。
+
+- 只有原子检查时回复 Channel 为空，结论才会关闭 Flow。在这次检查之前已提交、仍在排队或已被领取但 Step 还没完成的回复会触发 fallback，fallback 带着结论回到等待中的 Step。这个 Step 只等待回复，把它们写入 transcript，然后再次进入结论关闭。
+- 因不活跃而关闭时，还要检查结论 Channel。回复或结论可能和截止时间同时提交。这时 Timer 胜出，所以先运行不活跃关闭。它的检查发现这条消息，fallback 重新开始等待。之后回复会写入 transcript，结论会进入结论关闭。
+- 回复 Channel 只能由等待中的 Step 消费。
+
+结论 RPC 拒绝空的原因，因为空的待定结论表示“没有结论”。
+
+在检查之后、关闭仍在进行时发布消息的 RPC 会因 `FLOW_CLOSING` 失败，不提交任何内容；见 [Pending close](/reference/server/runtime-client#pending-close)（英文）。Flow 关闭期间到达的请求，处理方式见 [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close)（英文）。
+
+RPC 成功只确认消息已经发布。确认消息已被处理是另一件事。调用方必须确认每条回复都已处理时，等待中的 Step 在同一次提交里记录回复的业务 ID，调用方读取这份记录。重试同一次投递时，沿用它的 RPC request ID。重新投递一条回复之前，先在这份记录里检查它的业务 ID。见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
+
+## 示例 {#example}
+
+`SupportTicketConversationFlow` 接收支持工单的回复。`sendTicketReply` 拒绝空回复和过长的回复。`resolveTicket` 拒绝空的原因。`AwaitTicketMessage` 记录回复，或者进入 `CloseResolvedTicket` 或 `CloseInactiveTicket`。它的输入是待定结论；只有结论关闭走了 fallback 时，这个输入才不为空。不活跃 Timer 是 24 小时。测试用 Client 的 `SkipTimer` 跳过它，而不是缩短时间。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py',
+    go: 'examples/go/patterns/inbound-event-loop/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop/SupportTicketConversationFlow.java',
+    typescript: 'examples/typescript/src/patterns/inbound-event-loop/support-ticket-flow.ts',
+    rust: 'examples/rust/src/control_patterns/inbound_event_loop/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+TICKET_REPLIES = Channel("ticketReplies", str)
+TICKET_RESOLUTIONS = Channel("ticketResolutions", str)
+TRANSCRIPT_CHUNKS = AttributeMap("transcriptChunks", TranscriptChunk)
+
+
+class AwaitTicketMessage(Step[str]):
+    """Waits for replies, a resolution, or inactivity; the input is a pending resolution."""
+
+    def wait_for(self, context: Context, pending_resolution: str) -> Wait:
+        if pending_resolution:
+            return Wait.until(TICKET_REPLIES.at_least(1))
+        # Replies come before the resolution, so earlier replies are recorded first.
+        return Wait.any_of(
+            TICKET_REPLIES.at_least(1),
+            TICKET_RESOLUTIONS.for_one(),
+            Timer.by_duration(INACTIVITY_TIMEOUT),
+        )
+
+    def execute(self, context: Context, pending_resolution: str) -> StepDecision:
+        replies = TICKET_REPLIES.results(context)
+        if replies:
+            # Appends replies to the current chunk and archives each full chunk.
+            chunk = TRANSCRIPT_CHUNKS.get(context, CURRENT_TRANSCRIPT_CHUNK) or TranscriptChunk()
+            next_sequence = chunk.replies[-1].sequence + 1 if chunk.replies else 1
+            for text in replies:
+                if len(chunk.replies) == TRANSCRIPT_CHUNK_SIZE:
+                    archive_token = archive_chunk_token(chunk.replies[0].sequence)
+                    TRANSCRIPT_CHUNKS.set(context, archive_token, chunk)
+                    chunk = TranscriptChunk()
+                chunk.replies.append(TicketReply(next_sequence, text))
+                next_sequence += 1
+            TRANSCRIPT_CHUNKS.set(context, CURRENT_TRANSCRIPT_CHUNK, chunk)
+            if pending_resolution:
+                return go_to(CloseResolvedTicket, pending_resolution)
+            # A new execution registers a new wait, so the Timer restarts.
+            return go_to(AwaitTicketMessage, "")
+        resolutions = TICKET_RESOLUTIONS.results(context)
+        if resolutions:
+            return go_to(CloseResolvedTicket, resolutions[0])
+        if context.has_timer_fired():
+            return go_to(CloseInactiveTicket, None)
+        raise RuntimeError("no Condition of the ticket wait completed")
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_load_attribute_map_instances=(
+                TRANSCRIPT_CHUNKS.load(CURRENT_TRANSCRIPT_CHUNK),
+            )
+        )
+
+
+class CloseResolvedTicket(Step[str]):
+    def execute(self, context: Context, reason: str) -> StepDecision:
+        return force_complete_if_channels_empty(
+            f"resolved: {reason}",
+            StepMovement.of(AwaitTicketMessage, reason),
+            TICKET_REPLIES,
+        )
+
+
+class CloseInactiveTicket(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return force_complete_if_channels_empty(
+            "closed after inactivity",
+            StepMovement.of(AwaitTicketMessage, ""),
+            TICKET_REPLIES,
+            TICKET_RESOLUTIONS,
+        )
+
+
+class SupportTicketConversationFlow(Flow[str]):
+    @rpc
+    def send_ticket_reply(self, context: Context, text: str) -> None:
+        """Validates one reply and queues it for the waiting Step."""
+        if not text.strip():
+            raise ValueError("reply text is required")
+        if len(text) > MAX_REPLY_LENGTH:
+            raise ValueError(f"reply text exceeds {MAX_REPLY_LENGTH} characters")
+        TICKET_REPLIES.publish(context, text)
+
+    @rpc
+    def resolve_ticket(self, context: Context, reason: str) -> None:
+        """Queues the resolution; an empty reason would mean no resolution."""
+        if not reason.strip():
+            raise ValueError("resolution reason is required")
+        TICKET_RESOLUTIONS.publish(context, reason)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	TicketReplies     = dex.DefineChannel[string]("ticketReplies")
+	TicketResolutions = dex.DefineChannel[string]("ticketResolutions")
+	TranscriptChunks  = dex.DefineAttributeMap[TranscriptChunk]("transcriptChunks")
+)
+
+// SendTicketReply validates one reply and queues it for the waiting Step.
+func (*SupportTicketConversationFlow) SendTicketReply(ctx dex.Context, text string) (*dex.RPCResult[dex.None], error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("reply text is required")
+	}
+	if utf8.RuneCountInString(text) > MaxReplyLength {
+		return nil, fmt.Errorf("reply text exceeds %d characters", MaxReplyLength)
+	}
+	if err := TicketReplies.Publish(ctx, text); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// ResolveTicket queues the resolution; an empty reason would mean no resolution.
+func (*SupportTicketConversationFlow) ResolveTicket(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	if strings.TrimSpace(reason) == "" {
+		return nil, fmt.Errorf("resolution reason is required")
+	}
+	if err := TicketResolutions.Publish(ctx, reason); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (AwaitTicketMessage) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait, error) {
+	if pendingResolution != "" {
+		return dex.Until(TicketReplies.AtLeast(1)), nil
+	}
+	// Replies come before the resolution, so earlier replies are recorded first.
+	return dex.AnyOf(
+		TicketReplies.AtLeast(1),
+		TicketResolutions.ForOne(),
+		dex.Timer(InactivityTimeout),
+	), nil
+}
+
+func (AwaitTicketMessage) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
+	replies, err := TicketReplies.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(replies) > 0 {
+		if err := appendToTranscript(ctx, replies); err != nil {
+			return nil, err
+		}
+		if pendingResolution != "" {
+			return dex.GoTo(CloseResolvedTicket{}, pendingResolution), nil
+		}
+		// A new execution registers a new wait, so the Timer restarts.
+		return dex.GoTo(AwaitTicketMessage{}, ""), nil
+	}
+	resolutions, err := TicketResolutions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(resolutions) > 0 {
+		return dex.GoTo(CloseResolvedTicket{}, resolutions[0]), nil
+	}
+	if ctx.HasTimerFired() {
+		return dex.GoTo(CloseInactiveTicket{}, nil), nil
+	}
+	return nil, errors.New("no Condition of the ticket wait completed")
+}
+
+func (AwaitTicketMessage) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadAttributeMapInstances: []dex.AttributeMapLoad{
+			TranscriptChunks.Load(CurrentTranscriptChunk),
+		},
+	}
+}
+
+func (CloseResolvedTicket) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
+	return dex.ForceCompleteIfChannelsEmpty(
+		"resolved: "+reason,
+		[]dex.ChannelDef{TicketReplies},
+		dex.MovementOf(AwaitTicketMessage{}, reason),
+	), nil
+}
+
+func (CloseInactiveTicket) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.ForceCompleteIfChannelsEmpty(
+		"closed after inactivity",
+		[]dex.ChannelDef{TicketReplies, TicketResolutions},
+		dex.MovementOf(AwaitTicketMessage{}, ""),
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    public static final Channel<String> ticketReplies =
+            Channel.define("ticketReplies", String.class);
+    public static final Channel<String> ticketResolutions =
+            Channel.define("ticketResolutions", String.class);
+    public static final AttributeMap<TranscriptChunk> transcriptChunks =
+            AttributeMap.define("transcriptChunks", TranscriptChunk.class);
+
+    /** Validates one reply and queues it for the waiting Step. */
+    @RPC
+    public void sendTicketReply(final Context context, final String text) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("reply text is required");
+        }
+        if (text.codePointCount(0, text.length()) > MAX_REPLY_LENGTH) {
+            throw new IllegalArgumentException(
+                    "reply text exceeds " + MAX_REPLY_LENGTH + " characters");
+        }
+        ticketReplies.publish(context, text);
+    }
+
+    /** Queues the resolution; an empty reason would mean no resolution. */
+    @RPC
+    public void resolveTicket(final Context context, final String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("resolution reason is required");
+        }
+        ticketResolutions.publish(context, reason);
+    }
+
+    /** Waits for replies, a resolution, or inactivity; the input is a pending resolution. */
+    static final class AwaitTicketMessage implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String pendingResolution) {
+            if (!pendingResolution.isEmpty()) {
+                return Wait.until(ticketReplies.atLeast(1));
+            }
+            // Replies come before the resolution, so earlier replies are recorded first.
+            return Wait.anyOf(
+                    ticketReplies.atLeast(1),
+                    ticketResolutions.forOne(),
+                    Timer.byDuration(INACTIVITY_TIMEOUT));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String pendingResolution) {
+            final List<String> replies = ticketReplies.getConditionResults(context);
+            if (!replies.isEmpty()) {
+                appendToTranscript(context, replies);
+                if (!pendingResolution.isEmpty()) {
+                    return StepDecision.goTo(CloseResolvedTicket.class, pendingResolution);
+                }
+                // A new execution registers a new wait, so the Timer restarts.
+                return StepDecision.goTo(AwaitTicketMessage.class, "");
+            }
+            final List<String> resolutions = ticketResolutions.getConditionResults(context);
+            if (!resolutions.isEmpty()) {
+                return StepDecision.goTo(CloseResolvedTicket.class, resolutions.get(0));
+            }
+            if (context.hasTimerFired()) {
+                return StepDecision.goTo(CloseInactiveTicket.class, null);
+            }
+            throw new IllegalStateException("no Condition of the ticket wait completed");
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLoadAttributeMapInstance(transcriptChunks, CURRENT_TRANSCRIPT_CHUNK)
+                    .build();
+        }
+    }
+
+    static final class CloseResolvedTicket implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String reason) {
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    "resolved: " + reason,
+                    StepMovement.of(AwaitTicketMessage.class, reason),
+                    ticketReplies);
+        }
+    }
+
+    static final class CloseInactiveTicket implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    "closed after inactivity",
+                    StepMovement.of(AwaitTicketMessage.class, ""),
+                    ticketReplies,
+                    ticketResolutions);
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const ticketReplies = new Channel("ticketReplies", stringCodec);
+export const ticketResolutions = new Channel("ticketResolutions", stringCodec);
+export const transcriptChunks = new AttributeMap(
+  "transcriptChunks",
+  jsonCodec<TranscriptChunk>(),
+);
+
+class AwaitTicketMessage implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "AwaitTicketMessage";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeLoadAttributeMapInstances: [transcriptChunks.load(CURRENT_TRANSCRIPT_CHUNK)],
+    };
+  }
+
+  public waitFor(_context: Context, pendingResolution: string): Wait {
+    if (pendingResolution !== "") {
+      return Wait.until(ticketReplies.atLeast(1));
+    }
+    // Replies come before the resolution, so earlier replies are recorded first.
+    return Wait.anyOf(
+      ticketReplies.atLeast(1),
+      ticketResolutions.forOne(),
+      Timer.byDuration(INACTIVITY_TIMEOUT_MS),
+    );
+  }
+
+  public execute(context: Context, pendingResolution: string): StepDecision {
+    const replies = ticketReplies.results(context);
+    if (replies.length > 0) {
+      appendToTranscript(context, replies);
+      if (pendingResolution !== "") {
+        return goTo(CloseResolvedTicket, pendingResolution);
+      }
+      // A new execution registers a new wait, so the Timer restarts.
+      return goTo(AwaitTicketMessage, "");
+    }
+    const resolutions = ticketResolutions.results(context);
+    if (resolutions.length > 0) {
+      return goTo(CloseResolvedTicket, resolutions[0]!);
+    }
+    if (context.hasTimerFired()) {
+      return goTo(CloseInactiveTicket, undefined);
+    }
+    throw new Error("no Condition of the ticket wait completed");
+  }
+}
+
+class CloseResolvedTicket implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "CloseResolvedTicket";
+  }
+
+  public execute(_context: Context, reason: string): StepDecision {
+    return forceCompleteIfChannelsEmpty(
+      `resolved: ${reason}`,
+      StepMovement.of(AwaitTicketMessage, reason),
+      ticketReplies,
+    );
+  }
+}
+
+class CloseInactiveTicket implements Step<void> {
+  public getStepType(): string {
+    return "CloseInactiveTicket";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return forceCompleteIfChannelsEmpty(
+      "closed after inactivity",
+      StepMovement.of(AwaitTicketMessage, ""),
+      ticketReplies,
+      ticketResolutions,
+    );
+  }
+}
+
+export class SupportTicketConversationFlow implements Flow<string> {
+  /** Validates one reply and queues it for the waiting Step. */
+  @rpc({ inputCodec: stringCodec })
+  public sendTicketReply(context: Context, text: string): void {
+    if (text.trim() === "") {
+      throw new Error("reply text is required");
+    }
+    if (Array.from(text).length > MAX_REPLY_LENGTH) {
+      throw new Error(`reply text exceeds ${MAX_REPLY_LENGTH} characters`);
+    }
+    ticketReplies.publish(context, text);
+  }
+
+  /** Queues the resolution; an empty reason would mean no resolution. */
+  @rpc({ inputCodec: stringCodec })
+  public resolveTicket(context: Context, reason: string): void {
+    if (reason.trim() === "") {
+      throw new Error("resolution reason is required");
+    }
+    ticketResolutions.publish(context, reason);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub static TICKET_REPLIES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ticketReplies"));
+pub static TICKET_RESOLUTIONS: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ticketResolutions"));
+pub static TRANSCRIPT_CHUNKS: LazyLock<AttributeMap<TranscriptChunk>> =
+    LazyLock::new(|| AttributeMap::new("transcriptChunks"));
+
+impl SupportTicketConversationFlow {
+    /// Validates one reply and queues it for the waiting Step.
+    fn send_ticket_reply(&self, context: &mut Context, text: String) -> HandlerResult<()> {
+        if text.trim().is_empty() {
+            return Err(HandlerError::new(
+                "SupportTicketConversationFlow",
+                "reply text is required",
+            ));
+        }
+        if text.chars().count() > MAX_REPLY_LENGTH {
+            return Err(HandlerError::new(
+                "SupportTicketConversationFlow",
+                format!("reply text exceeds {MAX_REPLY_LENGTH} characters"),
+            ));
+        }
+        TICKET_REPLIES.publish(context, text)
+    }
+
+    /// Queues the resolution; an empty reason would mean no resolution.
+    fn resolve_ticket(&self, context: &mut Context, reason: String) -> HandlerResult<()> {
+        if reason.trim().is_empty() {
+            return Err(HandlerError::new(
+                "SupportTicketConversationFlow",
+                "resolution reason is required",
+            ));
+        }
+        TICKET_RESOLUTIONS.publish(context, reason)
+    }
+}
+
+impl Step for AwaitTicketMessage {
+    type Input = String;
+
+    fn wait_for(
+        &self,
+        _context: &mut Context,
+        pending_resolution: Self::Input,
+    ) -> HandlerResult<Wait> {
+        if !pending_resolution.is_empty() {
+            return Ok(Wait::until(TICKET_REPLIES.at_least(1)));
+        }
+        // Replies come before the resolution, so earlier replies are recorded first.
+        Ok(Wait::any_of([
+            TICKET_REPLIES.at_least(1),
+            TICKET_RESOLUTIONS.for_one(),
+            Timer::by_duration(INACTIVITY_TIMEOUT),
+        ]))
+    }
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        pending_resolution: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        let replies = TICKET_REPLIES.condition_results(context)?;
+        if !replies.is_empty() {
+            append_to_transcript(context, replies)?;
+            if !pending_resolution.is_empty() {
+                return Ok(StepDecision::go_to(
+                    &CloseResolvedTicket,
+                    pending_resolution,
+                ));
+            }
+            // A new execution registers a new wait, so the Timer restarts.
+            return Ok(StepDecision::go_to(&AwaitTicketMessage, String::new()));
+        }
+        let mut resolutions = TICKET_RESOLUTIONS.condition_results(context)?;
+        if !resolutions.is_empty() {
+            return Ok(StepDecision::go_to(
+                &CloseResolvedTicket,
+                resolutions.remove(0),
+            ));
+        }
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::go_to(&CloseInactiveTicket, ()));
+        }
+        Err(HandlerError::new(
+            "AwaitTicketMessage",
+            "no Condition of the ticket wait completed",
+        ))
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_load_attribute_map_instance(TRANSCRIPT_CHUNKS.load(CURRENT_TRANSCRIPT_CHUNK))
+    }
+}
+
+impl Step for CloseResolvedTicket {
+    type Input = String;
+
+    fn execute(&self, _context: &mut Context, reason: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_complete_if_channels_empty(
+            format!("resolved: {reason}"),
+            StepMovement::to(&AwaitTicketMessage, reason),
+            [TICKET_REPLIES.when_empty()],
+        ))
+    }
+}
+
+impl Step for CloseInactiveTicket {
+    type Input = ();
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_complete_if_channels_empty(
+            "closed after inactivity".to_string(),
+            StepMovement::to(&AwaitTicketMessage, String::new()),
+            [TICKET_REPLIES.when_empty(), TICKET_RESOLUTIONS.when_empty()],
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+transcript 更新逻辑、HTTP controller 和测试都在示例目录里。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里运行这个 HTTP 示例。
+
+## 下一步 {#next}
+
+- [停止长时间运行的工作](/design-patterns/external-interaction/stop-long-running-work)
+- [Channel](/concepts/primitives/channel)
+- [Timer](/concepts/primitives/timer)
+- [RPC](/concepts/primitives/rpc)
+- [排空 Channel](/design-patterns/drain-channels)

@@ -31,10 +31,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
@@ -173,14 +176,17 @@ func NewRouter(client *sdk.Client) http.Handler {
 	customerrefund.RegisterRoutes(router, client, registry.CustomerRefund, registry.AgenticRefund)
 	managerapproval.RegisterRoutes(router, client, registry.ManagerApprovalRefund)
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
+	failfast.RegisterRoutes(router, client, registry.ExpenseReimbursement)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
+	entityflow.RegisterRoutes(router, client, registry.CustomerAccount)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)
 	inboundeventloop.RegisterRoutes(router, client, registry.SupportTicket)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
+	childflows.RegisterRoutes(router, client, registry.OrderFulfillment)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)

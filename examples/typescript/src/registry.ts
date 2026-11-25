@@ -19,11 +19,14 @@ import { Registry, type Flow } from "@superdurable/dex";
 import { getClient } from "./client-holder.js";
 import { creditCheckFlow } from "./patterns/cancel-case/credit-check-flow.js";
 import { LoanApplicationFlow } from "./patterns/cancel-case/loan-application-flow.js";
+import { OrderFulfillmentFlow } from "./patterns/child-flows-business-identity/order-fulfillment-flow.js";
+import { ShipmentFlow } from "./patterns/child-flows-business-identity/shipment-flow.js";
 import { contractEditFlow } from "./patterns/critical-section/contract-edit-flow.js";
 import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
 import { offerResponseFlow } from "./patterns/deferred-choice/offer-response-flow.js";
 import { drainInternalChannelFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
 import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
+import { customerAccountFlow } from "./patterns/entity-flow/customer-account-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { customerDirectoryFlow } from "./patterns/hash-partitioned-attribute-map/customer-directory-flow.js";
 import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
@@ -42,6 +45,8 @@ import {
   submitRequestFlow,
   waitForHalfParentFlow,
 } from "./patterns/parallel-subflows/parallel-subflows.js";
+import { ExpenseReimbursementFlow } from "./patterns/fail-fast/expense-reimbursement-flow.js";
+import { FakePaymentProvider } from "./patterns/fail-fast/fake-payment-provider.js";
 import { FakeJobService } from "./patterns/polling/fake-job-service.js";
 import { PollingFlow } from "./patterns/polling/polling-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
@@ -109,7 +114,11 @@ import { environmentOr } from "./config/env.js";
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
+const paymentProvider = new FakePaymentProvider();
+const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
+const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
@@ -159,10 +168,12 @@ export const allExampleFlows: readonly Flow<any>[] = [
   advancedShortLiveParentFlow,
   submitRequestFlow,
   pollingFlow,
+  expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
   supportTicketFlow,
+  customerAccountFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,
@@ -172,6 +183,8 @@ export const allExampleFlows: readonly Flow<any>[] = [
   contractEditFlow,
   creditCheckFlow,
   loanApplicationFlow,
+  shipmentFlow,
+  orderFulfillmentFlow,
   exampleFlow,
   stepFlow,
   retryFlow,
@@ -232,10 +245,12 @@ export {
   submitRequestFlow,
   pollingFlow,
   pollingJobs,
+  expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
   supportTicketFlow,
+  customerAccountFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,
@@ -245,6 +260,8 @@ export {
   contractEditFlow,
   creditCheckFlow,
   loanApplicationFlow,
+  shipmentFlow,
+  orderFulfillmentFlow,
   exampleFlow,
   stepFlow,
   retryFlow,

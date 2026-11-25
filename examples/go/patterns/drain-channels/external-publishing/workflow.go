@@ -22,7 +22,6 @@ package externalpublishing
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -95,7 +94,6 @@ func (processMessage) Execute(
 		}
 		fmt.Printf("DrainingExternalChannelFlow process message: %s\n", values[0])
 	}
-	time.Sleep(20 * time.Second)
 	return dex.ForceCompleteIfChannelsEmpty(
 		nil,
 		[]dex.ChannelDef{QueueChannel},

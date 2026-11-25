@@ -79,9 +79,9 @@ Step could consume the message. Changed in 0.1.26: before, the server accepted
 the publication and stored the message.
 
 While a Flow closes, the server still accepts **SetAttributes** and RPCs that
-are neither transactional nor locking. An RPC that commits during the close,
-including one the server accepted before the close began, keeps its Attribute
-writes and Channel publications. It starts and cancels no Steps.
+are neither transactional nor locking. An RPC that commits during the close
+starts and cancels no Steps. An RPC whose result publishes to a Channel fails
+during the close, as [Pending close](#pending-close) describes.
 
 ### Pending close {#pending-close}
 
@@ -95,11 +95,15 @@ them. During that wait:
 - the run still reports **RUNNING**. Dex cancels running Steps, starts no new
   Step, and discards the uncommitted results of cancelled handlers. Running
   application code can ignore cancellation;
-- an RPC that is neither transactional nor locking is still admitted, and its
-  Attribute writes and Channel publications commit. No Step consumes those
-  messages;
+- an RPC that is neither transactional nor locking is still admitted;
 - a transactional or locking RPC admitted before the close can still commit;
-- a new transactional or locking RPC is rejected with **FLOW_CLOSING**.
+- a new transactional or locking RPC is rejected with **FLOW_CLOSING**;
+- any RPC whose result publishes to a Channel fails with
+  **FAILED_PRECONDITION** and **FLOW_CLOSING**, whether it is transactional,
+  locking, or neither. The server rejects the whole Dex result: it commits no
+  Attribute write, no publication, and no reply. No Step could consume the
+  message. Changed in 0.1.38: before, the server stored the message, but no
+  Step could consume it.
 
 So a lock on an RPC changes whether it is admitted during the close. It gives
 no guarantee that a Step consumes what the RPC published. The final terminal
@@ -582,6 +586,10 @@ even when the target state is small. The request then fails with
 **true** (`dexcli flow time-travel -skip-writes-reapply`) if those writes should not be applied again. Or raise
 [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
 and restart the node before you retry.
+
+When the restored point is in a [pending close](#pending-close), write reapply
+skips each RPC whose result publishes to a Channel, with all of its writes.
+Changed in 0.1.38: before, it applied that RPC again.
 
 ### SubFlows across a time travel {#sub-flows-across-a-time-travel}
 

@@ -342,6 +342,9 @@ message RpcCommittedCommand {
   dex.PullRouting pull_routing = 6;
   // Owner-resolved RPC mode, including locks and server configuration.
   bool is_transactional = 7;
+  // When true, apply rejects the commit if it publishes to a Channel while a close is pending.
+  // Older logs leave it false and commit the publication.
+  bool should_reject_publication_during_pending_close = 8;
 }
 
 // Identifies a timer. Timers of an abandoned run attempt never fire.
@@ -401,6 +404,9 @@ message TimeTravelCommand {
   // the staging.
   uint32 target_run_attempt = 5;
   uint64 target_run_seq = 6;
+  // When true, a reapplied RPC that publishes to a Channel while a close is pending is
+  // rejected and skipped, whatever the recorded RPC command says. Older logs leave it false.
+  bool should_reject_publication_during_pending_close = 7;
 }
 
 // One chunk of a TimeTravel result the owner computed. It records no history and takes no run seq.

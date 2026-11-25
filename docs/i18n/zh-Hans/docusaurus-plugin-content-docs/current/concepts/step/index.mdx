@@ -224,7 +224,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才返回 output。见 [Flow output](/reference/server/step-and-flow-close#flow-outputs)。
 
-决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
+决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [SubFlow](/design-patterns/subflows) 模式。
 
 ## 保证 {#guarantees}
 

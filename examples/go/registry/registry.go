@@ -22,12 +22,15 @@ package registry
 
 import (
 	cancelcase "github.com/superdurable/dex/examples/go/patterns/cancel-case"
+	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
 	criticalsection "github.com/superdurable/dex/examples/go/patterns/critical-section"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
@@ -98,8 +101,12 @@ var (
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
 	PollingJobs           *patternspolling.FakeJobService
+	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
+	PaymentProvider       *failfast.FakePaymentProvider
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
+	AccountArchive        *entityflow.FakeAccountArchive
+	CustomerAccount       *entityflow.CustomerAccountFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
@@ -125,6 +132,8 @@ var (
 	ContractEdit          *criticalsection.ContractEditFlow
 	CreditCheck           *cancelcase.CreditCheckFlow
 	LoanApplication       *cancelcase.LoanApplicationFlow
+	Shipment              *childflows.ShipmentFlow
+	OrderFulfillment      *childflows.OrderFulfillmentFlow
 	WorkflowPatterns      *workflowpatterns.WorkflowPatternFlows
 
 	Step                 *step.StepFlow
@@ -184,8 +193,12 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingJobs = patternspolling.NewFakeJobService()
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
+	PaymentProvider = failfast.NewFakePaymentProvider()
+	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
+	AccountArchive = entityflow.NewFakeAccountArchive()
+	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
@@ -211,6 +224,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	ContractEdit = criticalsection.NewContractEditFlow()
 	CreditCheck = cancelcase.NewCreditCheckFlow()
 	LoanApplication = cancelcase.NewLoanApplicationFlow(getClient, CreditCheck)
+	Shipment = childflows.NewShipmentFlow(getClient)
+	OrderFulfillment = childflows.NewOrderFulfillmentFlow(getClient, Shipment)
 	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows(getClient)
 
 	Step = step.NewStepFlow()
@@ -252,8 +267,10 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ManagerApprovalRefund,
 		CronSchedule,
 		Polling,
+		ExpenseReimbursement,
 		Interruptible,
 		Reminder,
+		CustomerAccount,
 		UserProfile,
 		ManualRecovery,
 		InactivenessTracker,
@@ -279,6 +296,8 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ContractEdit,
 		CreditCheck,
 		LoanApplication,
+		Shipment,
+		OrderFulfillment,
 		Step,
 		ExampleFlow,
 		StepRetry,

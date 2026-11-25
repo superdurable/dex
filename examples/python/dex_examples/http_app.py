@@ -28,12 +28,16 @@ from werkzeug.exceptions import HTTPException
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_cors import install_quart_cors
+from dex_examples.patterns.child_flows_business_identity.controller import (
+    create_child_flows_business_identity_blueprint,
+)
 from dex_examples.patterns.drain_channels.external_publishing.controller import (
     create_draining_channel_blueprint,
 )
 from dex_examples.patterns.drain_channels.internal.controller import (
     create_drain_internal_blueprint,
 )
+from dex_examples.patterns.entity_flow.controller import create_entity_flow_blueprint
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
 from dex_examples.patterns.hash_partitioned_attribute_map.controller import (
     create_hash_partitioned_attribute_map_blueprint,
@@ -54,6 +58,7 @@ from dex_examples.patterns.parallel.controller import create_parallel_blueprint
 from dex_examples.patterns.parallel_subflows.controller import (
     create_parallel_subflows_blueprint,
 )
+from dex_examples.patterns.fail_fast.controller import create_fail_fast_blueprint
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
 from dex_examples.patterns.recovery.controller import create_recovery_blueprint
 from dex_examples.patterns.reminders.controller import create_reminders_blueprint
@@ -138,8 +143,10 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_ai_agent_blueprint(app_state))
 
     quart_app.register_blueprint(create_polling_pattern_blueprint(app_state))
+    quart_app.register_blueprint(create_fail_fast_blueprint(app_state))
     quart_app.register_blueprint(create_interruptible_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
+    quart_app.register_blueprint(create_entity_flow_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))
     quart_app.register_blueprint(
         create_sequentially_chunked_attribute_map_blueprint(app_state)
@@ -152,6 +159,9 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_inbound_event_loop_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_subflows_blueprint(app_state))
+    quart_app.register_blueprint(
+        create_child_flows_business_identity_blueprint(app_state)
+    )
     quart_app.register_blueprint(create_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_drain_internal_blueprint(app_state))
     quart_app.register_blueprint(create_draining_channel_blueprint(app_state))

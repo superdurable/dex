@@ -15,7 +15,7 @@
 mod common;
 mod worker_harness;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Barrier, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -25,6 +25,12 @@ use common::{
     FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient, assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step, query, query_with,
 };
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
+use dex_examples_rust::data_storage::entity_flow::controller::open_account_options;
+use dex_examples_rust::data_storage::entity_flow::flow::{
+    ADJUST_CREDIT_BALANCE, CREDIT_BALANCE, ContactDetails, CreditAdjustment, CustomerAccountFlow,
+    DISPLAY_NAME, EMAIL, RETIRE_ACCOUNT, RETIRED, UPDATE_CONTACT_DETAILS, customer_account_flow_id,
+};
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::primitives::attribute::flow::AttributeFlow;
 use dex_examples_rust::products::customer_refund::billing_service::FakeBillingService;
@@ -33,8 +39,8 @@ use dex_examples_rust::server::build_router;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
-    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult,
-    WaitForAttributeOptions, Worker, WorkerOptions,
+    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
+    SdkResult, WaitForAttributeOptions, Worker, WorkerOptions,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -50,6 +56,7 @@ struct FlowSmokeEnvironment {
     _cache_directory: TempDir,
     refund_billing: FakeBillingService,
     _refund_ledger_directory: TempDir,
+    account_archive: Arc<FakeAccountArchive>,
 }
 
 impl FlowSmokeEnvironment {
@@ -65,6 +72,7 @@ impl FlowSmokeEnvironment {
             .expect("open Rust flow smoke cache"),
         );
         let polling_jobs = Arc::new(FakeJobService::default());
+        let account_archive = Arc::new(FakeAccountArchive::default());
         let refund_ledger_directory =
             tempfile::tempdir().expect("create Rust flow smoke refund ledger directory");
         let (customer_refund_flow, refund_billing) =
@@ -87,6 +95,7 @@ impl FlowSmokeEnvironment {
                     Arc::clone(&client),
                     Arc::clone(&polling_jobs),
                     customer_refund_flow.clone(),
+                    Arc::clone(&account_archive),
                 )
                 .expect("register Rust Worker examples"),
                 Arc::clone(&cache),
@@ -130,6 +139,7 @@ impl FlowSmokeEnvironment {
             _cache_directory: cache_directory,
             refund_billing,
             _refund_ledger_directory: refund_ledger_directory,
+            account_archive,
         }
     }
 }
@@ -196,6 +206,16 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             name: "patterns/polling",
             path: "/patterns/polling/start",
             query: query(&client.new_flow_id("pattern-polling")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "patterns/fail-fast",
+            path: "/patterns/fail-fast/start",
+            query: HashMap::from([
+                ("workflowId".into(), client.new_flow_id("pattern-fail-fast")),
+                ("amountCents".into(), "12000".into()),
+                ("bankAccount".into(), "12345678".into()),
+            ]),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
@@ -280,6 +300,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             "short-lived-parent",
             "/patterns/parallel-subflows/start/short-lived-parent",
         ),
+        FlowSmokeEntry {
+            name: "patterns/child-flows-business-identity",
+            path: "/patterns/child-flows-business-identity/start",
+            query: query(&client.new_flow_id("child-flows-order")),
+            flags: FlowSmokeFlags::NONE,
+        },
         FlowSmokeEntry {
             name: "patterns/drain-channels/internal",
             path: "/patterns/drain-channels/internal/start",
@@ -507,6 +533,232 @@ fn run_dedicated_flow_smoke_entry(entry_name: &str) {
 
 #[test]
 #[ignore = "requires dexcli dev"]
+fn flow_smoke_patterns_entity_flow() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let account_id = http_client.new_flow_id("entity-flow");
+    let entry = FlowSmokeEntry {
+        name: "patterns/entity-flow",
+        path: "/patterns/entity-flow/account",
+        query: HashMap::new(),
+        flags: FlowSmokeFlags::NO_START_STEP,
+    };
+    let result = http_client.trigger_post_json(
+        entry.path,
+        &json!({
+            "accountId": account_id,
+            "displayName": "Smoke Tester",
+            "email": format!("{account_id}@example.com"),
+        }),
+    );
+    assert!(
+        !result.flow_id.is_empty(),
+        "{}: controller response did not include flowID",
+        entry.name
+    );
+    assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn entity_flow_keeps_one_customer_account_until_retired() {
+    const CONCURRENT_DEPOSITS: i64 = 8;
+    let environment = shared_flow_smoke_environment();
+    let client = Arc::clone(&environment.client);
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let flow_id = customer_account_flow_id(&http_client.new_flow_id("entity-flow"));
+    let contact = ContactDetails {
+        display_name: "Ada".to_owned(),
+        email: "ada@example.com".to_owned(),
+    };
+    client
+        .start_flow_with_options(
+            &CustomerAccountFlow::default(),
+            &flow_id,
+            (),
+            open_account_options(contact.clone()),
+        )
+        .expect("open customer account");
+    let duplicate = client.start_flow_with_options(
+        &CustomerAccountFlow::default(),
+        &flow_id,
+        (),
+        open_account_options(contact),
+    );
+    assert!(matches!(
+        duplicate,
+        Err(SdkError::FlowAlreadyStarted { .. })
+    ));
+
+    client
+        .invoke_rpc(
+            &flow_id,
+            UPDATE_CONTACT_DETAILS,
+            ContactDetails {
+                display_name: "Ada Lovelace".to_owned(),
+                email: "ada@lovelace.example".to_owned(),
+            },
+        )
+        .expect("update contact details");
+    let invalid_email = client
+        .invoke_rpc(
+            &flow_id,
+            UPDATE_CONTACT_DETAILS,
+            ContactDetails {
+                display_name: "Ada".to_owned(),
+                email: "not-an-email".to_owned(),
+            },
+        )
+        .expect_err("an email without @ is rejected");
+    assert!(invalid_email.to_string().contains("email must contain @"));
+
+    let deposits: Vec<_> = (0..CONCURRENT_DEPOSITS)
+        .map(|_| {
+            let client = Arc::clone(&client);
+            let flow_id = flow_id.clone();
+            thread::spawn(move || deposit_credits_with_retry(&client, &flow_id, 5))
+        })
+        .collect();
+    for deposit in deposits {
+        deposit.join().expect("deposit thread panicked");
+    }
+    let overdraft = client
+        .invoke_rpc(
+            &flow_id,
+            ADJUST_CREDIT_BALANCE,
+            CreditAdjustment { amount: -1000 },
+        )
+        .expect_err("an overdraft is rejected");
+    assert!(overdraft.to_string().contains("below zero"));
+
+    let (display_name, email, credit_balance) = client
+        .get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
+        .expect("read customer account");
+    assert_eq!(display_name.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(email.as_deref(), Some("ada@lovelace.example"));
+    assert_eq!(credit_balance, Some(5 * CONCURRENT_DEPOSITS));
+
+    let retire_with_balance = client
+        .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
+        .expect_err("retiring with a balance is rejected");
+    assert!(retire_with_balance.to_string().contains("before retiring"));
+    assert_eq!(
+        client
+            .describe_flow(&flow_id)
+            .expect("describe account")
+            .status,
+        FlowStatus::Running
+    );
+
+    client
+        .invoke_rpc(
+            &flow_id,
+            ADJUST_CREDIT_BALANCE,
+            CreditAdjustment {
+                amount: -5 * CONCURRENT_DEPOSITS,
+            },
+        )
+        .expect("spend the remaining credits");
+    let archive = Arc::clone(&environment.account_archive);
+    archive.make_unavailable(&flow_id);
+    client
+        .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
+        .expect("retire account");
+    wait_for_archive_attempts(&archive, &flow_id, 1);
+    assert_entity_flow_running(&client, &flow_id);
+    let retired_adjustment = client
+        .invoke_rpc(
+            &flow_id,
+            ADJUST_CREDIT_BALANCE,
+            CreditAdjustment { amount: 10 },
+        )
+        .expect_err("a retired account rejects credit adjustments");
+    assert!(
+        retired_adjustment
+            .to_string()
+            .contains("account is retired")
+    );
+    let retired_contact = client
+        .invoke_rpc(
+            &flow_id,
+            UPDATE_CONTACT_DETAILS,
+            ContactDetails {
+                display_name: "Ada Byron".to_owned(),
+                email: "ada@byron.example".to_owned(),
+            },
+        )
+        .expect_err("a retired account rejects contact updates");
+    assert!(retired_contact.to_string().contains("account is retired"));
+    client
+        .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
+        .expect("a repeated retire is a no-op");
+    wait_for_archive_attempts(&archive, &flow_id, 2);
+    assert_entity_flow_running(&client, &flow_id);
+
+    archive.lose_next_response(&flow_id);
+    archive.make_available(&flow_id);
+    let result = client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("wait for retired account");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let attempts = archive.attempt_step_execution_ids(&flow_id);
+    assert!(attempts.len() >= 4, "archive attempts: {}", attempts.len());
+    assert_eq!(attempts.iter().collect::<HashSet<_>>().len(), 1);
+    assert_eq!(archive.archive_record_count(&flow_id), 1);
+    let (closed_balance, closed_retired) = client
+        .get_attributes(&flow_id, (&CREDIT_BALANCE, &RETIRED))
+        .expect("read closed account");
+    assert_eq!(closed_balance, Some(0));
+    assert_eq!(closed_retired, Some(true));
+
+    let reopen = client.start_flow_with_options(
+        &CustomerAccountFlow::default(),
+        &flow_id,
+        (),
+        open_account_options(ContactDetails {
+            display_name: "Ada".to_owned(),
+            email: "ada@example.com".to_owned(),
+        }),
+    );
+    assert!(matches!(reopen, Err(SdkError::FlowAlreadyStarted { .. })));
+}
+
+fn wait_for_archive_attempts(archive: &FakeAccountArchive, flow_id: &str, count: usize) {
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while archive.attempt_step_execution_ids(flow_id).len() < count {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {count} archive attempts"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn assert_entity_flow_running(client: &Client, flow_id: &str) {
+    assert_eq!(
+        client
+            .describe_flow(flow_id)
+            .expect("describe account")
+            .status,
+        FlowStatus::Running
+    );
+}
+
+fn deposit_credits_with_retry(client: &Client, flow_id: &str, amount: i64) {
+    for attempt in 1..=50_u64 {
+        match client.invoke_rpc(flow_id, ADJUST_CREDIT_BALANCE, CreditAdjustment { amount }) {
+            Ok(_) => return,
+            Err(SdkError::RpcLockConflict { .. }) => {
+                thread::sleep(Duration::from_millis(attempt * 50));
+            }
+            Err(error) => panic!("deposit credits: {error}"),
+        }
+    }
+    panic!("credit deposit kept conflicting on the balance lock");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
 fn flow_smoke_all_registered_flows_via_controller() {
     let environment = shared_flow_smoke_environment();
     let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
@@ -542,6 +794,92 @@ fn flow_smoke_all_registered_flows_via_controller() {
         );
         assert_flow_smoke_no_unexpected_failures(&entry, &result.flow_id, &result.run_id);
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_finds_a_shipment_by_its_number() {
+    let environment = shared_flow_smoke_environment();
+    let mut http_client = FlowSmokeHttpClient::new(environment.http_base_url.clone());
+    let order_id = http_client.new_flow_id("child-flows-order");
+    let started = http_client.trigger_get(
+        "/patterns/child-flows-business-identity/start",
+        &query(&order_id),
+    );
+    assert_eq!(started.flow_id, order_id);
+
+    let shipment_number = format!("{order_id}-2");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, body) = get_child_flows_route(&http_client, "/shipment", &shipment_number);
+        let shipment = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+        if status == 200 && shipment["status"] == "running" {
+            assert_eq!(
+                shipment["shipmentNumber"],
+                shipment_number.as_str(),
+                "{body}"
+            );
+            assert_eq!(shipment["outcome"], "", "{body}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} lookup returned {status}: {body}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    let (status, body) =
+        get_child_flows_route(&http_client, "/shipment", &format!("{order_id}-missing"));
+    assert_eq!(status, 404, "{body}");
+
+    // The order is not a shipment: both shipment routes answer 404 and leave it running.
+    for route in ["/shipment", "/cancel-shipment"] {
+        let (status, body) = get_child_flows_route(&http_client, route, &order_id);
+        assert_eq!(status, 404, "{route}: {body}");
+    }
+    let order_status = environment
+        .client
+        .describe_flow(&order_id)
+        .expect("describe the order")
+        .status;
+    assert_eq!(order_status, FlowStatus::Running);
+
+    let (status, body) = get_child_flows_route(&http_client, "/cancel-shipment", &shipment_number);
+    assert_eq!(status, 200, "{body}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = environment
+            .client
+            .describe_flow(&shipment_number)
+            .map(|info| info.status);
+        if matches!(status, Ok(FlowStatus::Canceled)) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shipment {shipment_number} is {status:?}, expected Canceled"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn get_child_flows_route(
+    http_client: &FlowSmokeHttpClient,
+    route: &str,
+    shipment_number: &str,
+) -> (u16, String) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/patterns/child-flows-business-identity{route}",
+            http_client.base_url
+        ))
+        .query(&[("shipmentNumber", shipment_number)])
+        .send()
+        .unwrap_or_else(|error| panic!("GET {route} for {shipment_number}: {error}"));
+    let status = response.status().as_u16();
+    let body = response.text().expect("read the shipment route response");
+    (status, body)
 }
 
 #[test]

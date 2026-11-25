@@ -282,6 +282,56 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "entity-flow",
+    title: "Entity Flow",
+    endpoints: [
+      endpoint("POST", "/patterns/entity-flow/account", "Open account", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.com",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/contact", "Update contact details", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.org",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/credits", "Adjust credit balance", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify({ accountId: "account-001", amount: 25 }, null, 2),
+        },
+      ]),
+      endpoint("GET", "/patterns/entity-flow/account", "Get account", [
+        query("accountId", { default: "account-001" }),
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/retire", "Retire account", [
+        query("accountId", { default: "account-001" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "sequentially-chunked-attribute-map",
     title: "Sequentially chunked AttributeMap",
     endpoints: [
@@ -367,12 +417,42 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "child-flows-business-identity",
+    title: "Child Flows with Business Identity",
+    flowIdPrefix: "order",
+    endpoints: [
+      endpoint("GET", "/patterns/child-flows-business-identity/start", "Start order", [flowId()]),
+      endpoint("GET", "/patterns/child-flows-business-identity/shipment", "Look up shipment", [
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
+      ]),
+      endpoint("GET", "/patterns/child-flows-business-identity/cancel-shipment", "Cancel shipment", [
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "polling",
     title: "Polling",
     flowIdPrefix: "pattern-polling",
     endpoints: [
       endpoint("GET", "/patterns/polling/start", "Start", [flowId()]),
       endpoint("GET", "/patterns/polling/complete-job", "Complete job", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "fail-fast",
+    title: "Fail Fast on Permanent Errors",
+    flowIdPrefix: "pattern-fail-fast",
+    note: "bankAccount must be eight ASCII digits; any other value is rejected at once.",
+    endpoints: [
+      endpoint("GET", "/patterns/fail-fast/start", "Start", [
+        flowId(),
+        query("amountCents", { type: "number", default: "12000" }),
+        query("bankAccount", { default: "12345678" }),
+      ]),
+      endpoint("GET", "/patterns/fail-fast/get-outcome", "Get outcome", [flowId()]),
     ],
   },
   {

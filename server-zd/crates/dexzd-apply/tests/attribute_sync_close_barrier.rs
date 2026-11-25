@@ -411,6 +411,15 @@ impl Harness {
     }
 
     fn travel_to(&mut self, request: ResetFlowRequest) -> ApplyOutcome {
+        self.travel_with_publication_rule(request, true)
+    }
+
+    /// Time-travels as an owner whose rule for publications during a pending close is given.
+    fn travel_with_publication_rule(
+        &mut self,
+        request: ResetFlowRequest,
+        should_reject_publication_during_pending_close: bool,
+    ) -> ApplyOutcome {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
@@ -418,6 +427,7 @@ impl Harness {
             target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
+            should_reject_publication_during_pending_close,
         }));
         assert!(
             matches!(
@@ -859,7 +869,7 @@ fn attribute_and_rpc_writes_during_cleanup_are_accepted_and_extend_the_wait() {
 }
 
 #[test]
-fn client_publications_fail_during_cleanup_and_store_nothing() {
+fn client_and_rpc_publications_fail_during_cleanup_and_store_nothing() {
     let mut harness = Harness::new();
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
     assert!(
@@ -878,33 +888,20 @@ fn client_publications_fail_during_cleanup_and_store_nothing() {
     assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
 
-    let rpc = harness.apply(Command::RpcCommitted(RpcCommittedCommand {
-        request: Some(InvokeRpcRequest {
-            flow_id: FLOW_ID.to_owned(),
-            rpc_name: "notifyOrder".to_owned(),
-            request_id: "publishing-rpc".to_owned(),
-            ..InvokeRpcRequest::default()
-        }),
-        response: Some(InvokeWorkerRpcResponse {
-            publish_to_channel: vec![ChannelMessage {
-                channel_name: "orders".to_owned(),
-                value: Some(string_value("from-rpc")),
-                message_id: "from-rpc".to_owned(),
-            }],
-            ..InvokeWorkerRpcResponse::default()
-        }),
-        app_worker_id: "worker-rpc".to_owned(),
-        request_fingerprint: b"publishing-rpc".to_vec(),
-        ..RpcCommittedCommand::default()
-    }));
-    assert!(
-        matches!(rpc.reply.reply, Some(command_reply::Reply::Rpc(_))),
-        "an RPC commit during cleanup keeps its publications: {:?}",
-        rpc.reply
-    );
+    for (request_id, is_transactional) in
+        [("late-rpc", false), ("admitted-transactional-rpc", true)]
+    {
+        let rejected = harness.apply(publishing_rpc(request_id, is_transactional));
+        assert_flow_closing(&rejected.reply);
+        assert!(
+            rejected.writes.is_empty(),
+            "the whole RPC commit is rejected"
+        );
+    }
+    assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
     assert_eq!(
         harness.channel_message_ids("orders"),
-        vec!["before-close".to_owned(), "from-rpc".to_owned()]
+        vec!["before-close".to_owned()]
     );
 
     harness.ack(PRIMARY, deferred_seq);
@@ -1015,6 +1012,94 @@ fn time_travel_skips_a_recorded_publication_that_meets_a_restored_pending_close(
     );
     harness.ack(PRIMARY, harness.last_seq());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+/// An older server's RPC command commits its publication during a pending close. A rebuild
+/// replays it, an older TimeTravel reapplies it, and a new TimeTravel skips it whole.
+#[test]
+fn an_older_rpc_publication_during_cleanup_replays_and_only_a_new_time_travel_skips_it() {
+    for should_reject_publication_during_pending_close in [false, true] {
+        let mut harness = Harness::new();
+        harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+        harness.force_complete(Vec::new());
+        let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+        let legacy = harness.apply(older_publishing_rpc("legacy-rpc", true));
+        assert!(matches!(
+            legacy.reply.reply,
+            Some(command_reply::Reply::Rpc(_))
+        ));
+        let rpc_time = harness.history_record(harness.last_seq()).timestamp_micros;
+        assert_eq!(
+            harness.channel_message_ids("orders"),
+            vec!["legacy".to_owned()]
+        );
+
+        let rebuild_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            request: Some(reset_to_time(rpc_time)),
+            should_reject_publication_during_pending_close: true,
+            ..TimeTravelCommand::default()
+        }));
+        time_travel_target_hash(&harness.context, &harness.state, &rebuild_command)
+            .expect("a rebuild replays the recorded RPC")
+            .expect("the point exists");
+
+        harness.travel_with_publication_rule(
+            ResetFlowRequest {
+                skip_writes_reapply: false,
+                ..reset_to_time(close_time)
+            },
+            should_reject_publication_during_pending_close,
+        );
+        let restored = harness.run_record();
+        assert_eq!(restored.status, FlowStatus::Running as i32);
+        assert!(restored.pending_close.is_some(), "the restored close waits");
+        let expected_message_ids = if should_reject_publication_during_pending_close {
+            Vec::new()
+        } else {
+            vec!["legacy".to_owned()]
+        };
+        assert_eq!(
+            harness.channel_message_ids("orders"),
+            expected_message_ids,
+            "rule {should_reject_publication_during_pending_close}"
+        );
+        harness.ack(PRIMARY, harness.last_seq());
+        assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+    }
+}
+
+/// An owner's RPC commit that publishes one message, `legacy`, to `orders`.
+fn publishing_rpc(request_id: &str, is_transactional: bool) -> Command {
+    let mut command = older_publishing_rpc(request_id, is_transactional);
+    if let Command::RpcCommitted(rpc) = &mut command {
+        rpc.should_reject_publication_during_pending_close = true;
+    }
+    command
+}
+
+/// The same RPC commit as an older server logged it, without the pending close rule.
+fn older_publishing_rpc(request_id: &str, is_transactional: bool) -> Command {
+    Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(InvokeRpcRequest {
+            flow_id: FLOW_ID.to_owned(),
+            rpc_name: "updateOrder".to_owned(),
+            request_id: request_id.to_owned(),
+            is_transactional,
+            ..InvokeRpcRequest::default()
+        }),
+        response: Some(InvokeWorkerRpcResponse {
+            publish_to_channel: vec![ChannelMessage {
+                channel_name: "orders".to_owned(),
+                value: Some(string_value("legacy")),
+                message_id: "legacy".to_owned(),
+            }],
+            ..InvokeWorkerRpcResponse::default()
+        }),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: request_id.as_bytes().to_vec(),
+        is_transactional,
+        ..RpcCommittedCommand::default()
+    })
 }
 
 #[test]
@@ -1304,6 +1389,7 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(reset_to_time(*timestamp)),
         }));
         let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -1596,6 +1682,7 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(reset_to_time(*timestamp)),
             }));
             let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &command)
@@ -1766,6 +1853,7 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 2,
                 ..reset_to_time(*timestamp)
@@ -1826,6 +1914,7 @@ fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_s
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             run_attempt: 2,
             ..reset_to_time(travel_time)

@@ -71,7 +71,17 @@ func (flow *SupportTicketConversationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.SendTicketReply, nil),
 		dex.DefineRPC(flow.ResolveTicket, nil),
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
 	}
+}
+
+func (*SupportTicketConversationFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+func (*SupportTicketConversationFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
 func (*SupportTicketConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {

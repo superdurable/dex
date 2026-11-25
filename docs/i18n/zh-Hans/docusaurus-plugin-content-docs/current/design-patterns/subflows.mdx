@@ -1,0 +1,34 @@
+---
+title: 子 Flow
+sidebar_label: 子 Flow
+---
+
+# 子 Flow
+
+在以下场景中使用 SubFlow：
+
+1. 每一份工作都需要自己的执行历史、重试和生命周期。
+2. 需要的并发量超过单个 Flow 的并发限制。
+
+<a id="选择模式"></a>
+
+## 选择模式 {#choose-a-pattern}
+
+- [基础父 Flow](/design-patterns/subflows/basic)：启动运行时数量的 SubFlow，并等待它们全部完成。
+- [等待一半完成](/design-patterns/subflows/wait-for-half)：等待一半 SubFlow，然后由每个未完成的 Step 停止自己的子 Flow。
+- [高级：长生命周期父 Flow](/design-patterns/subflows/long-lived-parent)：保持固定 worker pool，并通过向 Channel 发布消息的 RPC 接收请求。
+- [高级：短生命周期父 Flow](/design-patterns/subflows/short-lived-parent)：处理完排队的请求，在没有 SubFlow 运行且 Channel 为空时完成，不会丢掉最后时刻到达的请求。
+- [高级：多父 Flow 分区](/design-patterns/subflows/partitioning)：把请求分散到多个父 Flow，SubFlow 总并发量随父 Flow 数量增长。
+- [高级：高可用背压](/design-patterns/subflows/back-pressure)：父 Flow 过载并拒绝请求时，通过一个会重试的 Flow 提交请求，直到父 Flow 接受。
+- [连同子 Flow 一起取消](/design-patterns/subflows/cancel-case)：Flow 被取消时，停止它启动的子 Flow。
+- [有业务标识的子 Flow](/design-patterns/subflows/child-flows-with-business-identity)：把子任务作为以自己业务编号命名的顶层 Flow 启动，并记录每个子任务的结果。
+
+前四页是父 Flow 的几种形状。分区和背压建立在它们之上。
+
+<a id="下一步"></a>
+
+## 下一步 {#next}
+
+- [基础父 Flow](/design-patterns/subflows/basic)
+- [SubFlow](/concepts/primitives/subflow)
+- [并行 Step](/design-patterns/parallel)

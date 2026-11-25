@@ -328,7 +328,7 @@ self.progress
 ### Partition a growing collection {#attributemap-partitioning}
 
 A collection that keeps growing should be split across bounded AttributeMap
-instances. [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+instances. [Data Storage](/design-patterns/data-storage)
 compares the two patterns: sequential chunks for append-only, ordered data, and
 hash partitions for lookup by a stable key.
 
@@ -489,7 +489,7 @@ including dropped writes and repairs.
 The [Attribute Store sync](/reference/server/attribute-store-sync) reference
 covers configuration, table requirements, row keys, AttributeMap tables,
 retries, metrics, and local development. The
-[Entity Store](/design-patterns/entity-store) pattern shows a complete example.
+[Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync) pattern shows a complete example.
 
 ## Reference
 

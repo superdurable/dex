@@ -7,4 +7,4 @@
 
 `SupportTicketConversationFlow` starts without a Flow timeout, so only the 24-hour inactivity Timer closes a quiet ticket. `AwaitTicketMessage` records each batch of replies and loops back, which restarts the inactivity Timer. A resolution moves to `CloseResolvedTicket`; inactivity moves to `CloseInactiveTicket`. Both close with `forceCompleteIfChannelsEmpty` and fall back to `AwaitTicketMessage` when a message is still queued.
 
-See the [Idle Timer with Resolution design pattern](https://docs.superdurable.io/design-patterns/inbound-event-loop).
+See the [Idle Timer with Resolution design pattern](https://docs.superdurable.io/design-patterns/external-interaction/idle-timer-with-resolution).

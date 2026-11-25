@@ -10,7 +10,7 @@ Guide a new user from account creation through email verification and two requir
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
-**Shows:** [Reminder](/design-patterns/durable-timer/reminder), [Interruptible wait](/design-patterns/interruptible), [Responsive Update](/design-patterns/responsive-update).
+**Shows:** [Reminder](/design-patterns/durable-timer/reminder), [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline), [Responsive Update](/design-patterns/responsive-update).
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -47,7 +47,7 @@ The Flow runs four waiting stages in order:
 It combines these design patterns:
 
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves a waiting Step back to itself whenever its Timer fires.
-- [**Interruptible wait**](/design-patterns/interruptible) uses `AnyOf` so a Channel message can wake the Step before the reminder Timer.
+- [**Decision with Deadline**](/design-patterns/external-interaction/decision-with-deadline) uses `AnyOf` so a Channel message can wake the Step before the reminder Timer.
 - [**Responsive update**](/design-patterns/responsive-update) uses RPCs to validate the current stage and publish the matching Channel message while the Flow is waiting.
 - **Sequential stages**: the Steps run in a fixed order, so a later task cannot skip an earlier one.
 - **Stage in an Attribute**: each Step sets the **Status** Attribute in its `WaitFor` method. Dex saves that value when the Step starts to wait. RPCs and operators therefore see the stage the Flow is actually waiting on.

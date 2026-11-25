@@ -15,6 +15,7 @@
 //! Runnable Rust examples for Dex Flows, Steps, and application patterns.
 
 pub mod control_patterns;
+pub mod data_storage;
 pub mod patterns;
 pub mod primitives;
 pub mod production;
@@ -27,6 +28,7 @@ use std::sync::Arc;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
+use crate::data_storage::entity_flow::FakeAccountArchive;
 use crate::patterns::polling::FakeJobService;
 use crate::products::customer_refund::refund_flow::CustomerRefundFlow;
 
@@ -69,13 +71,19 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
 ];
 
 /// Control-structure pattern Flows, one per Design pattern page.
-pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 5] = [
+pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 8] = [
     "OfferResponseFlow",
     "ContractEditFlow",
     "CreditCheckFlow",
     "LoanApplicationFlow",
+    "OrderFulfillmentFlow",
+    "ShipmentFlow",
+    "ExpenseReimbursementFlow",
     "SupportTicketConversationFlow",
 ];
+
+/// Data Storage pattern Flows, one per Design pattern page.
+pub const DATA_STORAGE_PATTERN_FLOW_TYPES: [&str; 1] = ["CustomerAccountFlow"];
 
 /// Workflow Patterns Flows, in `examples/workflow-patterns-mapping.md` group order.
 pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
@@ -124,6 +132,7 @@ pub fn create_example_registry(
     products::register(Registry::new(), customer_refund_flow)
         .and_then(|registry| patterns::register(registry, polling_jobs))
         .and_then(control_patterns::register)
+        .and_then(data_storage::register)
         .and_then(primitives::register)
         .and_then(workflow_patterns::register)
 }
@@ -132,10 +141,12 @@ pub fn create_worker_registry(
     client: Arc<Client>,
     polling_jobs: Arc<FakeJobService>,
     customer_refund_flow: CustomerRefundFlow,
+    account_archive: Arc<FakeAccountArchive>,
 ) -> SdkResult<Registry> {
     products::register(Registry::new(), customer_refund_flow)
         .and_then(|registry| patterns::register_worker(registry, Arc::clone(&client), polling_jobs))
         .and_then(|registry| control_patterns::register_worker(registry, Arc::clone(&client)))
+        .and_then(|registry| data_storage::register_worker(registry, account_archive))
         .and_then(primitives::register)
         .and_then(|registry| workflow_patterns::register_worker(registry, client))
 }

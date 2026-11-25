@@ -31,7 +31,7 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - 消息可以在 Step 开始等待之前到达。Dex 会保留它，直到之后的 wait 消费它。
 - 只有发布消息的 Step 方法或 RPC 成功时，Dex 才会发布这条消息。见 [Step 的保证](/concepts/step#guarantees)。
 - 重复的发布请求会把消息存储两次。在消息里放一个业务 key，已经处理过的 key 就跳过。
-- 晚到的消息仍然必须处理时，在 Flow 关闭前排空这个 Channel。决定已经最终确定后，取消或撤回 Channel 保持不排空，这样晚到的取消不能推翻决定。见[取消一个案例](/design-patterns/cancel-case)。
+- 晚到的消息仍然必须处理时，在 Flow 关闭前排空这个 Channel。决定已经最终确定后，取消或撤回 Channel 保持不排空，这样晚到的取消不能推翻决定。见[取消一个案例](/design-patterns/subflows/cancel-case)。
 
 被取消的 Step 可能把已消费的消息放回 Channel，所以一条消息可能两次到达 `Execute`；Flow 关闭时 Dex 则会丢弃这些消息。在同一个 Channel 上，等待一条消息和等待多条消息的 Step 可能让对方永远等不到。见[被取消的 Step 放回已消费的消息](/reference/server/runtime-data#canceled-step-messages)和[等待者顺序](/reference/server/runtime-data#channel-waiter-order)（英文）。
 

@@ -98,6 +98,7 @@ test scripts already run them separately.
 Under [`dex_examples/patterns/`](./dex_examples/patterns/), including
 [Cron schedule](./dex_examples/patterns/cron),
 [polling an external job in one long-running Step](./dex_examples/patterns/polling),
+[failing fast on a permanent provider error](./dex_examples/patterns/fail-fast),
 [resource-control](./dex_examples/patterns/resource-control) (Python only),
 and others.
 

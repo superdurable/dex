@@ -9,4 +9,4 @@
 
 The transcript route reads the current chunk with a Client Attribute read, while the ticket is open and after it closes.
 
-See the [Idle Timer with Resolution design pattern](https://docs.superdurable.io/design-patterns/inbound-event-loop).
+See the [Idle Timer with Resolution design pattern](https://docs.superdurable.io/design-patterns/external-interaction/idle-timer-with-resolution).

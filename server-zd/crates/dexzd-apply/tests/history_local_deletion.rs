@@ -1940,7 +1940,7 @@ fn while_offloading_an_event_id_in_an_uploaded_segment_is_time_travelable() {
     let target_seq = |request: &ResetFlowRequest| match harness.time_travel_computation(request) {
         TimeTravelComputation::Computed(computed) => {
             computed
-                .time_travel_command(b"staging", false)
+                .time_travel_command(b"staging", false, false)
                 .target_run_seq
         }
         TimeTravelComputation::Rejected(reply) => panic!("{request:?} is rejected: {reply:?}"),
