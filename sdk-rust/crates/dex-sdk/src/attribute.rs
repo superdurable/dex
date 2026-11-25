@@ -148,9 +148,10 @@ impl<T> Attribute<T> {
     /// reads are not checked. Every Client and Worker must register the same definition; a
     /// Worker built without the requirement does not check it.
     ///
-    /// A Flow that declares a requirement reads each Step's lock options once, at registration.
-    /// Dex sends those locks whenever it schedules the Step with its registered options. The check
-    /// compares writes with them, not with the locks Dex acquires for the call. Options passed to
+    /// In a Flow that declares a requirement, the SDK saves each Step's `wait_for` and `execute`
+    /// lock fields at registration. Default dispatch sends those saved locks but still calls
+    /// [`Step::options`](crate::Step::options) for the other fields. The check compares writes
+    /// with the saved locks, not with the locks Dex acquires for the call. Options passed to
     /// [`StepMovement::to_with_options`] replace the registered options, and an RPC takes its
     /// locks from the Client's definition. Keep the required lock in such options.
     ///
