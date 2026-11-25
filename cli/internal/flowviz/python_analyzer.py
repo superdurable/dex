@@ -1015,7 +1015,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             source_span = self.span(call)
             wait_id = f"wait:{step_name}:{source_span['startLine']}:{source_span['startColumn']}:{index}"
             wait_type = self.wait_type(call)
-            conditions = self.wait_conditions(owner_id, wait_id, outcome["conditionExpressions"], outcome.get("resourceOverride"))
+            conditions = self.wait_conditions(owner_id, wait_id, call, outcome["conditionExpressions"], outcome.get("resourceOverride"))
             self.add_node({
                 "id": wait_id, "kind": "wait", "name": wait_type, "parentId": owner_id,
                 "condition": outcome.get("condition", ""), "phase": "wait_for", "span": source_span,
@@ -1132,15 +1132,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     return node.func.value
         return None
 
-    def wait_conditions(self, owner_id, wait_id, condition_expressions, resource_override):
+    def wait_conditions(self, owner_id, wait_id, wait_call, condition_expressions, resource_override):
         conditions = []
         for call in condition_expressions:
             if not isinstance(call, ast.Call):
-                span = self.span(call)
-                expression = self.unparse(call)
-                message = "Pass Wait conditions as individual arguments or unpack a SubFlow.run comprehension with a fixed child Flow"
-                self.error("dynamic_wait_condition", message, span)
-                conditions.append({"kind": "unknown", "label": expression, "expression": expression, "span": span})
+                conditions.append(self.unsupported_wait_condition(call))
                 continue
             if self.is_dex_method_call(call, "Timer", "by_duration"):
                 expression = self.unparse(call.args[0]) if call.args else "duration"
@@ -1157,6 +1153,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 conditions.append({"kind": "subflow", "label": name, "subFlowId": subflow_id, "span": self.span(call)})
                 continue
             if not isinstance(call.func, ast.Attribute) or call.func.attr not in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
+                if (
+                    self.is_direct_wait_condition_argument(call, wait_call)
+                    and not self.is_dex_method_call(call, "ConditionCombination", "of")
+                    and not self.is_dex_reference(call.func, "graceful_completion_requested")
+                ):
+                    conditions.append(self.unsupported_wait_condition(call))
                 continue
             resource_expression = resource_override if isinstance(call.func.value, ast.IfExp) and resource_override is not None else call.func.value
             resource_id = self.resource_for(resource_expression, owner_id)
@@ -1169,6 +1171,13 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             })
             self.add_edge("wait_condition", resource_id, wait_id, label=label, span=self.span(call))
         return conditions
+
+    def unsupported_wait_condition(self, argument):
+        span = self.span(argument)
+        expression = self.unparse(argument)
+        message = "Pass Wait conditions as individual arguments or unpack a SubFlow.run comprehension with a fixed child Flow"
+        self.error("dynamic_wait_condition", message, span)
+        return {"kind": "unknown", "label": expression, "expression": expression, "span": span}
 
     def wait_condition_expressions(self, wait_call):
         accepts_subflow_unpacking = self.wait_type(wait_call) in {"allOf", "anyOf"}
@@ -1189,8 +1198,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     if subflow_run is not None:
                         yield subflow_run
                         continue
-            argument_call = self.parents[parent] if isinstance(parent, ast.keyword) and parent.arg is not None else parent
-            if argument_call is wait_call or self.is_dex_method_call(argument_call, "ConditionCombination", "of"):
+            if self.is_direct_wait_condition_argument(node, wait_call):
                 if isinstance(node, ast.Name):
                     subflow_run = self.bound_wait_subflow_run(node)
                     if subflow_run is not None:
@@ -1207,13 +1215,21 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 yield node
             pending.extend(ast.iter_child_nodes(node))
 
+    def is_direct_wait_condition_argument(self, argument, wait_call):
+        parent = self.parents[argument]
+        call = self.parents[parent] if isinstance(parent, ast.keyword) and parent.arg is not None else parent
+        return (
+            (call is wait_call or self.is_dex_method_call(call, "ConditionCombination", "of"))
+            and argument is not call.func
+        )
+
     def classify_unsupported_wait_argument(self, argument):
         """Return whether an unsupported argument can only hold non-SubFlow conditions, or None for other arguments."""
         if isinstance(argument, ast.Starred):
             return self.is_known_non_subflow_condition_sequence(argument.value, frozenset())
         if isinstance(argument, ast.keyword) and argument.arg is None:
             return self.is_known_non_subflow_condition_sequence(argument.value, frozenset(), keyword_unpacking=True)
-        if isinstance(argument, (ast.List, ast.Tuple, ast.ListComp, ast.GeneratorExp, ast.Name)):
+        if isinstance(argument, (ast.List, ast.Tuple, ast.ListComp, ast.GeneratorExp, ast.Name, ast.Attribute, ast.Subscript)):
             return (
                 self.is_known_non_subflow_condition_sequence(argument, frozenset())
                 or self.is_known_non_subflow_condition(argument, frozenset())
