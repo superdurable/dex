@@ -52,6 +52,9 @@ pub fn build_router(
             client.clone(),
             polling_jobs,
         ))
+        .merge(control_patterns::fail_fast::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::interruptible::controller::mount(client.clone()))
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(data_storage::entity_flow::controller::mount(client.clone()))

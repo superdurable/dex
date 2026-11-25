@@ -151,6 +151,23 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "patterns/fail-fast",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":  {smokeWorkflowID(t, "pattern-fail-fast")},
+					"amountCents": {"12000"},
+					"bankAccount": {"12345678"},
+				}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/fail-fast/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
 			name: "patterns/interruptible",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "interruptible")}}

@@ -442,6 +442,21 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "fail-fast",
+    title: "Fail Fast on Permanent Errors",
+    flowIdPrefix: "pattern-fail-fast",
+    note: "bankAccount must be eight ASCII digits; any other value is rejected at once.",
+    endpoints: [
+      endpoint("GET", "/patterns/fail-fast/start", "Start", [
+        flowId(),
+        query("amountCents", { type: "number", default: "12000" }),
+        query("bankAccount", { default: "12345678" }),
+      ]),
+      endpoint("GET", "/patterns/fail-fast/get-outcome", "Get outcome", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "recovery",
     title: "Recovery",
     flowIdPrefix: "recovery",

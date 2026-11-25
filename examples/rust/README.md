@@ -115,6 +115,7 @@ remain split so their orchestration boundaries are visible.
 | Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
 | Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
+| Fail fast on permanent errors | [`ExpenseReimbursementFlow`](src/control_patterns/fail_fast/flow.rs) | Retry a provider timeout; route a confirmed rejection to a failure Step at once |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |

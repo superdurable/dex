@@ -174,6 +174,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'design-patterns/failure-handling'},
           items: [
             'design-patterns/failure-handling/execute-failure-recovery',
+            'design-patterns/failure-handling/fail-fast-on-permanent-errors',
             'design-patterns/failure-handling/manual-recovery',
             'design-patterns/failure-handling/graceful-timeout',
             'design-patterns/failure-handling/wait-for-failure-recovery',

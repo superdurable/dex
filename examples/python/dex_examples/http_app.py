@@ -55,6 +55,7 @@ from dex_examples.patterns.parallel.controller import create_parallel_blueprint
 from dex_examples.patterns.parallel_subflows.controller import (
     create_parallel_subflows_blueprint,
 )
+from dex_examples.patterns.fail_fast.controller import create_fail_fast_blueprint
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
 from dex_examples.patterns.recovery.controller import create_recovery_blueprint
 from dex_examples.patterns.reminders.controller import create_reminders_blueprint
@@ -139,6 +140,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_ai_agent_blueprint(app_state))
 
     quart_app.register_blueprint(create_polling_pattern_blueprint(app_state))
+    quart_app.register_blueprint(create_fail_fast_blueprint(app_state))
     quart_app.register_blueprint(create_interruptible_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_flow_blueprint(app_state))

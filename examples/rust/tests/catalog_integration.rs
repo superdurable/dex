@@ -20,6 +20,7 @@ use dex_examples_rust::control_patterns::{
     child_flows_business_identity::{OrderFulfillmentFlow, ShipmentFlow},
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
+    fail_fast::ExpenseReimbursementFlow,
 };
 use dex_examples_rust::data_storage::entity_flow::CustomerAccountFlow;
 use dex_examples_rust::patterns::{
@@ -220,6 +221,7 @@ fn control_pattern_catalog_matches_every_flow() {
         LoanApplicationFlow::default().flow_type(),
         OrderFulfillmentFlow::default().flow_type(),
         ShipmentFlow::default().flow_type(),
+        ExpenseReimbursementFlow::default().flow_type(),
     ];
 
     assert_eq!(control_pattern_flows, CONTROL_PATTERN_FLOW_TYPES);

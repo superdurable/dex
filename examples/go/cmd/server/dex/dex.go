@@ -37,6 +37,7 @@ import (
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
@@ -174,6 +175,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	customerrefund.RegisterRoutes(router, client, registry.CustomerRefund, registry.AgenticRefund)
 	managerapproval.RegisterRoutes(router, client, registry.ManagerApprovalRefund)
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
+	failfast.RegisterRoutes(router, client, registry.ExpenseReimbursement)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
 	entityflow.RegisterRoutes(router, client, registry.CustomerAccount)

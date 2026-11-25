@@ -33,6 +33,8 @@ import { ShipmentFlow } from "../../src/patterns/child-flows-business-identity/s
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
 import { customerAccountFlow } from "../../src/patterns/entity-flow/customer-account-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
+import { ExpenseReimbursementFlow } from "../../src/patterns/fail-fast/expense-reimbursement-flow.js";
+import { FakePaymentProvider } from "../../src/patterns/fail-fast/fake-payment-provider.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -54,6 +56,8 @@ import {
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const paymentProvider = new FakePaymentProvider();
+const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
 const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 
@@ -72,6 +76,8 @@ export interface IntegEnvironment {
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
   readonly loanApplicationFlow: typeof loanApplicationFlow;
+  readonly expenseReimbursementFlow: ExpenseReimbursementFlow;
+  readonly paymentProvider: FakePaymentProvider;
   readonly shipmentFlow: typeof shipmentFlow;
   readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
   readonly customerAccountFlow: typeof customerAccountFlow;
@@ -119,6 +125,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
     shipmentFlow,
     orderFulfillmentFlow,
     customerAccountFlow,
@@ -156,6 +163,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
+    paymentProvider,
     shipmentFlow,
     orderFulfillmentFlow,
     customerAccountFlow,

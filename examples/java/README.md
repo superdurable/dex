@@ -103,6 +103,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - [Polling an external job in one long-running Step](./src/main/java/io/superdurable/dex/patterns/polling)
+- [Failing fast on a permanent provider error](./src/main/java/io/superdurable/dex/patterns/failfast)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer

@@ -19,6 +19,7 @@ pub mod cancel_case;
 pub mod child_flows_business_identity;
 pub mod critical_section;
 pub mod deferred_choice;
+pub mod fail_fast;
 
 use std::sync::Arc;
 
@@ -49,5 +50,6 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(cancel_case::CreditCheckFlow::default())?
         .register(loan_application)?
         .register(order_fulfillment)?
-        .register(shipment)
+        .register(shipment)?
+        .register(fail_fast::ExpenseReimbursementFlow::default())
 }

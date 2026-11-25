@@ -36,6 +36,8 @@ import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
 import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
 import io.superdurable.dex.patterns.entityflow.CustomerAccountFlow;
 import io.superdurable.dex.patterns.entityflow.FakeAccountArchive;
+import io.superdurable.dex.patterns.failfast.ExpenseReimbursementFlow;
+import io.superdurable.dex.patterns.failfast.FakePaymentProvider;
 import io.superdurable.dex.patterns.polling.FakeJobService;
 import io.superdurable.dex.patterns.polling.PollingFlow;
 import io.superdurable.dex.primitives.channel.ChannelFlow;
@@ -86,6 +88,8 @@ final class IntegEnvironment implements AutoCloseable {
     private final UserOnboardingFlow userOnboardingFlow;
     private final FakeJobService fakeJobService;
     private final PollingFlow pollingFlow;
+    private final FakePaymentProvider fakePaymentProvider;
+    private final ExpenseReimbursementFlow expenseReimbursementFlow;
     private final ReportGenerationFlow reportGenerationFlow;
     private final CustomerRefundFlow customerRefundFlow;
     private final Path customerRefundLedgerDirectory;
@@ -113,6 +117,8 @@ final class IntegEnvironment implements AutoCloseable {
             final UserOnboardingFlow userOnboardingFlow,
             final FakeJobService fakeJobService,
             final PollingFlow pollingFlow,
+            final FakePaymentProvider fakePaymentProvider,
+            final ExpenseReimbursementFlow expenseReimbursementFlow,
             final ReportGenerationFlow reportGenerationFlow,
             final CustomerRefundFlow customerRefundFlow,
             final Path customerRefundLedgerDirectory,
@@ -138,6 +144,8 @@ final class IntegEnvironment implements AutoCloseable {
         this.userOnboardingFlow = userOnboardingFlow;
         this.fakeJobService = fakeJobService;
         this.pollingFlow = pollingFlow;
+        this.fakePaymentProvider = fakePaymentProvider;
+        this.expenseReimbursementFlow = expenseReimbursementFlow;
         this.reportGenerationFlow = reportGenerationFlow;
         this.customerRefundFlow = customerRefundFlow;
         this.customerRefundLedgerDirectory = customerRefundLedgerDirectory;
@@ -164,6 +172,9 @@ final class IntegEnvironment implements AutoCloseable {
         final UserOnboardingFlow userOnboardingFlow = new UserOnboardingFlow(service);
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
+        final FakePaymentProvider fakePaymentProvider = new FakePaymentProvider();
+        final ExpenseReimbursementFlow expenseReimbursementFlow =
+                new ExpenseReimbursementFlow(fakePaymentProvider);
         final ReportGenerationFlow reportGenerationFlow = new ReportGenerationFlow();
         final FakeAccountArchive accountArchive = new FakeAccountArchive();
         final CustomerAccountFlow customerAccountFlow = new CustomerAccountFlow(accountArchive);
@@ -197,6 +208,7 @@ final class IntegEnvironment implements AutoCloseable {
                 subscriptionFlow,
                 userOnboardingFlow,
                 pollingFlow,
+                expenseReimbursementFlow,
                 reportGenerationFlow,
                 customerRefundFlow,
                 customerAccountFlow));
@@ -251,6 +263,8 @@ final class IntegEnvironment implements AutoCloseable {
                 userOnboardingFlow,
                 fakeJobService,
                 pollingFlow,
+                fakePaymentProvider,
+                expenseReimbursementFlow,
                 reportGenerationFlow,
                 customerRefundFlow,
                 customerRefundLedgerDirectory,
@@ -313,6 +327,14 @@ final class IntegEnvironment implements AutoCloseable {
 
     PollingFlow pollingFlow() {
         return pollingFlow;
+    }
+
+    FakePaymentProvider fakePaymentProvider() {
+        return fakePaymentProvider;
+    }
+
+    ExpenseReimbursementFlow expenseReimbursementFlow() {
+        return expenseReimbursementFlow;
     }
 
     CustomerAccountFlow customerAccountFlow() {

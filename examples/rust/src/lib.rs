@@ -71,13 +71,14 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
 ];
 
 /// Control-structure pattern Flows, one per Design pattern page.
-pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 6] = [
+pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 7] = [
     "OfferResponseFlow",
     "ContractEditFlow",
     "CreditCheckFlow",
     "LoanApplicationFlow",
     "OrderFulfillmentFlow",
     "ShipmentFlow",
+    "ExpenseReimbursementFlow",
 ];
 
 /// Data Storage pattern Flows, one per Design pattern page.
