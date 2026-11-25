@@ -21,6 +21,7 @@ use dex_examples_rust::control_patterns::{
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
 };
+use dex_examples_rust::data_storage::entity_flow::CustomerAccountFlow;
 use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
     drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
@@ -83,8 +84,8 @@ use dex_examples_rust::workflow_patterns::{
     triggers::{PersistentTriggerFlow, TransientTriggerFlow},
 };
 use dex_examples_rust::{
-    CONTROL_PATTERN_FLOW_TYPES, PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES,
-    WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
+    CONTROL_PATTERN_FLOW_TYPES, DATA_STORAGE_PATTERN_FLOW_TYPES, PATTERN_FLOW_TYPES,
+    PRODUCT_FLOW_TYPES, WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
 };
 use dex_sdk::{Flow, Registry, SdkResult};
 
@@ -237,6 +238,30 @@ fn control_pattern_catalog_matches_every_flow() {
     );
     create_catalog_registry()
         .expect("control pattern Flows must register with every other example");
+}
+
+#[test]
+fn data_storage_pattern_catalog_matches_every_flow() {
+    let data_storage_pattern_flows = [CustomerAccountFlow::default().flow_type()];
+
+    assert_eq!(data_storage_pattern_flows, DATA_STORAGE_PATTERN_FLOW_TYPES);
+    let every_flow_type = PRODUCT_FLOW_TYPES
+        .into_iter()
+        .chain(PATTERN_FLOW_TYPES)
+        .chain(WORKFLOW_PATTERN_FLOW_TYPES)
+        .chain(CONTROL_PATTERN_FLOW_TYPES)
+        .chain(data_storage_pattern_flows)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        every_flow_type.len(),
+        PRODUCT_FLOW_TYPES.len()
+            + PATTERN_FLOW_TYPES.len()
+            + WORKFLOW_PATTERN_FLOW_TYPES.len()
+            + CONTROL_PATTERN_FLOW_TYPES.len()
+            + DATA_STORAGE_PATTERN_FLOW_TYPES.len()
+    );
+    create_catalog_registry()
+        .expect("Data Storage pattern Flows must register with every other example");
 }
 
 #[test]

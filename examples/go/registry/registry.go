@@ -28,6 +28,7 @@ import (
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
@@ -100,6 +101,8 @@ var (
 	PollingJobs           *patternspolling.FakeJobService
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
+	AccountArchive        *entityflow.FakeAccountArchive
+	CustomerAccount       *entityflow.CustomerAccountFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
@@ -187,6 +190,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
+	AccountArchive = entityflow.NewFakeAccountArchive()
+	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
@@ -256,6 +261,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Polling,
 		Interruptible,
 		Reminder,
+		CustomerAccount,
 		UserProfile,
 		ManualRecovery,
 		InactivenessTracker,

@@ -56,6 +56,7 @@ impl FlowCoordinatorRegistry {
     /// A read-only RPC (no locks, not transactional, no effects) is never logged. Lock keys are
     /// taken for the whole call; any held key fails with `ABORTED`. A transactional RPC fails
     /// with `FAILED_PRECONDITION` while a natural close waits for the Attribute Sync outbox.
+    /// Any RPC whose commit publishes to a Channel fails the same way during that wait.
     ///
     /// A transactional or locking RPC replays its recorded request ID, else fails `NOT_FOUND` on a closed run.
     pub async fn invoke_rpc(
@@ -367,6 +368,7 @@ impl FlowCoordinatorRegistry {
                 request_fingerprint: Vec::new(),
                 pull_routing: result.pull_routing,
                 is_transactional,
+                should_reject_publication_during_pending_close: true,
             }),
         );
         if is_transactional {

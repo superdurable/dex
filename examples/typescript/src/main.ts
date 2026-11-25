@@ -27,6 +27,7 @@ import { startExampleWorker } from "./config/worker.js";
 import { createChildFlowsBusinessIdentityRouter } from "./patterns/child-flows-business-identity/controller.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
+import { createEntityFlowRouter } from "./patterns/entity-flow/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
 import { createHashPartitionedAttributeMapRouter } from "./patterns/hash-partitioned-attribute-map/controller.js";
 import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
@@ -134,6 +135,7 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
+  app.use("/patterns/entity-flow", createEntityFlowRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));
   app.use(
     "/patterns/sequentially-chunked-attribute-map",

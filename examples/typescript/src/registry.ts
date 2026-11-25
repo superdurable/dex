@@ -26,6 +26,7 @@ import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
 import { offerResponseFlow } from "./patterns/deferred-choice/offer-response-flow.js";
 import { drainInternalChannelFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
 import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
+import { customerAccountFlow } from "./patterns/entity-flow/customer-account-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { customerDirectoryFlow } from "./patterns/hash-partitioned-attribute-map/customer-directory-flow.js";
 import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
@@ -165,6 +166,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
+  customerAccountFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,
@@ -239,6 +241,7 @@ export {
   failureRecoveryFlow,
   reminderFlow,
   inactivenessTrackerFlow,
+  customerAccountFlow,
   userProfileFlow,
   chunkedSubscriberFlow,
   customerDirectoryFlow,

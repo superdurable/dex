@@ -16,7 +16,10 @@ use std::time::Duration;
 ///
 /// Step retries default to a one-second initial interval, a multiplier of 2, a 100-second
 /// maximum interval, unlimited attempts, and four hours of total duration. Zero values select
-/// those defaults. A maximum of one disables retries. Non-retryable handler failures do not retry.
+/// those defaults. A maximum of one disables retries.
+/// Failures the server classifies as permanent, such as a value that is too large, do not retry.
+/// To stop retrying an application failure, return a decision from Execute that routes to a
+/// failure-handling Step, or fail the Flow.
 ///
 /// Changed in 1.35.0: a Step's total duration starts at its first hand-out to a Worker.
 /// It only gates scheduling another retry after failure; it never interrupts a running attempt.

@@ -35,6 +35,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
@@ -175,6 +176,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
+	entityflow.RegisterRoutes(router, client, registry.CustomerAccount)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)

@@ -19,6 +19,7 @@ mod config;
 use std::sync::Arc;
 use std::thread;
 
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::products::customer_refund::billing_service::DEFAULT_BILLING_LEDGER;
 use dex_examples_rust::products::customer_refund::email_service::DEFAULT_EMAIL_LEDGER;
@@ -54,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&client),
             Arc::clone(&polling_jobs),
             customer_refund_flow.clone(),
+            Arc::new(FakeAccountArchive::default()),
         )?,
         Arc::clone(&cache),
         WorkerOptions::new()

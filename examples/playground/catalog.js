@@ -282,6 +282,56 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "entity-flow",
+    title: "Entity Flow",
+    endpoints: [
+      endpoint("POST", "/patterns/entity-flow/account", "Open account", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.com",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/contact", "Update contact details", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.org",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/credits", "Adjust credit balance", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify({ accountId: "account-001", amount: 25 }, null, 2),
+        },
+      ]),
+      endpoint("GET", "/patterns/entity-flow/account", "Get account", [
+        query("accountId", { default: "account-001" }),
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/retire", "Retire account", [
+        query("accountId", { default: "account-001" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "sequentially-chunked-attribute-map",
     title: "Sequentially chunked AttributeMap",
     endpoints: [

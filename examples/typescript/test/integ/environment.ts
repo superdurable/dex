@@ -31,6 +31,7 @@ import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-applica
 import { OrderFulfillmentFlow } from "../../src/patterns/child-flows-business-identity/order-fulfillment-flow.js";
 import { ShipmentFlow } from "../../src/patterns/child-flows-business-identity/shipment-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
+import { customerAccountFlow } from "../../src/patterns/entity-flow/customer-account-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
@@ -73,6 +74,7 @@ export interface IntegEnvironment {
   readonly loanApplicationFlow: typeof loanApplicationFlow;
   readonly shipmentFlow: typeof shipmentFlow;
   readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
+  readonly customerAccountFlow: typeof customerAccountFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -119,6 +121,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     loanApplicationFlow,
     shipmentFlow,
     orderFulfillmentFlow,
+    customerAccountFlow,
     deferredChoiceOrderProbeFlow,
     cancelCaseOrderProbeFlow,
   ];
@@ -155,6 +158,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     loanApplicationFlow,
     shipmentFlow,
     orderFulfillmentFlow,
+    customerAccountFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },
