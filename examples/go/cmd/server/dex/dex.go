@@ -37,6 +37,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
+	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
@@ -177,6 +178,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)
+	inboundeventloop.RegisterRoutes(router, client, registry.SupportTicket)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)

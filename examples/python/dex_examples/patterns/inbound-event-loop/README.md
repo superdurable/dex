@@ -7,4 +7,4 @@
 
 `AwaitTicketMessage` records each batch of replies and loops back, which restarts the inactivity Timer. A resolution moves to `CloseResolvedTicket`; inactivity moves to `CloseInactiveTicket`. Both close with `force_complete_if_channels_empty` and fall back to `AwaitTicketMessage` when a message is still queued.
 
-See the [Inbound Event Loop design pattern](https://docs.superdurable.io/design-patterns/durable-timer/inbound-event-loop).
+See the [Inbound Event Loop design pattern](https://docs.superdurable.io/design-patterns/inbound-event-loop).

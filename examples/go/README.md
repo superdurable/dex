@@ -185,6 +185,7 @@ Under [`patterns/`](./patterns):
 - [Failure recovery](./patterns/recovery)
 - [Reminders](./patterns/reminders)
 - [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)
+- [Inbound Event Loop](./patterns/inbound-event-loop)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)
 - [Wait for Step completion](./patterns/wait-for-step-completion)
