@@ -168,13 +168,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/interruptible",
+			name: "patterns/control-long-running-work",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "interruptible")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "control-long-running-work")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/interruptible/start",
+					"/patterns/control-long-running-work/start",
 					query,
 					nil,
 				)

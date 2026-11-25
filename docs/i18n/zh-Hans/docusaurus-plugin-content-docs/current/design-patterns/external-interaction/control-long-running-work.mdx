@@ -1,0 +1,382 @@
+---
+title: 控制长时间运行的工作
+sidebar_label: 控制长时间运行的工作
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/control-long-running-work.json';
+
+# 控制长时间运行的工作
+
+控制长时间运行的工作（Control Long-Running Work，原名“停止长时间运行的工作”（Stop Long-Running Work）和“可中断执行”（Interruptible execution））用来调整或停止正在运行的循环。
+
+这个模式适合长时间循环运行的工作，例如数据回填或批处理。调用方可以调整循环的工作方式，例如每一轮加载多少条数据。调用方也可以要求循环停止。如果要等待外部系统，请改用 [轮询](/design-patterns/durable-timer/polling)。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 控制正在运行的循环 {#control-a-running-loop}
+
+1. 一个 RPC 写入控制 Attribute，例如批量大小和停止请求。
+2. 循环 Step 在两轮之间等待，例如等待一个 Timer。
+3. 每一轮在 `Execute` 开始时读取控制 Attribute。
+4. 已请求停止时，`Execute` 完成。否则它按当前的控制值处理一个单元。
+5. `Execute` 回到同一个 Step，把下一个位置作为输入。
+
+## 规则 {#rules}
+
+- 循环位置放在 Step 输入里。控制值放在 Attribute 里。
+- 新的控制值从下一轮开始生效。正在运行的这一轮使用它已经读到的值。
+- RPC 在写入之前校验每个值。这样循环读到的控制值总是有效的。
+- 控制值未设置时，在读取时使用默认值。如果由开始 Step 写入默认值，可能会覆盖先到达的 RPC 写入的值。
+
+## 选择 Attribute 还是 Channel {#attribute-or-channel}
+
+| 控制 | Primitive | 原因 |
+| --- | --- | --- |
+| 参数，例如批量大小、速率或暂停标志 | Attribute | 最新的值生效。循环只需要当前值。 |
+| 针对某一条数据的命令，例如跳过或重试 | Channel | 已接受的命令按 FIFO 顺序排队，由唯一的消费者按这个顺序取出。后来的命令不会替换先前的命令。 |
+
+要从 Channel 接收命令，循环用 `AnyOf` 同时等待 Timer 和这个 Channel。`AnyOf` 只为胜出的 Channel 分支消费消息。`Execute` 先判断哪个分支胜出：Channel 胜出时处理消费到的命令，Timer 胜出时处理下一批数据。之后到达的命令留在队列里，由后面的某一轮处理。
+
+如果循环停止前必须处理完每一条已接受的命令，就在 Flow 关闭前排空这个 Channel。外部调用方可能同时发布时，用原子的 complete-if-empty 决策关闭 Flow，做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。
+
+## 选择停止方式 {#choose-how-to-stop}
+
+Dex 内置三种停止工作的方式。按哪些工作必须停、哪些工作还要继续来选择。
+
+| 方式 | 停止什么 | 适用场景 |
+| --- | --- | --- |
+| StopFlow | 整个运行，立即停止 | 运行必须马上结束，也没有 Step 需要汇报或清理。 |
+| Graceful completion | 等待 graceful completion Condition 的 Step；没有活跃的 Step 时 Flow 完成 | Flow 应先做完当前的工作，然后完成。 |
+| Step 取消 | 选定的正在运行的 Step | 一个分支必须停止，Flow 的其余部分继续运行。 |
+
+<a id="finish-the-current-unit-then-stop"></a>
+
+下面的示例把停止请求和其他控制值一起放在控制 Attribute 里。循环读取它，并在下一个单元开始前停止。如果循环的等待包含 graceful completion Condition，graceful completion 也能停止这样的循环，这时不需要停止 Attribute。
+
+### 用 StopFlow 停止整个运行 {#stopflow}
+
+客户端调用 `StopFlow` 来取消（cancel）、失败（fail）或终止（terminate）这个运行。每种类型记录不同的终止状态。stop 一提交，运行就关闭。
+
+stop 提交后，只有已经在运行的 handler 还能继续运行。之后的 Step 决定、失败路由和清理都不会运行。正在运行的 Step 会收到取消信号。忽略这个信号的 handler 会继续运行，它对外部系统的调用仍然生效。Dex 会丢弃它未提交的结果。等待这个 Flow 的一方读取它的终止状态，而不是等它汇报。
+
+当 Flow 里没有工作需要做完、也没有清理需要运行时，使用 StopFlow。各种 stop 类型见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)（英文）。
+
+### 请求 Flow graceful completion {#graceful-completion}
+
+Flow 收到 graceful completion 请求：客户端用 graceful complete 调用 `StopFlow`，或者某个 Step 返回 `GracefulComplete`。正在运行的 Step 继续运行，它们的决定仍然生效。没有活跃的 Step 时，Flow 完成。
+
+等待中的 Step 如果包含 graceful completion Condition，请求到达时就停止等待。它的 `Execute` 先处理已经消费的消息。没有消息时，它结束自己的分支。等待中不含这个 Condition 的 Step 会继续运行，让 Flow 保持打开。通过 Timer 和 `GoTo` 进入下一个单元的循环会一直循环，直到它自己检查这个请求。
+
+当每个分支应先做完当前单元再停止时，使用 graceful completion。在每个本来会让分支一直存活的等待里加上这个 Condition。所有 SDK 都提供 graceful completion Condition：Go、Python、Java、TypeScript 和 Rust。见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)（英文）。
+
+### 取消正在运行的 Step {#cancel-running-steps}
+
+Step 决定或 RPC 可以取消选定的活跃 Step，例如按 Step 类型取消。Flow 的其余部分继续运行。SDK 把取消信号传给每个被取消的 handler。handler 检查这个信号并返回。Dex 丢弃被取消 Step 之后的结果。
+
+要停止一个分支时使用 Step 取消，例如用户不再需要的一个任务。被取消 Step 消费的消息通常会回到它们的 Channel，所以每个 handler 都要保持幂等。见 [Step cancellation](/reference/server/step-and-flow-close#step-cancellation)（英文）。
+
+## 示例 {#example}
+
+<a id="core-implementation"></a>
+
+`RecordBackfillFlow` 分批处理 1000 条记录。`StartRecordBackfill` 从第一条记录开始，进入 `ProcessRecordBatch`。`ProcessRecordBatch` 在两批之间等待一秒。每次 `Execute` 先读取 `stopRequested` 和 `batchSize` 两个 Attribute。在批量大小 RPC 设置它之前，批量大小是 10。
+
+示例用打印来模拟处理每一批。每次已提交的 `GoTo` 都把位置推进到已处理范围之后，所以修改批量大小不会跳过或重复某个范围。重试的 `Execute` 可能再次处理同一个范围。因此真实的处理必须按每条记录的业务 ID 保持幂等。
+
+批量大小 RPC 拒绝小于 1 或大于 1000 的值。停止 RPC 写入 `stopRequested`。循环随后在下一批开始前 graceful complete。循环停下后，Flow 完成。
+
+RPC 写入控制值：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py',
+    go: 'examples/go/patterns/control-long-running-work/record_backfill_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/controllongrunningwork/RecordBackfillFlow.java',
+    typescript: 'examples/typescript/src/patterns/control-long-running-work/record-backfill-flow.ts',
+    rust: 'examples/rust/src/patterns/control_long_running_work/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc
+def set_batch_size(self, context: Context, size: int) -> None:
+    """Changes how many records each later batch processes."""
+    if size < 1 or size > MAX_BATCH_SIZE:
+        raise ValueError(f"batch size must be between 1 and {MAX_BATCH_SIZE}")
+    BATCH_SIZE.set(context, size)
+
+@rpc
+def request_stop(self, context: Context) -> None:
+    """Asks the loop to stop before its next batch."""
+    STOP_REQUESTED.set(context, True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// SetBatchSize changes how many records each later batch processes.
+func (*RecordBackfillFlow) SetBatchSize(ctx dex.Context, size int) (*dex.RPCResult[dex.None], error) {
+	if size < 1 || size > MaxBatchSize {
+		return nil, fmt.Errorf("batch size must be between 1 and %d", MaxBatchSize)
+	}
+	if err := BatchSize.Set(ctx, size); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// RequestStop asks the loop to stop before its next batch.
+func (*RecordBackfillFlow) RequestStop(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := StopRequested.Set(ctx, true); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** Changes how many records each later batch processes. */
+@RPC
+public void setBatchSize(final Context context, final int size) {
+    if (size < 1 || size > MAX_BATCH_SIZE) {
+        throw new IllegalArgumentException(
+                "batch size must be between 1 and " + MAX_BATCH_SIZE);
+    }
+    batchSize.set(context, size);
+}
+
+/** Asks the loop to stop before its next batch. */
+@RPC
+public void requestStop(final Context context) {
+    stopRequested.set(context, true);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+/** Changes how many records each later batch processes. */
+@rpc({ inputCodec: jsonCodec<number>() })
+public setBatchSize(context: Context, size: number): void {
+  if (!Number.isInteger(size) || size < 1 || size > MAX_BATCH_SIZE) {
+    throw new Error(`batch size must be between 1 and ${MAX_BATCH_SIZE}`);
+  }
+  batchSize.set(context, size);
+}
+
+/** Asks the loop to stop before its next batch. */
+@rpc()
+public requestStop(context: Context): void {
+  stopRequested.set(context, true);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl RecordBackfillFlow {
+    /// Changes how many records each later batch processes.
+    fn set_batch_size(&self, context: &mut Context, size: i64) -> HandlerResult<()> {
+        if !(1..=MAX_BATCH_SIZE).contains(&size) {
+            return Err(HandlerError::new(
+                "RecordBackfillFlow",
+                format!("batch size must be between 1 and {MAX_BATCH_SIZE}"),
+            ));
+        }
+        BATCH_SIZE.set(context, size)
+    }
+
+    /// Asks the loop to stop before its next batch.
+    fn request_stop(&self, context: &mut Context) -> HandlerResult<()> {
+        STOP_REQUESTED.set(context, true)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+循环 Step 在每次 `Execute` 开始时读取控制值：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py',
+    go: 'examples/go/patterns/control-long-running-work/record_backfill_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/controllongrunningwork/RecordBackfillFlow.java',
+    typescript: 'examples/typescript/src/patterns/control-long-running-work/record-backfill-flow.ts',
+    rust: 'examples/rust/src/patterns/control_long_running_work/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class ProcessRecordBatch(Step[BackfillProgress]):
+    def wait_for(self, context: Context, progress: BackfillProgress) -> Wait:
+        return Wait.until(Timer.by_duration(BATCH_INTERVAL))
+
+    def execute(self, context: Context, progress: BackfillProgress) -> StepDecision:
+        if STOP_REQUESTED.get(context):
+            return graceful_complete(f"stopped before record {progress.next_record}")
+        # An unset int Attribute reads as 0, and a set batch size is at least 1.
+        size = BATCH_SIZE.get(context) or DEFAULT_BATCH_SIZE
+        last = min(progress.next_record + size - 1, progress.last_record)
+        print(f"processing records {progress.next_record} to {last}")
+        if last == progress.last_record:
+            return graceful_complete(f"processed {last} records")
+        return go_to(ProcessRecordBatch, BackfillProgress(last + 1, progress.last_record))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type ProcessRecordBatch struct {
+	dex.StepDefaults
+}
+
+func (ProcessRecordBatch) WaitFor(dex.Context, BackfillProgress) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(BatchInterval)), nil
+}
+
+func (ProcessRecordBatch) Execute(ctx dex.Context, progress BackfillProgress) (*dex.StepDecision, error) {
+	stop, err := StopRequested.Get(ctx)
+	if err != nil && !isAttributeNotFound(err) {
+		return nil, err
+	}
+	if stop {
+		return dex.GracefulComplete(fmt.Sprintf("stopped before record %d", progress.NextRecord)), nil
+	}
+	size, err := BatchSize.Get(ctx)
+	if isAttributeNotFound(err) {
+		size, err = DefaultBatchSize, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	last := min(progress.NextRecord+size-1, progress.LastRecord)
+	fmt.Printf("processing records %d to %d\n", progress.NextRecord, last)
+	if last == progress.LastRecord {
+		return dex.GracefulComplete(fmt.Sprintf("processed %d records", last)), nil
+	}
+	next := BackfillProgress{NextRecord: last + 1, LastRecord: progress.LastRecord}
+	return dex.GoTo(ProcessRecordBatch{}, next), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+static final class ProcessRecordBatch implements Step<BackfillProgress> {
+    @Override
+    public Class<BackfillProgress> getInputType() {
+        return BackfillProgress.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final BackfillProgress progress) {
+        return Wait.until(Timer.byDuration(BATCH_INTERVAL));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final BackfillProgress progress) {
+        if (stopRequested.get(context)) {
+            return StepDecision.gracefulComplete(
+                    "stopped before record " + progress.nextRecord);
+        }
+        // An unset Integer Attribute reads as 0, and a set batch size is at least 1.
+        final int storedSize = batchSize.get(context);
+        final int size = storedSize == 0 ? DEFAULT_BATCH_SIZE : storedSize;
+        final int last = Math.min(progress.nextRecord + size - 1, progress.lastRecord);
+        System.out.printf("processing records %d to %d%n", progress.nextRecord, last);
+        if (last == progress.lastRecord) {
+            return StepDecision.gracefulComplete("processed " + last + " records");
+        }
+        return StepDecision.goTo(
+                ProcessRecordBatch.class, new BackfillProgress(last + 1, progress.lastRecord));
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class ProcessRecordBatch implements Step<BackfillProgress> {
+  public getStepType(): string {
+    return "ProcessRecordBatch";
+  }
+
+  public waitFor(_context: Context, _progress: BackfillProgress): Wait {
+    return Wait.until(Timer.byDuration(BATCH_INTERVAL_MS));
+  }
+
+  public execute(context: Context, progress: BackfillProgress): StepDecision {
+    if (stopRequested.get(context) === true) {
+      return gracefulComplete(`stopped before record ${progress.nextRecord}`);
+    }
+    const size = batchSize.get(context) ?? DEFAULT_BATCH_SIZE;
+    const last = Math.min(progress.nextRecord + size - 1, progress.lastRecord);
+    console.log(`processing records ${progress.nextRecord} to ${last}`);
+    if (last === progress.lastRecord) {
+      return gracefulComplete(`processed ${last} records`);
+    }
+    return goTo(ProcessRecordBatch, {
+      nextRecord: last + 1,
+      lastRecord: progress.lastRecord,
+    });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for ProcessRecordBatch {
+    type Input = BackfillProgress;
+
+    fn wait_for(&self, _context: &mut Context, _progress: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(BATCH_INTERVAL)))
+    }
+
+    fn execute(&self, context: &mut Context, progress: Self::Input) -> HandlerResult<StepDecision> {
+        if STOP_REQUESTED.get(context)? == Some(true) {
+            return Ok(StepDecision::graceful_complete(format!(
+                "stopped before record {}",
+                progress.next_record
+            )));
+        }
+        let size = BATCH_SIZE.get(context)?.unwrap_or(DEFAULT_BATCH_SIZE);
+        let last = (progress.next_record + size - 1).min(progress.last_record);
+        println!("processing records {} to {last}", progress.next_record);
+        if last == progress.last_record {
+            return Ok(StepDecision::graceful_complete(format!(
+                "processed {last} records"
+            )));
+        }
+        Ok(StepDecision::go_to(
+            &ProcessRecordBatch,
+            BackfillProgress {
+                next_record: last + 1,
+                last_record: progress.last_record,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+开始 Step、HTTP controller 和测试都在示例目录里。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里运行这个 HTTP 示例。
+
+## 下一步 {#next}
+
+- [响应式更新](/design-patterns/responsive-update)
+- [持久化定时器](/design-patterns/durable-timer)

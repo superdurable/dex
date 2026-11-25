@@ -30,7 +30,7 @@ import { createDrainingChannelRouter } from "./patterns/drain-channels/external-
 import { createEntityFlowRouter } from "./patterns/entity-flow/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
 import { createHashPartitionedAttributeMapRouter } from "./patterns/hash-partitioned-attribute-map/controller.js";
-import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
+import { createControlLongRunningWorkRouter } from "./patterns/control-long-running-work/controller.js";
 import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
 import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/controller.js";
@@ -137,7 +137,7 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/fail-fast", createFailFastRouter(client, expenseReimbursementFlow));
-  app.use("/patterns/interruptible", createInterruptibleRouter(client));
+  app.use("/patterns/control-long-running-work", createControlLongRunningWorkRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-flow", createEntityFlowRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));

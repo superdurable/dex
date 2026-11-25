@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod control_long_running_work;
 pub mod cron;
 pub mod drain_channels;
 pub mod entity_store;
 pub mod hash_partitioned_attribute_map;
 pub mod inactiveness_tracker;
-pub mod interruptible;
 pub mod intervention;
 pub mod parallel;
 pub mod parallel_subflows;
@@ -64,7 +64,7 @@ fn register_with_client(
         .register(cron::CronScheduleFlow::default())?
         .register(drain_channels::DrainInternalChannelFlow::default())?
         .register(drain_channels::DrainingExternalChannelFlow::default())?
-        .register(interruptible::InterruptibleFlow::default())?
+        .register(control_long_running_work::RecordBackfillFlow::default())?
         .register(intervention::ManualRecoveryFlow::default())?
         .register(parallel::StaticParallelStepsFlow::default())?
         .register(parallel::DynamicParallelStepsFlow::default())?

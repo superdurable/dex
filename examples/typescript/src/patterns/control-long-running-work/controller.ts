@@ -19,15 +19,15 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { interruptibleFlow } from "./interruptible-execution-flow.js";
+import { recordBackfillFlow } from "./record-backfill-flow.js";
 
-export function createInterruptibleRouter(client: Client): Router {
+export function createControlLongRunningWorkRouter(client: Client): Router {
   const router = Router();
 
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      interruptibleFlow,
+      recordBackfillFlow,
       workflowId,
       undefined,
       startOptions(),
@@ -35,12 +35,20 @@ export function createInterruptibleRouter(client: Client): Router {
     response.send(runId);
   });
 
-  router.get("/cancel", async (request, response) => {
+  router.get("/set-batch-size", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.invokeRPC(
-      interruptibleFlow.interrupt,
-      workflowId,
-    );
+    const size = Number(request.query.batchSize);
+    if (!Number.isInteger(size)) {
+      response.status(400).json({ error: "batchSize must be an integer" });
+      return;
+    }
+    await client.invokeRPC(recordBackfillFlow.setBatchSize, workflowId, size);
+    response.send("done");
+  });
+
+  router.get("/stop", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    await client.invokeRPC(recordBackfillFlow.requestStop, workflowId);
     response.send("done");
   });
 

@@ -175,9 +175,9 @@ details.
 
 Under [`patterns/`](./patterns):
 
+- [Control Long-Running Work: change the batch size or stop a record backfill](./patterns/control-long-running-work)
 - [Cron schedule](./patterns/cron) (auto-started; no HTTP)
 - [Drain internal / externally published channels](./patterns/drain-channels)
-- [Interruptible execution](./patterns/interruptible)
 - [Manual recovery](./patterns/intervention)
 - [Parallel Steps: static, dynamic, await, and first win](./patterns/parallel)
 - [Parallel SubFlows: basic, long-lived parent, short-lived parent, partitioning, and back pressure](./patterns/parallel-subflows)

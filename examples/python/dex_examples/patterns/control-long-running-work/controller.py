@@ -18,25 +18,38 @@ from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.shared.query import required_query
+from dex_examples.shared.query import required_int_query, required_query
 
 
-def create_interruptible_blueprint(app_state: ExampleApp) -> Blueprint:
-    blueprint = Blueprint("pattern_interruptible", __name__, url_prefix="/patterns/interruptible")
+def create_control_long_running_work_blueprint(app_state: ExampleApp) -> Blueprint:
+    blueprint = Blueprint(
+        "pattern_control_long_running_work",
+        __name__,
+        url_prefix="/patterns/control-long-running-work",
+    )
 
     @blueprint.get("/start")
-    async def start_interruptible() -> str:
+    async def start_record_backfill() -> str:
         return await app_state.client.start_flow(
-            app_state.interruptible,
+            app_state.record_backfill,
             required_query("workflowId"),
             None,
             start_options(),
         )
 
-    @blueprint.get("/cancel")
-    async def cancel_interruptible() -> str:
+    @blueprint.get("/set-batch-size")
+    async def set_batch_size() -> str:
         await app_state.client.invoke_rpc(
-            app_state.interruptible.interrupt,
+            app_state.record_backfill.set_batch_size,
+            required_query("workflowId"),
+            required_int_query("batchSize"),
+        )
+        return "done"
+
+    @blueprint.get("/stop")
+    async def request_stop() -> str:
+        await app_state.client.invoke_rpc(
+            app_state.record_backfill.request_stop,
             required_query("workflowId"),
         )
         return "done"

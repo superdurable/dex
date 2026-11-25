@@ -312,15 +312,19 @@ test("design-pattern polling streams job progress and completes with the job res
   assert.equal(result.singleOutput(stringCodec), `artifact for ${workflowId}`);
 });
 
-test("design-pattern interruptible start cancel", async () => {
-  const workflowId = id("interrupt");
+test("design-pattern control long-running work start, set batch size, stop", async () => {
+  const workflowId = id("control-long-running-work");
   requireOk(
-    await get("/patterns/interruptible/start", { workflowId }),
-    "interrupt start",
+    await get("/patterns/control-long-running-work/start", { workflowId }),
+    "record backfill start",
   );
   requireOk(
-    await get("/patterns/interruptible/cancel", { workflowId }),
-    "interrupt cancel",
+    await get("/patterns/control-long-running-work/set-batch-size", { workflowId, batchSize: "50" }),
+    "record backfill set batch size",
+  );
+  requireOk(
+    await get("/patterns/control-long-running-work/stop", { workflowId }),
+    "record backfill stop",
   );
 });
 

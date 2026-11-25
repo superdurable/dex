@@ -23,6 +23,7 @@ package registry
 import (
 	cancelcase "github.com/superdurable/dex/examples/go/patterns/cancel-case"
 	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
+	controllongrunningwork "github.com/superdurable/dex/examples/go/patterns/control-long-running-work"
 	criticalsection "github.com/superdurable/dex/examples/go/patterns/critical-section"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
@@ -34,7 +35,6 @@ import (
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
-	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
@@ -103,7 +103,7 @@ var (
 	PollingJobs           *patternspolling.FakeJobService
 	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
 	PaymentProvider       *failfast.FakePaymentProvider
-	Interruptible         *interruptible.InterruptibleFlow
+	RecordBackfill        *controllongrunningwork.RecordBackfillFlow
 	Reminder              *reminders.ReminderFlow
 	AccountArchive        *entityflow.FakeAccountArchive
 	CustomerAccount       *entityflow.CustomerAccountFlow
@@ -195,7 +195,7 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
 	PaymentProvider = failfast.NewFakePaymentProvider()
 	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
-	Interruptible = interruptible.NewInterruptibleFlow()
+	RecordBackfill = controllongrunningwork.NewRecordBackfillFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	AccountArchive = entityflow.NewFakeAccountArchive()
 	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
@@ -268,7 +268,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		CronSchedule,
 		Polling,
 		ExpenseReimbursement,
-		Interruptible,
+		RecordBackfill,
 		Reminder,
 		CustomerAccount,
 		UserProfile,

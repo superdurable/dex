@@ -42,7 +42,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Handle an overall Flow deadline | [Graceful timeout](#graceful-timeout) |
 | Finish only after internal producers' messages are handled | [Drain internal Channels](#drain-internal-channels) |
 | Process bursty external messages in a short Flow | [Drain an external Channel](#drain-an-external-channel) |
-| Stop long repeating work on request | [Stop Long-Running Work](#stop-long-running-work) (formerly Interruptible execution) |
+| Change or stop long repeating work on request, such as its batch size | [Control Long-Running Work](#control-long-running-work) (formerly Stop Long-Running Work and Interruptible execution) |
 | Route on whichever of several events happens first, such as a decision or its deadline | [Decision with Deadline](#decision-with-deadline) |
 | Let parallel branches take turns on a sequence of Steps | [Critical section](#critical-section) |
 | Stop child Flows when the case is canceled | [Cancel with child Flows](#cancel-with-child-flows) |
@@ -547,21 +547,28 @@ Controller(entityId, message):                   // flowId = entityId; message h
 - Only one Step may consume a Channel that the decision checks.
 - When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
-## Stop Long-Running Work
+## Control Long-Running Work
 
-Long repeating work that can be stopped by a durable signal. Go folder: `interruptible`.
-
-StopFlow, graceful completion, and the Step cancellation signal are the built-in ways to stop work. Graceful completion wakes only the waits that include its Condition. The Attribute flag below lets each unit of work finish before it stops.
+Long repeating work that callers change or stop while it runs. Formerly Stop Long-Running Work and Interruptible execution. Go folder: `control-long-running-work`.
 
 ```text
-Work.waitFor(progress) -> Until(Timer(gap))
-Work.execute(progress) -> if interruptSignal == cancel: gracefulComplete()
-                          if done: gracefulComplete()
-                          do one unit; goTo(Work, progress + 1)
-rpc interrupt -> interruptSignal = cancel
+Loop.waitFor(progress) -> Until(Timer(gap))
+Loop.execute(progress) -> if stopRequested: gracefulComplete()
+                          size = batchSize ?? default
+                          process one batch of size; if done: gracefulComplete()
+                          goTo(Loop, progress + size)
+rpc setBatchSize(size) -> validate; batchSize = size
+rpc requestStop        -> stopRequested = true
 ```
 
-- Write the interruption intent to an Attribute through an RPC. Each branch finishes its current unit and checks the signal before the next one.
+- Keep the loop position in the Step input and the controls in Attributes. An RPC validates and writes each control.
+- Read every control at the start of each `Execute`. A new value applies from the next iteration.
+- Apply a default when a control is unset, at read time. A default written by the start Step could overwrite an RPC that arrived first.
+- Use an Attribute for a parameter, such as a batch size, a rate, or a pause flag: the latest value wins. Use a Channel for per-item commands, such as skip or retry: accepted commands queue in FIFO order and one consumer takes them in that order.
+- The loop then waits on the Timer and the Channel with `AnyOf`. `AnyOf` consumes messages only for the Channel branch that wins. `Execute` checks which branch won: it handles the consumed commands when the Channel won and processes the next batch when the Timer won. Later commands stay queued.
+- When every accepted command must be handled before the loop stops, drain the Channel before the Flow closes. When outside callers can publish concurrently, close with an atomic complete-if-empty decision; see [Drain an external Channel](#drain-an-external-channel).
+- StopFlow, graceful completion, and the Step cancellation signal are the built-in ways to stop work. Graceful completion wakes only the waits that include its Condition. A stop request in a control Attribute lets each unit finish before the loop stops.
+- Each committed `GoTo` moves the position past the processed range, so a new batch size never skips or repeats a range. A retried `Execute` can process the same range again, so make real processing idempotent by each record's business ID.
 - Persist the outcome and make cleanup explicit. Cancelling a local future does not reverse an external effect.
 - To stop now and cancel running Steps, use RPC cancellation. See [rpc.md](rpc.md#cancel-running-steps-from-an-rpc).
 

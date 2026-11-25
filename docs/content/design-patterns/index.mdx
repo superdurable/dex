@@ -14,7 +14,7 @@ The groups start with the structure inside a Flow. They continue with interactio
 - <a id="flow-control"></a>[Parallel Steps](/design-patterns/parallel) — Run Steps concurrently: a fixed or dynamic set, waiting for all of them or for the first. Let parallel branches take turns on a sequence of Steps.
 - [SubFlows](/design-patterns/subflows) — Fan out work to SubFlows, limit how many a parent runs at once, spread them across several parents, add durable back pressure, and stop child Flows when a case is canceled.
 - [Durable Timer](/design-patterns/durable-timer) — Run work on a schedule, send reminders, or wait for an external system in one long-running Step.
-- [External Interaction](/design-patterns/external-interaction) — Wait for a decision with a deadline, act after a period of inactivity, take inbound messages, or stop long-running work on request.
+- [External Interaction](/design-patterns/external-interaction) — Wait for a decision with a deadline, act after a period of inactivity, take inbound messages, or control long-running work on request.
 - <a id="messaging"></a>[Responsive Update](/design-patterns/responsive-update) — Let a caller wait for one Step, an Attribute value, or a stream of updates instead of the whole Flow.
 - [Drain Channels](/design-patterns/drain-channels) — Finish a Flow only after its Channel messages are processed.
 - <a id="data"></a>[Data Storage](/design-patterns/data-storage) — Keep one Flow per entity, project its Attributes into SQL, or split a growing collection into bounded AttributeMap instances.

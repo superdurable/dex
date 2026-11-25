@@ -32,6 +32,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
+	controllongrunningwork "github.com/superdurable/dex/examples/go/patterns/control-long-running-work"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
@@ -41,7 +42,6 @@ import (
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
-	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
@@ -177,7 +177,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	managerapproval.RegisterRoutes(router, client, registry.ManagerApprovalRefund)
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
 	failfast.RegisterRoutes(router, client, registry.ExpenseReimbursement)
-	interruptible.RegisterRoutes(router, client, registry.Interruptible)
+	controllongrunningwork.RegisterRoutes(router, client, registry.RecordBackfill)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
 	entityflow.RegisterRoutes(router, client, registry.CustomerAccount)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)

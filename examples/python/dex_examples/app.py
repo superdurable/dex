@@ -39,6 +39,9 @@ from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow 
     OrderFulfillmentFlow,
     ShipmentFlow,
 )
+from dex_examples.patterns.control_long_running_work.record_backfill_flow import (
+    RecordBackfillFlow,
+)
 from dex_examples.patterns.critical_section.contract_edit_flow import (
     ContractEditFlow,
 )
@@ -59,9 +62,6 @@ from dex_examples.patterns.entity_flow.customer_account_flow import (
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.hash_partitioned_attribute_map.customer_directory_flow import (
     CustomerDirectoryFlow,
-)
-from dex_examples.patterns.interruptible.interruptible_execution_flow import (
-    InterruptibleFlow,
 )
 from dex_examples.patterns.intervention.manual_recovery_flow import (
     ManualRecoveryFlow,
@@ -200,7 +200,7 @@ class ExampleApp:
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
         self.drain_external = DrainingExternalChannelFlow()
-        self.interruptible = InterruptibleFlow()
+        self.record_backfill = RecordBackfillFlow()
         self.manual_recovery = ManualRecoveryFlow()
         self.static_parallel = StaticParallelStepsFlow()
         self.dynamic_parallel = DynamicParallelStepsFlow()
@@ -290,7 +290,7 @@ class ExampleApp:
             self.cron_schedule,
             self.drain_internal,
             self.drain_external,
-            self.interruptible,
+            self.record_backfill,
             self.manual_recovery,
             self.static_parallel,
             self.dynamic_parallel,

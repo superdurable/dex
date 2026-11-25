@@ -67,7 +67,7 @@ def create_app(app_state: SyncExampleApp) -> Flask:
     app.register_blueprint(_engagement(app_state))
     app.register_blueprint(_subscription(app_state))
     app.register_blueprint(_parent_child(app_state))
-    app.register_blueprint(_interruptible(app_state))
+    app.register_blueprint(_control_long_running_work(app_state))
     install_flask_cors(app)
 
     @app.get("/health")
@@ -368,24 +368,37 @@ def _parent_child(app_state: SyncExampleApp) -> Blueprint:
     return blueprint
 
 
-def _interruptible(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("interruptible", __name__, url_prefix="/patterns/interruptible")
+def _control_long_running_work(app_state: SyncExampleApp) -> Blueprint:
+    blueprint = Blueprint(
+        "control_long_running_work",
+        __name__,
+        url_prefix="/patterns/control-long-running-work",
+    )
 
     @blueprint.get("/start")
-    def interruptible_start() -> Response:
-        flow_id = optional_query("workflowId", new_flow_id("interruptible"))
+    def start_record_backfill() -> Response:
+        flow_id = optional_query("workflowId", new_flow_id("control-long-running-work"))
         run_id = app_state.client.start_flow(
-            app_state.interruptible,
+            app_state.record_backfill,
             flow_id,
             None,
             start_options(),
         )
         return started_flow(flow_id, run_id)
 
-    @blueprint.get("/cancel")
-    def interruptible_cancel() -> str:
+    @blueprint.get("/set-batch-size")
+    def set_batch_size() -> str:
         app_state.client.invoke_rpc(
-            app_state.interruptible.interrupt,
+            app_state.record_backfill.set_batch_size,
+            required_query("workflowId"),
+            required_int_query("batchSize"),
+        )
+        return "done"
+
+    @blueprint.get("/stop")
+    def request_stop() -> str:
+        app_state.client.invoke_rpc(
+            app_state.record_backfill.request_stop,
             required_query("workflowId"),
         )
         return "done"

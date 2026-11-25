@@ -20,7 +20,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::interruptible::flow::{INTERRUPT_EXECUTION, InterruptibleFlow};
+use crate::patterns::control_long_running_work::flow::{
+    REQUEST_STOP, RecordBackfillFlow, SET_BATCH_SIZE,
+};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -31,10 +33,25 @@ struct WorkflowQuery {
     workflow_id: String,
 }
 
+#[derive(Deserialize)]
+struct BatchSizeQuery {
+    #[serde(default, rename = "workflowId")]
+    workflow_id: String,
+    #[serde(rename = "batchSize")]
+    batch_size: i64,
+}
+
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/interruptible/start", get(start))
-        .route("/patterns/interruptible/cancel", get(cancel))
+        .route("/patterns/control-long-running-work/start", get(start))
+        .route(
+            "/patterns/control-long-running-work/set-batch-size",
+            get(set_batch_size),
+        )
+        .route(
+            "/patterns/control-long-running-work/stop",
+            get(request_stop),
+        )
         .with_state(client)
 }
 
@@ -43,12 +60,12 @@ async fn start(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("interrupt")
+        new_flow_id("control-long-running-work")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = InterruptibleFlow::default();
+        let flow = RecordBackfillFlow::default();
         client
             .start_flow(&flow, &flow_id, ())
             .map(|run_id| StartResponse { flow_id, run_id })
@@ -58,12 +75,23 @@ async fn start(
     }
 }
 
-async fn cancel(
+async fn set_batch_size(
+    State(client): State<SharedClient>,
+    Query(query): Query<BatchSizeQuery>,
+) -> impl IntoResponse {
+    match run_blocking(move || {
+        client.invoke_rpc(&query.workflow_id, SET_BATCH_SIZE, query.batch_size)
+    }) {
+        Ok(()) => ok_text("done"),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn request_stop(
     State(client): State<SharedClient>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, INTERRUPT_EXECUTION)) {
+    match run_blocking(move || client.invoke_rpc_without_input(&query.workflow_id, REQUEST_STOP)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
