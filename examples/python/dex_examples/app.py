@@ -48,6 +48,9 @@ from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow 
 from dex_examples.patterns.drain_channels.external_publishing.draining_channel_flow import (
     DrainingExternalChannelFlow,
 )
+from dex_examples.patterns.entity_flow.customer_account_flow import (
+    CustomerAccountFlow,
+)
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.hash_partitioned_attribute_map.customer_directory_flow import (
     CustomerDirectoryFlow,
@@ -210,6 +213,7 @@ class ExampleApp:
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
+        self.customer_account = CustomerAccountFlow()
         self.user_profile = UserProfileFlow()
         self.chunked_subscriber = ChunkedSubscriberFlow()
         self.customer_directory = CustomerDirectoryFlow()
@@ -284,6 +288,7 @@ class ExampleApp:
             self.failure_recovery,
             self.reminder,
             self.inactiveness_tracker,
+            self.customer_account,
             self.user_profile,
             self.chunked_subscriber,
             self.customer_directory,

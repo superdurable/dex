@@ -150,6 +150,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             lambda c: _reminders_trigger(c),
         ),
         FlowSmokeEntry(
+            "patterns/entity-flow",
+            lambda c: _entity_flow_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
             "patterns/entity-store",
             lambda c: _entity_store_trigger(c, new_id),
             flags=FlowSmokeFlags(no_start_step=True),
@@ -564,6 +568,22 @@ async def test_ai_agent_http_history_events_and_closed_sessions(
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
     _, _, body = await client.get("/patterns/reminders/start", {})
     return parse_flow_trigger_response(body, "")
+
+
+async def _entity_flow_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    account_id = new_id("entity-flow")
+    flow_id, run_id, _ = await client.post(
+        "/patterns/entity-flow/account",
+        {
+            "accountId": account_id,
+            "displayName": "Smoke Tester",
+            "email": f"{account_id}@example.com",
+        },
+    )
+    return flow_id, run_id
 
 
 async def _entity_store_trigger(
