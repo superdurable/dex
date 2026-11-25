@@ -36,7 +36,7 @@ Only one Condition wins, so only one branch ever starts.
 - Channel priority follows declaration order. Declare the Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
 - In `Execute`, check which Condition fired: `HasTimerFired` for the Timer, and the Channel results for the responses. A Channel that lost returns no results. Do not treat a missing response as expiry.
 - The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
-- Every response gets a clear answer. The first one is recorded and decides the offer. Every later one gets "window closed". After the Flow closes, Dex rejects the RPC before its handler runs, so the HTTP route reads the closed Flow and answers "window closed" too.
+- Every response gets a clear answer. The first one is recorded and decides the offer. Every later one gets "window closed". After the Flow closes, Dex rejects the RPC before its handler runs, so the HTTP route reads the closed Flow and answers "window closed" too. A Flow that never existed gets `404`.
 - To test the expiry branch, skip the Timer with the Client `SkipTimer`. Do not shorten the business deadline for tests.
 
 ## Close the response window {#close-the-response-window}
@@ -57,14 +57,14 @@ The example closes the gaps with an Attribute lock:
 - A response that committed before the lock is in the Channel. `Execute` sees it through the Channel size and moves to `RouteResponseBeforeExpiry`. That Step waits on both Channels, and the queued response wins at once.
 - While `Execute` holds the lock, a response RPC gets a lock conflict. Dex does not queue it. The HTTP route retries a few times with a short backoff. After the window closes, the retry returns "window closed", and the route answers `409`. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
 
-The business deadline is the moment the locked `Execute` closes the window, not the instant the Timer fires. A first response that commits after the Timer fired, but before that close, is accepted and decides the offer. The pattern chooses this on purpose, so every caller gets a truthful answer. It is not a hard cutoff at the Timer instant.
+The business deadline is the moment the locked `Execute` closes the window, not the instant the Timer fires. When no response came first, the admission boundary is the moment `Execute` takes the lock. A first response that commits after the Timer fired, but before that moment, is accepted and decides the offer. A response after that moment gets a lock conflict while `Execute` runs. When `Execute` commits, the closed state persists, and every later response gets "window closed". The pattern chooses this on purpose, so every caller gets a truthful answer. It is not a hard cutoff at the Timer instant.
 
 Keep these rules when you use the window:
 
 - Every RPC that writes a response Channel declares the same lock. Locks are cooperative. An RPC without the lock bypasses the window.
 - Lock only `Execute`, not `WaitFor`.
 - Keep the locked `Execute` short. Put side effects, such as an expiry notice, in the next Step. A failing `Execute` keeps the lock through its retries, and responses get lock conflicts meanwhile.
-- Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example allows 3 attempts within 1 minute, with 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
+- Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example uses an initial retry interval of 1 second, at most 3 attempts, a total budget of 1 minute, and 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
 - Make the response idempotent, so a retried call is safe.
 - To wait again, reopen the window under the same lock, in the `Execute` that starts the next wait.
 

@@ -658,7 +658,7 @@ Why it holds:
 - While the Execute holds the lock, a reply RPC that declares the lock gets a lock conflict. It is rejected, not queued.
 - While a reply RPC holds the lock, the Execute waits for it, and then sees its message. An Execute that is still waiting for the lock does not block the RPC; that window is why Execute checks the size.
 - A transactional RPC commits its handler, its publish, and its window write together. The first reply closes the window, so at most one reply is ever queued, and the wait or the size check takes exactly that one. Every later reply sees the closed window and gets "window closed".
-- The business deadline is the moment the locked Execute closes the window, not the instant the Timer fires. A first reply that commits after the Timer fired and before that close is accepted and decides. This is deliberate: every caller gets a truthful answer. The window is not a hard cutoff at the Timer instant.
+- The business deadline is the moment the locked Execute closes the window, not the instant the Timer fires. Without a first reply, the admission boundary is the moment Execute takes the lock. A first reply that commits after the Timer fired and before that moment is accepted and decides. A reply after that moment gets a lock conflict while Execute runs; when Execute commits, the closed state persists and every later reply gets "window closed". This is deliberate: every caller gets a truthful answer. The window is not a hard cutoff at the Timer instant.
 
 Rules:
 

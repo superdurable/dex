@@ -36,7 +36,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - Channel 的优先级按声明顺序决定。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
 - 在 `Execute` 中，判断是哪个 Condition 触发了：用 `HasTimerFired` 判断 Timer，用 Channel 结果判断客户回应。落败的 Channel 没有结果。不要把“没有回应”当作已过期。
 - Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
-- 每个回应都会得到明确的答复。第一个回应被记录并决定这份报价，之后的回应都得到“窗口已关闭”。Flow 关闭后，Dex 在 handler 运行之前就拒绝这个 RPC，所以 HTTP 路由会读取已关闭的 Flow，同样返回“窗口已关闭”。
+- 每个回应都会得到明确的答复。第一个回应被记录并决定这份报价，之后的回应都得到“窗口已关闭”。Flow 关闭后，Dex 在 handler 运行之前就拒绝这个 RPC，所以 HTTP 路由会读取已关闭的 Flow，同样返回“窗口已关闭”。从未存在的 Flow 返回 `404`。
 - 测试过期分支时，用 Client 的 `SkipTimer` 跳过 Timer。不要为了测试缩短业务截止时间。
 
 ## 关闭回应窗口 {#close-the-response-window}
@@ -57,14 +57,14 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - 在拿锁之前提交的回应已经在 Channel 里。`Execute` 通过 Channel 大小看到它，进入 `RouteResponseBeforeExpiry`。这个 Step 等待两个 Channel，排队的回应会立刻胜出。
 - `Execute` 持有锁期间，回应 RPC 会遇到 lock conflict。Dex 不会让它排队。HTTP 路由用短暂的退避重试几次。窗口关闭后，重试会返回“窗口已关闭”，路由返回 `409`。参见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
 
-业务截止时间是加锁的 `Execute` 关闭窗口的那一刻，而不是 Timer 触发的那一刻。第一个回应如果在 Timer 触发之后、窗口关闭之前提交，会被接受并决定这份报价。这个模式有意这样选择，让每个调用方都得到真实的答复。它不是在 Timer 触发那一刻的硬性截止。
+业务截止时间是加锁的 `Execute` 关闭窗口的那一刻，而不是 Timer 触发的那一刻。如果之前没有回应，接受回应的边界是 `Execute` 拿到锁的那一刻。第一个回应如果在 Timer 触发之后、这一刻之前提交，会被接受并决定这份报价。这一刻之后的回应在 `Execute` 运行期间会遇到 lock conflict。`Execute` 提交后，关闭状态被持久保存，之后的回应都会得到“窗口已关闭”。这个模式有意这样选择，让每个调用方都得到真实的答复。它不是在 Timer 触发那一刻的硬性截止。
 
 使用这个窗口时遵守这些规则：
 
 - 每个写回应 Channel 的 RPC 都声明同一把锁。锁是协作式的，不声明锁的 RPC 会绕过窗口。
 - 只锁 `Execute`，不锁 `WaitFor`。
 - 让加锁的 `Execute` 保持简短。把副作用（例如过期通知）放到下一个 Step。失败的 `Execute` 在重试期间一直持有锁，这段时间里回应都会遇到 lock conflict。
-- 给加锁的 `Execute` 设一个明确的短重试预算：总重试时长、最大尝试次数和每次尝试的超时。默认的总预算很长，而第一次尝试之前等待锁的时间不计入预算。示例允许 1 分钟内最多 3 次尝试，每次 10 秒。参见 [StepOptions reference](/reference/go/step-options#defaults)。
+- 给加锁的 `Execute` 设一个明确的短重试预算：总重试时长、最大尝试次数和每次尝试的超时。默认的总预算很长，而第一次尝试之前等待锁的时间不计入预算。示例的首次重试间隔为 1 秒，最多 3 次尝试，总预算 1 分钟，每次尝试 10 秒。参见 [StepOptions reference](/reference/go/step-options#defaults)。
 - 让回应是幂等的，这样重试调用是安全的。
 - 要再次等待时，在开始下一轮等待的 `Execute` 里，在同一把锁下重新打开窗口。
 
