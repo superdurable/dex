@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T20:54:53Z",
+  "generatedAt": "2026-11-25T21:29:22Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -12,7 +12,7 @@
     "span": {
       "startLine": 118,
       "startColumn": 1,
-      "endLine": 151,
+      "endLine": 154,
       "endColumn": 49
     }
   },
@@ -31,15 +31,15 @@
       }
     },
     {
-      "id": "decision:rpc:get_data:151:16",
+      "id": "decision:rpc:get_data:154:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:get_data",
       "phase": "rpc",
       "span": {
-        "startLine": 151,
+        "startLine": 154,
         "startColumn": 16,
-        "endLine": 151,
+        "endLine": 154,
         "endColumn": 49
       },
       "decision": {
@@ -47,15 +47,15 @@
       }
     },
     {
-      "id": "decision:rpc:swap:143:16",
+      "id": "decision:rpc:swap:146:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:swap",
       "phase": "rpc",
       "span": {
-        "startLine": 143,
+        "startLine": 146,
         "startColumn": 16,
-        "endLine": 143,
+        "endLine": 146,
         "endColumn": 35
       },
       "decision": {
@@ -177,9 +177,9 @@
       "kind": "rpc",
       "name": "get_data",
       "span": {
-        "startLine": 150,
+        "startLine": 153,
         "startColumn": 5,
-        "endLine": 151,
+        "endLine": 154,
         "endColumn": 49
       }
     },
@@ -188,9 +188,9 @@
       "kind": "rpc",
       "name": "signal_ready",
       "span": {
-        "startLine": 146,
+        "startLine": 149,
         "startColumn": 5,
-        "endLine": 147,
+        "endLine": 150,
         "endColumn": 42
       }
     },
@@ -201,7 +201,7 @@
       "span": {
         "startLine": 140,
         "startColumn": 5,
-        "endLine": 143,
+        "endLine": 146,
         "endColumn": 35
       }
     },
@@ -354,9 +354,9 @@
       "to": "rpc:get_data",
       "label": "get",
       "span": {
-        "startLine": 151,
+        "startLine": 154,
         "startColumn": 26,
-        "endLine": 151,
+        "endLine": 154,
         "endColumn": 48
       },
       "metadata": {
@@ -447,9 +447,9 @@
       "to": "resource:channel:OrchestrationFlow.ready",
       "label": "publish",
       "span": {
-        "startLine": 147,
+        "startLine": 150,
         "startColumn": 9,
-        "endLine": 147,
+        "endLine": 150,
         "endColumn": 42
       },
       "metadata": {
@@ -480,9 +480,9 @@
       "to": "resource:attribute:OrchestrationFlow.data",
       "label": "set",
       "span": {
-        "startLine": 142,
+        "startLine": 145,
         "startColumn": 9,
-        "endLine": 142,
+        "endLine": 145,
         "endColumn": 41
       },
       "metadata": {
