@@ -18,7 +18,7 @@ A Step whose retries ran out may still have taken effect. For example, the provi
 
 ## Core implementation
 
-`FailingStep` sets both its retry policy and the movement to `RecoveryStep`. `RecoveryStep` receives no business input. It reads what it needs from Attributes that an earlier Step saved, and it can complete or fail the Flow.
+`FailingStep` sets both its retry policy and the movement to `RecoveryStep`. `RecoveryStep` receives the same input as `FailingStep`, and it can complete or fail the Flow.
 
 <SdkTabs
   examples={{

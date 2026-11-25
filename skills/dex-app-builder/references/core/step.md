@@ -173,7 +173,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - When a provider confirms a permanent error, Execute routes to a failure-handling Step or returns ForceFail instead of throwing into Step retry.
 - RetryAfter from a handler overrides the next retry delay. It is for recovery from a failed attempt, never a loop for waiting on an external system.
 - After WaitFor retries are exhausted: fail the Flow (default), or proceed to the same Step's Execute with unchanged input. Execute then sees that WaitFor failed and can read the recovery error.
-- After Execute retries are exhausted: fail the Flow (default), or proceed to a registered recovery Step. The recovery Step receives no business input: its input is empty, not the failing Step's input. It reads the recovery error, and reads the business data it needs from Attributes, so save that data in an Attribute before the failing Step runs.
+- After Execute retries are exhausted: fail the Flow (default), or proceed to a registered recovery Step with the same input. The recovery Step receives the failed Step's input unchanged, and it also gets the failure through the recovery error on the Context.
 - While retries are still running, the Context exposes the latest attempt's failure. Failure policy decides only what happens after retries end.
 - Read [error-handling.md](error-handling.md#recovery-error-types) before branching on the recovery error.
 

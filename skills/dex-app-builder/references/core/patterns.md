@@ -460,7 +460,7 @@ RestoreQuantity.execute -> compensate; forceFail("payment failed")
 ```
 
 - A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Compensation starts with that Step, as `VoidPayment` does for `ChargePayment`: undo it with its original reference, and make every undo a no-op for an action that never happened.
-- A recovery Step receives no business input. It reads what it needs, such as the order and the payment reference, from Attributes that earlier Steps saved. Recovery Steps must be idempotent; they can be retried.
+- A recovery Step receives the failed Step's input unchanged, and gets the failure through the recovery error on the Context. Recovery Steps must be idempotent; they can be retried.
 - Failing the Flow after compensation is a legitimate outcome.
 
 ### Fail fast on permanent errors

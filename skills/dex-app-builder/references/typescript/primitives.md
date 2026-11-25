@@ -194,8 +194,7 @@ class RecordChargeFailure implements Step<Order> {
   `waitForRetry`/`executeRetry` (`RetryPolicy`), durability, locks, selective
   loads, `waitForFailure: "proceed"`, and `executeFailure`.
 - `ExecuteFailure.proceedTo(Target)` routes exhausted retries to a registered
-  recovery Step. It receives no business input, not the failing Step's input;
-  it reads what it needs from Attributes that an earlier Step saved.
+  recovery Step, which receives the failing Step's input.
 - Durability is `"sync"` or `"async"`. Set a Flow-wide default with
   `StartFlowOptions.configOverride.stepDurability`. Override one method with
   `waitForDurability` or `executeDurability`.

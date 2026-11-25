@@ -50,10 +50,8 @@ pub fn call_rate_limited_provider(context: &Context) -> HandlerResult<StepDecisi
 ## Recovery Steps
 
 When Execute retries run out, `on_execute_failure_proceed_to(&Recovery)` runs a
-registered recovery Step. Its `Input` type matches the failing Step, but it
-receives no business input: the input is empty, not the failing Step's input.
-Read what it needs from Attributes that an earlier Step saved. Without a
-route, the Flow fails.
+registered recovery Step with the same input. The recovery Step receives the
+failed Step's input unchanged. Without a route, the Flow fails.
 
 ```rust
 #[derive(Default)]
@@ -62,10 +60,7 @@ struct RecordChargeFailure;
 impl Step for RecordChargeFailure {
     type Input = OrderRequest;
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let order = CURRENT_ORDER
-            .get(context)?
-            .ok_or_else(|| HandlerError::new("MissingOrder", "no saved order"))?;
+    fn execute(&self, context: &mut Context, order: Self::Input) -> HandlerResult<StepDecision> {
         let failure = context
             .recovery_error()
             .ok_or_else(|| HandlerError::new("MissingRecoveryError", "no recovery error"))?;

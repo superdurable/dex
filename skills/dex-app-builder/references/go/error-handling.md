@@ -164,15 +164,10 @@ type recordChargeFailure struct {
 	dex.StepDefaultsNoWaitFor[Order]
 }
 
-// A recovery Step receives no business input; it reads the order that an earlier Step saved.
-func (recordChargeFailure) Execute(ctx dex.Context, _ Order) (*dex.StepDecision, error) {
+func (recordChargeFailure) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
 	failure := ctx.RecoveryError()
 	if failure == nil {
 		return dex.ForceFail("charge recovery started without a failure"), nil
-	}
-	order, err := CurrentOrder.Get(ctx)
-	if err != nil {
-		return nil, err
 	}
 	if failure.AttemptProgress != dex.StepAttemptProgressNotStarted {
 		// An attempt may have charged the card: reconcile before deciding.
@@ -189,9 +184,7 @@ func (recordChargeFailure) Execute(ctx dex.Context, _ Order) (*dex.StepDecision,
 }
 ```
 
-- The recovery Step receives no business input; its input is empty, not the
-  failing Step's input. Save what it needs in an Attribute, here
-  `CurrentOrder`, before the failing Step runs.
+- The recovery Step receives the failed Step's input unchanged.
 - `ctx.RecoveryError()` returns the final failure that selected this route, or
   nil outside a recovery path. It has `ErrorType`, `Detail`, and
   `AttemptProgress`.

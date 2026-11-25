@@ -41,20 +41,19 @@ public StepDecision execute(Context context, String request) {
 ## Recovery Steps
 
 When Execute retries run out, `onExecuteFailureProceedTo(Recovery.class)` runs
-a registered recovery Step. The recovery Step receives `null` input, so give
-it input type `Void` and read what it needs from Attributes that an earlier
-Step saved. Without a route, the Flow fails.
+a registered recovery Step with the same input. The recovery Step receives the
+failed Step's input unchanged, and gets the failure through
+`context.getRecoveryError()`. Without a route, the Flow fails.
 
 ```java
-final class RecordChargeFailure implements Step<Void> {
+final class RecordChargeFailure implements Step<OrderRequest> {
     @Override
-    public Class<Void> getInputType() {
-        return Void.class;
+    public Class<OrderRequest> getInputType() {
+        return OrderRequest.class;
     }
 
     @Override
-    public StepDecision execute(Context context, Void input) {
-        OrderRequest order = currentOrder.get(context);
+    public StepDecision execute(Context context, OrderRequest order) {
         RecoveryErrorInfo failure = context.getRecoveryError();
         if (failure.getAttemptProgress() != StepAttemptProgress.NOT_STARTED) {
             payments.refundIfCharged(context.getFlowId() + "-charge");
