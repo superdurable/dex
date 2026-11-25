@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -184,24 +185,45 @@ func mapAlreadyStartedOptions(
 	}
 }
 
-// A nil flow is allowed only for options without failure targets.
 func mapStepOptions(flow *registeredFlow, options *StepOptions) (*dexpb.StepOptions, error) {
-	return mapStepOptionsRecursive(flow, options, make(map[*StepOptions]bool))
+	return newStepOptionsMapper(flow).mapStepOptions(options)
 }
 
-func mapStepOptionsRecursive(
-	flow *registeredFlow,
-	options *StepOptions,
-	active map[*StepOptions]bool,
-) (*dexpb.StepOptions, error) {
+// stepOptionsMapper maps StepOptions and the options of their failure targets.
+// A Flow that declares a lock requirement maps targets from registration snapshots.
+type stepOptionsMapper struct {
+	flow          *registeredFlow
+	activeOptions map[*StepOptions]bool
+	activeTargets map[stepTargetIdentity]bool
+}
+
+// stepTargetIdentity is a snapshot target with its override; it stays stable across recursion.
+type stepTargetIdentity struct {
+	step      *registeredStep
+	overrides *StepOptions
+}
+
+func newStepOptionsMapper(flow *registeredFlow) *stepOptionsMapper {
+	return &stepOptionsMapper{
+		flow:          flow,
+		activeOptions: make(map[*StepOptions]bool),
+		activeTargets: make(map[stepTargetIdentity]bool),
+	}
+}
+
+func (mapper *stepOptionsMapper) usesLockSnapshots() bool {
+	return mapper.flow != nil && mapper.flow.declaresLockRequirement
+}
+
+func (mapper *stepOptionsMapper) mapStepOptions(options *StepOptions) (*dexpb.StepOptions, error) {
 	if options == nil {
 		return nil, nil
 	}
-	if active[options] {
+	if mapper.activeOptions[options] {
 		return nil, fmt.Errorf("dex: step options contain a cycle")
 	}
-	active[options] = true
-	defer delete(active, options)
+	mapper.activeOptions[options] = true
+	defer delete(mapper.activeOptions, options)
 
 	waitForMethodTimeout, err := durationSeconds32(options.WaitForMethodTimeout)
 	if err != nil {
@@ -236,7 +258,7 @@ func mapStepOptionsRecursive(
 		return nil, err
 	}
 	executeFailurePolicy, executeFailureStep, executeFailureOptions, err :=
-		mapExecuteFailure(flow, options.ExecuteFailure, active)
+		mapper.mapExecuteFailure(options.ExecuteFailure)
 	if err != nil {
 		return nil, err
 	}
@@ -380,24 +402,17 @@ func mapFlowTimeoutHandlerFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: timeout handler failure target is invalid")
 	}
-	target, err := resolveFailureTarget(flow, failure.step)
-	if err != nil {
-		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
-			"", nil, fmt.Errorf("dex: timeout handler failure target: %w", err)
-	}
-	options, err := mapRegisteredStepOptions(flow, target, failure.options)
+	stepType, options, err := newStepOptionsMapper(flow).mapFailureTarget(failure.step, failure.options)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		target.stepType, options, nil
+		stepType, options, nil
 }
 
-func mapExecuteFailure(
-	flow *registeredFlow,
+func (mapper *stepOptionsMapper) mapExecuteFailure(
 	failure *ExecuteFailure,
-	active map[*StepOptions]bool,
 ) (
 	dexpb.ExecuteMethodFailurePolicy,
 	string,
@@ -412,26 +427,85 @@ func mapExecuteFailure(
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, fmt.Errorf("dex: Execute failure target is invalid")
 	}
-	target, err := resolveFailureTarget(flow, failure.step)
-	if err != nil {
-		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
-			"", nil, fmt.Errorf("dex: Execute failure target: %w", err)
-	}
-	options, err := mapRegisteredStepOptionsRecursive(flow, target, failure.options, active)
+	stepType, options, err := mapper.mapFailureTarget(failure.step, failure.options)
 	if err != nil {
 		return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_UNSPECIFIED,
 			"", nil, err
 	}
 	return dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-		target.stepType, options, nil
+		stepType, options, nil
 }
 
-// resolveFailureTarget returns the registered Step, so a failure route sends its registered options.
-func resolveFailureTarget(flow *registeredFlow, step StepDef) (*registeredStep, error) {
-	if flow == nil {
-		return nil, fmt.Errorf("a failure target requires a registered Flow")
+// mapFailureTarget returns the Step type and options a failure route sends to step.
+// Without lock snapshots it reads the target's options again, as before declarations existed.
+func (mapper *stepOptionsMapper) mapFailureTarget(
+	step StepDef,
+	overrides *StepOptions,
+) (string, *dexpb.StepOptions, error) {
+	if !mapper.usesLockSnapshots() {
+		options, err := mapper.mapStepOptions(mergeStepOptions(step.stepOptions(), overrides))
+		if err != nil {
+			return "", nil, err
+		}
+		return step.stepType(), withSkipWaitFor(options, step.skipWaitFor()), nil
 	}
-	return flow.resolveStepReference(step)
+	target, err := mapper.flow.resolveStepReference(step)
+	if err != nil {
+		return "", nil, fmt.Errorf("dex: failure target: %w", err)
+	}
+	options, err := mapper.mapRegisteredStepOptions(target, overrides)
+	if err != nil {
+		return "", nil, err
+	}
+	return target.stepType, options, nil
+}
+
+// mapRegisteredStepOptions maps a move to a registered step with optional per-move overrides.
+func (mapper *stepOptionsMapper) mapRegisteredStepOptions(
+	step *registeredStep,
+	overrides *StepOptions,
+) (*dexpb.StepOptions, error) {
+	if !mapper.usesLockSnapshots() {
+		options, err := mapper.mapStepOptions(mergeStepOptions(step.options, overrides))
+		if err != nil {
+			return nil, err
+		}
+		return withSkipWaitFor(options, step.skipWaitFor), nil
+	}
+	snapshot := step.lockSnapshot
+	if snapshot == nil {
+		return nil, fmt.Errorf("dex: step %q has no registration snapshot", step.stepType)
+	}
+	identity := stepTargetIdentity{step: step, overrides: overrides}
+	if mapper.activeTargets[identity] {
+		return nil, fmt.Errorf("dex: step options contain a cycle")
+	}
+	mapper.activeTargets[identity] = true
+	defer delete(mapper.activeTargets, identity)
+
+	// The snapshot has no lock fields, so only an explicit override maps locks here.
+	options, err := mapper.mapStepOptions(mergeStepOptions(snapshot.options, overrides))
+	if err != nil {
+		return nil, err
+	}
+	if options != nil && (overrides == nil || overrides.WaitForLockAttributes == nil) {
+		options.WaitForLockAttributeKeys = slices.Clone(snapshot.waitForLockKeys)
+	}
+	if options != nil && (overrides == nil || overrides.ExecuteLockAttributes == nil) {
+		options.ExecuteLockAttributeKeys = slices.Clone(snapshot.executeLockKeys)
+	}
+	return withSkipWaitFor(options, step.skipWaitFor), nil
+}
+
+func withSkipWaitFor(options *dexpb.StepOptions, skipWaitFor bool) *dexpb.StepOptions {
+	if !skipWaitFor {
+		return options
+	}
+	if options == nil {
+		options = &dexpb.StepOptions{}
+	}
+	options.SkipWaitFor = true
+	return options
 }
 
 func mapRetryPolicy(policy *RetryPolicy) (*dexpb.RetryPolicy, error) {
@@ -1361,6 +1435,22 @@ func mapCloneForkFlowResult(response *dexpb.CloneForkFlowResponse) (CloneForkFlo
 
 func mapWaitForFlowOptions(options WaitForFlowOptions) bool {
 	return options.NeedsResults
+}
+
+// mapRegisteredRPCOptions returns the timeout and the lock keys an invocation of rpc sends.
+// A Flow that declares a lock requirement sends the lock keys copied at registration.
+func mapRegisteredRPCOptions(flow *registeredFlow, rpc *registeredRPC) (int32, []string, error) {
+	if !flow.declaresLockRequirement {
+		return mapRPCOptions(rpc.options)
+	}
+	if rpc.options == nil {
+		return 0, rpc.lockKeys, nil
+	}
+	timeout, err := durationSeconds32(rpc.options.Timeout)
+	if err != nil {
+		return 0, nil, err
+	}
+	return timeout, rpc.lockKeys, nil
 }
 
 func mapRPCOptions(

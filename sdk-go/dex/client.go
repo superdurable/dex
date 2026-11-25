@@ -2060,11 +2060,10 @@ func (client *Client) doInvokeRPC(
 		channelMapInstances,
 		invokeChannelMapInstances,
 	)
-	timeout, _, err := mapRPCOptions(registered.options)
+	timeout, locks, err := mapRegisteredRPCOptions(flow, registered)
 	if err != nil {
 		return err
 	}
-	locks := registered.lockKeys
 	invokeLocks, err := validateRPCInvokeAttributeMapLocks(
 		flow,
 		options.LockAttributeMapInstances,

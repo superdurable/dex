@@ -25,6 +25,7 @@ from typing import (
     Any,
     Callable,
     Generic,
+    Iterable,
     Sequence,
     TypeVar,
     get_args,
@@ -361,6 +362,34 @@ class _StepLockKeys:
 
 
 @dataclass(frozen=True)
+class _StepOptionsSnapshot:
+    """Registration-time options of one Step in a Flow that declares a lock requirement.
+
+    With lock keys, ``options`` has empty lock fields and sends add the keys.
+    Without them, a lock entry was invalid, so ``options`` keeps its lock fields
+    and mapping them reports the error as before.
+    """
+
+    options: StepOptions | None
+    wait_for_lock_keys: tuple[str, ...] | None = None
+    execute_lock_keys: tuple[str, ...] | None = None
+
+
+def _declares_lock_requirement(
+    definitions: Iterable[_PersistenceDefinition],
+) -> bool:
+    """Return whether any definition requires a lock for its writes or publishes."""
+    for definition in definitions:
+        if isinstance(definition, (Attribute, AttributeMap)):
+            if definition.writes_require_lock is not False:
+                return True
+        elif isinstance(definition, (Channel, ChannelMap)):
+            if definition.publishes_require_lock is not None:
+                return True
+    return False
+
+
+@dataclass(frozen=True)
 class _RegisteredRPC:
     name: str
     method: Callable[..., Any]
@@ -387,14 +416,16 @@ class _RegisteredFlow:
     step_lock_keys: MappingProxyType[str, _StepLockKeys] = field(
         default_factory=lambda: MappingProxyType({})
     )
-    # Options read once at registration; every send uses them, so sent locks match step_lock_keys.
-    step_options: MappingProxyType[str, StepOptions | None] = field(
+    # Empty unless the Flow declares a lock requirement.
+    step_options_snapshots: MappingProxyType[str, _StepOptionsSnapshot] = field(
         default_factory=lambda: MappingProxyType({})
     )
 
-    def registered_step_options(self, step: _RegisteredStep) -> StepOptions | None:
-        """Return the options of ``step`` read when the Registry was built."""
-        return self.step_options.get(step.name)
+    def step_options_snapshot(
+        self, step: _RegisteredStep
+    ) -> _StepOptionsSnapshot | None:
+        """Return the registration-time options of ``step``, or ``None`` to read them again."""
+        return self.step_options_snapshots.get(step.name)
 
     def action_permission_mappings_for_writes(
         self, writes: Sequence[pb.AttributeWrite]
@@ -703,30 +734,79 @@ class Registry:
             attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
+        declares_lock_requirement = _declares_lock_requirement(persistence.values())
         step_lock_keys: dict[str, _StepLockKeys] = {}
-        registered_step_options: dict[str, StepOptions | None] = {}
+        step_options_snapshots: dict[str, _StepOptionsSnapshot] = {}
         for registered_step in registered_steps.values():
             # Read once, so validation and lock enforcement see the same options.
             step_options = registered_step.step.get_step_options()
-            registered_step_options[registered_step.name] = step_options
             Registry._validate_step_targets(
                 registered_flow,
                 registered_step,
                 step_options,
                 set(),
             )
+            snapshot: _StepOptionsSnapshot | None = None
+            if declares_lock_requirement:
+                snapshot = Registry._step_options_snapshot(step_options)
+                step_options_snapshots[registered_step.name] = snapshot
             step_lock_keys[registered_step.name] = Registry._step_lock_keys(
-                step_options
+                step_options, snapshot
             )
         return replace(
             registered_flow,
             step_lock_keys=MappingProxyType(step_lock_keys),
-            step_options=MappingProxyType(registered_step_options),
+            step_options_snapshots=MappingProxyType(step_options_snapshots),
         )
 
     @staticmethod
-    def _step_lock_keys(options: StepOptions | None) -> _StepLockKeys:
+    def _step_options_snapshot(options: StepOptions | None) -> _StepOptionsSnapshot:
+        """Capture the options and ordered lock keys that every default send uses."""
+        if not isinstance(options, StepOptions):
+            return _StepOptionsSnapshot(options)
+        wait_for_lock_keys = Registry._ordered_lock_keys(
+            options.wait_for_lock_attributes
+        )
+        execute_lock_keys = Registry._ordered_lock_keys(options.execute_lock_attributes)
+        if wait_for_lock_keys is None or execute_lock_keys is None:
+            return _StepOptionsSnapshot(options)
+        return _StepOptionsSnapshot(
+            replace(options, wait_for_lock_attributes=(), execute_lock_attributes=()),
+            wait_for_lock_keys,
+            execute_lock_keys,
+        )
+
+    @staticmethod
+    def _ordered_lock_keys(locks: Sequence[AttributeLock]) -> tuple[str, ...] | None:
+        """Return the lock keys in order, or ``None`` when an entry is invalid."""
+        try:
+            entries = tuple(locks)
+        except TypeError:
+            return None
+        keys: list[str] = []
+        for lock in entries:
+            if not isinstance(lock, AttributeLock):
+                return None
+            try:
+                keys.append(Registry._physical_lock(lock))
+            except ValueError:
+                return None
+        return tuple(keys)
+
+    @staticmethod
+    def _step_lock_keys(
+        options: StepOptions | None, snapshot: _StepOptionsSnapshot | None
+    ) -> _StepLockKeys:
         """Return the ``wait_for`` and ``execute`` lock keys a Step registers."""
+        if (
+            snapshot is not None
+            and snapshot.wait_for_lock_keys is not None
+            and snapshot.execute_lock_keys is not None
+        ):
+            return _StepLockKeys(
+                frozenset(snapshot.wait_for_lock_keys),
+                frozenset(snapshot.execute_lock_keys),
+            )
         if not isinstance(options, StepOptions):
             return _StepLockKeys()
         return _StepLockKeys(

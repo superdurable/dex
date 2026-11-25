@@ -281,9 +281,8 @@ class AsyncClient:
             start = registered.start_step
             request.start_step_type = start.name
             request.step_input.CopyFrom(self._values.encode(input, start.input_codec))
-            step_options = self._mappings.map_step_options(
-                registered,
-                registered.registered_step_options(start),
+            step_options = self._mappings.map_target_step_options(
+                registered, start, None
             )
             if step_options is not None:
                 request.step_options.CopyFrom(step_options)

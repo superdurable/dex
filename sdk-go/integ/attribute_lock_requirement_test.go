@@ -980,6 +980,8 @@ func TestAttributeLockRequirementRegisteredLockSnapshot(t *testing.T) {
 	startFlow := lockSnapStartFlow{}
 	routeFlow := lockSnapRouteFlow{}
 	clearSharedStepLocks := func() { lockSnapSharedStepOptions.ExecuteLockAttributes = nil }
+	// A nil entry is invalid, so mapping the original field would fail the send.
+	setInvalidSharedStepLock := func() { lockSnapSharedStepOptions.ExecuteLockAttributes = []dex.AttributeLock{nil} }
 	cases := []struct {
 		name string
 		// changeAfterRegistration runs after both registries exist and before the Flow starts.
@@ -993,6 +995,16 @@ func TestAttributeLockRequirementRegisteredLockSnapshot(t *testing.T) {
 			name:                    "start-shared-options-cleared-after-registration",
 			changeAfterRegistration: clearSharedStepLocks,
 			flow:                    startFlow, input: nil, conflictingRPC: startFlow.SetTotalLocked,
+		},
+		{
+			name:                    "start-shared-options-invalid-lock-after-registration",
+			changeAfterRegistration: setInvalidSharedStepLock,
+			flow:                    startFlow, input: nil, conflictingRPC: startFlow.SetTotalLocked,
+		},
+		{
+			name:                    "movement-shared-options-invalid-lock-after-registration",
+			changeAfterRegistration: setInvalidSharedStepLock,
+			flow:                    routeFlow, input: "shared-movement", conflictingRPC: routeFlow.SetTotalLocked,
 		},
 		{
 			name:              "start-shared-options-cleared-during-call",
@@ -1055,6 +1067,104 @@ func TestAttributeLockRequirementRegisteredLockSnapshot(t *testing.T) {
 	})
 }
 
+// lockSnapSelfRecoveryStep routes an Execute failure to a recovery value of its own type with nil options.
+type lockSnapSelfRecoveryStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	recovery bool
+}
+
+func (step lockSnapSelfRecoveryStep) GetStepOptions() *dex.StepOptions {
+	if step.recovery {
+		return nil
+	}
+	return &dex.StepOptions{
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 1},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSelfRecoveryStep{recovery: true}, nil),
+	}
+}
+
+func (lockSnapSelfRecoveryStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if ctx.RecoveryError() != nil {
+		return dex.GracefulComplete("recovered"), nil
+	}
+	return nil, errors.New("route to the recovery value")
+}
+
+// lockSnapSelfRouteStep routes an Execute failure to itself with a non-nil override.
+type lockSnapSelfRouteStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (lockSnapSelfRouteStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](lockSnapSelfRouteStep{},
+			&dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 1}}),
+	}
+}
+
+func (lockSnapSelfRouteStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("done"), nil
+}
+
+// lockSnapStepFlow registers one start Step under a schema with or without lock requirements.
+type lockSnapStepFlow struct {
+	dex.FlowDefaults
+	flowType string
+	start    dex.StepDef
+	schema   dex.PersistenceSchema
+}
+
+func (flow lockSnapStepFlow) GetFlowType() string {
+	return flow.flowType
+}
+
+func (flow lockSnapStepFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{flow.start}
+}
+
+func (flow lockSnapStepFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return flow.schema
+}
+
+// TestAttributeLockRequirementSnapshotOnlyWithDeclarations keeps failure routes unchanged in Flows without declarations.
+func TestAttributeLockRequirementSnapshotOnlyWithDeclarations(t *testing.T) {
+	undeclaredSchema := dex.PersistenceSchema{Attributes: []dex.AttributeDef{lockReqFree}}
+	t.Run("undeclared-self-recovery-reads-the-recovery-value", func(t *testing.T) {
+		flow := lockSnapStepFlow{
+			flowType: "lockSnapUndeclaredSelfRecoveryFlow",
+			start:    dex.DefineStartStep(lockSnapSelfRecoveryStep{}),
+			schema:   undeclaredSchema,
+		}
+		harness := startLockHarness(t, func(t *testing.T) *dex.Registry {
+			t.Helper()
+			registry, err := dex.NewRegistry([]dex.Flow{flow})
+			require.NoError(t, err)
+			return registry
+		})
+		result := harness.waitForFlow(t, harness.startFlow(t, flow, nil))
+		require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+		var output string
+		require.NoError(t, result.DecodeSingleOutput(&output))
+		require.Equal(t, "recovered", output)
+	})
+	t.Run("declared-self-recovery-uses-the-registered-step", func(t *testing.T) {
+		_, err := dex.NewRegistry([]dex.Flow{lockSnapStepFlow{
+			flowType: "lockSnapDeclaredSelfRecoveryFlow",
+			start:    dex.DefineStartStep(lockSnapSelfRecoveryStep{}),
+			schema:   lockReqSchema(),
+		}})
+		require.ErrorContains(t, err, "step options contain a cycle")
+	})
+	t.Run("declared-self-route-with-override-is-a-cycle", func(t *testing.T) {
+		_, err := dex.NewRegistry([]dex.Flow{lockSnapStepFlow{
+			flowType: "lockSnapDeclaredSelfRouteFlow",
+			start:    dex.DefineStartStep(lockSnapSelfRouteStep{}),
+			schema:   lockReqSchema(),
+		}})
+		require.ErrorContains(t, err, "step options contain a cycle")
+	})
+}
+
 // TestAttributeLockRequirementRegisteredRPCLockSnapshot checks that a shared RPCOptions change affects neither send nor check.
 func TestAttributeLockRequirementRegisteredRPCLockSnapshot(t *testing.T) {
 	flow := lockSnapRPCFlow{}
@@ -1065,6 +1175,12 @@ func TestAttributeLockRequirementRegisteredRPCLockSnapshot(t *testing.T) {
 		changeWhilePaused       func()
 	}{
 		{name: "cleared-after-registration", changeAfterRegistration: clearSharedRPCLocks},
+		{
+			name: "invalid-lock-after-registration",
+			changeAfterRegistration: func() {
+				lockSnapSharedRPCOptions.LockAttributes = []dex.AttributeLock{nil}
+			},
+		},
 		{name: "cleared-during-call", changeWhilePaused: clearSharedRPCLocks},
 	}
 	for _, testCase := range cases {

@@ -421,6 +421,29 @@ class WorkerDispatcher:
             return None, output.stream_write
         raise TypeError("Step generator must yield StepOutput values")
 
+    def map_target_step_options(
+        self,
+        flow: _RegisteredFlow,
+        target: _RegisteredStep,
+        override: StepOptions | None,
+    ) -> pb.StepOptions | None:
+        """Map the options sent with a move to ``target``; ``override`` replaces them."""
+        if override is not None:
+            return self.map_step_options(flow, override)
+        snapshot = flow.step_options_snapshot(target)
+        if snapshot is None:
+            return self.map_step_options(flow, target.step.get_step_options())
+        mapped = self.map_step_options(flow, snapshot.options)
+        if (
+            mapped is None
+            or snapshot.wait_for_lock_keys is None
+            or snapshot.execute_lock_keys is None
+        ):
+            return mapped
+        mapped.wait_for_lock_attribute_keys.extend(snapshot.wait_for_lock_keys)
+        mapped.execute_lock_attribute_keys.extend(snapshot.execute_lock_keys)
+        return mapped
+
     def map_step_options(
         self,
         flow: _RegisteredFlow,
@@ -474,13 +497,8 @@ class WorkerDispatcher:
                 pb.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
             )
             mapped.execute_failure_proceed_step_type = target.name
-            target_options = self.map_step_options(
-                flow,
-                (
-                    options._execute_failure_options
-                    if options._execute_failure_options is not None
-                    else flow.registered_step_options(target)
-                ),
+            target_options = self.map_target_step_options(
+                flow, target, options._execute_failure_options
             )
             if target_options is not None:
                 mapped.execute_failure_proceed_step_options.CopyFrom(target_options)
@@ -565,13 +583,8 @@ class WorkerDispatcher:
                 pb.EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP
             )
             mapped.failure_proceed_step_type = target.name
-            target_options = self.map_step_options(
-                flow,
-                (
-                    options._failure_options
-                    if options._failure_options is not None
-                    else flow.registered_step_options(target)
-                ),
+            target_options = self.map_target_step_options(
+                flow, target, options._failure_options
             )
             if target_options is not None:
                 mapped.failure_proceed_step_options.CopyFrom(target_options)
@@ -949,14 +962,7 @@ class WorkerDispatcher:
             step_type=target.name,
             step_input=self._values.encode(movement.input, target.input_codec),
         )
-        options = self.map_step_options(
-            flow,
-            (
-                movement.options
-                if movement.options is not None
-                else flow.registered_step_options(target)
-            ),
-        )
+        options = self.map_target_step_options(flow, target, movement.options)
         if options is not None:
             mapped.step_options.CopyFrom(options)
         mapped.step_options.skip_wait_for = target.skips_wait_for
@@ -1103,8 +1109,8 @@ class _ConditionMapper:
                 ),
                 sub_flow_index=len(self.sub_flows),
             )
-            step_options = self._dispatcher.map_step_options(
-                target, target.registered_step_options(target.start_step)
+            step_options = self._dispatcher.map_target_step_options(
+                target, target.start_step, None
             )
             if step_options is not None:
                 mapped_sub_flow.step_options.CopyFrom(step_options)

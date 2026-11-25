@@ -12,7 +12,6 @@ package dex
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
@@ -254,39 +253,12 @@ func mapRegisteredMovement(
 	}, nil
 }
 
-// Lock keys come from the registration copy unless overrides set that field.
 func mapRegisteredStepOptions(
 	flow *registeredFlow,
 	step *registeredStep,
 	overrides *StepOptions,
 ) (*dexpb.StepOptions, error) {
-	return mapRegisteredStepOptionsRecursive(flow, step, overrides, make(map[*StepOptions]bool))
-}
-
-func mapRegisteredStepOptionsRecursive(
-	flow *registeredFlow,
-	step *registeredStep,
-	overrides *StepOptions,
-	active map[*StepOptions]bool,
-) (*dexpb.StepOptions, error) {
-	options, err := mapStepOptionsRecursive(flow, mergeStepOptions(step.options, overrides), active)
-	if err != nil {
-		return nil, err
-	}
-	if options == nil {
-		if !step.skipWaitFor {
-			return nil, nil
-		}
-		options = &dexpb.StepOptions{}
-	}
-	if overrides == nil || overrides.WaitForLockAttributes == nil {
-		options.WaitForLockAttributeKeys = slices.Clone(step.waitForLockKeys)
-	}
-	if overrides == nil || overrides.ExecuteLockAttributes == nil {
-		options.ExecuteLockAttributeKeys = slices.Clone(step.executeLockKeys)
-	}
-	options.SkipWaitFor = step.skipWaitFor
-	return options, nil
+	return newStepOptionsMapper(flow).mapRegisteredStepOptions(step, overrides)
 }
 
 func mapRegisteredRPCResult(

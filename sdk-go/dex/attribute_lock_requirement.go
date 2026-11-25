@@ -47,10 +47,14 @@ type requiredLockHandler struct {
 
 func stepRequiredLockHandler(flow *registeredFlow, step *registeredStep, method string) requiredLockHandler {
 	handler := requiredLockHandler{flowType: flow.flowType, stepType: step.stepType, method: method}
+	// Without a snapshot the Flow declares nothing, so no write needs a lock.
+	if step.lockSnapshot == nil {
+		return handler
+	}
 	if method == requiredLockMethodWaitFor {
-		handler.lockKeys = step.waitForLockKeys
+		handler.lockKeys = step.lockSnapshot.waitForLockKeys
 	} else {
-		handler.lockKeys = step.executeLockKeys
+		handler.lockKeys = step.lockSnapshot.executeLockKeys
 	}
 	return handler
 }
