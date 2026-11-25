@@ -387,19 +387,26 @@ class UnlockedAttributeReadModifyWriteError(RuntimeError):
     """Report a handler invocation that read and then wrote an Attribute without a lock.
 
     A Worker raises it only when
-    ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write`` is true. The
-    failed invocation saves none of its changes. Dex reports it like any other
-    handler error: it retries a Step method under the Step's retry policy and
-    returns the failure to the RPC caller, whose ``WorkerInvocationError``
-    carries the type name ``UnlockedAttributeReadModifyWriteError``. A retry
-    fails the same way, because the handler code is the cause.
+    ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write`` is true. Dex
+    then discards the changes buffered for the invocation's result. Stream
+    writes that the Step already sent and external side effects stay. Dex
+    reports it like any other handler error: it retries a Step method under
+    the Step's retry policy and returns the failure to the RPC caller. Each
+    attempt is checked on its own, so an attempt that repeats the access fails
+    again.
 
     Fix the handler. Lock the Attribute with :meth:`Attribute.lock` or
-    :meth:`AttributeMap.lock` in the handler's registered options. When only
-    this handler writes it, call :meth:`Attribute.declare_single_writer` or
-    :meth:`AttributeMap.declare_single_writer` instead. See
-    ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write`` for the exact
-    rule.
+    :meth:`AttributeMap.lock` in the handler's registered options. Call
+    :meth:`Attribute.declare_single_writer` or
+    :meth:`AttributeMap.declare_single_writer` only when no other invocation,
+    including another invocation of the same handler, can write it at the same
+    time. See ``WorkerOptions.fail_on_unlocked_attribute_read_modify_write``
+    for the exact rule.
+
+    The exception exists only inside the Worker. A Client that invokes the RPC
+    receives a ``WorkerInvocationError`` whose ``worker_error_type`` is
+    ``"dex.runtime_errors.UnlockedAttributeReadModifyWriteError"`` and whose
+    ``worker_error_detail`` is this exception's message.
 
     Attributes:
         flow_type: The Flow type whose handler ran.
@@ -410,11 +417,13 @@ class UnlockedAttributeReadModifyWriteError(RuntimeError):
             by stored key.
 
     Examples:
-        >>> def describe(error: Exception) -> str:
-        ...     if isinstance(error, UnlockedAttributeReadModifyWriteError):
-        ...         names = [access.attribute_name for access in error.attributes]
-        ...         return f"lock {names} in {error.step_type or error.rpc_name}"
-        ...     return str(error)
+        >>> try:
+        ...     client.invoke_rpc(counter_flow.increment, "counter-1")
+        ... except WorkerInvocationError as error:
+        ...     if error.worker_error_type == (
+        ...         "dex.runtime_errors.UnlockedAttributeReadModifyWriteError"
+        ...     ):
+        ...         print(f"fix the RPC's Attribute locks: {error.worker_error_detail}")
 
     .. versionadded:: 1.45.18
     """
@@ -451,9 +460,8 @@ class UnlockedAttributeReadModifyWriteError(RuntimeError):
         )
         super().__init__(
             f"{handler} read and then wrote {accesses} without a lock, so a "
-            "concurrent Step or RPC can overwrite the update; lock it in the "
-            "handler's options, or call declare_single_writer when only this "
-            "handler writes it"
+            "concurrent invocation can overwrite the update; lock it in the "
+            "handler's registered options"
         )
         self.flow_type = flow_type
         self.step_type = step_type

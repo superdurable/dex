@@ -395,7 +395,6 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         returned: Any = rpc.method(*arguments)
         if isawaitable(returned):
             returned = await returned
-        self._check_rpc_attribute_locks(flow, rpc, context)
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),
@@ -425,6 +424,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 response.output.CopyFrom(self._values.encode_dynamic(None))
             else:
                 raise TypeError("RPC must return RPCResult or None")
+            self._check_rpc_attribute_locks(flow, rpc, context)
             return response
         except ValueMappingError:
             raise

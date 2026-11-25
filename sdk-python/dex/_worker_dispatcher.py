@@ -144,10 +144,10 @@ class WorkerDispatcher:
             )
         if isgenerator(wait):
             wait = yield from self._wait_for_generator(flow, step, wait)
-        self._check_step_attribute_locks(flow, step, "wait_for", context)
         try:
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
+            self._check_step_attribute_locks(flow, step, "wait_for", context)
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
                 action_permission_mappings=self._result_action_permission_mappings(
@@ -211,10 +211,10 @@ class WorkerDispatcher:
             )
         if isgenerator(decision):
             decision = yield from self._execute_generator(flow, step, decision)
-        self._check_step_attribute_locks(flow, step, "execute", context)
         try:
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
+            self._check_step_attribute_locks(flow, step, "execute", context)
             yield pb.InvokeExecuteMethodOutput(
                 result=pb.InvokeExecuteMethodResponse(
                     step_decision=self._map_decision(flow, decision),
@@ -339,7 +339,6 @@ class WorkerDispatcher:
             raise TypeError(
                 "RPC returned an awaitable; use AsyncWorker for async handlers"
             )
-        self._check_rpc_attribute_locks(flow, rpc, context)
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),
@@ -369,6 +368,7 @@ class WorkerDispatcher:
                 response.output.CopyFrom(self._values.encode_dynamic(None))
             else:
                 raise TypeError("RPC must return RPCResult or None")
+            self._check_rpc_attribute_locks(flow, rpc, context)
             return response
         except ValueMappingError:
             raise

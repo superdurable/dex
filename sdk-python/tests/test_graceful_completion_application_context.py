@@ -182,3 +182,10 @@ def test_graceful_completion_helpers_return_false_for_an_application_context() -
     assert (
         assert_type(is_graceful_completion_condition_completed(context), bool) is False
     )
+
+
+def test_declare_single_writer_does_nothing_for_an_application_context() -> None:
+    context: Context = ApplicationFakeContext()
+
+    Attribute("fake-counter", int).declare_single_writer(context)
+    AttributeMap("fake-entries", int).declare_single_writer(context, "e1")

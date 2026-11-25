@@ -324,7 +324,7 @@ class Attribute(Generic[ValueT]):
         context._delete_attribute(cast(Attribute[object], self), None)
 
     def declare_single_writer(self, context: Context) -> None:
-        """Tell the Worker that only this handler writes the Attribute.
+        """Tell the Worker that no other invocation can write the Attribute meanwhile.
 
         A Worker checks every successful ``wait_for``, ``execute``, and RPC
         invocation. When the invocation reads an Attribute with :meth:`get` and
@@ -335,13 +335,25 @@ class Attribute(Generic[ValueT]):
         invocation fails with ``UnlockedAttributeReadModifyWriteError`` instead.
         See that option for the exact rule.
 
-        Call this method when no other Step or RPC can write the Attribute
-        while this handler runs, for example an Attribute that only one
-        sequential Step of the Flow writes. The declaration applies to the
-        current invocation only, and it may come before or after the read and
-        the write. It changes nothing that Dex stores, and it does not lock the
-        Attribute. When two handlers can run at the same time and both write the
-        Attribute, lock it with :meth:`lock` instead. It does nothing for a
+        The declaration is a promise about every invocation of the Flow run,
+        not about the handler's code. Call this method only when no other
+        invocation can write the Attribute while this one runs. That includes
+        another execution of the same Step type and another call of the same
+        RPC: every RPC call can run in parallel with others, and a Flow can run
+        several executions of one Step type at once. One valid case is an
+        Attribute that only one Step writes, where the Flow's decisions never
+        schedule a second execution of that Step before the first one ends.
+        When the promise does not hold, lock the Attribute with :meth:`lock`.
+
+        Do not use the declaration to silence a report about a lock the Worker
+        cannot see, such as a lock in a ``StepMovement``'s options: a later call
+        that leaves out the lock would be accepted too. Move a fixed lock into
+        the handler's registered options instead, or keep the default warning
+        mode for that Worker.
+
+        The declaration applies to the current invocation only, and it may
+        come before or after the read and the write. It changes nothing that
+        Dex stores, and it does not lock the Attribute. It does nothing for a
         Context that Dex did not create, such as an application's own test
         fake.
 
@@ -617,16 +629,20 @@ class AttributeMap(Generic[ValueT]):
         context._delete_attribute(cast(AttributeMap[object], self), instance)
 
     def declare_single_writer(self, context: Context, instance: str) -> None:
-        """Tell the Worker that only this handler writes one map instance.
+        """Tell the Worker that no other invocation can write one map instance meanwhile.
 
         The Worker checks each AttributeMap instance on its own, the same way
         :meth:`Attribute.declare_single_writer` describes for a singleton
-        Attribute. The declaration covers only the given instance and only the
-        current invocation. It may come before or after the read and the write.
-        It changes nothing that Dex stores, and it does not lock the instance.
-        When two handlers can write the same instance at the same time, lock it
-        with :meth:`lock` instead. It does nothing for a Context that Dex did
-        not create.
+        Attribute. The same promise applies: no other invocation, including
+        another execution of the same Step type or another call of the same
+        RPC, writes the instance while this one runs. Do not use it to silence
+        a report about a per-call lock the Worker cannot see. When the promise
+        does not hold, lock the instance with :meth:`lock`.
+
+        The declaration covers only the given instance and only the current
+        invocation. It may come before or after the read and the write. It
+        changes nothing that Dex stores, and it does not lock the instance. It
+        does nothing for a Context that Dex did not create.
 
         Example::
 
@@ -756,7 +772,7 @@ def _declare_single_writer(
 ) -> None:
     # Not a Context member, so application Context implementations keep type-checking.
     declare = getattr(context, "_declare_single_writer", None)
-    if declare is not None:
+    if callable(declare):
         declare(definition, instance)
 
 
