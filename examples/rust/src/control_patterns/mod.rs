@@ -18,6 +18,7 @@
 pub mod cancel_case;
 pub mod critical_section;
 pub mod deferred_choice;
+pub mod fail_fast;
 
 use std::sync::Arc;
 
@@ -41,5 +42,6 @@ fn register_with_loan_application(
         .register(deferred_choice::OfferResponseFlow::default())?
         .register(critical_section::ContractEditFlow::default())?
         .register(cancel_case::CreditCheckFlow::default())?
-        .register(loan_application)
+        .register(loan_application)?
+        .register(fail_fast::ExpenseReimbursementFlow::default())
 }

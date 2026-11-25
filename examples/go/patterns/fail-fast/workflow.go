@@ -56,8 +56,23 @@ func (flow *ExpenseReimbursementFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *ExpenseReimbursementFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
 func (*ExpenseReimbursementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{PayoutOutcomeAttribute}}
+}
+
+func (*ExpenseReimbursementFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+func (*ExpenseReimbursementFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
 }
 
 // dex:group group-id:payout group-label:"Payout"

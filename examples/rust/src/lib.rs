@@ -69,11 +69,12 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
 ];
 
 /// Control-structure pattern Flows, one per Design pattern page.
-pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 4] = [
+pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 5] = [
     "OfferResponseFlow",
     "ContractEditFlow",
     "CreditCheckFlow",
     "LoanApplicationFlow",
+    "ExpenseReimbursementFlow",
 ];
 
 /// Workflow Patterns Flows, in `examples/workflow-patterns-mapping.md` group order.

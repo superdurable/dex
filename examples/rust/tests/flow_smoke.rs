@@ -199,6 +199,16 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "patterns/fail-fast",
+            path: "/patterns/fail-fast/start",
+            query: HashMap::from([
+                ("workflowId".into(), client.new_flow_id("pattern-fail-fast")),
+                ("amountCents".into(), "12000".into()),
+                ("bankAccount".into(), "12345678".into()),
+            ]),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/interruptible",
             path: "/patterns/interruptible/start",
             query: query(&client.new_flow_id("interruptible")),

@@ -38,6 +38,9 @@ use dex_examples_rust::control_patterns::critical_section::{
 use dex_examples_rust::control_patterns::deferred_choice::{
     ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
 };
+use dex_examples_rust::control_patterns::fail_fast::{
+    ExpenseClaim, ExpenseReimbursementFlow, PAYOUT_OUTCOME, PayoutOutcome,
+};
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
@@ -163,6 +166,14 @@ impl ControlPatternsEnvironment {
             result.error_message()
         );
         result
+    }
+
+    fn payout_outcome(&self, flow_id: &str) -> PayoutOutcome {
+        let (outcome,) = self
+            .client
+            .get_attributes(flow_id, (&*PAYOUT_OUTCOME,))
+            .unwrap_or_else(|error| panic!("read PayoutOutcome of {flow_id}: {error}"));
+        outcome.unwrap_or_else(|| panic!("{flow_id} has no PayoutOutcome"))
     }
 
     fn wait_for_completed_flow(&self, flow_id: &str) -> FlowResult {
@@ -293,6 +304,58 @@ fn deferred_choice_routes_on_the_customer_response() {
             "{response:?}"
         );
     }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn fail_fast_routes_a_rejected_bank_account_after_one_attempt() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &ExpenseReimbursementFlow::default(),
+        "pattern-fail-fast",
+        ExpenseClaim {
+            amount_cents: 12_000,
+            bank_account: "not-a-bank-account".to_string(),
+        },
+    );
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(completion_step_types(&result), ["RecordRejectedClaim"]);
+    assert_eq!(
+        outputs_of::<String>(&result, "RecordRejectedClaim"),
+        ["rejected: bank account not-a-bank-account is invalid"]
+    );
+    assert_eq!(
+        environment.payout_outcome(&flow_id),
+        PayoutOutcome {
+            status: "REJECTED".to_string(),
+            detail: "bank account not-a-bank-account is invalid".to_string(),
+            submit_attempt: 1,
+        }
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn fail_fast_retries_a_provider_timeout() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &ExpenseReimbursementFlow::default(),
+        "pattern-fail-fast",
+        ExpenseClaim {
+            amount_cents: 12_000,
+            bank_account: "12345678".to_string(),
+        },
+    );
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(completion_step_types(&result), ["SubmitPayout"]);
+    assert_eq!(
+        environment.payout_outcome(&flow_id),
+        PayoutOutcome {
+            status: "PAID".to_string(),
+            detail: format!("payout-{flow_id}"),
+            submit_attempt: 2,
+        }
+    );
 }
 
 #[test]
