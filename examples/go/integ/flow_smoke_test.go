@@ -21,6 +21,7 @@
 package integ
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -305,6 +306,14 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		parallelSubFlowsSmokeEntry("long-lived-parent"),
 		parallelSubFlowsSmokeEntry("short-lived-parent"),
 		{
+			name: "patterns/child-flows-business-identity",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "child-flows-order")}}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/child-flows-business-identity/start", query, nil)
+			},
+			verifyAfterTrigger: verifyShipmentLookupByNumber,
+		},
+		{
 			name: "patterns/drain-channels/internal",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "drain-internal")}}
@@ -554,6 +563,24 @@ func verifyWaitForHalfParentCompletes(t *testing.T, flowID string) {
 	t.Helper()
 	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status)
+}
+
+func verifyShipmentLookupByNumber(t *testing.T, orderID string) {
+	t.Helper()
+	lookupURL := examplesAPIURL + "/patterns/child-flows-business-identity/shipment?" +
+		url.Values{"shipmentNumber": {orderID + "-2"}}.Encode()
+	require.Eventually(t, func() bool {
+		response, err := http.Get(lookupURL)
+		if err != nil {
+			return false
+		}
+		defer response.Body.Close()
+		var shipment map[string]string
+		if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&shipment) != nil {
+			return false
+		}
+		return shipment["status"] == "running"
+	}, 30*time.Second, 200*time.Millisecond, "shipment lookup for order %s", orderID)
 }
 
 func TestFlowSmokeCatalogSize(t *testing.T) {

@@ -367,6 +367,21 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "child-flows-business-identity",
+    title: "Child Flows with Business Identity",
+    flowIdPrefix: "order",
+    endpoints: [
+      endpoint("GET", "/patterns/child-flows-business-identity/start", "Start order", [flowId()]),
+      endpoint("GET", "/patterns/child-flows-business-identity/shipment", "Look up shipment", [
+        query("shipmentNumber", { default: "order-1-2" }),
+      ]),
+      endpoint("GET", "/patterns/child-flows-business-identity/cancel-shipment", "Cancel shipment", [
+        query("shipmentNumber", { default: "order-1-2" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "polling",
     title: "Polling",
     flowIdPrefix: "pattern-polling",
