@@ -9,6 +9,7 @@
 package dex
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -59,15 +60,17 @@ func (check *unlockedAttributeReadModifyWriteCheck) checkInvocation(
 	if len(candidates) == 0 {
 		return nil
 	}
-	lockKeys, err := mapAttributeLocks(handler.locks)
-	if err != nil {
-		return fmt.Errorf("dex: map registered Attribute locks: %w", err)
+	lockKeys, lockErr := mapAttributeLocks(handler.locks)
+	registeredMapLoads, _, _, loadErr := validateStateLoads(invocation.flow, handler.loads)
+	if err := errors.Join(lockErr, loadErr); err != nil {
+		// Registration validated these options, so this is unexpected; only strict mode fails on it.
+		if check.failsInvocation {
+			return fmt.Errorf("dex: map registered Attribute locks and loads: %w", err)
+		}
+		check.logger.Error("skip unlocked Attribute read-modify-write check", "flowType", handler.flowType, "error", err)
+		return nil
 	}
 	lockedKeys := stringSet(lockKeys)
-	registeredMapLoads, _, _, err := validateStateLoads(invocation.flow, handler.loads)
-	if err != nil {
-		return fmt.Errorf("dex: map registered AttributeMap loads: %w", err)
-	}
 	registeredMapLoadSet := stringSet(registeredMapLoads)
 	var unlocked []UnlockedAttributeAccess
 	for _, candidate := range candidates {

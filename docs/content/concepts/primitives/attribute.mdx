@@ -360,8 +360,9 @@ the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
 Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
-then write. A Worker reports a Step method or RPC that reads an Attribute and
-then writes it without a lock. By default it logs a warning. A Worker option
+then write. Workers of the SDKs that support the check report a Step method or
+RPC that reads an Attribute and then writes it without a lock. By default a
+Worker logs a warning. A Worker option
 makes the method fail instead; turn it on in tests and local development. When
 only one method ever writes the Attribute, that method declares itself its
 single writer, and the Worker accepts it without a lock. The Worker sees only

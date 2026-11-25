@@ -120,13 +120,6 @@ class ApplicationFakeContext:
     def _attribute_map_keys(self, definition: AttributeMap[object]) -> tuple[str, ...]:
         return ()
 
-    def _declare_single_writer(
-        self,
-        definition: Attribute[object] | AttributeMap[object],
-        instance: str | None,
-    ) -> None:
-        pass
-
     def _publish_channel(
         self,
         definition: Channel[ValueT] | ChannelMap[ValueT],

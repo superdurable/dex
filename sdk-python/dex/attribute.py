@@ -341,7 +341,9 @@ class Attribute(Generic[ValueT]):
         current invocation only, and it may come before or after the read and
         the write. It changes nothing that Dex stores, and it does not lock the
         Attribute. When two handlers can run at the same time and both write the
-        Attribute, lock it with :meth:`lock` instead.
+        Attribute, lock it with :meth:`lock` instead. It does nothing for a
+        Context that Dex did not create, such as an application's own test
+        fake.
 
         Example::
 
@@ -363,7 +365,7 @@ class Attribute(Generic[ValueT]):
 
         .. versionadded:: 1.45.18
         """
-        context._declare_single_writer(cast(Attribute[object], self), None)
+        _declare_single_writer(context, cast(Attribute[object], self), None)
 
     def lock(self) -> AttributeLock:
         """Return a lock request for this Attribute.
@@ -623,7 +625,8 @@ class AttributeMap(Generic[ValueT]):
         current invocation. It may come before or after the read and the write.
         It changes nothing that Dex stores, and it does not lock the instance.
         When two handlers can write the same instance at the same time, lock it
-        with :meth:`lock` instead.
+        with :meth:`lock` instead. It does nothing for a Context that Dex did
+        not create.
 
         Example::
 
@@ -648,7 +651,8 @@ class AttributeMap(Generic[ValueT]):
 
         .. versionadded:: 1.45.18
         """
-        context._declare_single_writer(cast(AttributeMap[object], self), instance)
+        require_map_instance(instance)
+        _declare_single_writer(context, cast(AttributeMap[object], self), instance)
 
     def get_map_size(self, context: Context) -> int:
         """Return the number of existing instances, including buffered writes.
@@ -743,6 +747,17 @@ class AttributeLock:
     def __post_init__(self) -> None:
         if self.instance is not None:
             require_map_instance(self.instance)
+
+
+def _declare_single_writer(
+    context: Context,
+    definition: Attribute[object] | AttributeMap[object],
+    instance: str | None,
+) -> None:
+    # Not a Context member, so application Context implementations keep type-checking.
+    declare = getattr(context, "_declare_single_writer", None)
+    if declare is not None:
+        declare(definition, instance)
 
 
 def _apply_attribute_store_sync(

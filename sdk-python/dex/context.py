@@ -353,12 +353,6 @@ class Context(Protocol):
         definition: AttributeMap[object],
     ) -> tuple[str, ...]: ...
 
-    def _declare_single_writer(
-        self,
-        definition: Attribute[object] | AttributeMap[object],
-        instance: str | None,
-    ) -> None: ...
-
     def _publish_channel(
         self,
         definition: Channel[ValueT] | ChannelMap[ValueT],
