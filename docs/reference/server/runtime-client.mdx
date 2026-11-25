@@ -95,8 +95,7 @@ them. During that wait:
 - the run still reports **RUNNING**. Dex cancels running Steps, starts no new
   Step, and discards the uncommitted results of cancelled handlers. Running
   application code can ignore cancellation;
-- an RPC that is neither transactional nor locking is still admitted, and its
-  Attribute writes commit;
+- an RPC that is neither transactional nor locking is still admitted;
 - a transactional or locking RPC admitted before the close can still commit;
 - a new transactional or locking RPC is rejected with **FLOW_CLOSING**;
 - any RPC whose result publishes to a Channel fails with

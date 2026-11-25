@@ -41,8 +41,8 @@ Attribute to that store's tables.
   travel.
 - Each database needs a [fencing table](#attribute-store-fencing-table).
 - A natural close waits for synced Attributes. A natural close is a Step
-  decision that completes or fails the Flow, exhausted Step retries, or the
-  Flow timeout. It stops the Steps at once. The Flow run then stays RUNNING
+  decision that completes or fails the Flow, a StopFlow with a complete stop
+  type, exhausted Step retries, or the Flow timeout. It stops the Steps at once. The Flow run then stays RUNNING
   until every pending write is written or dropped, and only then does
   WaitForFlow return. Entries written before the wait ended are in the table. A
   dropped entry leaves the row's value uncertain, because earlier writes of the
@@ -65,8 +65,9 @@ Attribute to that store's tables.
 - A natural close also waits for every transactional or locking RPC that Dex
   accepted before the close, even without an Attribute Store. Such an RPC still
   commits unless its result publishes to a Channel, and its synced writes join
-  the wait. Dex records the close once those RPCs commit, fail, or time out. A
-  rejected RPC stops holding the close like a failed one.
+  the wait. Dex records the close once both conditions hold: every such RPC
+  has committed, failed, or timed out, and every pending write is written or
+  dropped. A rejected RPC stops holding the close like a failed one.
 - **syncRetryPolicy.totalDuration** limits how long Dex retries each pending
   write, not the whole close. During a PostgreSQL outage, a close waits until
   its pending writes are dropped. Every synced write accepted while the close

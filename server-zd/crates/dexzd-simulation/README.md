@@ -628,12 +628,15 @@ after this change, so it is a historical case; the seed set still abandons one.
 
 An owner now stamps `should_reject_publication_during_pending_close` on every RpcCommitted and
 TimeTravel command it builds, and apply rejects a stamped RPC that publishes to a Channel during
-a pending close (#2230). The stamp adds bytes to those commands, so every engine pin moved. The
-rejection alone, without the stamp, moved no pin. With only the stamp reverted, every pin keeps
-its previous digest, so no seed's trajectory changed. The four engine regression seeds stay
-historical baseline cases, and `FIRST_SEED`, `FIRST_REDEPLOY_SEED`, and
-`FIRST_HOT_STANDBY_SEED` pin no regression. The apply model builds unstamped commands, so no
-apply pin moved.
+a pending close (#2230). Every engine pin moved. Two controls ran: the rejection without the
+stamp (`93903b623`) moved no pin, and with only the stamp reverted every pin keeps its previous
+digest. These show that the stamp causes the new digests; they do not compare the stamped
+trajectories command by command. The four engine regression seeds were already historical
+baseline cases before this change: they did not fail with the #847 fix reverted, and the
+deterministic `outbox_and_purge_tests` cover that failure. `FIRST_SEED`, `FIRST_SEED + 1`,
+`FIRST_SEED + 2`, `FIRST_REDEPLOY_SEED`, and `FIRST_HOT_STANDBY_SEED` pin no regression. So no
+pinned seed is an active regression detector, and #847 was not reverted again. The apply model
+builds unstamped commands, so no apply pin moved.
 
 | Engine seed | Previous digest | Stamped digest |
 | --- | --- | --- |
