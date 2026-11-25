@@ -192,7 +192,7 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 - 多个入口可能启动同一个子 Flow 时，它们从同一个请求推导出相同的 Flow ID 和 request ID。否则启动会报告 Flow 已经启动：读取那个 run，只有业务身份匹配时才跟踪它。
 - 每个子 Flow 有自己的 Flow timeout。父 Flow 关闭时不会停止它的子 Flow。
 - client 停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。
-- 父 Flow 不需要知道被停止的子 Flow 怎样结束时，停止子 Flow 后直接往下走。只需要达到所需数量的父 Flow，也这样停止剩下的子 Flow。
+- 被停止的子 Flow 怎样结束与父 Flow 无关时，父 Flow 停止子 Flow 后直接往下走。只需要达到所需数量的父 Flow，也这样停止剩下的子 Flow。
 - 父 Flow 的结果或后续动作取决于被停止的子 Flow 怎样结束时，例如要统计它的结果、撤销它的副作用或展示它的结局，父 Flow 根据子 Flow 存储的状态对它对账。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先 describe 子 Flow。已关闭的子 Flow 记录终态和已存储的结果。仍在运行的子 Flow 稍后再读。确实不存在的子 Flow 按业务策略记录，比如 "unavailable"。其他错误直接返回，让 Step 重试。停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，仍然计入父 Flow 的结果。
 
 ## 标识符 {#identifiers}
