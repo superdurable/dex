@@ -511,17 +511,19 @@ rpc publishExternalMessage -> Queue.publish(message)
 
 Controller(entityId, message):                   // flowId = entityId; message has a stable ID
     repeat a few times:
-        try invokeRPC(flowId, publishExternalMessage, message,
-                      requestId = "publish:" + message.id); return accepted
-        on missing-or-inactive:
-            try startFlow(flowId, input = message, reuse = allow if not running,
-                          requestId = "start:" + message.id,
-                          ignore already started)  // a retry returns the original run
+        try startFlow(flowId, input = message, reuse = allow if not running,
+                      requestId = "start:" + message.id, ignore already started)
+            return accepted
+        on already started:                     // a different start request owns the active run
+            try invokeRPC(flowId, publishExternalMessage, message,
+                          requestId = "publish:" + message.id)   // where the SDK supports it
                 return accepted
-            on already started: continue        // another caller won; publish to its run
+            on missing-or-inactive: continue    // that run closed; start again
         other errors: return them
     return unconfirmed with message.id          // outcome unknown; the caller sends it again
 ```
+
+- A retried start returns the original run while that run is still the latest run for the Flow ID and its start request ID matches.
 
 - "Accepted" means the run accepted the message, not that a Step handled it.
 - One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.

@@ -35,7 +35,11 @@ START_OR_PUBLISH_ATTEMPTS = 3
 
 
 def pattern_start_options(message_id: str) -> StartFlowOptions:
-    """Restarts a closed Flow ID; a retried start of this message returns its run."""
+    """Restarts a closed Flow ID.
+
+    A retried start returns the original run while that run is still the latest
+    run for the Flow ID and its start request ID matches.
+    """
     return replace(
         start_options(),
         id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING,
@@ -59,16 +63,6 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
         publish_options = RPCInvokeOptions(request_id=f"publish:{message_id}")
         for _ in range(START_OR_PUBLISH_ATTEMPTS):
             try:
-                await app_state.client.invoke_rpc(
-                    app_state.drain_external.publish_external_channel_message,
-                    flow_id,
-                    message,
-                    options=publish_options,
-                )
-                return f"Accepted message {message_id}", 200
-            except FlowNotActiveOrNotFoundError:
-                pass
-            try:
                 run_id = await app_state.client.start_flow(
                     app_state.drain_external,
                     flow_id,
@@ -80,7 +74,18 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
                     200,
                 )
             except FlowAlreadyStartedError:
-                # Another caller started a run first: publish this message to that run.
+                # A different start request owns the active run: publish this message to that run.
+                pass
+            try:
+                await app_state.client.invoke_rpc(
+                    app_state.drain_external.publish_external_channel_message,
+                    flow_id,
+                    message,
+                    options=publish_options,
+                )
+                return f"Accepted message {message_id}", 200
+            except FlowNotActiveOrNotFoundError:
+                # That run closed before the publish: start again.
                 continue
         return (
             f"message {message_id} is unconfirmed; send it again with the same messageId",

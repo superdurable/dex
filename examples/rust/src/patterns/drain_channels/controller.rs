@@ -43,7 +43,8 @@ struct StartQuery {
     message_id: String,
 }
 
-/// Restarts a closed Flow ID; a retried start of this message returns its run.
+/// Restarts a closed Flow ID. A retried start returns the original run while that run is
+/// still the latest run for the Flow ID and its start request ID matches.
 fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(60 * 60))
@@ -106,11 +107,6 @@ async fn start_or_publish(
         let flow = DrainingExternalChannelFlow::default();
         let message = format!("message {message_id}");
         for _ in 0..START_OR_PUBLISH_ATTEMPTS {
-            match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
-                Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
-                Err(error) if is_missing_or_inactive(&error) => {}
-                Err(error) => return Err(error),
-            }
             match client.start_flow_with_options(
                 &flow,
                 &flow_id,
@@ -122,8 +118,14 @@ async fn start_or_publish(
                         "Accepted message {message_id} as the start input of runId {run_id}"
                     )));
                 }
-                // Another caller started a run first: publish this message to that run.
+                // A different start request owns the active run: publish this message to that run.
                 Err(error) if is_already_started(&error) => {}
+                Err(error) => return Err(error),
+            }
+            match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
+                Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
+                // That run closed before the publish: start again.
+                Err(error) if is_missing_or_inactive(&error) => {}
                 Err(error) => return Err(error),
             }
         }

@@ -46,7 +46,8 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingExtern
 // startOrPublishAttempts bounds how often a message that lost a start race is published again.
 const startOrPublishAttempts = 3
 
-// patternStartOptions restarts a closed Flow ID; a retried start of this message returns its run.
+// patternStartOptions restarts a closed Flow ID. A retried start returns the original run
+// while that run is still the latest run for the Flow ID and its start request ID matches.
 func patternStartOptions(messageID string) sdk.StartFlowOptions {
 	timeout := time.Hour
 	requestID := "start:" + messageID
@@ -70,6 +71,27 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 	message := "message " + messageID
 	publishRequestID := "publish:" + messageID
 	for attempt := 0; attempt < startOrPublishAttempts; attempt++ {
+		runID, startErr := controller.client.StartFlow(
+			request.Request.Context(),
+			controller.flow,
+			flowID,
+			message,
+			patternStartOptions(messageID),
+		)
+		if startErr == nil {
+			httputil.RespondString(
+				request,
+				fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
+				nil,
+			)
+			return
+		}
+		var alreadyStarted *sdk.FlowAlreadyStartedError
+		if !errors.As(startErr, &alreadyStarted) {
+			httputil.RespondString(request, "", startErr)
+			return
+		}
+		// A different start request owns the active run: publish this message to that run.
 		var output string
 		err := controller.client.InvokeRPCWithOptions(
 			request.Request.Context(),
@@ -88,24 +110,7 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 			httputil.RespondString(request, "", err)
 			return
 		}
-		runID, startErr := controller.client.StartFlow(
-			request.Request.Context(),
-			controller.flow,
-			flowID,
-			message,
-			patternStartOptions(messageID),
-		)
-		var alreadyStarted *sdk.FlowAlreadyStartedError
-		if errors.As(startErr, &alreadyStarted) {
-			// Another caller started a run first: publish this message to that run.
-			continue
-		}
-		httputil.RespondString(
-			request,
-			fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
-			startErr,
-		)
-		return
+		// That run closed before the publish: start again.
 	}
 	request.String(
 		http.StatusConflict,
