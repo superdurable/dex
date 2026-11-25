@@ -27,6 +27,8 @@ The order starts each shipment as its own top-level Flow. The shipment number is
 5. `ReportShipmentOutcome` calls the order's report RPC with its own run ID. The RPC is `RecordShipmentOutcome` in Go, `record_shipment_outcome` in Python, and `recordShipmentOutcome` in Java, TypeScript, and Rust. It fills the outcome in the shipment's record.
 6. `AwaitShipment` reads the claimed run at each interval. A running shipment is read again later. For a closed shipment, it records the terminal status, and the stored outcome when no report filled it.
 
+A shipment that fails or times out on its own never reports, because its report Step never runs. The interval read in step 6 covers it. A child can also route its terminal failure to a recovery Step, or its timeout to a timeout handler, that reports to the parent. Keep each shipment's Flow timeout longer than its retry budget.
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',
