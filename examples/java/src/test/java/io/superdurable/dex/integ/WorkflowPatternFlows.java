@@ -22,6 +22,7 @@ import io.superdurable.dex.patterns.cancelcase.CreditCheckFlow;
 import io.superdurable.dex.patterns.cancelcase.LoanApplicationFlow;
 import io.superdurable.dex.patterns.criticalsection.ContractEditFlow;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BackgroundCheckFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ArbitraryCyclesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BlockingPartialJoinFlow;
@@ -111,6 +112,7 @@ final class WorkflowPatternFlows {
                 new TransientTriggerFlow(),
                 new PersistentTriggerFlow(),
                 new OfferResponseFlow(),
+                new SupportTicketFlow(),
                 new ContractEditFlow(),
                 new LoanApplicationFlow(clientProvider),
                 new CreditCheckFlow())) {
