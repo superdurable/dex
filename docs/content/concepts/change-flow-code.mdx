@@ -131,7 +131,7 @@ To test a new Worker build against open Flows, run these checks:
    `dexcli flow-definition diff` reads the definitions that `dexcli visualize`
    generates from source. It reports the compatibility changes it can check
    statically, such as a removed or renamed Step type, RPC, Attribute, or
-   Channel, or a changed wait condition. It marks each change breaking, risky, or compatible.
+   Channel. It does not compare wait conditions. It marks each change breaking, risky, or compatible.
    It exits with an error on a breaking change, so a CI job can run it. See
    [Compare Flow definitions](/reference/cli#flow-definition-diff) for what it
    compares.

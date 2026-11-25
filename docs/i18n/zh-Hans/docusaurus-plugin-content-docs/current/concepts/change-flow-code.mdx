@@ -73,7 +73,7 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
    dexcli flow search --query 'FlowType = "OrderFlow" AND ActiveStepTypes = "Ship"'
    ~~~
 
-2. **把新的 Flow 定义和已部署的定义做比较。** `dexcli flow-definition diff` 读取 `dexcli visualize` 从源码生成的定义。它报告能静态检查的兼容性变化，例如被删除或改名的 Step 类型、RPC、Attribute 或 Channel，或者变化的等待条件。它把每个变化标为 breaking、risky 或 compatible。遇到 breaking 变化时它以错误退出，所以可以放进 CI 任务。它比较哪些内容，见[比较 Flow 定义](/reference/cli#flow-definition-diff)。
+2. **把新的 Flow 定义和已部署的定义做比较。** `dexcli flow-definition diff` 读取 `dexcli visualize` 从源码生成的定义。它报告能静态检查的兼容性变化，例如被删除或改名的 Step 类型、RPC、Attribute 或 Channel。它不比较等待条件。它把每个变化标为 breaking、risky 或 compatible。遇到 breaking 变化时它以错误退出，所以可以放进 CI 任务。它比较哪些内容，见[比较 Flow 定义](/reference/cli#flow-definition-diff)。
 
    ~~~bash
    dexcli flow-definition diff build/flow-definitions --server dex.example.com:8801

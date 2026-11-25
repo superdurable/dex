@@ -10,11 +10,12 @@
 package flowdefinitiondiff
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/superdurable/dex/cli/internal/flowviz"
 )
@@ -60,16 +61,37 @@ type Change struct {
 	Message  string   `json:"message"`
 }
 
-// ParseGraph decodes FDG 2.0 JSON content and rejects a graph that cannot support a comparison.
-// It returns an error for malformed JSON, a schemaVersion other than 2.x, an empty flow.name,
-// or a graph whose valid field is false because the analyzer reported blocking diagnostics.
+var schemaVersionPattern = regexp.MustCompile(`^2\.[0-9]+$`)
+
+// requiredGraphFields lists the top-level fields every published FDG 2.x document has and the diff reads.
+var requiredGraphFields = map[string]byte{
+	"schemaVersion": '"', "valid": 0, "source": '{', "flow": '{', "nodes": '[', "edges": '[', "diagnostics": '[',
+}
+
+// ParseGraph decodes FDG 2.x JSON content and rejects a graph that cannot support a comparison.
+// It returns an error for malformed JSON; a missing, null, or wrongly typed schemaVersion, valid,
+// source, flow, nodes, edges, or diagnostics; a schemaVersion that is not 2.<number>; an empty
+// flow.name; or a graph whose valid field is false because the analyzer reported blocking diagnostics.
 func ParseGraph(content []byte) (*flowviz.Graph, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &fields); err != nil {
+		return nil, fmt.Errorf("decode Flow Definition Graph: %w", err)
+	}
+	for _, name := range sortedKeys(requiredGraphFields) {
+		value := bytes.TrimSpace(fields[name])
+		if len(value) == 0 || bytes.Equal(value, []byte("null")) {
+			return nil, fmt.Errorf("the required field %s is missing or null", name)
+		}
+		if opening := requiredGraphFields[name]; opening != 0 && value[0] != opening {
+			return nil, fmt.Errorf("the required field %s has the wrong JSON type", name)
+		}
+	}
 	var graph flowviz.Graph
 	if err := json.Unmarshal(content, &graph); err != nil {
 		return nil, fmt.Errorf("decode Flow Definition Graph: %w", err)
 	}
-	if !strings.HasPrefix(graph.SchemaVersion, "2.") {
-		return nil, fmt.Errorf("schemaVersion %q is not 2.x", graph.SchemaVersion)
+	if !schemaVersionPattern.MatchString(graph.SchemaVersion) {
+		return nil, fmt.Errorf("schemaVersion %q is not 2.<number>", graph.SchemaVersion)
 	}
 	if graph.Flow.Name == "" {
 		return nil, fmt.Errorf("flow.name is empty")
@@ -135,7 +157,7 @@ func CompareGraphs(flowType string, oldGraph *flowviz.Graph, newGraph *flowviz.G
 			fmt.Sprintf("source language changed from %s to %s; Attribute, Channel, and Stream value types are not compared",
 				oldGraph.Source.Language, newGraph.Source.Language))
 	}
-	comparison.compareStepTypes(stepShapesByRegisteredName(oldGraph), stepShapesByRegisteredName(newGraph))
+	comparison.compareStepTypes(stepPhasesByRegisteredName(oldGraph), stepPhasesByRegisteredName(newGraph))
 	comparison.compareStartStep(startStepType(oldGraph), startStepType(newGraph))
 	comparison.compareRPCs(oldGraph, newGraph)
 	comparison.compareResources(resourcesByKey(oldGraph), resourcesByKey(newGraph), isSameLanguage)
@@ -165,97 +187,31 @@ func (comparison *graphComparison) add(severity Severity, code string, element s
 	})
 }
 
-// stepTypeShape holds what an FDG records about one Step type.
-type stepTypeShape struct {
-	phase string
-	// waits lists one canonical text per WaitFor branch, sorted.
-	waits []string
-}
-
-func stepShapesByRegisteredName(graph *flowviz.Graph) map[string]*stepTypeShape {
-	nodesByID := make(map[string]flowviz.Node, len(graph.Nodes))
-	for _, node := range graph.Nodes {
-		nodesByID[node.ID] = node
-	}
-	steps := make(map[string]*stepTypeShape)
+// stepPhasesByRegisteredName maps each Step type to its phases, such as "execute" or "wait_for+execute".
+// Wait conditions are not compared: their recorded arguments are source text in five languages.
+func stepPhasesByRegisteredName(graph *flowviz.Graph) map[string]string {
+	steps := make(map[string]string)
 	for _, node := range graph.Nodes {
 		if node.Kind == "step" {
 			if _, exists := steps[node.Name]; !exists {
-				steps[node.Name] = &stepTypeShape{phase: node.Phase}
+				steps[node.Name] = node.Phase
 			}
 		}
-	}
-	for _, node := range graph.Nodes {
-		if node.Kind != "wait" || node.Wait == nil {
-			continue
-		}
-		step, isFound := owningStep(node, nodesByID)
-		if !isFound {
-			continue
-		}
-		shape := steps[step.Name]
-		shape.waits = append(shape.waits, describeWaitConditions(*node.Wait, nodesByID))
-	}
-	for _, shape := range steps {
-		sort.Strings(shape.waits)
 	}
 	return steps
 }
 
-// owningStep walks parentId links up to the Step node; the depth bound guards against parent cycles.
-func owningStep(node flowviz.Node, nodesByID map[string]flowviz.Node) (flowviz.Node, bool) {
-	current := node
-	for depth := 0; depth < len(nodesByID); depth++ {
-		parent, isFound := nodesByID[current.ParentID]
-		if !isFound {
-			return flowviz.Node{}, false
-		}
-		if parent.Kind == "step" {
-			return parent, true
-		}
-		current = parent
-	}
-	return flowviz.Node{}, false
-}
-
-// describeWaitConditions ignores timer expressions and source positions.
-func describeWaitConditions(wait flowviz.WaitDetails, nodesByID map[string]flowviz.Node) string {
-	conditions := make([]string, 0, len(wait.Conditions))
-	for _, condition := range wait.Conditions {
-		switch {
-		case condition.Kind == "channel" && condition.ResourceID != "":
-			conditions = append(conditions, describeChannelWait(condition, nodesByID[condition.ResourceID]))
-		case condition.ResourceID != "":
-			resource := nodesByID[condition.ResourceID]
-			conditions = append(conditions, fmt.Sprintf("%s %s", condition.Kind, resource.Name))
-		case condition.Kind == "subflow":
-			conditions = append(conditions, fmt.Sprintf("subflow %s", condition.Label))
-		default:
-			conditions = append(conditions, condition.Kind)
-		}
-	}
-	sort.Strings(conditions)
-	return fmt.Sprintf("%s(%s)", wait.Type, strings.Join(conditions, ", "))
-}
-
-func (comparison *graphComparison) compareStepTypes(oldSteps map[string]*stepTypeShape, newSteps map[string]*stepTypeShape) {
+func (comparison *graphComparison) compareStepTypes(oldSteps map[string]string, newSteps map[string]string) {
 	for _, name := range sortedKeys(oldSteps) {
-		oldStep := oldSteps[name]
-		newStep, exists := newSteps[name]
+		newPhase, exists := newSteps[name]
 		if !exists {
 			comparison.add(SeverityBreaking, "step_type_removed", ElementStepType, name,
 				"Step type removed or renamed; open Flows at this Step can no longer run it")
 			continue
 		}
-		if oldStep.phase != newStep.phase {
+		if oldPhase := oldSteps[name]; oldPhase != newPhase {
 			comparison.add(SeverityRisky, "step_phase_changed", ElementStepType, name,
-				fmt.Sprintf("phases changed from %s to %s", oldStep.phase, newStep.phase))
-			continue
-		}
-		if strings.Join(oldStep.waits, "; ") != strings.Join(newStep.waits, "; ") {
-			comparison.add(SeverityRisky, "step_wait_conditions_changed", ElementStepType, name,
-				fmt.Sprintf("wait conditions changed from [%s] to [%s]; a Step that already waits keeps the old ones",
-					strings.Join(oldStep.waits, "; "), strings.Join(newStep.waits, "; ")))
+				fmt.Sprintf("phases changed from %s to %s", oldPhase, newPhase))
 		}
 	}
 	for _, name := range sortedKeys(newSteps) {
@@ -552,10 +508,6 @@ func (comparison *graphComparison) compareActions(oldActions []flowviz.Action, n
 			comparison.add(SeverityRisky, "action_permission_changed", ElementAction, oldAction.RPCName,
 				fmt.Sprintf("required permission changed from %s to %s", oldAction.RequiredPermission, newAction.RequiredPermission))
 		}
-		if oldCondition, newCondition := describeActionCondition(oldAction.Condition), describeActionCondition(newAction.Condition); oldCondition != newCondition {
-			comparison.add(SeverityRisky, "action_condition_changed", ElementAction, oldAction.RPCName,
-				fmt.Sprintf("Dex Web offers it when %s instead of when %s", newCondition, oldCondition))
-		}
 		if oldAction.Input.Kind != newAction.Input.Kind {
 			comparison.add(SeverityBreaking, "action_input_kind_changed", ElementAction, oldAction.RPCName,
 				fmt.Sprintf("RPC input kind changed from %s to %s", oldAction.Input.Kind, newAction.Input.Kind))
@@ -610,22 +562,6 @@ func (comparison *graphComparison) compareActionFields(rpcName string, oldFields
 			comparison.add(SeverityCompatible, "action_input_field_added", ElementAction, name, "new optional RPC input field")
 		}
 	}
-}
-
-func describeActionCondition(condition *flowviz.ActionCondition) string {
-	if condition == nil {
-		return "the run is active"
-	}
-	// Dex Web tests membership, so order and duplicates do not matter; JSON keeps "1" apart from 1.
-	values := make(map[string]bool, len(condition.Values))
-	for _, value := range condition.Values {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			encoded = []byte(fmt.Sprintf("%q", fmt.Sprint(value)))
-		}
-		values[string(encoded)] = true
-	}
-	return fmt.Sprintf("%s %s [%s]", condition.AttributeKey, condition.Operator, strings.Join(sortedStrings(values), ", "))
 }
 
 func describeFieldSource(field flowviz.ActionInputField) string {

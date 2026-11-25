@@ -154,9 +154,9 @@ func flowDefinitionDiffOutputFormat(flags *flag.FlagSet, options options, isJSON
 // It returns a usage error for a missing path, and an operation error naming the side and file
 // for an unreadable or unusable graph, or for two files with the same Flow type.
 func readFlowDefinitionGraphs(side string, paths []string) (map[string]*flowviz.Graph, error) {
-	files, err := collectFlowDefinitionGraphFiles(paths)
+	files, err := collectFlowDefinitionGraphFiles(side, paths)
 	if err != nil {
-		return nil, newUsageError("flow-definition diff", err)
+		return nil, err
 	}
 	graphs := make(map[string]*flowviz.Graph, len(files))
 	fileByFlowType := make(map[string]string, len(files))
@@ -181,16 +181,19 @@ func readFlowDefinitionGraphs(side string, paths []string) (map[string]*flowviz.
 }
 
 // collectFlowDefinitionGraphFiles returns each distinct file once, sorted; directories contribute .json files in any letter case.
-func collectFlowDefinitionGraphFiles(paths []string) ([]string, error) {
+// A named path, or a symbolic link to a file inside a directory, is followed. It returns a usage
+// error for a missing named path. It returns an operation error naming the side and path for a
+// symbolic link inside a directory that is broken or points to a directory, which is not followed.
+func collectFlowDefinitionGraphFiles(side string, paths []string) ([]string, error) {
 	seen := make(map[string]bool)
 	var files []string
 	addFile := func(path string) error {
-		absolutePath, err := filepath.Abs(path)
+		resolvedPath, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			return err
 		}
-		if !seen[absolutePath] {
-			seen[absolutePath] = true
+		if !seen[resolvedPath] {
+			seen[resolvedPath] = true
 			files = append(files, path)
 		}
 		return nil
@@ -198,17 +201,24 @@ func collectFlowDefinitionGraphFiles(paths []string) ([]string, error) {
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return nil, newUsageError("flow-definition diff", err)
 		}
 		if !info.IsDir() {
 			if err := addFile(path); err != nil {
-				return nil, err
+				return nil, newUsageError("flow-definition diff", err)
 			}
 			continue
 		}
-		err = filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+		root, err := resolveSymbolicLinkRoot(path)
+		if err != nil {
+			return nil, newUsageError("flow-definition diff", err)
+		}
+		err = filepath.WalkDir(root, func(current string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			if entry.Type()&fs.ModeSymlink != 0 {
+				return addSymbolicLinkTarget(side, current, addFile)
 			}
 			if entry.Type().IsRegular() && strings.EqualFold(filepath.Ext(current), ".json") {
 				return addFile(current)
@@ -216,11 +226,37 @@ func collectFlowDefinitionGraphFiles(paths []string) ([]string, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, newOperationError("flow-definition diff", err)
 		}
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// resolveSymbolicLinkRoot resolves a named directory that is itself a link, because WalkDir does not descend into one.
+func resolveSymbolicLinkRoot(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return path, err
+	}
+	return filepath.EvalSymlinks(path)
+}
+
+// addSymbolicLinkTarget adds a link to a regular .json file and rejects links it cannot follow safely.
+func addSymbolicLinkTarget(side string, linkPath string, addFile func(string) error) error {
+	target, err := os.Stat(linkPath)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s definition file %s: broken symbolic link: %w", side, linkPath, err)
+	case target.IsDir():
+		return fmt.Errorf("%s definition path %s: symbolic link to a directory is not followed; pass the directory itself", side, linkPath)
+	case !strings.EqualFold(filepath.Ext(linkPath), ".json"):
+		return nil
+	case !target.Mode().IsRegular():
+		return fmt.Errorf("%s definition file %s: symbolic link to a file that is not a regular file", side, linkPath)
+	default:
+		return addFile(linkPath)
+	}
 }
 
 // describeReadableFlowType names the Flow type of a rejected file when its flow.name can still be read.
