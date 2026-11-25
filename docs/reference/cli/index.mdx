@@ -370,33 +370,47 @@ dexcli flow-definition diff build/flow-definitions --old release/flow-definition
 ```
 
 Both sides are read with the same rules as **flow-definition upload**. Without
-**--old**, the command fetches the stored definition of each new Flow type.
+**--old**, the command fetches the stored definition of each new Flow type. It
+compares only the Flow types you pass, so it cannot report a Flow type you
+removed. To see removed Flow types, compare two sets of files, such as the
+definitions of two releases. In that mode, an empty new directory reports every
+old Flow type as removed.
 
 | Flag | Default and meaning |
 | --- | --- |
 | **--old** | Empty; an old FDG file or directory. Repeatable. Without it, the old definitions come from **--server**. |
-| **--json** | **false**; writes the report as JSON instead of a table. |
-| **--allow-breaking** | **false**; exits 0 even when breaking changes are found. |
+| **--json** | **false**; writes the report as JSON. The same as **--output json**. |
+| **--output** | **table** for this command; **json** or **table**. An explicit value applies, whether it comes before or after the subcommand. **--json** with **--output table** is a usage error. |
+| **--allow-breaking** | **false**; exits 0 even when breaking changes are found. The report still lists them. |
+
+The command checks every graph it reads before it compares. It stops with
+status 1 and names the side and the Flow type when a graph is malformed or has
+**valid** set to **false**. Such a graph comes from source with blocking
+diagnostics and may lack parts of the Flow. It also stops with status 1 when
+**--old** paths hold no Flow definition, or when the server has no stored
+definition for any of the Flow types you pass. When the server lacks only some
+of them, each one is reported as **baseline_missing**, a risky change.
 
 Each Flow type is matched by name, and each element in it by its registered
 name, so source positions and analyzer node IDs do not matter.
 
 | Severity | Changes |
 | --- | --- |
-| **breaking** | A Flow type, Step type, RPC, Attribute, AttributeMap, Channel, or Stream is removed or renamed. An Attribute, Channel, or Stream value type changes, or an Attribute becomes an AttributeMap. The start Step changes. A start input field is removed or its kind changes. An Action input field is removed or its value type changes, or the Action input kind changes. |
-| **risky** | A Step gains or loses its **WaitFor** phase, or its wait conditions change. The start input or an Action input gains a required field, a field becomes required, a value range narrows, an enum value is removed, or **null** is no longer accepted. An Action is removed or its required permission changes. An indexed Attribute is removed or its index changes. The Summary or Display RPC changes. The new definition has blocking diagnostics, or the source language changed. |
-| **compatible** | A Flow type, Step type, RPC, Attribute, AttributeMap, Channel, Stream, Action, optional input field, enum value, or indexed Attribute is added. |
+| **breaking** | A Flow type (file mode only), Step type, RPC, Attribute, AttributeMap, Channel, ChannelMap, or Stream is removed or renamed. An Attribute becomes an AttributeMap, a Channel becomes a ChannelMap, or the reverse. A start input field changes its kind, including the items of an array or the values of a map. An Action input field changes its value type, or the Action input kind changes. |
+| **risky** | The start Step changes. A value type is spelled differently. A Step gains or loses its **WaitFor** phase, or its wait conditions change: a Channel or ChannelMap, its instance, its wait method or count, a Timer, or a SubFlow. The start input gains a required field, a field becomes required or is removed, a value range narrows, an enum value is removed, an enum restriction is added, **null** is no longer accepted, or the format or fixed array length changes. An Action is removed, or its required permission or condition changes. An Action input field becomes required, is added as required, is removed, or is filled from a different source. An indexed Attribute is removed or its index changes. The Summary or Display RPC changes or is removed. The server has no stored definition of a Flow type. The source language changed. |
+| **compatible** | A Flow type (file mode only), Step type, RPC, Attribute, AttributeMap, Channel, ChannelMap, Stream, Action, optional input field, enum value, or indexed Attribute is added. |
 
-A rename is reported as a removal and an addition. Value types are the type
-names written in the source, so moving a type to another package also counts
-as a change. When the source language differs, value types are not compared.
+A rename is reported as a removal and an addition. A value type is the type
+name as written in the source, so an import alias or an equivalent spelling also
+differs. That is why a value type change is risky and not breaking. When the
+source language differs, value types are not compared. Timer durations are not
+compared.
 
 The definitions record only part of each contract. They do not record the
-input of Step types other than the start Step, the input or output of RPCs
-outside Dex Web Actions, or which Step follows which. Review those by hand.
-With the server as the old side, the command compares only the Flow types you
-pass, so it cannot report a Flow type you removed; compare with files to see
-removed Flow types.
+input of Step types other than the start Step, or the input or output of RPCs
+outside Dex Web Actions. The graph also holds transitions between Steps,
+cancellations, and Connector trigger bindings; the command does not compare
+them. Review those by hand.
 
 The JSON report has **comparedFlowTypes**, a **summary** with the count of each
 severity, and **changes**. Each change has **flowType**, **severity**, **code**,
@@ -614,7 +628,8 @@ for details.
 ## Output and errors
 
 JSON is the default output, and its format is stable. **--output table** is
-for people to read; scripts must not depend on its format. A bounded command
+for people to read; scripts must not depend on its format. **flow-definition
+diff** defaults to a table; pass **--json** or **--output json** for JSON. A bounded command
 has a 30-second client deadline by default; use **--timeout 0** to turn it off.
 The deadline does not apply to **flow watch**.
 
@@ -622,4 +637,4 @@ Errors are JSON on stderr. They include **kind**, **operation**, **message**, an
 when they apply, **grpcCode**, **grpcCodeName**, and structured status details.
 Exit status 2 means invalid usage or a missing confirmation. Status 1 means the
 request failed. Status 3 means **flow-definition diff** found a breaking
-change. Since 1.48.1.
+change; with **--allow-breaking** it exits 0 instead. Since 1.48.1.

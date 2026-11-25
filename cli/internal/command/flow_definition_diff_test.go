@@ -12,9 +12,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,6 +24,8 @@ import (
 	"github.com/superdurable/dex/cli/internal/flowviz"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // The fixtures are copies of docs/src/data/flow-definitions, generated from runnable examples.
@@ -50,14 +54,18 @@ func writeFlowDefinitionFiles(t *testing.T, graphs ...*flowviz.Graph) string {
 	return directory
 }
 
+func executeFlowDefinitionDiff(args ...string) (string, string, error) {
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	err := NewApp(bytes.NewReader(nil), stdout, stderr).Execute(context.Background(), args)
+	return stdout.String(), stderr.String(), err
+}
+
 // runFlowDefinitionDiff runs the command with --json and returns the decoded report and the command error.
 func runFlowDefinitionDiff(t *testing.T, args ...string) (flowDefinitionDiffReport, error) {
 	t.Helper()
-	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	app := NewApp(bytes.NewReader(nil), stdout, stderr)
-	err := app.Execute(context.Background(), append([]string{"flow-definition", "diff", "--json"}, args...))
+	stdout, stderr, err := executeFlowDefinitionDiff(append([]string{"flow-definition", "diff", "--json"}, args...)...)
 	var report flowDefinitionDiffReport
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &report), "stdout: %s stderr: %s", stdout.String(), stderr.String())
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report), "stdout: %s stderr: %s err: %v", stdout, stderr, err)
 	return report, err
 }
 
@@ -110,6 +118,16 @@ func findAction(t *testing.T, graph *flowviz.Graph, rpcName string) *flowviz.Act
 	return nil
 }
 
+func removeAction(graph *flowviz.Graph, rpcName string) {
+	actions := graph.V2.Actions[:0]
+	for _, action := range graph.V2.Actions {
+		if action.RPCName != rpcName {
+			actions = append(actions, action)
+		}
+	}
+	graph.V2.Actions = actions
+}
+
 func findStartField(t *testing.T, graph *flowviz.Graph, name string) *flowviz.StartInputField {
 	t.Helper()
 	for index := range graph.V2.Start.Input.Fields {
@@ -118,6 +136,27 @@ func findStartField(t *testing.T, graph *flowviz.Graph, name string) *flowviz.St
 		}
 	}
 	require.Failf(t, "start input field not found", name)
+	return nil
+}
+
+func removeStartField(graph *flowviz.Graph, name string) {
+	fields := graph.V2.Start.Input.Fields[:0]
+	for _, field := range graph.V2.Start.Input.Fields {
+		if field.Name != name {
+			fields = append(fields, field)
+		}
+	}
+	graph.V2.Start.Input.Fields = fields
+}
+
+func findManagerDecisionWait(t *testing.T, graph *flowviz.Graph) *flowviz.WaitDetails {
+	t.Helper()
+	for index := range graph.Nodes {
+		if graph.Nodes[index].Kind == "wait" && graph.Nodes[index].ParentID == "step:RequestManagerApproval" {
+			return graph.Nodes[index].Wait
+		}
+	}
+	require.Fail(t, "RequestManagerApproval wait not found")
 	return nil
 }
 
@@ -159,6 +198,20 @@ func renameNodeID(graph *flowviz.Graph, oldID string, newID string) {
 	}
 }
 
+// addStartInputShapes gives the start input nested, enum, nullable, and fixed-length fields to mutate.
+func addStartInputShapes(graph *flowviz.Graph) {
+	length := int64(2)
+	graph.V2.Start.Input.Fields = append(graph.V2.Start.Input.Fields,
+		flowviz.StartInputField{Name: "items", Schema: flowviz.StartInputSchema{Kind: "array", Items: &flowviz.StartInputSchema{Kind: "string"}}},
+		flowviz.StartInputField{Name: "labels", Schema: flowviz.StartInputSchema{Kind: "map", Values: &flowviz.StartInputSchema{Kind: "string"}}},
+		flowviz.StartInputField{Name: "pair", Schema: flowviz.StartInputSchema{Kind: "array", FixedLength: &length, Items: &flowviz.StartInputSchema{Kind: "string"}}},
+		flowviz.StartInputField{Name: "tier", Schema: flowviz.StartInputSchema{Kind: "string", EnumValues: []flowviz.StartInputEnumValue{
+			{Name: "gold", Value: "gold"}, {Name: "silver", Value: "silver"},
+		}}},
+		flowviz.StartInputField{Name: "note", Schema: flowviz.StartInputSchema{Kind: "string", Nullable: true}},
+	)
+}
+
 func TestFlowDefinitionDiffIgnoresSourcePositionsAndNodeIDs(t *testing.T) {
 	for _, fixture := range []string{managerApprovalFixture, subscriptionFixture} {
 		t.Run(filepath.Base(fixture), func(t *testing.T) {
@@ -188,101 +241,223 @@ func TestFlowDefinitionDiffIgnoresSourcePositionsAndNodeIDs(t *testing.T) {
 	}
 }
 
-func TestFlowDefinitionDiffReportsBreakingChangesAndExitsWithStatus3(t *testing.T) {
-	oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	removeNode(t, newGraph, "step", "IssueRefund")
-	removeNode(t, newGraph, "rpc", "RejectRefund")
-	findNode(t, newGraph, "attribute", "refund-id").Resource.ValueType = "int64"
-	findNode(t, newGraph, "attribute", "customer-message").Resource.Map = true
-	removeNode(t, newGraph, "attribute", "customer-email")
-	newGraph.V2.Start.StepType = "CheckOrder"
-	findStartField(t, newGraph, "orderId").Schema = flowviz.StartInputSchema{Kind: "integer", Minimum: "0", Maximum: "10"}
-	fields := newGraph.V2.Start.Input.Fields[:0]
-	for _, field := range newGraph.V2.Start.Input.Fields {
-		if field.Name != "reason" {
-			fields = append(fields, field)
-		}
-	}
-	newGraph.V2.Start.Input.Fields = fields
-	findAction(t, newGraph, "ApproveRefund").Input.Fields[0].ValueType = "int64"
-	findAction(t, newGraph, "RejectRefund").Input = flowviz.ActionInput{Kind: "none"}
-
-	report, err := diffGraphs(t, oldGraph, newGraph)
-
-	require.Error(t, err)
-	require.Equal(t, 3, ExitCode(err))
-	require.Contains(t, err.Error(), "breaking changes")
-	codes := changeCodes(report)
-	for _, expected := range []string{
-		"step_type_removed IssueRefund",
-		"rpc_removed RejectRefund",
-		"resource_type_changed refund-id",
-		"resource_kind_changed customer-message",
-		"resource_removed customer-email",
-		"start_step_changed CheckOrder",
-		"start_input_kind_changed orderId",
-		"start_input_field_removed reason",
-		"action_input_field_type_changed ApproveRefund.reason",
-		"action_input_kind_changed RejectRefund",
-	} {
-		require.Equal(t, flowdefinitiondiff.SeverityBreaking, codes[expected], "%s in %v", expected, codes)
-	}
-	require.Equal(t, report.Summary.Breaking, len(report.Changes))
-	require.Equal(t, flowdefinitiondiff.SeverityBreaking, report.Changes[0].Severity)
-
-	_, err = diffGraphs(t, oldGraph, newGraph, "--allow-breaking")
-	require.NoError(t, err)
+type flowDefinitionDiffCase struct {
+	name string
+	// prepare edits both graphs first, so a change can start from a shape the fixture lacks.
+	prepare      func(t *testing.T, graph *flowviz.Graph)
+	mutate       func(t *testing.T, graph *flowviz.Graph)
+	expectedCode string
+	expectedName string
+	severity     flowdefinitiondiff.Severity
 }
 
-func TestFlowDefinitionDiffReportsRiskyChangesWithoutFailing(t *testing.T) {
-	oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	oldGraph.V2.IndexedAttributes = []flowviz.IndexedAttribute{
-		{AttributeKey: "case-status", IndexKey: "CaseStatus", IndexType: "keyword", ValueType: "string"},
-		{AttributeKey: "refund-id", IndexKey: "RefundID", IndexType: "keyword", ValueType: "string"},
+func runFlowDefinitionDiffCases(t *testing.T, fixture string, cases []flowDefinitionDiffCase) {
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			oldGraph := loadFlowDefinitionFixture(t, fixture)
+			newGraph := loadFlowDefinitionFixture(t, fixture)
+			if testCase.prepare != nil {
+				testCase.prepare(t, oldGraph)
+				testCase.prepare(t, newGraph)
+			}
+			testCase.mutate(t, newGraph)
+
+			report, err := diffGraphs(t, oldGraph, newGraph)
+
+			codes := changeCodes(report)
+			require.Equal(t, testCase.severity, codes[testCase.expectedCode+" "+testCase.expectedName], "changes: %v", codes)
+			if report.Summary.Breaking > 0 {
+				require.Equal(t, 3, ExitCode(err))
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
-	newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	newGraph.V2.IndexedAttributes = []flowviz.IndexedAttribute{
-		{AttributeKey: "case-status", IndexKey: "CaseStatus", IndexType: "fulltext", ValueType: "string"},
+}
+
+func TestFlowDefinitionDiffClassifiesBreakingChanges(t *testing.T) {
+	addStream := func(_ *testing.T, graph *flowviz.Graph) {
+		graph.Nodes = append(graph.Nodes, flowviz.Node{
+			ID: "resource:stream:progress", Kind: "stream", Name: "refund-progress", Resource: &flowviz.ResourceDetails{ValueType: "string"},
+		})
 	}
-	findNode(t, newGraph, "step", "CheckOrder").Phase = "wait_for+execute"
-	for index := range newGraph.Nodes {
-		if newGraph.Nodes[index].Kind == "wait" {
-			wait := newGraph.Nodes[index].Wait
-			wait.Type = "anyOf"
-			wait.Conditions = append(wait.Conditions, flowviz.WaitCondition{Kind: "timer", Label: "48h timer", Expression: "48 * time.Hour"})
+	runFlowDefinitionDiffCases(t, managerApprovalFixture, []flowDefinitionDiffCase{
+		{name: "Step type removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "step", "IssueRefund") },
+			expectedCode: "step_type_removed", expectedName: "IssueRefund", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "RPC removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "rpc", "RejectRefund") },
+			expectedCode: "rpc_removed", expectedName: "RejectRefund", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Attribute removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "attribute", "customer-email") },
+			expectedCode: "resource_removed", expectedName: "customer-email", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Channel removed", mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "channel", "manager-decisions") },
+			expectedCode: "resource_removed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Stream removed", prepare: addStream, mutate: func(t *testing.T, graph *flowviz.Graph) { removeNode(t, graph, "stream", "refund-progress") },
+			expectedCode: "resource_removed", expectedName: "refund-progress", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Attribute becomes AttributeMap", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "attribute", "customer-message").Resource.Map = true
+		}, expectedCode: "resource_kind_changed", expectedName: "customer-message", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Channel becomes ChannelMap", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.Map = true
+		}, expectedCode: "resource_kind_changed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "ChannelMap becomes Channel", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.Map = true
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.Map = false
+		}, expectedCode: "resource_kind_changed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "start input kind changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findStartField(t, graph, "orderId").Schema = flowviz.StartInputSchema{Kind: "integer", Minimum: "0", Maximum: "10"}
+		}, expectedCode: "start_input_kind_changed", expectedName: "orderId", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "nested array item kind changed", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate: func(t *testing.T, graph *flowviz.Graph) {
+				findStartField(t, graph, "items").Schema.Items = &flowviz.StartInputSchema{Kind: "boolean"}
+			}, expectedCode: "start_input_kind_changed", expectedName: "items[]", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "nested map value kind changed", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate: func(t *testing.T, graph *flowviz.Graph) {
+				findStartField(t, graph, "labels").Schema.Values = &flowviz.StartInputSchema{Kind: "number"}
+			}, expectedCode: "start_input_kind_changed", expectedName: "labels{}", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Action input field type changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Input.Fields[0].ValueType = "int64"
+		}, expectedCode: "action_input_field_type_changed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityBreaking},
+		{name: "Action input kind changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "RejectRefund").Input = flowviz.ActionInput{Kind: "none"}
+		}, expectedCode: "action_input_kind_changed", expectedName: "RejectRefund", severity: flowdefinitiondiff.SeverityBreaking},
+	})
+}
+
+func TestFlowDefinitionDiffClassifiesRiskyChanges(t *testing.T) {
+	withIndexes := func(_ *testing.T, graph *flowviz.Graph) {
+		graph.V2.IndexedAttributes = []flowviz.IndexedAttribute{
+			{AttributeKey: "case-status", IndexKey: "CaseStatus", IndexType: "keyword", ValueType: "string"},
+			{AttributeKey: "refund-id", IndexKey: "RefundID", IndexType: "keyword", ValueType: "string"},
 		}
 	}
-	newGraph.V2.Start.Input.Fields = append(newGraph.V2.Start.Input.Fields,
-		flowviz.StartInputField{Name: "region", Required: true, Schema: flowviz.StartInputSchema{Kind: "string"}})
-	findStartField(t, newGraph, "paymentTimeoutsToSimulate").Required = true
-	findStartField(t, newGraph, "paymentTimeoutsToSimulate").Schema.Minimum = "0"
-	approve := findAction(t, newGraph, "ApproveRefund")
-	approve.RequiredPermission = "refund.approve"
-	approve.Input.Fields = append(approve.Input.Fields,
-		flowviz.ActionInputField{FieldName: "ticket", ValueType: "string", Source: "user", Required: true})
-	newGraph.V2.Summary.RPCName = "GetRefundSummary"
+	runFlowDefinitionDiffCases(t, managerApprovalFixture, []flowDefinitionDiffCase{
+		{name: "value type import alias changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "channel", "manager-decisions").Resource.ValueType = "refundtypes.ManagerDecision"
+		}, expectedCode: "resource_type_changed", expectedName: "manager-decisions", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "value type equivalent spelling", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "attribute", "refund-id").Resource.ValueType = "[]uint8"
+		}, prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "attribute", "refund-id").Resource.ValueType = "[]byte"
+		}, expectedCode: "resource_type_changed", expectedName: "refund-id", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start Step changed while both Step types stay", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.Start.StepType = "CheckOrder"
+		}, expectedCode: "start_step_changed", expectedName: "CheckOrder", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Step gains WaitFor", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findNode(t, graph, "step", "CheckOrder").Phase = "wait_for+execute"
+		}, expectedCode: "step_phase_changed", expectedName: "CheckOrder", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "wait adds a timer", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			wait := findManagerDecisionWait(t, graph)
+			wait.Type = "anyOf"
+			wait.Conditions = append(wait.Conditions, flowviz.WaitCondition{Kind: "timer", Label: "48h timer", Expression: "48 * time.Hour"})
+		}, expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Channel wait count changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findManagerDecisionWait(t, graph).Conditions[0].Label = "manager-decisions.for 2"
+		}, expectedCode: "step_wait_conditions_changed", expectedName: "RequestManagerApproval", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input required field added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.Start.Input.Fields = append(graph.V2.Start.Input.Fields,
+				flowviz.StartInputField{Name: "region", Required: true, Schema: flowviz.StartInputSchema{Kind: "string"}})
+		}, expectedCode: "start_input_required_field_added", expectedName: "region", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input field now required", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findStartField(t, graph, "paymentTimeoutsToSimulate").Required = true
+		}, expectedCode: "start_input_field_now_required", expectedName: "paymentTimeoutsToSimulate", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input field removed", mutate: func(_ *testing.T, graph *flowviz.Graph) { removeStartField(graph, "reason") },
+			expectedCode: "start_input_field_removed", expectedName: "reason", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input range narrowed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findStartField(t, graph, "paymentTimeoutsToSimulate").Schema.Minimum = "0"
+		}, expectedCode: "start_input_range_narrowed", expectedName: "paymentTimeoutsToSimulate", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input enum value removed", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate: func(t *testing.T, graph *flowviz.Graph) {
+				findStartField(t, graph, "tier").Schema.EnumValues = []flowviz.StartInputEnumValue{{Name: "gold", Value: "gold"}}
+			}, expectedCode: "start_input_enum_value_removed", expectedName: "tier", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input enum restriction added", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findStartField(t, graph, "customer").Schema.EnumValues = []flowviz.StartInputEnumValue{{Name: "vip", Value: "vip"}}
+		}, expectedCode: "start_input_enum_restricted", expectedName: "customer", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input null rejected", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate:       func(t *testing.T, graph *flowviz.Graph) { findStartField(t, graph, "note").Schema.Nullable = false },
+			expectedCode: "start_input_null_rejected", expectedName: "note", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input format changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findStartField(t, graph, "customer").Schema.Format = "date-time"
+		}, expectedCode: "start_input_format_changed", expectedName: "customer", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "start input fixed length changed", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate: func(t *testing.T, graph *flowviz.Graph) {
+				length := int64(3)
+				findStartField(t, graph, "pair").Schema.FixedLength = &length
+			}, expectedCode: "start_input_fixed_length_changed", expectedName: "pair", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action removed", mutate: func(_ *testing.T, graph *flowviz.Graph) { removeAction(graph, "RejectRefund") },
+			expectedCode: "action_removed", expectedName: "RejectRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action permission changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").RequiredPermission = "refund.approve"
+		}, expectedCode: "action_permission_changed", expectedName: "ApproveRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action condition changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Condition.Values = []any{"escalated"}
+		}, expectedCode: "action_condition_changed", expectedName: "ApproveRefund", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action input field removed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Input.Fields = []flowviz.ActionInputField{
+				{FieldName: "comment", ValueType: "string", Source: "user", Description: "Comment"},
+			}
+		}, expectedCode: "action_input_field_removed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action input field now required", prepare: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Input.Fields[0].Required = false
+		}, mutate: func(t *testing.T, graph *flowviz.Graph) {
+			findAction(t, graph, "ApproveRefund").Input.Fields[0].Required = true
+		}, expectedCode: "action_input_field_now_required", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action required input field added", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			approve := findAction(t, graph, "ApproveRefund")
+			approve.Input.Fields = append(approve.Input.Fields,
+				flowviz.ActionInputField{FieldName: "ticket", ValueType: "string", Source: "user", Required: true})
+		}, expectedCode: "action_input_required_field_added", expectedName: "ApproveRefund.ticket", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Action input field source changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			field := &findAction(t, graph, "ApproveRefund").Input.Fields[0]
+			field.Source, field.AttributeKey = "attribute", "customer-message"
+		}, expectedCode: "action_input_field_source_changed", expectedName: "ApproveRefund.reason", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "indexed Attribute changed", prepare: withIndexes, mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.IndexedAttributes[0].IndexType = "fulltext"
+		}, expectedCode: "indexed_attribute_changed", expectedName: "case-status", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "indexed Attribute removed", prepare: withIndexes, mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.IndexedAttributes = graph.V2.IndexedAttributes[:1]
+		}, expectedCode: "indexed_attribute_removed", expectedName: "refund-id", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Summary RPC changed", mutate: func(_ *testing.T, graph *flowviz.Graph) { graph.V2.Summary.RPCName = "GetRefundSummary" },
+			expectedCode: "summary_rpc_changed", expectedName: "GetRefundSummary", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "Display RPC cleared", mutate: func(_ *testing.T, graph *flowviz.Graph) { graph.V2.Display = flowviz.RPCView{} },
+			expectedCode: "display_rpc_changed", expectedName: "GetDexDisplay", severity: flowdefinitiondiff.SeverityRisky},
+		{name: "source language changed", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			graph.Source.Language = "python"
+			findNode(t, graph, "attribute", "refund-id").Resource.ValueType = "str"
+		}, expectedCode: "source_language_changed", expectedName: "ManagerApprovalRefundFlow", severity: flowdefinitiondiff.SeverityRisky},
+	})
+}
 
-	report, err := diffGraphs(t, oldGraph, newGraph)
-
-	require.NoError(t, err)
-	codes := changeCodes(report)
-	for _, expected := range []string{
-		"step_phase_changed CheckOrder",
-		"step_wait_conditions_changed RequestManagerApproval",
-		"start_input_required_field_added region",
-		"start_input_field_now_required paymentTimeoutsToSimulate",
-		"start_input_range_narrowed paymentTimeoutsToSimulate",
-		"action_permission_changed ApproveRefund",
-		"action_input_required_field_added ApproveRefund.ticket",
-		"indexed_attribute_changed case-status",
-		"indexed_attribute_removed refund-id",
-		"summary_rpc_changed GetRefundSummary",
-	} {
-		require.Equal(t, flowdefinitiondiff.SeverityRisky, codes[expected], "%s in %v", expected, codes)
-	}
-	require.Zero(t, report.Summary.Breaking)
-	require.Equal(t, report.Summary.Risky, len(report.Changes))
+func TestFlowDefinitionDiffClassifiesCompatibleAdditions(t *testing.T) {
+	runFlowDefinitionDiffCases(t, managerApprovalFixture, []flowDefinitionDiffCase{
+		{name: "Step type added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.Nodes = append(graph.Nodes, flowviz.Node{ID: "step:Escalate", Kind: "step", Name: "Escalate", Phase: "execute"})
+		}, expectedCode: "step_type_added", expectedName: "Escalate", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "RPC added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.Nodes = append(graph.Nodes, flowviz.Node{ID: "rpc:Escalate", Kind: "rpc", Name: "Escalate"})
+		}, expectedCode: "rpc_added", expectedName: "Escalate", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "ChannelMap added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.Nodes = append(graph.Nodes, flowviz.Node{ID: "resource:channel:Escalations", Kind: "channel", Name: "escalations",
+				Resource: &flowviz.ResourceDetails{ValueType: "string", Map: true}})
+		}, expectedCode: "resource_added", expectedName: "escalations", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "optional start input field added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.Start.Input.Fields = append(graph.V2.Start.Input.Fields,
+				flowviz.StartInputField{Name: "priority", Schema: flowviz.StartInputSchema{Kind: "string"}})
+		}, expectedCode: "start_input_field_added", expectedName: "priority", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "start input enum value added", prepare: func(_ *testing.T, graph *flowviz.Graph) { addStartInputShapes(graph) },
+			mutate: func(t *testing.T, graph *flowviz.Graph) {
+				schema := &findStartField(t, graph, "tier").Schema
+				schema.EnumValues = append(schema.EnumValues, flowviz.StartInputEnumValue{Name: "bronze", Value: "bronze"})
+			}, expectedCode: "start_input_enum_value_added", expectedName: "tier", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "Action added", mutate: func(_ *testing.T, graph *flowviz.Graph) {
+			graph.V2.Actions = append(graph.V2.Actions, flowviz.Action{
+				RPCName: "Escalate", Label: "Escalate", RequiredPermission: "refund.manage", Input: flowviz.ActionInput{Kind: "none"},
+			})
+		}, expectedCode: "action_added", expectedName: "Escalate", severity: flowdefinitiondiff.SeverityCompatible},
+		{name: "optional Action input field added", mutate: func(t *testing.T, graph *flowviz.Graph) {
+			approve := findAction(t, graph, "ApproveRefund")
+			approve.Input.Fields = append(approve.Input.Fields, flowviz.ActionInputField{FieldName: "note", ValueType: "string", Source: "user"})
+		}, expectedCode: "action_input_field_added", expectedName: "ApproveRefund.note", severity: flowdefinitiondiff.SeverityCompatible},
+	})
 }
 
 func TestFlowDefinitionDiffReportsPythonWaitConditionChange(t *testing.T) {
@@ -292,6 +467,7 @@ func TestFlowDefinitionDiffReportsPythonWaitConditionChange(t *testing.T) {
 		node := &newGraph.Nodes[index]
 		if node.Kind == "wait" && node.ParentID == "step:Cancel" {
 			node.Wait.Conditions[0].ResourceID = "resource:channel:SubscriptionFlow.update_charge_amount"
+			node.Wait.Conditions[0].Label = "update-charge-amount.for 1"
 		}
 	}
 
@@ -302,66 +478,60 @@ func TestFlowDefinitionDiffReportsPythonWaitConditionChange(t *testing.T) {
 	change := report.Changes[0]
 	require.Equal(t, "step_wait_conditions_changed", change.Code)
 	require.Equal(t, "Cancel", change.Name)
-	require.Contains(t, change.Message, "channel cancel-subscription")
-	require.Contains(t, change.Message, "channel update-charge-amount")
+	require.Contains(t, change.Message, "channel cancel-subscription.for 1")
+	require.Contains(t, change.Message, "channel update-charge-amount.for 1")
 }
 
-func TestFlowDefinitionDiffReportsAdditionsAsCompatible(t *testing.T) {
+func TestFlowDefinitionDiffKeepsTheBreakingReportWithAllowBreaking(t *testing.T) {
 	oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
 	newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	newGraph.Nodes = append(newGraph.Nodes,
-		flowviz.Node{ID: "step:Escalate", Kind: "step", Name: "Escalate", Phase: "execute"},
-		flowviz.Node{ID: "rpc:Escalate", Kind: "rpc", Name: "Escalate"},
-		flowviz.Node{ID: "resource:attribute:Escalated", Kind: "attribute", Name: "escalated", Resource: &flowviz.ResourceDetails{ValueType: "bool"}},
-		flowviz.Node{ID: "resource:channel:Escalations", Kind: "channel", Name: "escalations", Resource: &flowviz.ResourceDetails{ValueType: "string"}},
-	)
-	newGraph.V2.Start.Input.Fields = append(newGraph.V2.Start.Input.Fields,
-		flowviz.StartInputField{Name: "priority", Schema: flowviz.StartInputSchema{Kind: "string"}})
-	newGraph.V2.Actions = append(newGraph.V2.Actions, flowviz.Action{
-		RPCName: "Escalate", Label: "Escalate", RequiredPermission: "refund.manage", Input: flowviz.ActionInput{Kind: "none"},
-	})
-	findAction(t, newGraph, "ApproveRefund").Input.Fields = append(findAction(t, newGraph, "ApproveRefund").Input.Fields,
-		flowviz.ActionInputField{FieldName: "note", ValueType: "string", Source: "user"})
+	removeNode(t, newGraph, "step", "IssueRefund")
 
-	report, err := diffGraphs(t, oldGraph, newGraph)
+	report, err := diffGraphs(t, oldGraph, newGraph, "--allow-breaking")
 
 	require.NoError(t, err)
-	codes := changeCodes(report)
-	for _, expected := range []string{
-		"step_type_added Escalate",
-		"rpc_added Escalate",
-		"resource_added escalated",
-		"resource_added escalations",
-		"start_input_field_added priority",
-		"action_added Escalate",
-		"action_input_field_added ApproveRefund.note",
-	} {
-		require.Equal(t, flowdefinitiondiff.SeverityCompatible, codes[expected], "%s in %v", expected, codes)
+	require.Equal(t, 1, report.Summary.Breaking)
+	require.Equal(t, "step_type_removed", report.Changes[0].Code)
+}
+
+func TestFlowDefinitionDiffRejectsUnusableGraphs(t *testing.T) {
+	valid := loadFlowDefinitionFixture(t, managerApprovalFixture)
+	partial := loadFlowDefinitionFixture(t, managerApprovalFixture)
+	partial.Valid = false
+	removeNode(t, partial, "step", "IssueRefund")
+	other := loadFlowDefinitionFixture(t, subscriptionFixture)
+	malformedDirectory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(malformedDirectory, "broken.json"),
+		[]byte(`{"schemaVersion":"2.0","valid":true,"flow":{"name":"BrokenFlow"},"nodes":"invalid"}`), 0o600))
+
+	cases := []struct {
+		name          string
+		newDirectory  string
+		oldDirectory  string
+		expectedError string
+	}{
+		{"malformed new graph without a baseline", malformedDirectory, writeFlowDefinitionFiles(t, other), `new definition of Flow type "BrokenFlow"`},
+		{"partial new graph", writeFlowDefinitionFiles(t, partial), writeFlowDefinitionFiles(t, valid), `new definition of Flow type "ManagerApprovalRefundFlow"`},
+		{"partial old graph", writeFlowDefinitionFiles(t, valid), writeFlowDefinitionFiles(t, partial), `old definition of Flow type "ManagerApprovalRefundFlow"`},
+		{"old graph only on the old side", writeFlowDefinitionFiles(t, other), writeFlowDefinitionFiles(t, partial), `old definition of Flow type "ManagerApprovalRefundFlow"`},
+		{"old paths without definitions", writeFlowDefinitionFiles(t, valid), t.TempDir(), "no old Flow definitions found"},
 	}
-	require.Equal(t, report.Summary.Compatible, len(report.Changes))
-}
-
-func TestFlowDefinitionDiffSkipsValueTypesWhenSourceLanguageChanges(t *testing.T) {
-	oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
-	newGraph.Source.Language = "python"
-	findNode(t, newGraph, "attribute", "refund-id").Resource.ValueType = "str"
-
-	report, err := diffGraphs(t, oldGraph, newGraph)
-
-	require.NoError(t, err)
-	require.Len(t, report.Changes, 1)
-	require.Equal(t, "source_language_changed", report.Changes[0].Code)
-	require.Equal(t, flowdefinitiondiff.SeverityRisky, report.Changes[0].Severity)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, stderr, err := executeFlowDefinitionDiff("flow-definition", "diff", testCase.newDirectory,
+				"--old", testCase.oldDirectory, "--allow-breaking")
+			require.Error(t, err, stderr)
+			require.Equal(t, 1, ExitCode(err))
+			require.Contains(t, err.Error(), testCase.expectedError)
+		})
+	}
 }
 
 func TestFlowDefinitionDiffReportsAddedAndRemovedFlowTypesFromFiles(t *testing.T) {
 	managerApproval := loadFlowDefinitionFixture(t, managerApprovalFixture)
 	subscription := loadFlowDefinitionFixture(t, subscriptionFixture)
-	oldDirectory := writeFlowDefinitionFiles(t, subscription)
-	newDirectory := writeFlowDefinitionFiles(t, managerApproval)
 
-	report, err := runFlowDefinitionDiff(t, newDirectory, "--old", oldDirectory)
+	report, err := runFlowDefinitionDiff(t, writeFlowDefinitionFiles(t, managerApproval), "--old", writeFlowDefinitionFiles(t, subscription))
 
 	require.Equal(t, 3, ExitCode(err))
 	require.Empty(t, report.ComparedFlowTypes)
@@ -370,10 +540,28 @@ func TestFlowDefinitionDiffReportsAddedAndRemovedFlowTypesFromFiles(t *testing.T
 	require.Equal(t, flowdefinitiondiff.SeverityCompatible, codes["flow_type_added ManagerApprovalRefundFlow"])
 }
 
+func TestFlowDefinitionDiffReadsRepeatedOldPathsAndAnEmptyNewDirectory(t *testing.T) {
+	managerApproval := loadFlowDefinitionFixture(t, managerApprovalFixture)
+	subscription := loadFlowDefinitionFixture(t, subscriptionFixture)
+
+	report, err := runFlowDefinitionDiff(t, writeFlowDefinitionFiles(t, managerApproval),
+		"--old", writeFlowDefinitionFiles(t, managerApproval), "--old", writeFlowDefinitionFiles(t, subscription))
+	require.Equal(t, 3, ExitCode(err))
+	require.Equal(t, []string{"ManagerApprovalRefundFlow"}, report.ComparedFlowTypes)
+	require.Equal(t, map[string]flowdefinitiondiff.Severity{"flow_type_removed SubscriptionFlow": flowdefinitiondiff.SeverityBreaking}, changeCodes(report))
+
+	report, err = runFlowDefinitionDiff(t, t.TempDir(), "--old", writeFlowDefinitionFiles(t, managerApproval))
+	require.Equal(t, 3, ExitCode(err))
+	require.Equal(t, map[string]flowdefinitiondiff.Severity{"flow_type_removed ManagerApprovalRefundFlow": flowdefinitiondiff.SeverityBreaking}, changeCodes(report))
+}
+
 // storedFlowDefinitionService answers GetFlowDefinitions from a fixed map, leaving out unknown Flow types.
 type storedFlowDefinitionService struct {
 	dexpb.UnimplementedFlowServiceServer
-	contents         map[string][]byte
+	contents map[string][]byte
+	// isBatchTooLarge answers ResourceExhausted to every request for more than one Flow type.
+	isBatchTooLarge  bool
+	mutex            sync.Mutex
 	requestedBatches [][]string
 }
 
@@ -381,7 +569,12 @@ func (service *storedFlowDefinitionService) GetFlowDefinitions(
 	_ context.Context,
 	request *dexpb.GetFlowDefinitionsRequest,
 ) (*dexpb.GetFlowDefinitionsResponse, error) {
+	service.mutex.Lock()
 	service.requestedBatches = append(service.requestedBatches, request.GetFlowTypes())
+	service.mutex.Unlock()
+	if service.isBatchTooLarge && len(request.GetFlowTypes()) > 1 {
+		return nil, status.Error(codes.ResourceExhausted, "FLOW_DEFINITION_RESPONSE_TOO_LARGE")
+	}
 	response := &dexpb.GetFlowDefinitionsResponse{}
 	for _, flowType := range request.GetFlowTypes() {
 		if content, exists := service.contents[flowType]; exists {
@@ -394,14 +587,25 @@ func (service *storedFlowDefinitionService) GetFlowDefinitions(
 	return response, nil
 }
 
+func (service *storedFlowDefinitionService) batches() [][]string {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+	return append([][]string(nil), service.requestedBatches...)
+}
+
+func startStoredFlowDefinitionService(t *testing.T, service *storedFlowDefinitionService) string {
+	t.Helper()
+	return startGRPCServer(t, func(server *grpc.Server) { dexpb.RegisterFlowServiceServer(server, service) })
+}
+
 func TestFlowDefinitionDiffReadsOldDefinitionsFromServer(t *testing.T) {
 	storedContent, err := os.ReadFile(managerApprovalFixture)
 	require.NoError(t, err)
 	service := &storedFlowDefinitionService{contents: map[string][]byte{
 		"ManagerApprovalRefundFlow": storedContent,
-		"UnrelatedFlow":             []byte(`{"schemaVersion":"2.0","flow":{"name":"UnrelatedFlow"}}`),
+		"UnrelatedFlow":             []byte(`{"schemaVersion":"2.0","valid":true,"flow":{"name":"UnrelatedFlow"}}`),
 	}}
-	address := startGRPCServer(t, func(server *grpc.Server) { dexpb.RegisterFlowServiceServer(server, service) })
+	address := startStoredFlowDefinitionService(t, service)
 	managerApproval := loadFlowDefinitionFixture(t, managerApprovalFixture)
 	removeNode(t, managerApproval, "rpc", "ApproveRefund")
 	newDirectory := writeFlowDefinitionFiles(t, managerApproval, loadFlowDefinitionFixture(t, subscriptionFixture))
@@ -409,39 +613,104 @@ func TestFlowDefinitionDiffReadsOldDefinitionsFromServer(t *testing.T) {
 	report, err := runFlowDefinitionDiff(t, newDirectory, "--server", address)
 
 	require.Equal(t, 3, ExitCode(err))
-	require.Equal(t, [][]string{{"ManagerApprovalRefundFlow", "SubscriptionFlow"}}, service.requestedBatches)
+	require.Equal(t, [][]string{{"ManagerApprovalRefundFlow", "SubscriptionFlow"}}, service.batches())
 	require.Equal(t, []string{"ManagerApprovalRefundFlow"}, report.ComparedFlowTypes)
-	codes := changeCodes(report)
-	require.Len(t, codes, 2)
-	require.Equal(t, flowdefinitiondiff.SeverityBreaking, codes["rpc_removed ApproveRefund"])
-	require.Equal(t, flowdefinitiondiff.SeverityCompatible, codes["flow_type_added SubscriptionFlow"])
+	require.Equal(t, map[string]flowdefinitiondiff.Severity{
+		"rpc_removed ApproveRefund":         flowdefinitiondiff.SeverityBreaking,
+		"baseline_missing SubscriptionFlow": flowdefinitiondiff.SeverityRisky,
+	}, changeCodes(report))
 }
 
-func TestFlowDefinitionDiffWritesTableByDefault(t *testing.T) {
+func TestFlowDefinitionDiffFailsWhenTheServerHasNoBaseline(t *testing.T) {
+	address := startStoredFlowDefinitionService(t, &storedFlowDefinitionService{})
+	newDirectory := writeFlowDefinitionFiles(t, loadFlowDefinitionFixture(t, managerApprovalFixture))
+
+	_, _, err := executeFlowDefinitionDiff("flow-definition", "diff", newDirectory, "--server", address)
+
+	require.Equal(t, 1, ExitCode(err))
+	require.Contains(t, err.Error(), "no stored definition for any of the 1 Flow types")
+}
+
+func TestFlowDefinitionDiffSplitsServerRequests(t *testing.T) {
+	minimalGraph := func(flowType string) []byte {
+		return []byte(fmt.Sprintf(`{"schemaVersion":"2.0","valid":true,"source":{"language":"go","path":"flow.go"},`+
+			`"flow":{"name":%q},"nodes":[],"edges":[],"diagnostics":[]}`, flowType))
+	}
+	writeMinimalGraphs := func(t *testing.T, count int) (string, map[string][]byte) {
+		directory, contents := t.TempDir(), make(map[string][]byte, count)
+		for index := 0; index < count; index++ {
+			flowType := fmt.Sprintf("Flow%03d", index)
+			contents[flowType] = minimalGraph(flowType)
+			require.NoError(t, os.WriteFile(filepath.Join(directory, flowType+".json"), contents[flowType], 0o600))
+		}
+		return directory, contents
+	}
+
+	t.Run("257 Flow types", func(t *testing.T) {
+		directory, contents := writeMinimalGraphs(t, 257)
+		service := &storedFlowDefinitionService{contents: contents}
+		report, err := runFlowDefinitionDiff(t, directory, "--server", startStoredFlowDefinitionService(t, service))
+		require.NoError(t, err)
+		require.Len(t, report.ComparedFlowTypes, 257)
+		batches := service.batches()
+		require.Len(t, batches, 2)
+		require.Len(t, batches[0], 256)
+		require.Equal(t, []string{"Flow256"}, batches[1])
+	})
+
+	t.Run("response too large", func(t *testing.T) {
+		directory, contents := writeMinimalGraphs(t, 2)
+		service := &storedFlowDefinitionService{contents: contents, isBatchTooLarge: true}
+		report, err := runFlowDefinitionDiff(t, directory, "--server", startStoredFlowDefinitionService(t, service))
+		require.NoError(t, err)
+		require.Equal(t, []string{"Flow000", "Flow001"}, report.ComparedFlowTypes)
+		require.Equal(t, [][]string{{"Flow000", "Flow001"}, {"Flow000"}, {"Flow001"}}, service.batches())
+	})
+}
+
+func TestFlowDefinitionDiffOutputFormats(t *testing.T) {
 	oldGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
 	newGraph := loadFlowDefinitionFixture(t, managerApprovalFixture)
 	removeNode(t, newGraph, "step", "IssueRefund")
 	oldDirectory := writeFlowDefinitionFiles(t, oldGraph)
 	newDirectory := writeFlowDefinitionFiles(t, newGraph)
-	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 
-	err := NewApp(bytes.NewReader(nil), stdout, stderr).Execute(context.Background(),
-		[]string{"flow-definition", "diff", newDirectory, "--old", oldDirectory})
-
-	require.Equal(t, 3, ExitCode(err))
-	lines := strings.Split(stdout.String(), "\n")
-	require.Regexp(t, `^SEVERITY\s+FLOW TYPE\s+ELEMENT\s+NAME\s+CHANGE$`, lines[0])
-	require.Regexp(t, `^breaking\s+ManagerApprovalRefundFlow\s+Step type\s+IssueRefund\s+Step type removed`, lines[1])
-	require.Contains(t, stdout.String(), "1 breaking, 0 risky, 0 compatible; compared 1 Flow types.")
+	t.Run("table by default", func(t *testing.T) {
+		stdout, _, err := executeFlowDefinitionDiff("flow-definition", "diff", newDirectory, "--old", oldDirectory)
+		require.Equal(t, 3, ExitCode(err))
+		lines := strings.Split(stdout, "\n")
+		require.Regexp(t, `^SEVERITY\s+FLOW TYPE\s+ELEMENT\s+NAME\s+CHANGE$`, lines[0])
+		require.Regexp(t, `^breaking\s+ManagerApprovalRefundFlow\s+Step type\s+IssueRefund\s+Step type removed`, lines[1])
+		require.Contains(t, stdout, "1 breaking, 0 risky, 0 compatible; compared 1 Flow types.")
+	})
+	for _, args := range [][]string{
+		{"--output", "json", "flow-definition", "diff", newDirectory, "--old", oldDirectory},
+		{"flow-definition", "diff", newDirectory, "--old", oldDirectory, "--output", "json"},
+		{"flow-definition", "diff", newDirectory, "--old", oldDirectory, "--json", "--output", "json"},
+	} {
+		t.Run(strings.Join(args[:2], " ")+" json", func(t *testing.T) {
+			stdout, _, err := executeFlowDefinitionDiff(args...)
+			require.Equal(t, 3, ExitCode(err))
+			var report flowDefinitionDiffReport
+			require.NoError(t, json.Unmarshal([]byte(stdout), &report), stdout)
+			require.Equal(t, 1, report.Summary.Breaking)
+		})
+	}
+	t.Run("explicit table", func(t *testing.T) {
+		stdout, _, err := executeFlowDefinitionDiff("flow-definition", "diff", newDirectory, "--old", oldDirectory, "--output", "table")
+		require.Equal(t, 3, ExitCode(err))
+		require.True(t, strings.HasPrefix(stdout, "SEVERITY"), stdout)
+	})
+	t.Run("json conflicts with table", func(t *testing.T) {
+		_, _, err := executeFlowDefinitionDiff("--output", "table", "flow-definition", "diff", newDirectory, "--old", oldDirectory, "--json")
+		require.Equal(t, 2, ExitCode(err))
+	})
 }
 
 func TestFlowDefinitionDiffRejectsMissingNewPaths(t *testing.T) {
-	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	err := NewApp(bytes.NewReader(nil), stdout, stderr).Execute(context.Background(),
-		[]string{"flow-definition", "diff", "--old", t.TempDir()})
+	_, _, err := executeFlowDefinitionDiff("flow-definition", "diff", "--old", t.TempDir())
 	require.Equal(t, 2, ExitCode(err))
 
-	err = NewApp(bytes.NewReader(nil), stdout, stderr).Execute(context.Background(),
-		[]string{"flow-definition", "diff", filepath.Join(t.TempDir(), "missing.json"), "--old", t.TempDir()})
+	_, _, err = executeFlowDefinitionDiff("flow-definition", "diff", filepath.Join(t.TempDir(), "missing.json"), "--old", t.TempDir())
 	require.Equal(t, 2, ExitCode(err))
 }

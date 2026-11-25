@@ -42,7 +42,9 @@ type options struct {
 	timeout                    time.Duration
 	// isTimeoutSet records an explicit root --timeout, which overrides a command's own default.
 	isTimeoutSet bool
-	noHydrate    bool
+	// isOutputSet records an explicit root --output, which overrides a command's own default format.
+	isOutputSet bool
+	noHydrate   bool
 	// codecKeyFile is a payload key file for in-process encryption and decryption.
 	codecKeyFile string
 	// codecEndpoint is a codec server base URL.
@@ -143,6 +145,9 @@ func parseRootOptions(args []string, options *options) ([]string, error) {
 	flags.Visit(func(setFlag *flag.Flag) {
 		if setFlag.Name == "timeout" {
 			options.isTimeoutSet = true
+		}
+		if setFlag.Name == "output" {
+			options.isOutputSet = true
 		}
 	})
 	return flags.Args(), nil

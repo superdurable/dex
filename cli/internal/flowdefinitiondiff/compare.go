@@ -42,6 +42,7 @@ const (
 	ElementAttribute        = "Attribute"
 	ElementAttributeMap     = "AttributeMap"
 	ElementChannel          = "Channel"
+	ElementChannelMap       = "ChannelMap"
 	ElementStream           = "Stream"
 	ElementAction           = "Action"
 	ElementIndexedAttribute = "Indexed Attribute"
@@ -59,13 +60,33 @@ type Change struct {
 	Message  string   `json:"message"`
 }
 
-// ParseGraph decodes FDG 2.0 JSON content.
+// ParseGraph decodes FDG 2.0 JSON content and rejects a graph that cannot support a comparison.
+// It returns an error for malformed JSON, a schemaVersion other than 2.x, an empty flow.name,
+// or a graph whose valid field is false because the analyzer reported blocking diagnostics.
 func ParseGraph(content []byte) (*flowviz.Graph, error) {
 	var graph flowviz.Graph
 	if err := json.Unmarshal(content, &graph); err != nil {
 		return nil, fmt.Errorf("decode Flow Definition Graph: %w", err)
 	}
+	if !strings.HasPrefix(graph.SchemaVersion, "2.") {
+		return nil, fmt.Errorf("schemaVersion %q is not 2.x", graph.SchemaVersion)
+	}
+	if graph.Flow.Name == "" {
+		return nil, fmt.Errorf("flow.name is empty")
+	}
+	if !graph.Valid {
+		return nil, fmt.Errorf("the graph has blocking diagnostics, so it may be missing parts of the Flow; fix the source and generate it again")
+	}
 	return &graph, nil
+}
+
+// BaselineMissing reports a new Flow type that the server has no stored definition for.
+func BaselineMissing(flowType string) Change {
+	return Change{
+		FlowType: flowType, Severity: SeverityRisky, Code: "baseline_missing",
+		Element: ElementFlowType, Name: flowType,
+		Message: "the server has no stored definition to compare with; a new Flow type, or one never uploaded",
+	}
 }
 
 // FlowTypeAdded reports a Flow type that only the new definitions have.
@@ -105,21 +126,16 @@ func SortChanges(changes []Change) {
 	})
 }
 
-// CompareGraphs returns every change from oldGraph to newGraph, both describing flowType.
-// It matches elements by registered names, never by analyzer node IDs or source positions.
+// CompareGraphs matches one Flow type's elements by registered name.
 func CompareGraphs(flowType string, oldGraph *flowviz.Graph, newGraph *flowviz.Graph) []Change {
 	comparison := &graphComparison{flowType: flowType}
-	if !newGraph.Valid {
-		comparison.add(SeverityRisky, "definition_invalid", ElementDefinition, flowType,
-			"the new definition has blocking diagnostics, so parts of the Flow may be missing")
-	}
 	isSameLanguage := oldGraph.Source.Language == newGraph.Source.Language
 	if !isSameLanguage {
 		comparison.add(SeverityRisky, "source_language_changed", ElementDefinition, flowType,
 			fmt.Sprintf("source language changed from %s to %s; Attribute, Channel, and Stream value types are not compared",
 				oldGraph.Source.Language, newGraph.Source.Language))
 	}
-	comparison.compareStepTypes(newStepTypes(oldGraph), newStepTypes(newGraph))
+	comparison.compareStepTypes(stepShapesByRegisteredName(oldGraph), stepShapesByRegisteredName(newGraph))
 	comparison.compareStartStep(startStepType(oldGraph), startStepType(newGraph))
 	comparison.compareRPCs(oldGraph, newGraph)
 	comparison.compareResources(resourcesByKey(oldGraph), resourcesByKey(newGraph), isSameLanguage)
@@ -156,7 +172,7 @@ type stepTypeShape struct {
 	waits []string
 }
 
-func newStepTypes(graph *flowviz.Graph) map[string]*stepTypeShape {
+func stepShapesByRegisteredName(graph *flowviz.Graph) map[string]*stepTypeShape {
 	nodesByID := make(map[string]flowviz.Node, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		nodesByID[node.ID] = node
@@ -178,7 +194,7 @@ func newStepTypes(graph *flowviz.Graph) map[string]*stepTypeShape {
 			continue
 		}
 		shape := steps[step.Name]
-		shape.waits = append(shape.waits, waitText(*node.Wait, nodesByID))
+		shape.waits = append(shape.waits, describeWaitConditions(*node.Wait, nodesByID))
 	}
 	for _, shape := range steps {
 		sort.Strings(shape.waits)
@@ -202,11 +218,14 @@ func owningStep(node flowviz.Node, nodesByID map[string]flowviz.Node) (flowviz.N
 	return flowviz.Node{}, false
 }
 
-// waitText ignores timer expressions and source positions; only what the Step waits on counts.
-func waitText(wait flowviz.WaitDetails, nodesByID map[string]flowviz.Node) string {
+// describeWaitConditions ignores timer expressions and source positions.
+// A Channel label holds its registered name, ChannelMap instance, and wait method.
+func describeWaitConditions(wait flowviz.WaitDetails, nodesByID map[string]flowviz.Node) string {
 	conditions := make([]string, 0, len(wait.Conditions))
 	for _, condition := range wait.Conditions {
 		switch {
+		case condition.ResourceID != "" && condition.Label != "":
+			conditions = append(conditions, fmt.Sprintf("%s %s", condition.Kind, condition.Label))
 		case condition.ResourceID != "":
 			resource := nodesByID[condition.ResourceID]
 			conditions = append(conditions, fmt.Sprintf("%s %s", condition.Kind, resource.Name))
@@ -263,8 +282,8 @@ func (comparison *graphComparison) compareStartStep(oldStart string, newStart st
 	if oldStart == "" || newStart == "" || oldStart == newStart {
 		return
 	}
-	comparison.add(SeverityBreaking, "start_step_changed", ElementStartStep, newStart,
-		fmt.Sprintf("start Step changed from %s to %s", oldStart, newStart))
+	comparison.add(SeverityRisky, "start_step_changed", ElementStartStep, newStart,
+		fmt.Sprintf("start Step changed from %s to %s; new Flows start there, open Flows keep their Steps", oldStart, newStart))
 }
 
 func (comparison *graphComparison) compareRPCs(oldGraph *flowviz.Graph, newGraph *flowviz.Graph) {
@@ -318,6 +337,8 @@ func resourceElement(kind string, details flowviz.ResourceDetails) string {
 		return ElementAttributeMap
 	case kind == "attribute":
 		return ElementAttribute
+	case kind == "channel" && details.Map:
+		return ElementChannelMap
 	case kind == "channel":
 		return ElementChannel
 	default:
@@ -345,9 +366,10 @@ func (comparison *graphComparison) compareResources(
 				fmt.Sprintf("changed from %s to %s", oldElement, newElement))
 			continue
 		}
+		// valueType is the type as spelled in source, so an import alias change also differs.
 		if isSameLanguage && oldDetails.ValueType != newDetails.ValueType {
-			comparison.add(SeverityBreaking, "resource_type_changed", newElement, key.name,
-				fmt.Sprintf("value type changed from %s to %s; stored values may no longer decode", oldDetails.ValueType, newDetails.ValueType))
+			comparison.add(SeverityRisky, "resource_type_changed", newElement, key.name,
+				fmt.Sprintf("value type spelled %s is now %s; check that stored and sent values still decode", oldDetails.ValueType, newDetails.ValueType))
 		}
 	}
 	for _, key := range sortedResourceKeys(newResources) {
@@ -384,19 +406,22 @@ func (comparison *graphComparison) compareInputSchema(path string, oldSchema flo
 		return
 	}
 	if oldSchema.Nullable && !newSchema.Nullable {
-		comparison.add(SeverityRisky, "start_input_null_rejected", ElementStartInput, name, "no longer accepts null")
+		comparison.add(SeverityRisky, "start_input_null_rejected", ElementStartInput, name,
+			"no longer accepts null; Flow starters, including the Dex Web start form, must send a value")
 	}
 	if oldSchema.Format != newSchema.Format {
 		comparison.add(SeverityRisky, "start_input_format_changed", ElementStartInput, name,
-			fmt.Sprintf("format changed from %q to %q", oldSchema.Format, newSchema.Format))
+			fmt.Sprintf("format changed from %q to %q; Flow starters may send values in the old format", oldSchema.Format, newSchema.Format))
 	}
 	comparison.compareEnumValues(name, oldSchema.EnumValues, newSchema.EnumValues)
 	if isBoundNarrowed(oldSchema.Minimum, newSchema.Minimum, 1) || isBoundNarrowed(oldSchema.Maximum, newSchema.Maximum, -1) {
 		comparison.add(SeverityRisky, "start_input_range_narrowed", ElementStartInput, name,
-			fmt.Sprintf("range narrowed from [%s, %s] to [%s, %s]", oldSchema.Minimum, oldSchema.Maximum, newSchema.Minimum, newSchema.Maximum))
+			fmt.Sprintf("range narrowed from [%s, %s] to [%s, %s]; Flow starters may send values outside it",
+				oldSchema.Minimum, oldSchema.Maximum, newSchema.Minimum, newSchema.Maximum))
 	}
 	if !equalFixedLength(oldSchema.FixedLength, newSchema.FixedLength) {
-		comparison.add(SeverityRisky, "start_input_fixed_length_changed", ElementStartInput, name, "fixed array length changed")
+		comparison.add(SeverityRisky, "start_input_fixed_length_changed", ElementStartInput, name,
+			"fixed array length changed; Flow starters may send the old length")
 	}
 	if oldSchema.Items != nil && newSchema.Items != nil {
 		comparison.compareInputSchema(path+"[]", *oldSchema.Items, *newSchema.Items)
@@ -418,13 +443,13 @@ func (comparison *graphComparison) compareInputFields(path string, oldFields []f
 		fieldPath := joinFieldPath(path, oldField.Name)
 		newField, exists := newByName[oldField.Name]
 		if !exists {
-			comparison.add(SeverityBreaking, "start_input_field_removed", ElementStartInput, fieldPath,
-				"field removed; callers that still send it lose the value")
+			comparison.add(SeverityRisky, "start_input_field_removed", ElementStartInput, fieldPath,
+				"field removed; Flow starters that still send it may lose the value")
 			continue
 		}
 		if !oldField.Required && newField.Required {
 			comparison.add(SeverityRisky, "start_input_field_now_required", ElementStartInput, fieldPath,
-				"field became required; callers that omit it now fail")
+				"field became required; Flow starters, including the Dex Web start form, that omit it may fail")
 		}
 		comparison.compareInputSchema(fieldPath, oldField.Schema, newField.Schema)
 	}
@@ -435,7 +460,7 @@ func (comparison *graphComparison) compareInputFields(path string, oldFields []f
 		fieldPath := joinFieldPath(path, newField.Name)
 		if newField.Required {
 			comparison.add(SeverityRisky, "start_input_required_field_added", ElementStartInput, fieldPath,
-				"new required field; callers that omit it now fail")
+				"new required field; Flow starters, including the Dex Web start form, that omit it may fail")
 		} else {
 			comparison.add(SeverityCompatible, "start_input_field_added", ElementStartInput, fieldPath, "new optional field")
 		}
@@ -454,7 +479,8 @@ func (comparison *graphComparison) compareEnumValues(name string, oldValues []fl
 		return
 	}
 	if len(oldValues) == 0 {
-		comparison.add(SeverityRisky, "start_input_enum_restricted", ElementStartInput, name, "now accepts only listed enum values")
+		comparison.add(SeverityRisky, "start_input_enum_restricted", ElementStartInput, name,
+			"now accepts only listed enum values; Flow starters may send other values")
 		return
 	}
 	if len(newValues) == 0 {
@@ -464,7 +490,7 @@ func (comparison *graphComparison) compareEnumValues(name string, oldValues []fl
 	for _, value := range sortedKeys(oldSet) {
 		if !newSet[value] {
 			comparison.add(SeverityRisky, "start_input_enum_value_removed", ElementStartInput, name,
-				fmt.Sprintf("enum value %s removed", value))
+				fmt.Sprintf("enum value %s removed; Flow starters may still send it", value))
 		}
 	}
 	for _, value := range sortedKeys(newSet) {
@@ -527,6 +553,10 @@ func (comparison *graphComparison) compareActions(oldActions []flowviz.Action, n
 			comparison.add(SeverityRisky, "action_permission_changed", ElementAction, oldAction.RPCName,
 				fmt.Sprintf("required permission changed from %s to %s", oldAction.RequiredPermission, newAction.RequiredPermission))
 		}
+		if oldCondition, newCondition := describeActionCondition(oldAction.Condition), describeActionCondition(newAction.Condition); oldCondition != newCondition {
+			comparison.add(SeverityRisky, "action_condition_changed", ElementAction, oldAction.RPCName,
+				fmt.Sprintf("Dex Web offers it when %s instead of when %s", newCondition, oldCondition))
+		}
 		if oldAction.Input.Kind != newAction.Input.Kind {
 			comparison.add(SeverityBreaking, "action_input_kind_changed", ElementAction, oldAction.RPCName,
 				fmt.Sprintf("RPC input kind changed from %s to %s", oldAction.Input.Kind, newAction.Input.Kind))
@@ -552,8 +582,8 @@ func (comparison *graphComparison) compareActionFields(rpcName string, oldFields
 		name := rpcName + "." + oldField.FieldName
 		newField, exists := newByName[oldField.FieldName]
 		if !exists {
-			comparison.add(SeverityBreaking, "action_input_field_removed", ElementAction, name,
-				"RPC input field removed; callers that still send it lose the value")
+			comparison.add(SeverityRisky, "action_input_field_removed", ElementAction, name,
+				"RPC input field removed; callers that still send it may lose the value")
 			continue
 		}
 		if oldField.ValueType != newField.ValueType {
@@ -562,7 +592,11 @@ func (comparison *graphComparison) compareActionFields(rpcName string, oldFields
 		}
 		if !oldField.Required && newField.Required {
 			comparison.add(SeverityRisky, "action_input_field_now_required", ElementAction, name,
-				"RPC input field became required; callers that omit it now fail")
+				"RPC input field became required; RPC callers, including Dex Web, that omit it may fail")
+		}
+		if oldField.Source != newField.Source || oldField.AttributeKey != newField.AttributeKey {
+			comparison.add(SeverityRisky, "action_input_field_source_changed", ElementAction, name,
+				fmt.Sprintf("Dex Web fills it from %s instead of %s", describeFieldSource(newField), describeFieldSource(oldField)))
 		}
 	}
 	for _, newField := range newFields {
@@ -572,11 +606,29 @@ func (comparison *graphComparison) compareActionFields(rpcName string, oldFields
 		name := rpcName + "." + newField.FieldName
 		if newField.Required {
 			comparison.add(SeverityRisky, "action_input_required_field_added", ElementAction, name,
-				"new required RPC input field; callers that omit it now fail")
+				"new required RPC input field; RPC callers, including Dex Web, that omit it may fail")
 		} else {
 			comparison.add(SeverityCompatible, "action_input_field_added", ElementAction, name, "new optional RPC input field")
 		}
 	}
+}
+
+func describeActionCondition(condition *flowviz.ActionCondition) string {
+	if condition == nil {
+		return "the run is active"
+	}
+	values := make([]string, 0, len(condition.Values))
+	for _, value := range condition.Values {
+		values = append(values, fmt.Sprint(value))
+	}
+	return fmt.Sprintf("%s %s [%s]", condition.AttributeKey, condition.Operator, strings.Join(values, ", "))
+}
+
+func describeFieldSource(field flowviz.ActionInputField) string {
+	if field.Source == "attribute" {
+		return "Attribute " + field.AttributeKey
+	}
+	return field.Source
 }
 
 func (comparison *graphComparison) compareIndexedAttributes(oldAttributes []flowviz.IndexedAttribute, newAttributes []flowviz.IndexedAttribute) {
@@ -610,7 +662,12 @@ func (comparison *graphComparison) compareIndexedAttributes(oldAttributes []flow
 }
 
 func (comparison *graphComparison) compareViewRPC(element string, code string, oldRPCName string, newRPCName string) {
-	if oldRPCName == "" || newRPCName == "" || oldRPCName == newRPCName {
+	if oldRPCName == "" || oldRPCName == newRPCName {
+		return
+	}
+	if newRPCName == "" {
+		comparison.add(SeverityRisky, code, element, oldRPCName,
+			fmt.Sprintf("Dex Web no longer reads it from RPC %s", oldRPCName))
 		return
 	}
 	comparison.add(SeverityRisky, code, element, newRPCName,

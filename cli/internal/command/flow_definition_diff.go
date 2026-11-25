@@ -11,6 +11,7 @@ package command
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/superdurable/dex/cli/internal/flowdefinitiondiff"
+	"github.com/superdurable/dex/cli/internal/flowviz"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -64,8 +66,9 @@ type flowDefinitionDiffReport struct {
 func (a *App) executeFlowDefinitionDiff(ctx context.Context, args []string, options options) error {
 	flags := a.newAdminFlagSet("dexcli flow-definition diff")
 	var oldPaths []string
-	flags.Var(repeatedPathFlag{paths: &oldPaths}, "old", "old FDG JSON file or directory; repeatable; without it, read the old definitions from --server")
-	isJSON := flags.Bool("json", false, "write the report as JSON instead of a table")
+	flags.Var(repeatedPathFlag{paths: &oldPaths}, "old", "old FDG JSON file or directory; repeatable. "+
+		"Without it, the old definitions come from --server, which compares only the Flow types passed and cannot report a removed Flow type")
+	isJSON := flags.Bool("json", false, "write the report as JSON instead of a table; same as --output json")
 	isBreakingAllowed := flags.Bool("allow-breaking", false, "exit 0 even when breaking changes are found")
 	addCommonFlags(flags, &options)
 	if isHelp, err := a.parseFlowDefinitionFlags(flags, args, flowDefinitionDiffUsage, options); isHelp || err != nil {
@@ -74,33 +77,43 @@ func (a *App) executeFlowDefinitionDiff(ctx context.Context, args []string, opti
 	if flags.NArg() == 0 {
 		return newUsageError("flow-definition diff", errors.New("expected at least one new FDG file or directory"))
 	}
-	skippedFileLogger := slog.New(slog.NewTextHandler(a.stderr, nil))
-	newDocuments, err := dex.ReadFlowDefinitionFiles(flags.Args(), skippedFileLogger)
+	outputFormat, err := flowDefinitionDiffOutputFormat(flags, options, *isJSON)
 	if err != nil {
 		return newUsageError("flow-definition diff", err)
 	}
-	if len(newDocuments) == 0 {
-		return newOperationError("flow-definition diff", errors.New("no new .json files found"))
-	}
-	newContents := make(map[string][]byte, len(newDocuments))
-	for _, document := range newDocuments {
-		newContents[document.FlowType] = document.Content
-	}
-	var oldContents map[string][]byte
-	isOldFromServer := len(oldPaths) == 0
-	if isOldFromServer {
-		oldContents, err = a.fetchStoredFlowDefinitions(ctx, options, sortedKeys(newContents))
-	} else {
-		oldContents, err = readFlowDefinitionContents(oldPaths, skippedFileLogger)
-	}
+	skippedFileLogger := slog.New(slog.NewTextHandler(a.stderr, nil))
+	newContents, err := readFlowDefinitionContents(flags.Args(), skippedFileLogger)
 	if err != nil {
 		return err
+	}
+	isOldFromServer := len(oldPaths) == 0
+	var oldContents map[string][]byte
+	if isOldFromServer {
+		if len(newContents) == 0 {
+			return newOperationError("flow-definition diff", errors.New("no new Flow definitions found"))
+		}
+		oldContents, err = a.fetchStoredFlowDefinitions(ctx, options, sortedKeys(newContents))
+		if err != nil {
+			return err
+		}
+		if len(oldContents) == 0 {
+			return newOperationError("flow-definition diff", fmt.Errorf(
+				"the server has no stored definition for any of the %d Flow types; upload them first or pass --old", len(newContents)))
+		}
+	} else {
+		oldContents, err = readFlowDefinitionContents(oldPaths, skippedFileLogger)
+		if err != nil {
+			return err
+		}
+		if len(oldContents) == 0 {
+			return newOperationError("flow-definition diff", errors.New("no old Flow definitions found in the --old paths"))
+		}
 	}
 	report, err := compareFlowDefinitionContents(oldContents, newContents, isOldFromServer)
 	if err != nil {
 		return newOperationError("flow-definition diff", err)
 	}
-	if *isJSON {
+	if outputFormat == "json" {
 		err = writeOutput(a.stdout, "json", report)
 	} else {
 		err = writeFlowDefinitionDiffTable(a.stdout, report)
@@ -116,6 +129,26 @@ func (a *App) executeFlowDefinitionDiff(ctx context.Context, args []string, opti
 		}
 	}
 	return nil
+}
+
+// flowDefinitionDiffOutputFormat returns "table" unless --json or an explicit root or command --output asks otherwise.
+func flowDefinitionDiffOutputFormat(flags *flag.FlagSet, options options, isJSON bool) (string, error) {
+	isOutputSet := options.isOutputSet
+	flags.Visit(func(setFlag *flag.Flag) {
+		if setFlag.Name == "output" {
+			isOutputSet = true
+		}
+	})
+	switch {
+	case isJSON && isOutputSet && options.output != "json":
+		return "", fmt.Errorf("--json conflicts with --output %s", options.output)
+	case isJSON:
+		return "json", nil
+	case isOutputSet:
+		return options.output, nil
+	default:
+		return "table", nil
+	}
 }
 
 func readFlowDefinitionContents(paths []string, logger *slog.Logger) (map[string][]byte, error) {
@@ -165,25 +198,41 @@ func fetchFlowDefinitionBatch(ctx context.Context, client *flowService, flowType
 	return nil
 }
 
-// compareFlowDefinitionContents skips old-only Flow types when the old side came from the server.
+func parseFlowDefinitionGraphs(side string, contents map[string][]byte) (map[string]*flowviz.Graph, error) {
+	graphs := make(map[string]*flowviz.Graph, len(contents))
+	for _, flowType := range sortedKeys(contents) {
+		graph, err := flowdefinitiondiff.ParseGraph(contents[flowType])
+		if err != nil {
+			return nil, fmt.Errorf("%s definition of Flow type %q: %w", side, flowType, err)
+		}
+		graphs[flowType] = graph
+	}
+	return graphs, nil
+}
+
+// compareFlowDefinitionContents rejects any unusable graph on either side before it compares.
+// A Flow type missing on the server side is a missing baseline, not a new Flow type.
 func compareFlowDefinitionContents(oldContents map[string][]byte, newContents map[string][]byte, isOldFromServer bool) (flowDefinitionDiffReport, error) {
 	report := flowDefinitionDiffReport{ComparedFlowTypes: []string{}, Changes: []flowdefinitiondiff.Change{}}
+	oldGraphs, err := parseFlowDefinitionGraphs("old", oldContents)
+	if err != nil {
+		return report, err
+	}
+	newGraphs, err := parseFlowDefinitionGraphs("new", newContents)
+	if err != nil {
+		return report, err
+	}
 	for _, flowType := range sortedKeys(newContents) {
-		oldContent, exists := oldContents[flowType]
-		if !exists {
+		oldGraph, exists := oldGraphs[flowType]
+		switch {
+		case exists:
+			report.ComparedFlowTypes = append(report.ComparedFlowTypes, flowType)
+			report.Changes = append(report.Changes, flowdefinitiondiff.CompareGraphs(flowType, oldGraph, newGraphs[flowType])...)
+		case isOldFromServer:
+			report.Changes = append(report.Changes, flowdefinitiondiff.BaselineMissing(flowType))
+		default:
 			report.Changes = append(report.Changes, flowdefinitiondiff.FlowTypeAdded(flowType))
-			continue
 		}
-		oldGraph, err := flowdefinitiondiff.ParseGraph(oldContent)
-		if err != nil {
-			return report, fmt.Errorf("old definition of Flow type %q: %w", flowType, err)
-		}
-		newGraph, err := flowdefinitiondiff.ParseGraph(newContents[flowType])
-		if err != nil {
-			return report, fmt.Errorf("new definition of Flow type %q: %w", flowType, err)
-		}
-		report.ComparedFlowTypes = append(report.ComparedFlowTypes, flowType)
-		report.Changes = append(report.Changes, flowdefinitiondiff.CompareGraphs(flowType, oldGraph, newGraph)...)
 	}
 	if !isOldFromServer {
 		for _, flowType := range sortedKeys(oldContents) {
