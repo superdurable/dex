@@ -681,13 +681,18 @@ export function payloadErrorTextForServer(failure: unknown): string {
  * The original error's name, message, and stack are never read.
  * @returns A fresh response with a fixed error type, sanitized detail, and empty stack trace.
  */
-export function payloadWorkerErrorResponse(failure: unknown, grpcStatus: number): WorkerErrorResponse {
+export function payloadWorkerErrorResponse(
+  failure: unknown,
+  grpcStatus: number,
+  isNonRetryable = false,
+): WorkerErrorResponse {
   return WorkerErrorResponse.create({
     detail: payloadErrorTextForServer(failure),
     errorType: "PayloadEncryptionError",
     stackTrace: "",
     retryAfterSeconds: 0,
     grpcStatus,
+    nonRetryable: isNonRetryable,
   });
 }
 

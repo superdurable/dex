@@ -48,7 +48,7 @@ import {
   type PayloadEncryption,
 } from "./payload-value-encryption.js";
 import { Timestamp } from "./gen/google/protobuf/timestamp.js";
-import { workerErrorResponse } from "./grpc-status.js";
+import { unwrapWorkerFailure, workerErrorResponse } from "./grpc-status.js";
 import type { StepOutputEmitter } from "./invocation-context.js";
 import type { PullWorkerOptions } from "./options.js";
 import { PullRegistration, PullRegistrationError } from "./pull-registration.js";
@@ -672,14 +672,20 @@ export class PullWorker implements PullSlotStreamHost {
     failure: unknown,
     grpcStatus: status,
   ): Promise<WorkerErrorResponse> {
+    // Resolved without reading name, message, or stack, and never throws.
+    const { reported, isNonRetryable } = unwrapWorkerFailure(failure);
     try {
-      if (isPayloadEncryptionErrorWithoutThrowing(failure)) {
+      if (isPayloadEncryptionErrorWithoutThrowing(reported)) {
         // Built before reading name, message, or stack, so no codec or handler text reaches the Server.
-        return payloadWorkerErrorResponse(failure, grpcStatus);
+        return payloadWorkerErrorResponse(reported, grpcStatus, isNonRetryable);
       }
       return await this.sealWorkerErrorResponse(task, failure, workerErrorResponse(failure, grpcStatus));
     } catch {
-      return fixedWorkerErrorResponse("Dex TypeScript SDK could not read or encrypt the Worker error", grpcStatus);
+      return fixedWorkerErrorResponse(
+        "Dex TypeScript SDK could not read or encrypt the Worker error",
+        grpcStatus,
+        isNonRetryable,
+      );
     }
   }
 

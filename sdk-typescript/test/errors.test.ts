@@ -25,6 +25,7 @@ import {
 } from "../src/errors.js";
 import { ServiceErrorResponse, ErrorSubStatus, WorkerErrorResponse } from "../src/gen/dex.js";
 import { translateServiceError, workerErrorResponse } from "../src/grpc-status.js";
+import { InvocationContext } from "../src/invocation-context.js";
 import { NonRetryableError } from "../src/non-retryable.js";
 import { retryAfter } from "../src/retry-after.js";
 
@@ -167,6 +168,37 @@ test("non-retryable worker errors report the cause in either nesting order", () 
   assert.equal(fromSubclass.nonRetryable, true);
   assert.equal(fromSubclass.errorType, "InvalidOrderError");
   assert.equal(workerErrorResponse(cause).nonRetryable, false);
+});
+
+test("non-retryable markers count inside the SDK finalizer group and cause chains", () => {
+  const marked = retryAfter(7, new NonRetryableError(new RangeError("card rejected")));
+  const finalizerHost = {
+    stepOutputsFinalized: false,
+    stepOutputFinalizers: [{
+      finalizeStepOutput(): void {
+        throw new Error("finalizer failed");
+      },
+    }],
+  };
+  const group = InvocationContext.prototype.finalizeStepOutputs.call(finalizerHost as never, marked);
+  assert.ok(group instanceof AggregateError);
+  const fromGroup = workerErrorResponse(group);
+  assert.equal(fromGroup.nonRetryable, true);
+  assert.match(fromGroup.detail, /finalization failed/);
+
+  const wrapped = workerErrorResponse(new Error("charge failed", { cause: new NonRetryableError("bad input") }));
+  assert.equal(wrapped.nonRetryable, true);
+  assert.equal(wrapped.detail, "charge failed");
+
+  const repeated = workerErrorResponse(retryAfter(7, new NonRetryableError(retryAfter(8, new RangeError("rejected")))));
+  assert.equal(repeated.nonRetryable, true);
+  assert.equal(repeated.retryAfterSeconds, 7);
+  assert.equal(repeated.errorType, "RangeError");
+
+  const first = new Error("first");
+  const second = new Error("second", { cause: first });
+  Object.assign(first, { cause: second });
+  assert.equal(workerErrorResponse(first).nonRetryable, false);
 });
 
 function serviceError(

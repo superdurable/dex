@@ -73,30 +73,63 @@ export function workerErrorResponse(failure: unknown, grpcStatus: status = statu
 
 /**
  * Removes the RetryAfterError and NonRetryableError wrappers of a handler failure.
- * @returns The failure to report, the retry-after request, and whether a wrapper marks it non-retryable.
+ * Never throws: Proxy traps and throwing getters count as absent values.
+ * @returns The first failure under the wrappers, the outermost retry-after request, and whether
+ * a NonRetryableError appears in the `cause` chains or AggregateError members, such as the
+ * group Dex builds when a buffered Stream finalizer also fails.
  */
-function unwrapWorkerFailure(failure: unknown): {
+export function unwrapWorkerFailure(failure: unknown): {
   reported: unknown;
   retryAfterError: RetryAfterError | undefined;
   isNonRetryable: boolean;
 } {
   let reported = failure;
   let retryAfterError: RetryAfterError | undefined;
-  let isNonRetryable = false;
-  for (;;) {
-    if (reported instanceof RetryAfterError && retryAfterError === undefined) {
-      retryAfterError = reported;
-      if (!(reported.cause instanceof Error)) break;
-      reported = reported.cause;
-    } else if (reported instanceof NonRetryableError && !isNonRetryable) {
-      isNonRetryable = true;
-      if (!(reported.cause instanceof Error)) break;
-      reported = reported.cause;
-    } else {
-      break;
+  const unwrapped = new Set<unknown>();
+  while (!unwrapped.has(reported)) {
+    unwrapped.add(reported);
+    const isRetryAfter = isInstanceWithoutThrowing(reported, RetryAfterError);
+    if (!isRetryAfter && !isInstanceWithoutThrowing(reported, NonRetryableError)) break;
+    const cause = readPropertyWithoutThrowing(reported, "cause");
+    if (isRetryAfter) retryAfterError ??= reported as RetryAfterError;
+    if (!isInstanceWithoutThrowing(cause, Error)) break;
+    reported = cause;
+  }
+  return { reported, retryAfterError, isNonRetryable: hasNonRetryableMarker(failure) };
+}
+
+function hasNonRetryableMarker(failure: unknown): boolean {
+  const pending: unknown[] = [failure];
+  const visited = new Set<unknown>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current !== "object" || current === null || visited.has(current)) continue;
+    visited.add(current);
+    if (isInstanceWithoutThrowing(current, NonRetryableError)) return true;
+    pending.push(readPropertyWithoutThrowing(current, "cause"));
+    if (isInstanceWithoutThrowing(current, AggregateError)) {
+      const members = readPropertyWithoutThrowing(current, "errors");
+      if (Array.isArray(members)) pending.push(...(members as unknown[]));
     }
   }
-  return { reported, retryAfterError, isNonRetryable };
+  return false;
+}
+
+function isInstanceWithoutThrowing(value: unknown, type: abstract new (...args: never[]) => unknown): boolean {
+  try {
+    return value instanceof type;
+  } catch {
+    return false;
+  }
+}
+
+function readPropertyWithoutThrowing(value: unknown, property: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    return Reflect.get(value, property);
+  } catch {
+    return undefined;
+  }
 }
 
 function truncateWorkerFailureField(

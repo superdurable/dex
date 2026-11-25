@@ -17,8 +17,10 @@ import { inspect } from "node:util";
 import {
   AesGcmPayloadCodec,
   FilePayloadEncryptionKeyProvider,
+  NonRetryableError,
   PayloadCompression,
   PayloadEncryptionError,
+  retryAfter,
   type PayloadCodec,
   type PayloadCodecDecodeOptions,
   type PayloadContext,
@@ -851,6 +853,55 @@ test("only the hydration stage's own errors keep their Worker text in clear", as
     assert.ok(!response.detail.includes("ordinary handler failure"), "unencryptable text is never sent in clear");
   });
   assert.ok(!output.includes(sentinel), output);
+});
+
+test("a wrapped payload error keeps fixed text and the non-retryable flag", async () => {
+  const sentinel = "KEY_MATERIAL_SENTINEL";
+  const task = { taskId: "t", request: { $case: "execute", value: { flowType: "T", context: { flowId: "f1" } } } };
+  const workerErrorResponseForServer = (
+    PullWorker.prototype as unknown as {
+      workerErrorResponseForServer(this: unknown, task: unknown, failure: unknown, grpcStatus: number): Promise<WorkerErrorResponse>;
+    }
+  ).workerErrorResponseForServer;
+  const plainHost = {
+    payloadEncryption: new PayloadEncryption(payloadEncryptionSettings({ encryptErrorText: false })),
+    sealWorkerErrorResponse: (PullWorker.prototype as unknown as { sealWorkerErrorResponse: unknown }).sealWorkerErrorResponse,
+  };
+  const payloadError = (): PayloadEncryptionError => {
+    const error = new PayloadEncryptionError("decode", "unknown_key", sentinel, "k1", { cause: new Error(sentinel) });
+    error.name = sentinel;
+    return error;
+  };
+  for (const failure of [
+    new NonRetryableError(payloadError()),
+    retryAfter(7, new NonRetryableError(payloadError())),
+  ]) {
+    const response = await workerErrorResponseForServer.call(plainHost, task, failure, 2);
+    assert.ok(!Buffer.from(WorkerErrorResponse.encode(response).finish()).includes(Buffer.from(sentinel)));
+    assert.equal(response.errorType, "PayloadEncryptionError");
+    assert.equal(response.nonRetryable, true);
+  }
+
+  const failingEncryption = new PayloadEncryption(payloadEncryptionSettings({
+    payloadCodec: {
+      async encode(): Promise<PayloadEnvelope[]> {
+        throw new Error(`${sentinel} from the codec`);
+      },
+      async decode(): Promise<Uint8Array[]> {
+        return [];
+      },
+    },
+  }));
+  await captureConsole(async () => {
+    const response = await workerErrorResponseForServer.call(
+      { ...plainHost, payloadEncryption: failingEncryption },
+      task,
+      new NonRetryableError(new Error("ordinary handler failure")),
+      2,
+    );
+    assert.ok(!response.detail.includes("ordinary handler failure"), "unencryptable text is never sent in clear");
+    assert.equal(response.nonRetryable, true, "the fixed-text fallback keeps the flag");
+  });
 });
 
 test("Client errors decode dex-encoded text only in statuses that carry Dex details", async () => {

@@ -6,6 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+// Resolves the TypeDoc link below.
+import type { RetryAfterError } from "./retry-after.js";
+
 /**
  * Fails the current Step method attempt without further retries.
  *
@@ -20,9 +23,11 @@
  * Step's `recoveryError` shows its name, message, and stack. Pass a message instead
  * to report this error itself. Subclasses are also non-retryable.
  *
- * It may wrap or be wrapped by a {@link RetryAfterError}; the non-retryable request
- * wins and no retry runs. Thrown from an RPC handler, it has no effect, because RPC
- * handlers never retry.
+ * It may wrap or be wrapped by a {@link RetryAfterError}; the
+ * non-retryable request wins and no retry runs. The marker also counts as the `cause` of the
+ * thrown error or as a member of an `AggregateError`, such as the one Dex throws when a
+ * buffered Stream finalizer also fails. Dex then reports the outer error. Thrown from an RPC
+ * handler, it has no effect, because RPC handlers never retry.
  *
  * It needs server-zd 0.1.38 or later. An older server ignores the request and
  * retries the attempt under the retry policy.
